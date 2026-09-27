@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>SMS room capacity correction handoff</title>
+<style>
+  body{font:16px/1.52 system-ui;max-width:980px;margin:36px auto;padding:0 20px;color:#1d2732}
+  h1,h2{line-height:1.2} code{background:#eef1f4;padding:2px 4px;border-radius:3px}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #cbd2d9;padding:9px;text-align:left;vertical-align:top}
+  .ok{color:#176b36;font-weight:700}.warn{color:#8a4b08;font-weight:700} li{margin:.38rem 0}
+</style>
+<h1>SMS room capacity and reply recovery - correction handoff</h1>
+<p><strong>Date:</strong> 27 September 2026<br>
+<strong>Original plan:</strong> <code>docs/plans/2026-09-27-sms-room-capacity-and-reply-recovery.html</code><br>
+<strong>Independent review:</strong> <code>docs/plans/2026-09-27-sms-room-capacity-independent-review.html</code><br>
+<strong>Worktree:</strong> <code>/Users/akhilvemuri/.codex/worktrees/akhil-sms-listing-prod/AXIS-2</code><br>
+<strong>Branch:</strong> <code>agent/akhil-sms-listing-prod-20260926</code><br>
+<strong>Starting and current HEAD:</strong> <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code>. The implementation remains uncommitted for fresh review.</p>
+
+<h2>Correction outcome</h2>
+<ul>
+  <li>Suppression eligibility now uses a dedicated trusted original inbound occurrence timestamp rehydrated from the authenticated receipt envelope. The durable history <code>snapshotCutoff</code> remains independent.</li>
+  <li>A merged burst uses the earliest valid original event time, so a delivered candidate must predate every inbound event in that burst. If any original time is missing or invalid, no suppression candidate is exposed.</li>
+  <li>Candidate selection now queries only <code>delivered</code> outbox rows and rejects invalid delivered timestamps, deliveries after the original inbound, non-delivered statuses, and unknown references.</li>
+  <li>The model-facing harness calls the actual <code>get_listing_details</code> implementation. It asserts that <code>residentCapacity</code>, <code>physicalBeds</code>, and <code>maximumResidents</code> appear in the next provider request for both prospect and verified-resident SMS scopes.</li>
+  <li>The prospect fixture uses the production SMS runtime model selection, Claude Sonnet, with the provider response mocked. The resident fixture retains the Luna-format route, also mocked. No external model request was made.</li>
+  <li>Deferred publication now falls back to the same revision-fenced inline worker when publication returns false or throws. Tests also cover duplicate durable receipt publication, stale/newer revision stand-down, and cron recovery.</li>
+</ul>
+
+<h2>Real nonproduction evidence</h2>
+<p>A guarded read-only integration ran against dev/test project <code>emstjswhotsnyksqhqyf</code>. It found listing <code>mgr-shared-journey-1788663392131</code>, with one published room of resident capacity 2 and a listing maximum of 2. The real prospect tool and verified-resident wrapper returned equal payloads. The probe used the actual database rows and actual tool handlers; no data was written and no model provider was contacted.</p>
+
+<h2>Behavioral coverage added</h2>
+<table><thead><tr><th>Boundary</th><th>Evidence</th></tr></thead><tbody>
+<tr><td>Original event ordering</td><td>Delivered before original accepted; delivered after original but before ingress insertion rejected; malformed and missing original timestamps fail closed.</td></tr>
+<tr><td>Delivery state and reference</td><td><code>submitted</code>, <code>sent</code>, <code>failed</code>, and <code>unknown</code> statuses are excluded; an invented outbox id is rejected by the actual suppression tool.</td></tr>
+<tr><td>Worker timestamp threading</td><td>Receipt hydration passes the earliest original occurrence separately from the later ingress snapshot cutoff; an invalid original is never replaced with the ingress time.</td></tr>
+<tr><td>Tool-to-model handoff</td><td>Actual capacity result is present in the second mocked Claude Sonnet request and in the retained Luna request format.</td></tr>
+<tr><td>Deferred publication</td><td>Success records the queue job; false and thrown error run inline; duplicate publications reuse the deterministic ingress dedupe identity; stale and newer revisions stand down behind the database claim; cron recovery remains covered.</td></tr>
+</tbody></table>
+
+<h2>Correction files</h2>
+<ul>
+  <li><code>src/lib/agent/leasing-sms-agent.server.ts</code></li>
+  <li><code>src/lib/claw-leasing-bot.server.ts</code></li>
+  <li><code>src/lib/sms/prospect-sms-burst-job.server.ts</code></li>
+  <li><code>src/lib/sms/inbound-pipeline.server.ts</code></li>
+  <li><code>tests/unit/leasing-sms-suppression-guard.test.ts</code></li>
+  <li><code>tests/unit/prospect-sms-burst-receipt-hydration.test.ts</code></li>
+  <li><code>tests/unit/prospect-sms-ingress-retry.test.ts</code></li>
+  <li><code>tests/unit/twilio-inbound-retry.test.ts</code></li>
+  <li><code>tests/unit/agent/sms-listing-capacity-tool-handoff.test.ts</code></li>
+  <li><code>tests/integration/agent/sms-listing-capacity-nonprod.test.ts</code></li>
+</ul>
+<p>The complete uncommitted diff also contains the capacity, prompt, acknowledgment classifier, and durable-ingress implementation described in the earlier execution handoff.</p>
+
+<h2>Validation record</h2>
+<table><thead><tr><th>Command or check</th><th>Result</th></tr></thead><tbody>
+<tr><td><code>npx vitest run tests/unit/leasing-sms-suppression-guard.test.ts --maxWorkers=1</code></td><td class="ok">Exit 0 - 23 tests passed (delegated focused run).</td></tr>
+<tr><td>Focused capacity-handoff and inbound route run, first two iterations</td><td class="warn">Exit 1 - implementation executed correctly, but two new assertions used the wrong evidence key and then compared escaped JSON. Both test defects were corrected.</td></tr>
+<tr><td><code>npx vitest run</code> for capacity handoff, Twilio retry, and suppression guard with <code>--maxWorkers=1</code></td><td class="ok">Exit 0 - 3 files, 94 tests passed.</td></tr>
+<tr><td>Guarded real-data integration: <code>ALLOW_PROBE_TARGET=emstjswhotsnyksqhqyf RUN_SMS_LISTING_NONPROD_INTEGRATION=1 node --env-file=.env node_modules/vitest/vitest.mjs run tests/integration/agent/sms-listing-capacity-nonprod.test.ts --maxWorkers=1</code></td><td class="ok">Exit 0 - 1 integration test passed.</td></tr>
+<tr><td>Read-only dev/test evidence query, target asserted as <code>emstjswhotsnyksqhqyf</code></td><td class="ok">Exit 0 - listing <code>mgr-shared-journey-1788663392131</code>, capacities <code>[2]</code>, maximum 2.</td></tr>
+<tr><td>Focused integrated regression run across 10 capacity, suppression, ingress, recovery, routing, and model-handoff suites</td><td class="ok">Exit 0 - 10 files, 181 tests passed.</td></tr>
+<tr><td>Receipt threading, deferred publisher, and inbound callback suites after final additions</td><td class="ok">Exit 0 - 3 files, 88 tests passed.</td></tr>
+<tr><td><code>node_modules/.bin/eslint</code> over every changed TypeScript source and test file</td><td class="ok">Exit 0.</td></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0.</td></tr>
+<tr><td><code>npx graphify hook-rebuild</code></td><td class="warn">Exit 1 - npm could not determine a graphify executable. This worktree has no <code>.graphify/graph.json</code>.</td></tr>
+</tbody></table>
+
+<h2>Validation deferred by resource gate</h2>
+<p>Whole-project lint, unit suite, build, and typecheck were not started. The machine remained at 97% disk use with 6.9 GiB free and substantial compressed memory. The repository requires comfortable headroom before broad validation. No task server or browser was started, so none remains running.</p>
+
+<h2>Risks and release state</h2>
+<ul>
+  <li class="warn">Broad repository validation and staging QA remain required before release.</li>
+  <li>The provider handoff is deterministic and uses mocked Claude Sonnet and Luna completions. It proves runtime serialization into each next model request, while the real dev/test probe proves actual stored data through both tools. It does not claim a live external model response.</li>
+  <li>The earlier already-suppressed production inbound is not answered retroactively. No real SMS was sent.</li>
+  <li>No production data, locked live listing, deployment, promotion, commit, or no-mistakes pipeline was touched.</li>
+  <li>GPT-5.6 Terra implemented the timestamp slice. GPT-5.6 Luna was unavailable in this session; the manager retained the nonoverlapping model-handoff and deferred-publisher slices instead of substituting a different delegate.</li>
+</ul>
+
+<h2>Fresh Astra review prompt</h2>
+<p>Independently review the uncommitted diff from base <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code> on branch <code>agent/akhil-sms-listing-prod-20260926</code> against the original plan, independent review, and this correction handoff. Verify the original inbound occurrence timestamp is authenticated, separate from history snapshot fencing, conservative for merged bursts, and fail closed for invalid values. Verify candidate selection behavior, actual prospect and verified-resident listing tool handoff, capacity versus bed semantics, tenant scoping, and deferred publication false/error/duplicate/recovery behavior. Re-run broad validation only after machine headroom is comfortable. Do not send real SMS, write production data, edit locked live listings, promote branches, or invoke no-mistakes.</p>
+</html>

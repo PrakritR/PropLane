@@ -8,13 +8,11 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 
 ## Process
 
-- Temporary Akhil-authorized staging-QA exception: from 2026-09-16T21:08:02Z
-  until 2026-09-23T21:08:02Z, staging QA is not required for his explicitly
-  authorized releases. Keep keeper → main → staging → production and all other
-  gates, including local/browser tests, independent review, migration backups,
-  preflight and deployment verification. This does not renew the expired
-  direct-main-to-production exception. After expiry, staging QA is mandatory
-  again. Human-readable scope: `../plans/staging-qa-exception-20260916.html`.
+- Standing staging skip (since 2026-09-26, no end date, at Akhil's request):
+  his explicitly authorized releases skip `staging` and QA and go keeper →
+  `main` → `production` with `npm run ship:production -- --skip-staging`. Keep
+  all other gates: local/browser tests, independent review, migration backups,
+  preflight, fast-forward only, and Vercel + TestFlight verification.
 
 - Do **not** file a Linear ticket, open Lavish, or run `workflow:plan` unless
   Akhil asks. Ticket → plan → approve is Prakrit's pipeline.
@@ -25,9 +23,9 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
   With that request, agents working for Akhil may promote only his keeper →
   `main` → `staging` → `production` under the shared staging, review,
   fast-forward, and production-safety gates. They do not write `prakrit`.
-- Akhil's dated staging exception is defined only by
-  [the temporary direct-production policy](temporary-direct-production-policy.json).
-  It expires at 2026-09-15T04:00:00Z and does not relax review, preflight,
+- Akhil's staging skip is defined only by
+  [the standing direct-production policy](temporary-direct-production-policy.json)
+  (no end date; delete it to revoke). It does not relax review, preflight,
   fast-forward, production database, deployment, or TestFlight verification gates.
 
 ## Working style

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>SMS room capacity and reply recovery - execution handoff</title>
+<style>
+  body{font:16px/1.5 system-ui;max-width:980px;margin:2rem auto;padding:0 1rem;color:#18212b}
+  h1,h2{line-height:1.2} code{background:#f1f3f5;padding:.1rem .3rem;border-radius:.2rem}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccd2d8;padding:.55rem;text-align:left;vertical-align:top}
+  .ok{color:#176b36;font-weight:700}.warn{color:#8a4b08;font-weight:700} li{margin:.35rem 0}
+</style>
+<h1>SMS room capacity and reply recovery - execution handoff</h1>
+<p><strong>Date:</strong> 27 September 2026<br>
+<strong>Plan:</strong> <code>docs/plans/2026-09-27-sms-room-capacity-and-reply-recovery.html</code><br>
+<strong>Worktree:</strong> <code>/Users/akhilvemuri/.codex/worktrees/akhil-sms-listing-prod/AXIS-2</code><br>
+<strong>Branch:</strong> <code>agent/akhil-sms-listing-prod-20260926</code><br>
+<strong>Starting HEAD:</strong> <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code><br>
+<strong>Current HEAD:</strong> <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code> (changes are uncommitted for independent review)</p>
+
+<h2>Outcome</h2>
+<ul>
+  <li>The shared listing tool used by prospect and verified resident SMS now returns <code>residentCapacity</code> and <code>physicalBeds</code> as separate room facts.</li>
+  <li><code>get_listing_details</code> returns <code>maximumResidents</code> only when every normalized stored room is represented in the prospect-safe summary. The prompts describe it as summed published room capacity, not a legal occupancy limit.</li>
+  <li>Reply suppression now requires an exact delivered outbox row that predates the inbound and a trusted inbound text matching a narrow standalone acknowledgment. Repeated questions, clarifications, corrections, availability questions, and affirmative replies such as “sounds good” cannot silence the turn.</li>
+  <li>The model-callable regression path is covered: an attempted suppression for the observed capacity clarification returns a tool error, then the model produces an answer.</li>
+  <li>The Twilio prospect path records durable ingress before acknowledgment, then publishes to QStash in <code>after()</code>. A failed deferred publish uses the existing inline revision-fenced worker, and the recovery cron remains the final recovery path. This removes a blocking QStash call of up to five seconds from Twilio's 15 second webhook budget without bypassing QStash as the normal worker path.</li>
+</ul>
+
+<h2>Key decisions</h2>
+<ul>
+  <li>Capacity comes from the normalized listing submission. It is never inferred from bedrooms, physical beds, or model arithmetic.</li>
+  <li>If the room summary filters any stored room, the listing total is <code>null</code> rather than an understated number.</li>
+  <li>Only unambiguous acknowledgments such as “thanks”, “thank you”, “got it”, “understood”, and “noted” may be quiet. “Yes”, “okay”, “sounds good”, “great”, “perfect”, and “awesome” remain reply-bearing because they may accept an offer.</li>
+  <li>Suppression candidates require <code>sms_outbox.status = delivered</code>, fall inside the existing two-minute window, and have a delivery timestamp no later than the inbound snapshot.</li>
+  <li>No production data, live listing, Twilio message, protected account, deployment, or branch promotion was changed.</li>
+</ul>
+
+<h2>Changed files</h2>
+<table><thead><tr><th>Area</th><th>Files</th></tr></thead><tbody>
+<tr><td>Capacity payload and prompts</td><td><code>src/lib/tools/domains/leasing-sms.ts</code><br><code>src/lib/agent/leasing-sms-system-prompt.ts</code><br><code>src/lib/agent/system-prompts.ts</code></td></tr>
+<tr><td>Suppression context and guard</td><td><code>src/lib/tools/context.ts</code><br><code>src/lib/agent/leasing-sms-agent.server.ts</code><br><code>src/lib/agent/leasing-email-agent.server.ts</code><br><code>src/lib/sms/standalone-acknowledgment.ts</code></td></tr>
+<tr><td>Webhook latency</td><td><code>src/lib/sms/prospect-sms-burst.server.ts</code><br><code>src/lib/claw-leasing-bot.server.ts</code><br><code>src/lib/sms/inbound-pipeline.server.ts</code></td></tr>
+<tr><td>Tests</td><td><code>tests/unit/leasing-sms-room-capacity.test.ts</code><br><code>tests/unit/leasing-sms-suppression-guard.test.ts</code><br><code>tests/unit/leasing-sms-agent.test.ts</code><br><code>tests/unit/agent/loop-suppression.test.ts</code><br><code>tests/unit/prospect-sms-ingress-retry.test.ts</code><br><code>tests/unit/claw-resident-inbound-logging.test.ts</code><br><code>tests/unit/twilio-inbound-retry.test.ts</code></td></tr>
+<tr><td>Contract documentation</td><td><code>docs/agents/sms-system.md</code></td></tr>
+</tbody></table>
+
+<h2>Validation evidence</h2>
+<table><thead><tr><th>Command or check</th><th>Result</th></tr></thead><tbody>
+<tr><td><code>source ~/.nvm/nvm.sh &amp;&amp; nvm use 22 &amp;&amp; npx vitest run</code> for the eight focused capacity, suppression, resident delivery, leasing, durable ingress, Claw routing, and Twilio replay suites</td><td class="ok">Exit 0 - 8 files, 171 tests passed</td></tr>
+<tr><td><code>npx eslint</code> over every changed TypeScript source and test file</td><td class="ok">Exit 0</td></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0</td></tr>
+<tr><td>Read-only dev/test Supabase query, guarded to project <code>emstjswhotsnyksqhqyf</code></td><td class="ok">Exit 0 - found 3 live shared-room records; sampled capacities were 2</td></tr>
+<tr><td>Direct one-off server tool import outside Next</td><td class="warn">Exit 1 - repository <code>server-only</code> guard correctly refused the standalone import. No write occurred.</td></tr>
+<tr><td><code>npx graphify hook-rebuild</code></td><td class="warn">Exit 1 - npm could not find a graphify executable; the installed binary also lacks <code>hook-rebuild</code>. No <code>.graphify</code> artifacts were present in this worktree.</td></tr>
+</tbody></table>
+
+<h2>Resource-bound validation</h2>
+<p>A whole-project build/typecheck was deliberately not started. Before broad validation, the machine showed high compressed-memory use, another approximately 898 MB Next server, active browser workers, 97% disk use, and 6.7 GiB free. The repository rules require comfortable headroom and one heavy-validation owner. Independent review should run the broad gate when the machine has recovered.</p>
+
+<h2>Read-only incident findings</h2>
+<ul>
+  <li>The 05:39 UTC silence was model suppression, not transport loss. Trace <code>b2a4dfa1-8e92-4df9-90c1-b37fb95ac3bd</code> called <code>suppress_redundant_reply</code> for the explicit capacity clarification.</li>
+  <li>Four earlier Twilio 11200/HTTP 502 events align with Vercel requests that eventually returned 200 in 14.946 to 15.801 seconds. This matches Twilio's 15 second deadline. Projection failures were caught and logged; they do not by themselves prove the 502 cause.</li>
+  <li>The new deferred publication removes the known QStash wait from that synchronous path while preserving durable ingress, queue processing, inline fallback, revision fencing, and cron recovery.</li>
+</ul>
+
+<h2>Risks and next steps</h2>
+<ul>
+  <li class="warn">The 05:39 inbound was already completed as suppressed. This code will not retroactively answer it. No real SMS was sent because that requires explicit authorization.</li>
+  <li>A suggested human-reviewed reply is: “Room 3 is listed for up to two residents, so the three published rooms total up to four residents. That is the listing’s room capacity, not a legal occupancy limit.” Verify the current listing result before sending.</li>
+  <li>Independent Astra review should inspect the full diff, run whole-project typecheck/build when headroom permits, and exercise staging with a test phone or authenticated SMS test. Confirm the webhook responds before QStash publication completes and inspect the resulting trace/tool payload.</li>
+  <li>Do not promote or deploy until independent review and the normal keeper → main → staging → production gates are complete.</li>
+</ul>
+
+<h2>Exact next-session prompt</h2>
+<p>Review the implementation against <code>docs/plans/2026-09-27-sms-room-capacity-and-reply-recovery.html</code> and this handoff. Diff from starting HEAD <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code> in branch <code>agent/akhil-sms-listing-prod-20260926</code>. Verify capacity completeness, trusted suppression boundaries, delivered-before-inbound ordering, deferred QStash publication and inline recovery semantics, security and tenant scoping, focused test quality, and repository contract compliance. Run broad validation only after checking machine headroom. Do not send real SMS, write production data, edit locked live listings, promote branches, or run no-mistakes.</p>
+</html>

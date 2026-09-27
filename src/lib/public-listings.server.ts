@@ -48,7 +48,8 @@ function asProperty(value: unknown, id: string): MockProperty | null {
   }
   return {
     ...property,
-    id: typeof property.id === "string" && property.id.trim() ? property.id.trim() : id,
+    // The JSON is manager-editable; public identity must be the database row.
+    id,
     title: property.title.trim(),
     buildingName: property.buildingName.trim(),
     address: property.address.trim(),
@@ -591,7 +592,8 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
       ) ?? undefined;
     const withOwner: MockProperty = {
       ...live,
-      ...(row.manager_user_id && !live.managerUserId ? { managerUserId: row.manager_user_id } : {}),
+      // The owning row, never manager-editable JSON, determines public ownership.
+      managerUserId: row.manager_user_id ?? undefined,
       managerContactEmail: row.manager_user_id
         ? managerEmailByUserId.get(row.manager_user_id)?.trim() || undefined
         : undefined,

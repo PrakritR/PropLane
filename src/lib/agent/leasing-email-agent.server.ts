@@ -158,6 +158,7 @@ export async function runLeasingEmailAgentTurn(
       prospectPhoneE164: "",
       prospectEmail: args.prospectEmail.trim().toLowerCase(),
       channel: "email",
+      currentInboundText: text,
       workNumber: null,
       crossCatalog: false,
     },

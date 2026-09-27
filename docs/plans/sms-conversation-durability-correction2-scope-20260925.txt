@@ -1,0 +1,87 @@
+SMS durability task scope for clean release isolation, 2026-09-25.
+This is a file inventory, not a license to stage every hunk in these files.
+The shared worktree contains unrelated changes. Review each diff against the
+task plan and the clean main/staging base before committing.
+
+Original task and correction 1 product files touched across the full task:
+scripts/backfill-sms-projection.mjs
+src/app/api/cron/sms-outbox/route.ts
+src/app/api/manager/sms-conversations/route.ts
+src/app/api/manager/sms-conversations/[id]/route.ts
+src/app/api/portal-inbox-threads/route.ts
+src/components/portal/portal-inbox-ui.tsx
+src/components/portal/pro-resident-detail-inbox.tsx
+src/components/portal/pro-sms-panel.tsx
+src/components/portal/pro-unified-inbox.tsx
+src/hooks/use-portal-nav-counts.ts
+src/hooks/use-unified-communication-bulk.ts
+src/lib/communication-active-rows.ts
+src/lib/manager-sms-conversations-client.ts
+src/lib/manager-sms-messages.server.ts
+src/lib/manager-sms-messages.ts
+src/lib/manager-sms-send.server.ts
+src/lib/sms-inbox-notice.server.ts
+src/lib/sms/inbound-pipeline.server.ts
+src/lib/sms/manager-workspace-role.server.ts
+src/lib/sms/owner-sms-dispatcher.server.ts
+src/lib/sms/prospect-sms-burst-job.server.ts
+src/lib/sms/project-manager-sms-event.server.ts
+src/lib/sms/sms-projection-inbox.server.ts
+src/lib/sms/sms-projection.server.ts
+supabase/migrations/20260925130000_sms_projection.sql
+supabase/migrations/20260925140000_sms_projection_workspace_line.sql
+supabase/migrations/20260925150000_sms_projection_historical_import.sql
+supabase/migrations/20260925160000_sms_projection_corrections.sql
+supabase/migrations/20260925170000_sms_projection_historical_identity.sql
+supabase/migrations/20260925180000_sms_projection_durability_correction2.sql
+
+Cycle 2 corrected product files (subset of the above):
+scripts/backfill-sms-projection.mjs
+src/app/api/portal-inbox-threads/route.ts
+src/components/portal/portal-inbox-ui.tsx
+src/components/portal/pro-resident-detail-inbox.tsx
+src/components/portal/pro-sms-panel.tsx
+src/components/portal/pro-unified-inbox.tsx
+src/hooks/use-portal-nav-counts.ts
+src/lib/communication-active-rows.ts
+src/lib/sms/project-manager-sms-event.server.ts
+src/lib/sms/sms-projection-inbox.server.ts
+supabase/migrations/20260925180000_sms_projection_durability_correction2.sql
+
+Task documentation:
+docs/agents/communication-inbox.md
+docs/agents/sms-system.md
+docs/plans/sms-conversation-durability-20260925.html
+docs/plans/sms-conversation-durability-execution-checkpoint-20260925.html
+docs/plans/sms-conversation-durability-review-20260925.html
+docs/plans/sms-conversation-durability-correction-plan-20260925.html
+docs/plans/sms-conversation-durability-correction-execution-20260925.html
+docs/plans/sms-conversation-durability-review2-20260925.html
+docs/plans/sms-conversation-durability-correction2-plan-20260925.html
+docs/plans/sms-conversation-durability-correction2-execution-20260925.html
+docs/plans/sms-conversation-durability-correction2-scope-20260925.txt
+
+Task behavioral tests:
+tests/e2e/sms-durability-observe.spec.ts
+tests/unit/inbox-initial-loading-readiness.test.tsx
+tests/unit/manager-sms-projection-gate.test.ts
+tests/unit/manager-sms-selected-line-send.test.ts
+tests/unit/manager-unified-inbox-read-integration.test.tsx
+tests/unit/portal-nav-communication-count.test.tsx
+tests/unit/pro-sms-panel-opened-retry.test.tsx
+tests/unit/prospect-sms-burst-originals.test.ts
+tests/unit/sms-compatibility-active-rows.test.ts
+tests/unit/sms-notice-batch-visibility.test.ts
+tests/unit/sms-notice-replacement-visibility.test.ts
+tests/unit/sms-outbox-cron-route.test.ts
+tests/unit/sms-projection-backfill.test.ts
+tests/unit/sms-projection-storage-migration.test.ts
+tests/unit/sms-projection.test.ts
+tests/unit/unified-conversation-inbox.test.tsx
+
+Release-only scripts and plans created by /root are outside this execution
+inventory and require separate review before a release commit:
+scripts/sms-durability-release-backfill.mjs
+scripts/sms-durability-release-manifest.mjs
+scripts/sms-durability-release-migrations.mjs
+docs/plans/sms-durability-release-plan-20260925.html

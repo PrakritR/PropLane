@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS capacity and reply recovery security review - 2026-09-27</title>
+  <style>
+    body { max-width: 850px; margin: 40px auto; padding: 0 22px; color: #17212b; background: #fff; font: 16px/1.55 system-ui, sans-serif; }
+    h1, h2 { line-height: 1.2; } h1 { font-size: 1.9rem; } h2 { margin-top: 2rem; font-size: 1.25rem; }
+    code { background: #f1f3f5; padding: 2px 5px; border-radius: 3px; } li { margin: .35rem 0; }
+    .result { padding: 12px 16px; border-left: 4px solid #2b8a3e; background: #eff8f0; }
+    .meta { color: #52616d; } a { color: #0756a2; }
+  </style>
+</head>
+<body>
+  <h1>SMS capacity and reply recovery security review</h1>
+  <p class="meta">2026-09-27 · Independent review of the uncommitted changes against <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code> on <code>agent/akhil-sms-listing-prod-20260926</code>. The reviewed tree had 17 tracked modified files and new implementation, test, and HTML files. This is a code review, not a production validation.</p>
+
+  <p class="result"><strong>Result:</strong> No actionable P0-P3 security findings in the reviewed change. The change preserves the existing authenticated SMS and listing boundaries. Release still depends on the normal tests, staging QA, and deployment checks.</p>
+
+  <h2>Trust boundary checks</h2>
+  <ul>
+    <li><strong>SMS source:</strong> The inbound route still checks Twilio's signature before reaching the leasing path. The suppression tool reads the exact inbound text from its server-built context, rather than trusting a model-supplied copy. Only a short, exact acknowledgment can produce silence.</li>
+    <li><strong>Reply evidence:</strong> A suppression candidate must be an outbox row scoped to the manager, prospect phone, and prospect role with <code>status = delivered</code>. Its delivery timestamp must precede the earliest authenticated original receipt in the burst. Missing or invalid event timestamps leave no candidates.</li>
+    <li><strong>Listing scope:</strong> Room capacity and physical bed count pass through the existing prospect-safe, live-listing tool result. The listing resolver remains manager-scoped or uses the pre-existing public cross-catalog path. No raw submission or private occupant row was added to the agent response.</li>
+    <li><strong>Availability:</strong> Occupancy lookup failure still yields unknown current availability. The new capacity fact does not claim that a room is available or that a legal occupancy limit has been checked.</li>
+    <li><strong>Durable delivery:</strong> The webhook records ingress before deferring QStash publication to Next's <code>after()</code>. A failed publish runs the existing revision-fenced worker inline; a lost continuation remains eligible for the recovery cron. The database claim remains the single arbiter, so duplicate callbacks cannot independently send replies.</li>
+    <li><strong>Production writes:</strong> The reviewed diff adds no schema migration, direct listing write, or new outbound SMS route. The review itself sent no SMS and changed no production data.</li>
+  </ul>
+
+  <h2>Evidence and limits</h2>
+  <ul>
+    <li>Inspected the complete changed runtime paths in <code>leasing-sms-agent.server.ts</code>, <code>leasing-sms.ts</code>, <code>claw-leasing-bot.server.ts</code>, <code>inbound-pipeline.server.ts</code>, <code>prospect-sms-burst.server.ts</code>, and <code>prospect-sms-burst-job.server.ts</code>, plus the original-receipt resolver, route signature gate, and focused unit cases.</li>
+    <li><code>git diff --check</code> exited 0. The focused tests were inspected but not rerun by this reviewer because the release owner had already run them and owns validation concurrency.</li>
+    <li>Deferring queue publication removes one blocking network call from the Twilio response path. It does not prove the entire webhook will always finish inside Twilio's deadline; staging timing and transport checks are still needed.</li>
+    <li>Future incoming texts are covered by the new suppression rule. The already suppressed historical text will not be answered retroactively by deploying code.</li>
+  </ul>
+</body>
+</html>

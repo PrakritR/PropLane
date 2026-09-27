@@ -36,7 +36,7 @@ import {
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
 import { newSignatureHashMismatch } from "@/lib/lease-signature-hash-guard";
 import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
-import { assertSafePdfForImport, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
+import { ACTIVE_PDF_MESSAGE, assertSafePdfForImport, parsePdfForImport, UnsafePdfImportError } from "@/lib/pdf-import/pdf-source.server";
 import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-template-storage";
@@ -939,8 +939,8 @@ export async function POST(req: Request) {
         if (!decoded) return NextResponse.json({ error: "Uploaded lease must be a valid PDF data URL." }, { status: 400 });
         try {
           await assertSafePdfForImport(decoded);
-        } catch {
-          return NextResponse.json({ error: "This PDF contains active content and cannot be stored as a lease." }, { status: 400 });
+        } catch (error) {
+          return NextResponse.json({ error: error instanceof UnsafePdfImportError ? error.message : ACTIVE_PDF_MESSAGE }, { status: 400 });
         }
       }
       // A list-shaped client row has filenames only. Putting those bytes

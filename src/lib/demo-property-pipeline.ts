@@ -1,7 +1,14 @@
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import {
+  clearPropertyRecordOutbox,
+  discardPropertyRecordWrite,
+  enqueuePropertyRecordWrite,
+  flushPropertyRecordOutbox,
+  overlayPendingPropertyWrites,
+  pendingPropertyRecordWrites,
+} from "@/lib/property-record-outbox";
 import { selectedWorkspaceId, WORKSPACE_SELECTION_EVENT, workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
-import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import type { MockProperty } from "@/data/types";
 import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-storage";
 import type { PropertyPipelineSnapshot, ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
@@ -78,6 +85,8 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
         matchingHydrationRequest ? { preserveInflightViewer: nextViewerId } : undefined,
       );
     }
+    // Signed out: unsent writes carry full property payloads and belong to that session.
+    if (observedViewerId !== null && nextViewerId === null) clearPropertyRecordOutbox();
     observedViewerId = nextViewerId;
   });
   let previousWorkspace = selectedWorkspaceId();
@@ -262,19 +271,17 @@ function mirrorPropertyRecord(input: {
   editRequestNote?: string | null;
 }) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/property-records", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "upsert",
-      id: input.id,
-      managerUserId: input.managerUserId,
-      status: input.status,
-      rowData: input.rowData,
-      propertyData: propertyDataForServer(input.propertyData),
-      editRequestNote: input.editRequestNote ?? null,
-    }),
-  }).catch(() => {});
+  // Queued until the server answers, so a write that never lands is retried by
+  // the next pipeline sync rather than lost when that sync replaces this copy.
+  void enqueuePropertyRecordWrite(portalSessionViewerId() ?? "", {
+    action: "upsert",
+    id: input.id,
+    managerUserId: input.managerUserId,
+    status: input.status,
+    rowData: input.rowData,
+    propertyData: propertyDataForServer(input.propertyData),
+    editRequestNote: input.editRequestNote ?? null,
+  });
 }
 
 /**
@@ -323,6 +330,9 @@ export async function upsertPropertyRecordToServer(input: {
   onError?: (message: string, code?: string, status?: number, limitInfo?: PropertyRecordLimitInfo) => void;
 }): Promise<boolean> {
   if (typeof window === "undefined") return false;
+  // A direct write is newer than any unsent local-first write for this record;
+  // replaying that older one later would overwrite it.
+  if (!isDemoModeActive()) discardPropertyRecordWrite(input.id);
   // /demo is browser-local — there is no real record to mirror, but the local
   // write in the caller (updatePendingManagerPropertyOnServer etc.) is the
   // actual save, so this must report success rather than aborting it.
@@ -368,6 +378,7 @@ export async function upsertPropertyRecordToServer(input: {
 
 export function deleteMirroredPropertyRecord(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
+  discardPropertyRecordWrite(id);
   void fetch("/api/property-records", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -389,6 +400,7 @@ export function deleteMirroredPropertyRecord(id: string) {
  * non-ok status — 401, 403, 500 — is a genuine failure and still resolves
  * false. */
 export async function deletePropertyRecordFromServer(id: string): Promise<boolean> {
+  discardPropertyRecordWrite(id);
   if (typeof window === "undefined") return false;
   if (isDemoModeActive()) return true;
   try {
@@ -531,6 +543,8 @@ async function runPropertyPipelineSync(opts?: {
   let ownPromise: Promise<boolean> | undefined;
   try {
     ownPromise = (async () => {
+      // Unsent local-first writes go first, so the snapshot below includes them.
+      await flushPropertyRecordOutbox(viewerKey);
       const res = await fetch("/api/property-records", { credentials: "include", cache: "no-store" });
       const body = (await res.json()) as {
         snapshot?: PropertyPipelineSnapshot;
@@ -548,10 +562,12 @@ async function runPropertyPipelineSync(opts?: {
         .map((id) => String(id).trim())
         .filter(Boolean);
       const linkedPropertyIds = [...new Set([...linkedFromServer, ...linkedFromClient])];
-      const snapshot =
+      const snapshot = overlayPendingPropertyWrites(
         viewerUserId
           ? scopePropertyPipelineSnapshotForViewer(body.snapshot, viewerUserId, linkedPropertyIds)
-          : body.snapshot;
+          : body.snapshot,
+        pendingPropertyRecordWrites(viewerKey),
+      );
       const sig = JSON.stringify(snapshot);
       const changed = sig !== lastPipelineSnapshotSig;
       lastPipelineSnapshotSig = sig;
@@ -586,80 +602,6 @@ async function runPropertyPipelineSync(opts?: {
   } finally {
     if (propertyPipelineSyncPromises.get(viewerKey) === ownPromise) propertyPipelineSyncPromises.delete(viewerKey);
   }
-}
-
-export async function mirrorLocalPropertyPipelineToServer(
-  managerUserId?: string | null,
-  linkedPropertyIds?: Iterable<string>,
-  /**
-   * Receives the server's explanation the FIRST time a mirrored write is
-   * refused BY THE PLAN. A refused row never persists anywhere but this
-   * browser, so dropping the response left the manager looking at a listing
-   * that exists nowhere else and no reason why. One message per run, not one
-   * per row — and, because only one component may own this call, not one per
-   * component either.
-   *
-   * Deliberately narrow: this is background work the manager never initiated,
-   * so every OTHER failure stays silent exactly as it did before. The route
-   * answers 500 with raw Postgres text and with the "could not read this
-   * account's plan" message, and neither belongs in a toast on page load.
-   */
-  opts?: { onError?: (message: string) => void },
-): Promise<void> {
-  if (!isBrowser() || isDemoModeActive()) return;
-  const scopeUserId = managerUserId?.trim() ?? "";
-  // A co-manager's local store can hold LINKED properties that belong to another
-  // owner. Those must NEVER be mirrored back to the server under the co-manager's
-  // own id — doing so silently transfers/duplicates ownership (the property then
-  // shows in the co-manager's portal as owned, unlinked from the real owner).
-  // Callers pass the co-manager's linked-property id set so we skip them here.
-  const linked = new Set([...(linkedPropertyIds ?? [])].map((id) => String(id).trim()).filter(Boolean));
-  const pendingMap = readPendingMap();
-  const extrasMap = readExtrasMap();
-  const jobs: {
-    id: string;
-    managerUserId: string;
-    status: ManagerPropertyRecordStatus;
-    rowData?: unknown;
-    propertyData?: unknown;
-  }[] = [];
-  for (const [ownerId, rows] of Object.entries(pendingMap)) {
-    if (scopeUserId && ownerId !== scopeUserId) continue;
-    for (const row of rows) {
-      if (linked.has(String(row.id))) continue;
-      jobs.push({ id: String(row.id), managerUserId: ownerId, status: "pending", rowData: row });
-    }
-  }
-  for (const [ownerId, rows] of Object.entries(extrasMap)) {
-    if (scopeUserId && ownerId !== scopeUserId) continue;
-    for (const row of rows) {
-      if (linked.has(String(row.id))) continue;
-      jobs.push({
-        id: String(row.id),
-        managerUserId: ownerId,
-        status: row.adminPublishLive === true ? "live" : "review",
-        propertyData: row,
-      });
-    }
-  }
-
-  // SEQUENTIAL on purpose. Every one of these is a write into a plan listing
-  // slot, and the server counts the slots already held before it accepts one.
-  // Fired concurrently, N creates each read the count before any of them lands,
-  // so a one-listing plan mirrors all N — the cap would be racy on exactly the
-  // path most likely to send several creates at once. Rows the server already
-  // has never reach the count check, so the ordinary on-load re-mirror of an
-  // existing portfolio is unaffected.
-  let refusal = "";
-  for (const job of jobs) {
-    await upsertPropertyRecordToServer({
-      ...job,
-      onError: (message, code) => {
-        if (!refusal && code === MANAGER_PROPERTY_LIMIT_ERROR_CODE) refusal = message;
-      },
-    });
-  }
-  if (refusal) opts?.onError?.(refusal);
 }
 
 // Coalesce by browser actor, selected portal workspace and monotonic lifetime.
@@ -1094,7 +1036,7 @@ export async function publishManagerListingSubmissionToServer(
   // a plan-limit refusal cannot leave a listing that exists in this browser and
   // nowhere else.
   if (!ok) return false;
-  appendExtraListing(prop, managerUserId);
+  appendExtraListing(prop, managerUserId, { alreadyOnServer: true });
   return true;
 }
 
@@ -1353,13 +1295,19 @@ export function buildMockPropertyFromDraft(row: ManagerPendingPropertyRow, listi
   };
 }
 
-export function appendExtraListing(prop: MockProperty, ownerUserId: string) {
+export function appendExtraListing(
+  prop: MockProperty,
+  ownerUserId: string,
+  /** The server already accepted this exact row: update the local copy only, don't send it twice. */
+  opts?: { alreadyOnServer?: boolean },
+) {
   const uid = ownerUserId.trim() || prop.managerUserId || LEGACY_MANAGER_SCOPE_USER_ID;
   const map = readExtrasMap();
   const list = map[uid] ?? [];
   list.push({ ...prop, managerUserId: uid });
   map[uid] = list;
   writeExtrasMap(map);
+  if (opts?.alreadyOnServer) return;
   mirrorPropertyRecord({ id: prop.id, managerUserId: uid, status: prop.adminPublishLive === true ? "live" : "review", propertyData: { ...prop, managerUserId: uid } });
 }
 
@@ -1414,7 +1362,11 @@ export function removeExtraListing(listingId: string): MockProperty | null {
 }
 
 /** Promotes a manager submission to a public listing (per-owner storage). */
-export function approvePendingManagerProperty(pendingId: string): MockProperty | null {
+export function approvePendingManagerProperty(
+  pendingId: string,
+  /** The caller sends the listing upsert itself; don't queue a second one. */
+  opts?: { callerSendsUpsert?: boolean },
+): MockProperty | null {
   const row = takePendingManagerProperty(pendingId);
   if (!row) return null;
 
@@ -1422,7 +1374,7 @@ export function approvePendingManagerProperty(pendingId: string): MockProperty |
   const prop: MockProperty = { ...buildMockPropertyFromDraft(row, listingId), adminPublishLive: true };
   const owner = row.submittedByUserId ?? LEGACY_MANAGER_SCOPE_USER_ID;
   migrateAmenityOffersPropertyId(owner, pendingId, listingId);
-  appendExtraListing(prop, owner);
+  appendExtraListing(prop, owner, { alreadyOnServer: opts?.callerSendsUpsert });
   return prop;
 }
 
@@ -1447,12 +1399,6 @@ export async function promoteLegacyPendingListingsToLive(): Promise<number> {
         status: "live",
         propertyData: live,
       });
-      void upsertPropertyRecordToServer({
-        id: p.id,
-        managerUserId: uid,
-        status: "live",
-        propertyData: live,
-      });
       return live;
     });
     if (changed) {
@@ -1463,7 +1409,7 @@ export async function promoteLegacyPendingListingsToLive(): Promise<number> {
   if (extrasDirty) writeExtrasMap(extrasMap);
 
   for (const pending of [...readAllPendingManagerProperties()]) {
-    const created = approvePendingManagerProperty(pending.id);
+    const created = approvePendingManagerProperty(pending.id, { callerSendsUpsert: true });
     if (!created) continue;
     promoted += 1;
     const owner = created.managerUserId ?? pending.submittedByUserId ?? "";

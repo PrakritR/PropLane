@@ -7,7 +7,12 @@
 // return. (When the SMS UI flag is OFF the poll never runs at all — covered by
 // unified-conversation-inbox.test.tsx.)
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, cleanup, waitFor } from "@testing-library/react";
+import { act, render, cleanup, waitFor, screen, fireEvent } from "@testing-library/react";
+
+const scope = vi.hoisted(() => ({ viewer: "manager-test", workspace: "workspace-a", begin: null as null | (() => (mutation: {
+  updated: Array<{ projectionId: string; archived: boolean; version: number }>;
+  deleted: string[]; reconcile: string[];
+}) => void) }));
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/portal-inbox-storage", () => ({
@@ -49,10 +54,16 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
   syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: [], ok: true }),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ userId: "manager-test", email: "manager@example.com", ready: true }),
+  usePortalSession: () => ({ userId: scope.viewer, email: "manager@example.com", ready: true }),
+}));
+vi.mock("@/hooks/use-selected-workspace-id", () => ({
+  useActiveWorkspaceIdentity: () => ({ id: scope.workspace, isDefault: false }),
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({ ManagerInbox: () => <div /> }));
-vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
+vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: (props: { onProjectionMutationStart?: typeof scope.begin }) => {
+  scope.begin = props.onProjectionMutationStart ?? null;
+  return <div />;
+} }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
 
@@ -68,6 +79,9 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   setVisibility("visible");
+  scope.viewer = "manager-test";
+  scope.workspace = "workspace-a";
+  scope.begin = null;
 });
 
 describe("unified Communication SMS poll", () => {
@@ -102,5 +116,33 @@ describe("unified Communication SMS poll", () => {
       setVisibility("visible");
     });
     await waitFor(() => expect(smsCalls()).toBe(3));
+  });
+
+  it("drops a delayed SMS mutation after viewer and workspace A-B-A switches", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const resident = { projectionId: id, stateVersion: 1, archived: false, name: "Old page SMS",
+      ownerManagerUserId: "manager-test", counterpartyRole: "prospect", phone: "+12065550100",
+      messages: [{ id: "sms-1", direction: "inbound", body: "hello", createdAt: "2026-09-25T12:00:00Z" }] };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ residents: [resident], nextCursor: null })));
+    const view = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    await waitFor(() => expect(screen.getByText("Old page SMS")).toBeTruthy());
+    fireEvent.click(screen.getByText("Old page SMS"));
+    await waitFor(() => expect(scope.begin).toBeTruthy());
+    const staleViewerCommit = scope.begin?.();
+    expect(staleViewerCommit).toBeTruthy();
+    await act(async () => { scope.viewer = "manager-b"; view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />); });
+    await act(async () => { scope.viewer = "manager-test"; view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />); });
+    await waitFor(() => expect(screen.getByText("Old page SMS")).toBeTruthy());
+    act(() => staleViewerCommit?.({ updated: [{ projectionId: id, archived: true, version: 2 }], deleted: [], reconcile: [] }));
+    expect(screen.getByText("Old page SMS")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Old page SMS"));
+    await waitFor(() => expect(scope.begin).toBeTruthy());
+    const staleWorkspaceCommit = scope.begin?.();
+    await act(async () => { scope.workspace = "workspace-b"; view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />); });
+    await act(async () => { scope.workspace = "workspace-a"; view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />); });
+    await waitFor(() => expect(screen.getByText("Old page SMS")).toBeTruthy());
+    act(() => staleWorkspaceCommit?.({ updated: [], deleted: [id], reconcile: [] }));
+    expect(screen.getByText("Old page SMS")).toBeTruthy();
   });
 });

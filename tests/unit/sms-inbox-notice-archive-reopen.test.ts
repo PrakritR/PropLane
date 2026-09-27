@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { noticeRpcMemory } from "./sms-notice-rpc-memory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { buildConversationKey, SMS_COUNTERPARTY_ROLES } from "@/lib/sms-conversation-identity";
@@ -28,7 +29,10 @@ function multiTableDb(seed: Record<string, AnyRow[]> = {}) {
     for (const row of rows) store.set(keyOf(table, row), structuredClone(row));
     tables.set(table, store);
   }
+  if (!tables.has("portal_inbox_thread_records")) tables.set("portal_inbox_thread_records", new Map());
+  if (!tables.has("manager_tour_followup_controls")) tables.set("manager_tour_followup_controls", new Map());
   const db = {
+    rpc: noticeRpcMemory(tables.get("portal_inbox_thread_records")! as never, tables.get("manager_tour_followup_controls")! as never),
     from(table: string) {
       if (!tables.has(table)) tables.set(table, new Map());
       const store = tables.get(table)!;
@@ -175,7 +179,7 @@ describe("upsertManagerInboxNotice reopen clears the separate archive-controls s
 
     await expect(
       upsertManagerInboxNotice(db, { ...args, body: "They're back", messageId: "sid-reopen-3" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ messageId: "sid-reopen-3" });
     expect((notices.get(target.id as string)!.row_data as AnyRow).folder).toBe("inbox");
     // No control rows exist for any role — every UPDATE...WHERE matched
     // nothing, which must not throw and must not create a row.

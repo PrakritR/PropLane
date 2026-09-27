@@ -10,19 +10,19 @@ const integrateScript = readFileSync(
 );
 
 const directProductionPolicy = {
-  version: 1,
-  kind: "temporary-direct-production-release",
+  version: 2,
+  kind: "direct-production-release",
   authorizedDeveloper: "Akhil",
   source: "origin/main",
   target: "origin/production",
-  expiresAt: "2026-09-15T04:00:00Z",
+  expiresAt: null,
 };
 
 function git(cwd: string, args: string[]) {
   execFileSync("git", args, { cwd, stdio: "pipe" });
 }
 
-function writePromotionFixture(policy = directProductionPolicy) {
+function writePromotionFixture(policy: unknown = directProductionPolicy) {
   const root = mkdtempSync(join(tmpdir(), "proplane-promote-"));
   const remote = join(root, "origin.git");
   const repo = join(root, "repo");
@@ -131,15 +131,11 @@ describe("promote scripts", () => {
     }
   });
 
-  it("selects main only with the explicit temporary exception", () => {
+  it("selects main only with the explicit standing exception", () => {
     const fixture = writePromotionFixture();
     try {
-      expect(readFileSync(join(fixture.repo, "docs", "agents", "temporary-direct-production-policy.json"), "utf8")).toContain("temporary-direct-production-release");
-      const result = runPromotion(
-        fixture.repo,
-        ["--skip-staging"],
-        "2026-09-14T12:00:00.000Z",
-      );
+      expect(readFileSync(join(fixture.repo, "docs", "agents", "temporary-direct-production-policy.json"), "utf8")).toContain("direct-production-release");
+      const result = runPromotion(fixture.repo, ["--skip-staging"]);
       expect(result.status, result.stderr).toBe(0);
       expect(remoteRef(fixture.repo, "origin/production")).toBe(remoteRef(fixture.repo, "origin/main"));
     } finally {
@@ -152,6 +148,9 @@ describe("promote scripts", () => {
       { name: "missing" },
       { name: "invalid JSON", rawPolicy: "{" },
       { name: "malformed", policy: { ...directProductionPolicy, target: "origin/main" } },
+      // The old dated shape (or any reinstated end date) is not this policy.
+      { name: "dated", policy: { ...directProductionPolicy, expiresAt: "2099-01-01T00:00:00Z" } },
+      { name: "another developer", policy: { ...directProductionPolicy, authorizedDeveloper: "Prakrit" } },
     ];
 
     for (const testCase of cases) {
@@ -169,50 +168,31 @@ describe("promote scripts", () => {
     }
   });
 
-  it("allows the last millisecond and expires exactly at the fixed boundary", () => {
-    const allowed = writePromotionFixture();
-    const expired = writePromotionFixture();
+  it("has no end date: a far-future release still promotes", () => {
+    const fixture = writePromotionFixture();
     try {
-      const before = runPromotion(
-        allowed.repo,
-        ["--skip-staging"],
-        "2026-09-15T03:59:59.999Z",
-      );
-      expect(before.status, before.stderr).toBe(0);
-
-      const atBoundary = runPromotion(
-        expired.repo,
-        ["--skip-staging"],
-        "2026-09-15T04:00:00.000Z",
-      );
-      expect(atBoundary.status).toBe(1);
-      expect(atBoundary.stderr).toMatch(/expired/i);
+      const result = runPromotion(fixture.repo, ["--skip-staging"], "2099-06-01T00:00:00.000Z");
+      expect(result.status, result.stderr).toBe(0);
+      expect(remoteRef(fixture.repo, "origin/production")).toBe(remoteRef(fixture.repo, "origin/main"));
     } finally {
-      rmSync(allowed.root, { recursive: true, force: true });
-      rmSync(expired.root, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
     }
   });
 
-  it("fails if the authorization expires while preflight is running", () => {
+  it("stops if the policy is revoked while preflight is running", () => {
     const fixture = writePromotionFixture();
     try {
-      const clock = join(fixture.repo, "fixed-now.txt");
+      const policyPath = join(fixture.repo, "docs", "agents", "temporary-direct-production-policy.json");
       writeFileSync(
         join(fixture.repo, "package.json"),
         JSON.stringify({
-          scripts: {
-            "ship:preflight": `node -e 'require("node:fs").writeFileSync(${JSON.stringify(clock)}, String(Date.parse("2026-09-15T04:00:00.000Z")))'`,
-          },
+          scripts: { "ship:preflight": `node -e 'require("node:fs").rmSync(${JSON.stringify(policyPath)})'` },
         }),
       );
       const before = remoteRef(fixture.repo, "origin/production");
-      const result = runPromotion(
-        fixture.repo,
-        ["--skip-staging"],
-        "2026-09-15T03:59:59.999Z",
-      );
+      const result = runPromotion(fixture.repo, ["--skip-staging"]);
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/expired/i);
+      expect(result.stderr).toMatch(/policy/i);
       expect(remoteRef(fixture.repo, "origin/production")).toBe(before);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
@@ -227,11 +207,7 @@ describe("promote scripts", () => {
         JSON.stringify({ scripts: { "ship:preflight": "false" } }),
       );
       const before = remoteRef(fixture.repo, "origin/production");
-      const result = runPromotion(
-        fixture.repo,
-        ["--skip-staging"],
-        "2026-09-14T12:00:00.000Z",
-      );
+      const result = runPromotion(fixture.repo, ["--skip-staging"]);
       expect(result.status).toBe(1);
       expect(remoteRef(fixture.repo, "origin/production")).toBe(before);
     } finally {

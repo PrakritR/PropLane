@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bugbot review: SMS room capacity and reply recovery</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;color:#1e293b;max-width:920px;margin:36px auto;padding:0 20px}h1,h2{line-height:1.2}code{background:#eef2f7;padding:2px 4px;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #cbd5e1;padding:10px;text-align:left;vertical-align:top}th{background:#f1f5f9}.result{background:#ecfdf5;border:1px solid #86efac;padding:12px}</style>
+</head>
+<body>
+<h1>Bugbot review: SMS room capacity and reply recovery</h1>
+<p>27 September 2026. Branch <code>agent/akhil-sms-listing-prod-20260926</code>, worktree <code>/Users/akhilvemuri/.codex/worktrees/akhil-sms-listing-prod/AXIS-2</code>. Base and current HEAD at review: <code>eb627814b1fa265304cee97e3f2fe5e591b04ebc</code>. Scope: the 17 modified tracked files and 10 untracked implementation, test, and review files visible in the working tree. This is a review of the uncommitted changes against HEAD. No code was changed by this reviewer.</p>
+<p class="result"><strong>Finding: no actionable P0-P3 defect found.</strong> The previously reported timestamp ordering defect is resolved in this diff. This review supports continued release validation; it does not itself establish staging or production readiness.</p>
+<h2>Logic and failure-path assessment</h2>
+<table><thead><tr><th>Area</th><th>Evidence</th></tr></thead><tbody>
+<tr><td>Room capacity</td><td><code>summarizeRooms</code> reads normalized published <code>occupancyCapacity</code> and a separate physical bed count. <code>get_listing_details</code> computes <code>maximumResidents</code> only for a complete normalized room set, before optional room filtering. A failed occupancy lookup leaves current availability unverified. The prospect and resident prompts distinguish room capacity, bed count, and legal occupancy limits.</td></tr>
+<tr><td>Suppression guard</td><td><code>suppress_redundant_reply</code> accepts only the literal acknowledgment reason, requires a selected delivered outbox reference, and classifies the server-provided inbound text against a conservative phrase allowlist. A repeated question or a question mixed with thanks fails the guard and returns a tool error so the agent can answer. Candidate rows are scoped to manager, prospect phone and role, delivered status, a short time window, and delivery before the original inbound event.</td></tr>
+<tr><td>Original event ordering</td><td>The claimed burst worker hydrates original transport envelopes and validates owner, phone pair, role, and channel. It passes the earliest original occurrence time across merged messages. Missing or invalid event time yields no suppression candidates. The ingress insertion time remains confined to the existing history snapshot fence.</td></tr>
+<tr><td>Webhook continuation</td><td>After durable ingress, the Twilio route defers QStash publication using Next <code>after()</code>. Publisher refusal or metadata update error enters the existing inline worker. Queue callback, inline fallback, and recovery cron still contend on the database revision claim. A stopped continuation leaves an unpublished durable row for cron recovery. The same deterministic queue dedupe key is retained.</td></tr>
+<tr><td>Authorization and writes</td><td>The listing tool remains behind the existing scoped listing resolver. No model-supplied manager identity, direct SQL tool, new SMS send path, production data write, or migration was introduced.</td></tr>
+</tbody></table>
+<h2>Validation and limits</h2>
+<p><code>git diff --check</code> exited 0 during this review. Existing independent review evidence records 118 focused tests passing, and a guarded read-only dev/test listing probe that returned capacity two through both prospect and resident wrappers. I inspected the relevant implementation and focused tests but did not rerun a broad suite, build, browser, or live SMS. The model handoff tests mock the provider call, so they verify the facts handed to the model loop rather than a live Claude or Luna response. The deferred publication removes one synchronous network wait; the rest of the webhook still performs database and forwarding work, so production timing must be checked after deployment. The already silent historical inbound will not receive a retroactive reply from this code release.</p>
+<p>Release gates remain: required CI checks, staging QA, preflight, and deployment verification under the repository's branch ladder. No no-mistakes pipeline was used.</p>
+</body>
+</html>

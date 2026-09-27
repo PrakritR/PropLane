@@ -100,6 +100,17 @@ afterEach(() => {
 });
 
 describe("getPublicListings — CTA phone per listing", () => {
+  it("pins public listing identity and owner to database columns", async () => {
+    process.env.VERCEL_ENV = "preview";
+    seedCatalog();
+    const rows = queryQueue[0]!.data as Array<{ property_data: Record<string, unknown> }>;
+    rows[0]!.property_data.id = "lst-bob";
+    rows[0]!.property_data.managerUserId = "mgr-bob";
+    const listings = await getPublicListings();
+    expect(listings.find((listing) => listing.buildingName === "Alder Row"))
+      .toMatchObject({ id: "lst-alice", managerUserId: "mgr-alice" });
+  });
+
   it("gives every production listing its OWN manager's work number", async () => {
     process.env.VERCEL_ENV = "production";
     seedCatalog();

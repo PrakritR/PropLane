@@ -132,8 +132,8 @@ function dbFixture(args: { recent?: Recent[]; history?: Array<{ direction: strin
   return db as never;
 }
 
-function burst(revision = 4) {
-  return { burstId: "burst-jain", revision, workerId: "worker-jain", claimedSourceIds: ["jain-1", "jain-2"], snapshotCutoff: "2026-09-12T12:00:10.000Z" };
+function burst(revision = 4, originalInboundOccurredAt?: string) {
+  return { burstId: "burst-jain", revision, workerId: "worker-jain", claimedSourceIds: ["jain-1", "jain-2"], snapshotCutoff: "2026-09-12T12:00:10.000Z", originalInboundOccurredAt };
 }
 
 beforeEach(() => {
@@ -169,7 +169,7 @@ describe("prospect SMS runtime incident boundary", () => {
     vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
     mocks.completions.push(
       tool("get_listing_details", { propertyId: "property-jain-home" }),
-      text("Jain Home is available Now."),
+      text("Jain Home rent is $1,200."),
     );
     const turn = await runLeasingSmsAgentTurn(dbFixture({}), {
       landlordId: "manager-jain", prospectPhoneE164: "+15550001111",
@@ -177,11 +177,11 @@ describe("prospect SMS runtime incident boundary", () => {
       inboundMessageSid: "jain-2", prospectBurst: burst(),
     });
 
-    expect(turn).toMatchObject({ reply: "Jain Home is available Now.", suppressed: false, traceId: "trace-jain" });
+    expect(turn).toMatchObject({ reply: "Jain Home rent is $1,200.", suppressed: false, traceId: "trace-jain" });
     expect(mocks.primaryTrace).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ burstId: "burst-jain", burstRevision: 4 }) }));
     expect(turn?.shadowInput?.primaryEvidence).toMatchObject({
-      supportedFacts: expect.arrayContaining(["Jain Home", "Jain Home is available Now"]),
-      supportedFactGroups: [["Jain Home", "Jain Home is available Now", "Jain Home rent is $1,200", "Jain Home address is 12 Cedar Street"]],
+      supportedFacts: expect.arrayContaining(["Jain Home", "Jain Home rent is $1,200"]),
+      supportedFactGroups: [["Jain Home", "Jain Home rent is $1,200", "Jain Home address is 12 Cedar Street"]],
     });
     expect(turn?.shadowInput?.tools?.map((item) => item.name)).not.toContain("request_tour");
     expect(turn?.shadowInput?.tools?.map((item) => item.name)).not.toContain("escalate_to_manager");
@@ -191,12 +191,12 @@ describe("prospect SMS runtime incident boundary", () => {
     vi.stubEnv("OPENAI_API_KEY", "shadow-key");
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "shadow-jain-tool", output: [{ type: "function_call", id: "item-jain", call_id: "call-jain", name: "get_listing_details", arguments: '{"propertyId":"property-jain-home"}' }], usage: { input_tokens: 4, output_tokens: 2 } }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "shadow-jain", output: [{ type: "message", content: [{ type: "output_text", text: "Jain Home is available Now." }] }], usage: { input_tokens: 4, output_tokens: 2 } }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "shadow-jain", output: [{ type: "message", content: [{ type: "output_text", text: "Jain Home rent is $1,200." }] }], usage: { input_tokens: 4, output_tokens: 2 } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const shadow = await runProspectGptShadow(snapshot);
     const firstInput = JSON.stringify(JSON.parse(String(fetchMock.mock.calls[0]![1].body)).input);
     const replayInput = JSON.stringify(JSON.parse(String(fetchMock.mock.calls[1]![1].body)).input);
-    expect(firstInput).not.toContain("Jain Home is available Now.");
+    expect(firstInput).not.toContain("Jain Home rent is $1,200.");
     expect(firstInput).not.toContain("$1,200");
     expect(replayInput).toContain("call-jain");
     expect(replayInput).toContain("$1,200");
@@ -261,14 +261,16 @@ describe("prospect SMS runtime incident boundary", () => {
   });
 
   it("keeps delivered acknowledgements silent but permits an explicit resend and a property correction", async () => {
-    const recent = [{ id: "out-delivered", body: "Jain Home is available Now.", updated_at: new Date().toISOString() }];
+    const recent = [{ id: "out-delivered", body: "Jain Home is available Now.", updated_at: new Date(Date.now() - 1_000).toISOString() }];
+    const originalInboundOccurredAt = new Date().toISOString();
     mocks.completions.push(
       tool("suppress_redundant_reply", { recentOutboundMessageId: "out-delivered", reason: "acknowledgment" }),
       text("Jain Home is available Now."),
       text("Jain Home is available Now."),
     );
     const silent = await runLeasingSmsAgentTurn(dbFixture({ recent }), {
-      landlordId: "manager-jain", prospectPhoneE164: "+15550001111", inboundText: "Thanks", crossCatalog: true, prospectBurst: burst(),
+      landlordId: "manager-jain", prospectPhoneE164: "+15550001111", inboundText: "Thanks", crossCatalog: true,
+      prospectBurst: burst(4, originalInboundOccurredAt),
     });
     expect(silent).toMatchObject({ suppressed: true, reply: "", suppression: { referenceMessageId: "out-delivered" } });
     const resend = await runLeasingSmsAgentTurn(dbFixture({ recent }), {

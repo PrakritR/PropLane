@@ -27,7 +27,7 @@ Properties remains the only surface that owns `GET /api/property-records`.
 
 - **`POST /api/property-records` never MOVES an owned row from the request body
   — not even for an admin.** Every client posts `managerUserId` straight out of a
-  browser-local pipeline bucket (`mirrorLocalPropertyPipelineToServer`,
+  browser-local pipeline bucket (the property-record outbox,
   `mirrorAdminPropertyRecord`, `promoteLegacyPendingListingsToLive`), so honoring
   it let a stale local bucket keyed by another user id silently hand live
   listings to that account. Ownership changes have exactly one door:

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   unknownInventory: vi.fn(),
   reconcile: vi.fn(),
   reconcileConversationLogs: vi.fn(),
+  projectionRecovery: vi.fn(),
   from: vi.fn(),
 }));
 
@@ -16,6 +17,9 @@ vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
 
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
   reconcilePendingManagerNumberOperations: mocks.reconcile,
+}));
+vi.mock("@/lib/sms/inbound-pipeline.server", () => ({
+  recoverSmsProjectionRetries: mocks.projectionRecovery,
 }));
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -71,6 +75,7 @@ describe("managed SMS outbox scheduler health gate", () => {
       attachmentDrifted: 0,
     });
     mocks.reconcileConversationLogs.mockReset().mockResolvedValue({ ok: true, attempted: 0, persisted: 0, failed: 0 });
+    mocks.projectionRecovery.mockReset().mockResolvedValue({ scanned: 0, projected: 0, failed: 0 });
     mocks.from.mockReset();
     inventoryQueries();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -148,6 +153,18 @@ describe("managed SMS outbox scheduler health gate", () => {
     const response = await GET(request());
     expect(response.status).toBe(503);
     expect((await response.json()).alerts).toContain("conversation_log_repair_failed");
+  });
+
+  it("runs bounded projection-only recovery from the shared scheduler and alerts on failure", async () => {
+    mocks.projectionRecovery.mockResolvedValueOnce({ scanned: 2, projected: 1, failed: 1 });
+    const { GET } = await import("@/app/api/cron/sms-outbox/route");
+    const response = await GET(request());
+
+    expect(mocks.projectionRecovery).toHaveBeenCalledWith(expect.anything(), { limit: 25 });
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.projectionRecovery).toEqual({ scanned: 2, projected: 1, failed: 1 });
+    expect(body.alerts).toContain("sms_projection_recovery_failed");
   });
 
   it("returns 503 while due messages or quarantined numbers remain after the run", async () => {

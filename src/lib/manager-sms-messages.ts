@@ -51,6 +51,15 @@ export type ManagerSmsMessageRow = {
 };
 
 export type ManagerSmsResidentConversation = {
+  /** Stable opaque Communication projection identity; never an authorization input. */
+  projectionId?: string;
+  /** Server-resolved immutable work-number epoch; replies must use this line. */
+  workLineId?: string | null;
+  /** Projection state is viewer-scoped when returned by the summary reader. */
+  unread?: boolean;
+  stateVersion?: number;
+  /** Historical source lacks a presently authorized work-number send route. */
+  sendDisabled?: boolean;
   residentUserId: string | null;
   residentEmail: string | null;
   name: string;
@@ -196,6 +205,8 @@ export type ManagerSmsConversationsPayload = {
   forwardInbound: boolean;
   smsConfigured: boolean;
   residents: ManagerSmsResidentConversation[];
+  /** Cursor for the next (older) conversation-summary page. */
+  nextCursor?: string | null;
 };
 
 /** @deprecated Kept for route redirects from old SMS folder URLs. */
@@ -234,6 +245,10 @@ export function normalizeManagerSmsConversationsPayload(
 ): ManagerSmsConversationsPayload {
   const residents = Array.isArray(payload?.residents)
     ? payload.residents.map((resident) => ({
+        projectionId: trimmedText(resident?.projectionId) || undefined,
+        unread: typeof resident?.unread === "boolean" ? resident.unread : undefined,
+        stateVersion: Number.isFinite(resident?.stateVersion) ? Number(resident?.stateVersion) : undefined,
+        sendDisabled: resident?.sendDisabled === true,
         residentUserId: resident?.residentUserId ?? null,
         residentEmail: trimmedText(resident?.residentEmail) || null,
         name:
@@ -255,6 +270,9 @@ export function normalizeManagerSmsConversationsPayload(
           ? resident.memberKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
           : undefined,
         ownerManagerUserId: resident?.ownerManagerUserId ?? null,
+        houses: Array.isArray(resident?.houses)
+          ? resident.houses.filter((house) => house && typeof house.propertyId === "string" && typeof house.label === "string")
+          : undefined,
         messages: Array.isArray(resident?.messages) ? resident.messages : [],
       }))
     : [];
@@ -266,6 +284,9 @@ export function normalizeManagerSmsConversationsPayload(
     forwardInbound: payload?.forwardInbound !== false,
     smsConfigured: Boolean(payload?.smsConfigured),
     residents,
+    nextCursor: typeof payload?.nextCursor === "string" && payload.nextCursor.trim()
+      ? payload.nextCursor
+      : null,
   };
 }
 

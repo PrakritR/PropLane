@@ -97,7 +97,7 @@ export function PortalDeleteAccountButton({
 
       // The portal keeps local mirrors of properties, applications, leases, charges and
       // inbox threads, and several panels push them back to the server on the next sign-in
-      // (mirrorLocalPropertyPipelineToServer and friends). Leaving them behind is how a
+      // (the property-record outbox and friends). Leaving them behind is how a
       // deleted account reappears — including under the same email on a fresh signup.
       clearPortalBrowserCache();
 

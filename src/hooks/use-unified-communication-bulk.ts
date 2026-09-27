@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { resolveSmsDeletePhone } from "@/lib/communication-inbox-filters";
-import { deleteManagerSmsConversationClient } from "@/lib/manager-sms-conversations-client";
+import { deleteManagerSmsConversationClient, updateManagerSmsConversationStateClient } from "@/lib/manager-sms-conversations-client";
 import {
   archivePersistedInboxThreads,
   clearPersistedInboxThread,
@@ -31,6 +31,12 @@ type SelectedRow = {
   threadId: string;
 };
 
+export type SmsBulkMutation = {
+  updated: Array<{ projectionId: string; archived: boolean; version: number }>;
+  deleted: string[];
+  reconcile: string[];
+};
+
 export function useUnifiedCommunicationBulk({
   mergedRows,
   listSegment,
@@ -41,6 +47,7 @@ export function useUnifiedCommunicationBulk({
   onSmsArchiveChange,
   smsTargets = [],
   onSmsDeleted,
+  onSmsMutationStart,
   showToast = () => {},
   assistantPlaceholder,
 }: {
@@ -52,8 +59,9 @@ export function useUnifiedCommunicationBulk({
   onSelectionCleared?: () => void;
   onSmsArchiveChange?: () => void;
   /** Phone + conversation key for each SMS row, so Delete can call the SMS route. */
-  smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null }>;
+  smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null; projectionId?: string | null; stateVersion?: number | null; archived?: boolean }>;
   onSmsDeleted?: () => void;
+  onSmsMutationStart?: () => (mutation: SmsBulkMutation) => void;
   showToast?: (message: string) => void;
   /** Preview/from/subject restored after Clear PropLane Assistant. */
   assistantPlaceholder?: Pick<PersistedInboxThread, "from" | "subject" | "preview">;
@@ -128,7 +136,8 @@ export function useUnifiedCommunicationBulk({
   const archiveRows = useCallback(
     async (rows: SelectedRow[], clearSelectionAfter = true) => {
       const emailIds = rows.filter((row) => row.channel === "email").map((row) => row.threadId);
-      const smsIds = rows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+      const smsIds = [...new Set(rows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
+      const reportSmsMutation = smsIds.length ? onSmsMutationStart?.() : undefined;
       const previousEmailThreads = emailThreads;
 
       // Optimistic (PLAN B3): move every selected row immediately — the
@@ -150,9 +159,24 @@ export function useUnifiedCommunicationBulk({
       }
 
       if (smsIds.length > 0) {
-        // Every SMS row archives in parallel — a sequential loop made
-        // archiving several text conversations at once needlessly slow.
-        const results = await Promise.allSettled(smsIds.map((id) => archiveManagerSmsConversation(id)));
+        const results = await Promise.allSettled(smsIds.map(async (id) => {
+            const target = smsTargets.find((entry) => entry.conversationId === id);
+            if (target?.projectionId) {
+              if (!Number.isSafeInteger(target.stateVersion)) throw new Error("Conversation state is unavailable.");
+              const result = await updateManagerSmsConversationStateClient({ projectionId: target.projectionId, action: "archive", expectedVersion: target.stateVersion! });
+              if (!result.ok) throw new Error("Could not archive text conversations. Refresh and retry.");
+              const body = await result.json() as { version?: number };
+              if (!Number.isSafeInteger(body.version)) throw new Error("Conversation state is unavailable.");
+              return { projectionId: target.projectionId, archived: true, version: body.version! };
+            }
+            await archiveManagerSmsConversation(id);
+            return null;
+        }));
+        reportSmsMutation?.({
+          updated: results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []),
+          deleted: [],
+          reconcile: results.flatMap((result, index) => result.status === "rejected" ? [smsTargets.find((entry) => entry.conversationId === smsIds[index])?.projectionId].filter((id): id is string => Boolean(id)) : []),
+        });
         onSmsArchiveChange?.();
         const failed = results.filter((result) => result.status === "rejected").length;
         if (failed > 0) {
@@ -172,7 +196,7 @@ export function useUnifiedCommunicationBulk({
       if (clearSelectionAfter) clearAfterBulk();
       return true;
     },
-    [clearAfterBulk, emailThreads, onEmailThreadsChange, onSmsArchiveChange, showToast, storageKey],
+    [clearAfterBulk, emailThreads, onEmailThreadsChange, onSmsArchiveChange, onSmsMutationStart, showToast, smsTargets, storageKey],
   );
 
   const handleArchive = useCallback(async () => {
@@ -190,7 +214,8 @@ export function useUnifiedCommunicationBulk({
 
   const handleRestore = useCallback(async () => {
     const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
-    const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+    const smsIds = [...new Set(selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
+    const reportSmsMutation = smsIds.length ? onSmsMutationStart?.() : undefined;
     const previousEmailThreads = emailThreads;
 
     // Optimistic (PLAN B3) — see archiveRows above.
@@ -210,8 +235,24 @@ export function useUnifiedCommunicationBulk({
     }
 
     if (smsIds.length > 0) {
-      // Parallel, like archive — see archiveRows above.
-      const results = await Promise.allSettled(smsIds.map((id) => restoreManagerSmsConversation(id)));
+      const results = await Promise.allSettled(smsIds.map(async (id) => {
+        const target = smsTargets.find((entry) => entry.conversationId === id);
+        if (target?.projectionId) {
+          if (!Number.isSafeInteger(target.stateVersion)) throw new Error("Conversation state is unavailable.");
+          const result = await updateManagerSmsConversationStateClient({ projectionId: target.projectionId, action: "restore", expectedVersion: target.stateVersion! });
+          if (!result.ok) throw new Error("Could not restore text conversations. Refresh and retry.");
+          const body = await result.json() as { version?: number };
+          if (!Number.isSafeInteger(body.version)) throw new Error("Conversation state is unavailable.");
+          return { projectionId: target.projectionId, archived: false, version: body.version! };
+        }
+        await restoreManagerSmsConversation(id);
+        return null;
+      }));
+      reportSmsMutation?.({
+        updated: results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []),
+        deleted: [],
+        reconcile: results.flatMap((result, index) => result.status === "rejected" ? [smsTargets.find((entry) => entry.conversationId === smsIds[index])?.projectionId].filter((id): id is string => Boolean(id)) : []),
+      });
       onSmsArchiveChange?.();
       const failed = results.filter((result) => result.status === "rejected").length;
       if (failed === smsIds.length && emailIds.length === 0) {
@@ -234,8 +275,10 @@ export function useUnifiedCommunicationBulk({
     emailThreads,
     onEmailThreadsChange,
     onSmsArchiveChange,
+    onSmsMutationStart,
     selectedRows,
     showToast,
+    smsTargets,
     storageKey,
   ]);
 
@@ -274,6 +317,7 @@ export function useUnifiedCommunicationBulk({
         .map((row) => row.threadId),
     )];
     const smsIds = [...new Set(rows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
+    const reportSmsMutation = smsIds.length ? onSmsMutationStart?.() : undefined;
     if (emailIds.length === 0 && smsIds.length === 0) return false;
     const failToast = mode === "archived-all"
       ? "Couldn't delete archived conversations."
@@ -299,13 +343,15 @@ export function useUnifiedCommunicationBulk({
 
     let smsDeleted = 0;
     let smsFailed = 0;
+    const deletedProjectionIds: string[] = [];
+    const reconcileProjectionIds: string[] = [];
     for (const id of smsIds) {
       const target = smsTargets.find((entry) => entry.conversationId === id);
       const row = mergedRows.find((entry) => {
         const key = `sms:${id}`;
         return entry.threadId === id || entry.key === key || (entry.memberKeys ?? []).includes(key);
       });
-      const phone = resolveSmsDeletePhone({
+      const phone = target?.projectionId ? target.phone ?? "" : resolveSmsDeletePhone({
         conversationId: id,
         targetPhone: target?.phone,
         rowName: row?.name,
@@ -314,13 +360,19 @@ export function useUnifiedCommunicationBulk({
       const result = await deleteManagerSmsConversationClient({
         phone,
         conversationKey: target?.conversationKey ?? id,
-      });
+        ...(target?.projectionId ? { projectionId: target.projectionId } : {}),
+      }).catch(() => ({ ok: false, partial: false }));
       if (!result.ok || result.partial) {
         smsFailed += 1;
+        if (target?.projectionId) reconcileProjectionIds.push(target.projectionId);
         continue;
       }
       smsDeleted += 1;
+      if (target?.projectionId) deletedProjectionIds.push(target.projectionId);
     }
+    if (deletedProjectionIds.length || reconcileProjectionIds.length) reportSmsMutation?.({
+      updated: [], deleted: deletedProjectionIds, reconcile: reconcileProjectionIds,
+    });
     if (smsIds.length > 0) onSmsDeleted?.();
     const deletedCount = emailDeleted + smsDeleted;
     if (smsFailed > 0) {
@@ -342,6 +394,7 @@ export function useUnifiedCommunicationBulk({
     mergedRows,
     onEmailThreadsChange,
     onSmsDeleted,
+    onSmsMutationStart,
     showToast,
     smsTargets,
     storageKey,
