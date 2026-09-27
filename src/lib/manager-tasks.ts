@@ -374,10 +374,15 @@ function dueDateToCalendarWindow(dueDateIso: string): { start: string; end: stri
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
-function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
+/** Exported for unit coverage of the due-date-only → all-day window (K003). */
+export function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
   let start = task.start;
   let end = task.end;
   let titlePrefix = "Task";
+  // A due-date-only task never had a time set, so its 9–9:30am window is a
+  // synthetic placeholder for slot math — the calendar draws it in the "All
+  // day" row instead of implying the manager scheduled a 9am start.
+  let allDay = false;
   if (!start || !end) {
     if (!task.dueDate) return null;
     const window = dueDateToCalendarWindow(task.dueDate);
@@ -385,6 +390,7 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
     start = window.start;
     end = window.end;
     titlePrefix = "Due";
+    allDay = true;
   }
   return {
     id: plannedEventIdForTask(task.id),
@@ -392,6 +398,7 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
     start,
     end,
     kind: "task",
+    allDay,
     managerUserId,
     sourceTaskId: task.id,
     propertyId: task.propertyId,

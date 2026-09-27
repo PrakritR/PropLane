@@ -368,11 +368,18 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
           />
         }
       />
+      <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
       <PortalCalendarPanels
         storageKey={showAvailability ? storageKey : null}
         vendorViewer
         hideViewModeControl
         defaultViewMode="week"
+        // C264: the same compact week-at-a-glance grid the manager Calendar
+        // uses (`bareSurface` just drops the manager card chrome), instead of
+        // the non-compact branch's vertical stack of seven full-day agendas —
+        // reuses the manager component, does not fork it.
+        compactAvailability
+        bareSurface
         calendarRefreshSignal={refreshSignal}
         externalMeetings={externalMeetings}
         onVendorAvailabilityEdit={(date, slotIdx) => {
@@ -384,6 +391,7 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
           void handleVendorAvailabilityRemove(date, startSlot, endSlotExclusive);
         }}
       />
+      </div>
       <VendorAvailabilityEditor dialog />
     </ManagerPortalPageShell>
   );
