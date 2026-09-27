@@ -3,6 +3,7 @@ import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 import {
   countResidentToursByBucket,
   residentTourBucketForView,
+  residentTourStatusLabel,
   sortResidentTourViews,
 } from "@/lib/resident-tour-list";
 
@@ -46,6 +47,15 @@ describe("resident-tour-list", () => {
       tour({ inquiryId: "c", status: "declined" }),
     ]);
     expect(counts).toEqual({ pending: 1, confirmed: 1, declined: 1 });
+  });
+
+  // C120: the one merged tour list reads status per row as text — this is the
+  // same word the removed Pending/Confirmed/Declined tabs used to carry.
+  it("labels a tour's status as text for the merged list row", () => {
+    expect(residentTourStatusLabel(tour({ confirmed: true, status: "confirmed" }))).toBe("Confirmed");
+    expect(residentTourStatusLabel(tour({ status: "declined" }))).toBe("Declined");
+    expect(residentTourStatusLabel(tour({ status: "cancelled" }))).toBe("Declined");
+    expect(residentTourStatusLabel(tour({ status: "pending" }))).toBe("Pending");
   });
 
   it("sorts newest tours first", () => {
