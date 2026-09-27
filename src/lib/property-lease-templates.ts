@@ -38,7 +38,11 @@ export type PropertyLeaseListingSeedKey =
   | "bundle-primary"
   | "bundle-short-term"
   | "cosigner"
-  | "cosigner-short-term";
+  | "cosigner-short-term"
+  // P007 (2026-09-27): a listing that allows Airbnb stays gets its own lease
+  // row, seeded like short-term but keyed separately so it never collapses
+  // into the generic short-term row.
+  | "airbnb";
 
 export type PropertyLeaseTemplate = {
   id: string;
