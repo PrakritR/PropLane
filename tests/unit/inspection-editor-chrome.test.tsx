@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reportFixture } from "../helpers/inspection-fixture";
 import { createRoomInspectionDocument } from "@/lib/inspections/room-template";
@@ -34,6 +34,23 @@ describe("InspectionEditor chrome", () => {
     expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Actions for Room overview" })).toBeTruthy();
+    // C137: Export opens the real print-styled report — a same-tab download is a
+    // different artifact, so this is its own header icon, not a Download PDF variant.
+    expect(screen.getByRole("button", { name: "Export" })).toBeTruthy();
+  });
+
+  it("Export opens the print-styled report for this report id and role (C137)", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    render(<InspectionEditor initial={detail} role="resident" userId="res-1" onBack={vi.fn()} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith(
+        `/print/inspection/${detail.report.id}?portal=resident`,
+        "_blank",
+        "noopener,noreferrer",
+      ),
+    );
+    openSpy.mockRestore();
   });
 
   it("drops the inner identity when embedded in the record page", () => {
