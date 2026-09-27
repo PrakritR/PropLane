@@ -50,7 +50,15 @@ export type VendorWorkIdentityProvider = {
     phoneNumber: string;
     phoneSid: string;
   } | null>;
-  purchaseSms(input: { operationId: string; webhookUrl: string; statusCallbackUrl: string }): Promise<{
+  /** Read-only search — never purchases. Used to offer a vendor a short pick list by area code. */
+  searchSmsCandidates(input: { areaCode: string; count: number }): Promise<{ phoneNumber: string }[]>;
+  purchaseSms(input: {
+    operationId: string;
+    webhookUrl: string;
+    statusCallbackUrl: string;
+    /** An exact candidate the vendor picked (from `searchSmsCandidates`). Falls back to the first available number when absent. */
+    phoneNumber?: string;
+  }): Promise<{
     phoneNumber: string;
     phoneSid: string;
   }>;
@@ -143,11 +151,26 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       const row = rows[0];
       return row?.sid && row.phoneNumber ? { phoneSid: row.sid, phoneNumber: row.phoneNumber } : null;
     },
-    async purchaseSms({ operationId, webhookUrl, statusCallbackUrl }) {
+    async searchSmsCandidates({ areaCode, count }) {
       const client = createTwilioRestClient();
       if (!client) throw new Error("SMS provider is not configured");
-      const available = await client.availablePhoneNumbers("US").local.list({ smsEnabled: true, limit: 1 });
-      const candidate = available[0]?.phoneNumber;
+      const digits = areaCode.replace(/\D/g, "").slice(0, 3);
+      if (!/^[2-9]\d{2}$/.test(digits)) return [];
+      const available = await client.availablePhoneNumbers("US").local.list({
+        areaCode: Number(digits),
+        smsEnabled: true,
+        limit: Math.max(1, Math.min(count, 10)),
+      });
+      return available.map((n) => ({ phoneNumber: String(n.phoneNumber) })).filter((n) => n.phoneNumber);
+    },
+    async purchaseSms({ operationId, webhookUrl, statusCallbackUrl, phoneNumber }) {
+      const client = createTwilioRestClient();
+      if (!client) throw new Error("SMS provider is not configured");
+      let candidate = phoneNumber;
+      if (!candidate) {
+        const available = await client.availablePhoneNumbers("US").local.list({ smsEnabled: true, limit: 1 });
+        candidate = available[0]?.phoneNumber;
+      }
       if (!candidate) throw new Error("no SMS-capable number is available");
       // This call can succeed remotely while a response is lost.  The caller
       // transitions to reconciling on an ambiguous failure and will never buy a
@@ -262,6 +285,21 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
   };
 }
 
+/**
+ * Read-only "which numbers could I claim in this area code" lookup — no
+ * database writes, no idempotency claim, because nothing is purchased. Gated
+ * the same way a real purchase would be so a disabled/unconfigured provider
+ * never leaks a live Twilio search to an unauthenticated flow.
+ */
+export async function searchVendorWorkNumberCandidates(
+  areaCode: string,
+  provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
+): Promise<string[]> {
+  if (!provider.smsConfigured() || !isProvisioningEnabled(process.env)) return [];
+  const candidates = await provider.searchSmsCandidates({ areaCode, count: 3 });
+  return candidates.map((c) => c.phoneNumber);
+}
+
 export async function getVendorWorkIdentity(db: SupabaseClient, vendorUserId: string, provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider()): Promise<VendorWorkIdentityResponse> {
   const [runtime, identity] = await Promise.all([loadRuntime(db), loadIdentity(db, vendorUserId)]);
   let outboundUsed = 0;
@@ -296,6 +334,8 @@ export async function setupVendorWorkIdentity(
   idempotencyKey: string = randomUUID(),
   channel: "email" | "sms" = "email",
   provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
+  /** An exact number the vendor picked from `searchVendorWorkNumberCandidates`. SMS only. */
+  selectedPhoneNumber?: string,
 ): Promise<VendorWorkIdentityResponse> {
   const runtime = await loadRuntime(db);
   if (!runtime?.enabled || (channel === "email" ? !provider.emailConfigured() : !provider.smsConfigured())) return getVendorWorkIdentity(db, vendorUserId, provider);
@@ -348,7 +388,7 @@ export async function setupVendorWorkIdentity(
     // Recover an interrupted purchase by its durable friendlyName before any
     // purchase attempt.  A missing result is the only case allowed to buy.
     const prior = await provider.findSmsByOperation(claim.operation_id);
-    const purchased = prior ?? await provider.purchaseSms({ operationId: claim.operation_id, webhookUrl, statusCallbackUrl: callbackUrl });
+    const purchased = prior ?? await provider.purchaseSms({ operationId: claim.operation_id, webhookUrl, statusCallbackUrl: callbackUrl, phoneNumber: selectedPhoneNumber });
     const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID!.trim();
     // Persist the externally allocated SID before attempting attachment.  An
     // attachment timeout can then be inspected/reconciled without another buy.
