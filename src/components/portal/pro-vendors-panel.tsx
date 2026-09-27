@@ -1067,7 +1067,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 facts={
                   isDirectory ? (
                     <>
-                      <PortalRowFact icon={Wrench} srLabel="Trades">{tradesLabel || "—"}</PortalRowFact>
+                      <PortalRowFact icon={Wrench} srLabel="Trades">{tradesLabel || "Not set"}</PortalRowFact>
                       {row.city ? <PortalRowFact icon={MapPin} srLabel="Area">{row.city}</PortalRowFact> : null}
                       {row.insured ? <PortalRowFact icon={ShieldCheck} srLabel="Insured">Insured</PortalRowFact> : null}
                       {row.licensed ? <PortalRowFact icon={FileCheck2} srLabel="Licensed">Licensed</PortalRowFact> : null}
@@ -1125,7 +1125,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             <PortalApplicantRecordRow
               key={row.id}
               name={row.name}
-              address={row.trade.trim() || "—"}
+              // C267: "Not set" is the app's one empty-value word (C254);
+              // "—" stays only for the unused count/rating/money state.
+              address={row.trade.trim() || "Not set"}
               facts={
                 phone || email || meta || reviewFact ? (
                   <>
