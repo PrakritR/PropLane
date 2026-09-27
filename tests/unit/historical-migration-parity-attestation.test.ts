@@ -27,11 +27,32 @@ describe('one historical production duplicate attestation',()=>{
   });
   it('pins the committed source and independently captured constraint hashes',()=>{
     expect(hash(readFileSync(new URL(`../../supabase/migrations/${REMINDER_ATTESTATION.file}`,import.meta.url)))).toBe(REMINDER_ATTESTATION.sourceSha256);
+    const current=JSON.parse(readFileSync(new URL('../../docs/plans/production-test-accounts/release-reminder-kind-constraint-evidence-20260925.json',import.meta.url),'utf8'));
+    expect(current.target).toBe('production');
+    expect(current.project).toBe(REMINDER_ATTESTATION.project);
+    expect(current.constraint).toBe('portal_reminder_records_kind_check');
+    expect(hash(readFileSync(new URL(`../../supabase/migrations/${current.sourceMigration}`,import.meta.url)))).toBe(current.sourceSha256);
+    expect(current.sourceSha256).toBe('5786a8ee4535f01202d8421d5ac077a0e7983315bfeaba247d95b07f08d3366b');
+    expect(hash(current.definition)).toBe(current.sha256);
+    expect(current.sha256).toBe(REVIEWED_REMINDER_CONSTRAINTS.portal_reminder_records_kind_check);
+    for(const kind of ['lease_renewal_offer','move_out_instructions','deposit_return_notice']) {
+      expect(current.definition).toContain(`'${kind}'::text`);
+    }
     const captures=JSON.parse(readFileSync(new URL('../../docs/plans/production-test-accounts/release-reminder-constraint-evidence.json',import.meta.url),'utf8'));
+    expect(captures.production.portal_reminder_records_kind_check.sha256).toBe('89fb76a2f4cfc607f72af4639fe06fc5e1e9d93258268020bc8f64bea34f2603');
     for(const target of ['production','staging']) for(const [name,digest] of Object.entries(REVIEWED_REMINDER_CONSTRAINTS)) {
+      if(name==='portal_reminder_records_kind_check') continue;
       expect(captures[target][name].sha256).toBe(digest);
       expect(hash(captures[target][name].definition)).toBe(digest);
     }
+  });
+  it.each([
+    ['historical', '89fb76a2f4cfc607f72af4639fe06fc5e1e9d93258268020bc8f64bea34f2603'],
+    ['arbitrary', 'a'.repeat(64)],
+  ])('rejects the %s kind constraint digest',(_label,digest)=>{
+    const input=evidence();
+    input.schema.constraints.find((constraint)=>constraint.name==='portal_reminder_records_kind_check')!.sha256=digest;
+    expect(hasFatalMigrationDrift(diffMigrationsWithAttestation(local,pair(),input))).toBe(true);
   });
   it.each(['', 'staging', 'dev'])('rejects target %s',target=>{
     expect(hasFatalMigrationDrift(diffMigrationsWithAttestation(local,pair(),{...evidence(),target}))).toBe(true);

@@ -52,12 +52,24 @@ export async function loadManagerPendingCharges(
   return filterChargesEligibleForPaymentReminders(enriched, rentProfiles);
 }
 
-export async function loadListingByPropertyId(db: SupabaseClient): Promise<Map<string, ManagerListingSubmissionV1>> {
-  const { data: propertyRows } = await db.from("manager_property_records").select("id, property_data");
+export async function loadListingByPropertyId(
+  db: SupabaseClient,
+  propertyIds?: readonly string[],
+): Promise<Map<string, ManagerListingSubmissionV1>> {
   const listingByPropertyId = new Map<string, ManagerListingSubmissionV1>();
-  for (const row of propertyRows ?? []) {
-    const sub = listingFromPropertyRow(row.property_data);
-    if (sub && typeof row.id === "string") listingByPropertyId.set(row.id, sub);
+  const ids = propertyIds === undefined ? undefined : [...new Set(propertyIds.filter((id) => id.trim()))];
+  if (ids?.length === 0) return listingByPropertyId;
+
+  // Bound the PostgREST filter for a manager's charge set (at most 1,000 charges).
+  const batches = ids ? Array.from({ length: Math.ceil(ids.length / 100) }, (_, index) => ids.slice(index * 100, (index + 1) * 100)) : [undefined];
+  for (const batch of batches) {
+    const query = db.from("manager_property_records").select("id, property_data");
+    const { data: propertyRows, error } = await (batch ? query.in("id", batch) : query);
+    if (error && ids) throw error;
+    for (const row of propertyRows ?? []) {
+      const sub = listingFromPropertyRow(row.property_data);
+      if (sub && typeof row.id === "string") listingByPropertyId.set(row.id, sub);
+    }
   }
   return listingByPropertyId;
 }
@@ -87,12 +99,12 @@ export async function loadManagerScheduledMessages(
   managerUserId: string,
   opts?: { includeHidden?: boolean },
 ): Promise<{ settings: Awaited<ReturnType<typeof loadManagerAutomationSettings>>; messages: ScheduledPaymentMessage[] }> {
-  const [settings, overrides, charges, listingByPropertyId] = await Promise.all([
+  const [settings, overrides, charges] = await Promise.all([
     loadManagerAutomationSettings(db, managerUserId),
     loadScheduledMessageOverrides(db, managerUserId),
     loadManagerPendingCharges(db, managerUserId),
-    loadListingByPropertyId(db),
   ]);
+  const listingByPropertyId = await loadListingByPropertyId(db, charges.map((charge) => charge.propertyId));
 
   const { data: profile } = await db.from("profiles").select("full_name, email").eq("id", managerUserId).maybeSingle();
   const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";

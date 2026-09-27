@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaEmailAddress } from "@/lib/listing-cta-email";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
 import {
@@ -8,28 +9,8 @@ import {
   managerWorkEmailInUse,
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
-let publicListingsCache: { at: number; byId: Map<string, string> } | null = null;
-const PUBLIC_LISTINGS_CACHE_TTL_MS = 55_000;
-
 async function contactEmailFromPublicCatalog(listingId: string): Promise<string | null> {
-  if (publicListingsCache && Date.now() - publicListingsCache.at < PUBLIC_LISTINGS_CACHE_TTL_MS) {
-    return publicListingsCache.byId.get(listingId) ?? null;
-  }
-  try {
-    const res = await fetch("/api/property-records/public", { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { listings?: Array<{ id?: string; contactWorkEmail?: string }> };
-    const byId = new Map<string, string>();
-    for (const listing of body.listings ?? []) {
-      const id = listing.id?.trim();
-      const email = listingCtaEmailAddress(listing.contactWorkEmail);
-      if (id && email) byId.set(id, email);
-    }
-    publicListingsCache = { at: Date.now(), byId };
-    return byId.get(listingId) ?? null;
-  } catch {
-    return null;
-  }
+  return listingCtaEmailAddress((await publicListingContact(listingId))?.contactWorkEmail);
 }
 
 /**

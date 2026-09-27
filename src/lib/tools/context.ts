@@ -45,6 +45,8 @@ export type AgentContext = {
   vendorScope?: VendorAgentScope;
   /** Present only on leasing SMS agent turns; pins links to the prospect phone. */
   leasingScope?: LeasingSmsAgentScope;
+  /** Resident SMS listing reads must intersect the owner's rows with the public catalog. */
+  listingPublicOnly?: boolean;
   /**
    * This manager's data reach beyond their own portfolio, on ANY surface.
    *
@@ -98,8 +100,13 @@ export type LeasingSmsAgentScope = {
   recentDeliveredReplies?: readonly {
     messageId: string;
     text: string;
-    submittedAt: string;
+    deliveredAt: string;
   }[];
+  /**
+   * Exact inbound text authenticated by the webhook/worker for this turn.
+   * Suppression tools must classify this value, never a model supplied copy.
+   */
+  currentInboundText: string;
   /** Durable inbound revision - only the queue worker may expose autonomous writes. */
   prospectBurst?: { burstId: string; revision: number; workerId: string; claimedSourceIds: readonly string[] };
 };

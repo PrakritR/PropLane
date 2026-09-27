@@ -38,11 +38,12 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
   countManagerManagedPropertiesForUser,
-  mirrorLocalPropertyPipelineToServer,
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
-import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
+import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
+import { PROPERTY_RECORD_REFUSED_EVENT, type PropertyRecordRefusedDetail } from "@/lib/property-record-outbox";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import {
@@ -223,16 +224,9 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(() => {
-        // Only push local state up once a real sync has run (userId resolved) — otherwise
-        // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
-        // status change (e.g. request-change) that happened since this browser last synced.
-        if (userId) {
-          void mirrorLocalPropertyPipelineToServer(userId, collectLinkedPropertyIds(userId), {
-            onError: (message) => showToast(message),
-          });
-        }
-      });
+      // No page-load re-upload: the sync replaces this browser's copy with the
+      // server's, and unsent local writes ride the property-record outbox.
+      void refreshPortfolio();
     });
     const on = (e: Event) => {
       // A sync-originated event already delivered the fresh snapshot into the
@@ -250,7 +244,23 @@ export function ManagerProperties({
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
     };
-  }, [refreshPortfolio, userId, scopeUserId, showToast]);
+  }, [refreshPortfolio, scopeUserId]);
+
+  // A queued write the plan refused would otherwise leave a listing that exists
+  // only in this browser with no reason given. Only the plan refusal is shown:
+  // this is background work, and other failures carry nothing to act on.
+  // ponytail: one toast per distinct message, which covers a batch of rows refused for the same plan.
+  useEffect(() => {
+    let lastMessage = "";
+    const onRefused = (event: Event) => {
+      const detail = (event as CustomEvent<PropertyRecordRefusedDetail>).detail;
+      if (detail?.code !== MANAGER_PROPERTY_LIMIT_ERROR_CODE || !detail.message || detail.message === lastMessage) return;
+      lastMessage = detail.message;
+      showToast(detail.message);
+    };
+    window.addEventListener(PROPERTY_RECORD_REFUSED_EVENT, onRefused);
+    return () => window.removeEventListener(PROPERTY_RECORD_REFUSED_EVENT, onRefused);
+  }, [showToast]);
 
   const stageCounts = useMemo(() => {
     void portfolioTick;

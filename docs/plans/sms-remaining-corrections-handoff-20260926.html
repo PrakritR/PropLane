@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMS remaining corrections handoff</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:920px;margin:40px auto;padding:0 24px;color:#17212b}h1,h2{line-height:1.25}code{background:#eef1f4;padding:1px 3px;overflow-wrap:anywhere}li{margin:8px 0}.note{background:#fff3df;padding:14px 18px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd3da;padding:9px;text-align:left;vertical-align:top}</style>
+<h1>SMS remaining corrections handoff</h1>
+<p>26 September 2026. Working checkout: <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code>. This handoff covers only the corrections requested after the two final independent reviews. The open upstream merge and index were not changed by this correction manager.</p>
+<h2>Changes ready for review</h2>
+<ul>
+<li>Bulk delete sends the stored phone for a projection, including an empty phone, instead of inferring digits from a UUID. Legacy targets still use the existing phone resolver. The hook test selects a null-phone projection with a digit-rich UUID and a neighboring row, then checks the exact client input and deleted-ID report.</li>
+<li>The release backfill wrapper pins current core source SHA-256 <code>df0fd8426d5b8bd1a87f5218819059579449852487e9b67ad1f28f17234e7cc9</code>. Fresh target-specific cursor paths include <code>reviewed-df0fd842</code>. Existing cursor bindings are not rewritten; the guard still rejects old or mismatched bindings. A focused test hashes the core bytes against the wrapper pin.</li>
+<li>The ten-gap runner accepts an already present bid-link column, index and foreign key only together with exact earlier ledger identity <code>20260926070144 / work_order_open_listings</code> and its one-statement SHA-256 <code>2a8e04b1dea9d892b92ce3a5c84a4e4cb7b7f4a3a41fda427c1c8c891ea111e9</code>. Partial or drifted state still fails before apply. These ledger facts came from the root-owned staging provenance inspection.</li>
+<li>The runner now pins the actual generated PostgreSQL preference UNIQUE name <code>manager_vendor_preferences_manager_user_id_property_id_trad_key</code>. It compares exact <code>pg_get_constraintdef</code> strings for every new-table primary key, unique constraint and CHECK expression. The definitions came from the root-owned rollback rehearsal in <code>output/sms-release-validation/ten-gap-staging-rehearsed-constraints.json</code>. Negative tests change unique keys, primary keys and CHECK expressions.</li>
+</ul>
+<h2>Focused checks</h2>
+<table><tr><th>Check</th><th>Result</th></tr><tr><td>Node 22 ten-gap runner unit test</td><td>7 passed, exit 0</td></tr><tr><td>Node 22 bulk delete and backfill wrapper Vitest, one worker, 768 MB heap</td><td>9 passed, exit 0</td></tr><tr><td>Backfill wrapper focused rerun after fresh cursor path</td><td>3 passed, exit 0</td></tr><tr><td>Targeted ESLint</td><td>Exit 0; three existing unused-symbol warnings in the bulk hook</td></tr></table>
+<p class="note">Root owns database operations, the real-catalog preflight and rollback rehearsal, whole-project validation, graph refresh, independent review, staging QA and the release ladder. No database, network, server or git operation was performed here. These focused checks alone do not authorize a durable staging or production apply.</p>
+</html>

@@ -2795,6 +2795,7 @@ export function InboxThreadView({
   hideIdentityHeader = false,
   headerActions,
   composer,
+  beforeMessages,
   afterMessages,
   emptyLabel = "No messages yet.",
   threadKey,
@@ -2817,6 +2818,8 @@ export function InboxThreadView({
   headerActions?: ReactNode;
   /** Pass an <InboxComposer/>; omit for a read-only thread (e.g. Trash). */
   composer?: ReactNode;
+  /** Continuation controls at the oldest edge of a paged transcript. */
+  beforeMessages?: ReactNode;
   /**
    * Rendered inside the scroll body AFTER the message bubbles — used for inline
    * "Scheduled · sends <when>" cards so a person's future/pending communication
@@ -2886,7 +2889,7 @@ export function InboxThreadView({
             : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background/40 px-2 py-2 [-webkit-overflow-scrolling:touch] md:px-3 md:py-3"
         }
       >
-        {messages.length === 0 && !afterMessages ? (
+        {messages.length === 0 && !beforeMessages && !afterMessages ? (
           <div className={`flex flex-col items-center justify-center py-4 ${pageScroll ? "" : "min-h-full flex-1"}`}>
             <PortalInboxEmptyState title={emptyLabel} />
           </div>
@@ -2894,6 +2897,7 @@ export function InboxThreadView({
           <div
             className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "mt-auto"}`}
           >
+            {beforeMessages}
             <InboxMessageTimeline
               messages={messages}
               showAuthors={showAuthors}

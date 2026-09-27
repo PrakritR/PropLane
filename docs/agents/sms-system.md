@@ -35,6 +35,14 @@ loaders used by each portal and agent registry:
 | Resident | `resident_email` match, additionally pinned to the owner of the work number texted | Resident tools; writes retain the SMS `YES` confirmation gate |
 | Vendor | Work orders represented by that verified phone's active job sessions (assigned/live-offered jobs only) | Job-bound read tools; only `escalate_to_manager` remains inline-allowed |
 
+Verified resident SMS can read the texted manager's live public listings with
+`list_live_listings`, `get_listing_details`, and `get_listing_link`. A named
+room's `publishedAvailability` is its saved listing label;
+`currentAvailability` is shown only after the same occupancy check used by the
+public listing succeeds. The room's furnishing and amenities come from that
+room's submitted listing details. These tools are read-only and do not expose
+other managers' listings or prospect write actions.
+
 The stable handle is per manager, so a co-manager or vendor can legitimately
 see two `WO-1042` records under different owners. Several visible matches return
 a clarification naming only those visible jobs. No visible match, including a
@@ -135,6 +143,12 @@ behalf (no viewer to narrow for). Library:
   Coverage: `tests/unit/sms-conversation-houses.test.ts`.
 
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
+
+The `conversation_key` rules below describe the operational transport log and
+legacy compatibility reader. Manager Communication after projection cutover uses
+the owner, role, canonical person identity, and work-line epoch described in
+the projection section below. Do not use the legacy key alone to choose a
+send line or authorize a projected history read.
 
 A conversation used to be derived from the phone-number pair on the wire
 (`sms_from_number` = To, `profiles.phone` = From). On the shared agent line
@@ -407,8 +421,12 @@ error 11200, receipt stuck `processing`). Now:
 
 Prospect texts are merged into one reply after a 10 second quiet window
 (`QUIET_SECONDS` in `src/lib/sms/prospect-sms-burst.server.ts`); each new text
-restarts it. QStash holds the delay, so it never counts against Twilio's 15 second
-inbound webhook timeout.
+restarts it. The Twilio route records the immutable receipt and durable prospect
+ingress first, then returns without waiting on the QStash network publish. Its
+`after()` continuation publishes the revision to QStash and runs the same
+revision-fenced worker inline only if publication fails; the recovery cron
+publishes any still-unpublished row. A queue call may take five seconds, so it
+must never consume Twilio's 15 second inbound webhook budget.
 
 The durable prospect burst publisher must use the exact callback URL
 `https://proplane.ai/api/internal/prospect-sms-burst` in Vercel Production.
@@ -421,8 +439,8 @@ queued or expired-lease bursts. Treat Twilio inbound webhook failures and
 QStash callback failures as separate incidents unless request evidence links
 them.
 
-**QStash outage fallback.** If QStash refuses a publish (daily quota `429`,
-network, 5xx), the ingress row is already durable, so the text is still accepted.
+**QStash outage fallback.** If a direct or recovery QStash publish is refused
+(daily quota `429`, network, 5xx), the ingress row is already durable, so the text is still accepted.
 The inbound route answers Twilio, then runs the burst itself in `after()`
 (`runInlineProspectBurst`): it waits out the quiet window and runs the same
 `runProspectSmsBurstJob` the QStash callback runs. The recovery cron does the same
@@ -979,7 +997,12 @@ Coverage: `tests/unit/sms-opt-out-unified.test.ts`.
 `get_listing_details` in `src/lib/tools/domains/leasing-sms.ts` is the shared
 public fact source for leasing SMS and email. It returns explicit lease terms,
 base room prices, conditional surcharges, utilities, standard-lease deposits,
-and nullable pet policy. A base room price is not a price for every offered
+nullable pet policy, each room's normalized resident capacity and physical bed
+count as separate facts, and the listing's summed published room capacity when
+every room is represented. That sum is not a legal occupancy limit. A bedroom
+or physical bed is never evidence of one resident, and an occupancy lookup
+failure makes current availability unknown without hiding the published
+capacity. A base room price is not a price for every offered
 term. Custom-calendar surcharges apply only when the selected standard-lease
 dates satisfy the canonical billing predicate; standard deposits say nothing
 about short-term deposits. A room's explicit zero deposit overrides the listing.
@@ -993,6 +1016,12 @@ concise, ask at most one combined clarification question, and include only a
 relevant tool-built link. A prospect ready to reserve, pay, or move immediately
 remains a prospect, so the agent never redirects them to resident rent payment
 or claims approval, reservation, or payment.
+
+Reply suppression is limited to a deterministic, standalone acknowledgment
+such as "thanks" or "got it" and requires an outbox row whose status is exactly
+`delivered`. The tool classifies the trusted current inbound text from the
+webhook context. A repeated question, clarification, correction, new fact, or
+availability question always rejects suppression so the model can answer.
 
 For a high-intent manager-only uncertainty with no useful grounded reply left,
 the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.
@@ -1211,6 +1240,36 @@ Application approval derives its SMS recipient from the authorized stored applic
 `sms_outbox` stores `provider_from_phone` before provider submission and a due conversation-log marker with the accepted SID. The SMS cron repairs pending/failed Communication projections without calling the provider again. Final markers compare the claimed status and due timestamp, so an expired worker cannot overwrite a newer repair. An explicit invalid conversation key is blocked; only an absent legacy key may use trusted outbox identity fallback. Repair inventory, claim and projection failures surface through cron health alerts.
 
 Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.
+
+### Manager Communication projection cutover (September 2026)
+
+`sms_projection_conversations` and `sms_projection_turns` are the manager's
+durable Communication reader. One summary is an owner, role, identity and work
+line epoch; the list reads summaries in cursor pages, and a selected conversation
+reads turns in older pages. An email person thread can bind several SMS
+projections; the pane loads each binding separately and requires an explicit
+line choice before sending when several are eligible. Every selected send carries
+the authorized `projectionId` through the existing consent and outbox dispatcher
+to its exact work line. Retired historical lines remain readable and cannot send.
+
+The source log and provider receipts remain operational evidence. Live originals,
+historical imports and deletion use one owner-scoped transaction lock. Deletion
+writes tombstones for exact source events before removing the projection, and
+replay checks those tombstones under the lock. A historical provider SID can be
+reconciled only with matching original bytes, time, direction, wire pair, role,
+identity and line epoch. A synthetic summary is redirected only when every
+remaining turn has been individually proven; otherwise unrelated turns remain.
+Twilio Message SIDs use the exact `^(SM|MM)[0-9a-fA-F]{32}$` shape; both prefixes
+carry the same replay, provider-collision and tombstone protections.
+The backfill is resumable, dry-run first, and requires two clean identity and
+source-accounting passes before the cutover flag is ready.
+
+Compatibility `sms_notice_` turns carry exact source markers. The manager inbox
+suppresses an original only when its projected replacement is visible to that
+viewer; unbound notices and annotations stay in both SMS UI flag states. Voice
+call notes use their own `voice:` source namespace and render as Call turns, not
+as provider SMS originals. Read and archive state is viewer-scoped, and unread
+advances only after the exact observed turn has rendered successfully.
 
 ## Nearby transit facts
 

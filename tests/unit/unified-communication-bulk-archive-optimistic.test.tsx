@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   restorePersistedInboxThreads: vi.fn(),
   archiveManagerSmsConversation: vi.fn(),
   restoreManagerSmsConversation: vi.fn(),
+  updateManagerSmsConversationStateClient: vi.fn(),
+  deleteManagerSmsConversationClient: vi.fn(),
 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => async () => true }));
@@ -27,6 +29,10 @@ vi.mock("@/lib/manager-sms-archive.client", () => ({
   restoreManagerSmsConversation: mocks.restoreManagerSmsConversation,
   loadManagerSmsArchivedIds: () => new Set<string>(),
   persistManagerSmsArchivedIds: () => {},
+}));
+vi.mock("@/lib/manager-sms-conversations-client", () => ({
+  updateManagerSmsConversationStateClient: mocks.updateManagerSmsConversationStateClient,
+  deleteManagerSmsConversationClient: mocks.deleteManagerSmsConversationClient,
 }));
 
 function deferred<T>() {
@@ -87,6 +93,8 @@ describe("useUnifiedCommunicationBulk archive/restore (PLAN B3)", () => {
     mocks.restorePersistedInboxThreads.mockReset();
     mocks.archiveManagerSmsConversation.mockReset();
     mocks.restoreManagerSmsConversation.mockReset();
+    mocks.updateManagerSmsConversationStateClient.mockReset();
+    mocks.deleteManagerSmsConversationClient.mockReset();
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -166,5 +174,99 @@ describe("useUnifiedCommunicationBulk archive/restore (PLAN B3)", () => {
 
     expect(mocks.archiveManagerSmsConversation).toHaveBeenCalledWith("conv-a");
     expect(mocks.archiveManagerSmsConversation).toHaveBeenCalledWith("conv-b");
+  });
+
+  it("archives projection rows with their current version and reports partial SMS failure", async () => {
+    mocks.updateManagerSmsConversationStateClient
+      .mockResolvedValueOnce(Response.json({ version: 5 }, { status: 200 }))
+      .mockResolvedValueOnce(Response.json({}, { status: 409 }));
+    const showToast = vi.fn();
+    const onSmsArchiveChange = vi.fn();
+    const onSmsMutation = vi.fn();
+    const { result } = renderHook(() => useUnifiedCommunicationBulk({
+      mergedRows: [smsRowA, smsRowB], listSegment: "active", storageKey: "test-inbox",
+      emailThreads: [], onEmailThreadsChange: () => {}, showToast, onSmsArchiveChange, onSmsMutationStart: () => onSmsMutation,
+      smsTargets: [
+        { conversationId: "conv-a", phone: "+15550000001", conversationKey: "conv-a", projectionId: "proj-a", stateVersion: 4 },
+        { conversationId: "conv-b", phone: "+15550000002", conversationKey: "conv-b", projectionId: "proj-b", stateVersion: 7 },
+      ],
+    }));
+
+    await act(async () => result.current.handleArchiveKeys(["sms:conv-a", "sms:conv-b"]));
+
+    expect(mocks.updateManagerSmsConversationStateClient).toHaveBeenCalledWith({ projectionId: "proj-a", action: "archive", expectedVersion: 4 });
+    expect(mocks.updateManagerSmsConversationStateClient).toHaveBeenCalledWith({ projectionId: "proj-b", action: "archive", expectedVersion: 7 });
+    expect(mocks.archiveManagerSmsConversation).not.toHaveBeenCalled();
+    expect(onSmsArchiveChange).toHaveBeenCalledTimes(1);
+    expect(onSmsMutation).toHaveBeenCalledWith({
+      updated: [{ projectionId: "proj-a", archived: true, version: 5 }],
+      deleted: [], reconcile: ["proj-b"],
+    });
+    expect(showToast).toHaveBeenCalledWith("Archived 1 text conversation. Couldn't archive 1.");
+  });
+
+  it("restores a selected projection row with its current version", async () => {
+    mocks.updateManagerSmsConversationStateClient.mockResolvedValue(Response.json({ version: 5 }, { status: 200 }));
+    const showToast = vi.fn();
+    const { result } = renderHook(() => useUnifiedCommunicationBulk({
+      mergedRows: [smsRowA], listSegment: "archived", storageKey: "test-inbox",
+      emailThreads: [], onEmailThreadsChange: () => {}, showToast,
+      smsTargets: [{ conversationId: "conv-a", phone: "+15550000001", conversationKey: "conv-a", projectionId: "proj-a", stateVersion: 9 }],
+    }));
+
+    act(() => result.current.selection.toggleSelected("sms:conv-a"));
+    await act(async () => result.current.handleRestore());
+
+    expect(mocks.updateManagerSmsConversationStateClient).toHaveBeenCalledWith({ projectionId: "proj-a", action: "restore", expectedVersion: 9 });
+    expect(mocks.restoreManagerSmsConversation).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith("Restored.");
+  });
+
+  it("reports only successfully deleted projection IDs for loaded-page removal", async () => {
+    mocks.deleteManagerSmsConversationClient
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, error: "Conflict" });
+    const onSmsMutation = vi.fn();
+    const { result } = renderHook(() => useUnifiedCommunicationBulk({
+      mergedRows: [smsRowA, smsRowB], listSegment: "archived", storageKey: "test-inbox",
+      emailThreads: [], onEmailThreadsChange: () => {}, onSmsMutationStart: () => onSmsMutation,
+      smsTargets: [
+        { conversationId: "conv-a", phone: "+15550000001", conversationKey: "conv-a", projectionId: "proj-a", stateVersion: 4 },
+        { conversationId: "conv-b", phone: "+15550000002", conversationKey: "conv-b", projectionId: "proj-b", stateVersion: 7 },
+      ],
+    }));
+    act(() => {
+      result.current.selection.toggleSelected("sms:conv-a");
+      result.current.selection.toggleSelected("sms:conv-b");
+    });
+    await act(async () => result.current.handleDelete());
+    expect(onSmsMutation).toHaveBeenCalledWith({ updated: [], deleted: ["proj-a"], reconcile: ["proj-b"] });
+  });
+
+  it("deletes a null-phone projection by ID without inventing a phone from its UUID", async () => {
+    const projectionId = "22222222-2222-4222-8222-222222222222";
+    mocks.deleteManagerSmsConversationClient.mockResolvedValue({ ok: true });
+    let loadedIds = [projectionId, "proj-b"];
+    const onSmsMutation = vi.fn((mutation: { deleted: string[] }) => {
+      loadedIds = loadedIds.filter((id) => !mutation.deleted.includes(id));
+    });
+    const { result } = renderHook(() => useUnifiedCommunicationBulk({
+      mergedRows: [
+        { ...smsRowA, key: `sms:${projectionId}`, threadId: projectionId },
+        smsRowB,
+      ],
+      listSegment: "archived", storageKey: "test-inbox", emailThreads: [],
+      onEmailThreadsChange: () => {}, onSmsMutationStart: () => onSmsMutation,
+      smsTargets: [
+        { conversationId: projectionId, phone: "", conversationKey: null, projectionId, stateVersion: 1 },
+        { conversationId: "conv-b", phone: "+15550000002", conversationKey: "conv-b", projectionId: "proj-b", stateVersion: 1 },
+      ],
+    }));
+    act(() => result.current.selection.toggleSelected(`sms:${projectionId}`));
+    await act(async () => result.current.handleDelete());
+    expect(mocks.deleteManagerSmsConversationClient).toHaveBeenCalledExactlyOnceWith({ phone: "", conversationKey: projectionId, projectionId });
+    expect(onSmsMutation).toHaveBeenCalledWith({ updated: [], deleted: [projectionId], reconcile: [] });
+    expect(mocks.deleteManagerSmsConversationClient).toHaveBeenCalledTimes(1);
+    expect(loadedIds).toEqual(["proj-b"]);
   });
 });

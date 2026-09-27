@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMS durability release operations - 25 September 2026</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:980px;margin:2rem auto;padding:0 1.25rem;color:#202733;background:#fff}h1,h2{line-height:1.2}h2{margin-top:2rem;border-bottom:1px solid #ccd3dc;padding-bottom:.35rem}code,pre{font:13px/1.45 ui-monospace,SFMono-Regular,monospace}code{overflow-wrap:anywhere}pre{background:#f2f5f8;padding:1rem;overflow:auto;border-radius:6px}table{border-collapse:collapse;width:100%}td,th{text-align:left;vertical-align:top;border-bottom:1px solid #d8dee6;padding:.6rem}a{color:#075eaa}@media(prefers-color-scheme:dark){body{background:#15191f;color:#e9edf2}pre{background:#242a33}td,th{border-color:#404854}a{color:#8ac4ff}}</style></head><body>
+<h1>SMS durability release operations</h1>
+<p>25 September 2026. This is a prepared, unexecuted release plan for the six immutable SMS projection migrations and historical reconciliation. Akhil authorized work through production. The normal keeper → main → staging → production ladder and staging QA apply because the dated exceptions have expired. The implementation and independent final review must pass before any release operation. The migration and backfill scripts described here have not been run against staging or production.</p>
+
+<h2>Fixed scope and target</h2>
+<table><thead><tr><th>Environment</th><th>Supabase project</th><th>Role</th></tr></thead><tbody>
+<tr><td>Dev/test</td><td><code>emstjswhotsnyksqhqyf</code></td><td>Six migrations already applied; two clean reconciliation passes observed.</td></tr>
+<tr><td>Staging</td><td><code>xwszcafaontidfgznlxd</code></td><td>Apply and reconcile before staging QA.</td></tr>
+<tr><td>Production</td><td><code>qahnczmilgptcedaqype</code></td><td>Apply and reconcile after staging QA, before pushing the production branch.</td></tr>
+</tbody></table>
+<p>Vercel project <code>proplane</code> has ID <code>prj_rupckw3T2v0oXVg2nTLVCYePKDUc</code>. Verify that project ID and the staging branch variables before the staging deployment. The old <code>scripts/prepare-20260911-production-migrations.mjs</code> is reference material only and must not be executed for this release.</p>
+<p>The release scripts accept only the two exact target refs. The source manifest fixes versions 20260925130000 through 20260925180000 and their SHA-256 hashes. A changed or extra migration in that bounded range aborts. The existing <code>scripts/backfill-sms-projection.mjs</code> command line remains dev/test-only.</p>
+
+<h2>Before database work</h2>
+<ol>
+<li>Finish independent Astra review, security review and Bugbot; address findings and freeze the six migration hashes. Verify the exact SMS change manifest in an isolated clean release checkout. Run local/browser feature checks and <code>npm run ship:preflight</code> with pinned Node 22. Use one heavy-validation owner.</li>
+<li>Fast-forward Akhil's keeper to <code>main</code> under the repository ship gate. Check that staging and production branches can be fast-forwarded without unrelated work. A non-fast-forward stops the release.</li>
+<li>Supply a Supabase access token to the pinned CLI through the process environment. The migration script uses a fresh 0700 temporary CLI workspace and <code>supabase@2.117.0 db dump --dry-run --project-ref</code> only to obtain short-lived PostgreSQL credentials. It requires the PostgreSQL username to contain the exact project ref (or the exact direct host), verifies TLS with the pinned CA, and does not print credentials. Do not create or load a production <code>.env</code> file in the repository.</li>
+</ol>
+
+<h2>Staging database, then staging QA</h2>
+<pre>node scripts/sms-durability-release-migrations.mjs --target staging --phase preflight
+node scripts/sms-durability-release-migrations.mjs --target staging --phase apply --backup-file /private/tmp/sms-staging-20260925.dump
+node scripts/sms-durability-release-migrations.mjs --target staging --phase postflight</pre>
+<p>The apply command creates a new 0600 full PostgreSQL custom archive and checks it with <code>pg_restore --list</code> before writing. It refuses an existing backup path. It checks an empty SMS ledger and absent SMS projection schema, applies the six exact SQL sources and ledger rows in one transaction, verifies table RLS and the selected function/table privileges before commit, and rereads the ledger and ACL afterward. Any failed or uncertain commit requires fresh postflight inspection; never assume rollback. Preserve the backup outside the repository.</p>
+<p>For historical reconciliation, provide the staging URL, its service role key, and the matching Twilio account SID only in the process environment. First run dry-run with the exact staging target. Its exit code 2 means inventory has not yet reached two complete clean apply passes; read the JSON counters, not the exit code alone. Use a new private cursor, and rerun bounded apply until all six feeds are exhausted twice with no unresolved line, notice, relay, marker, integrity, or error counts. Each incomplete pass resets cutover readiness to false. A complete second clean pass publishes readiness true. Do not override readiness manually.</p>
+<pre>node scripts/sms-durability-release-backfill.mjs --target staging
+node scripts/sms-durability-release-backfill.mjs --target staging --apply --cursor-file /private/tmp/sms-staging-20260925-cursor.json
+node scripts/sms-durability-release-migrations.mjs --target staging --phase postflight</pre>
+<p>Before staging QA, confirm the backfill report says <code>complete=true</code>, <code>cleanPasses=2</code>, <code>inventoryComplete=true</code>, <code>readinessUpdated=true</code>, and <code>cutoverAfter=true</code>. Retained historical singletons without a provable work-line epoch must remain <code>sendDisabled</code> and be reported separately. Stop on any other unresolved source, mismatch, missing credential, or migration ledger drift. After the database is ready, fast-forward <code>main</code> to <code>staging</code> with <code>npm run ship:staging</code>, then exercise manager Communication on the staging URL with real data: list, merged detail, pagination, exact deep link, selected line send guard, role revocation, mobile view, and flag-off compatibility. Do not trigger a provider send merely to validate this migration.</p>
+
+<h2>Production database, then production branch</h2>
+<p>Proceed only after staging QA and release reviews are accepted. Obtain a separate production Supabase access token/session, service role key and matching Twilio SID without storing them in the repository. Use a new backup and cursor path. Recheck the target before every phase.</p>
+<pre>node scripts/sms-durability-release-migrations.mjs --target production --phase preflight
+node scripts/sms-durability-release-migrations.mjs --target production --phase apply --backup-file /private/tmp/sms-production-20260925.dump
+node scripts/sms-durability-release-migrations.mjs --target production --phase postflight
+node scripts/sms-durability-release-backfill.mjs --target production
+node scripts/sms-durability-release-backfill.mjs --target production --apply --cursor-file /private/tmp/sms-production-20260925-cursor.json
+node scripts/sms-durability-release-migrations.mjs --target production --phase postflight</pre>
+<p>Repeat bounded apply as needed to complete two clean passes. Check production cutover readiness, ledger, ACL, unresolved counters and retained historical exception explicitly. Only then fast-forward <code>staging</code> to <code>production</code> with <code>npm run ship:production</code>. Verify the production Vercel deployment and iOS TestFlight distribution, then run bounded live read-only portal and health checks. A production push also starts the App Store submission workflow. Record the exact branch heads, backup paths, migration hashes, reconciliation counts, QA evidence and deployment IDs in the release handoff.</p>
+
+<h2>Failure handling</h2>
+<p>A migration operation that fails after beginning its transaction must be treated as uncertain until the exact target's postflight is read. If the ledger is absent and the schema remains absent, inspect the preserved backup and retry from preflight. If the ledger is partial or the schema differs, stop and investigate; do not use <code>supabase db push --include-all</code> as a repair. If reconciliation is incomplete, keep cutover readiness false, preserve the cursor, resolve the source evidence, and rerun bounded passes. Do not push a site branch while its target database is incomplete.</p>
+<p>References: <a href="../ship-gate.md">ship gate</a>, <a href="../database-environments.md">database environments</a>, <a href="../agents/deployment-workflow.md">deployment workflow</a>, and <a href="sms-conversation-durability-correction2-execution-20260925.html">implementation evidence</a>.</p>
+</body></html>

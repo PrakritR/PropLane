@@ -18,7 +18,7 @@
  * retyping an individual imported clause is a follow-up (see the build report).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -67,8 +67,6 @@ export function ManagerLeaseQuestionsEditorModal({
   onDelete,
   canDelete,
   showToast,
-  autoImportFile,
-  onAutoImportConsumed,
 }: {
   open: boolean;
   template: PropertyLeaseTemplate | null;
@@ -79,8 +77,6 @@ export function ManagerLeaseQuestionsEditorModal({
   onDelete?: () => void;
   canDelete?: boolean;
   showToast: (m: string) => void;
-  autoImportFile?: File | null;
-  onAutoImportConsumed?: () => void;
 }) {
   const [label, setLabel] = useState(template?.label ?? "");
   const [importing, setImporting] = useState(false);
@@ -92,7 +88,6 @@ export function ManagerLeaseQuestionsEditorModal({
   const [localTemplate, setLocalTemplate] = useState<PropertyLeaseTemplate | null>(template);
   const [resolvedIssueIndexes, setResolvedIssueIndexes] = useState<Set<number>>(new Set());
   const [togglingFlagId, setTogglingFlagId] = useState<string | null>(null);
-  const autoImportRanRef = useRef(false);
 
   const draft = localTemplate ? draftLeaseQuestionConfigForTemplate(localTemplate) : null;
   const published = localTemplate ? publishedLeaseQuestionConfigForTemplate(localTemplate) : null;
@@ -127,12 +122,6 @@ export function ManagerLeaseQuestionsEditorModal({
     },
     [localTemplate, propertyId, showToast],
   );
-
-  useEffect(() => {
-    if (autoImportRanRef.current || !autoImportFile || !localTemplate || !propertyId) return;
-    autoImportRanRef.current = true;
-    void importPdf(autoImportFile).finally(() => onAutoImportConsumed?.());
-  }, [autoImportFile, importPdf, localTemplate, propertyId, onAutoImportConsumed]);
 
   if (!open || !localTemplate) return null;
 

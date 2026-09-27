@@ -1,8 +1,8 @@
 {
-  "version": 1,
-  "kind": "temporary-direct-production-release",
+  "version": 2,
+  "kind": "direct-production-release",
   "authorizedDeveloper": "Akhil",
   "source": "origin/main",
   "target": "origin/production",
-  "expiresAt": "2026-09-15T04:00:00Z"
+  "expiresAt": null
 }

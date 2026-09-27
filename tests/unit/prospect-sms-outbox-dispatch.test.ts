@@ -39,6 +39,7 @@ const row = {
 function chain(result: unknown = { data: { id: "outbox-1" }, error: null }) {
   const c: Record<string, unknown> = {}; const self = () => c;
   c.update = self; c.insert = self; c.eq = self; c.is = self; c.order = self; c.lt = async () => ({ error: null }); c.select = self; c.maybeSingle = async () => result; c.single = async () => result;
+  c.in = () => Promise.resolve({ data: [{ id: "outbox-1", selected_work_line_id: null }], error: null });
   c.limit = () => ({
     maybeSingle: async () => ({ data: null, error: null }),
     then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>

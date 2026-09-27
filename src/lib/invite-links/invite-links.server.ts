@@ -1547,8 +1547,9 @@ export async function resolveResidentInviteClaim(
   // NOT done here.
   //
   // It was, and it silently did nothing. The manager's browser holds an
-  // authoritative local copy of these application rows and mirrors them back
-  // (`mirrorLocalPropertyPipelineToServer`), so a server-side write to
+  // authoritative local copy of these application rows and, at the time, the
+  // page-load mirror sent them back (since replaced by the property-record
+  // outbox, which only sends unsent local edits), so a server-side write to
   // `resident_email` is overwritten by the next sync — verified against the dev
   // project, where the column reverted while `updated_at` advanced. Two writers,
   // and the server loses. The pairing therefore happens on the client, through

@@ -186,6 +186,8 @@ export function ManagerApplicationQuestionsEditorModal({
   showToast,
   autoImportFile = null,
   onAutoImportConsumed,
+  onUploadPdf,
+  uploadingPdf = false,
 }: {
   open: boolean;
   title?: string;
@@ -231,6 +233,13 @@ export function ManagerApplicationQuestionsEditorModal({
    */
   autoImportFile?: File | null;
   onAutoImportConsumed?: () => void;
+  /**
+   * Add mode only: start this new application from a PDF. The caller creates
+   * and saves the template, then reopens this modal in edit mode with the
+   * file as `autoImportFile`, so the upload lives in the same popup as Add.
+   */
+  onUploadPdf?: (file: File, label: string) => void;
+  uploadingPdf?: boolean;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -277,6 +286,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // still follows the workspace, via `recopyWorkspaceApplicationFormOntoFollowingListings`).
   const [makingDefault, setMakingDefault] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
   const [importedQuestionDraft, setImportedQuestionDraft] = useState<ApplicationTemplateQuestionConfig | null>(null);
@@ -1308,7 +1318,9 @@ export function ManagerApplicationQuestionsEditorModal({
         steps={workspaceSteps}
         current={current}
         onJump={jump}
-        onClose={onClose}
+        // While Upload PDF is creating the form, closing would let the modal
+        // pop back open in edit mode when that save lands.
+        onClose={uploadingPdf ? () => {} : onClose}
         onRequestClose={() => {
           if (addChooserSectionId) {
             setAddChooserSectionId(null);
@@ -1337,7 +1349,7 @@ export function ManagerApplicationQuestionsEditorModal({
           }
           return true;
         }}
-        busy={saving}
+        busy={saving || uploadingPdf}
         onFinish={() => void commitSave()}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"
@@ -1394,6 +1406,37 @@ export function ManagerApplicationQuestionsEditorModal({
             {/* P012 (captain 2026-09-27): "have upload application and lease in
                 first tab." Uploading your own application now happens on this
                 first step, not tucked into Preview at the end. */}
+            {/* origin/main (Akhil, "move Upload PDF into the Add popup"): start a
+                BRAND NEW template from a PDF, add mode only. Complementary to the
+                isTemplateEditor block just below, which re-imports a PDF onto a
+                template that already exists — the two conditions never overlap. */}
+            {templateEditorMode === "add" && onUploadPdf ? (
+              <div className="mt-4">
+                <p className={WIZARD_LABEL_CLASS}>Start from a PDF</p>
+                <input
+                  ref={uploadPdfInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="sr-only"
+                  data-attr="property-application-upload-pdf-input"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onUploadPdf(file, templateLabel);
+                    event.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  disabled={uploadingPdf}
+                  data-attr="property-application-upload-pdf"
+                  onClick={() => uploadPdfInputRef.current?.click()}
+                >
+                  {uploadingPdf ? "Uploading…" : "Upload PDF"}
+                </Button>
+              </div>
+            ) : null}
             {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
               <div className="flex flex-wrap gap-2">
                 <input
