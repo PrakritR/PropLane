@@ -24,8 +24,10 @@ export type InboxThreadForTurns = {
  * - outbound: the viewer, right, cobalt
  * - assistant: PropLane Assistant ice (never labelled as You). Left in the
  *   assistant conversation; right in person-thread notices/reminders.
+ * - system: an auto-sent lifecycle turn (`InboxThreadMessage.automated`) —
+ *   centered notice text, not a chat bubble, never "You" or a person's name.
  */
-export type InboxTurnDirection = "inbound" | "outbound" | "assistant";
+export type InboxTurnDirection = "inbound" | "outbound" | "assistant" | "system";
 
 export function isPropLaneAssistantAuthor(from: string | null | undefined): boolean {
   return String(from ?? "").trim() === PROPLANE_ASSISTANT_FROM;
@@ -61,6 +63,7 @@ export function inboxTurnDirection(
 ): InboxTurnDirection {
   if (isPropLaneAssistantAuthor(message.from)) return "assistant";
   if (isConversationWithPropLaneAssistant(thread)) return "outbound";
+  if (message.automated) return "system";
   const outbound = message.outbound ?? (index === 0 ? folder === "sent" : true);
   return outbound ? "outbound" : "inbound";
 }

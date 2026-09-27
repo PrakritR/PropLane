@@ -617,7 +617,7 @@ export function PortalInboxMessageTable({
  * surfaces not yet migrated.                                          *
  * ------------------------------------------------------------------ */
 
-export type InboxMessageDirection = "inbound" | "outbound" | "assistant";
+export type InboxMessageDirection = "inbound" | "outbound" | "assistant" | "system";
 
 /**
  * Channel a thread message arrived / sent on. Email is the only live channel
@@ -1250,6 +1250,16 @@ export function InboxBubble({
   /** True only for the PropLane Assistant conversation — AI sits on the left. */
   alignAssistantStart?: boolean;
 }) {
+  if (message.direction === "system") {
+    return (
+      <div className="my-2 flex w-full justify-center px-2" data-inbox-bubble-kind="system">
+        <span className="max-w-[85%] break-words rounded-full bg-secondary/70 px-3 py-1 text-center text-xs text-muted [overflow-wrap:anywhere]">
+          {message.body}
+          {message.at ? <span className="text-muted/70"> · {message.at}</span> : null}
+        </span>
+      </div>
+    );
+  }
   const outbound = message.direction === "outbound";
   const assistant = message.direction === "assistant";
   const alignEnd = outbound || (assistant && !alignAssistantStart);
