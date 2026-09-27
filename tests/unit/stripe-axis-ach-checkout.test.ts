@@ -389,4 +389,82 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
       expect(callsExplicit[0]).toEqual(callsOmitted[0]);
     });
   });
+
+  // VENDOR_BANKING_ENABLED (night/vendor-banking): PropLane's OWN extra take,
+  // on top of whatever the resident/manager/proplane fee-payer math already
+  // retains. The payer's total never moves; only the recipient's net does.
+  describe("extraApplicationFeeCents (vendor pay take rate)", () => {
+    it("defaults to 0 — omitting it is byte-identical to today", async () => {
+      const { stripe, calls: withExtraOmitted } = captureStripe();
+      await createAxisAchCheckoutSession(stripe, {
+        ...baseInput,
+        amountCents: 10_000,
+        paymentMethod: "ach",
+        feePayer: "resident",
+      });
+      const { stripe: stripe2, calls: withExtraZero } = captureStripe();
+      await createAxisAchCheckoutSession(stripe2, {
+        ...baseInput,
+        amountCents: 10_000,
+        paymentMethod: "ach",
+        feePayer: "resident",
+        extraApplicationFeeCents: 0,
+      });
+      expect(withExtraZero[0]).toEqual(withExtraOmitted[0]);
+    });
+
+    it("destination charge: application_fee_amount = Stripe's cost + the extra fee; payer total unchanged; recipient nets gross - extra", async () => {
+      const { stripe, calls } = captureStripe();
+      const stripeCost = residentProcessingFeeCents(10_000, "ach");
+      const result = await createAxisAchCheckoutSession(stripe, {
+        ...baseInput,
+        amountCents: 10_000,
+        paymentMethod: "ach",
+        feePayer: "resident", // manager pays Stripe's own cost, unchanged
+        extraApplicationFeeCents: 300, // the vendor's 3% PropLane fee
+      });
+      const params = calls[0]!;
+      const pid = params.payment_intent_data as Record<string, unknown>;
+      expect(pid.application_fee_amount).toBe(stripeCost + 300);
+      expect(result.platformFeeCents).toBe(stripeCost + 300);
+      // Payer is still charged subtotal + Stripe's cost only — the extra fee
+      // is never added to what they're charged.
+      expect(result.totalCents).toBe(10_000 + stripeCost);
+      const metadata = params.metadata as Record<string, string>;
+      expect(metadata.manager_payout_cents).toBe(String(10_000 - 300));
+    });
+
+    it("hold path: no destination account -> the hold credit nets the extra fee (hold_amount_cents already excludes it)", async () => {
+      const { stripe, calls } = captureStripe();
+      const stripeCost = residentProcessingFeeCents(10_000, "ach");
+      await createAxisAchCheckoutSession(stripe, {
+        ...baseInput,
+        amountCents: 10_000,
+        paymentMethod: "ach",
+        feePayer: "resident",
+        destinationAccountId: null,
+        extraApplicationFeeCents: 300,
+      });
+      const params = calls[0]!;
+      const pid = params.payment_intent_data as Record<string, unknown>;
+      expect(pid).not.toHaveProperty("application_fee_amount");
+      expect(pid).not.toHaveProperty("transfer_data");
+      const metadata = params.metadata as Record<string, string>;
+      expect(metadata.platform_hold).toBe("1");
+      expect(metadata.hold_amount_cents).toBe(String(10_000 - 300));
+    });
+
+    it("throws rather than crediting a negative payout when the extra fee exceeds the recipient's payout", async () => {
+      const { stripe } = captureStripe();
+      await expect(
+        createAxisAchCheckoutSession(stripe, {
+          ...baseInput,
+          amountCents: 100,
+          paymentMethod: "ach",
+          feePayer: "manager",
+          extraApplicationFeeCents: 1_000_000,
+        }),
+      ).rejects.toThrow(/exceed/i);
+    });
+  });
 });

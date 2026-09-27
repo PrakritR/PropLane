@@ -65,6 +65,17 @@ export type AxisAchCheckoutInput = {
    * unchanged whether the flag is on or off.
    */
   fundingModel?: "connect_destination" | "platform_ledger";
+  /**
+   * VENDOR_BANKING_ENABLED (night/vendor-banking): an additional
+   * application-fee amount PropLane retains ON TOP OF whatever
+   * `feePayer`/`residentServiceFeeBreakdown` already computes — the payer's
+   * total is UNCHANGED; this only reduces what the destination account (or,
+   * on the hold path, the platform-hold credit) nets. Default 0, which makes
+   * every existing caller byte-for-byte identical to before this field
+   * existed. Used for the vendor pay take rate: `application_fee_amount =
+   * Stripe's own processing cost + this`.
+   */
+  extraApplicationFeeCents?: number;
 };
 
 export type AxisAchCheckoutResult =
@@ -265,8 +276,16 @@ export async function createAxisAchCheckoutSession(
   // destination charge; `managerPayoutCents` is what the manager nets.
   const processingFeeCents = fee.residentAddedFeeCents;
   const axisFeeCents = 0;
-  const applicationFeeAmount = fee.applicationFeeCents;
-  const managerPayoutCents = fee.managerPayoutCents;
+  // `extraApplicationFeeCents` (default 0) is PropLane's OWN additional take
+  // (the vendor pay fee) — it never changes what the payer is charged, only
+  // what the destination account nets, so it moves application fee and
+  // recipient payout by the exact same amount in opposite directions.
+  const extraApplicationFeeCents = Math.max(0, Math.round(input.extraApplicationFeeCents ?? 0));
+  if (extraApplicationFeeCents > fee.managerPayoutCents) {
+    throw new Error("Fee configuration would exceed the recipient's payout.");
+  }
+  const applicationFeeAmount = fee.applicationFeeCents + extraApplicationFeeCents;
+  const managerPayoutCents = fee.managerPayoutCents - extraApplicationFeeCents;
   if (applicationFeeAmount > 0 && applicationFeeAmount >= fee.totalCents) {
     throw new Error("Service fee configuration prevents this charge.");
   }
