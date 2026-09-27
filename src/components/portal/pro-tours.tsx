@@ -10,7 +10,7 @@ import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type Port
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
-import { AddResidentWizard } from "@/components/portal/resident-wizard";
+import { ScheduleTourSimpleModal } from "@/components/portal/schedule-tour-simple-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/pro-tours-grouped-table";
 import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import { Button } from "@/components/ui/button";
@@ -318,8 +318,6 @@ function buildTourNotifyCarouselItems(
     };
   });
 }
-
-const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
 
 export function ManagerTours({
   bucket = "pending",
@@ -1915,13 +1913,12 @@ export function ManagerTours({
         preselectedPropertyId={scopedPropertyId}
       />
       {addTourOpen ? (
-        <AddResidentWizard
-          mode="tour"
+        <ScheduleTourSimpleModal
+          open={addTourOpen}
           onClose={() => setAddTourOpen(false)}
           managerUserId={userId ?? null}
           propertyOptions={propertyOptions}
           propertyTick={propertyTick}
-          executedLeaseKeys={EMPTY_LEASE_KEYS}
           defaultPropertyId={scopedPropertyId}
           onAdded={() => {
             void refresh();
