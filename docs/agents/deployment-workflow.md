@@ -24,7 +24,7 @@ and agent branches are the messy layer.
 
 An explicit Akhil ship request authorizes agents working for him to promote
 only his keeper → `main` → `staging` → `production`; it does not authorize
-writing `prakrit`. Only the active dated policy above may waive staging QA;
+writing `prakrit`. Only the standing Akhil policy above may skip staging;
 fast-forward-only promotion and every production safety gate remain.
 
 ## Vercel: `proplane` is PropLane production
@@ -118,7 +118,7 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 
 - Never push feature branches expecting a Vercel deploy.
 - Never merge directly to `production`. Never skip `staging` outside the
-  active dated policy.
+  standing Akhil policy.
 - Keep `staging` a strict fast-forward of `main`, and `production` a strict
   fast-forward of the script-selected source. Never commit unique work to either.
 - Run `npm run ship:preflight` before promoting to production.

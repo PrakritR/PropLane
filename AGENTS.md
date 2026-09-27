@@ -74,7 +74,7 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 **Prakrit: standing keeper → `prakrit` (captain integrate) → `main`; agents working
 for Akhil after his explicit ship request: his prompt branch → `main`. QA on
-`staging` by default, subject only to the dated policy above. Live from
+`staging` by default; Akhil's releases skip it under the standing policy above. Live from
 `production`.**
 Prakrit keeps six standing agent branches and the captain integration worktree
 open. His roster and integration authorization live in
