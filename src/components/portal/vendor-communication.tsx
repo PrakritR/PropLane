@@ -422,7 +422,19 @@ function VendorUnifiedInbox({
           <RoleSmsPanel apiPath="/api/vendor/sms-conversations" storageScope="vendor" tabId={"all" as ManagerSmsBucketId} />
         </div>
       ) : null}
-      <div className={assistantSelected || smsSelected ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+      {/*
+        A direct child of `.portal-inbox-thread-pane` is force-`display:flex`ed
+        by a higher-specificity rule in globals.css
+        (`html[data-communication-surface] .portal-inbox-thread-pane > * {
+        display: flex; ... }`), which beats Tailwind's `.hidden` class here —
+        this pane's empty state bled through underneath the assistant panel
+        (VD64/VD65 proof). An inline style always wins over that stylesheet
+        rule (no `!important` there), so it is used instead of `hidden`.
+      */}
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        style={assistantSelected || smsSelected ? { display: "none" } : undefined}
+      >
         <VendorInboxPanel
           ref={inboxRef}
           tabId={listSegment === "archived" ? "trash" : "all"}
