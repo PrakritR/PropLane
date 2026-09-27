@@ -473,8 +473,11 @@ export function PropertyLeaseFormModal({
       summary: label.trim() || "Name this lease",
     },
     {
+      // P005: the studio's 3-step Name -> Form -> Setup. Kept the internal
+      // id "document" (every `stepId === "document"` check below is
+      // unchanged) and only renamed the rail label to "Form" to match.
       id: "document",
-      label: "Document",
+      label: "Form",
       incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
       summary: documentModeMeta?.label ?? "Lease document",
     },
@@ -487,7 +490,11 @@ export function PropertyLeaseFormModal({
           }`
         : "Lease fee, pipeline",
     },
-    { id: "preview", label: "Preview", summary: "What residents sign" },
+    // "Preview" is no longer a separate rail step (P005: 3 steps, not 4) —
+    // `htmlPreview` was already passed as `sidePanel` below and rendered on
+    // EVERY step, so dropping this entry loses no capability, it just stops
+    // duplicating that same content as a 4th step. `lastLabel`/`onFinish`
+    // below are step-id-agnostic, so Save now naturally lands on Setup.
   ];
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]!.id;
@@ -869,12 +876,6 @@ export function PropertyLeaseFormModal({
               ) : null}
             </div>
           )}
-        </StepColumn>
-      ) : null}
-      {stepId === "preview" ? (
-        <StepColumn wide>
-          <StepHeading title="Preview" />
-          {htmlPreview}
         </StepColumn>
       ) : null}
     </AddWorkspace>
