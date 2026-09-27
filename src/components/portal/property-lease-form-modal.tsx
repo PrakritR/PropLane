@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
-import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { Button } from "@/components/ui/button";
+import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
 import {
   LeaseConfigForm,
   LeaseDocumentModeField,
@@ -135,6 +139,11 @@ export function PropertyLeaseFormModal({
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
+  // P006/P009/P011: same per-property leasing-pipeline settings the
+  // application editor's Setup step reads/writes — pipeline order, lease
+  // signing fee (real charge path: `lease-signing-fee-checkout.server.ts`,
+  // "each signer pays" per docs/agents/resident-payments.md), default lease.
+  const formSetup = usePropertyFormSetupSettings(propertyId);
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -469,6 +478,15 @@ export function PropertyLeaseFormModal({
       incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
       summary: documentModeMeta?.label ?? "Lease document",
     },
+    {
+      id: "setup",
+      label: "Setup",
+      summary: formSetup.loaded
+        ? `${(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0 ? "Fee set" : "No lease fee"} · ${
+            formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
+          }`
+        : "Lease fee, pipeline",
+    },
     { id: "preview", label: "Preview", summary: "What residents sign" },
   ];
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
@@ -555,6 +573,41 @@ export function PropertyLeaseFormModal({
             placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
             data-attr="property-lease-name"
           />
+          {/* P012 (captain 2026-09-27): "have upload application and lease in
+              first tab." A quick-pick lands the file straight from Name —
+              full document-mode choices still live on the Document step. */}
+          {mode === "add" || !draft.leaseTemplateDocUrl ? (
+            <div className="mt-3">
+              <input
+                id="property-lease-name-step-upload"
+                type="file"
+                accept="application/pdf"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (!file) return;
+                  if (documentMode !== "upload") handleDocumentModeChange("upload");
+                  if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+                  onPickLeaseTemplateDoc(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full"
+                disabled={templateUploading || parsingLease}
+                data-attr="property-lease-name-upload"
+                onClick={() => document.getElementById("property-lease-name-step-upload")?.click()}
+              >
+                {templateUploading || parsingLease ? "Reading…" : "Start from a file"}
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted" data-attr="property-lease-name-uploaded">
+              Using {draft.leaseTemplateDocName || "your uploaded lease"}.
+            </p>
+          )}
           {mode === "edit" ? (
             <fieldset className="mt-4 space-y-2">
               <legend className={WIZARD_LABEL_CLASS}>Applies to</legend>
@@ -729,6 +782,93 @@ export function PropertyLeaseFormModal({
           ) : documentMode === "upload" && !draft.leaseTemplateDocUrl ? (
             <p className="mt-3 text-sm text-foreground">Upload a PDF to parse it into PropLane format.</p>
           ) : null}
+        </StepColumn>
+      ) : null}
+      {stepId === "setup" ? (
+        <StepColumn>
+          <StepHeading title="Setup" />
+          {!formSetup.loaded ? (
+            <p className="text-sm text-muted">Loading…</p>
+          ) : (
+            <div className="space-y-5">
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Payment</p>
+                <CheckboxOption
+                  label="Charge a lease fee"
+                  checked={(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0}
+                  dataAttr="lease-setup-fee-toggle"
+                  onChange={(next) =>
+                    void formSetup.patch({
+                      leasingPipeline: {
+                        ...formSetup.leasingPipeline,
+                        leaseSigningFeeCents: next ? formSetup.leasingPipeline.leaseSigningFeeCents || 10000 : 0,
+                      },
+                    })
+                  }
+                />
+                {(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0 ? (
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className={WIZARD_LABEL_CLASS}>Lease fee</span>
+                    <MoneyInput
+                      label="Lease fee"
+                      dataAttr="lease-setup-fee-amount"
+                      value={String((formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) / 100)}
+                      placeholder="100"
+                      onChange={(raw) => {
+                        const cents = Math.round((parseFloat(raw) || 0) * 100);
+                        void formSetup.patch({
+                          leasingPipeline: { ...formSetup.leasingPipeline, leaseSigningFeeCents: cents },
+                        });
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <p className="mt-1.5 text-xs text-muted">
+                  Charged at signing — each signer pays. This is this property&apos;s one lease signing fee, shared by every
+                  lease type on it.
+                </p>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
+                <FieldSingleSelect
+                  label="Pipeline order"
+                  labelClassName={WIZARD_LABEL_CLASS}
+                  value={formSetup.leasingPipeline.pipelineOrder}
+                  dataAttr="lease-setup-pipeline-order"
+                  options={[
+                    { value: "application_then_lease", label: "Application first → then lease" },
+                    { value: "lease_then_application", label: "Lease first → then application" },
+                  ]}
+                  onChange={(next) =>
+                    void formSetup.patch({
+                      leasingPipeline: {
+                        ...formSetup.leasingPipeline,
+                        pipelineOrder: next as "application_then_lease" | "lease_then_application",
+                      },
+                    })
+                  }
+                />
+              </div>
+              {mode === "edit" && template ? (
+                <div>
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
+                  <CheckboxOption
+                    label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
+                    checked={formSetup.leasingPipeline.defaultLeaseTemplateId === template.id}
+                    dataAttr="lease-setup-default-toggle"
+                    onChange={(next) =>
+                      void formSetup.patch({
+                        leasingPipeline: {
+                          ...formSetup.leasingPipeline,
+                          defaultLeaseTemplateId: next ? template.id : null,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
         </StepColumn>
       ) : null}
       {stepId === "preview" ? (
