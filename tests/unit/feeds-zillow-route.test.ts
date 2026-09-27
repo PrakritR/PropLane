@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest } from "../helpers/api-request";
 import type { MockProperty } from "@/data/types";
 
-let FEED_ROW: { manager_user_id: string; enabled: boolean } | null;
-let PROPERTY_RECORDS: { id: string; property_data: unknown }[];
+let FEED_ROW: { manager_user_id: string; workspace_id: string; enabled: boolean } | null;
+// `workspace_id`/`manager_user_id` here are test-only filter metadata standing
+// in for the real query's `.eq()` predicates — the real select only asks
+// Supabase for `id, property_data` back, same as production.
+let PROPERTY_RECORDS: { id: string; manager_user_id: string; workspace_id: string; status: string; property_data: unknown }[];
 let PUBLIC_LISTINGS: MockProperty[];
 
 vi.mock("@/lib/public-listings.server", () => ({
@@ -21,11 +24,20 @@ vi.mock("@/lib/supabase/service", () => ({
         };
       }
       if (table === "manager_property_records") {
+        const filters: Record<string, string> = {};
         const builder: Record<string, unknown> = {
           select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
+          eq: vi.fn((col: string, value: string) => {
+            filters[col] = value;
+            return builder;
+          }),
           then: (resolve: (v: unknown) => unknown) =>
-            Promise.resolve({ data: PROPERTY_RECORDS, error: null }).then(resolve),
+            Promise.resolve({
+              data: PROPERTY_RECORDS.filter((row) =>
+                Object.entries(filters).every(([col, value]) => (row as Record<string, unknown>)[col] === value),
+              ),
+              error: null,
+            }).then(resolve),
         };
         return builder;
       }
@@ -68,9 +80,15 @@ function listing(overrides: Partial<MockProperty> = {}): MockProperty {
   } as unknown as MockProperty;
 }
 
-function propertyRecord(id: string, opts: { managerUserId: string; enabled: boolean }): { id: string; property_data: unknown } {
+function propertyRecord(
+  id: string,
+  opts: { managerUserId: string; workspaceId?: string; enabled: boolean },
+): { id: string; manager_user_id: string; workspace_id: string; status: string; property_data: unknown } {
   return {
     id,
+    manager_user_id: opts.managerUserId,
+    workspace_id: opts.workspaceId ?? "ws-1",
+    status: "live",
     property_data: {
       listingSubmission: { syndication: { zillow: { enabled: opts.enabled } } },
     },
@@ -98,14 +116,14 @@ describe("GET /api/feeds/zillow/[feedKey]", () => {
   });
 
   it("404s for a disabled feed", async () => {
-    FEED_ROW = { manager_user_id: "mgr-1", enabled: false };
+    FEED_ROW = { manager_user_id: "mgr-1", workspace_id: "ws-1", enabled: false };
     const res = await getFeed("some-key");
     expect(res.status).toBe(404);
   });
 
   it("serves XML with the right content type for a known, enabled feed", async () => {
-    FEED_ROW = { manager_user_id: "mgr-1", enabled: true };
-    PROPERTY_RECORDS = [propertyRecord("prop-1", { managerUserId: "mgr-1", enabled: true })];
+    FEED_ROW = { manager_user_id: "mgr-1", workspace_id: "ws-1", enabled: true };
+    PROPERTY_RECORDS = [propertyRecord("prop-1", { managerUserId: "mgr-1", workspaceId: "ws-1", enabled: true })];
     PUBLIC_LISTINGS = [listing()];
     const res = await getFeed("some-key");
     expect(res.status).toBe(200);
@@ -116,10 +134,10 @@ describe("GET /api/feeds/zillow/[feedKey]", () => {
   });
 
   it("includes only THIS manager's opted-in, published listings — not another manager's or an opted-out one", async () => {
-    FEED_ROW = { manager_user_id: "mgr-1", enabled: true };
+    FEED_ROW = { manager_user_id: "mgr-1", workspace_id: "ws-1", enabled: true };
     PROPERTY_RECORDS = [
-      propertyRecord("prop-1", { managerUserId: "mgr-1", enabled: true }),
-      propertyRecord("prop-2", { managerUserId: "mgr-1", enabled: false }), // opted out
+      propertyRecord("prop-1", { managerUserId: "mgr-1", workspaceId: "ws-1", enabled: true }),
+      propertyRecord("prop-2", { managerUserId: "mgr-1", workspaceId: "ws-1", enabled: false }), // opted out
     ];
     PUBLIC_LISTINGS = [
       listing({ id: "prop-1", managerUserId: "mgr-1" }),
@@ -132,5 +150,23 @@ describe("GET /api/feeds/zillow/[feedKey]", () => {
     expect(body).not.toContain('id="prop-2"');
     expect(body).not.toContain('id="prop-3"');
     expect(body).not.toContain("Another manager's house");
+  });
+
+  it("W013: includes only listings placed in THIS feed's workspace — not a sibling workspace of the same manager", async () => {
+    FEED_ROW = { manager_user_id: "mgr-1", workspace_id: "ws-1", enabled: true };
+    PROPERTY_RECORDS = [
+      propertyRecord("prop-1", { managerUserId: "mgr-1", workspaceId: "ws-1", enabled: true }),
+      // Same manager, same opt-in, but a DIFFERENT workspace — must not leak into ws-1's feed.
+      propertyRecord("prop-2", { managerUserId: "mgr-1", workspaceId: "ws-2", enabled: true }),
+    ];
+    PUBLIC_LISTINGS = [
+      listing({ id: "prop-1", managerUserId: "mgr-1", title: "Workspace one house" }),
+      listing({ id: "prop-2", managerUserId: "mgr-1", title: "Workspace two house" }),
+    ];
+    const res = await getFeed("some-key");
+    const body = await res.text();
+    expect(body).toContain('id="prop-1"');
+    expect(body).not.toContain('id="prop-2"');
+    expect(body).not.toContain("Workspace two house");
   });
 });

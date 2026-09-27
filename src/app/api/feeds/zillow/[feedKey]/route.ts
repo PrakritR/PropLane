@@ -12,17 +12,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Which of this manager's live property ids opted into Zillow — read from the
- * RAW stored row, never the public projection. `publicListingProjection`
- * deliberately excludes `syndication`: it is manager-internal operational
- * state, not prospect-facing copy, so it never belongs on an allowlist every
- * anonymous surface shares.
+ * Which of this WORKSPACE's live property ids opted into Zillow — read from
+ * the RAW stored row, never the public projection. `publicListingProjection`
+ * deliberately excludes `syndication` (manager-internal operational state)
+ * AND `workspaceId` (also not on the public allowlist), so a workspace's feed
+ * cannot be scoped by filtering the projected listing itself (W013) — this
+ * pre-computed id set is what does that scoping instead: only a property
+ * actually placed in `feed.workspace_id` can ever appear in this feed.
  */
-async function zillowEnabledPropertyIds(db: SupabaseClient, managerUserId: string): Promise<Set<string>> {
+async function zillowEnabledPropertyIds(
+  db: SupabaseClient,
+  managerUserId: string,
+  workspaceId: string,
+): Promise<Set<string>> {
   const { data, error } = await db
     .from("manager_property_records")
     .select("id, property_data")
     .eq("manager_user_id", managerUserId)
+    .eq("workspace_id", workspaceId)
     .eq("status", "live");
   if (error) throw new Error(error.message);
   const ids = new Set<string>();
@@ -35,10 +42,11 @@ async function zillowEnabledPropertyIds(db: SupabaseClient, managerUserId: strin
 }
 
 /**
- * Public, anonymous Zillow Rental Network feed for one manager account.
+ * Public, anonymous Zillow Rental Network feed for one WORKSPACE (W013).
  * `feedKey` is an opaque token (`manager_syndication_feeds.feed_key`), never
- * the manager's user id — the URL alone reveals no identity. Unknown or
- * disabled key: 404, same as any other "this does not exist" public read.
+ * the manager's user id or the workspace id — the URL alone reveals no
+ * identity. Unknown or disabled key: 404, same as any other "this does not
+ * exist" public read.
  */
 export async function GET(_req: Request, context: { params: Promise<{ feedKey: string }> }) {
   const { feedKey } = await context.params;
@@ -48,7 +56,7 @@ export async function GET(_req: Request, context: { params: Promise<{ feedKey: s
   const db = createSupabaseServiceRoleClient();
   const { data: feed, error } = await db
     .from("manager_syndication_feeds")
-    .select("manager_user_id, enabled")
+    .select("manager_user_id, workspace_id, enabled")
     .eq("feed_key", key)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,7 +67,7 @@ export async function GET(_req: Request, context: { params: Promise<{ feedKey: s
   try {
     const [listings, enabledIds] = await Promise.all([
       getPublicListings(),
-      zillowEnabledPropertyIds(db, feed.manager_user_id),
+      zillowEnabledPropertyIds(db, feed.manager_user_id, feed.workspace_id),
     ]);
     const scoped = listings.filter(
       (listing) => listing.managerUserId === feed.manager_user_id && enabledIds.has(listing.id),

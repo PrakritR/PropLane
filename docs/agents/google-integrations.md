@@ -23,6 +23,53 @@ Console's data-access review lists `gmail.readonly` as ever granted to this
 OAuth client, it is a stale Console-side grant, not something the app
 requests — see the Console steps below.
 
+## W012 (one PropLane calendar per workspace) — investigated, dropped
+
+A decision to give every `portal_workspaces` workspace its own dedicated
+"PropLane · <workspace name>" Google calendar (routed by the event's property
+→ workspace, existing connections' calendar becoming their owner's DEFAULT
+workspace's calendar) was investigated and **not built** — too large and too
+risky to land safely alongside a normal task, per the captain's standing
+instruction to drop plans that don't fit. Left entirely unchanged. Reasons,
+for whoever picks this up next:
+
+- The connection model below is genuinely single-calendar: `writeCalendarId`
+  and `proplaneSyncToken` are ONE value each per manager
+  (`GoogleCalendarConnection`, `src/lib/google-calendar/settings.ts`), and
+  `createGoogleCalendarEvent`/`updateGoogleCalendarEvent`/
+  `deleteGoogleCalendarEvent` (`api.server.ts`) resolve that ONE calendar
+  internally via `resolveGoogleCalendarWriteId` — none of the three accept an
+  explicit calendar id today. Routing per workspace means turning that into a
+  workspace-keyed store (a new table, most likely) and threading an explicit
+  workspace/calendar id through all three write functions.
+- Nine call sites across the codebase invoke the three sync entry points
+  (`syncPlannedTourToGoogleCalendar[Attempt]`, `syncWorkOrderToGoogleCalendar`,
+  `syncManagerAvailabilityToGoogleCalendar`) — `manual-planned-tour.server.ts`,
+  `prospect-tour-booking-recovery.server.ts`, `work-order-dispatch.server.ts`,
+  `tour-inquiry-confirm.server.ts`, `tools/domains/work-orders.ts`,
+  `resident-work-order-lifecycle.server.ts`, `tour-planned-change.server.ts`,
+  two API routes, and the reconcile module itself. The tour sync input type
+  carries only a display `propertyTitle`, not a property id — "route by the
+  event's property" needs a property id threaded through several more layers
+  before a workspace can even be resolved.
+- The 478-line two-way reconciliation walk
+  (`proplane-calendar-reconcile.server.ts`) currently pumps ONE incremental
+  sync feed (`connection.proplaneSyncToken`) for the ONE write calendar. Per-
+  workspace calendars mean walking N feeds with N independent cursors per
+  owner, then mapping each Google-reported change back to the record's own
+  workspace.
+- All of the above sits underneath deliberately hardened concurrency
+  machinery already built for the single-calendar case — deterministic event
+  ids, a write-intent lease (`beginPlannedTourGoogleWriteIntent`), ETag
+  conditional writes (`GoogleCalendarWriteSupersededError`) — that a
+  multi-calendar rewrite must not regress. Getting this wrong breaks live
+  tour/service-visit sync for every manager, not just the multi-workspace
+  ones.
+- It does NOT require new Google re-consent (`calendar.app.created` already
+  covers creating more than one app-created calendar), so that specific stop
+  condition does not apply — the size and blast radius of the code change is
+  why this was dropped, not the OAuth scope.
+
 ## Two-way Calendar sync
 
 ### The dedicated "PropLane" calendar
