@@ -102,12 +102,12 @@ const ballardOverride: ReminderSettings = normalizeReminderSettings({
 
 const beforeTimings = (s: ReminderSettings) => s.rules.inspection.timings.filter((t) => t.startsWith("before:"));
 
-describe("reminder senders resolve per house", () => {
-  it("two houses, two rules -> two timings from one resolver load", async () => {
+describe("fixed reminders (S020, captain 2026-09-27): the resolver always answers with the built-in defaults", () => {
+  it("a house's own override is ignored — every property resolves to the built-in default, not its own customization", async () => {
     const db = makeDb({
       manager_automation_settings: [{ manager_user_id: MGR, row_data: { reminderRules: workspace } }],
       manager_property_records: [
-        // Ballard House is customized; Cascade Lofts is not.
+        // Ballard House is customized; Cascade Lofts is not. Neither matters anymore.
         { id: BALLARD, manager_user_id: MGR, row_data: { operationsSettings: { reminderRules: ballardOverride } } },
         { id: CASCADE, manager_user_id: MGR, row_data: {} },
       ],
@@ -115,13 +115,12 @@ describe("reminder senders resolve per house", () => {
 
     const resolver = await loadReminderSettingsResolver(db, [MGR]);
 
-    // A Ballard House lease resolves to Ballard House's rule: 2 days before.
-    expect(beforeTimings(resolver.resolve(MGR, BALLARD))).toEqual(["before:2880"]);
-    // A Cascade Lofts lease inherits the workspace rule: 1 day before.
-    expect(beforeTimings(resolver.resolve(MGR, CASCADE))).toEqual(["before:1440"]);
+    expect(resolver.resolve(MGR, BALLARD)).toEqual(DEFAULT_REMINDER_SETTINGS);
+    expect(resolver.resolve(MGR, CASCADE)).toEqual(DEFAULT_REMINDER_SETTINGS);
+    expect(beforeTimings(resolver.resolve(MGR, BALLARD))).toEqual(beforeTimings(DEFAULT_REMINDER_SETTINGS));
   });
 
-  it("a row with no property keeps the workspace rule", async () => {
+  it("a row with no property still resolves to the built-in default", async () => {
     const db = makeDb({
       manager_automation_settings: [{ manager_user_id: MGR, row_data: { reminderRules: workspace } }],
       manager_property_records: [
@@ -129,14 +128,27 @@ describe("reminder senders resolve per house", () => {
       ],
     });
     const resolver = await loadReminderSettingsResolver(db, [MGR]);
-    // e.g. an unanswered inbox thread has no property → workspace rule.
-    expect(beforeTimings(resolver.resolve(MGR, null))).toEqual(["before:1440"]);
+    expect(resolver.resolve(MGR, null)).toEqual(DEFAULT_REMINDER_SETTINGS);
   });
 
-  it("a manager with no stored row falls back to defaults, never silence", async () => {
+  it("a manager with no stored row also resolves to the built-in default, never silence", async () => {
     const db = makeDb({ manager_automation_settings: [], manager_property_records: [] });
     const resolver = await loadReminderSettingsResolver(db, [MGR]);
     expect(beforeTimings(resolver.resolve(MGR, null))).toEqual(beforeTimings(DEFAULT_REMINDER_SETTINGS));
+  });
+
+  it("resolves without ever querying the database — nothing left to read", async () => {
+    const db = makeDb({});
+    let queried = false;
+    const spyDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "from") queried = true;
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const resolver = await loadReminderSettingsResolver(spyDb, [MGR]);
+    expect(resolver.resolve(MGR, BALLARD)).toEqual(DEFAULT_REMINDER_SETTINGS);
+    expect(queried).toBe(false);
   });
 });
 
@@ -217,26 +229,20 @@ describe("mergeReminderSettingsOverride — per-kind partial (PLAN-0916-1040 §1
   });
 });
 
-describe("loadReminderSettingsForProperty + clearPropertyOverride(kind) — clearing one kind leaves siblings", () => {
-  it("clearing one customized kind reverts JUST that kind to the workspace value", async () => {
-    const { savePropertyOverride, clearPropertyOverride } = await import("@/lib/settings/property-overrides.server");
+describe("loadReminderSettingsForProperty — fixed reminders (S020): a stored override changes nothing", () => {
+  it("a saved per-kind property override is never read back — the property still resolves to the built-in default", async () => {
+    const { savePropertyOverride } = await import("@/lib/settings/property-overrides.server");
     const db = makeDb({
       manager_automation_settings: [{ manager_user_id: MGR, row_data: { reminderRules: workspace } }],
       manager_property_records: [{ id: BALLARD, manager_user_id: MGR, row_data: {} }],
     });
+    // Saving still works (S020: "do not delete stored data") — it is simply
+    // never consulted by anything that decides what actually sends.
     await savePropertyOverride(db, MGR, BALLARD, "reminderRules", {
       inspection: { ...workspace.rules.inspection, timings: ["before:2880"] },
       tour: { ...workspace.rules.tour, timings: ["before:120"] },
     });
-    let settings = await loadReminderSettingsForProperty(db, MGR, BALLARD);
-    expect(settings.rules.inspection.timings).toEqual(["before:2880"]);
-    expect(settings.rules.tour.timings).toEqual(["before:120"]);
-
-    await clearPropertyOverride(db, MGR, BALLARD, "reminderRules", "inspection");
-    settings = await loadReminderSettingsForProperty(db, MGR, BALLARD);
-    // Cleared kind is back to the workspace value...
-    expect(settings.rules.inspection.timings).toEqual(workspace.rules.inspection.timings);
-    // ...but the sibling kind's own override survives untouched.
-    expect(settings.rules.tour.timings).toEqual(["before:120"]);
+    const settings = await loadReminderSettingsForProperty(db, MGR, BALLARD);
+    expect(settings).toEqual(DEFAULT_REMINDER_SETTINGS);
   });
 });

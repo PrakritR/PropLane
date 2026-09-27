@@ -2,15 +2,11 @@
 /**
  * PLAN-0920-0845 phase E — Payments settings drops the "Settings" area
  * dropdown (Payment setup / Incoming / Outgoing / Late fees, one at a time)
- * in favor of five always-visible, separately-tagged stacked sections:
- * Payment setup, Processing fee, Late fees, Incoming reminders, Outgoing
- * reminders. The Stripe "Finish setup" pill and its orange sentence — the
- * two elements the phase's build note called out — are gone for the
- * incomplete-onboarding state. PLAN-0920-0853 later replaced the Stripe card
- * itself with a plain "Payouts" door to a dedicated page (identity, bank and
- * balance all live there now), so the row's own incomplete-state wording is
- * the plain "Set up" word, not a "Finish setup →" link — the row itself
- * still stays reachable, which is what this file's last test now checks.
+ * in favor of three always-visible, separately-tagged stacked sections:
+ * Payment setup, Processing fee, Late fees (S022, captain 2026-09-27, dropped
+ * the reminders link along with the retry choice, the upcoming-charges
+ * toggle, and — PLAN-0920-0853's Stripe-card-turned-door — the redundant
+ * Payouts quick-link row; Payouts has its own Settings tab).
  */
 import { readFileSync } from "node:fs";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -94,7 +90,14 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     }
     expect(body).not.toContain('title="Incoming reminders"');
     expect(body).not.toContain('title="Outgoing reminders"');
-    expect(body).toContain("Edit reminder timing and automated messages");
+    // S022 (captain 2026-09-27): the reminders link left the resident-facing
+    // (incoming/default) Payments settings pane — reminders are fixed
+    // everywhere now (see `WhatProplaneSends`, Settings → Communication), so
+    // there is nothing left here to link out to. `mode="outgoing"` is a
+    // separate, non-Settings-nav surface (out of scope) and keeps its link.
+    const incoming = body.slice(body.indexOf('title="Payment setup"'));
+    expect(incoming).not.toContain("Edit reminder timing and automated messages");
+    expect(incoming).not.toContain("payments-open-reminders-hub");
   });
 
   it("gives Processing fee and Late fees a scope-bar-fed source tag; reminders keep theirs on the Reminders hub", () => {
@@ -118,7 +121,7 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
   });
 });
 
-describe("ManagerPaymentSetupPanel: the incomplete-onboarding pill and sentence are gone", () => {
+describe("ManagerPaymentSetupPanel: the Payouts quick-link card is gone (S022, captain 2026-09-27)", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -144,23 +147,11 @@ describe("ManagerPaymentSetupPanel: the incomplete-onboarding pill and sentence 
     });
   }
 
-  it("shows no pill on the Stripe card while onboarding is incomplete", async () => {
+  it("renders no Payouts card at all, in any onboarding state — Payouts has its own Settings tab now", async () => {
     await mountIncomplete();
-    const card = document.querySelector('[data-testid="payment-setup-stripe-card"]');
-    expect(card).toBeTruthy();
-    expect(card!.querySelector("span.rounded-full")).toBeNull();
-  });
-
-  it("shows no orange sentence while onboarding is incomplete", async () => {
-    await mountIncomplete();
+    expect(document.querySelector('[data-testid="payment-setup-stripe-card"]')).toBeNull();
+    expect(document.querySelector('[data-testid="payment-setup-stripe-card-locked"]')).toBeNull();
     expect(screen.queryByText(/Finish onboarding \(identity \+ bank details\)/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the payouts row reachable, showing Set up while onboarding is incomplete", async () => {
-    await mountIncomplete();
-    const card = screen.getByTestId("payment-setup-stripe-card");
-    expect(card.tagName).toBe("BUTTON");
-    expect(card).toHaveTextContent("Set up");
   });
 });
 
@@ -170,7 +161,7 @@ describe("ManagerPaymentSetupPanel: autopay rows render once across the split se
     vi.unstubAllGlobals();
   });
 
-  it("shows each autopay row label exactly once when Payments settings mounts both section=\"setup\" and section=\"fee\" (PaymentsSettingsPanel's actual shape)", async () => {
+  it("shows the autopay row label exactly once when Payments settings mounts both section=\"setup\" and section=\"fee\" (PaymentsSettingsPanel's actual shape)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -195,6 +186,8 @@ describe("ManagerPaymentSetupPanel: autopay rows render once across the split se
     });
 
     expect(screen.getAllByText("Residents can set up autopay")).toHaveLength(1);
-    expect(screen.getAllByText("Autopay retries a declined payment")).toHaveLength(1);
+    // The retry choice left this row entirely (S022, captain 2026-09-27) —
+    // autopay always retries once, 3 days later, with no control for it.
+    expect(screen.queryByText("Autopay retries a declined payment")).toBeNull();
   });
 });

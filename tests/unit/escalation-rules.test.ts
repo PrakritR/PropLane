@@ -60,6 +60,10 @@ const CREATED_AT = "2024-01-01T12:00:00.000Z";
 // already past `now`.
 const NOW = new Date("2024-01-01T12:30:00.000Z");
 
+// Fixed reminders (S020, captain 2026-09-27): a stored `quietHours: { enabled:
+// false }` is exactly the kind of override the engine now ignores — the
+// built-in default (9 PM-8 AM Pacific, `DEFAULT_QUIET_HOURS`) always applies
+// regardless of what this row says.
 const QUIET_HOURS_OFF = { quietHours: { enabled: false, startHour: 0, endHour: 0 } };
 const ACCOUNT_SETTINGS = { ...QUIET_HOURS_OFF };
 
@@ -79,8 +83,8 @@ function workOrderRow(id: string, opts: { emergency?: boolean } = {}) {
   };
 }
 
-describe("services escalations (PLAN-0915 area 4)", () => {
-  it("an unassigned request escalates at 1 day; an emergency one escalates at 1 hour", async () => {
+describe("services escalations (PLAN-0915 area 4) — fixed reminders ignore a stored quiet-hours override (S020, captain 2026-09-27)", () => {
+  it("an unassigned request escalates at 1 day, pushed past the built-in quiet window; an emergency one still escalates at 1 hour, unpushed (urgent bypasses quiet hours)", async () => {
     const upserts: Row[] = [];
     const db = makeDb(
       {
@@ -105,14 +109,21 @@ describe("services escalations (PLAN-0915 area 4)", () => {
     }
 
     // Normal: escalates 1 day (1440 min) after filed, to the manager only.
+    // The stored `ACCOUNT_SETTINGS` row above turns quiet hours off, but that
+    // is ignored now — the built-in default (9 PM-8 AM Pacific) still applies,
+    // pushing the raw 4 AM Pacific send time to 8 AM Pacific
+    // (`2024-01-02T16:00:00.000Z`, not the unpushed `12:00:00.000Z`).
     const normal = byWorkOrder.get("wo-normal")!;
     expect(normal).toHaveLength(1);
     expect(normal[0].kind).toBe("work_order_unassigned");
     expect(normal[0].lead_minutes).toBe(-1440);
     expect(normal[0].recipient_role).toBe("manager");
-    expect(normal[0].send_at).toBe(new Date(Date.parse(CREATED_AT) + 1440 * 60_000).toISOString());
+    expect(normal[0].send_at).toBe("2024-01-02T16:00:00.000Z");
 
-    // Emergency: escalates 1 hour (60 min) after filed, to the manager.
+    // Emergency: escalates 1 hour (60 min) after filed, to the manager, and
+    // stays UNPUSHED — `work_order_unassigned_emergency` is in
+    // `URGENT_REMINDER_KINDS`, which bypasses quiet hours entirely regardless
+    // of source, so this assertion is unchanged by S020.
     // "You + co-managers" is an available audience choice in Settings, never
     // a default (tests/unit/reminder-team-scope.test.ts).
     const emergency = byWorkOrder.get("wo-emergency")!;

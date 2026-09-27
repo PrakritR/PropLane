@@ -25,12 +25,14 @@ describe("Payout entry points never open a hosted onboarding redirect", () => {
     expect(navigatesToOnboard).toBe(false);
   });
 
-  it("the payment-settings modal's Payouts row opens Settings → Payouts, not the old /payments/payouts page", () => {
+  it("Payment setup no longer carries its own Payouts quick-link row (S022, captain 2026-09-27)", () => {
     const text = source("src/components/portal/pro-payment-setup-modal.tsx");
-    // Payouts folded into Profile → Payouts (PLAN-0920-1500); the settings
-    // gear modal's own tab list still calls this tab "payouts", so the hub
-    // query stays `?tab=payouts` (managerSettingsHubTab/-ProfilePath).
-    expect(text).toMatch(/`\$\{portalBasePath\}\/profile\?tab=payouts`/);
+    // The row was a redundant shortcut once Payouts got its own Settings
+    // entry (PLAN-0920-1500) — removed in the Payments settings
+    // simplification. Payouts stays reachable through its own Settings tab
+    // (`?tab=payouts`), never through a card inside Payment setup.
+    expect(text).not.toMatch(/`\$\{portalBasePath\}\/profile\?tab=payouts`/);
     expect(text).not.toMatch(/`\$\{portalBasePath\}\/payments\/payouts`/);
+    expect(text).not.toContain("manager-payment-stripe-link");
   });
 });
