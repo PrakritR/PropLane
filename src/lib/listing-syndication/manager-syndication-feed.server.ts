@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * carries only that workspace's own eligible listings, never another
  * workspace's, and the pre-existing (single) feed a manager already
  * registered with Zillow keeps its exact URL, now scoped to their default
- * workspace (`20260927120000_listing_syndication_per_workspace.sql`).
+ * workspace (`20260927134258_listing_syndication_per_workspace.sql`).
  * `manager_syndication_feeds` is service-role only (no client-role grants),
  * so every read/write here goes through the service-role client, pinned to
  * the caller's own `managerUserId`/`workspaceId` — never a value from the

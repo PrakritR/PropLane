@@ -10,7 +10,7 @@ import { getOrCreateManagerSyndicationFeedKey } from "@/lib/listing-syndication/
  *  - routing: two workspaces of the SAME manager never share a feed key.
  *  - the default-workspace migration path: a feed row that already exists
  *    for (manager, workspace) — exactly the shape
- *    `20260927120000_listing_syndication_per_workspace.sql` backfills a
+ *    `20260927134258_listing_syndication_per_workspace.sql` backfills a
  *    pre-existing single feed into — is returned unchanged rather than
  *    duplicated, so an already-registered Zillow feed URL keeps working.
  */
@@ -80,7 +80,7 @@ describe("getOrCreateManagerSyndicationFeedKey (W013 per-workspace routing)", ()
   it("default-workspace migration path: a feed already backfilled onto (manager, defaultWorkspace) is reused, not duplicated", async () => {
     // Simulates the exact post-migration state: an EXISTING single feed row
     // (created before W013) now carries the owner's default workspace id,
-    // written by `20260927120000_listing_syndication_per_workspace.sql`'s
+    // written by `20260927134258_listing_syndication_per_workspace.sql`'s
     // backfill rather than by this function.
     rows.push({ manager_user_id: "mgr-legacy", workspace_id: "ws-default", feed_key: "feed-already-registered-with-zillow" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

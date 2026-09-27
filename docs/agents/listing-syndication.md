@@ -13,7 +13,7 @@ every other prospect channel), and no key-regeneration flow.
 `portal_workspaces`; the feed used to be scoped by `manager_user_id` alone, so
 a multi-workspace manager's single feed mixed every workspace's listings.
 `manager_syndication_feeds` now carries `workspace_id`
-(`supabase/migrations/20260927120000_listing_syndication_per_workspace.sql`,
+(`supabase/migrations/20260927134258_listing_syndication_per_workspace.sql`,
 additive, service-role only), unique on `(manager_user_id, workspace_id)`. A
 pre-existing single feed keeps its exact `feed_key` — never regenerated — and
 was backfilled onto that manager's DEFAULT workspace
@@ -101,7 +101,7 @@ listing itself. `Content-Type: application/xml`, `Cache-Control` matches the
 other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
 
 `manager_syndication_feeds` (`supabase/migrations/20260920203000_listing_syndication.sql`,
-`20260927120000_listing_syndication_per_workspace.sql`) follows
+`20260927134258_listing_syndication_per_workspace.sql`) follows
 `manager_house_public_links`'s shape exactly: service-role only, `revoke all
 ... from anon, authenticated`. The manager-facing "Zillow feed URL" settings
 row (Settings → Properties, `ZillowFeedUrlRow` in
