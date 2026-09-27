@@ -40,6 +40,10 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({ sendFromManagerWorkNumbe
 vi.mock("@/lib/comms-billing/wallet.server", () => ({
   reserveCommsCredit: vi.fn(async () => ({ allowed: true, duplicate: false, state: "reserved" })),
   finishCommsCredit: vi.fn(async () => undefined),
+  // W009 workspace resolution — a null result plus the pool flag off (the
+  // test default) falls through to reserveCommsCredit's own default-workspace
+  // fallback, exactly like production before that fix.
+  resolveWorkspaceIdForWorkNumber: vi.fn(async () => null),
 }));
 vi.mock("@/lib/comms-billing/turn-result.server", () => ({
   INTERRUPTED_COMMS_REPLY: "interrupted",

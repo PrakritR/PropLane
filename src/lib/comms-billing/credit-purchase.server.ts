@@ -150,7 +150,7 @@ export class CommsCreditValidationError extends Error {
  * session / payment intent disagrees. Any other database error is transient
  * and keeps the event retryable.
  */
-function isTerminalFulfillmentError(error: {
+export function isTerminalFulfillmentError(error: {
   code?: string;
   message?: string;
 }): boolean {

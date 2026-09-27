@@ -1,7 +1,8 @@
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
-import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { reserveCommsCredit, resolveWorkspaceIdForWorkOrder } from "@/lib/comms-billing/wallet.server";
+import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
  * Vendor-agent conversation runtime. A session (agent_sessions row, kind
  * 'vendor_work_order') binds one work order + one vendor + one conversation
@@ -299,7 +300,19 @@ export async function runVendorAgentSessionTurn(
   const nowIso = new Date().toISOString();
   const creditKey = `vendor_ai:${session.id}:${options?.inboundMessageSid ?? nowIso}`;
   if (channel === "sms") {
-    const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn", idempotencyKey: creditKey });
+    // W009: name the workspace this work order actually belongs to (via its
+    // property) rather than letting `reserveCommsCredit` default to the
+    // owner's default workspace. Under the messaging-credit pool (which needs
+    // a real workspace to pick a funder) an unresolvable workspace refuses
+    // the turn; the legacy per-workspace wallet keeps its existing
+    // default-workspace fallback, so this is never a behavior change while
+    // the pool is off.
+    const workspaceId = await resolveWorkspaceIdForWorkOrder(db, session.work_order_id);
+    if (!workspaceId && isCommsCreditPoolEnabled()) {
+      console.error("vendor-agent turn suppressed: workspace unknown", session.id);
+      return null;
+    }
+    const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, workspaceId: workspaceId ?? undefined, meter: "ai_agent_turn", idempotencyKey: creditKey });
     if (!credit.allowed) return null;
     if (credit.duplicate) {
       const reply = await readCommsTurnResult<string>(db, session.landlord_id, creditKey, INTERRUPTED_COMMS_REPLY);
