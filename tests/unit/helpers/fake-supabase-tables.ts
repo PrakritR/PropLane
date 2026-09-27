@@ -17,7 +17,7 @@ function matches(row: Row, col: string, val: unknown): boolean {
   return row[col] === val;
 }
 
-/** Just enough of PostgREST's `or()` grammar for `applyWorkspaceRowScope`'s two shapes. */
+/** Just enough of PostgREST's `or()` grammar for the shapes this repo's `.or()` callers generate. */
 function buildOrMatcher(expr: string): (row: Row) => boolean {
   const clauses = expr.split(",");
   const matchers = clauses.map((clause) => {
@@ -31,6 +31,14 @@ function buildOrMatcher(expr: string): (row: Row) => boolean {
     if (isNullMatch) {
       const [, col] = isNullMatch;
       return (row: Row) => row[col] === null || row[col] === undefined;
+    }
+    // e.g. `resident_email.eq.someone@example.com` (resident-relationship's
+    // `.or("resident_email.eq.x,resident_user_id.eq.y")` shape). Greedy on
+    // purpose: the value itself may contain dots (an email address).
+    const eqMatch = clause.match(/^(\w+)\.eq\.(.*)$/);
+    if (eqMatch) {
+      const [, col, val] = eqMatch;
+      return (row: Row) => String(row[col] ?? "") === val;
     }
     throw new Error(`fake-supabase-tables: unhandled or() clause: ${clause}`);
   });

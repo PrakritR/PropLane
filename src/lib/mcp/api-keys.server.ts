@@ -30,6 +30,8 @@ export type ApiKeyRow = {
   scopes: ApiKeyScope[];
   allowedTools: string[];
   transport: ApiKeyTransport;
+  /** The workspace this key is scoped to. Null only on a pre-migration row that has not backfilled yet. */
+  workspaceId: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   expiresAt: string | null;
@@ -70,6 +72,7 @@ function rowToApiKey(row: Record<string, unknown>): ApiKeyRow {
     scopes: normalizeScopes(row.scopes),
     allowedTools: normalizeAllowedTools(row.allowed_tools),
     transport: normalizeTransport(row.transport),
+    workspaceId: row.workspace_id ? String(row.workspace_id) : null,
     createdAt: String(row.created_at ?? ""),
     lastUsedAt: row.last_used_at ? String(row.last_used_at) : null,
     expiresAt: row.expires_at ? String(row.expires_at) : null,
@@ -90,6 +93,12 @@ export async function mintApiKey(
     scopes: ApiKeyScope[];
     allowedTools: string[];
     transport: ApiKeyTransport;
+    /**
+     * The workspace this key is scoped to (W001). Callers resolve this to the
+     * active workspace by default, so every new key is narrowing from the
+     * moment it exists rather than reaching every workspace the owner has.
+     */
+    workspaceId: string;
     expiresAt?: string | null;
   },
 ): Promise<{ key: ApiKeyRow; token: string } | null> {
@@ -105,9 +114,12 @@ export async function mintApiKey(
       allowed_tools: normalizeAllowedTools(args.allowedTools),
       transport: normalizeTransport(args.transport),
       portal: "manager",
+      workspace_id: args.workspaceId,
       expires_at: args.expiresAt ?? null,
     })
-    .select("id, name, token_prefix, scopes, allowed_tools, transport, created_at, last_used_at, expires_at, revoked_at")
+    .select(
+      "id, name, token_prefix, scopes, allowed_tools, transport, workspace_id, created_at, last_used_at, expires_at, revoked_at",
+    )
     .single();
 
   if (error || !data) {
@@ -122,7 +134,9 @@ export async function mintApiKey(
 export async function listApiKeys(db: Db, userId: string): Promise<ApiKeyRow[]> {
   const { data, error } = await db
     .from("manager_api_keys")
-    .select("id, name, token_prefix, scopes, allowed_tools, transport, created_at, last_used_at, expires_at, revoked_at")
+    .select(
+      "id, name, token_prefix, scopes, allowed_tools, transport, workspace_id, created_at, last_used_at, expires_at, revoked_at",
+    )
     .eq("user_id", userId)
     .is("revoked_at", null)
     .order("created_at", { ascending: false });
@@ -160,6 +174,8 @@ export type ResolvedApiKey = {
   allowedTools: string[];
   transport: ApiKeyTransport;
   portal: string;
+  /** Null only for a pre-migration row that has not backfilled yet — callers must refuse rather than widen on null (W001). */
+  workspaceId: string | null;
   lastUsedAt: string | null;
 };
 
@@ -172,7 +188,9 @@ export async function findLiveApiKey(db: Db, token: string): Promise<ResolvedApi
   const hash = hashApiKeyToken(token);
   const { data, error } = await db
     .from("manager_api_keys")
-    .select("id, user_id, scopes, allowed_tools, transport, portal, token_sha256, expires_at, revoked_at, last_used_at")
+    .select(
+      "id, user_id, scopes, allowed_tools, transport, portal, workspace_id, token_sha256, expires_at, revoked_at, last_used_at",
+    )
     .eq("token_sha256", hash)
     .maybeSingle();
   if (error || !data) return null;
@@ -194,6 +212,7 @@ export async function findLiveApiKey(db: Db, token: string): Promise<ResolvedApi
     allowedTools: normalizeAllowedTools(data.allowed_tools),
     transport: normalizeTransport(data.transport),
     portal: String(data.portal ?? "manager"),
+    workspaceId: data.workspace_id ? String(data.workspace_id) : null,
     lastUsedAt: data.last_used_at ? String(data.last_used_at) : null,
   };
 }

@@ -11,6 +11,7 @@ import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
+import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -136,6 +137,15 @@ export async function createManualPlannedTour(
 
   const property = await managerCanScheduleTourOnProperty(db, managerUserId, propertyId);
   if (!property.ok) return { ok: false, status: 403, error: property.error };
+
+  // Ownership/co-manager grant alone is not enough: an owner with Workspace A
+  // active must not be able to schedule a manual tour against a property that
+  // lives in their own Workspace B (the `portal-schedule-records` route
+  // already enforces this same rule for its own create path). Admins bypass
+  // workspace narrowing entirely, same as every other admin path here.
+  if (!(await isAdminUser(managerUserId)) && !(await assertPropertyInActiveWorkspace(db, managerUserId, propertyId))) {
+    return { ok: false, status: 403, error: "That property is outside your active workspace." };
+  }
 
   const assignee = normalizeAssignee(input.assignee);
   if (assignee && !canAssign(assignee.type, "tour")) {

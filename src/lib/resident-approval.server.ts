@@ -13,7 +13,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { managerOwnsResident } from "@/lib/auth/resident-relationship";
+import { managerOwnsResident, residentPropertyIdsForManager } from "@/lib/auth/resident-relationship";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 /** Roles allowed to manage another user's approval (matches the original route gate). */
 export function canManageResidentApproval(role: string | null | undefined): boolean {
@@ -46,6 +47,20 @@ export async function setResidentApprovalForManager(
     const related = await managerOwnsResident(db, actor.userId, { email });
     if (!related) {
       return { ok: false, status: 403, error: "Forbidden: resident is not in your portfolio." };
+    }
+    // Portfolio ownership above is not workspace-scoped — active-workspace
+    // narrowing runs BESIDE it, never instead of it. A resident this actor
+    // manages only through a property outside their current active workspace
+    // must be refused exactly like every other module (documents, leases,
+    // applications, …) already refuses a row outside it. Property-less
+    // relationships (no application/charge/lease carried a property id) are
+    // left unnarrowed — there is nothing here to check against.
+    const propertyIds = await residentPropertyIdsForManager(db, actor.userId, { email });
+    if (propertyIds.length > 0) {
+      const scope = await activeWorkspacePropertyScope(db, actor.userId);
+      if (scope !== null && !propertyIds.some((id) => scope.includes(id))) {
+        return { ok: false, status: 403, error: "Forbidden: resident is not in your active workspace." };
+      }
     }
   }
 

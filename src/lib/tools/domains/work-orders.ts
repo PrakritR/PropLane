@@ -20,6 +20,7 @@ import { buildVendorVisitEmail } from "@/lib/vendor-visit-email";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { assertFinancialsTier } from "@/lib/reports/auth";
 import { WORK_ORDER_CATEGORY_TO_EXPENSE, type WorkOrderCategory } from "@/lib/reports/categories";
+import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 /** Server-side read of the landlord's work orders, scoped by manager_user_id. */
 export async function loadManagerWorkOrders(
@@ -84,10 +85,16 @@ async function findOwnedWorkOrder(
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
+  const row = (data.row_data ?? {}) as DemoManagerWorkOrderRow;
+  // Same active-workspace check `list_work_orders` gets for free through
+  // `loadAllManagerRows` (`rowAllowedInAgentWorkspace`) — a manager with 2+
+  // workspaces asking the assistant to act on a work order BY ID must not
+  // reach one filed under a house in a workspace they are not currently in.
+  if (!rowAllowedInAgentWorkspace(ctx, row)) return null;
   return {
     id: String(data.id),
     vendorUserId: (data.vendor_user_id as string | null) ?? null,
-    row: (data.row_data ?? {}) as DemoManagerWorkOrderRow,
+    row,
   };
 }
 

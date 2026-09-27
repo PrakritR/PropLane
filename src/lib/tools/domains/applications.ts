@@ -17,6 +17,7 @@ import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 /** Server-side read of the landlord's applications, scoped by manager_user_id. */
 async function loadManagerApplications(ctx: AgentContext): Promise<DemoApplicantRow[]> {
@@ -111,6 +112,11 @@ async function loadOwnedApplicationRecord(
   ) {
     return null;
   }
+  // Same active-workspace check `list_applications` gets for free through
+  // `loadAllManagerRows` (`rowAllowedInAgentWorkspace`) — a manager with 2+
+  // workspaces asking the assistant to act on an application BY ID must not
+  // reach one filed under a house in a workspace they are not currently in.
+  if (!rowAllowedInAgentWorkspace(ctx, rec.row_data)) return null;
   return rec;
 }
 

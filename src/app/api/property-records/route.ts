@@ -1,6 +1,7 @@
 import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
 import { NextResponse } from "next/server";
 import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
@@ -145,12 +146,23 @@ export async function GET() {
     const { data: ownedRows, error } = await baseQuery.eq("manager_user_id", user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    let rows = ownedRows ?? [];
-    if (linkedPropertyIds.size > 0) {
+    // The active workspace, resolved server-side from the selection cookie —
+    // never from anything the client sends. `null` means "not narrowing" (no
+    // workspaces, or the load failed); a resolved array (even empty) is the
+    // active workspace's real property ids. Without this, the raw payload
+    // here always carried EVERY workspace the manager owns (full address,
+    // access codes) regardless of which one is active, and a co-manager's
+    // linked rows were never narrowed to the workspace that holds them either.
+    const workspaceScope = await activeWorkspacePropertyScope(db, user.id);
+    let rows = workspaceScope === null ? (ownedRows ?? []) : (ownedRows ?? []).filter((row) => workspaceScope.includes(String(row.id)));
+    const scopedLinkedPropertyIds =
+      workspaceScope === null ? linkedPropertyIds : new Set([...linkedPropertyIds].filter((id) => workspaceScope.includes(id)));
+
+    if (scopedLinkedPropertyIds.size > 0) {
       const { data: linkedRows, error: linkedError } = await db
         .from("manager_property_records")
         .select("id, manager_user_id, status, row_data, property_data, edit_request_note")
-        .in("id", [...linkedPropertyIds])
+        .in("id", [...scopedLinkedPropertyIds])
         .order("created_at", { ascending: true });
 
       if (linkedError) return NextResponse.json({ error: linkedError.message }, { status: 500 });
@@ -164,7 +176,7 @@ export async function GET() {
     // to drop co-managed listings like Brooklyn from the local pipeline).
     return NextResponse.json({
       snapshot: propertyRowsToSnapshot(rows),
-      linkedPropertyIds: [...linkedPropertyIds],
+      linkedPropertyIds: [...scopedLinkedPropertyIds],
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load property records.";
