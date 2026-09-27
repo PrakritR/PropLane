@@ -18,6 +18,7 @@ import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-s
 import { cn } from "@/lib/utils";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { DASHBOARD_PERIOD_LABELS, type DashboardPeriodKind, type KpiDelta } from "@/lib/dashboard-kpis";
+import { formatPacificDate, pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 /* ───────────────────────── period selector ───────────────────────── */
 
@@ -255,19 +256,37 @@ export type UpcomingRow = {
   href: string;
 };
 
-function dayLabel(ms: number, nowMs: number): { day: string; time: string } {
-  const d = new Date(ms);
-  const today = new Date(nowMs);
-  const sameDay = d.toDateString() === today.toDateString();
-  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  const day = sameDay
-    ? "Today"
-    : isTomorrow
-      ? "Tomorrow"
-      : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
-  const time = hasTime ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+/**
+ * C240: `Date.prototype.getHours`/`toLocaleTimeString` without a `timeZone`
+ * read the SERVER's (or the browser's) local clock, not the workspace's —
+ * a tour stored for 10:00 AM Pacific rendered as an implausible early-morning
+ * hour whenever that process clock sat in a different zone. Every wall-time
+ * read here goes through `pacific-time.ts`, the same zone every other
+ * tour/schedule surface in the app is pinned to (`tours-scheduling.md`).
+ */
+export function dayLabel(ms: number, nowMs: number): { day: string; time: string } {
+  const dateYmd = pacificCalendarDateYmd(ms);
+  const todayYmd = pacificCalendarDateYmd(nowMs);
+  const tomorrowYmd = pacificCalendarDateYmd(nowMs + 24 * 60 * 60 * 1000);
+  const day =
+    dateYmd === todayYmd
+      ? "Today"
+      : dateYmd === tomorrowYmd
+        ? "Tomorrow"
+        : formatPacificDate(ms, { weekday: "short", month: "short", day: "numeric" });
+  const [hourPart, minutePart] = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+  })
+    .formatToParts(new Date(ms))
+    .reduce<[string, string]>(
+      (acc, part) => (part.type === "hour" ? [part.value, acc[1]] : part.type === "minute" ? [acc[0], part.value] : acc),
+      ["0", "0"],
+    );
+  const hasTime = Number(hourPart) !== 0 || Number(minutePart) !== 0;
+  const time = hasTime ? formatPacificDate(ms, { hour: "numeric", minute: "2-digit" }) : "";
   return { day, time };
 }
 
