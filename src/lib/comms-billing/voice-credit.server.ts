@@ -14,6 +14,7 @@ import {
   finishCommsCredit,
   loadCommsWallet,
   reserveCommsCredit,
+  settleCommsCreditQuantity,
 } from "./wallet.server";
 
 export const VOICE_CREDIT_UNAVAILABLE =
@@ -159,12 +160,7 @@ export async function settleVoiceCredit(
     ["voice_recording_minute", recordingSeconds],
   ] as const) {
     if (duration === undefined) continue;
-    const { error } = await db.rpc("settle_comms_credit_quantity", {
-      p_owner: owner,
-      p_key: `${meter}:${callSid}`,
-      p_quantity: Math.ceil(Math.max(0, duration) / 60),
-    });
-    if (error) throw new Error("Call credit settlement unavailable.");
+    await settleCommsCreditQuantity(db, owner, `${meter}:${callSid}`, Math.ceil(Math.max(0, duration) / 60));
   }
   const { maybeNotifyCommsBudgetThreshold } =
     await import("./notifications.server");

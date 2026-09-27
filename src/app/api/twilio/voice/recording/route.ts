@@ -1,6 +1,7 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 import { validateTwilioVoiceWebhook } from "@/lib/twilio-voice.server";
+import { settleCommsCreditQuantity } from "@/lib/comms-billing/wallet.server";
 
 export const runtime = "nodejs";
 
@@ -21,8 +22,11 @@ export async function POST(req: Request) {
   const { data: usage, error: readError } = await db.from("manager_comms_usage_events").select("manager_user_id").eq("idempotency_key", key).maybeSingle();
   if (readError) return NextResponse.json({ error: "Recording credit unavailable." }, { status: 503 });
   if (usage) {
-    const { error } = await db.rpc("settle_comms_credit_quantity", { p_owner: usage.manager_user_id, p_key: key, p_quantity: Math.ceil(seconds / 60) });
-    if (error) return NextResponse.json({ error: "Recording credit settlement unavailable." }, { status: 503 });
+    try {
+      await settleCommsCreditQuantity(db, usage.manager_user_id, key, Math.ceil(seconds / 60));
+    } catch {
+      return NextResponse.json({ error: "Recording credit settlement unavailable." }, { status: 503 });
+    }
     const { maybeNotifyCommsBudgetThreshold } = await import("@/lib/comms-billing/notifications.server");
     await maybeNotifyCommsBudgetThreshold(db, usage.manager_user_id).catch(() => undefined);
   }

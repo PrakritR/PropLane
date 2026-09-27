@@ -14,7 +14,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/agent/loop", () => ({ runAgentTurn: mocks.runAgentTurn }));
-vi.mock("@/lib/comms-billing/wallet.server", () => ({ reserveCommsCredit: mocks.reserveCredit, finishCommsCredit: mocks.finishCredit }));
+vi.mock("@/lib/comms-billing/wallet.server", () => ({
+  reserveCommsCredit: mocks.reserveCredit,
+  finishCommsCredit: mocks.finishCredit,
+  // W009 workspace resolution — a null result plus the pool flag off (the
+  // test default) falls through to reserveCommsCredit's own default-workspace
+  // fallback, exactly like production before that fix.
+  resolveWorkspaceIdForWorkNumber: vi.fn(async () => null),
+}));
 vi.mock("@/lib/comms-billing/turn-result.server", () => ({
   INTERRUPTED_COMMS_REPLY: "interrupted",
   readCommsTurnResult: mocks.readTurn,

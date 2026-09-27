@@ -1,5 +1,6 @@
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
-import { finishCommsCredit, reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
+import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
  * Leasing SMS agent runtime. A session (agent_sessions, kind `leasing_sms`)
  * binds one manager (work-number owner) + one prospect phone. Inbound Twilio
@@ -757,7 +758,20 @@ export async function runLeasingSmsAgentTurn(
   };
   if (args.testActor) return execute();
   const creditKey = await commsTurnKey(db, session.landlord_id, `ai_turn:${channel}:${session.id}:${inboundMessageId}`);
-  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
+  // W009: name the workspace this send's own work number actually belongs to
+  // rather than letting `reserveCommsCredit` default to the owner's default
+  // workspace — the line a prospect is texting may hold a non-default house.
+  // Under the messaging-credit pool (which needs a real workspace to pick a
+  // funder), an unresolvable workspace refuses the turn outright rather than
+  // guessing; the legacy per-workspace wallet keeps its existing
+  // default-workspace fallback when the number cannot be placed, so this is
+  // never a behavior change while the pool is off.
+  const workspaceId = await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber);
+  if (!workspaceId && isCommsCreditPoolEnabled()) {
+    console.warn("leasing-sms turn skipped: workspace unknown", { sessionId: session.id, managerUserId: session.landlord_id });
+    return null;
+  }
+  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, workspaceId: workspaceId ?? undefined, meter: "ai_agent_turn",
     idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
   if (!credit.allowed) {
     console.warn("leasing-sms turn skipped: comms credit not reserved", { sessionId: session.id, managerUserId: session.landlord_id, reason: credit.reason });

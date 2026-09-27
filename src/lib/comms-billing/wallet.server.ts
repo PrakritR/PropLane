@@ -6,7 +6,7 @@ import {
   normalizeCommsPlanTier,
   type CommsPlanTier,
 } from "./allowances";
-import { unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
+import { isCommsCreditPoolEnabled, unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
 
 export type CommsWallet = {
   tier: CommsPlanTier;
@@ -133,6 +133,57 @@ export async function resolveDefaultCommsWorkspace(
   return workspaceId;
 }
 
+/**
+ * The workspace a vendor work-order conversation belongs to, via its
+ * property. Returns null — never the owner's default workspace — when it
+ * cannot be placed, so a caller refuses the reservation instead of silently
+ * crediting the wrong workspace's wallet (W009).
+ */
+export async function resolveWorkspaceIdForWorkOrder(
+  db: SupabaseClient,
+  workOrderId: string | null | undefined,
+): Promise<string | null> {
+  const id = workOrderId?.trim();
+  if (!id) return null;
+  const { data, error } = await db
+    .from("portal_work_order_records")
+    .select("property_id")
+    .eq("id", id)
+    .maybeSingle();
+  const propertyId = String(data?.property_id ?? "").trim();
+  if (error || !propertyId) return null;
+  const { data: property, error: propertyError } = await db
+    .from("manager_property_records")
+    .select("workspace_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  const workspaceId = String(property?.workspace_id ?? "").trim();
+  if (propertyError || !workspaceId) return null;
+  return workspaceId;
+}
+
+/**
+ * The workspace that holds a given work number. Returns null — never a
+ * default — when the number cannot be placed (W009).
+ */
+export async function resolveWorkspaceIdForWorkNumber(
+  db: SupabaseClient,
+  ownerUserId: string,
+  phoneE164: string | null | undefined,
+): Promise<string | null> {
+  const phone = phoneE164?.trim();
+  if (!ownerUserId.trim() || !phone) return null;
+  const { data, error } = await db
+    .from("manager_sms_numbers")
+    .select("workspace_id")
+    .eq("manager_user_id", ownerUserId)
+    .eq("phone_number", phone)
+    .maybeSingle();
+  const workspaceId = String(data?.workspace_id ?? "").trim();
+  if (error || !workspaceId) return null;
+  return workspaceId;
+}
+
 export async function loadCommsWallet(
   db: SupabaseClient,
   owner: string,
@@ -195,6 +246,27 @@ export async function reserveCommsCredit(
   input: CommsReservationInput,
   allowUnfunded = false,
 ): Promise<CommsReservation> {
+  if (isCommsCreditPoolEnabled()) {
+    // The pool spends per WORKSPACE, never a caller-implied default: an
+    // omitted workspace refuses here rather than silently falling back to the
+    // owner's default workspace the way the legacy per-workspace wallet does
+    // below (S27 / W009).
+    const workspaceId = input.workspaceId?.trim();
+    if (!workspaceId) return { allowed: false, reason: "workspace_unknown" };
+    const { reserveCommsCreditPool } = await import("./pool.server");
+    return reserveCommsCreditPool(
+      db,
+      {
+        managerUserId: input.managerUserId,
+        workspaceId,
+        meter: input.meter,
+        quantity: input.quantity,
+        idempotencyKey: input.idempotencyKey,
+        metadata: input.metadata,
+      },
+      allowUnfunded,
+    );
+  }
   const budget = await commsPlanBudget(input.managerUserId);
   const quantity = input.quantity ?? 1;
   if (
@@ -249,16 +321,46 @@ export async function finishCommsCredit(
   key: string,
   release = false,
 ) {
-  const { data, error } = await db.rpc("finish_comms_credit", {
-    p_owner: owner,
-    p_key: key,
-    p_release: release,
-  });
-  if (error || data !== true)
-    throw new Error("Communication credit reconciliation failed.");
+  if (isCommsCreditPoolEnabled()) {
+    const { finishCommsCreditPool } = await import("./pool.server");
+    await finishCommsCreditPool(db, owner, key, release);
+  } else {
+    const { data, error } = await db.rpc("finish_comms_credit", {
+      p_owner: owner,
+      p_key: key,
+      p_release: release,
+    });
+    if (error || data !== true)
+      throw new Error("Communication credit reconciliation failed.");
+  }
   if (!release) {
     const { maybeNotifyCommsBudgetThreshold } =
       await import("./notifications.server");
     await maybeNotifyCommsBudgetThreshold(db, owner).catch(() => undefined);
   }
+}
+
+/**
+ * Settle a bounded reservation (voice, recording) against provider-reported
+ * duration. Dispatches to the pool exactly like `reserveCommsCredit` /
+ * `finishCommsCredit` above; every direct `db.rpc("settle_comms_credit_quantity", …)`
+ * caller should go through this instead so the flag has one place to flip.
+ */
+export async function settleCommsCreditQuantity(
+  db: SupabaseClient,
+  owner: string,
+  key: string,
+  quantity: number,
+) {
+  if (isCommsCreditPoolEnabled()) {
+    const { settleCommsCreditQuantityPool } = await import("./pool.server");
+    await settleCommsCreditQuantityPool(db, owner, key, quantity);
+    return;
+  }
+  const { error } = await db.rpc("settle_comms_credit_quantity", {
+    p_owner: owner,
+    p_key: key,
+    p_quantity: quantity,
+  });
+  if (error) throw new Error("Communication credit settlement failed.");
 }

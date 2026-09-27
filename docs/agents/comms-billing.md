@@ -12,8 +12,12 @@ an empty communication wallet never disables its address or setup.
 | Plan | Subscription | Work number | Monthly retail communication credit |
 | --- | --- | --- | --- |
 | Free | $0 | none | $0 |
-| Pro | $20/month or $192/year | 1 | $10 |
-| Business | $200/month or $1,920/year | 1 per workspace | $100 |
+| Pro | $49/month or $490/year | 1 | $25 |
+| Business | $249/month or $2,490/year | 1 per workspace | $150 |
+
+Subscription and credit figures above are `RATE_CARD` (`src/lib/billing/rate-card.ts`,
+version `2026-09-door-v1`) — read that file rather than re-typing figures here;
+it is the one source these numbers can drift from.
 
 Numbers held by Free accounts from the earlier every-plan policy are released once per
 environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin-gated;
@@ -99,7 +103,7 @@ only the positive allowance difference once; downgrades take effect at the next 
 
 The paid allowance is 50% of monthly subscription price in **retail usage credit**,
 not provider cost. Rates include operational overhead; provider and carrier costs can
-vary. Pro's $10 buys at most 333 outbound single-segment texts and Business 3,333 if
+vary. Pro's $25 buys at most 833 outbound single-segment texts and Business 5,000 if
 used only for that meter; Free spends only purchased packs. Incoming messages, voice and AI share the same balance.
 
 ## Purchases and stops
@@ -222,6 +226,89 @@ Processing fees are separate from communication credit and from every subscripti
 Only the staff-owned account override grants PropLane processing coverage. See
 `resident-payments.md`.
 
+## The messaging-credit pool (S27, `COMMS_CREDIT_POOL_ENABLED`)
+
+An account-level alternative to the per-workspace wallet above, landed additively
+and OFF by default so the schema can reach staging/production ahead of the
+flag. With `COMMS_CREDIT_POOL_ENABLED` unset, every reserve/settle/refund in
+`wallet.server.ts` runs exactly the per-workspace-wallet code this file
+already documents — the pool tables exist but nothing writes to them. Flip it
+to `"1"` and `reserveCommsCredit` / `finishCommsCredit` / `settleCommsCreditQuantity`
+dispatch to the pool instead (`src/lib/comms-billing/pool.server.ts`,
+`supabase/migrations/20260927160148_comms_credit_pool.sql`). Reads that are not
+on that write path (`loadCommsWallet`, the admin billing list's
+`loadCommsWalletTotals`, and `evaluateManagerCommsBillingGate`'s pre-send
+check in `owner-sms-dispatcher.server.ts`) still read the OLD per-workspace
+wallet regardless of the flag; wiring those to the pool is a follow-up once
+the flag actually ships. This is a display/pre-check gap only, never a
+spending one — the pre-check being stale can at worst pre-refuse a send the
+pool would actually fund, or wave one through that the real reserve call
+(`reserve_comms_credit_pool`, the true enforcement point) still correctly
+blocks on its own.
+
+**Model.** Credit lives per FUNDER (`comms_account_pools`: one row per person
+who funds messaging, sized by THEIR OWN plan tier), not per workspace.
+`comms_workspace_funding` (funder, workspace, optional `monthly_limit_cents`,
+`enabled`) says which workspaces a funder's pool pays for — "All my
+workspaces" (every workspace they own or co-manage) by default, or pinned to
+one. `comms_plan_credit_rules` is PropLane admin's global per-tier default
+(included credit, whether it is shared across a funder's workspaces, whether
+unused credit rolls over), editable at `/admin/billing` → Plan credit
+(`docs/agents/plan-entitlements.md` § Admin Billing) and seeded once from
+`RATE_CARD` — an admin edit is never overwritten by a later migration re-run.
+
+**Reserve order.** A send in workspace W tries W's enabled funders in order —
+the workspace OWNER first, then every other funder oldest-grant-first
+(`loadOrderedPoolFunders`) — and the FIRST funder who can cover the FULL cost
+pays it (included credit, then purchased); one reservation is never split
+across several funders. A funder is skipped when: they do not fund W, their
+plan is not shared across workspaces and W is not their own default workspace,
+charging them would exceed their monthly limit for W
+(`comms_funder_workspace_spend`, a running per-(funder,workspace,period)
+counter), their billing is paused, or they simply cannot cover the cost. An
+unavoidable cost (inbound SMS, a bounded voice/recording minute already spent)
+always finds a payer — the workspace owner's pool, even past their own limit
+or funding toggle — the same guarantee `p_allow_unfunded` gives the legacy
+wallet.
+
+**Refund.** Every ledger row keeps its existing `manager_user_id` (the account
+whose conversation this is, unchanged reporting identity) plus a new
+`funder_user_id` — who actually paid. A release or settlement reads the payer
+off the row and returns credit to that exact pool, never a caller-supplied
+identity, exactly like the legacy wallet's own refund contract.
+
+**W009 — every reserve names its workspace.** `reserveCommsCredit` refuses
+(`workspace_unknown`) rather than defaulting to a workspace when the pool is
+on and none was named — picking a funder requires knowing which workspace.
+Two callers used to omit it and silently spend the OWNER'S DEFAULT
+workspace's wallet even when the real conversation belonged elsewhere:
+`vendor-agent.server.ts` now derives it from the work order's property
+(`resolveWorkspaceIdForWorkOrder`), and `leasing-sms-agent.server.ts` from the
+send's own work number (`resolveWorkspaceIdForWorkNumber`). Both keep the
+legacy wallet's existing default-workspace fallback when the workspace cannot
+be resolved AND the pool is off, so this is not a behavior change until the
+flag flips.
+
+**Purchases.** `comms_pool_credit_purchases` / `comms_pool_credit_adjustments`
+are a parallel table pair to `manager_comms_credit_purchases` /
+`manager_comms_credit_adjustments` — never the same rows — so the pool's
+Stripe path (`createCommsCreditPoolCheckout`, `fulfillCommsCreditPoolPurchase`,
+`reverseCommsCreditPoolForPaymentIntent`, purpose
+`manager_communication_credit_pool`) cannot corrupt the existing per-workspace
+purchase history. "Applies to" (all my workspaces, or one pinned workspace) is
+stored on the purchase and only rewrites the funder's funding scope once the
+payment has actually landed — an abandoned checkout never changes what a
+funder's pool funds.
+
+**UI.** Settings → Billing & plan shows "Messaging credit"
+(`messaging-credit-panel.tsx`) instead of "Extra usage" when the flag is on:
+Available / Included left / Added credit / Used this month, a meter with an
+alert marker, "Your credit funds", per-workspace rows with a monthly-limit
+picker, and Add credit with quick amounts + an "Applies to" choice. The Usage
+and Residents sections (`ManagerUsagePanel`, `ManagerDoorsPanel`) were removed
+from the Billing & plan page entirely (S27) — they duplicated what Properties
+and the plan cards already show.
+
 ## Verification
 
 `tests/integration/comms-credit-postgres.test.ts` exercises real local PostgreSQL
@@ -230,3 +317,17 @@ ownership. Set `COMMS_CREDIT_TEST_DATABASE_URL` to a disposable **localhost** da
 remote URLs are rejected. Unit tests cover purchase authorization and price integrity,
 fee precedence, plan copy and messaging boundaries. Use Stripe **test mode** and the
 dev/test database for browser checkout verification; never production data.
+
+`tests/unit/comms-credit-pool.test.ts` covers the pool's JS orchestration layer
+(mocked Supabase): funder ordering (owner first, unresolvable tiers dropped),
+funding-scope writes (pin vs. all, always re-derived from the caller's own
+accessible workspaces, never a client-supplied list), a monthly limit's
+enabled-workspace-only guard, refund-reads-the-payer-off-the-event, and the
+`COMMS_CREDIT_POOL_ENABLED` dispatch itself (flag off leaves the legacy RPC
+names untouched; flag on refuses a reservation with no named workspace rather
+than defaulting). The SQL functions' own atomicity (concurrent reservations
+racing a monthly limit, the owner-first ordering under real locks) is not yet
+covered by a dedicated Postgres integration suite the way the legacy wallet is
+— that is the natural next addition once the flag is closer to shipping; until
+then, verify a schema or function change with a rolled-back transaction against
+a real database, the same way this migration itself was checked before landing.
