@@ -11,7 +11,8 @@ type RpcHandler = (params: Record<string, unknown>) => { data: unknown; error: n
 
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
-  private mode: "select" | "insert" | "update" = "select";
+  private mode: "select" | "insert" | "update" | "upsert" = "select";
+  private upsertConflictCol: string | null = null;
   private payload: Row | null = null;
   private cols: string | null = null;
   constructor(
@@ -53,6 +54,12 @@ class FakeQuery {
     this.payload = row;
     return this;
   }
+  upsert(row: Row, opts?: { onConflict?: string }) {
+    this.mode = "upsert";
+    this.payload = row;
+    this.upsertConflictCol = opts?.onConflict ?? null;
+    return this;
+  }
   private matched(): Row[] {
     return this.rows.filter((r) =>
       this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)),
@@ -68,6 +75,13 @@ class FakeQuery {
     if (this.mode === "update") {
       const matched = this.matched();
       for (const r of matched) Object.assign(r, this.payload);
+      return { data: null, error: null };
+    }
+    if (this.mode === "upsert") {
+      const col = this.upsertConflictCol;
+      const existing = col ? this.rows.find((r) => r[col] === this.payload![col]) : undefined;
+      if (existing) Object.assign(existing, this.payload);
+      else this.rows.push({ ...this.payload! });
       return { data: null, error: null };
     }
     return { data: this.matched(), error: null };
