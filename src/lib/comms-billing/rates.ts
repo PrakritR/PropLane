@@ -50,6 +50,21 @@ export function isCommsPaygBillingEnabled(): boolean {
 }
 
 /**
+ * Messaging-credit pool (S27). Default OFF: with this unset, `wallet.server.ts`
+ * reserves/settles/refunds exactly as it did before this flag existed, against
+ * the per-(owner,workspace) wallet. Flipping it to `"1"` switches those three
+ * operations to the account-level funder pool (`comms_account_pools`,
+ * `comms_workspace_funding`, `reserve_comms_credit_pool` and friends) so the
+ * migration and the pool code can land before this reaches staging/production.
+ * It does NOT change what the old wallet tables contain or how they are read
+ * for reporting (`loadCommsWallet`, admin's `loadCommsWalletTotals`) — only
+ * which model a new reservation spends against.
+ */
+export function isCommsCreditPoolEnabled(): boolean {
+  return process.env.COMMS_CREDIT_POOL_ENABLED?.trim() === "1";
+}
+
+/**
  * @deprecated No caller consults this. Prepaid credit is always enforced
  * (`wallet.server.ts` reserves before every outgoing action); `COMMS_LIMITS_ENFORCED=0`
  * cannot disable it. Kept only so an env still setting the flag does not break.

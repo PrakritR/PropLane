@@ -1,4 +1,5 @@
 import { fundedVoiceGather } from "@/lib/comms-billing/voice-credit.server";
+import { settleCommsCreditQuantity } from "@/lib/comms-billing/wallet.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -71,8 +72,11 @@ export async function POST(req: Request) {
 
   if (phase === "consent") {
     if (!spokenConsentGranted(speech)) {
-      const { error } = await db.rpc("settle_comms_credit_quantity", { p_owner: resolved.managerId, p_key: `voice_recording_minute:${callSid}`, p_quantity: 0 });
-      if (error) return NextResponse.json({ error: "Recording credit settlement unavailable." }, { status: 503 });
+      try {
+        await settleCommsCreditQuantity(db, resolved.managerId, `voice_recording_minute:${callSid}`, 0);
+      } catch {
+        return NextResponse.json({ error: "Recording credit settlement unavailable." }, { status: 503 });
+      }
       return twimlResponse(twimlSay("No problem. Goodbye.") + twimlHangup());
     }
     const logIdentity = voiceCallLogIdentity({

@@ -107,7 +107,12 @@ export function commsAllowanceFeatureText(tier: CommsPlanTier): string {
 export function commsAllowanceBlockedMessage(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   if (allowance === 0) {
-    return "Your plan includes no communication credit. Upgrade to Pro for a work number and $10 of credit each month, or buy usage in Settings → Billing & plan.";
+    // Derived from Pro's own allowance (never hand-typed) so this copy can
+    // never drift from what the code actually grants — the same bug class
+    // `commsAllowanceFeatureText` above was written to avoid.
+    const proAllowance = includedAllowanceCents("pro") ?? 0;
+    const proLabel = proAllowance % 100 === 0 ? `$${proAllowance / 100}` : `$${(proAllowance / 100).toFixed(2)}`;
+    return `Your plan includes no communication credit. Upgrade to Pro for a work number and ${proLabel} of credit each month, or buy usage in Settings → Billing & plan.`;
   }
   const label = allowance === null ? "" : `$${(allowance / 100).toFixed(2)}`;
   return `You've used the ${label} of communication credit included with your plan this month. Buy more usage in Settings → Billing & plan to resume texting, calls and AI. A saved card does not enable automatic charges.`;
