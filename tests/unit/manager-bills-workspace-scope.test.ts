@@ -21,7 +21,7 @@ vi.mock("@/lib/reports/gl-posting", () => ({
 }));
 vi.mock("@/lib/sms/sms-test-provenance.server", () => ({ smsTestProvenanceColumns: () => ({}) }));
 
-import { approveManagerBill, createManagerBill, payManagerBill } from "@/lib/manager-bills.server";
+import { approveManagerBill, createManagerBill, payManagerBill, voidManagerBill } from "@/lib/manager-bills.server";
 
 const MANAGER = "mgr-1";
 const WS_A = { id: "ws-a", name: "A", ownerUserId: MANAGER, owned: true, isDefault: true, propertyIds: ["p1"] };
@@ -147,5 +147,35 @@ describe("approveManagerBill / payManagerBill — active-workspace guard", () =>
     const db2 = setup({ manager_bills: [billRow("b1", null, "approved")] });
     const bill = await payManagerBill(db2 as never, MANAGER, "b1");
     expect(bill.status).toBe("paid");
+  });
+});
+
+describe("voidManagerBill — active-workspace guard (W015)", () => {
+  function billRow(id: string, propertyId: string | null, status = "pending_approval") {
+    return {
+      id,
+      manager_user_id: MANAGER,
+      property_id: propertyId,
+      description: "x",
+      amount_cents: 1000,
+      status,
+      category_code: "maintenance",
+      created_at: new Date().toISOString(),
+    };
+  }
+
+  it("refuses to void a bill whose property is outside the active workspace (two-workspace owner)", async () => {
+    mocks.loadWorkspaces.mockResolvedValue([WS_A, WS_B]);
+    state.cookieValue = WS_A.id; // active = p1 only
+    const db = setup({ manager_bills: [billRow("b1", "p2")] }); // bill is on p2, the OTHER workspace
+    await expect(voidManagerBill(db as never, MANAGER, "b1")).rejects.toThrow(/Bill not found/);
+  });
+
+  it("voids a bill whose property IS inside the active workspace", async () => {
+    mocks.loadWorkspaces.mockResolvedValue([WS_A, WS_B]);
+    state.cookieValue = WS_A.id;
+    const db = setup({ manager_bills: [billRow("b1", "p1")] });
+    const bill = await voidManagerBill(db as never, MANAGER, "b1");
+    expect(bill.status).toBe("void");
   });
 });
