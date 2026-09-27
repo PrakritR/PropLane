@@ -330,6 +330,9 @@ export async function upsertPropertyRecordToServer(input: {
   onError?: (message: string, code?: string, status?: number, limitInfo?: PropertyRecordLimitInfo) => void;
 }): Promise<boolean> {
   if (typeof window === "undefined") return false;
+  // A direct write is newer than any unsent local-first write for this record;
+  // replaying that older one later would overwrite it.
+  if (!isDemoModeActive()) discardPropertyRecordWrite(input.id);
   // /demo is browser-local — there is no real record to mirror, but the local
   // write in the caller (updatePendingManagerPropertyOnServer etc.) is the
   // actual save, so this must report success rather than aborting it.

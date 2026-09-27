@@ -21,7 +21,7 @@ import {
   type PropertyRecordUpsertBody,
 } from "@/lib/property-record-outbox";
 import type { PropertyPipelineSnapshot } from "@/lib/persisted-property-records";
-import { deleteMirroredPropertyRecord } from "@/lib/demo-property-pipeline";
+import { deleteMirroredPropertyRecord, upsertPropertyRecordToServer } from "@/lib/demo-property-pipeline";
 
 const VIEWER = "mgr-outbox-viewer";
 
@@ -143,7 +143,6 @@ describe("property-record outbox", () => {
 
     const pending = pendingPropertyRecordWrites(VIEWER);
     expect(pending).toHaveLength(1);
-    expect(pending[0]?.seq).toBe(2);
     expect(pending[0]?.body.propertyData).toEqual({ id: "mgr-a", buildingName: "New" });
   });
 
@@ -226,5 +225,38 @@ describe("property-record outbox", () => {
     const next = overlayPendingPropertyWrites(snapshot, pendingPropertyRecordWrites(VIEWER));
     expect(next.extrasByUser["mgr-owner"]?.map((p) => p.buildingName)).toEqual(["Edited by co-manager"]);
     expect(next.extrasByUser[VIEWER]).toBeUndefined();
+  });
+
+  it("an old request still in flight cannot clear a write queued after a discard", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await gate; // the pre-unlist write, slow then accepted
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      }
+      throw new TypeError("Failed to fetch"); // the post-relist edit never lands
+    }) as unknown as typeof fetch;
+
+    const oldWrite = enqueuePropertyRecordWrite(VIEWER, body("mgr-a", "live", { propertyData: { id: "mgr-a", buildingName: "Before" } }), fetchImpl);
+    discardPropertyRecordWrite("mgr-a"); // unlisted while that write is in flight
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-a", "live", { propertyData: { id: "mgr-a", buildingName: "After relist" } }), fetchImpl);
+    expect(calls).toBe(2); // the new write was sent, not mistaken for the in-flight one
+    release();
+    await oldWrite;
+
+    const pending = pendingPropertyRecordWrites(VIEWER);
+    expect(pending.map((e) => e.body.propertyData)).toEqual([{ id: "mgr-a", buildingName: "After relist" }]);
+  });
+
+  it("a direct server write supersedes an older unsent write for the same record", async () => {
+    const { fetchImpl } = server(() => "offline");
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-a"), fetchImpl);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
+    await upsertPropertyRecordToServer({ id: "mgr-a", managerUserId: VIEWER, status: "live", propertyData: { id: "mgr-a" } });
+    vi.unstubAllGlobals();
+    expect(pendingPropertyRecordWrites(VIEWER)).toEqual([]);
   });
 });

@@ -52,6 +52,16 @@ export const PROPERTY_RECORD_REFUSED_EVENT = "axis-property-record-refused";
 export type PropertyRecordRefusedDetail = { id: string; status: number; message: string; code?: string };
 
 const inFlight = new Set<string>();
+
+/**
+ * Never reused, even after an entry is discarded: an older request still in
+ * flight settles only its own seq, so it can never clear a newer write.
+ */
+let lastSeq = 0;
+function nextSeq(previous = 0): number {
+  lastSeq = Math.max(lastSeq + 1, previous + 1, Date.now());
+  return lastSeq;
+}
 const flightKey = (entry: PropertyRecordOutboxEntry) => `${entry.body.id}:${entry.seq}`;
 
 function storage(): Storage | null {
@@ -140,10 +150,10 @@ export function enqueuePropertyRecordWrite(
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const map = readOutbox();
-  if (!viewerId) return send({ viewerId, seq: (map[body.id]?.seq ?? 0) + 1, queuedAt: Date.now(), body }, fetchImpl);
+  if (!viewerId) return send({ viewerId, seq: nextSeq(map[body.id]?.seq), queuedAt: Date.now(), body }, fetchImpl);
   const entry: PropertyRecordOutboxEntry = {
     viewerId,
-    seq: (map[body.id]?.seq ?? 0) + 1,
+    seq: nextSeq(map[body.id]?.seq),
     queuedAt: Date.now(),
     body,
   };
