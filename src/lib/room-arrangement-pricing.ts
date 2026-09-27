@@ -30,6 +30,10 @@ export type ArrangementRoomLike = {
   occupancyCapacity?: number | null;
   offeredResidentCounts?: readonly number[] | null;
   occupancyPrices?: readonly RoomOccupancyPrice[] | null;
+  /** The room's own Partial months answer — the fallback an arrangement with no occupancy row (or an occupancy row with no prorate fields of its own) resolves to. */
+  prorateMethod?: "auto" | "daily_rate" | null;
+  dailyRentRate?: number | null;
+  dailyUtilitiesRate?: number | null;
 };
 
 export function arrangementLabel(count: number): string {
@@ -101,6 +105,10 @@ export type ResolvedArrangementPrice = {
   utilitiesEstimate: string;
   securityDeposit: string;
   sameAs?: number;
+  /** N082: this arrangement's own Partial months answer — absent room/row figures default to "auto", matching `ProrateRows`' own room-level default. */
+  prorateMethod: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
 };
 
 /** Follow `sameAs` (cycle-safe) and fall back to the room's own figures. */
@@ -113,6 +121,9 @@ export function roomPriceForResidentCount(
   const baseRent = positiveRent(room?.monthlyRent) ?? 0;
   const baseUtil = String(room?.utilitiesEstimate ?? "").trim();
   const baseDep = String(room?.securityDeposit ?? "").trim();
+  const baseProrateMethod: "auto" | "daily_rate" = room?.prorateMethod === "daily_rate" ? "daily_rate" : "auto";
+  const baseDailyRent = positiveRent(room?.dailyRentRate);
+  const baseDailyUtil = positiveRent(room?.dailyUtilitiesRate);
   const rows = room?.occupancyPrices ?? [];
   const seen = new Set<number>();
   let cursor = clamped;
@@ -131,6 +142,9 @@ export function roomPriceForResidentCount(
       utilitiesEstimate: row.utilitiesEstimate?.trim() || baseUtil,
       securityDeposit: row.securityDeposit?.trim() || baseDep,
       sameAs: rows.find((r) => r.count === clamped)?.sameAs,
+      prorateMethod: row.prorateMethod ?? baseProrateMethod,
+      dailyRentRate: positiveRent(row.dailyRentRate) ?? baseDailyRent,
+      dailyUtilitiesRate: positiveRent(row.dailyUtilitiesRate) ?? baseDailyUtil,
     };
   }
   return {
@@ -138,6 +152,9 @@ export function roomPriceForResidentCount(
     monthlyRent: baseRent,
     utilitiesEstimate: baseUtil,
     securityDeposit: baseDep,
+    prorateMethod: baseProrateMethod,
+    dailyRentRate: baseDailyRent,
+    dailyUtilitiesRate: baseDailyUtil,
   };
 }
 
