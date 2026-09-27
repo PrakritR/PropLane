@@ -1485,16 +1485,6 @@ export function PaymentsSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection title="Payment setup">
         <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
-        <ManagerAutomationSelectRow
-          label="Upcoming charges in Payments"
-          field="showUpcomingCharges"
-          options={[
-            { value: "true", label: "Show" },
-            { value: "false", label: "Hide" },
-          ]}
-          parse={(value) => value === "true"}
-          dataAttr="payments-settings-show-upcoming-charges"
-        />
       </PortalSettingsSection>
 
       <PortalSettingsSection
@@ -1514,16 +1504,6 @@ export function PaymentsSettingsPanel({
             propertyOptions={workspaceProperties}
             workspaceName={effectiveWorkspace?.name}
             workspaceId={effectiveWorkspace?.id}
-          />
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Reminders and messages">
-        <PortalSettingsGroup>
-          <PortalSettingsLinkRow
-            label="Edit reminder timing and automated messages"
-            href={managerSettingsProfilePath("automation")}
-            dataAttr="payments-open-reminders-hub"
           />
         </PortalSettingsGroup>
       </PortalSettingsSection>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, CreditCard } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -405,16 +404,6 @@ export function ManagerPaymentSetupPanel({
     }
   }
 
-  function openPayouts() {
-    if (!canEditBankAccount) {
-      showToast("Only the property owner (or a co-manager with Bank account access) can change payout bank details.");
-      return;
-    }
-    // Identity, bank and the balance all live on Profile → Payouts now —
-    // this row is a door to it, never its own Stripe popup (PLAN-0920-1500).
-    window.location.href = `${portalBasePath}/profile?tab=payouts`;
-  }
-
   const tier = skuTier ?? "free";
   const canSelectManagerAbsorb = managerCanSelectManagerAbsorbServiceFee(tier);
   const showFeePayerSection =
@@ -425,13 +414,6 @@ export function ManagerPaymentSetupPanel({
     adminOverride: draft.adminServiceFeeOverride,
     waiverGranted: paymentWaiverGranted === true,
   });
-
-  // Plain words, never a pill (AGENTS.md § No subtext): "Ready" once payouts
-  // can actually go out, "Set up" for every other state — incomplete, unknown
-  // or never linked all lead to the same door. Reads the one payouts-ready
-  // field the status response carries (`stripe-payouts-readiness.server.ts`),
-  // not `stripeState` (a different, charges-acceptance question).
-  const payoutsRowState = payoutsReady ? "Ready" : "Set up";
 
   /* PropLane pays is always offered: the option itself is the door to the code
      field, and the code — not a grant on the account — is what applies it. */
@@ -560,62 +542,9 @@ export function ManagerPaymentSetupPanel({
     void persistSettings({ workspaceId: activeWorkspaceId, workspaceAutopayEnabled: enabled }, "autopay-enabled");
   };
 
-  const applyWorkspaceAutopayRetryEnabled = (enabled: boolean) => {
-    if (!activeWorkspaceId || savedWorkspaceAutopay.autopayRetryEnabled === enabled) return;
-    setWorkspaceAutopaySettings((prev) => ({
-      ...prev,
-      [activeWorkspaceId]: { ...savedWorkspaceAutopay, autopayRetryEnabled: enabled },
-    }));
-    void persistSettings({ workspaceId: activeWorkspaceId, workspaceAutopayRetryEnabled: enabled }, "autopay-retry");
-  };
-
   return (
     <div className="space-y-4">
       {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-
-      {section !== "fee" ? (
-        <>
-          {isCoManagerForPayout && !canViewBankAccount ? (
-            <div
-              className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 opacity-70"
-              data-testid="payment-setup-stripe-card-locked"
-              data-attr="manager-payment-stripe-link-locked"
-            >
-              <CreditCard className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-              <span className="text-sm text-muted">
-                Payout details belong to the property owner — you do not have access to this section.
-              </span>
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={openPayouts}
-                data-testid="payment-setup-stripe-card"
-                data-attr="manager-payment-stripe-link"
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:border-primary/30"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-                  <span className="text-sm font-semibold text-foreground">Payouts</span>
-                </div>
-                <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-muted">
-                  {payoutsRowState}
-                  <ChevronRight className="h-4 w-4" aria-hidden />
-                </span>
-              </button>
-
-              {isCoManagerForPayout ? (
-                <p className="text-xs leading-relaxed text-muted">
-                  {canEditBankAccount
-                    ? "You are updating the property owner's payout bank account."
-                    : "Payout bank details belong to the property owner."}
-                </p>
-              ) : null}
-            </>
-          )}
-        </>
-      ) : null}
 
       {section !== "setup" && showFeePayerSection ? (
         <section className="space-y-4">
@@ -715,17 +644,6 @@ export function ManagerPaymentSetupPanel({
             onChange={(next) => applyWorkspaceAutopayEnabled(next === "on")}
             disabled={loading || (!settingsLoaded && !demo) || savingKey === "autopay-enabled"}
             dataAttr="manager-autopay-enabled-select"
-          />
-          <FieldSingleSelect
-            label="Autopay retries a declined payment"
-            value={savedWorkspaceAutopay.autopayRetryEnabled ? "once" : "never"}
-            options={[
-              { value: "once", label: "Once, 3 days later" },
-              { value: "never", label: "Never" },
-            ]}
-            onChange={(next) => applyWorkspaceAutopayRetryEnabled(next === "once")}
-            disabled={loading || (!settingsLoaded && !demo) || savingKey === "autopay-retry"}
-            dataAttr="manager-autopay-retry-select"
           />
         </section>
       ) : null}
