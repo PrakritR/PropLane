@@ -161,4 +161,26 @@ describe("POST /api/stripe/application-fee-verify", () => {
     const mod = await import("@/app/api/stripe/application-fee-verify/route");
     expect("GET" in mod).toBe(false);
   });
+
+  it("surfaces a fee_mismatch from the promote step as feeMismatch, never a silent promote", async () => {
+    promoteIncomplete.mockResolvedValue({
+      ok: true,
+      promoted: false,
+      reason: "fee_mismatch",
+      requiredCents: 5000,
+      paidCents: 0,
+    });
+    const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
+    const res = await POST(post({ sessionId: "cs_test_app_fee", expectedEmail: APPLICANT }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.paid).toBe(true);
+    expect(json.applicationPromoted).toBe(false);
+    expect(json.feeMismatch).toBe(true);
+    expect(json.requiredCents).toBe(5000);
+    expect(json.paidCents).toBe(0);
+    expect(typeof json.error).toBe("string");
+    expect(json.error).toContain("$50.00");
+  });
 });

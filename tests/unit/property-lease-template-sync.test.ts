@@ -349,4 +349,49 @@ describe("property lease template sync", () => {
       ),
     ).toBe("bundle-short");
   });
+
+  // P007 (captain 2026-09-27): "Show an Airbnb row too."
+  describe("Airbnb lease seed (P007)", () => {
+    it("offers no airbnb seed when the listing does not allow Airbnb stays", () => {
+      const sub = createDefaultListingSubmission();
+      sub.airbnbRentalsAllowed = false;
+      const seeds = buildLeaseTemplateSeeds(sub);
+      expect(seeds.map((s) => s.seedKey).sort()).toEqual(["primary", "short-term"]);
+    });
+
+    it("adds an airbnb seed, kept as the short-term kind, when the listing allows Airbnb stays", () => {
+      const sub = createDefaultListingSubmission();
+      sub.airbnbRentalsAllowed = true;
+      const seeds = buildLeaseTemplateSeeds(sub);
+      expect(seeds.map((s) => s.seedKey).sort()).toEqual(["airbnb", "primary", "short-term"]);
+      const airbnb = seeds.find((s) => s.seedKey === "airbnb");
+      expect(airbnb?.kind).toBe("short-term");
+      expect(airbnb?.label).toBe("Airbnb stay agreement");
+      expect(airbnb?.applicationLeaseTerms).toEqual(["Airbnb"]);
+    });
+
+    it("adds and re-syncs a manager's airbnb lease template without conjuring or dropping it", () => {
+      const sub = createDefaultListingSubmission();
+      sub.airbnbRentalsAllowed = true;
+      // Sync never auto-creates a seed the manager hasn't added.
+      expect(readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(sub)).map((t) => t.listingSeedKey)).toEqual([]);
+
+      const added = addLeaseTemplateFromSeed(sub, "airbnb");
+      const templates = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(added));
+      expect(templates).toHaveLength(1);
+      expect(templates[0]?.listingSeedKey).toBe("airbnb");
+      expect(templates[0]?.label).toBe("Airbnb stay agreement");
+      expect(templates[0]?.kind).toBe("short-term");
+
+      // Turning Airbnb back off drops the untouched default row on the next
+      // sync — same "untouched defaults carry nothing and are left behind"
+      // rule every other seed already follows
+      // (`property-lease-template-sync.ts`'s `preservedSeeded`); a manager
+      // who actually edited the Airbnb lease keeps it (covered by the
+      // pre-existing "keeps a retired bundle template" case above).
+      const turnedOff: typeof added = { ...added, airbnbRentalsAllowed: false };
+      const afterTurnOff = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(turnedOff));
+      expect(afterTurnOff.some((t) => t.listingSeedKey === "airbnb")).toBe(false);
+    });
+  });
 });

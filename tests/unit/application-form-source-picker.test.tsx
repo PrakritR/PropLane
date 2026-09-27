@@ -135,11 +135,16 @@ describe("Workspace form / Custom for this listing picker (templateEditorMode='e
 
     await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
 
-    // Jump to the section holding the copied question and confirm it renders
+    // P002: sections no longer have their own rail steps — jump to the
+    // "Form" step, then expand the "Additional details" accordion row to
+    // reach the section holding the copied question, and confirm it renders
     // the EDITABLE builder (a real question card), not the read-only summary.
-    const rail = document.querySelector('[data-attr="listing-v2-rail-additional"]') as HTMLElement | null;
-    expect(rail).not.toBeNull();
-    fireEvent.click(rail!);
+    const formRail = document.querySelector('[data-attr="listing-v2-rail-sections"]') as HTMLElement | null;
+    expect(formRail).not.toBeNull();
+    fireEvent.click(formRail!);
+    const sectionToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    expect(sectionToggle).not.toBeNull();
+    fireEvent.click(sectionToggle!);
 
     // No read-only "Following the workspace application form" notice once switched.
     await waitFor(() => expect(screen.queryByText(/Following the workspace application form/i)).toBeNull());
@@ -165,12 +170,37 @@ describe("Workspace form / Custom for this listing picker (templateEditorMode='e
     await pickOption("Workspace form");
     await waitFor(() => expect(picker().textContent).toContain("Workspace form"));
 
-    const rail = document.querySelector('[data-attr="listing-v2-rail-additional"]') as HTMLElement | null;
-    fireEvent.click(rail!);
+    const formRail = document.querySelector('[data-attr="listing-v2-rail-sections"]') as HTMLElement | null;
+    fireEvent.click(formRail!);
+    const sectionToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    fireEvent.click(sectionToggle!);
 
     await waitFor(() => {
       expect(screen.queryByText(/Following the workspace application form/i)).not.toBeNull();
     });
+  });
+
+  it('P011: "Make default format" PATCHes the workspace template with this listing\'s custom config', async () => {
+    renderTemplateEditor();
+    await waitWorkspace();
+    await waitFor(() => expect(picker()).toBeTruthy());
+
+    await pickOption("Custom for this listing");
+    await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+    fetchMock.mockImplementationOnce(async () =>
+      jsonResponse({ template: { ...WORKSPACE_TEMPLATE, updatedAt: "2026-09-27T00:00:00.000Z" }, workspaceId: "ws-1", configured: true }),
+    );
+
+    const button = await screen.findByRole("button", { name: "Make default format" });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/portal/application-form", expect.objectContaining({ method: "PATCH" })));
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/portal/application-form" && fetchMock.mock.calls.length);
+    const body = JSON.parse(String(call?.[1]?.body)) as { template?: { customApplicationFields?: unknown[] } };
+    expect(body.template?.customApplicationFields).toBeDefined();
   });
 
   it("is hidden for a bulk (multi-property) edit, where a single listing's flag is ambiguous", async () => {

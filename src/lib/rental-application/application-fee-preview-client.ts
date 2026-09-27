@@ -26,6 +26,8 @@ export type ApplicationFeePreview = {
   totalCents: number;
   chargePolicy?: ApplicationFeeChargePolicy;
   repeatApplicantFeeWaived?: boolean;
+  /** P003: display default only — see the route's own doc comment. */
+  templateWaiverCodeOverride?: string | null;
 };
 
 export type ApplicationFeePreviewFetchResult = {
@@ -68,6 +70,13 @@ export async function fetchApplicationFeePreview(input: {
   /** The applicant's lease type; a listing may price its fee per type. */
   leaseTerm?: string;
   /**
+   * P003: the application template the applicant is actually applying with
+   * (`RentalWizardFormState.applicationTemplateId`) — a selector into the
+   * listing's own stored templates, never an amount. When it resolves to a
+   * template that set its own fee, that fee wins over the account default.
+   */
+  applicationTemplateId?: string;
+  /**
    * Only the signed-in caller's own address earns a repeat-applicant waiver —
    * the route ignores it for anyone else and resolves the resident id from the
    * session, never from the browser.
@@ -80,10 +89,11 @@ export async function fetchApplicationFeePreview(input: {
 
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const leaseTerm = input.leaseTerm?.trim() ?? "";
+  const applicationTemplateId = input.applicationTemplateId?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim() ?? "";
   const residentKey = residentEmail.includes("@") ? `::${residentEmail.toLowerCase()}` : "";
   const viewerId = await viewerCacheId();
-  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${leaseTerm}::${viewerId}${residentKey}`;
+  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${leaseTerm}::${applicationTemplateId}::${viewerId}${residentKey}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.value;
 
@@ -100,6 +110,7 @@ export async function fetchApplicationFeePreview(input: {
           ...(managerUserId ? { managerUserId } : {}),
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           leaseTerm: leaseTerm || undefined,
+          applicationTemplateId: applicationTemplateId || undefined,
           residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
         }),
       });
@@ -115,6 +126,7 @@ export async function fetchApplicationFeePreview(input: {
         totalCents?: number;
         chargePolicy?: ApplicationFeeChargePolicy;
         repeatApplicantFeeWaived?: boolean;
+        templateWaiverCodeOverride?: string | null;
       };
       if (!res.ok || typeof data.applicationFeeCents !== "number") {
         return { preview: null };
@@ -125,6 +137,7 @@ export async function fetchApplicationFeePreview(input: {
         totalCents: typeof data.totalCents === "number" ? data.totalCents : data.applicationFeeCents,
         chargePolicy: data.chargePolicy,
         repeatApplicantFeeWaived: data.repeatApplicantFeeWaived,
+        templateWaiverCodeOverride: data.templateWaiverCodeOverride ?? null,
       };
       const value: ApplicationFeePreviewFetchResult = {
         preview,
