@@ -200,6 +200,11 @@ non-interchangeable (viewer id, window, portal role). Tag server-sync store
 events (`serverSyncOriginatedEvent`) so listeners do not refetch the snapshot
 they just wrote. Calendar polling plan: `docs/realtime-schedule-invalidation.md`.
 
+Never re-upload the local portfolio on page load: the sync replaces the local
+copy with the server's. Local-first property writes go through the outbox
+(`src/lib/property-record-outbox.ts`), which the sync flushes first; an empty
+outbox sends nothing.
+
 # AI Agent & Tool Layer
 
 Read [`docs/ai-assistant.md`](docs/ai-assistant.md) before touching `src/lib/tools/`

@@ -1,0 +1,196 @@
+/**
+ * Outbox for the local-first property-record writes (`mirrorPropertyRecord`).
+ *
+ * Those saves update this browser's copy first and send the server write in the
+ * background. Each write is recorded here until the server answers, so one that
+ * never lands (offline, tab closed mid-request, a 5xx) is retried by the next
+ * pipeline sync instead of silently vanishing when that sync replaces the local
+ * copy with the server's. It replaces the old page-load mirror, which re-uploaded
+ * every property on every visit: an empty outbox sends nothing.
+ *
+ * One entry per record id, latest write wins. Entries are scoped to the viewer
+ * who made them, so a different account in the same browser never replays them,
+ * and they live under an `axis_` key, which sign-out clears.
+ */
+
+import type { PropertyPipelineSnapshot } from "@/lib/persisted-property-records";
+import type { ManagerPendingPropertyRow } from "@/lib/demo-property-pipeline";
+import type { MockProperty } from "@/data/types";
+
+export const PROPERTY_RECORD_OUTBOX_KEY = "axis_property_record_outbox_v1";
+/** ponytail: an edit unsent for this long is dropped rather than replayed over newer work from another device. */
+export const PROPERTY_RECORD_OUTBOX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export type PropertyRecordUpsertBody = {
+  action: "upsert";
+  id: string;
+  managerUserId: string | null;
+  status: string;
+  rowData?: unknown;
+  propertyData?: unknown;
+  editRequestNote: string | null;
+};
+
+export type PropertyRecordOutboxEntry = {
+  viewerId: string;
+  seq: number;
+  queuedAt: number;
+  body: PropertyRecordUpsertBody;
+};
+
+type OutboxMap = Record<string, PropertyRecordOutboxEntry>;
+
+/** Fired when the server refuses a queued write; `code` is the route's machine tag. */
+export const PROPERTY_RECORD_REFUSED_EVENT = "axis-property-record-refused";
+export type PropertyRecordRefusedDetail = { id: string; status: number; message: string; code?: string };
+
+const inFlight = new Set<string>();
+const flightKey = (entry: PropertyRecordOutboxEntry) => `${entry.body.id}:${entry.seq}`;
+
+function storage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readOutbox(): OutboxMap {
+  try {
+    const raw = storage()?.getItem(PROPERTY_RECORD_OUTBOX_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as OutboxMap) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeOutbox(map: OutboxMap) {
+  try {
+    const store = storage();
+    if (!store) return;
+    if (Object.keys(map).length === 0) store.removeItem(PROPERTY_RECORD_OUTBOX_KEY);
+    else store.setItem(PROPERTY_RECORD_OUTBOX_KEY, JSON.stringify(map));
+  } catch {
+    // Storage full or blocked: the write is still sent once, as before.
+  }
+}
+
+/** Remove an entry only if it is still the one that was sent (a newer edit may have replaced it). */
+function settle(entry: PropertyRecordOutboxEntry) {
+  const map = readOutbox();
+  if (map[entry.body.id]?.seq === entry.seq) {
+    delete map[entry.body.id];
+    writeOutbox(map);
+  }
+}
+
+/**
+ * Send one entry. Success or a 4xx settles it: a 4xx is the server refusing
+ * (a 409 means someone else's newer write won), and repeating it cannot help.
+ * A network failure or 5xx keeps it for the next sync.
+ */
+async function send(entry: PropertyRecordOutboxEntry, fetchImpl: typeof fetch): Promise<void> {
+  const key = flightKey(entry);
+  if (inFlight.has(key)) return;
+  inFlight.add(key);
+  try {
+    const res = await fetchImpl("/api/property-records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(entry.body),
+    });
+    if (res.ok) settle(entry);
+    else if (res.status >= 400 && res.status < 500) {
+      settle(entry);
+      // Background work the manager never initiated: say only what the server
+      // chose to explain (4xx), never a 5xx's raw database text.
+      const body = (await res.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
+      const detail: PropertyRecordRefusedDetail = {
+        id: entry.body.id,
+        status: res.status,
+        message: typeof body?.error === "string" ? body.error.trim() : "",
+        code: typeof body?.code === "string" ? body.code : undefined,
+      };
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PROPERTY_RECORD_REFUSED_EVENT, { detail }));
+    }
+  } catch {
+    // Offline or aborted: keep it queued.
+  } finally {
+    inFlight.delete(key);
+  }
+}
+
+/** Record a write, then send it. Returns once the server has answered (callers may ignore it). */
+export function enqueuePropertyRecordWrite(
+  viewerId: string,
+  body: PropertyRecordUpsertBody,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const map = readOutbox();
+  const entry: PropertyRecordOutboxEntry = {
+    viewerId,
+    seq: (map[body.id]?.seq ?? 0) + 1,
+    queuedAt: Date.now(),
+    body,
+  };
+  map[body.id] = entry;
+  writeOutbox(map);
+  return send(entry, fetchImpl);
+}
+
+/** This viewer's unsent writes, dropping (and forgetting) any older than the max age. */
+export function pendingPropertyRecordWrites(viewerId: string, now = Date.now()): PropertyRecordOutboxEntry[] {
+  const map = readOutbox();
+  let expired = false;
+  for (const [id, entry] of Object.entries(map)) {
+    if (now - entry.queuedAt > PROPERTY_RECORD_OUTBOX_MAX_AGE_MS) {
+      delete map[id];
+      expired = true;
+    }
+  }
+  if (expired) writeOutbox(map);
+  return Object.values(map).filter((entry) => entry.viewerId === viewerId);
+}
+
+/** Retry this viewer's unsent writes, in order, before a sync reads the server. */
+export async function flushPropertyRecordOutbox(viewerId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  if (!viewerId) return;
+  const entries = pendingPropertyRecordWrites(viewerId).sort((a, b) => a.queuedAt - b.queuedAt);
+  // Sequential, like every other multi-row property write: each may claim a
+  // plan listing slot the server counts before accepting the next.
+  for (const entry of entries) await send(entry, fetchImpl);
+}
+
+/**
+ * Lay still-unsent writes over a fresh server snapshot, so a sync that runs
+ * while a write is in flight (or after one failed) never shows the manager
+ * their edit reverting. Only `pending` (row) and `live`/`review` (listing)
+ * records are local-first; any other status is left to the server.
+ */
+export function overlayPendingPropertyWrites(
+  snapshot: PropertyPipelineSnapshot,
+  entries: PropertyRecordOutboxEntry[],
+): PropertyPipelineSnapshot {
+  if (entries.length === 0) return snapshot;
+  const pendingByUser = { ...snapshot.pendingByUser };
+  const extrasByUser = { ...snapshot.extrasByUser };
+  const upsert = <T extends { id: string }>(list: T[] | undefined, row: T): T[] => {
+    const rows = [...(list ?? [])];
+    const idx = rows.findIndex((r) => r.id === row.id);
+    if (idx === -1) rows.push(row);
+    else rows[idx] = row;
+    return rows;
+  };
+  for (const { body } of entries) {
+    const owner = body.managerUserId?.trim();
+    if (!owner) continue;
+    if (body.status === "pending" && body.rowData && typeof body.rowData === "object") {
+      pendingByUser[owner] = upsert(pendingByUser[owner], body.rowData as ManagerPendingPropertyRow);
+    } else if ((body.status === "live" || body.status === "review") && body.propertyData && typeof body.propertyData === "object") {
+      extrasByUser[owner] = upsert(extrasByUser[owner], body.propertyData as MockProperty);
+    }
+  }
+  return { ...snapshot, pendingByUser, extrasByUser };
+}
