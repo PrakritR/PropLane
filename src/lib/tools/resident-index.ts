@@ -35,6 +35,7 @@ import {
   createServiceRequestTool,
   addServiceRequestNoteTool,
 } from "./domains/resident/services";
+import { researchMyPropertyLocationTool } from "./domains/resident/property-research";
 import {
   updateWorkOrderTool,
   cancelWorkOrderTool,
@@ -60,6 +61,7 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   getMyLeaseTool,
   getMyApplicationStatusTool,
   getMoveInInfoTool,
+  researchMyPropertyLocationTool,
   requestLeaseExtensionTool,
   // Services / work orders
   listMyServiceRequestsTool,
@@ -123,6 +125,7 @@ const PORTAL_ONLY_TOOLS = new Set([setAutopayTool.name]);
 const APPLICATION_PHASE_TOOLS = new Set([
   "get_resident_links",
   "get_my_application_status",
+  "research_my_property_location",
   "list_open_tour_slots",
   "request_tour",
   "list_my_inbox_threads",
