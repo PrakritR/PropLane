@@ -1797,7 +1797,11 @@ export async function renderPortalSection(
         if (finTab === "payouts") {
           redirect(`${def.basePath}/profile?tab=payouts`);
         }
-        return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
+        // VD11 — Income and Invoices merged into one Payments list at the
+        // `income` tabId; the bare Invoices tab is a door to it, same shape
+        // as the Payouts redirect above. An invoice record below still
+        // renders here.
+        redirect(`${def.basePath}/financials/income`);
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${finTab}`);

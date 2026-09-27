@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Download, Wrench } from "lucide-react";
+import { ArrowUpFromLine, Download, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -20,6 +19,7 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   vendorInvoiceDetailHref,
+  vendorPayoutDetailHref,
   type VendorInvoiceDetailTabId,
   type VendorPayoutDetailTabId,
 } from "@/lib/portal-detail-routes";
@@ -33,19 +33,21 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
-import { PORTAL_DETAIL_BTN, PortalDataTableEmpty, PortalTableDetailActions } from "@/components/portal/portal-data-table";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import type { ReportFilterState } from "@/components/portal/reports/report-filter-bar";
 import { MANAGER_WORK_ORDERS_EVENT, readVendorWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
-import {
-  buildVendorIncomeRows,
-  buildVendorPropertyFilterOptions,
-  filterVendorIncomeRows,
-  formatVendorIncomeMoney,
-  vendorIncomeTotals,
-  type VendorIncomeRow,
-} from "@/lib/vendor-income";
+import { buildVendorIncomeRows } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import {
+  buildVendorPaymentPropertyFilterOptions,
+  buildVendorPaymentRows,
+  filterVendorPaymentRows,
+  formatVendorPaymentMoney,
+  vendorPaymentStatusOptions,
+  type VendorPaymentRow,
+} from "@/lib/vendor-payments";
+import { VendorPaymentRowMenu } from "@/components/portal/vendor-payment-row-menu";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
@@ -63,7 +65,6 @@ import {
   vendorInvoiceStatusLabel,
   vendorInvoiceTimeline,
   type VendorInvoice,
-  type VendorInvoiceStatus,
 } from "@/lib/vendor-invoices";
 import { VendorInvoiceTimeline } from "@/components/portal/vendor-invoice-timeline";
 
@@ -72,14 +73,16 @@ type VendorLinkedManagerOption = {
   label: string;
 };
 
-const VENDOR_FINANCE_TABS = [
-  { id: "income", label: "Income" },
-  { id: "invoices", label: "Invoices" },
-] as const;
-
+/**
+ * VD11 — Income and Invoices are no longer two routed tabs: they merge into
+ * one flat Payments list at the `income` tabId, which is now the page's only
+ * visible destination. `invoices`/`payouts` stay valid tab ids purely so a
+ * record URL (`/financials/invoices|payouts/<id>`) still resolves — see the
+ * `kind === "vendor" && section === "financials"` block in
+ * `render-portal-section.tsx`, which redirects the bare list routes into
+ * `income` before either ever mounts here.
+ */
 function VendorFinancesChrome({
-  tabId,
-  tabItems,
   actions,
   primary,
   filterRow,
@@ -87,8 +90,6 @@ function VendorFinancesChrome({
   activeFilterChips,
   children,
 }: {
-  tabId: string;
-  tabItems: { id: string; label: string; href: string }[];
   actions?: ReactNode;
   primary?: ReactNode;
   filterRow?: ReactNode;
@@ -97,18 +98,10 @@ function VendorFinancesChrome({
   children: ReactNode;
 }) {
   return (
-    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={tabItems.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          href: tab.href,
-          dataAttr: `vendor-finances-tab-${tab.id}`,
-        }))}
-        activeDestinationId={tabId}
-        destinationAriaLabel="Finance view"
         filterRow={filterRow}
         search={search}
         activeFilterChips={activeFilterChips}
@@ -198,17 +191,19 @@ function VendorIncomeBalanceCard() {
           {formatMoney(balance.availableCents, balance.currency)}
         </p>
       </div>
-      <Button
-        type="button"
+      {/* VD12/VD45 — Withdraw is a top-right icon action on the balance card,
+          matching the pattern already landed on Settings → Payouts and the
+          Dashboard balance card; same withdraw sheet, no new money path. */}
+      <PortalIconAction
+        icon={ArrowUpFromLine}
+        label="Withdraw"
+        data-attr="vendor-income-balance-withdraw"
+        disabled={!ready || withdrawableCents <= 0}
         onClick={() => {
           track("payout_withdraw_started", { portal: "vendor", source: "income_tab" });
           setWithdrawOpen(true);
         }}
-        disabled={!ready || withdrawableCents <= 0}
-        data-attr="vendor-income-balance-withdraw"
-      >
-        Withdraw
-      </Button>
+      />
       <PayoutWithdrawSheet
         open={withdrawOpen}
         onClose={() => setWithdrawOpen(false)}
@@ -226,12 +221,28 @@ function VendorIncomeBalanceCard() {
   );
 }
 
-function VendorIncomeTable({
+/**
+ * VD11 — the merged Payments list: every income row (a completed job's
+ * payout) and every invoice row (a submitted bill) in one newest-first
+ * surface. VD14's row menu carries View/Edit/Withdraw/Download, contextual
+ * on the row's kind and status.
+ */
+function VendorPaymentsTable({
   rows,
+  basePath,
+  onOpenEditInvoice,
+  onWithdrawInvoice,
+  withdrawingInvoiceId,
+  onDownload,
 }: {
-  rows: VendorIncomeRow[];
+  rows: VendorPaymentRow[];
+  basePath: string;
+  onOpenEditInvoice: (invoice: VendorInvoice) => void;
+  onWithdrawInvoice: (invoice: VendorInvoice) => void;
+  withdrawingInvoiceId: string | null;
+  onDownload: (row: VendorPaymentRow) => void;
 }) {
-  const totals = useMemo(() => vendorIncomeTotals(rows), [rows]);
+  const navigate = usePortalNavigate();
 
   if (rows.length === 0) {
     const empty = portalEmptyCopy("finances.income");
@@ -239,35 +250,49 @@ function VendorIncomeTable({
   }
 
   return (
-    <PortalRecordListSurface isEmpty={false} dataAttr="vendor-income-list">
-      {rows.map((row) => (
-        <PortalPropertyRecordRow
-          key={row.id}
-          title={row.workOrderTitle}
-          address={row.propertyLabel}
-          facts={[formatIncomeDate(row.dateIso), row.payoutStatusLabel].filter(Boolean).join(" · ")}
-          trailing={formatVendorIncomeMoney(row.totalCents)}
-          dataAttr="vendor-income-row"
-        />
-      ))}
-      <PortalPropertyRecordRow
-        title="Total income"
-        address={`${rows.length} ${rows.length === 1 ? "service" : "services"}`}
-        trailing={formatVendorIncomeMoney(totals.totalCents)}
-        dataAttr="vendor-income-total"
-      />
+    <PortalRecordListSurface isEmpty={false} dataAttr="vendor-payments-list">
+      {rows.map((row) => {
+        const viewHref =
+          row.kind === "invoice"
+            ? vendorInvoiceDetailHref(basePath, row.invoice!.id)
+            : row.payoutId
+              ? vendorPayoutDetailHref(basePath, row.payoutId)
+              : null;
+        const submittedInvoice = row.kind === "invoice" && row.invoice!.status === "submitted" ? row.invoice : null;
+        const downloadable = row.statusId === "invoice:paid" || row.statusId === "invoice:approved" || row.statusId === "income:paid";
+        const rowMenu = (
+          <VendorPaymentRowMenu
+            label={row.title}
+            onView={viewHref ? () => navigate(viewHref) : undefined}
+            onEdit={submittedInvoice ? () => onOpenEditInvoice(submittedInvoice) : undefined}
+            onWithdraw={submittedInvoice ? () => onWithdrawInvoice(submittedInvoice) : undefined}
+            withdrawing={submittedInvoice ? withdrawingInvoiceId === submittedInvoice.id : false}
+            onDownload={downloadable ? () => onDownload(row) : undefined}
+          />
+        );
+        return (
+          // A relative wrapper, not `trailing`, carries the ⋯: the row's own
+          // title button (`onOpen`) would otherwise nest a real `<button>`
+          // (the DropdownMenu trigger) inside a `<button>`, which is invalid
+          // markup. The menu sits as an absolutely-positioned sibling instead.
+          <div key={row.id} className="relative">
+            <PortalPropertyRecordRow
+              title={row.title}
+              address={row.propertyLabel ?? undefined}
+              facts={[formatIncomeDate(row.dateIso), row.statusLabel].filter(Boolean).join(" · ")}
+              trailing={formatVendorPaymentMoney(row)}
+              onOpen={viewHref ? () => navigate(viewHref) : undefined}
+              dataAttr={row.kind === "invoice" ? "vendor-invoice-row" : "vendor-income-row"}
+            />
+            <div className="pointer-events-none absolute right-2 top-2">
+              <div className="pointer-events-auto">{rowMenu}</div>
+            </div>
+          </div>
+        );
+      })}
     </PortalRecordListSurface>
   );
 }
-
-const INVOICE_STATUS_FILTERS: { id: "all" | VendorInvoiceStatus; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "submitted", label: "Submitted" },
-  { id: "approved", label: "Approved" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "paid", label: "Paid" },
-  { id: "rejected", label: "Rejected" },
-];
 
 type InvoiceFormLine = { description: string; quantity: string; unitAmount: string };
 
@@ -556,301 +581,132 @@ function formatInvoiceDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function VendorInvoicesView({
-  tabItems,
-  tabId,
+/**
+ * The vendor invoice record page. VD11 folded the bare Invoices LIST into
+ * the merged Payments list (`VendorPaymentsTable`, at the `income` tabId) —
+ * this component now only renders a single invoice's own detail page
+ * (`/financials/invoices/<id>/<tab>`); its fetch/edit/withdraw state lives
+ * in the parent `VendorFinancesPanel` so the merged list and this detail
+ * page share one source of truth instead of two.
+ */
+function VendorInvoiceDetailPage({
   basePath = "/vendor",
   recordId,
   recordDetailTab,
+  invoices,
+  loading,
+  linkedManagers,
+  modalOpen,
+  editingInvoice,
+  openEdit,
+  closeModal,
+  withdrawInvoice,
+  load,
 }: {
-  tabItems: { id: string; label: string; href: string }[];
-  tabId: string;
   basePath?: string;
-  /** A vendor invoice RECORD id (docs/agents/record-page.md); set only when routed to /financials/invoices/<id>/<tab>. */
-  recordId?: string;
+  recordId: string;
   recordDetailTab?: VendorInvoiceDetailTabId;
+  invoices: VendorInvoice[];
+  loading: boolean;
+  linkedManagers: VendorLinkedManagerOption[];
+  modalOpen: boolean;
+  editingInvoice: VendorInvoice | null;
+  openEdit: (invoice: VendorInvoice) => void;
+  closeModal: () => void;
+  withdrawInvoice: (invoice: VendorInvoice) => Promise<void>;
+  load: () => Promise<void>;
 }) {
   const navigate = usePortalNavigate();
-  const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
-  const [linkedManagers, setLinkedManagers] = useState<VendorLinkedManagerOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<"all" | VendorInvoiceStatus>("all");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingInvoice, setEditingInvoice] = useState<VendorInvoice | null>(null);
-  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
-  const [exportRange] = useState(() => defaultFilters());
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const jobs = useMemo(() => readVendorWorkOrderRows(), [invoices]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      void syncManagerWorkOrdersFromServer();
-      const res = await fetch("/api/vendor/invoices");
-      if (!res.ok) {
-        setInvoices([]);
-        setLinkedManagers([]);
-        return;
-      }
-      const body = (await res.json()) as {
-        invoices?: VendorInvoice[];
-        managers?: { managerUserId: string; name: string }[];
-        linkedManagers?: VendorLinkedManagerOption[];
-      };
-      setInvoices(body.invoices ?? []);
-      setLinkedManagers(
-        body.linkedManagers ??
-          (body.managers ?? []).map((manager) => ({
-            managerUserId: manager.managerUserId,
-            label: manager.name,
-          })),
-      );
-    } catch {
-      setInvoices([]);
-      setLinkedManagers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const counts = useMemo(() => {
-    const map: Record<string, number> = { all: invoices.length };
-    for (const inv of invoices) map[inv.status] = (map[inv.status] ?? 0) + 1;
-    return map;
-  }, [invoices]);
-
-  const filtered = useMemo(
-    () => (statusFilter === "all" ? invoices : invoices.filter((inv) => inv.status === statusFilter)),
-    [invoices, statusFilter],
-  );
-
-  const confirm = useConfirm();
-
-  async function withdrawInvoice(invoice: VendorInvoice) {
-    if (!(await confirm({ title: "Withdraw invoice", description: "Withdraw this invoice?", confirmLabel: "Withdraw", note: "You can submit a corrected one afterward." }))) return;
-    setWithdrawingId(invoice.id);
-    try {
-      const res = await fetch(`/api/vendor/invoices/${invoice.id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        throw new Error(body.error ?? "Could not withdraw invoice.");
-      }
-      await load();
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Could not withdraw invoice.");
-    } finally {
-      setWithdrawingId(null);
-    }
-  }
-
-  function openEdit(invoice: VendorInvoice) {
-    setEditingInvoice(invoice);
-    setModalOpen(true);
-  }
-
-  function closeModal() {
-    setModalOpen(false);
-    setEditingInvoice(null);
-  }
-
-  if (recordId) {
-    const invoice = invoices.find((inv) => inv.id === recordId) ?? null;
-    if (!invoice) {
-      return loading ? (
-        <PortalDataTableEmpty icon="default" message="Loading…" />
-      ) : (
-        <PortalDataTableEmpty icon="default" message="Invoice not found." />
-      );
-    }
-    const activeTab: VendorInvoiceDetailTabId = recordDetailTab ?? "overview";
-    const backHref = `${basePath}/financials/invoices`;
-    const sections = recordSections("vendor", "invoice", { basePath });
-    const onHeaderAction = (actionId: string) => {
-      if (actionId === "edit" || actionId === "submit") {
-        openEdit(invoice);
-        return;
-      }
-      if (actionId === "withdraw") {
-        void withdrawInvoice(invoice).then(() => navigate(backHref));
-        return;
-      }
-      if (actionId === "download") {
-        window.open(vendorExportUrl("invoices"), "_blank", "noopener");
-      }
-    };
-    const ownContent =
-      activeTab === "lines" ? (
-        <ul className="divide-y divide-border rounded-xl border border-border bg-card px-3 sm:px-4" data-attr="vendor-invoice-lines">
-          {invoice.lineItems.map((line, i) => (
-            <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
-              <span className="truncate">{line.description}</span>
-              <span className="shrink-0 font-medium tabular-nums">{formatInvoiceMoney(line.amountCents, invoice.currency)}</span>
-            </li>
-          ))}
-        </ul>
-      ) : activeTab === "payout" ? (
-        <div className="px-3 pb-4 sm:px-4">
-          {invoice.status === "paid" ? (
-            <p className="text-sm text-foreground">Paid — see the Payouts tab for transfer details.</p>
-          ) : (
-            <PortalListEmptyCard title="Not paid out yet" workspaceAware={false} dataAttr="vendor-invoice-payout-empty" />
-          )}
-        </div>
-      ) : activeTab === "communication" || activeTab === "documents" ? (
-        renderRecordSection(activeTab, {
-          role: "vendor",
-          kind: "invoice",
-          kindLabel: "invoice",
-          recordId: invoice.id,
-          recordLabel: invoice.invoiceNumber || "Invoice",
-        })
-      ) : (
-        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-invoice-overview">
-          <p className="text-sm text-foreground">
-            {formatInvoiceMoney(invoice.totalCents, invoice.currency)} · {vendorInvoiceStatusLabel(invoice.status)}
-          </p>
-          {invoice.memo ? <p className="text-sm whitespace-pre-wrap text-muted">{invoice.memo}</p> : null}
-          <VendorInvoiceTimeline steps={vendorInvoiceTimeline(invoice)} />
-        </div>
-      );
-    return (
-      <>
-        <PortalRecordDetailPage
-          pageTitle="Finances"
-          title={invoice.invoiceNumber || "Invoice"}
-          subtitle={formatInvoiceDate(invoice.submittedAt)}
-          avatarName={invoice.invoiceNumber || "Invoice"}
-          backHref={backHref}
-          backLabel="Back to invoices"
-          hideBackText
-          bareHeader
-          iconTitleActions
-          pinScrollBody
-        >
-          <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
-          </PortalRecordActions>
-          <PortalRecordSectionChrome
-            sections={sections}
-            recordId={invoice.id}
-            activeId={activeTab}
-            title={invoice.invoiceNumber || "Invoice"}
-            subtitle={formatInvoiceDate(invoice.submittedAt)}
-            backHref={backHref}
-            backLabel="All invoices"
-            ariaLabel="Invoice sections"
-            onHeaderAction={onHeaderAction}
-          >
-            {ownContent}
-          </PortalRecordSectionChrome>
-        </PortalRecordDetailPage>
-        <SubmitInvoiceModal
-          open={modalOpen}
-          onClose={closeModal}
-          onSubmitted={load}
-          linkedManagers={linkedManagers}
-          editingInvoice={editingInvoice}
-        />
-      </>
+  const invoice = invoices.find((inv) => inv.id === recordId) ?? null;
+  if (!invoice) {
+    return loading ? (
+      <PortalDataTableEmpty icon="default" message="Loading…" />
+    ) : (
+      <PortalDataTableEmpty icon="default" message="Invoice not found." />
     );
   }
-
+  const activeTab: VendorInvoiceDetailTabId = recordDetailTab ?? "overview";
+  const backHref = `${basePath}/financials/invoices`;
+  const sections = recordSections("vendor", "invoice", { basePath });
+  const onHeaderAction = (actionId: string) => {
+    if (actionId === "edit" || actionId === "submit") {
+      openEdit(invoice);
+      return;
+    }
+    if (actionId === "withdraw") {
+      void withdrawInvoice(invoice).then(() => navigate(backHref));
+      return;
+    }
+    if (actionId === "download") {
+      window.open(vendorExportUrl("invoices"), "_blank", "noopener");
+    }
+  };
+  const ownContent =
+    activeTab === "lines" ? (
+      <ul className="divide-y divide-border rounded-xl border border-border bg-card px-3 sm:px-4" data-attr="vendor-invoice-lines">
+        {invoice.lineItems.map((line, i) => (
+          <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
+            <span className="truncate">{line.description}</span>
+            <span className="shrink-0 font-medium tabular-nums">{formatInvoiceMoney(line.amountCents, invoice.currency)}</span>
+          </li>
+        ))}
+      </ul>
+    ) : activeTab === "payout" ? (
+      <div className="px-3 pb-4 sm:px-4">
+        {invoice.status === "paid" ? (
+          <p className="text-sm text-foreground">Paid — see the Payouts tab for transfer details.</p>
+        ) : (
+          <PortalListEmptyCard title="Not paid out yet" workspaceAware={false} dataAttr="vendor-invoice-payout-empty" />
+        )}
+      </div>
+    ) : activeTab === "communication" || activeTab === "documents" ? (
+      renderRecordSection(activeTab, {
+        role: "vendor",
+        kind: "invoice",
+        kindLabel: "invoice",
+        recordId: invoice.id,
+        recordLabel: invoice.invoiceNumber || "Invoice",
+      })
+    ) : (
+      <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-invoice-overview">
+        <p className="text-sm text-foreground">
+          {formatInvoiceMoney(invoice.totalCents, invoice.currency)} · {vendorInvoiceStatusLabel(invoice.status)}
+        </p>
+        {invoice.memo ? <p className="text-sm whitespace-pre-wrap text-muted">{invoice.memo}</p> : null}
+        <VendorInvoiceTimeline steps={vendorInvoiceTimeline(invoice)} />
+      </div>
+    );
   return (
-    <VendorFinancesChrome
-      tabId={tabId}
-      tabItems={tabItems}
-      actions={
-        <PortalIconAction
-          icon={Download}
-          label="Export CSV"
-          data-attr="vendor-export-invoices-csv"
-          onClick={() => {
-            window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
-          }}
-        />
-      }
-      primary={
-        <PortalPrimaryIconAction
-          label={portalListAddPrimaryLabel("invoice")}
-          data-attr="vendor-invoice-new"
-          onClick={() => setWizardOpen(true)}
-        />
-      }
-    >
-      {/*
-        The same underline tabs every other status filter in the product uses
-        (manager Payments/Leases/Tours/Applications, resident Payments) —
-        this used to be a rounded pill segmented control, a visually
-        different control doing the identical job (AXI night sweep area 2i).
-      */}
-      <LocalDestinationNav
-        items={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
-        activeId={statusFilter}
-        onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
-        ariaLabel="Invoice status"
-        appearance="command"
-      />
-      {loading ? (
-        <div data-attr="vendor-invoices-loading">
-          <ListSkeleton rows={4} showLeading={false} />
-        </div>
-      ) : filtered.length === 0 ? (
-        <PortalListEmptyCard
-          title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}
-          section={portalEmptyCopy("finances.invoices").section}
-          tone={invoices.length === 0 ? "default" : "muted"}
-          actions={
-            invoices.length === 0
-              ? [
-                  {
-                    label: portalListAddPrimaryLabel("invoice"),
-                    onClick: () => setWizardOpen(true),
-                    dataAttr: "vendor-invoice-empty-add",
-                  },
-                ]
-              : []
-          }
-        />
-      ) : (
-        <PortalRecordListSurface isEmpty={false} dataAttr="vendor-invoices-list">
-          {filtered.map((inv) => (
-            <div key={inv.id}>
-              <PortalPropertyRecordRow
-                title={inv.invoiceNumber || "Invoice"}
-                address={formatInvoiceDate(inv.submittedAt)}
-                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"} · ${vendorInvoiceStatusLabel(inv.status)}`}
-                trailing={formatInvoiceMoney(inv.totalCents, inv.currency)}
-                selected={editingInvoice?.id === inv.id}
-                onOpen={() => navigate(vendorInvoiceDetailHref(basePath, inv.id))}
-                dataAttr="vendor-invoice-row"
-              />
-              {inv.status === "submitted" ? (
-                <div className="mb-2 px-1">
-                  <PortalTableDetailActions>
-                    <Button variant="outline" className={PORTAL_DETAIL_BTN} data-attr="vendor-invoice-edit" onClick={() => openEdit(inv)}>
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className={PORTAL_DETAIL_BTN}
-                      data-attr="vendor-invoice-withdraw"
-                      disabled={withdrawingId === inv.id}
-                      onClick={() => withdrawInvoice(inv)}
-                    >
-                      {withdrawingId === inv.id ? "Withdrawing…" : "Withdraw"}
-                    </Button>
-                  </PortalTableDetailActions>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </PortalRecordListSurface>
-      )}
-
+    <>
+      <PortalRecordDetailPage
+        pageTitle="Payments"
+        title={invoice.invoiceNumber || "Invoice"}
+        subtitle={formatInvoiceDate(invoice.submittedAt)}
+        avatarName={invoice.invoiceNumber || "Invoice"}
+        backHref={backHref}
+        backLabel="Back to invoices"
+        hideBackText
+        bareHeader
+        iconTitleActions
+        pinScrollBody
+      >
+        <PortalRecordActions>
+          <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+        </PortalRecordActions>
+        <PortalRecordSectionChrome
+          sections={sections}
+          recordId={invoice.id}
+          activeId={activeTab}
+          title={invoice.invoiceNumber || "Invoice"}
+          subtitle={formatInvoiceDate(invoice.submittedAt)}
+          backHref={backHref}
+          backLabel="All invoices"
+          ariaLabel="Invoice sections"
+          onHeaderAction={onHeaderAction}
+        >
+          {ownContent}
+        </PortalRecordSectionChrome>
+      </PortalRecordDetailPage>
       <SubmitInvoiceModal
         open={modalOpen}
         onClose={closeModal}
@@ -858,17 +714,7 @@ function VendorInvoicesView({
         linkedManagers={linkedManagers}
         editingInvoice={editingInvoice}
       />
-      <VendorQuoteWizard
-        open={wizardOpen}
-        door="invoice"
-        jobs={jobs}
-        onClose={() => setWizardOpen(false)}
-        onSubmitted={() => {
-          setWizardOpen(false);
-          void load();
-        }}
-      />
-    </VendorFinancesChrome>
+    </>
   );
 }
 
@@ -988,10 +834,84 @@ export function VendorFinancesPanel({
 }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
+  const [statusIds, setStatusIds] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
   const [tick, setTick] = useState(0);
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [requestOpen, setRequestOpen] = useState(false);
+
+  // VD11 — invoice fetch/edit/withdraw state used to live inside the now-
+  // removed standalone Invoices list view; it lives here so the merged
+  // Payments list and the invoice detail page (still routed at
+  // /financials/invoices/<id>) share one source of truth.
+  const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
+  const [linkedManagers, setLinkedManagers] = useState<VendorLinkedManagerOption[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<VendorInvoice | null>(null);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const confirm = useConfirm();
+
+  const loadInvoices = useCallback(async () => {
+    setInvoicesLoading(true);
+    try {
+      const res = await fetch("/api/vendor/invoices");
+      if (!res.ok) {
+        setInvoices([]);
+        setLinkedManagers([]);
+        return;
+      }
+      const body = (await res.json()) as {
+        invoices?: VendorInvoice[];
+        managers?: { managerUserId: string; name: string }[];
+        linkedManagers?: VendorLinkedManagerOption[];
+      };
+      setInvoices(body.invoices ?? []);
+      setLinkedManagers(
+        body.linkedManagers ??
+          (body.managers ?? []).map((manager) => ({
+            managerUserId: manager.managerUserId,
+            label: manager.name,
+          })),
+      );
+    } catch {
+      setInvoices([]);
+      setLinkedManagers([]);
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInvoices();
+  }, [loadInvoices]);
+
+  async function withdrawInvoice(invoice: VendorInvoice) {
+    if (!(await confirm({ title: "Withdraw invoice", description: "Withdraw this invoice?", confirmLabel: "Withdraw", note: "You can submit a corrected one afterward." }))) return;
+    setWithdrawingId(invoice.id);
+    try {
+      const res = await fetch(`/api/vendor/invoices/${invoice.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? "Could not withdraw invoice.");
+      }
+      await loadInvoices();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Could not withdraw invoice.");
+    } finally {
+      setWithdrawingId(null);
+    }
+  }
+
+  function openEdit(invoice: VendorInvoice) {
+    setEditingInvoice(invoice);
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingInvoice(null);
+  }
 
   const loadPayouts = useCallback(async () => {
     const result = await fetchVendorPayoutsResult();
@@ -1012,33 +932,39 @@ export function VendorFinancesPanel({
     return readVendorWorkOrderRows();
   }, [tick]);
 
-  const allRows = useMemo(
+  const jobsById = useMemo(() => Object.fromEntries(jobs.map((job) => [job.id, job])), [jobs]);
+
+  const incomeRows = useMemo(
     () => buildVendorIncomeRows(jobs, payoutsByWorkOrderId),
     [jobs, payoutsByWorkOrderId],
   );
 
-  const propertyOptions = useMemo(() => buildVendorPropertyFilterOptions(allRows), [allRows]);
+  // VD11 — Income and Invoices merge into one flat, newest-first list here.
+  const allRows = useMemo(
+    () => buildVendorPaymentRows(incomeRows, invoices, jobsById, payoutsByWorkOrderId),
+    [incomeRows, invoices, jobsById, payoutsByWorkOrderId],
+  );
+
+  const propertyOptions = useMemo(() => buildVendorPaymentPropertyFilterOptions(allRows), [allRows]);
+  const statusOptions = useMemo(() => vendorPaymentStatusOptions(allRows), [allRows]);
 
   const filteredRows = useMemo(
     () =>
-      filterVendorIncomeRows(allRows, {
+      filterVendorPaymentRows(allRows, {
         from: filters.from,
         to: filters.to,
         propertyIds,
+        statusIds,
         query: listSearch,
       }),
-    [allRows, filters.from, filters.to, propertyIds, listSearch],
-  );
-
-  const financeTabItems = useMemo(
-    () => VENDOR_FINANCE_TABS.map((tab) => ({ ...tab, href: `${basePath}/financials/${tab.id}` })),
-    [basePath],
+    [allRows, filters.from, filters.to, propertyIds, statusIds, listSearch],
   );
 
   const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
   const defaults = defaultFilters();
   const filterTouchCount =
     propertyIds.length +
+    statusIds.length +
     (filters.from !== defaults.from ? 1 : 0) +
     (filters.to !== defaults.to ? 1 : 0);
 
@@ -1046,15 +972,19 @@ export function VendorFinancesPanel({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={3}
+      filterFieldCount={4}
       commandStripTrigger
       onReset={() => {
         setPropertyIds([]);
+        setStatusIds([]);
         setFilters(defaultFilters());
       }}
       dataAttr="vendor-finances-filter-sheet-open"
     >
       <VendorFinanceFilterFields
+        statusOptions={statusOptions}
+        statusIds={statusIds}
+        onStatusIdsChange={setStatusIds}
         propertyOptions={propertyOptions}
         propertyIds={propertyIds}
         onPropertyIdsChange={setPropertyIds}
@@ -1066,6 +996,11 @@ export function VendorFinancesPanel({
   );
 
   const filterChips: PortalActiveFilterChip[] = [
+    ...statusIds.map((id) => ({
+      id: `status-${id}`,
+      label: statusOptions.find((option) => option.id === id)?.label ?? id,
+      onRemove: () => setStatusIds((current) => current.filter((item) => item !== id)),
+    })),
     ...propertyIds.map((id) => ({
       id: `property-${id}`,
       label: propertyOptions.find((option) => option.id === id)?.label ?? id,
@@ -1090,26 +1025,37 @@ export function VendorFinancesPanel({
       onSubmitted={() => {
         setRequestOpen(false);
         setTick((n) => n + 1);
+        void loadInvoices();
       }}
     />
   );
 
-  if (tabId === "invoices") {
+  // Bare `/financials/invoices` (no recordId) never reaches this component —
+  // `render-portal-section.tsx` redirects it into the merged `income` list
+  // (VD11); only an invoice RECORD (`/financials/invoices/<id>/<tab>`) renders
+  // here.
+  if (tabId === "invoices" && recordId) {
     return (
-      <VendorInvoicesView
-        tabItems={financeTabItems}
-        tabId={tabId}
+      <VendorInvoiceDetailPage
         basePath={basePath}
         recordId={recordId}
-        recordDetailTab={recordId ? (recordDetailTab as VendorInvoiceDetailTabId) : undefined}
+        recordDetailTab={recordDetailTab as VendorInvoiceDetailTabId}
+        invoices={invoices}
+        loading={invoicesLoading}
+        linkedManagers={linkedManagers}
+        modalOpen={modalOpen}
+        editingInvoice={editingInvoice}
+        openEdit={openEdit}
+        closeModal={closeModal}
+        withdrawInvoice={withdrawInvoice}
+        load={loadInvoices}
       />
     );
   }
 
   // The bare "payouts" tab never reaches this component — `render-portal-section.tsx`
   // redirects it straight to Settings → Payouts (PLAN-0920-1500) before
-  // `VendorFinancesPanel` is mounted with that tabId. The pill stays in
-  // `VENDOR_FINANCE_TABS` as a door to it. Only a payout *record*
+  // `VendorFinancesPanel` is mounted with that tabId. Only a payout *record*
   // (/financials/payouts/<id>/<tab>, PLAN-0920-1058) renders here.
   if (tabId === "payouts" && recordId) {
     return (
@@ -1121,29 +1067,47 @@ export function VendorFinancesPanel({
     );
   }
 
-
   const incomeEmpty = portalEmptyCopy("finances.income");
   const filtersHideRows = allRows.length > 0 && filteredRows.length === 0;
 
+  function downloadPaymentRow(row: VendorPaymentRow) {
+    const day = row.dateIso ? row.dateIso.slice(0, 10) : undefined;
+    window.open(vendorExportUrl(row.kind === "invoice" ? "invoices" : "payouts", day, day), "_blank", "noopener");
+  }
+
   return (
     <VendorFinancesChrome
-      tabId={tabId}
-      tabItems={financeTabItems}
       filterRow={filterSheet}
       search={{
         value: listSearch,
         onChange: setListSearch,
-        placeholder: "Search income",
+        placeholder: "Search payments",
         dataAttr: "vendor-income-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
-      actions={<PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
+      actions={
+        <>
+          <PortalIconAction
+            icon={Download}
+            label="Export invoices CSV"
+            data-attr="vendor-export-invoices-csv"
+            onClick={() => {
+              window.location.assign(vendorExportUrl("invoices", filters.from, filters.to));
+            }}
+          />
+          <PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />
+        </>
+      }
       primary={requestPayment}
     >
       <VendorIncomeBalanceCard />
-      {filteredRows.length === 0 ? (
+      {invoicesLoading ? (
+        <div data-attr="vendor-payments-loading">
+          <ListSkeleton rows={4} showLeading={false} />
+        </div>
+      ) : filteredRows.length === 0 ? (
         <PortalListEmptyCard
-          title={filtersHideRows ? "No income matches these filters" : incomeEmpty.title}
+          title={filtersHideRows ? "No payments match these filters" : incomeEmpty.title}
           section={incomeEmpty.section}
           tone={filtersHideRows ? "muted" : "default"}
           actions={
@@ -1157,6 +1121,7 @@ export function VendorFinancesPanel({
                   label: "Clear filters",
                   onClick: () => {
                     setPropertyIds([]);
+                    setStatusIds([]);
                     setFilters(defaultFilters());
                     setListSearch("");
                   },
@@ -1166,15 +1131,32 @@ export function VendorFinancesPanel({
           }
         />
       ) : (
-        <VendorIncomeTable rows={filteredRows} />
+        <VendorPaymentsTable
+          rows={filteredRows}
+          basePath={basePath}
+          onOpenEditInvoice={openEdit}
+          onWithdrawInvoice={(invoice) => void withdrawInvoice(invoice)}
+          withdrawingInvoiceId={withdrawingId}
+          onDownload={downloadPaymentRow}
+        />
       )}
       {requestWizard}
+      <SubmitInvoiceModal
+        open={modalOpen}
+        onClose={closeModal}
+        onSubmitted={loadInvoices}
+        linkedManagers={linkedManagers}
+        editingInvoice={editingInvoice}
+      />
       <VendorPaymentsPanel ref={payoutsRef} setupOnly />
     </VendorFinancesChrome>
   );
 }
 
 function VendorFinanceFilterFields({
+  statusOptions,
+  statusIds,
+  onStatusIdsChange,
   propertyOptions,
   propertyIds,
   onPropertyIdsChange,
@@ -1182,6 +1164,9 @@ function VendorFinanceFilterFields({
   to,
   onRangeChange,
 }: {
+  statusOptions: { id: string; label: string }[];
+  statusIds: string[];
+  onStatusIdsChange: (next: string[]) => void;
   propertyOptions: { id: string; label: string }[];
   propertyIds: string[];
   onPropertyIdsChange: (next: string[]) => void;
@@ -1189,13 +1174,31 @@ function VendorFinanceFilterFields({
   to: string;
   onRangeChange: (next: Partial<ReportFilterState>) => void;
 }) {
+  const [draftStatusIds, setDraftStatusIds] = usePortalFilterDraft(statusIds, onStatusIdsChange, []);
   const [draftPropertyIds, setDraftPropertyIds] = usePortalFilterDraft(propertyIds, onPropertyIdsChange, []);
   const [draftFrom, setDraftFrom] = usePortalFilterDraft(from, (next) => onRangeChange({ from: next }), from);
   const [draftTo, setDraftTo] = usePortalFilterDraft(to, (next) => onRangeChange({ to: next }), to);
+  const statusListOptions = statusOptions.map((option) => ({ value: option.id, label: option.label }));
   const propertyListOptions = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
 
   return (
     <FilterFieldsAccordion>
+      {/* VD13 — status replaces the old Invoices-only underline tabs: the
+          merged list filters by status across BOTH income and invoice rows. */}
+      <FilterCollapsibleSection
+        sectionId="status"
+        label="Status"
+        summary={filterMultiSelectSummary(draftStatusIds, statusListOptions)}
+        empty={draftStatusIds.length === 0}
+        menuOptionCount={Math.max(1, statusListOptions.length)}
+      >
+        <FilterCheckboxList
+          options={statusListOptions}
+          selected={draftStatusIds}
+          onChange={setDraftStatusIds}
+          dataAttr="vendor-finances-filter-status"
+        />
+      </FilterCollapsibleSection>
       <FilterCollapsibleSection
         sectionId="property"
         label="Property"
