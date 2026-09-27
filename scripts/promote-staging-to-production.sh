@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fast-forward production to staging and push (Vercel live + iOS TestFlight).
-# A narrowly-scoped, dated Akhil authorization can select main with --skip-staging.
+# An Akhil-scoped standing authorization can select main with --skip-staging.
+# Deleting the policy file (or changing its scope) revokes it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,7 +10,6 @@ cd "$ROOT"
 POLICY_PATH="docs/agents/temporary-direct-production-policy.json"
 DIRECT_SOURCE="origin/main"
 DIRECT_TARGET="origin/production"
-DIRECT_EXPIRY="2026-09-15T04:00:00Z"
 
 usage() {
   echo "usage: $0 [--skip-staging]" >&2
@@ -17,18 +17,19 @@ usage() {
 }
 
 validate_direct_policy() {
-  # The policy has an immutable scope and end date in this script, so editing
-  # the data file cannot extend or broaden the temporary exception.
-  node - "$POLICY_PATH" "$DIRECT_SOURCE" "$DIRECT_TARGET" "$DIRECT_EXPIRY" <<'NODE'
+  # The policy's scope is fixed in this script, so editing the data file can
+  # revoke the exception (delete it) but never broaden it.
+  node - "$POLICY_PATH" "$DIRECT_SOURCE" "$DIRECT_TARGET" <<'NODE'
 const fs = require("node:fs");
-const [policyPath, source, target, expiry] = process.argv.slice(2);
+const [policyPath, source, target] = process.argv.slice(2);
 const expected = {
-  version: 1,
-  kind: "temporary-direct-production-release",
+  version: 2,
+  kind: "direct-production-release",
   authorizedDeveloper: "Akhil",
   source,
   target,
-  expiresAt: expiry,
+  // Standing (no end date) since 2026-09-26 at Akhil's request.
+  expiresAt: null,
 };
 
 let policy;
@@ -43,12 +44,6 @@ if (!policy || typeof policy !== "object" || Array.isArray(policy)
   || Object.keys(policy).length !== Object.keys(expected).length
   || Object.entries(expected).some(([key, value]) => policy[key] !== value)) {
   console.error("error: direct-production policy is malformed or outside the authorized scope");
-  process.exit(1);
-}
-
-const expiryMs = Date.parse(expiry);
-if (!Number.isFinite(expiryMs) || Date.now() >= expiryMs) {
-  console.error("error: direct-production authorization has expired");
   process.exit(1);
 }
 NODE
@@ -92,8 +87,8 @@ fi
 
 npm run ship:preflight
 
-# Preflight may take long enough to cross the fixed expiry. Recheck immediately
-# before changing branches or pushing production.
+# Recheck immediately before changing branches or pushing production, so a
+# revocation during preflight still stops the push.
 if [ "$direct_release" = true ]; then
   validate_direct_policy
 fi

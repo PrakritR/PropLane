@@ -36,6 +36,7 @@ import {
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf, type ParseLeasePdfResult } from "@/lib/lease-template-parse.client";
+import { summarizeImportIssues } from "@/lib/pdf-import/import-issue-summary";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
@@ -53,6 +54,9 @@ const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
   { value: CUSTOM_LEASE_TERM, label: "Custom" },
   { value: SHORT_TERM_LEASE_TERM, label: "Short-term stay" },
 ];
+
+/** Steps are Name, Document, Preview; the import review box is on Document. */
+const DOCUMENT_STEP_INDEX = 1;
 
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
@@ -130,6 +134,11 @@ export function PropertyLeaseFormModal({
   const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
   const [importSourceReviewed, setImportSourceReviewed] = useState(false);
   const [transcribedUnreadableSourcePages, setTranscribedUnreadableSourcePages] = useState(false);
+  const unreadableSourcePage = Boolean(importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page"));
+  const importIssueSummary = useMemo(
+    () => summarizeImportIssues(importSource?.sourceIssues ?? []),
+    [importSource],
+  );
   const [importReviewError, setImportReviewError] = useState<string | null>(null);
   const [mobileTemplateTab, setMobileTemplateTab] = useState<"original" | "converted">("converted");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
@@ -277,7 +286,7 @@ export function PropertyLeaseFormModal({
             }
             showToast(
               result.sourceIssues.length
-                ? `Lease read with ${result.sourceIssues.length} page review issue${result.sourceIssues.length === 1 ? "" : "s"}. Compare and resolve them before saving the converted version.`
+                ? "Lease read. Check it against the original PDF before saving."
                 : `Lease parsed into PropLane format (${result.sectionCount} section${result.sectionCount === 1 ? "" : "s"}).`,
             );
           })
@@ -291,6 +300,14 @@ export function PropertyLeaseFormModal({
       showToast,
       setTemplateUploading,
     );
+  };
+
+  /** Why the converted document can't be saved yet, or null. */
+  const importReviewBlocker = (resolvedHtml: string | null | undefined): string | null => {
+    if (documentMode !== "upload" || !resolvedHtml || !importSource) return null;
+    if (unreadableSourcePage && !transcribedUnreadableSourcePages) return "Type in every unreadable page, then check the box.";
+    if (!importSourceReviewed) return "Check every page against the original PDF, then check the box.";
+    return null;
   };
 
   const resolveHtmlOverrideToSave = (): string => {
@@ -313,13 +330,11 @@ export function PropertyLeaseFormModal({
     }
 
     const resolvedHtml = resolveHtmlOverrideToSave();
-    const unreadableSourcePage = importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page");
-    if (documentMode === "upload" && resolvedHtml && unreadableSourcePage && !transcribedUnreadableSourcePages) {
-      setImportReviewError("Transcribe every unreadable source page into the converted document, then confirm that resolution.");
-      return;
-    }
-    if (documentMode === "upload" && resolvedHtml && importSource && !importSourceReviewed) {
-      setImportReviewError("Compare the full converted document with the original PDF, resolve every listed issue, and confirm before saving.");
+    // Backstop for "save anyway", which skips `save`.
+    const reviewBlocker = importReviewBlocker(resolvedHtml);
+    if (reviewBlocker) {
+      setImportReviewError(reviewBlocker);
+      setStepIdx(DOCUMENT_STEP_INDEX);
       return;
     }
 
@@ -408,13 +423,18 @@ export function PropertyLeaseFormModal({
     }
   };
 
+  // Both blockers render on the Document step, so Save from Preview returns
+  // there; otherwise the click would do nothing visible.
   const save = () => {
-    if (documentMode === "upload" && htmlOverride.trim() && importSource && !importSourceReviewed) {
-      setImportReviewError("Compare the full converted document with the original PDF and confirm before saving.");
+    const reviewBlocker = importReviewBlocker(resolveHtmlOverrideToSave());
+    if (reviewBlocker) {
+      setImportReviewError(reviewBlocker);
+      setStepIdx(DOCUMENT_STEP_INDEX);
       return;
     }
     if (showLeaseEditor && propertyLeaseNeedsAssistantReview(noticeHtml)) {
       setSaveReviewOpen(true);
+      setStepIdx(DOCUMENT_STEP_INDEX);
       return;
     }
     void commitSave();
@@ -516,6 +536,11 @@ export function PropertyLeaseFormModal({
             setError(validationError);
             return false;
           }
+          const reviewBlocker = importReviewBlocker(resolveHtmlOverrideToSave());
+          if (reviewBlocker) {
+            setImportReviewError(reviewBlocker);
+            return false;
+          }
         }
         setError(null);
         return true;
@@ -595,71 +620,65 @@ export function PropertyLeaseFormModal({
             />
           ) : null}
           {documentMode === "upload" ? (
-            <LeaseConfigForm
-              variant="modal"
-              embedded
-              dataAttrPrefix="property"
-              draft={draft}
-              onDraftChange={(patch) => {
-                setError(null);
-                if ("leaseTemplateDocUrl" in patch) {
-                  setHtmlOverride("");
-                }
-                setDraft((d) => ({ ...d, ...patch }));
-              }}
-              onStandardToggle={() => setError(null)}
-              onPickLeaseTemplateDoc={onPickLeaseTemplateDoc}
-              leaseTemplateError={leaseTemplateError}
-              hideDocumentDropdown
-              forcedSource="custom_format"
-            />
+            <div className="mt-4">
+              <LeaseConfigForm
+                variant="modal"
+                embedded
+                dataAttrPrefix="property"
+                draft={draft}
+                onDraftChange={(patch) => {
+                  setError(null);
+                  if ("leaseTemplateDocUrl" in patch) {
+                    setHtmlOverride("");
+                  }
+                  setDraft((d) => ({ ...d, ...patch }));
+                }}
+                onStandardToggle={() => setError(null)}
+                onPickLeaseTemplateDoc={onPickLeaseTemplateDoc}
+                leaseTemplateError={leaseTemplateError}
+                hideDocumentDropdown
+                forcedSource="custom_format"
+              />
+            </div>
           ) : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
               {importSource ? (
-                <section className="rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200" data-attr="property-lease-import-review">
-                  <p className="font-semibold">Compare the converted lease with its original</p>
-                  {importSource.sourceIssues.length ? (
-                    <ul className="mt-2 space-y-1.5">
-                      {importSource.sourceIssues.map((issue, index) => (
-                        <li key={`${issue.code}-${issue.pageNumber ?? "doc"}-${index}`}>
-                          {issue.pageNumber ? <strong>Page {issue.pageNumber}: </strong> : null}
-                          {issue.message}
+                // Light tokens only: the portal is light-themed, so `dark:`
+                // variants (OS-driven) painted this box brown on dark-mode Macs.
+                <section className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm leading-relaxed text-amber-950" data-attr="property-lease-import-review">
+                  <p className="font-semibold">Check against the original PDF</p>
+                  {importIssueSummary.length ? (
+                    <ul className="mt-1 space-y-0.5">
+                      {importIssueSummary.map((issue) => (
+                        <li key={issue.key}>
+                          {issue.label}
+                          {issue.pages ? <span className="text-amber-900/70"> · {issue.pages}</span> : null}
                         </li>
                       ))}
                     </ul>
-                  ) : <p className="mt-1">No extraction issues were detected. Check every page and field before saving.</p>}
-                  {importSource.sourceIssues.some((issue) => issue.code === "unreadable_page") ? (
-                    <label className="mt-3 flex items-start gap-2 font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={transcribedUnreadableSourcePages}
-                        onChange={(event) => {
-                          setTranscribedUnreadableSourcePages(event.target.checked);
-                          setImportSourceReviewed(event.target.checked);
-                          setImportReviewError(null);
-                        }}
-                      />
-                      I transcribed every unreadable source page in the converted lease.
-                    </label>
-                  ) : (
-                    <label className="mt-3 flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={importSourceReviewed}
-                        onChange={(event) => {
-                          setImportSourceReviewed(event.target.checked);
-                          setImportReviewError(null);
-                        }}
-                        data-attr="property-lease-import-confirm"
-                      />
-                      <span>I compared the whole converted document with the original PDF and accounted for every listed issue.</span>
-                    </label>
-                  )}
-                  {importReviewError ? <p role="alert" className="mt-2 text-rose-700">{importReviewError}</p> : null}
+                  ) : null}
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 shrink-0 accent-primary"
+                      checked={unreadableSourcePage ? transcribedUnreadableSourcePages : importSourceReviewed}
+                      onChange={(event) => {
+                        if (unreadableSourcePage) setTranscribedUnreadableSourcePages(event.target.checked);
+                        setImportSourceReviewed(event.target.checked);
+                        setImportReviewError(null);
+                      }}
+                      data-attr="property-lease-import-confirm"
+                    />
+                    {unreadableSourcePage
+                      ? "I typed in every unreadable page"
+                      : "I checked every page against the original"}
+                  </label>
+                  {importReviewError ? <p role="alert" className="mt-1.5 text-rose-700">{importReviewError}</p> : null}
                 </section>
               ) : null}
-              <PropertyLeaseDocumentNotice html={noticeHtml} />
+              {/* An imported PDF is a deterministic parse, not an AI draft. */}
+              <PropertyLeaseDocumentNotice html={noticeHtml} hideAiDraftBanner={Boolean(importSource)} />
               {saveReviewOpen ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-semibold">Review before saving</p>
@@ -710,6 +729,7 @@ export function PropertyLeaseFormModal({
                         onChange={(next) => {
                           setHtmlOverride(next);
                           setImportSourceReviewed(false);
+                          setTranscribedUnreadableSourcePages(false);
                         }}
                         showPersistBar={false}
                       />

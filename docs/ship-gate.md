@@ -11,8 +11,8 @@ a substantial feature. Agents must follow it (see `AGENTS.md` and
 > `main` → `staging` → `production`. `scripts/promote-main-to-production.sh`
 > is retired and exits 1 — live ships from `staging`.
 >
-> Temporary exception: until 2026-09-15T04:00:00Z, Akhil-authorized releases
-> may explicitly run `npm run ship:production -- --skip-staging`. The
+> Standing exception (since 2026-09-26, no end date): Akhil-authorized releases
+> skip staging and run `npm run ship:production -- --skip-staging`. The
 > [machine-readable policy](agents/temporary-direct-production-policy.json)
 > fixes the source at `origin/main`; every other gate in this document remains.
 
@@ -289,12 +289,8 @@ Scripts restart dev servers and open the browser via `bin/fm-proplane-open-local
 
 ## Promote main → staging (QA)
 
-For Akhil-authorized releases only, his explicit September 16 request waives
-staging QA until **2026-09-23T21:08:02Z**. See the
-[dated exception](plans/staging-qa-exception-20260916.html). Keep the staging
-branch, schema/deployment alignment, local testing, reviews and all other gates.
-Record QA as waived, never passed. This does not renew `--skip-staging` or permit
-direct main → production. After expiry, the normal QA requirement resumes.
+Akhil-authorized releases skip this rung under the standing policy (see
+below). Everyone else promotes through staging and QA.
 
 ```bash
 git checkout main
@@ -313,15 +309,15 @@ Dedicated QA then tests the staging URL. Staging uses project
 npm run ship:production
 ```
 
-During the active dated Akhil exception only:
+For Akhil-authorized releases (standing, no end date):
 
 ```bash
 npm run ship:production -- --skip-staging
 ```
 
-This option expires at 2026-09-15T04:00:00Z and fails closed if its
+This option fails closed if its
 [policy](agents/temporary-direct-production-policy.json) is missing, malformed,
-expired, or changed beyond the authorized scope. It still runs preflight and
+or changed beyond the authorized scope; deleting the file revokes it. It still runs preflight and
 requires `origin/production` to be an ancestor of `origin/main`.
 
 Or manually:
