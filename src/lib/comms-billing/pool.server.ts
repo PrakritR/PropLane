@@ -27,7 +27,7 @@ import {
  * `comms_workspace_funding` names which workspaces a funder's pool pays for
  * (and an optional monthly cap per workspace); a send picks the first eligible
  * funder of its workspace, owner first (`loadOrderedPoolFunders`), and the SQL
- * functions in `20260927150000_comms_credit_pool.sql` do the atomic spend.
+ * functions in `20260927160148_comms_credit_pool.sql` do the atomic spend.
  */
 
 export type PoolFunderCandidate = { funderUserId: string; tier: CommsPlanTier };
