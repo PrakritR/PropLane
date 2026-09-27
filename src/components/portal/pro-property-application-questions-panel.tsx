@@ -1,6 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { Check, CreditCard, FileUp, Signature } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -10,6 +11,9 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -146,10 +150,16 @@ export function ManagerPropertyApplicationQuestionsPanel({
       }),
     [listingId, saveTarget, managerUserId, bulkPropertyIds],
   );
-  // `settingsPropertyId`/`settingsPropertyLabel` no longer resolve a local automation
-  // sheet (C228) — kept as props so callers need no change, just unused here.
-  void settingsPropertyId;
+  // `settingsPropertyLabel` no longer resolves a local automation sheet (C228)
+  // — kept as a prop so callers need no change, just unused here.
   void settingsPropertyLabel;
+
+  // P001/P003/P011: the account application fee, this property's pipeline
+  // order/default template, read once per property so every row can show its
+  // real Default / fee / signs-first facts and the Setup step (inside the
+  // editor modal) can edit the same values.
+  const rowFactPropertyId = settingsPropertyId ?? (bulkPropertyIds.length === 0 ? saveTarget?.saveId ?? null : null);
+  const formSetup = usePropertyFormSetupSettings(rowFactPropertyId);
 
   const persistSubmission = useCallback(
     async (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -425,25 +435,61 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const catalogBody = (
     <>
       <PortalPropertyDetailSection contentClassName="space-y-0">
-        {visibleTemplates.map((template) => (
-          <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <RowSelectCheckbox
-                aria-label={`Select ${template.label}`}
-                checked={selectedIds.has(template.id)}
-                data-attr={`property-application-select-${template.id}`}
-                onChange={() => toggleSelected(template.id)}
-                onClick={(event) => event.stopPropagation()}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">
-                  {normalizePropertyApplicationTemplateLabel(template.label)}
-                </p>
-
+        {visibleTemplates.map((template) => {
+          const isDefault = Boolean(
+            formSetup.loaded &&
+              formSetup.leasingPipeline.defaultApplicationTemplateId &&
+              formSetup.leasingPipeline.defaultApplicationTemplateId === template.id,
+          );
+          const sourceName =
+            template.publishedQuestionConfig?.importProvenance?.sourceName ??
+            template.draftQuestionConfig?.importProvenance?.sourceName ??
+            null;
+          const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
+          return (
+            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <RowSelectCheckbox
+                  aria-label={`Select ${template.label}`}
+                  checked={selectedIds.has(template.id)}
+                  data-attr={`property-application-select-${template.id}`}
+                  onChange={() => toggleSelected(template.id)}
+                  onClick={(event) => event.stopPropagation()}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {normalizePropertyApplicationTemplateLabel(template.label)}
+                  </p>
+                  {formSetup.loaded ? (
+                    <p
+                      className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
+                      data-attr="property-application-row-facts"
+                    >
+                      {isDefault ? (
+                        <PortalRowFact icon={Check} srLabel="Default">
+                          Default
+                        </PortalRowFact>
+                      ) : null}
+                      <PortalRowFact icon={CreditCard} srLabel="Application fee">
+                        {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} fee` : "No fee"}
+                      </PortalRowFact>
+                      <PortalRowFact icon={Signature} srLabel="Who signs first">
+                        {formSetup.leasingPipeline.pipelineOrder === "lease_then_application"
+                          ? "Lease signs first"
+                          : "Application signs first"}
+                      </PortalRowFact>
+                      {sourceName ? (
+                        <PortalRowFact icon={FileUp} srLabel="Source">
+                          From {sourceName}
+                        </PortalRowFact>
+                      ) : null}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </PortalPropertyDetailSection>
 
       {availableSeeds.length > 0 ? (
