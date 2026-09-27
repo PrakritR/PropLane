@@ -236,6 +236,14 @@ export function ManagerApplicationQuestionsEditorModal({
   const [variant, setVariant] = useState<ApplicationFormVariant>("standard");
   const [templateLabel, setTemplateLabel] = useState("");
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
+  // P003: this application's OWN fee/promo — null = "use the account
+  // default". Local, dirty-tracked state saved through the normal
+  // commitSave/Save flow (unlike the account-level `formSetup.patch`, which
+  // saves immediately) — a fee override is part of the template record.
+  const [feeOverrideEnabled, setFeeOverrideEnabled] = useState(false);
+  const [feeOverrideCents, setFeeOverrideCents] = useState<number>(0);
+  const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
+  const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
@@ -296,6 +304,12 @@ export function ManagerApplicationQuestionsEditorModal({
     setVariant(templateEditorMode === "add" ? "standard" : initialVariant);
     setTemplateLabel(applicationTemplate?.label ?? "");
     setTemplateLabelError(null);
+    setFeeOverrideEnabled(
+      applicationTemplate?.feeCentsOverride !== null && applicationTemplate?.feeCentsOverride !== undefined,
+    );
+    setFeeOverrideCents(applicationTemplate?.feeCentsOverride ?? 0);
+    setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
+    setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
@@ -523,9 +537,13 @@ export function ManagerApplicationQuestionsEditorModal({
           id: "setup",
           label: "Setup",
           summary: formSetup.loaded
-            ? `${formSetup.applicationSettings.applicationFeeCents ? "Fee set" : "No fee"} · ${
-                formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
-              }`
+            ? `${
+                feeOverrideEnabled
+                  ? (feeOverrideCents > 0 ? "This app's fee set" : "This app is free")
+                  : formSetup.applicationSettings.applicationFeeCents
+                    ? "Fee set"
+                    : "No fee"
+              } · ${formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"}`
             : "Fee, promo code, pipeline",
         });
       }
@@ -553,6 +571,8 @@ export function ManagerApplicationQuestionsEditorModal({
     formSetup.loaded,
     formSetup.applicationSettings.applicationFeeCents,
     formSetup.leasingPipeline.pipelineOrder,
+    feeOverrideEnabled,
+    feeOverrideCents,
   ]);
 
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
@@ -628,6 +648,11 @@ export function ManagerApplicationQuestionsEditorModal({
       ),
     };
 
+    // P003: this application's own fee/promo override, saved onto the
+    // template record itself — null clears back to "use the account
+    // default" exactly like the account-level setting's own null/0 rule.
+    const feeCentsOverride = feeOverrideEnabled ? feeOverrideCents : null;
+    const waiverCodeOverride = feeOverrideEnabled && waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
       let nextTemplates: PropertyApplicationTemplate[];
@@ -636,6 +661,8 @@ export function ManagerApplicationQuestionsEditorModal({
           ...templates,
           {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
+            feeCentsOverride,
+            waiverCodeOverride,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
               questionDisplayOrder: applicationFields.map((field) => field.id),
@@ -646,6 +673,8 @@ export function ManagerApplicationQuestionsEditorModal({
         const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
         nextTemplates = updatePropertyApplicationTemplate(templates, applicationTemplate!.id, {
           label: trimmed,
+          feeCentsOverride,
+          waiverCodeOverride,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -1400,7 +1429,73 @@ export function ManagerApplicationQuestionsEditorModal({
             ) : (
               <div className="space-y-5">
                 <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Payment</p>
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">This application&apos;s fee</p>
+                  <CheckboxOption
+                    label="Override the account's application fee for this application"
+                    checked={feeOverrideEnabled}
+                    dataAttr="application-setup-fee-override-toggle"
+                    onChange={(next) => {
+                      setFeeOverrideEnabled(next);
+                      if (next && feeOverrideCents === 0) {
+                        setFeeOverrideCents(formSetup.applicationSettings.applicationFeeCents ?? 5000);
+                      }
+                      setDirty(true);
+                    }}
+                  />
+                  {feeOverrideEnabled ? (
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className={WIZARD_LABEL_CLASS}>Application cost</span>
+                      <MoneyInput
+                        label="Application cost"
+                        dataAttr="application-setup-fee-override-amount"
+                        value={String(feeOverrideCents / 100)}
+                        placeholder="50"
+                        onChange={(raw) => {
+                          setFeeOverrideCents(Math.round((parseFloat(raw) || 0) * 100));
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {feeOverrideEnabled ? (
+                    <div className="mt-2">
+                      <CheckboxOption
+                        label="This application's own promo code that waives its fee"
+                        checked={waiverOverrideEnabled}
+                        dataAttr="application-setup-waiver-override-toggle"
+                        onChange={(next) => {
+                          setWaiverOverrideEnabled(next);
+                          setDirty(true);
+                        }}
+                      />
+                      {waiverOverrideEnabled ? (
+                        <div className="mt-2">
+                          <Input
+                            aria-label="This application's promo code"
+                            placeholder="SUMMER26"
+                            value={waiverOverrideCode}
+                            data-attr="application-setup-waiver-override-code"
+                            onChange={(e) => {
+                              setWaiverOverrideCode(e.target.value);
+                              setDirty(true);
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <p className="mt-1.5 text-xs text-muted">
+                    {feeOverrideEnabled
+                      ? "Applies to applicants who apply with this application only."
+                      : `Falls back to the account's application fee (${
+                          (formSetup.applicationSettings.applicationFeeCents ?? 0) > 0
+                            ? `$${((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100).toFixed(0)}`
+                            : "no fee"
+                        }) until you override it here.`}
+                  </p>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Account default</p>
                   <CheckboxOption
                     label="Charge an application fee"
                     checked={(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0}
