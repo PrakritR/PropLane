@@ -560,8 +560,15 @@ describe("server reviewed application publishing", () => {
       />,
     );
     await waitWorkspace();
-    jumpRail("preview");
+    // P002/P012: bulk template editing has no "setup" step at all (a bulk
+    // edit has no one property's fee/default to show) and Import/Publish are
+    // gated on `!isBulkSave` regardless of step — both start on "name" (P012
+    // moved Import there) and neither button ever appears on any step.
+    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start from a file" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Import PDF" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
+    jumpRail("sections");
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
   });
 
@@ -622,7 +629,8 @@ describe("server reviewed application publishing", () => {
       />,
     );
     await waitWorkspace("Imported form");
-    jumpRail("preview");
+    // P012: "Compare and confirm PDF" is on the Name step now (the default
+    // active step — no jump needed).
     fireEvent.click(await screen.findByRole("button", { name: "Compare and confirm PDF" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     const reviewCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
@@ -634,6 +642,8 @@ describe("server reviewed application publishing", () => {
       expectedRevision: "2026-09-24T00:00:00Z",
     });
 
+    // P002: Publish moved to the Setup step (now the final step).
+    jumpRail("setup");
     fireEvent.click(screen.getByRole("button", { name: "Publish application" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
     const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");

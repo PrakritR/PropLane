@@ -13,6 +13,7 @@ import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
+  PortalCollapsibleEditRow,
 } from "@/components/portal/portal-collapsible-edit-row";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
@@ -499,28 +500,40 @@ export function ManagerApplicationQuestionsEditorModal({
       const n = applicationFields.filter((f) => (f.section ?? "additional") === sectionId).length;
       return n === 1 ? "1 question" : `${n} questions`;
     };
-    const head: AddWorkspaceStep[] = isTemplateEditor
-      ? [{ id: "name", label: "Name", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" }]
-      : lockVariant
-        ? []
-        : [{ id: "form", label: "Form", summary: APPLICATION_FORM_VARIANTS.find((v) => v.id === variant)?.label ?? "Form" }];
-    // P003: Setup — fee, promo code, pipeline order, default for this
-    // property — single-property template editing only (see `formSetup`
-    // above); a listing-wide/bulk edit has no one property's fee to show.
-    const setupStep: AddWorkspaceStep[] =
-      isTemplateEditor && !isBulkTemplateEditor
-        ? [
-            {
-              id: "setup",
-              label: "Setup",
-              summary: formSetup.loaded
-                ? `${formSetup.applicationSettings.applicationFeeCents ? "Fee set" : "No fee"} · ${
-                    formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
-                  }`
-                : "Fee, promo code, pipeline",
-            },
-          ]
-        : [];
+    if (isTemplateEditor) {
+      // P002: the property Add/Edit application editor — Name -> Form (every
+      // section, one expandable accordion) -> Setup. Matches the studio
+      // After (proto/property-forms.js ED_STEPS); the listing-wide editor
+      // below (opened outside a property record) keeps its own separate
+      // per-section step rail, out of scope for this collapse.
+      const totalQuestions = applicationFields.length;
+      const steps: AddWorkspaceStep[] = [
+        { id: "name", label: "Name", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
+        {
+          id: "sections",
+          label: "Form",
+          summary: totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`,
+        },
+      ];
+      // P003: Setup — fee, promo code, pipeline order, default for this
+      // property — single-property template editing only; a listing-wide/
+      // bulk edit has no one property's fee to show.
+      if (!isBulkTemplateEditor) {
+        steps.push({
+          id: "setup",
+          label: "Setup",
+          summary: formSetup.loaded
+            ? `${formSetup.applicationSettings.applicationFeeCents ? "Fee set" : "No fee"} · ${
+                formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
+              }`
+            : "Fee, promo code, pipeline",
+        });
+      }
+      return steps;
+    }
+    const head: AddWorkspaceStep[] = lockVariant
+      ? []
+      : [{ id: "form", label: "Form", summary: APPLICATION_FORM_VARIANTS.find((v) => v.id === variant)?.label ?? "Form" }];
     return [
       ...head,
       ...RENTAL_APPLICATION_SECTIONS.map((section) => ({
@@ -528,7 +541,6 @@ export function ManagerApplicationQuestionsEditorModal({
         label: section.title,
         summary: questionSummary(section.id),
       })),
-      ...setupStep,
       { id: "preview", label: "Preview", summary: "What the applicant sees" },
     ];
   }, [
@@ -1097,6 +1109,86 @@ export function ManagerApplicationQuestionsEditorModal({
     </div>
   );
 
+  // P002: everything the old dedicated "Preview" step showed beyond the
+  // single-section `previewBody` above — the imported-PDF comparison and the
+  // full embedded applicant wizard preview. Shared by the template editor's
+  // "Form" step (tail, P002's 3-step collapse) and the listing-wide editor's
+  // still-separate "Preview" step, so neither path duplicates this JSX.
+  const previewExtras = (
+    <>
+      {originalPdfPath && applicationTemplate && applicationPreviewPropertyId ? (
+        <div className="space-y-2" data-attr="application-import-compare">
+          <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1 md:hidden" role="group" aria-label="Imported application comparison">
+            {(["original", "form"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                aria-pressed={compareView === view}
+                onClick={() => setCompareView(view)}
+                className={`min-h-11 flex-1 rounded-full px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${compareView === view ? "bg-card text-foreground" : "text-muted"}`}
+              >
+                {view === "original" ? "Original" : "Form"}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <iframe
+              title="Original imported application PDF"
+              className={`h-[34rem] w-full rounded-xl border border-border ${compareView === "original" ? "block" : "hidden md:block"}`}
+              src={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
+            />
+            <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
+              {variant === "cosigner" ? <CosignerApplyFlow
+                onBack={() => {}}
+                previewMode
+                embedded
+                showToast={showToast}
+                applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
+                previewConfig={configSlice}
+              /> : <RentalApplicationWizard
+                showToast={showToast}
+                mode="manager"
+                layout="embedded"
+                linkedPropertyId={applicationPreviewPropertyId}
+                linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
+                templatePreviewVariant={variant}
+                templatePreview
+                templatePreviewSubmission={{
+                  ...localSub,
+                  ...mergeApplicationConfigForVariant(variant, configSlice),
+                }}
+              />}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {applicationPreviewPropertyId && !originalPdfPath ? (
+        <div className="rounded-2xl border border-border bg-card p-3" data-attr="application-full-wizard-preview">
+          {variant === "cosigner" ? <CosignerApplyFlow
+            onBack={() => {}}
+            previewMode
+            embedded
+            showToast={showToast}
+            applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
+            previewConfig={configSlice}
+          /> : <RentalApplicationWizard
+            showToast={showToast}
+            mode="manager"
+            layout="embedded"
+            linkedPropertyId={applicationPreviewPropertyId}
+            linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
+            templatePreviewVariant={variant}
+            templatePreview
+            templatePreviewSubmission={{
+              ...localSub,
+              ...mergeApplicationConfigForVariant(variant, configSlice),
+            }}
+          />}
+        </div>
+      ) : null}
+    </>
+  );
+
   if (!open) return null;
 
   const currentSection = RENTAL_APPLICATION_SECTIONS.find((section) => section.id === stepId);
@@ -1400,87 +1492,16 @@ export function ManagerApplicationQuestionsEditorModal({
                 ) : null}
               </div>
             )}
-          </StepColumn>
-        ) : null}
-        {stepId === "preview" ? (
-          <StepColumn>
-            <StepHeading title="Preview" />
-            {previewBody}
-            {originalPdfPath && applicationTemplate && applicationPreviewPropertyId ? (
-              <div className="space-y-2" data-attr="application-import-compare">
-                <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1 md:hidden" role="group" aria-label="Imported application comparison">
-                  {(["original", "form"] as const).map((view) => (
-                    <button
-                      key={view}
-                      type="button"
-                      aria-pressed={compareView === view}
-                      onClick={() => setCompareView(view)}
-                      className={`min-h-11 flex-1 rounded-full px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${compareView === view ? "bg-card text-foreground" : "text-muted"}`}
-                    >
-                      {view === "original" ? "Original" : "Form"}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <iframe
-                    title="Original imported application PDF"
-                    className={`h-[34rem] w-full rounded-xl border border-border ${compareView === "original" ? "block" : "hidden md:block"}`}
-                    src={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
-                  />
-                  <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
-                    {variant === "cosigner" ? <CosignerApplyFlow
-                      onBack={() => {}}
-                      previewMode
-                      embedded
-                      showToast={showToast}
-                      applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-                      previewConfig={configSlice}
-                    /> : <RentalApplicationWizard
-                      showToast={showToast}
-                      mode="manager"
-                      layout="embedded"
-                      linkedPropertyId={applicationPreviewPropertyId}
-                      linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-                      templatePreviewVariant={variant}
-                      templatePreview
-                      templatePreviewSubmission={{
-                        ...localSub,
-                        ...mergeApplicationConfigForVariant(variant, configSlice),
-                      }}
-                    />}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {applicationPreviewPropertyId && !originalPdfPath ? (
-              <div className="rounded-2xl border border-border bg-card p-3" data-attr="application-full-wizard-preview">
-                {variant === "cosigner" ? <CosignerApplyFlow
-                  onBack={() => {}}
-                  previewMode
-                  embedded
-                  showToast={showToast}
-                  applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-                  previewConfig={configSlice}
-                /> : <RentalApplicationWizard
-                  showToast={showToast}
-                  mode="manager"
-                  layout="embedded"
-                  linkedPropertyId={applicationPreviewPropertyId}
-                  linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-                  templatePreviewVariant={variant}
-                  templatePreview
-                  templatePreviewSubmission={{
-                    ...localSub,
-                    ...mergeApplicationConfigForVariant(variant, configSlice),
-                  }}
-                />}
-              </div>
-            ) : null}
+            {/* P002: Setup is now the final step for the template editor, so
+                Publish (a distinct action from the generic Save/Add button
+                below — it advances the published question-config version,
+                see `commitSave({ publish: true })`) moved here from the
+                retired dedicated Preview step. */}
             {isTemplateEditor && !isBulkSave ? (
               <Button
                 type="button"
                 variant="primary"
-                className="rounded-full"
+                className="mt-2 rounded-full"
                 disabled={saving || hasFieldErrors || !templateLabel.trim()}
                 data-attr="application-questions-publish"
                 onClick={() => void commitSave({ publish: true })}
@@ -1488,6 +1509,52 @@ export function ManagerApplicationQuestionsEditorModal({
                 Publish application
               </Button>
             ) : null}
+          </StepColumn>
+        ) : null}
+        {stepId === "sections" ? (
+          <StepColumn>
+            <StepHeading
+              title="Form"
+              action={
+                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
+                  {restoreLabel}
+                </button>
+              }
+            />
+            {applicationFormSourcePicker}
+            <div className="space-y-2">
+              {RENTAL_APPLICATION_SECTIONS.map((section) => {
+                const n = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
+                return (
+                  <PortalCollapsibleEditRow
+                    key={section.id}
+                    title={section.title}
+                    subtitle={n === 1 ? "1 question" : `${n} questions`}
+                    expanded={expandedSectionIds.has(section.id)}
+                    onExpandedChange={(next) =>
+                      setExpandedSectionIds((prev) => {
+                        const updated = new Set(prev);
+                        if (next) updated.add(section.id);
+                        else updated.delete(section.id);
+                        return updated;
+                      })
+                    }
+                    headerActions={sectionAddButton(section.id)}
+                    toggleDataAttr={`application-section-toggle-${section.id}`}
+                  >
+                    {renderSection(section.id)}
+                  </PortalCollapsibleEditRow>
+                );
+              })}
+            </div>
+            {previewExtras}
+          </StepColumn>
+        ) : null}
+        {stepId === "preview" ? (
+          <StepColumn>
+            <StepHeading title="Preview" />
+            {previewBody}
+            {previewExtras}
           </StepColumn>
         ) : null}
       </AddWorkspace>
