@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
-import { refundPlatformHold, type PlatformHoldRow } from "@/lib/stripe-platform-hold.server";
+import { refundPlatformHold } from "@/lib/stripe-platform-hold.server";
+import type { PlatformHoldRow } from "@/lib/stripe-platform-hold";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 
