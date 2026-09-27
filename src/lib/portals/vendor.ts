@@ -12,8 +12,12 @@ export const vendorPortal: PortalDefinition = {
     { section: "calendar", label: "Calendar", tabs: [] },
     { section: "communication", label: "Communication", tabs: [] },
     {
+      // VD10 — nav label and page title read "Payments"; VD11 folded Income
+      // and Invoices into one merged list, so `income`/`invoices` stay as
+      // internal tab ids only (routing for invoice record pages still needs
+      // "invoices" to validate) rather than two visible destinations.
       section: "financials",
-      label: "Finances",
+      label: "Payments",
       tabs: [
         { id: "income", label: "Income" },
         { id: "invoices", label: "Invoices" },
@@ -41,7 +45,7 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/vendor/work-orders" },
   { label: "Calendar", path: "/vendor/calendar" },
   { label: "Communication", path: "/vendor/communication/active" },
-  { label: "Finances", path: "/vendor/financials/income" },
+  { label: "Payments", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
   { label: "Documents", path: "/vendor/documents/all" },
   { label: "Reviews", path: "/vendor/reviews" },
