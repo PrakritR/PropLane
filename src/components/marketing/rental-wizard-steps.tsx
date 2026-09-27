@@ -239,7 +239,7 @@ function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
-function ApplicantPaysCard({ quote }: { quote: ListingQuote }) {
+function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: ListingQuote; title?: string }) {
   const monthlyBreakdown = [
     quote.monthlyRent > 0 ? `rent ${formatQuoteMoney(quote.monthlyRent)}` : "",
     quote.monthlyUtilities > 0 ? `utilities ${formatQuoteMoney(quote.monthlyUtilities)}` : "",
@@ -256,7 +256,7 @@ function ApplicantPaysCard({ quote }: { quote: ListingQuote }) {
 
   return (
     <aside className="rounded-2xl border border-border bg-card p-4">
-      <h3 className="text-sm font-semibold text-foreground">What a resident pays</h3>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
       {quote.signingLines.map((line) => (
         <div key={line.key} className="flex items-baseline justify-between gap-3 pt-2">
@@ -2038,6 +2038,17 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const codeWaived = Boolean(form.applicationFeeWaived);
     const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
     const feeStillDue = applicationFeeGate.needsFee && !applicationFeeGate.paid;
+    // C174: the last step before the applicant pays is where "what do I owe, and when" has to be
+    // unavoidable — the SAME resolver the review step (10) and the room-picker (step 3) already
+    // call, so the deposit/first-month numbers here can never disagree with the lease itself.
+    const payFeeQuote =
+      prop?.listingSubmission?.v === 1 && form.roomChoice1.trim()
+        ? applicantListingQuote(prop.listingSubmission, {
+            roomChoice1: form.roomChoice1,
+            leaseTerm: form.leaseTerm,
+            residentSlot: form.residentSlot,
+          })
+        : null;
     return (
       <div className="space-y-6">
         <div>
@@ -2077,6 +2088,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             {applicationFeeWaiverExplanation(applicationFeeGate, codeWaived)}
           </div>
         )}
+
+        {payFeeQuote ? <ApplicantPaysCard quote={payFeeQuote} title="What you pay" /> : null}
 
         {/* Fee waiver code — optional; quieter than amount, after fee display. */}
         {!applicationFeeGate.paid ? (

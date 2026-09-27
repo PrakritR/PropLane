@@ -15,7 +15,6 @@ import { RentalApplicationWizard } from "@/components/marketing/rental-applicati
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   PortalListAddRow,
   PORTAL_LIST_ADD_ICONS,
@@ -82,6 +81,7 @@ import {
   resolvePublicApplyView,
 } from "@/lib/rental-application/public-apply-session";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
+import { findApplicationFeeCharge, type HouseholdCharge } from "@/lib/household-charges";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEMO_APPLICATION_SUBMITTED_EVENT,
@@ -143,14 +143,29 @@ function parseResidentApplicationDetailTab(raw: string | undefined | null): Resi
 import { buildResidentApplicationWorkspaceState } from "@/lib/rental-application/resident-application-workspace";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
-function countByBucket(rows: DemoApplicantRow[]) {
-  return rows.reduce(
-    (acc, row) => {
-      acc[row.bucket] += 1;
-      return acc;
-    },
-    { pending: 0, approved: 0, rejected: 0 } as Record<ManagerApplicationBucket, number>,
-  );
+const APPLICATION_FEE_CHARGE_STATUS_LABEL: Partial<Record<HouseholdCharge["status"], string>> = {
+  paid: "Paid",
+  processing: "Processing",
+  partially_paid: "Partially paid",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+  failed: "Failed",
+};
+
+/**
+ * C122: the record page's own fee fact, not a click into a separate charge
+ * screen. Reads the SAME local charges store Payments reads — never a guess —
+ * and stays honest when no charge exists yet rather than assuming "unpaid".
+ */
+function applicationFeeFactValue(row: DemoApplicantRow): string {
+  if (row.application?.applicationFeeWaived) return "Waived";
+  const propertyId = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+  const email = row.email?.trim() || "";
+  if (!email || !propertyId) return "—";
+  const charge = findApplicationFeeCharge(email, propertyId, row.residentUserId ?? null, row.id);
+  if (!charge) return "Not yet charged";
+  const statusLabel = APPLICATION_FEE_CHARGE_STATUS_LABEL[charge.status] ?? "Due";
+  return `${charge.amountLabel} · ${statusLabel}`;
 }
 
 function displayRoomForRow(row: DemoApplicantRow): string {
@@ -488,18 +503,15 @@ export function ResidentApplicationsPanel({
     return getPropertyById(applyTarget.propertyId)?.title?.trim();
   }, [applyTarget, tick]);
 
-  const counts = useMemo(() => countByBucket(rows), [rows]);
-  const tabs = useMemo(
-    () =>
-      [
-        { id: "pending" as const, label: "Pending", count: counts.pending },
-        { id: "approved" as const, label: "Approved", count: counts.approved },
-        { id: "rejected" as const, label: "Rejected", count: counts.rejected },
-      ] as const,
-    [counts],
-  );
-
-  const rowsForBucket = useMemo(() => rows.filter((row) => row.bucket === bucket), [rows, bucket]);
+  /**
+   * C122: one list, status read per row as text (`applicationStageDisplayLabel`,
+   * already wired into `buildApplicationGroupedItems`'s `trailing`) — not three
+   * Pending/Approved/Rejected tabs picking which slice you can see. Kept as its
+   * own name (rather than every call site switching to `rows` directly) because
+   * `bucket` still exists for the detail route's own back-link/redirect
+   * bookkeeping (see the `actualBucket !== bucket` effect below).
+   */
+  const rowsForBucket = rows;
 
   const applicationGroups = useMemo(
     () => buildApplicationGroups(rows.map(groupRowInputForRow)),
@@ -1109,7 +1121,7 @@ export function ResidentApplicationsPanel({
         { id: "started", header: "Date", cell: (row) => applicationStartedLabel(row) || "—" },
       ]}
       emptyState={
-        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+        <PortalDataTableEmpty icon="application" message="No applications yet." />
       }
     />
   );
@@ -1132,22 +1144,6 @@ export function ResidentApplicationsPanel({
         dataAttr="resident-applications-apply"
       />
     ) : null;
-
-  const applicationListControlStack = (
-    <PortalListControlStack
-      className="mb-2 max-lg:mb-1.5"
-      variant="command"
-      destinations={tabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        href: residentApplicationListHref(basePath, t.id as ResidentApplicationBucketId),
-        count: t.count,
-        dataAttr: `resident-applications-bucket-${t.id}`,
-      }))}
-      activeDestinationId={bucket}
-      destinationAriaLabel="Application status"
-    />
-  );
 
   const applicationSelectionActions = useMemo((): PortalAdaptiveAction[] => {
     if (selectedIds.size !== 1) return [];
@@ -1216,18 +1212,16 @@ export function ResidentApplicationsPanel({
     </div>
   ) : (
     <>
-      {embedded ? applicationListControlStack : null}
-
       {renderStandaloneApplySurface()}
 
       {rows.length === 0 && !applyMode ? (
         <PortalDataTableEmpty icon="application" message="No applications yet. Start your first application." />
       ) : rowsForBucket.length === 0 && !(applyMode && !activeInProgressRow) ? (
-        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+        <PortalDataTableEmpty icon="application" message="No applications yet." />
       ) : applyMode || embedded ? (
         rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null
       ) : rowsForBucket.length === 0 ? (
-        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+        <PortalDataTableEmpty icon="application" message="No applications yet." />
       ) : (
         renderRoutedList(rowsForBucket)
       )}
@@ -1243,16 +1237,14 @@ export function ResidentApplicationsPanel({
 
     return (
       <>
-        {applicationListControlStack}
-
         {!sessionReady ? (
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
         ) : listRows.length === 0 ? (
-          // No empty-state card. The tab's own count already reads 0 and the
-          // APPLY row below says what to do about it — a panel repeating "none
-          // here yet" between the two is a third way of saying nothing.
+          // No empty-state card (C122: one list, no tab count to echo). The
+          // APPLY row below already says what to do about it — a panel repeating
+          // "none here yet" beside it is a second way of saying nothing.
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
@@ -1298,7 +1290,6 @@ export function ResidentApplicationsPanel({
     return (
       <>
         <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav compactFilterRow>
-          {applicationListControlStack}
           {!sessionReady ? (
             <div className={PORTAL_DATA_TABLE_WRAP}>
               <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
@@ -1443,6 +1434,7 @@ export function ResidentApplicationsPanel({
                       rows: [
                         { label: "Applicant", value: applicantDisplayName(detailRow) },
                         { label: "Email", value: detailRow.email || "—" },
+                        { label: "Application fee", value: applicationFeeFactValue(detailRow) },
                       ],
                     },
                   ],

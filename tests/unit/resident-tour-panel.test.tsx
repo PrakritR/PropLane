@@ -111,8 +111,10 @@ describe("ResidentTourPanel", () => {
 
     expect(await screen.findByRole("button", { name: "Schedule a tour" })).toBeTruthy();
     expect(document.querySelector('[data-attr="resident-tour-schedule"]')).toBeTruthy();
-    expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Confirmed")).toBeTruthy();
+    // C120: one list, no Pending/Confirmed/Declined tabs — with zero tours there
+    // is nothing to show a status for, and no tab bar left to read those words from.
+    expect(screen.queryByText("Pending")).toBeNull();
+    expect(screen.queryByText("Confirmed")).toBeNull();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
     // Add rows read in sentence case since the portal redesign (plus glyph + label).
     expect(screen.getByText("Schedule tour")).toBeTruthy();
@@ -133,6 +135,100 @@ describe("ResidentTourPanel", () => {
     fireEvent.click(scheduleButton);
     expect(await screen.findByRole("dialog", { name: "Choose a home to tour" })).toBeTruthy();
     expect(screen.getByLabelText("Search homes to tour")).toBeTruthy();
+  });
+
+  it("merges every status into one list instead of three tabs (C120)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          tours: [
+            {
+              inquiryId: "inq-pending",
+              tourGroupId: null,
+              status: "pending",
+              propertyId: "prop-1",
+              propertyTitle: "Maple House",
+              roomLabel: null,
+              managerUserId: "mgr-1",
+              managerLabel: null,
+              guestName: "Lucas",
+              guestEmail: "lucas@example.com",
+              guestPhone: null,
+              notes: null,
+              instructions: null,
+              proposedStart: "2026-07-31T19:30:00.000Z",
+              proposedEnd: "2026-07-31T20:00:00.000Z",
+              requestedWindows: [],
+              createdAt: "2026-07-31T18:00:00.000Z",
+              confirmed: false,
+              confirmedStart: null,
+              confirmedEnd: null,
+            },
+            {
+              inquiryId: "inq-confirmed",
+              tourGroupId: null,
+              status: "confirmed",
+              propertyId: "prop-2",
+              propertyTitle: "Alder Row",
+              roomLabel: null,
+              managerUserId: "mgr-1",
+              managerLabel: null,
+              guestName: "Lucas",
+              guestEmail: "lucas@example.com",
+              guestPhone: null,
+              notes: null,
+              instructions: null,
+              proposedStart: "2026-08-02T19:30:00.000Z",
+              proposedEnd: "2026-08-02T20:00:00.000Z",
+              requestedWindows: [],
+              createdAt: "2026-08-01T18:00:00.000Z",
+              confirmed: true,
+              confirmedStart: "2026-08-02T19:30:00.000Z",
+              confirmedEnd: "2026-08-02T20:00:00.000Z",
+            },
+            {
+              inquiryId: "inq-declined",
+              tourGroupId: null,
+              status: "declined",
+              propertyId: "prop-3",
+              propertyTitle: "Birch Studio",
+              roomLabel: null,
+              managerUserId: "mgr-1",
+              managerLabel: null,
+              guestName: "Lucas",
+              guestEmail: "lucas@example.com",
+              guestPhone: null,
+              notes: null,
+              instructions: null,
+              proposedStart: "2026-07-01T19:30:00.000Z",
+              proposedEnd: "2026-07-01T20:00:00.000Z",
+              requestedWindows: [],
+              createdAt: "2026-06-30T18:00:00.000Z",
+              confirmed: false,
+              confirmedStart: null,
+              confirmedEnd: null,
+            },
+          ],
+        }),
+      }),
+    );
+
+    render(<ResidentTourPanel basePath="/resident" bucket="pending" />);
+
+    // All three, regardless of status, in the one list — not filtered by tab.
+    expect((await screen.findAllByText("Maple House")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Alder Row").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Birch Studio").length).toBeGreaterThan(0);
+    // Status reads as text on the row, not as a tab.
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Confirmed")).toBeTruthy();
+    expect(screen.getByText("Declined")).toBeTruthy();
+    // No tab-bar destinations left to pick a bucket from.
+    expect(document.querySelector('[data-attr="resident-tour-bucket-pending"]')).toBeNull();
+    expect(document.querySelector('[data-attr="resident-tour-bucket-confirmed"]')).toBeNull();
+    expect(document.querySelector('[data-attr="resident-tour-bucket-declined"]')).toBeNull();
   });
 
   it("shows confirmed banner on approved tour detail", async () => {

@@ -43,6 +43,8 @@ import {
 } from "@/components/marketing/browse-budget-range";
 import { SignedOutOnly } from "@/components/marketing/signed-out-only";
 import { residentCreateAccountHref } from "@/lib/resident-public-nav";
+import { usePortalFilterDraft, usePortalFilterDraftValues } from "@/lib/portal-filter-draft";
+import type { MockProperty } from "@/data/types";
 
 const SORT_OPTIONS: { id: BrowseSortId; label: string }[] = [
   { id: "price-asc", label: "Price · low to high" },
@@ -266,23 +268,30 @@ function FilterPair({
   );
 }
 
+/**
+ * Every control below is drafted, not applied live: `usePortalFilterDraft` reads/writes a
+ * PENDING value scoped to the surrounding `PortalFilterSortSheet` while it is open, and only
+ * calls the applied setter (the `onApply*` props) when the sheet commits — the header ✕, the
+ * backdrop, or "Show homes" (C180). Outside an open sheet the hook is a pass-through, so this
+ * panel behaves identically if ever rendered standalone.
+ */
 function BrowseFilterPanel({
-  sort,
-  setSort,
-  moveIn,
-  setMoveIn,
-  moveOut,
-  setMoveOut,
-  budgetMin,
-  budgetMax,
-  setBudget,
+  sort: appliedSort,
+  setSort: onApplySort,
+  moveIn: appliedMoveIn,
+  setMoveIn: onApplyMoveIn,
+  moveOut: appliedMoveOut,
+  setMoveOut: onApplyMoveOut,
+  budgetMin: appliedBudgetMin,
+  budgetMax: appliedBudgetMax,
+  setBudget: onApplyBudget,
   budgetRents,
-  bathroom,
-  setBathroom,
-  roomType,
-  setRoomType,
-  petsOnly,
-  setPetsOnly,
+  bathroom: appliedBathroom,
+  setBathroom: onApplyBathroom,
+  roomType: appliedRoomType,
+  setRoomType: onApplyRoomType,
+  petsOnly: appliedPetsOnly,
+  setPetsOnly: onApplyPetsOnly,
   onApplyChatFilters,
 }: {
   sort: BrowseSortId;
@@ -303,6 +312,19 @@ function BrowseFilterPanel({
   setPetsOnly: (v: boolean) => void;
   onApplyChatFilters: (filters: HousingChatAppliedFilters) => void;
 }) {
+  const [sort, setSort] = usePortalFilterDraft(appliedSort, onApplySort, "price-asc" as BrowseSortId, "sort");
+  const [moveIn, setMoveIn] = usePortalFilterDraft(appliedMoveIn, onApplyMoveIn, "", "moveIn");
+  const [moveOut, setMoveOut] = usePortalFilterDraft(appliedMoveOut, onApplyMoveOut, "", "moveOut");
+  const [{ min: budgetMin, max: budgetMax }, setBudget] = usePortalFilterDraft(
+    { min: appliedBudgetMin, max: appliedBudgetMax },
+    onApplyBudget,
+    { min: RESIDENT_HOUSING_BUDGET_MIN, max: RESIDENT_HOUSING_BUDGET_MAX },
+    "budget",
+  );
+  const [bathroom, setBathroom] = usePortalFilterDraft(appliedBathroom, onApplyBathroom, "any", "bathroom");
+  const [roomType, setRoomType] = usePortalFilterDraft(appliedRoomType, onApplyRoomType, "any", "roomType");
+  const [petsOnly, setPetsOnly] = usePortalFilterDraft(appliedPetsOnly, onApplyPetsOnly, false, "petsOnly");
+
   return (
     <div className="min-w-0 max-w-full overflow-x-hidden px-1">
       <FilterSection label="Describe what you want">
@@ -420,6 +442,63 @@ function BudgetReadout({ min, max }: { min: number; max: number }) {
       {formatBudgetRangeLabel(min, max)}
     </span>
   );
+}
+
+type BrowseFilterApplied = {
+  sort: BrowseSortId;
+  moveIn: string;
+  moveOut: string;
+  budget: { min: number; max: number };
+  bathroom: string;
+  roomType: string;
+  petsOnly: boolean;
+};
+
+/**
+ * "Show N homes" on the filter sheet's commit button (C180).
+ *
+ * Rendered INSIDE the sheet's draft provider (via `PortalFilterSortSheet`'s `applyLabel`
+ * prop and the mobile footer below), so it reads the PENDING filter values instead of the
+ * page's own — deliberately stale until commit — applied state, and counts what pressing
+ * the button will actually produce. Runs the exact same `buildPropertyBrowseCards` call as
+ * the results grid, plus the live (non-drafted) search query and neighborhood, so the two
+ * counts never disagree.
+ */
+function BrowseFilterApplyLabel({
+  listings,
+  scopedIds,
+  loading,
+  query,
+  neighborhood,
+  applied,
+}: {
+  listings: MockProperty[];
+  scopedIds: string[] | null;
+  loading: boolean;
+  query: string;
+  neighborhood: string | undefined;
+  applied: BrowseFilterApplied;
+}) {
+  const draft = usePortalFilterDraftValues(applied);
+  const budgetMinActive = draft.budget.min > RESIDENT_HOUSING_BUDGET_MIN;
+  const budgetMaxActive = draft.budget.max < RESIDENT_HOUSING_BUDGET_MAX;
+  const count = loading
+    ? null
+    : buildPropertyBrowseCards(listings, {
+        sort: draft.sort,
+        filters: {
+          maxBudgetNum: budgetMaxActive ? draft.budget.max : null,
+          minBudgetNum: budgetMinActive ? draft.budget.min : null,
+          bathroom: draft.bathroom,
+          bedroom: draft.roomType,
+          moveIn: draft.moveIn,
+          moveOut: draft.moveOut,
+          petFriendly: draft.petsOnly || undefined,
+          neighborhood,
+          propertyIds: scopedIds,
+        },
+      }).filter((c) => !query.trim() || browseCardMatchesQuery(c, query)).length;
+  return <>{`Show ${count === null ? "homes" : `${count} home${count === 1 ? "" : "s"}`}`}</>;
 }
 
 export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] } = {}) {
@@ -554,7 +633,22 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     : cards.length === 0
       ? "No homes"
       : `${cards.length} home${cards.length === 1 ? "" : "s"}`;
-  const showLabel = `Show ${loading ? "homes" : `${cards.length} home${cards.length === 1 ? "" : "s"}`}`;
+  // Fed to BrowseFilterApplyLabel's usePortalFilterDraftValues, which reads it back as the
+  // fallback for every registered field ("outside a panel there is no draft, and the applied
+  // value is then the honest answer") — the field names must match BrowseFilterPanel's own
+  // usePortalFilterDraft(...,  "name") calls exactly.
+  const browseFilterApplied: BrowseFilterApplied = useMemo(
+    () => ({
+      sort,
+      moveIn,
+      moveOut,
+      budget: { min: budgetMin, max: budgetMax },
+      bathroom,
+      roomType,
+      petsOnly,
+    }),
+    [sort, moveIn, moveOut, budgetMin, budgetMax, bathroom, roomType, petsOnly],
+  );
 
   return (
     <div className="w-full">
@@ -601,7 +695,16 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
           mobileSheetFillsViewport
           mobileFlushBody={false}
           desktopPresentation="panel"
-          applyLabel={showLabel}
+          applyLabel={
+            <BrowseFilterApplyLabel
+              listings={listings}
+              scopedIds={scopedIds}
+              loading={loading}
+              query={query}
+              neighborhood={neighborhood}
+              applied={browseFilterApplied}
+            />
+          }
           mobileFooter={(close) => (
             <div className="flex w-full items-center justify-between gap-3">
               <button
@@ -619,7 +722,14 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
                 data-attr="resident-browse-filter-apply"
                 onClick={close}
               >
-                {showLabel}
+                <BrowseFilterApplyLabel
+                  listings={listings}
+                  scopedIds={scopedIds}
+                  loading={loading}
+                  query={query}
+                  neighborhood={neighborhood}
+                  applied={browseFilterApplied}
+                />
               </Button>
             </div>
           )}

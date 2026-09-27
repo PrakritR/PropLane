@@ -103,6 +103,78 @@ export function inspectionRoomProgress(document: InspectionDocument): Inspection
   return { done, total };
 }
 
+/** One party's observation on the print/export view — the same content `pdf.ts` prints, shaped for HTML instead of PDF-drawing calls. */
+export type InspectionPrintObservation = {
+  heading: string;
+  conditionLabel: string | null;
+  notes: string;
+  photos: InspectionPhoto[];
+};
+export type InspectionPrintSection = {
+  id: string;
+  title: string;
+  observations: InspectionPrintObservation[];
+};
+
+function printObservation(heading: string, value: InspectionObservation): InspectionPrintObservation {
+  return {
+    heading,
+    // A condition rating only prints when a legacy report actually carries one — see pdf.ts.
+    conditionLabel: value.condition !== "unchecked" ? INSPECTION_CONDITIONS[value.condition] : null,
+    notes: value.notes,
+    photos: value.photos,
+  };
+}
+
+/**
+ * The export/print view's section list (C137) — mirrors `inspectionPdf`'s own section-building
+ * exactly (area/item headings, the move-in baseline pairing, and retained baseline sections for
+ * a legacy 15-area report or a room the listing has since dropped) so the two exports can never
+ * disagree, just rendered as data for HTML instead of PDF-lib draw calls.
+ */
+export function buildInspectionPrintSections(report: InspectionRecord, baseline: InspectionRecord | null): InspectionPrintSection[] {
+  const sections: InspectionPrintSection[] = [];
+  const baselineItems = new Map(baseline?.document.areas.flatMap(a => a.items).map(i => [i.id, i]) ?? []);
+  const reportItemIds = new Set(report.document.areas.flatMap(a => a.items).map(i => i.id));
+  for (const area of report.document.areas) {
+    for (const item of area.items) {
+      // A room section holds one item named after the section itself, so a distinct
+      // heading only appears when there is more than one item, or the names differ.
+      const title = area.items.length > 1 || item.label !== area.label ? `${area.label} — ${item.label}` : area.label;
+      const observations: InspectionPrintObservation[] = [];
+      const previous = baselineItems.get(item.id);
+      if (previous) {
+        observations.push(printObservation("Move-in / manager", previous.manager));
+        observations.push(printObservation("Move-in / resident", previous.resident));
+      }
+      observations.push(printObservation(`${report.kind === "move-in" ? "Move-in" : "Move-out"} / manager`, item.manager));
+      observations.push(printObservation(`${report.kind === "move-in" ? "Move-in" : "Move-out"} / resident`, item.resident));
+      sections.push({ id: item.id, title, observations });
+    }
+  }
+  // Baseline evidence with no counterpart above — see pdf.ts for why: a legacy 15-area
+  // move-in whose item ids no longer line up, or a room section the listing has since
+  // dropped. Shared property areas stay out either way; this inspection covers the
+  // assigned room only.
+  const legacyBaseline = Boolean(baseline && !baseline.document.roomScope);
+  const retainedBaselineItems = !baseline || !report.document.roomScope
+    ? []
+    : legacyBaseline
+      ? baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items)
+      : baseline.document.areas.flatMap(area => area.items).filter(item => !reportItemIds.has(item.id));
+  for (const item of retainedBaselineItems) {
+    sections.push({
+      id: `baseline-${item.id}`,
+      title: `Move-in baseline (${baseline!.inspection_date}) — ${item.label}`,
+      observations: [
+        printObservation("Move-in / manager", item.manager),
+        printObservation("Move-in / resident", item.resident),
+      ],
+    });
+  }
+  return sections;
+}
+
 export function inspectionPhotoCounts(document: InspectionDocument): InspectionPhotoCounts {
   const counts: InspectionPhotoCounts = { manager: 0, resident: 0, total: 0, lastAt: null };
   for (const item of document.areas.flatMap(area => area.items)) {

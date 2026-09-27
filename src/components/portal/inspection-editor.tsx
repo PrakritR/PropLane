@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Camera, ChevronRight, Download, MoreHorizontal } from "lucide-react";
+import { Camera, ChevronRight, Download, MoreHorizontal, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
@@ -232,6 +232,9 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
    */
   const startUpload = (areaId?: string) => { setUploadArea(areaId ?? activeArea?.id ?? null); setUploadSourceOpen(true); };
   const downloadReport = () => run(async () => { await save(); await downloadInspection(role, report.id); });
+  // C137: a real print-styled report (photos included), not another PDF download —
+  // saves first so the export reads the same snapshot the resident/manager just edited.
+  const exportReport = () => run(async () => { await save(); window.open(`/print/inspection/${report.id}?portal=${role}`, "_blank", "noopener,noreferrer"); });
   useImperativeHandle(ref, () => ({
     addPhotos: () => { if (editable && !pendingPhoto) startUpload(activeArea?.id); },
     downloadReport,
@@ -351,6 +354,7 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
         </div>
         <div className="flex shrink-0 items-center gap-1 pt-1 pr-2">
           {showAddPhotos ? <PortalIconAction icon={Camera} label="Add photos" ring ringPrimary disabled={busy} onClick={() => startUpload()} data-attr="inspection-photo-add" /> : null}
+          <PortalIconAction icon={Printer} label="Export" ring disabled={busy} onClick={exportReport} data-attr="inspection-export" />
           <PortalIconAction icon={Download} label="Download PDF" ring={!showAddPhotos} ringPrimary={!showAddPhotos} disabled={busy} onClick={downloadReport} data-attr="inspection-download" />
         </div>
       </div>
