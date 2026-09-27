@@ -84,6 +84,12 @@ vi.mock("@/lib/manager-applications-storage", () => ({
     { id: "app-1", bucket: "pending", name: "Alex Kim", email: "alex@example.com", property: "Elm St #2", stage: "Screening" },
     { id: "app-2", bucket: "pending", name: "Jordan Fox", email: "jordan@example.com", property: "Oak Ave #5", stage: "Review" },
     { id: "app-3", bucket: "approved", name: "Riley Poe", email: "riley@example.com", property: "Elm St #1", stage: "Approved" },
+    // N080: Dashboard/Payments now drop a charge whose resident has no
+    // surviving directory (application) row. Dana/Sam are this scenario's
+    // charge-holding residents (see CHARGES below), so give them one each —
+    // otherwise the new filter treats their charges as orphaned data.
+    { id: "app-4", bucket: "current", name: "Dana Ramirez", email: "dana@example.com", property: "Elm St #2", stage: "Current" },
+    { id: "app-5", bucket: "current", name: "Sam Lee", email: "sam@example.com", property: "Oak Ave #5", stage: "Current" },
   ],
 }));
 
