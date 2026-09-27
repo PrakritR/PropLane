@@ -8,7 +8,8 @@ import {
 
 describe("vendor document tabs", () => {
   it("exposes tab metadata for each section", () => {
-    expect(VENDOR_DOCUMENT_TABS.map((tab) => tab.id)).toEqual(["tax", "insurance", "licensing"]);
+    // Tax, Business license, Insurance — in that order (captain, 2026-09-27).
+    expect(VENDOR_DOCUMENT_TABS.map((tab) => tab.id)).toEqual(["tax", "licensing", "insurance"]);
     expect(vendorDocumentSectionForTab("tax")?.kinds).toContain("w9");
     expect(vendorDocumentSectionForTab("insurance")?.kinds).toContain("insurance");
   });

@@ -71,14 +71,14 @@ export const VENDOR_DOCUMENT_SECTIONS: {
     kinds: ["w9", "income_tax_return", "form_1099", "ein_letter", "sales_tax_permit"],
   },
   {
-    id: "insurance",
-    label: "Insurance",
-    kinds: ["insurance", "workers_comp"],
-  },
-  {
     id: "licensing",
     label: "Business & licensing",
     kinds: ["license", "bond"],
+  },
+  {
+    id: "insurance",
+    label: "Insurance",
+    kinds: ["insurance", "workers_comp"],
   },
 ];
 

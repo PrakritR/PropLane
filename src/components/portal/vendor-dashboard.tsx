@@ -13,6 +13,7 @@ import {
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { VendorDashboardBalanceCard } from "@/components/portal/vendor-dashboard-balance-card";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -342,7 +343,9 @@ export function VendorDashboard({}: { displayName: string }) {
           </>
         }
         below={
-          <section className="space-y-3" data-attr="dashboard-your-jobs">
+          <>
+            <VendorDashboardBalanceCard />
+            <section className="space-y-3" data-attr="dashboard-your-jobs">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your jobs</h2>
               <div className="flex flex-wrap items-center gap-2">
@@ -389,7 +392,8 @@ export function VendorDashboard({}: { displayName: string }) {
                 ))}
               </div>
             )}
-          </section>
+            </section>
+          </>
         }
       />
     </ManagerPortalPageShell>

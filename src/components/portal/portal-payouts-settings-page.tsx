@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, CreditCard, Landmark, Plus } from "lucide-react";
+import { ArrowUpFromLine, Check, CreditCard, Landmark, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { RecordActionContext } from "@/components/ui/record-action-context";
@@ -299,25 +299,50 @@ export function PortalPayoutsSettingsPage({
 
   return (
     <div className="space-y-4" data-attr="payouts-settings-page">
-      {/* Balance */}
+      {/* Balance — vendor's Withdraw is a top-right icon action (captain,
+          2026-09-27); the manager balance card keeps the labeled button. */}
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm" data-attr="payouts-settings-balance">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available</p>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4 max-md:flex-col max-md:items-stretch">
+        {portal === "vendor" ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available</p>
+            <PortalIconAction
+              icon={ArrowUpFromLine}
+              label="Withdraw"
+              data-attr="payouts-settings-withdraw"
+              disabled={!ready || withdrawableCents <= 0}
+              onClick={() => {
+                track("payout_withdraw_started", { portal });
+                setWithdrawOpen(true);
+              }}
+            />
+          </div>
+        ) : (
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available</p>
+        )}
+        <div
+          className={
+            portal === "vendor"
+              ? "mt-2"
+              : "mt-2 flex flex-wrap items-end justify-between gap-4 max-md:flex-col max-md:items-stretch"
+          }
+        >
           <p className="text-[32px] font-extrabold leading-none tracking-tight text-foreground" data-attr="payouts-settings-available">
             {formatMoney(balance.availableCents, balance.currency)}
           </p>
-          <Button
-            type="button"
-            onClick={() => {
-              track("payout_withdraw_started", { portal });
-              setWithdrawOpen(true);
-            }}
-            disabled={!ready || withdrawableCents <= 0}
-            data-attr="payouts-settings-withdraw"
-            className="max-md:w-full"
-          >
-            Withdraw
-          </Button>
+          {portal === "vendor" ? null : (
+            <Button
+              type="button"
+              onClick={() => {
+                track("payout_withdraw_started", { portal });
+                setWithdrawOpen(true);
+              }}
+              disabled={!ready || withdrawableCents <= 0}
+              data-attr="payouts-settings-withdraw"
+              className="max-md:w-full"
+            >
+              Withdraw
+            </Button>
+          )}
         </div>
         {balance.availableNote ? (
           <p className="mt-2 text-xs text-muted" data-attr="payouts-settings-available-note">
