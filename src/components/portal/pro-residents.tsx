@@ -1117,6 +1117,19 @@ export function ManagerResidents({
     return row;
   }, [singleListSelectedId, hcTick]);
 
+  // C252 (U035): every Potential row that can be chased to finish its
+  // application, keyed by application id (the same id `ManagerResidentListRow`
+  // uses) — lets the list row itself offer the nudge instead of requiring a
+  // checkbox selection first.
+  const nudgeEligibleResidentIds = useMemo(() => {
+    void hcTick;
+    const ids = new Set<string>();
+    for (const row of readManagerApplicationRows()) {
+      if (shouldOfferApplicationCompletionReminder(row)) ids.add(row.id);
+    }
+    return ids;
+  }, [hcTick]);
+
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
     () => (activeResidentId ? residentDirectoryRows.find((r) => r.id === activeResidentId) ?? null : null),
@@ -3921,6 +3934,11 @@ export function ManagerResidents({
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
           onToggleCluster={(ids) => togglePortalListClusterSelection(setSelectedIds, ids)}
+          nudgeEligibleIds={nudgeEligibleResidentIds}
+          onNudge={(res) => {
+            const row = readManagerApplicationRows().find((app) => app.id === res.id);
+            if (row) void openApplicationCompletionReminderPreview(row);
+          }}
           onOpenResident={(res) =>
             navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }

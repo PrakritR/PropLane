@@ -31,6 +31,7 @@ import {
 } from "@/lib/manager-applications-storage";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
+import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 /** Calendar / day sheet sources: residents + channel + manager Add booking blocks. */
@@ -140,6 +141,11 @@ export function useManagerBookingEntries({
     return labels;
   }, [propertyIds, propertyTick]);
 
+  // N080: leases whose resident has no surviving Potential/Current/Past
+  // application row are orphaned data (a completed delete, or a bug, left
+  // them behind) and must not keep drawing a stay on Bookings.
+  const directoryEmails = useMemo(() => directoryResidentEmailSet(applicationRows), [applicationRows]);
+
   const leaseEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (!userId) return [];
     const scoped = new Set(propertyIds);
@@ -154,8 +160,9 @@ export function useManagerBookingEntries({
       roomLabelForId: (propertyId, roomId) =>
         bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
       openEndedHorizonKey: openEndedBookingHorizonKey(),
+      isResidentLinked: (email) => isLinkedToDirectoryResident(email, directoryEmails),
     });
-  }, [userId, leaseRows, propertyOptions, propertyIds, bookingsRoomLabels]);
+  }, [userId, leaseRows, propertyOptions, propertyIds, bookingsRoomLabels, directoryEmails]);
 
   const holdEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (!userId) return [];
