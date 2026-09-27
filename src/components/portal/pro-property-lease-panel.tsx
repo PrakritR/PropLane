@@ -33,6 +33,11 @@ import {
 } from "@/lib/property-lease-template-sync";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+} from "@/components/portal/portal-list-add-row";
+import {
   propertyLeaseSourceFromTemplate,
   readPropertyLeaseTemplates,
   removePropertyLeaseTemplate,
@@ -112,7 +117,6 @@ export function ManagerPropertyLeasePanel({
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [questionsEditorTemplate, setQuestionsEditorTemplate] = useState<PropertyLeaseTemplate | null>(null);
-  const [autoImportFile, setAutoImportFile] = useState<File | null>(null);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
@@ -517,6 +521,27 @@ export function ManagerPropertyLeasePanel({
           .filter((t) => !offeredSeeds.some((seed) => seed.seedKey === t.listingSeedKey))
           .map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </PortalPropertyDetailSection>
+      {/* origin/main's separate "Add a lease type" suggestions block (availableSeeds
+          + PropertyLeaseTemplateSuggestions) is superseded here: P004/P006/P009's
+          row-grouping above already renders an inline add-row (emptyLeaseTypeRow)
+          for every offered seed type with no template yet — the same set
+          availableLeaseTemplateSeeds would suggest, just inline instead of in a
+          separate block below. Kept only the still-needed embedded-modal case. */}
+      {/* The page's command bar carries the one "+" (its form also takes a
+          PDF upload); only the embedded modal, which has no command bar,
+          needs a footer add row. */}
+      {embedInModal ? (
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Add"
+            ariaLabel="Add lease"
+            icon={PORTAL_LIST_ADD_ICONS.lease}
+            onClick={openAdd}
+            dataAttr="property-lease-add"
+            inline
+          />
+        </div>
+      ) : null}
     </>
   );
 
@@ -560,10 +585,7 @@ export function ManagerPropertyLeasePanel({
         template={questionsEditorTemplate}
         templates={templates}
         propertyId={propertyId ?? bulkPropertyIds[0] ?? null}
-        onClose={() => {
-          setQuestionsEditorTemplate(null);
-          setAutoImportFile(null);
-        }}
+        onClose={() => setQuestionsEditorTemplate(null)}
         onSave={async (nextTemplates) => {
           const ok = await persistTemplates(nextTemplates);
           if (ok) onUpdated();
@@ -579,8 +601,6 @@ export function ManagerPropertyLeasePanel({
         }
         canDelete
         showToast={showToast}
-        autoImportFile={autoImportFile}
-        onAutoImportConsumed={() => setAutoImportFile(null)}
       />
 
     </>

@@ -115,6 +115,73 @@ describe("durable prospect ingress publication retry", () => {
     warn.mockRestore();
   });
 
+  it("returns immediately after durable ingress when webhook publication is deferred", async () => {
+    const publish = vi.fn();
+    vi.stubGlobal("fetch", publish);
+    const { db, update } = durableDb();
+    const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(enqueueProspectSmsBurst(db, {
+      sourceMessageId: "source-webhook-deferred",
+      managerUserId: "00000000-0000-0000-0000-000000000001",
+      counterpartyPhoneE164: "+15550001111",
+      channel: "twilio",
+      body: "Is Jain Home available?",
+      deferPublication: true,
+    })).resolves.toEqual({
+      ok: true,
+      burstId: "burst-1",
+      revision: 4,
+      duplicate: false,
+      published: false,
+      publicationDeferred: true,
+      dueAt: "2099-01-01T00:00:00.000Z",
+    });
+    expect(db.rpc).toHaveBeenCalledWith("record_prospect_sms_ingress", expect.objectContaining({
+      p_source_message_id: "source-webhook-deferred",
+    }));
+    expect(publish).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("publishes the deferred durable ingress and records the queue job", async () => {
+    const publish = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "queue-deferred" }), { status: 200 }));
+    vi.stubGlobal("fetch", publish);
+    const { db, update } = durableDb();
+    const { publishDeferredProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(publishDeferredProspectSmsBurst(db, {
+      burstId: "burst-1",
+      revision: 4,
+      dueAt: "2099-01-01T00:00:00.000Z",
+    })).resolves.toBe(true);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      queue_job_id: "queue-deferred",
+      published_at: expect.any(String),
+    }));
+  });
+
+  it("reports a deferred publisher refusal so the inbound continuation can run inline", async () => {
+    const publish = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", publish);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db, update } = durableDb();
+    const { publishDeferredProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(publishDeferredProspectSmsBurst(db, {
+      burstId: "burst-1",
+      revision: 4,
+      dueAt: "2099-01-01T00:00:00.000Z",
+    })).resolves.toBe(false);
+    expect(update).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("running inline"),
+      expect.objectContaining({ burstId: "burst-1", revision: 4, status: 503 }),
+    );
+    warn.mockRestore();
+  });
+
   it.each(["/api/internal/prospect-sms-burst", "ftp://prop-lane.test/callback", "not a url"])(
     "fails closed before database or queue work for invalid callback %s",
     async (callback) => {

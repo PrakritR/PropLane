@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ parse });
   } catch (error) {
     if (error instanceof UnsafePdfImportError) {
-      return NextResponse.json({ error: "PDF contains active or unsupported content and cannot be imported." }, { status: 422 });
+      return NextResponse.json({ error: error.message }, { status: 422 });
     }
     // Parser exceptions may include PDF metadata or extracted fragments. Keep
     // the request log content-free; the client only needs a safe failure.

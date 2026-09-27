@@ -61,6 +61,8 @@ type NumberRow = {
 export type OwnerSmsEnqueueInput = {
   managerUserId: string;
   actorUserId: string;
+  /** Server-authorized selected work-line epoch for an existing conversation. */
+  selectedWorkLineId?: string | null;
   recipientPhone: string;
   recipientUserId?: string | null;
   recipientEmail?: string | null;
@@ -105,6 +107,7 @@ async function loadSendPolicy(
   db: SupabaseClient,
   input: OwnerSmsEnqueueInput,
   now = new Date(),
+  creditAlreadyReserved = false,
 ): Promise<SendPolicy> {
   if (input.purpose === "tour_interest_followup") {
     const id = input.dedupeKey?.startsWith("tour-interest:") ? input.dedupeKey.slice("tour-interest:".length) : "";
@@ -143,8 +146,8 @@ async function loadSendPolicy(
     resolveOwnerSendNumberRow<NumberRow>(
       db,
       ownerId,
-      "manager_user_id, workspace_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason",
-      { propertyId: input.propertyId ?? null },
+      "id, manager_user_id, workspace_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason",
+      { propertyId: input.propertyId ?? null, workLineId: input.selectedWorkLineId ?? null },
     ),
   ]);
   if (runtimeError || numberError || !runtime || !number) {
@@ -186,8 +189,10 @@ async function loadSendPolicy(
   // Credit is per workspace: the message spends from the wallet of the
   // workspace that holds the line it leaves on, not an account-wide balance.
   const sendWorkspaceId = String(numberRow.workspace_id ?? "").trim() || null;
+  // A successful reservation belongs to this outbox attempt. Still read the
+  // sending workspace wallet so a pause or unreadable balance blocks dispatch.
   const billing = await evaluateManagerCommsBillingGate(db, ownerId,
-    segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
+    creditAlreadyReserved ? 0 : segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
     sendWorkspaceId);
   if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
 
@@ -413,6 +418,7 @@ export async function enqueueOwnerSms(
     .from("sms_outbox")
     .insert({
       manager_user_id: input.managerUserId,
+      selected_work_line_id: input.selectedWorkLineId ?? null,
       actor_user_id: input.actorUserId,
       recipient_user_id: input.recipientUserId ?? null,
       recipient_email: input.recipientEmail?.trim().toLowerCase() || null,
@@ -455,6 +461,7 @@ export async function enqueueOwnerSms(
 type ClaimedOutboxRow = {
   id: string;
   manager_user_id: string;
+  selected_work_line_id?: string | null;
   actor_user_id: string | null;
   recipient_user_id: string | null;
   recipient_email: string | null;
@@ -721,6 +728,13 @@ export async function dispatchOwnerSmsOutbox(
     };
   }
   const rows = (data ?? []) as ClaimedOutboxRow[];
+  if (rows.length) {
+    const { data: selectedLines, error: selectedLinesError } = await db.from("sms_outbox")
+      .select("id,selected_work_line_id").in("id", rows.map((row) => row.id));
+    if (selectedLinesError) return { ok: false, claimed: rows.length, submitted: 0, blocked: 0, unknown: 0, infrastructureErrors: ["selected_work_line_unavailable"] };
+    const linesById = new Map((selectedLines ?? []).map((row) => [String(row.id), row.selected_work_line_id == null ? null : String(row.selected_work_line_id)]));
+    for (const row of rows) row.selected_work_line_id = linesById.get(row.id) ?? null;
+  }
   const result = {
     ok: true,
     claimed: rows.length,
@@ -756,6 +770,7 @@ export async function dispatchOwnerSmsOutbox(
     }
     const policy = await loadSendPolicy(db, {
       managerUserId: row.manager_user_id,
+      selectedWorkLineId: row.selected_work_line_id,
       actorUserId: row.actor_user_id ?? row.manager_user_id,
       recipientUserId: row.recipient_user_id,
       recipientPhone: row.recipient_phone,
@@ -1049,9 +1064,11 @@ export async function dispatchOwnerSmsOutbox(
     // Recheck after budget/credit awaits, at the last boundary before external
     // submission. Cancellation already fences the earlier state transition;
     // this also catches a new inbound, opt-out, booking or revoked grant.
-    if (row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
+    if (row.selected_work_line_id || row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
       const finalPolicy = await loadSendPolicy(db, {
         managerUserId: row.manager_user_id, actorUserId: row.actor_user_id ?? row.manager_user_id,
+        selectedWorkLineId: row.selected_work_line_id,
+        recipientUserId: row.recipient_user_id,
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
         sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
         propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,
@@ -1059,8 +1076,8 @@ export async function dispatchOwnerSmsOutbox(
         prospectTourReminderSubmission: row.prospect_tour_reminder_id
           ? { outboxId: row.id, workerId }
           : null,
-      });
-      if (!finalPolicy.allowed || finalPolicy.fromNumber !== policy.fromNumber) {
+      }, new Date(), true);
+      if (!finalPolicy.allowed || finalPolicy.fromNumber !== policy.fromNumber || finalPolicy.workspaceId !== policy.workspaceId) {
         await finishCommsCredit(db, row.manager_user_id, creditKey, true);
         await db.from("sms_outbox").update({ status: "blocked", blocked_reason: finalPolicy.allowed ? "work_number_changed" : finalPolicy.reason,
           lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() })

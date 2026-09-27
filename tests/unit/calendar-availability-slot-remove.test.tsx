@@ -61,8 +61,12 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Unmounting an open Radix menu schedules its focus-restore on a 0ms timer.
+  // Let it run while this file's jsdom is still alive; otherwise, after the
+  // last test, it fires into a torn-down environment and fails the whole run.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   vi.unstubAllGlobals();
 });
 

@@ -209,7 +209,7 @@ correct for both. Writing here too would double-count every return. Coverage:
 
 # PropLane balance ledger (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off)
 
-**Schema** — `supabase/migrations/20260925180000_proplane_balance_ledger.sql`:
+**Schema** — `supabase/migrations/20260925073005_proplane_balance_ledger.sql`:
 `proplane_balance_accounts` (`owner_kind: "workspace"|"vendor"`, `owner_key`
 — the MANAGER's `profiles.id` for `"workspace"`, not `portal_workspaces.id`;
 every existing money path here is keyed on the manager user, and a workspace

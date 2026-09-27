@@ -22,10 +22,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
-  mirrorLocalPropertyPipelineToServer,
   publishManagerListingSubmissionToServer,
   readExtraListingsForUser,
 } from "@/lib/demo-property-pipeline";
+import { flushPropertyRecordOutbox, pendingPropertyRecordWrites } from "@/lib/property-record-outbox";
 import {
   listAdminRow,
   readAdminPropertyRows,
@@ -197,12 +197,14 @@ describe("a relist the plan cap refuses", () => {
     // The listing the manager still owns is untouched too.
     expect(records.get(occupying)?.status).toBe("live");
 
-    // And because the row survived, the same listing goes live once the plan
-    // allows it — nothing had to be recovered from this browser's copy.
+    // The refusal is final for that write: it is not left queued to be
+    // replayed on a later sync behind the manager's back (the old page-load
+    // mirror did exactly that). The server's row stays the truth, and the
+    // manager relists again once the plan allows it.
+    expect(pendingPropertyRecordWrites(manager)).toEqual([]);
     slotCap = 2;
-    await mirrorLocalPropertyPipelineToServer(manager);
-    expect(records.get(parked)?.status).toBe("live");
-    expect(records.get(occupying)?.status).toBe("live");
+    await flushPropertyRecordOutbox(manager);
+    expect(records.get(parked)?.status).toBe("unlisted");
     expect(deletedIds).toEqual(deletesBeforeRelist);
   });
 });
