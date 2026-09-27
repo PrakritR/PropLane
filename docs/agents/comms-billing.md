@@ -235,7 +235,7 @@ flag. With `COMMS_CREDIT_POOL_ENABLED` unset, every reserve/settle/refund in
 already documents — the pool tables exist but nothing writes to them. Flip it
 to `"1"` and `reserveCommsCredit` / `finishCommsCredit` / `settleCommsCreditQuantity`
 dispatch to the pool instead (`src/lib/comms-billing/pool.server.ts`,
-`supabase/migrations/20260927120000_comms_credit_pool.sql`). Reads that are not
+`supabase/migrations/20260927150000_comms_credit_pool.sql`). Reads that are not
 on that write path (`loadCommsWallet`, the admin billing list's
 `loadCommsWalletTotals`, and `evaluateManagerCommsBillingGate`'s pre-send
 check in `owner-sms-dispatcher.server.ts`) still read the OLD per-workspace
