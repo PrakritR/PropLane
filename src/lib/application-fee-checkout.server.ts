@@ -7,6 +7,7 @@ import {
   loadManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
 import { normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
@@ -87,6 +88,14 @@ export type ResolvedApplicationFeeProperty = {
   managerUserId: string;
   listing: ManagerListingSubmissionV1 | null;
   applicationFeeCents: number;
+  /**
+   * P003: the resolved application template's own advertised waiver code
+   * (`PropertyApplicationTemplate.waiverCodeOverride`), when the applicant's
+   * `applicationTemplateId` resolved to one that set it. A DISPLAY default
+   * only — redemption is unchanged, still the existing account/property
+   * `manager_application_fee_waiver_codes` lookup regardless of this value.
+   */
+  templateWaiverCodeOverride: string | null;
 };
 
 /**
@@ -112,6 +121,15 @@ export async function resolveApplicationFeeProperty(
      * back to the one amount.
      */
     leaseTerm?: string;
+    /**
+     * P003: a SELECTOR (like `leaseTerm` above), never an amount — picks which
+     * of the listing's stored `propertyApplicationTemplates` rows the
+     * applicant actually applied with, so a template-level fee override can be
+     * read from SERVER storage. An id that doesn't resolve to a stored
+     * template (unknown, blank, or the listing carries none) simply falls
+     * back to the account default exactly as before this existed.
+     */
+    applicationTemplateId?: string;
   },
   opts?: {
     /**
@@ -154,6 +172,16 @@ export async function resolveApplicationFeeProperty(
   }
 
   const listing = listingFromPropertyData(propertyRow?.property_data);
+  // P003: the applicant's `applicationTemplateId` is a selector into the
+  // SAME server-stored listing row already loaded above — never a second
+  // fetch the caller could point elsewhere, and never a client-supplied
+  // amount. An id that matches nothing (unknown template, none stored, or no
+  // id supplied) resolves `templateFeeCentsOverride` to `undefined`, which
+  // `effectiveApplicationFeeCents` treats identically to "not set".
+  const templateId = input.applicationTemplateId?.trim();
+  const matchedTemplate = templateId
+    ? readPropertyApplicationTemplates(listing ?? { propertyApplicationTemplates: [] }).find((t) => t.id === templateId)
+    : undefined;
   // The Application system fee is authoritative for EVERY listing, including an explicit
   // 0 (free); listing fees are ignored (PLAN-0924-1254, docs/agents/resident-payments.md).
   // `effectiveApplicationFeeCents` owns that rule; the listing value is still passed only
@@ -165,6 +193,7 @@ export async function resolveApplicationFeeProperty(
   const applicationFeeCents = clampAmountCents(
     effectiveApplicationFeeCents({
       managerFeeCents: managerSettings.applicationFeeCents,
+      templateFeeCentsOverride: matchedTemplate?.feeCentsOverride ?? null,
       listingFeeCents,
     }),
   );
@@ -172,7 +201,15 @@ export async function resolveApplicationFeeProperty(
     return { ok: false, status: 422, code: "NO_APPLICATION_FEE", error: "This listing has no application fee configured." };
   }
 
-  return { ok: true, value: { managerUserId: ownerUserId, listing, applicationFeeCents } };
+  return {
+    ok: true,
+    value: {
+      managerUserId: ownerUserId,
+      listing,
+      applicationFeeCents,
+      templateWaiverCodeOverride: matchedTemplate?.waiverCodeOverride?.trim() || null,
+    },
+  };
 }
 
 export type ApplicationFeeItemization = {
@@ -235,6 +272,8 @@ export type ApplicationFeeCheckoutInput = {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type; picks the listing's per-type fee when one is set. */
   leaseTerm?: string;
+  /** P003: selects the stored application template's own fee override, when it set one. */
+  applicationTemplateId?: string;
   /**
    * `embedded` renders the payment form INLINE in the application (the default
    * — the applicant never leaves the wizard); `hosted` redirects to Stripe's

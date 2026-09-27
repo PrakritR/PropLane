@@ -31,6 +31,27 @@ export type PropertyApplicationTemplate = {
   publishedQuestionConfig?: ApplicationTemplateQuestionConfig;
   /** Immutable prior published snapshots needed by in-progress applicant pins. */
   publishedQuestionConfigVersions?: ApplicationTemplateQuestionConfig[];
+  /**
+   * P003 (2026-09-27): this application's OWN fee, overriding the account
+   * default (`manager-application-settings.ts`'s `applicationFeeCents`) only
+   * for applicants who apply with THIS template. `null`/absent = "use the
+   * account default" (the pre-existing, still-authoritative behavior); `0` is
+   * a meaningful override ("this application is free"), same null-vs-zero
+   * rule the account setting already uses. Resolved SERVER-SIDE, by
+   * `applicationTemplateId`, in `resolveApplicationFeeProperty`
+   * (`application-fee-checkout.server.ts`) — never trust a client-supplied
+   * amount for either the account default or this override.
+   */
+  feeCentsOverride?: number | null;
+  /**
+   * The promo code this application advertises to waive its fee — a display
+   * default only. Redemption is untouched: it still goes through the
+   * existing account/property-scoped `manager_application_fee_waiver_codes`
+   * lookup (`application-fee-waiver.ts`) regardless of which template the
+   * applicant used. Storing it here just lets the manager see/set, per
+   * application, which code they intend to advertise for it.
+   */
+  waiverCodeOverride?: string | null;
 };
 
 export type ApplicationTemplateQuestionConfig = ApplicationConfigSlice & {

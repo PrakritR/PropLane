@@ -108,19 +108,28 @@ export function validateManagerApplicationFeeCents(raw: unknown): ManagerApplica
 }
 
 /**
- * The effective application fee (cents) for one listing.
+ * The effective application fee (cents) for one listing, optionally
+ * overridden by the SPECIFIC APPLICATION TEMPLATE the applicant applied
+ * with (P003, 2026-09-27 — `PropertyApplicationTemplate.feeCentsOverride`,
+ * `property-application-templates.ts`).
  *
- * PLAN-0924-1254 Decide: Application system fee is the ONE source of truth.
+ * PLAN-0924-1254 Decide: Application system fee is the ONE account-wide
+ * source of truth for every listing that has not set its own override.
  * Listing `applicationFee` fields are retired from Pricing and are ignored
  * here (callers may still pass `listingFeeCents` for API stability; it never
- * wins). Priority: configured manager/system fee → legacy $50 when unset.
- * Pure — safe to use on client and server.
+ * wins). Priority: this application's own fee -> configured manager/system
+ * fee -> legacy $50 when neither is set. Pure — safe to use on client and
+ * server; the caller (`resolveApplicationFeeProperty`) is what resolves
+ * `templateFeeCentsOverride` from SERVER-stored data, never a client amount.
  *
- * `0` on the manager setting means applications are free. `null` means not
- * configured yet (legacy default applies until the manager saves).
+ * `0` at any level means free at that level. `null`/`undefined` means "use
+ * the next level down" (legacy default applies only when nothing at all is
+ * configured).
  */
 export function effectiveApplicationFeeCents(input: {
   managerFeeCents: number | null;
+  /** This application's own fee, when it set one. Wins over the account default. */
+  templateFeeCentsOverride?: number | null;
   /**
    * @deprecated Listing fees are ignored (PLAN-0924-1254). Kept so existing
    * call sites keep compiling; do not pass a value expecting it to charge.
@@ -128,6 +137,9 @@ export function effectiveApplicationFeeCents(input: {
   listingFeeCents?: number | null;
 }): number {
   void input.listingFeeCents;
+  if (input.templateFeeCentsOverride !== null && input.templateFeeCentsOverride !== undefined) {
+    return input.templateFeeCentsOverride;
+  }
   if (input.managerFeeCents !== null) return input.managerFeeCents;
   return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;
 }

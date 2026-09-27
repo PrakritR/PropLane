@@ -790,6 +790,7 @@ function RentalApplicationWizardInner({
         managerUserId: catalogManagerUserId || undefined,
         rentalType: applicationRentalTypeFor(form.rentalType),
         leaseTerm: form.leaseTerm || undefined,
+        applicationTemplateId: form.applicationTemplateId,
         residentEmail: email,
       }).then((result) => {
         if (cancelled) return;
@@ -1831,6 +1832,7 @@ function RentalApplicationWizardInner({
           managerUserId: managerUserIdForFee || undefined,
           rentalType: applicationRentalTypeFor(form.rentalType),
           leaseTerm: form.leaseTerm || undefined,
+          applicationTemplateId: form.applicationTemplateId,
         });
         if (previewResult.preview) {
           applicationFeeAmount = previewResult.preview.applicationFeeCents / 100;
@@ -2131,6 +2133,7 @@ function RentalApplicationWizardInner({
           propertyId: pid,
           managerUserId: managerUserIdForFee || undefined,
           rentalType: applicationRentalTypeFor(form.rentalType),
+          applicationTemplateId: form.applicationTemplateId,
         });
         const feePreview = feeResult.preview;
         feeAmountOverride = feePreview ? feePreview.applicationFeeCents / 100 : undefined;
@@ -2390,6 +2393,7 @@ function RentalApplicationWizardInner({
             propertyId: pid,
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
+            applicationTemplateId: form.applicationTemplateId,
             residentEmail: emailTrim,
           });
           if (feeResult.propertyNotFound) {
