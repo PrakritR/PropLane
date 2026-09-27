@@ -340,6 +340,10 @@ const PROPERTY_ACTIVITY_CATEGORY_OPTIONS = [
 function propertyActivityEventCategory(label: string): string | null {
   const text = label.toLowerCase();
   if (/(rent|charge|payment|invoice|deposit|fee)/.test(text)) return "money";
+  // "work order" here matches legacy activity titles stamped before the
+  // services rename (tests/unit/services-vocabulary.test.ts's
+  // STORED_TITLE_READERS carve-out) so an old event still buckets into
+  // Services; it never renders that phrase to a person.
   if (/(service|maintenance|work order|repair)/.test(text)) return "services";
   if (/(message|email|sms|reply)/.test(text)) return "messages";
   if (/(lease|application|tour|listing|import|photo)/.test(text)) return "leasing";
