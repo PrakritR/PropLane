@@ -92,6 +92,14 @@
     {
       "path": "/api/cron/reconcile-proplane-balance",
       "schedule": "15 8 * * *"
+    },
+    {
+      "path": "/api/cron/vendor-hold-expiry",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/vendor-banking-reconcile",
+      "schedule": "45 8 * * *"
     }
   ]
 }
