@@ -8,7 +8,6 @@ import {
   Briefcase,
   Building2,
   CalendarClock,
-  Contact,
   Landmark,
   Lock,
   MessageSquareText,
@@ -19,24 +18,27 @@ import {
 } from "lucide-react";
 import {
   useVendorBusinessProfile,
+  SectionSaveBadge,
   VendorBusinessProfilePane,
   VendorNotificationsPane,
-  VendorWorkIdentityPane,
-  VendorWorkContactsPane,
-  VendorWorkspaceAccessPane,
+  VendorWorkIdentitySection,
+  VendorWorkNumberStatusNote,
+  worstSaveState,
 } from "@/components/portal/vendor-business-settings";
-import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
+  PortalSettingsAutosaveField,
+  PortalSettingsField,
   PortalSettingsFormBody,
   PortalSettingsGroup,
   PortalSettingsProfileHeader,
   PortalSettingsSection,
   PortalSettingsSections,
+  type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
@@ -44,8 +46,10 @@ import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -68,10 +72,7 @@ const SETTINGS_TAB_PARAM = "tab";
 
 type VendorSettingsGroupId =
   | "business"
-  | "work-contacts"
-  | "work-number"
-  | "work-email"
-  | "workspaces"
+  | "work"
   | "payouts"
   | "notifications"
   | "profile"
@@ -83,21 +84,35 @@ type VendorSettingsGroupId =
   | "feedback"
   | "account";
 
+/**
+ * Legacy tab ids that must keep resolving after the VD01/VD66 regroup —
+ * Work contacts / Work number / Work email folded into one "work" section,
+ * and Workspace access (studio VD66) was removed outright, so its old deep
+ * link now lands on Business profile rather than 404ing.
+ */
+const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsGroupId> = {
+  "work-contacts": "work",
+  "work-number": "work",
+  "work-email": "work",
+  workspaces: "business",
+  "workspace-access": "business",
+};
+
 type VendorSettingsGroup = {
   id: VendorSettingsGroupId;
   label: string;
   description?: string;
   icon: ComponentType<{ className?: string }>;
   /**
-   * Three top-level cards (C159) — never a flat list of every sub-item.
-   * "Payout" stays a single always-the-vendor's-own-Stripe-Connect-account
-   * item, deliberately separate from any workspace's bank.
+   * Two top-level cards (captain, 2026-09-27 studio VD01/VD66) — never a flat
+   * list of every sub-item. Workspace access was removed and Payouts moved
+   * into Account, leaving no third "money" group.
    */
-  group: "Company profile" | "Payout" | "Settings";
+  group: "Business" | "Account";
 };
 
-/** Top-level card order for the vendor Profile accordion (C159). */
-const VENDOR_SETTINGS_TOP_GROUPS = ["Company profile", "Payout", "Settings"] as const;
+/** Top-level card order for the vendor Settings accordion. */
+const VENDOR_SETTINGS_TOP_GROUPS = ["Business", "Account"] as const;
 
 /** Tap target for the small chip/row "remove" glyphs — keeps the glyph small while meeting the 44px minimum. */
 const AVAILABILITY_REMOVE_BTN =
@@ -919,9 +934,12 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
   );
 }
 
+type DirectoryField = "name" | "phone" | "email" | "preferredLanguage";
+const DIRECTORY_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/;
+type DirectoryTimerKey = DirectoryField | "smsConsent" | "capabilities";
+
 /** Vendor's own Settings — business profile, work capabilities (feeds auto-match), availability, and feedback. */
 export function VendorSettingsPanel() {
-  const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -929,9 +947,52 @@ export function VendorSettingsPanel() {
   const [profileDraft, setProfileDraft] = useState<VendorProfileDraft>(() => (demo ? DEMO_VENDOR_PROFILE : EMPTY_PROFILE));
   const [trades, setTrades] = useState<string[]>(() => (demo ? DEMO_VENDOR_TRADES : []));
   const [profileLoading, setProfileLoading] = useState(() => !demo);
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
   const [unlinked, setUnlinked] = useState(false);
+
+  // The actual Supabase auth login email — distinct from the directory/contact
+  // email above, which a vendor can edit and which may differ from what they
+  // sign in with (studio VD69 "Signed in as").
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(demo ? DEMO_VENDOR_EMAIL : null);
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await createSupabaseBrowserClient().auth.getUser();
+        if (!cancelled) setSignedInEmail(result.data.user?.email ?? null);
+      } catch {
+        /* ignore — the row just shows an em dash */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo]);
+
+  // Every Directory listing / Work capabilities field autosaves — no Save
+  // button anywhere in this pane (captain, 2026-09-27 studio VD02/VD03/VD09).
+  const [directoryFieldState, setDirectoryFieldState] = useState<Record<DirectoryField, PortalSettingsSaveState>>({
+    name: "idle",
+    phone: "idle",
+    email: "idle",
+    preferredLanguage: "idle",
+  });
+  const [directoryFieldError, setDirectoryFieldError] = useState<Partial<Record<DirectoryField, string>>>({});
+  const [smsConsentState, setSmsConsentState] = useState<PortalSettingsSaveState>("idle");
+  const [capabilitiesState, setCapabilitiesState] = useState<PortalSettingsSaveState>("idle");
+  const savedProfileRef = useRef<VendorProfileDraft>(profileDraft);
+  const directoryTimers = useRef<Partial<Record<DirectoryTimerKey, ReturnType<typeof setTimeout>>>>({});
+  useEffect(() => {
+    const held = directoryTimers.current;
+    return () => {
+      for (const timer of Object.values(held)) if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
+    };
+  }, []);
+  const scheduleIdle = useCallback((key: DirectoryTimerKey, revert: () => void) => {
+    const existing = directoryTimers.current[key];
+    if (existing) clearTimeout(existing);
+    directoryTimers.current[key] = setTimeout(revert, 2000);
+  }, []);
 
   useEffect(() => {
     if (demo) return;
@@ -946,78 +1007,136 @@ export function VendorSettingsPanel() {
           setUnlinked(data.linked === false);
           const p = data.profile;
           const contact = data.contact;
-          setProfileDraft({
+          const next: VendorProfileDraft = {
             name: p?.name ?? "",
             phone: p?.phone ?? "",
             email: p?.email ?? "",
             preferredLanguage: contact?.preferredLanguage || p?.preferredLanguage || "",
             smsConsent: contact?.smsConsent ?? false,
-          });
+          };
+          setProfileDraft(next);
+          savedProfileRef.current = next;
           if (p) setTrades(p.trades && p.trades.length > 0 ? p.trades : p.trade ? [p.trade] : []);
         },
       )
       .finally(() => setProfileLoading(false));
   }, [demo]);
 
-  async function saveProfile() {
-    setProfileSaving(true);
+  /**
+   * One field, saved on blur (text) or immediately (select/checkbox). A
+   * failed save keeps whatever was typed and shows why underneath it; an
+   * invalid email is caught before it ever reaches the server and is never
+   * saved, though the server also rejects a malformed email defensively
+   * (`/api/vendor/profile` PATCH) since a client check is never authority.
+   */
+  async function commitDirectoryField(field: DirectoryField, value: string) {
+    if (value === savedProfileRef.current[field]) return;
+    if (field === "email" && value && !DIRECTORY_EMAIL_RE.test(value)) {
+      setDirectoryFieldState((s) => ({ ...s, email: "error" }));
+      setDirectoryFieldError((e) => ({ ...e, email: "Enter a valid email address." }));
+      return;
+    }
+    setDirectoryFieldState((s) => ({ ...s, [field]: "saving" }));
+    setDirectoryFieldError((e) => ({ ...e, [field]: undefined }));
+    const markSaved = () => {
+      savedProfileRef.current = { ...savedProfileRef.current, [field]: value };
+      setDirectoryFieldState((s) => ({ ...s, [field]: "saved" }));
+      scheduleIdle(field, () => setDirectoryFieldState((s) => (s[field] === "saved" ? { ...s, [field]: "idle" } : s)));
+    };
+    if (demo) {
+      markSaved();
+      return;
+    }
     try {
-      if (demo) {
-        showToast("Profile saved.");
-        return;
-      }
       const res = await fetch("/api/vendor/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          name: profileDraft.name,
-          phone: profileDraft.phone,
-          email: profileDraft.email,
-          preferredLanguage: profileDraft.preferredLanguage,
-          smsConsent: profileDraft.smsConsent,
-        }),
+        body: JSON.stringify({ [field]: value }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to save.");
-      showToast("Profile saved.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to save.");
-    } finally {
-      setProfileSaving(false);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDirectoryFieldState((s) => ({ ...s, [field]: "error" }));
+        setDirectoryFieldError((e) => ({ ...e, [field]: data.error ?? "Could not save." }));
+        return;
+      }
+      markSaved();
+    } catch {
+      setDirectoryFieldState((s) => ({ ...s, [field]: "error" }));
+      setDirectoryFieldError((e) => ({ ...e, [field]: "No connection. Your change is still here." }));
+    }
+  }
+
+  async function commitSmsConsent(checked: boolean) {
+    setProfileDraft((d) => ({ ...d, smsConsent: checked }));
+    setSmsConsentState("saving");
+    const markSaved = () => {
+      savedProfileRef.current = { ...savedProfileRef.current, smsConsent: checked };
+      setSmsConsentState("saved");
+      scheduleIdle("smsConsent", () => setSmsConsentState((s) => (s === "saved" ? "idle" : s)));
+    };
+    if (demo) {
+      markSaved();
+      return;
+    }
+    try {
+      const res = await fetch("/api/vendor/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ smsConsent: checked }),
+      });
+      if (!res.ok) {
+        setSmsConsentState("error");
+        return;
+      }
+      markSaved();
+    } catch {
+      setSmsConsentState("error");
+    }
+  }
+
+  const directorySectionState = worstSaveState([
+    directoryFieldState.name,
+    directoryFieldState.phone,
+    directoryFieldState.email,
+    directoryFieldState.preferredLanguage,
+    smsConsentState,
+  ]);
+
+  async function commitTrades(next: string[]) {
+    setTrades(next);
+    setCapabilitiesState("saving");
+    const markSaved = () => {
+      setCapabilitiesState("saved");
+      scheduleIdle("capabilities", () => setCapabilitiesState((s) => (s === "saved" ? "idle" : s)));
+    };
+    if (demo) {
+      markSaved();
+      return;
+    }
+    try {
+      const res = await fetch("/api/vendor/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ trades: next }),
+      });
+      if (!res.ok) {
+        setCapabilitiesState("error");
+        return;
+      }
+      markSaved();
+    } catch {
+      setCapabilitiesState("error");
     }
   }
 
   function toggleTrade(trade: string, on: boolean) {
-    setTrades((cur) => {
-      const set = new Set(cur);
-      if (on) set.add(trade);
-      else set.delete(trade);
-      return [...set];
-    });
-  }
-
-  async function saveCapabilities() {
-    setCapabilitiesSaving(true);
-    try {
-      if (demo) {
-        showToast("Capabilities saved.");
-        return;
-      }
-      const res = await fetch("/api/vendor/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ trades }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to save.");
-      showToast("Capabilities saved.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to save.");
-    } finally {
-      setCapabilitiesSaving(false);
-    }
+    const set = new Set(trades);
+    if (on) set.add(trade);
+    else set.delete(trade);
+    void commitTrades([...set]);
   }
 
   // Both writable panes are dead until a manager links the account, so the
@@ -1041,47 +1160,35 @@ export function VendorSettingsPanel() {
         label: "Business profile",
         description: "Your business name, contact, and service area — yours, no manager link needed.",
         icon: Building2,
-        group: "Company profile",
+        group: "Business",
       },
       {
-        id: "work-contacts",
-        label: "Work contacts",
-        description: "The work number and email managers and residents reach you at.",
-        icon: Contact,
-        group: "Company profile",
-      },
-      {
-        id: "work-number",
-        label: "Work number",
+        id: "work",
+        label: "Work number & email",
+        description: "Your business phone/email, plus a free PropLane-provided work number and email.",
         icon: Smartphone,
-        group: "Company profile",
-      },
-      {
-        id: "work-email",
-        label: "Work email",
-        icon: Contact,
-        group: "Company profile",
+        group: "Business",
       },
       {
         id: "profile",
         label: "Directory listing",
         description: "Language, texting consent, and payment methods on your manager directory entry.",
         icon: Briefcase,
-        group: "Company profile",
+        group: "Business",
       },
       {
         id: "capabilities",
         label: "Work capabilities",
         description: "The trades managers can match you with.",
         icon: Wrench,
-        group: "Company profile",
+        group: "Business",
       },
       {
         id: "availability",
-        label: "Hours & dates",
+        label: "Availability",
         description: "Weekly hours, one-off open dates, and blocked dates.",
         icon: CalendarClock,
-        group: "Company profile",
+        group: "Business",
       },
       {
         id: "payouts",
@@ -1089,63 +1196,57 @@ export function VendorSettingsPanel() {
         // Always the vendor's OWN Stripe Connect account — never a workspace's bank.
         description: "Your balance, bank accounts, and how you withdraw what you're owed.",
         icon: Landmark,
-        group: "Payout",
-      },
-      {
-        id: "workspaces",
-        label: "Workspace access",
-        description: "Manager workspaces you are linked into and the houses assigned to you.",
-        icon: Briefcase,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "notifications",
         label: "Notifications",
         description: "Which events reach your inbox and phone.",
         icon: Bell,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "messaging",
         label: "Messaging",
         description: "Verify your phone for job texts.",
         icon: Smartphone,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "preferences",
         label: "Preferences",
         description: "Assistant and device options.",
         icon: SlidersHorizontal,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "security",
         label: "Login & security",
         description: "Password and sign-in options.",
         icon: Lock,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "feedback",
         label: "Feedback",
         description: "Report issues or share product feedback.",
         icon: MessageSquareText,
-        group: "Settings",
+        group: "Account",
       },
       {
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
         icon: Settings,
-        group: "Settings",
+        group: "Account",
       },
     ],
     [],
   );
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
-  const activeGroup = groups.find((g) => g.id === rawTab) ?? null;
+  const normalizedTab = rawTab ? (VENDOR_SETTINGS_TAB_ALIASES[rawTab] ?? rawTab) : rawTab;
+  const activeGroup = groups.find((g) => g.id === normalizedTab) ?? null;
   const paneGroup = activeGroup ?? groups[0];
 
   // Exactly 3 cards visible at the top level (C159) — a card auto-opens once
@@ -1216,14 +1317,8 @@ export function VendorSettingsPanel() {
     switch (id) {
       case "business":
         return <VendorBusinessProfilePane ctx={business} />;
-      case "work-contacts":
-        return <VendorWorkContactsPane ctx={business} />;
-      case "work-number":
-        return <VendorWorkIdentityPane channel="sms" />;
-      case "work-email":
-        return <VendorWorkIdentityPane channel="email" />;
-      case "workspaces":
-        return <VendorWorkspaceAccessPane ctx={business} propertyLabel={(id) => resolvePropertyLabelForId(id)} />;
+      case "work":
+        return <VendorWorkIdentitySection ctx={business} />;
       case "payouts":
         return <PortalPayoutsSettingsPage portal="vendor" />;
       case "notifications":
@@ -1232,147 +1327,191 @@ export function VendorSettingsPanel() {
         return (
           <>
             {unlinkedBanner}
-    <PortalSettingsSection title="Business profile">
-      <PortalSettingsGroup>
-      {profileLoading ? (
-        <div className="px-4 py-4">
-          <ListSkeleton rows={2} showLeading={false} />
-        </div>
-      ) : (
-        <PortalSettingsFormBody>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Business name
-            <Input
-              value={profileDraft.name}
-              onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })}
-              data-attr="vendor-settings-name"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Phone
-            <Input
-              value={profileDraft.phone}
-              onChange={(e) => setProfileDraft({ ...profileDraft, phone: e.target.value })}
-              data-attr="vendor-settings-phone"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Email
-            <Input
-              type="email"
-              value={profileDraft.email}
-              onChange={(e) => setProfileDraft({ ...profileDraft, email: e.target.value })}
-              data-attr="vendor-settings-email"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Preferred language / Idioma
-            <Select
-              value={profileDraft.preferredLanguage}
-              onChange={(e) => setProfileDraft({ ...profileDraft, preferredLanguage: e.target.value })}
-              data-attr="vendor-language-select"
-            >
-              <option value="">Select…</option>
-              <option value="en">English</option>
-              <option value="es">Español</option>
-            </Select>
-          </label>
-          <label className="flex items-start gap-2 text-xs font-medium text-muted sm:col-span-2">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-              checked={profileDraft.smsConsent}
-              onChange={(e) => setProfileDraft({ ...profileDraft, smsConsent: e.target.checked })}
-              data-attr="vendor-sms-consent"
-            />
-            <span>
-              Text me about jobs at this number. Message and data rates may apply; reply STOP to opt out.
-            </span>
-          </label>
-        </div>
-        </PortalSettingsFormBody>
-      )}
-
-      <div className="border-t border-border px-4 py-4">
-        <Button
-          variant="primary"
-          className="px-4 text-[13px]"
-          onClick={() => saveProfile()}
-          disabled={profileSaving || profileLoading || unlinked}
-          data-attr="vendor-settings-profile-save"
-        >
-          {profileSaving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+            <PortalSettingsSection title="Directory listing" action={<SectionSaveBadge state={directorySectionState} />}>
+              <PortalSettingsGroup>
+                {profileLoading ? (
+                  <div className="px-4 py-4">
+                    <ListSkeleton rows={2} showLeading={false} />
+                  </div>
+                ) : (
+                  <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+                    <PortalSettingsAutosaveField
+                      label="Business name"
+                      htmlFor="vendor-settings-name"
+                      state={directoryFieldState.name}
+                      error={directoryFieldError.name}
+                      onRetry={() => void commitDirectoryField("name", profileDraft.name)}
+                    >
+                      <Input
+                        id="vendor-settings-name"
+                        value={profileDraft.name}
+                        onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })}
+                        onBlur={() => void commitDirectoryField("name", profileDraft.name)}
+                        data-attr="vendor-settings-name"
+                      />
+                    </PortalSettingsAutosaveField>
+                    <PortalSettingsAutosaveField
+                      label="Phone"
+                      htmlFor="vendor-settings-phone"
+                      state={directoryFieldState.phone}
+                      error={directoryFieldError.phone}
+                      onRetry={() => void commitDirectoryField("phone", profileDraft.phone)}
+                    >
+                      <Input
+                        id="vendor-settings-phone"
+                        value={profileDraft.phone}
+                        onChange={(e) => setProfileDraft({ ...profileDraft, phone: e.target.value })}
+                        onBlur={() => void commitDirectoryField("phone", profileDraft.phone)}
+                        data-attr="vendor-settings-phone"
+                      />
+                    </PortalSettingsAutosaveField>
+                    <PortalSettingsAutosaveField
+                      label="Email"
+                      htmlFor="vendor-settings-email"
+                      state={directoryFieldState.email}
+                      error={directoryFieldError.email}
+                      onRetry={() => void commitDirectoryField("email", profileDraft.email)}
+                    >
+                      <Input
+                        id="vendor-settings-email"
+                        type="email"
+                        value={profileDraft.email}
+                        onChange={(e) => setProfileDraft({ ...profileDraft, email: e.target.value })}
+                        onBlur={() => void commitDirectoryField("email", profileDraft.email)}
+                        data-attr="vendor-settings-email"
+                      />
+                    </PortalSettingsAutosaveField>
+                    <PortalSettingsAutosaveField
+                      label="Preferred language / Idioma"
+                      htmlFor="vendor-language-select"
+                      state={directoryFieldState.preferredLanguage}
+                      error={directoryFieldError.preferredLanguage}
+                      onRetry={() => void commitDirectoryField("preferredLanguage", profileDraft.preferredLanguage)}
+                    >
+                      <Select
+                        id="vendor-language-select"
+                        value={profileDraft.preferredLanguage}
+                        onChange={(e) => {
+                          setProfileDraft({ ...profileDraft, preferredLanguage: e.target.value });
+                          void commitDirectoryField("preferredLanguage", e.target.value);
+                        }}
+                        data-attr="vendor-language-select"
+                      >
+                        <option value="">Select…</option>
+                        <option value="en">English</option>
+                        <option value="es">Español</option>
+                      </Select>
+                    </PortalSettingsAutosaveField>
+                    <div className="px-4 py-3.5">
+                      <label className="flex items-start gap-2 text-xs font-medium text-muted">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+                          checked={profileDraft.smsConsent}
+                          onChange={(e) => void commitSmsConsent(e.target.checked)}
+                          data-attr="vendor-sms-consent"
+                        />
+                        <span>
+                          Text me about jobs at this number. Message and data rates may apply; reply STOP to opt out.
+                        </span>
+                      </label>
+                    </div>
+                  </PortalSettingsFormBody>
+                )}
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
           </>
         );
       case "capabilities":
         return (
           <>
             {unlinkedBanner}
-    <PortalSettingsSection
-      title="Work capabilities"
-    >
-      <PortalSettingsGroup>
-      {profileLoading ? (
-        <div className="px-4 py-4">
-          <ListSkeleton rows={2} showLeading={false} />
-        </div>
-      ) : (
-        <PortalSettingsFormBody>
-        <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3">
-          {VENDOR_TRADE_OPTIONS.map((option) => {
-            const on = trades.includes(option);
-            return (
-              <label key={option} className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border"
-                  checked={on}
-                  onChange={(e) => toggleTrade(option, e.target.checked)}
-                  data-attr={`vendor-capability-${option.toLowerCase().replace(/\s+/g, "-")}`}
-                />
-                <span className="font-medium text-foreground">{option}</span>
-              </label>
-            );
-          })}
-        </div>
-        </PortalSettingsFormBody>
-      )}
-
-      <div className="border-t border-border px-4 py-4">
-        <Button
-          variant="primary"
-          className="px-4 text-[13px]"
-          onClick={() => saveCapabilities()}
-          disabled={capabilitiesSaving || profileLoading || unlinked}
-          data-attr="vendor-settings-capabilities-save"
-        >
-          {capabilitiesSaving ? "Saving…" : "Save capabilities"}
-        </Button>
-      </div>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+            <PortalSettingsSection title="Work capabilities" action={<SectionSaveBadge state={capabilitiesState} />}>
+              <PortalSettingsGroup>
+                {profileLoading ? (
+                  <div className="px-4 py-4">
+                    <ListSkeleton rows={2} showLeading={false} />
+                  </div>
+                ) : (
+                  <PortalSettingsFormBody>
+                    <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3" data-vs-trades>
+                      {VENDOR_TRADE_OPTIONS.map((option) => {
+                        const on = trades.includes(option);
+                        return (
+                          <label key={option} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-border"
+                              checked={on}
+                              onChange={(e) => toggleTrade(option, e.target.checked)}
+                              data-attr={`vendor-capability-${option.toLowerCase().replace(/\s+/g, "-")}`}
+                            />
+                            <span className="font-medium text-foreground">{option}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </PortalSettingsFormBody>
+                )}
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
           </>
         );
       case "availability":
         // Weekly hours, one-off open dates and blocked dates are one decision a
         // vendor makes in one sitting, so they share a pane. The editor itself
         // existed and was mounted nowhere — a vendor could not set hours at all.
+        // Studio VD67 ("Hours & dates" -> "Availability", tab IS the inline
+        // editor, no modal) is already satisfied by this same inline
+        // VendorAvailabilityEditor — it already renders non-dialog here. A
+        // newer editor (VENDOR_AVAILABILITY_CHANGED_EVENT /
+        // VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT contract, /api/vendor/availability)
+        // is being built on claude-1's build/b12-vendor-ui branch and is
+        // deliberately NOT copied into this branch to avoid forking a second
+        // editor; reconcile by merging origin/prakrit once it lands there.
         return <VendorAvailabilityEditor />;
       case "messaging":
-        return <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />;
+        return (
+          <>
+            <VendorWorkNumberStatusNote />
+            <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />
+          </>
+        );
       case "preferences":
+        // A landing-page / default-view picker was scoped out (studio VD69):
+        // no such preference is persisted anywhere in the app today for any
+        // portal, and this pane only wires settings that already have real
+        // storage. Assistant instructions remain the one real preference here.
         return <AssistantCustomInstructionsSetting role="vendor" />;
       case "security":
-        return <PortalChangePasswordPanel accountEmail={profileDraft.email} />;
+        return (
+          <>
+            {/* Inline, matching the exact convention manager and resident Settings
+                already use for this same panel — a modal here would be the one-off
+                inconsistency, not the established pattern (studio VD69). */}
+            <PortalChangePasswordPanel accountEmail={profileDraft.email} />
+            <PortalSettingsSection title="Sign out">
+              <PortalSettingsGroup>
+                <div className="px-4 py-3.5">
+                  <PortalSignOutButton dataAttr="vendor-settings-security-sign-out" />
+                </div>
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
+          </>
+        );
       case "feedback":
         return <PortalBugFeedbackPanel reporterRole="vendor" embedded />;
       case "account":
-        return <PortalSettingsExtras currentKind="vendor" variant="session" />;
+        return (
+          <>
+            <PortalSettingsSection title="Account">
+              <PortalSettingsGroup>
+                <PortalSettingsField label="Signed in as" value={signedInEmail ?? "—"} />
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
+            <PortalSettingsExtras currentKind="vendor" variant="session" />
+          </>
+        );
     }
   };
 
