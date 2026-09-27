@@ -51,12 +51,14 @@ import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } fro
 import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle, MessageSquareText } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
+import { Modal } from "@/components/ui/modal";
+import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 
 function hrefForSection(def: PortalDefinition, section: string) {
   const meta = def.sections.find((s) => s.section === section);
@@ -243,6 +245,12 @@ export function PortalSidebar({
   const navCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
+  // Manager Settings no longer has its own Feedback pane (S019, captain
+  // 2026-09-27) — "Send feedback" here, next to "Need help?", is the one
+  // feedback path left for the manager portal. Resident/vendor keep their own
+  // Feedback pane in their own profile settings, so this is manager-only.
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const showSidebarFeedback = definition.kind === "manager" || definition.kind === "pro";
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -1025,12 +1033,41 @@ export function PortalSidebar({
           </span>
         )}
       </Link>
+      {showSidebarFeedback ? (
+        <button
+          type="button"
+          onClick={() => setFeedbackOpen(true)}
+          data-attr="portal-sidebar-feedback"
+          className={cn(
+            "shrink-0 border-t border-border text-left text-muted transition-colors hover:text-foreground",
+            collapsed
+              ? "grid h-[52px] place-items-center"
+              : "flex items-start gap-2.5 px-4 py-3.5",
+          )}
+          title={collapsed ? "Send feedback" : undefined}
+          aria-label={collapsed ? "Send feedback" : undefined}
+        >
+          <MessageSquareText className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
+          {collapsed ? null : (
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-foreground">Send feedback</span>
+              <span className="block text-[12px]">Report issues or share product feedback</span>
+            </span>
+          )}
+        </button>
+      ) : null}
     </aside>
   );
 
   return (
     <>
       {desktopAside}
+
+      {showSidebarFeedback ? (
+        <Modal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} title="Send feedback" panelClassName="max-w-lg">
+          <PortalBugFeedbackPanel reporterRole={definition.kind === "pro" ? "pro" : "manager"} embedded />
+        </Modal>
+      ) : null}
 
       <div className="shrink-0 lg:hidden">
         <div className={PORTAL_MOBILE_CHROME_CLASS}>

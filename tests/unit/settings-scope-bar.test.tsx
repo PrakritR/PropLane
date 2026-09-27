@@ -173,4 +173,85 @@ describe("SettingsScopeBar", () => {
     expect(screen.queryByRole("button", { name: "Properties" })).toBeNull();
     expect(screen.getByRole("button", { name: "Workspace" })).toBeTruthy();
   });
+
+  describe("applies-to variant (S008/S014, captain 2026-09-27 — the S014 correction kept the properties picker)", () => {
+    function AppliesToHarness({
+      initialWorkspaceId = "",
+      options = [
+        { id: "prop-1", label: "Ballard House" },
+        { id: "prop-2", label: "Fremont Duplex" },
+      ],
+    }: {
+      initialWorkspaceId?: string;
+      options?: { id: string; label: string }[];
+    }) {
+      const [workspaceId, setWorkspaceId] = useState(initialWorkspaceId);
+      const [propertyIds, setPropertyIds] = useState<string[]>([]);
+      return (
+        <SettingsPropertyScopeProvider
+          workspaceId={workspaceId}
+          onWorkspaceIdChange={setWorkspaceId}
+          propertyIds={propertyIds}
+          onPropertyIdsChange={setPropertyIds}
+          options={options}
+        >
+          <SettingsScopeBar variant="applies-to" />
+        </SettingsPropertyScopeProvider>
+      );
+    }
+
+    it("keeps the properties picker and Reset — only the bar's own scope tag is gone", () => {
+      render(<AppliesToHarness />);
+      expect(screen.getByRole("button", { name: "Properties" })).toBeTruthy();
+      expect(screen.queryByText("Account")).toBeNull();
+      expect(screen.getByText("Applies to")).toBeTruthy();
+    });
+
+    it("defaults to All my workspaces", () => {
+      render(<AppliesToHarness />);
+      expect(screen.getByRole("button", { name: "Applies to" }).textContent).toContain("All my workspaces");
+    });
+
+    it("picking a workspace never calls the portal switcher", () => {
+      render(<AppliesToHarness />);
+      const listbox = openMenu("Applies to");
+      tap(within(listbox).getByRole("option", { name: "Ash Flats" }));
+      expect(screen.getByRole("button", { name: "Applies to" }).textContent).toContain("Ash Flats");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("picking a property still shows Reset, with no scope tag", () => {
+      render(<AppliesToHarness />);
+      const listbox = openMenu("Properties");
+      tap(within(listbox).getByRole("option", { name: "Ballard House" }));
+      expect(screen.getByRole("button", { name: "Reset to workspace" })).toBeTruthy();
+      expect(screen.queryByText("Own values on 1 property")).toBeNull();
+    });
+  });
+
+  describe("applies-to-workspace-only variant (Application form, Lease documents — no per-house rung)", () => {
+    function AppliesToWorkspaceOnlyHarness() {
+      const [workspaceId, setWorkspaceId] = useState("");
+      const [propertyIds, setPropertyIds] = useState<string[]>([]);
+      return (
+        <SettingsPropertyScopeProvider
+          workspaceId={workspaceId}
+          onWorkspaceIdChange={setWorkspaceId}
+          propertyIds={propertyIds}
+          onPropertyIdsChange={setPropertyIds}
+          options={[]}
+        >
+          <SettingsScopeBar variant="applies-to-workspace-only" />
+        </SettingsPropertyScopeProvider>
+      );
+    }
+
+    it("has no properties picker or Reset, and no scope tag", () => {
+      render(<AppliesToWorkspaceOnlyHarness />);
+      expect(screen.queryByRole("button", { name: "Properties" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Reset to workspace" })).toBeNull();
+      expect(screen.queryByText("Account")).toBeNull();
+      expect(screen.getByRole("button", { name: "Applies to" })).toBeTruthy();
+    });
+  });
 });

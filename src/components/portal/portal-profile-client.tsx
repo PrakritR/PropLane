@@ -4,27 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
-  Bell,
-  BellRing,
-  Calendar,
-  CheckSquare,
   CreditCard,
-  FileText,
   Folder,
-  Home,
   KeyRound,
   Landmark,
   ListChecks,
   Lock,
   MessageSquareText,
   MessagesSquare,
-  ScrollText,
   Settings,
   SlidersHorizontal,
   Table2,
   UserRound,
   Wallet,
-  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +28,8 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
+import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -51,6 +45,7 @@ import {
   PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
+  PortalSettingsToggle,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/pro-plan";
@@ -72,11 +67,11 @@ import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-no
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
-import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
-import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
-import { ManagerFormsSettingsPanel } from "@/components/portal/pro-portal-settings-forms-panel";
-import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { DEFAULT_REMINDER_SETTINGS, normalizeReminderSettings } from "@/lib/reminders/rules";
+import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
@@ -109,44 +104,80 @@ function emptyToDash(v: unknown) {
 const SETTINGS_TAB_PARAM = "tab";
 
 /**
- * The Portfolio + Operations modules (PLAN-0920-0845 phase D, Payouts added
- * PLAN-0920-2024) — every Portfolio and Operations nav entry, Properties
- * excluded (no longer a settings pane). Each gets the full `SettingsScopeBar`
- * (workspace select, properties multi-select, scope tag, Reset).
+ * Every `?tab=` id (current or legacy-aliased) that no longer resolves to a
+ * Settings pane for ANY variant, so a bookmark to one of them redirects to
+ * Profile instead of rendering blank (S019, captain 2026-09-27). Preferences
+ * and Feedback are deliberately absent — the admin variant still shows both.
+ * Application form and Lease documents are ALSO absent — the S014 correction
+ * (captain, 06:47) kept both reachable: the list-page gears for Applications
+ * and Leases were removed by another worker on the assumption Settings still
+ * hosts form/fee/waiver/lease-document editing, so pulling these two panes
+ * would have left that editing with no door at all. They stay in the
+ * Workspace group for now.
  */
-export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
+const REMOVED_SETTINGS_TAB_IDS = new Set([
+  "notifications",
   "applications",
   "lease",
+  "forms",
   "tours",
   "resident",
-  "messaging",
-  "payments",
-  "payouts",
+  "services",
   "tasks",
   "reminders",
-  "services",
+  // Legacy aliases that used to resolve to one of the ids above.
+  "properties",
+  "automation",
+  "leases",
+  "residents",
+  "bookings",
+  "inspections",
 ]);
 
 /**
- * Notifications is workspace-only: manager alert routing has no per-house
- * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
- * `workspace-only` variant — no properties picker.
+ * Settings simplification (S019/S008, captain 2026-09-27: "simplify settings
+ * fully"). The only settings that still apply to a WORKSPACE rather than the
+ * account are Communication, Payments, Payouts, Application form, and Lease
+ * documents — Applications, Leases, Tours, Residents, Services, and Tasks
+ * left Settings entirely (their choices move to each property's own section
+ * gear, a separate piece of work), and Reminders left with them (reminders
+ * run on one fixed schedule now, never a per-workspace or per-house override
+ * — see `WhatProplaneSends`).
+ *
+ * Communication, Payments, and Payouts get `SettingsScopeBar`'s
+ * `"applies-to"` variant: a workspace select ("All my workspaces" is the
+ * account rung) plus the properties multi-select, exactly like the `"full"`
+ * picker `ProPortalSettingsModal` still uses on its own list-page gear — the
+ * S014 correction (captain, 06:47) restored this after an earlier pass had
+ * dropped it; per-property overrides stay settable from Settings, as before.
+ * Only the bar's own Account/Workspace/"Own values on N properties" tag is
+ * gone (S008 still stands on that point).
  */
-export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "applicationForm", "leaseDocuments", "forms"]);
+export const WORKSPACE_SCOPED_PANES = new Set<SettingsGroupId>(["messaging", "payments", "payouts"]);
 
-/** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
+/**
+ * Application form and Lease documents get `"applies-to-workspace-only"` —
+ * the same bar, minus the properties picker, because neither has a
+ * per-house rung (the workspace-wide default template/library). Kept in
+ * Settings per the S014 correction (captain, 06:47): the list-page gears
+ * for Applications/Leases were removed by another worker on the assumption
+ * this editing still lives here.
+ */
+export const WORKSPACE_ONLY_SCOPED_PANES = new Set<SettingsGroupId>(["applicationForm", "leaseDocuments"]);
+
+/** Profile, Billing, Login & security, API & MCP, Account — every setting on these applies to the account, never a workspace or house. Feedback joins this set only for the admin variant, which still shows that pane. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
 
-/** Preferences (appearance, assistant, device options) is per-device, never account- or workspace-wide. */
+/** Preferences (appearance, assistant, device options) is per-device, never account- or workspace-wide. Manager no longer shows this pane at all; admin still does. */
 export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
 
 /**
  * Exempt from every classification above: Workspaces is its own switcher
- * (`WorkspaceSettings`). Spreadsheets is account-wide Google + per-card
- * workspace/property pickers, so the page-level house chip must not hide
- * another house's card. Exported alongside the four classification sets so
- * `tests/unit/settings-account-tags.test.tsx` can assert every nav entry is
- * accounted for exactly once.
+ * (`WorkspaceSettings`). Integrations (the `spreadsheets` id) is account-wide
+ * Google + per-card workspace/property pickers, so the page-level house chip
+ * must not hide another house's card. Exported alongside the other
+ * classification sets so `tests/unit/settings-account-tags.test.tsx` can
+ * assert every nav entry is accounted for exactly once.
  */
 export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "spreadsheets"]);
 
@@ -158,37 +189,20 @@ export type SettingsGroupId =
   | "profile"
   | "billing"
   | "messaging"
-  | "notifications"
   | "preferences"
   | "security"
   | "developer"
   | "feedback"
   | "account"
-  | "properties"
-  | "applications"
   | "applicationForm"
-  | "lease"
   | "leaseDocuments"
-  | "forms"
-  | "tours"
-  | "resident"
   | "payments"
   | "payouts"
-  | "tasks"
-  | "reminders"
-  | "spreadsheets"
-  | "services";
+  | "spreadsheets";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
-  applications: "applications",
-  lease: "lease",
-  tours: "tours",
-  resident: "resident",
   payments: "payments",
   payouts: "payouts",
-  tasks: "tasks",
-  reminders: "automation",
-  services: "services",
 };
 
 type SettingsGroup = {
@@ -196,8 +210,90 @@ type SettingsGroup = {
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
-  group: "Account" | "Operations" | "Portfolio";
+  group: "Account" | "Workspace";
 };
+
+/**
+ * Fixed reminders (S020, captain 2026-09-27): the one reminder-related choice
+ * left anywhere in Settings. Reads and writes `automationSendMode.partyFacing`
+ * through the same `/api/portal/reminder-settings` endpoint the old Reminders
+ * hub used — every other field on that endpoint's `settings` now always
+ * resolves to the built-in defaults (`loadReminderSettings`), so this never
+ * needs a scope (`propertyId`/`workspaceId`): there is nothing left to scope.
+ */
+function ManagerReminderApprovalToggle() {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const [partyFacing, setPartyFacing] = useState<AutomationSendMode | null>(null);
+  const [team, setTeam] = useState<AutomationSendMode>(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (demo) {
+        if (!cancelled) {
+          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
+          setTeam(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
+        }
+        return;
+      }
+      try {
+        const res = await fetch("/api/portal/reminder-settings", { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        if (cancelled) return;
+        if (!res.ok) throw new Error(body.error ?? "Could not load settings.");
+        const settings = normalizeReminderSettings(body.settings);
+        setPartyFacing(settings.automationSendMode.partyFacing);
+        setTeam(settings.automationSendMode.team);
+      } catch (e) {
+        if (!cancelled) {
+          showToast(e instanceof Error ? e.message : "Could not load settings.");
+          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, showToast]);
+
+  const flip = async (checked: boolean) => {
+    const next: AutomationSendMode = checked ? "draft" : "auto";
+    const previous = partyFacing;
+    setPartyFacing(next);
+    if (demo) return;
+    try {
+      const res = await fetch("/api/portal/reminder-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { automationSendMode: { team, partyFacing: next } } }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save.");
+      const settings = normalizeReminderSettings(body.settings);
+      setPartyFacing(settings.automationSendMode.partyFacing);
+      setTeam(settings.automationSendMode.team);
+    } catch (e) {
+      setPartyFacing(previous);
+      showToast(e instanceof Error ? e.message : "Could not save.");
+    }
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label="Resident & vendor messages need my approval first">
+        <PortalSettingsToggle
+          checked={partyFacing === "draft"}
+          onChange={(next) => void flip(next)}
+          label="Resident and vendor messages draft for review"
+          disabled={partyFacing === null}
+          dataAttr="settings-toggle-party-facing-draft"
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
+  );
+}
 
 function ManagerMessagingSettingsPane() {
   const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
@@ -211,6 +307,10 @@ function ManagerMessagingSettingsPane() {
       />
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
       <CommunicationSettingsPanel />
+      <PortalSettingsSection title="Reminders">
+        <ManagerReminderApprovalToggle />
+      </PortalSettingsSection>
+      <WhatProplaneSends />
     </>
   );
 }
@@ -228,20 +328,6 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   );
 
   return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
-}
-
-function FormsSettingsModulePane() {
-  const { userId } = useManagerUserId();
-  const workspaces = useWorkspaces();
-  const propertyOptions = useMemo(
-    () =>
-      unionLabeledPropertyOptions(
-        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
-        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
-      ),
-    [userId, workspaces?.workspaces],
-  );
-  return <ManagerFormsSettingsPanel propertyOptions={propertyOptions} />;
 }
 
 export function PortalProfileClient({
@@ -422,31 +508,27 @@ export function PortalProfileClient({
         group: "Account",
       });
     }
-    if (variant === "manager") {
+    // Preferences and Notifications left manager Settings entirely (S019,
+    // captain 2026-09-27: "simplify settings fully"): the assistant popup/dock
+    // choice moved onto the assistant itself (`AssistantDisplaySetting`),
+    // manager alert routing is fixed (portal + email, always), and appearance
+    // has no other control worth a pane. Admin keeps this pane unchanged.
+    if (variant !== "manager") {
       list.push({
-        id: "notifications",
-        label: "Notifications",
-        description: "Manager alerts and device notifications.",
-        icon: Bell,
-        group: "Account",
-      });
-    }
-    list.push(
-      {
         id: "preferences",
         label: "Preferences",
         description: "Appearance, assistant, and device options.",
         icon: SlidersHorizontal,
         group: "Account",
-      },
-      {
-        id: "security",
-        label: "Login & security",
-        description: "Password and sign-in options.",
-        icon: Lock,
-        group: "Account",
-      },
-    );
+      });
+    }
+    list.push({
+      id: "security",
+      label: "Login & security",
+      description: "Password and sign-in options.",
+      icon: Lock,
+      group: "Account",
+    });
     // Keys authorize against the manager tool layer, so the pane is manager-only.
     // /demo must never mint a real credential.
     if (!demo && variant === "manager") {
@@ -458,66 +540,62 @@ export function PortalProfileClient({
         group: "Account",
       });
     }
-    list.push(
-      {
+    // Feedback left manager Settings too — "Need help?" in the sidebar is the
+    // one feedback path now (`PortalBugFeedbackPanel` still lives there).
+    // Admin keeps this pane unchanged.
+    if (variant !== "manager") {
+      list.push({
         id: "feedback",
         label: "Feedback",
         description: "Report issues or share product feedback.",
         icon: MessageSquareText,
         group: "Account",
-      },
-      {
-        id: "account",
-        label: "Account",
-        description: "Switch portals, sign out, or delete your account.",
-        icon: Settings,
-        group: "Account",
-      },
-    );
+      });
+    }
+    list.push({
+      id: "account",
+      label: "Account",
+      description: "Switch portals, sign out, or delete your account.",
+      icon: Settings,
+      group: "Account",
+    });
+    // The only settings that still apply to a WORKSPACE rather than the
+    // account: Communication, Payments, Payouts, Integrations (Google),
+    // Application form, and Lease documents. Applications, Leases, Tours,
+    // Residents, Services, and Tasks moved to each property's own section;
+    // Reminders run on one fixed schedule with no settings pane at all (see
+    // `WhatProplaneSends`, under Communication). Application form and Lease
+    // documents stay for now (captain, S014 correction, 06:47) — another
+    // worker removed the Applications/Leases list-page gears on the
+    // assumption Settings still hosts this editing.
+    if (!demo && variant === "manager") {
+      list.push({
+        id: "messaging",
+        label: "Communication",
+        description: "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
+        icon: MessagesSquare,
+        group: "Workspace",
+      });
+    }
     if (variant === "manager") {
       list.push(
-        { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
+        { id: "payments", label: "Payments", description: "Payment setup and late fees.", icon: Wallet, group: "Workspace" },
+        { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Workspace" },
         {
           id: "applicationForm",
           label: "Application form",
           description: "The rental application questions every listing asks by default.",
           icon: ListChecks,
-          group: "Portfolio",
+          group: "Workspace",
         },
-        { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
-        { id: "leaseDocuments", label: "Lease documents", description: "Uploaded lease PDFs a property or lease can reuse.", icon: Folder, group: "Portfolio" },
         {
-          id: "forms",
-          label: "Forms",
-          description: "Naming, the intake form, and the lease template every property follows by default.",
-          icon: FileText,
-          group: "Portfolio",
+          id: "leaseDocuments",
+          label: "Lease documents",
+          description: "Uploaded lease PDFs a property or lease can reuse.",
+          icon: Folder,
+          group: "Workspace",
         },
-        { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
-        { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
-      );
-    }
-    if (!demo && variant === "manager") {
-      list.push(
-        {
-          id: "messaging",
-          label: "Communication",
-          description: "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
-          icon: MessagesSquare,
-          group: "Operations",
-        },
-      );
-    }
-    if (variant === "manager") {
-      list.push(
-        { id: "payments", label: "Payments", description: "Payment setup, rent reminders, and late fees.", icon: Wallet, group: "Operations" },
-        { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Operations" },
-        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
-        { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
-        { id: "spreadsheets", label: "Spreadsheets", description: "Google workbooks.", icon: Table2, group: "Operations" },
-        // Bookings and Inspections settings tabs are gone (C111/C116): both
-        // held only reminders, now on this Reminders entry.
-        { id: "reminders", label: "Reminders", description: "Reminder matrix, quiet hours, and every area's automated messages.", icon: BellRing, group: "Operations" },
+        { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
     return list;
@@ -539,18 +617,17 @@ export function PortalProfileClient({
     if (wantsBilling) setBillingOverride(true);
   }, [rawTab, searchParams]);
   useEffect(() => {
-    if (rawTab === "properties") router.replace("/portal/profile?tab=applications");
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
-    if (rawTab === "automation") router.replace("/portal/profile?tab=reminders");
-    if (rawTab === "leases") router.replace("/portal/profile?tab=lease");
-    if (rawTab === "residents") router.replace("/portal/profile?tab=resident");
-    // Bookings and Inspections settings tabs are gone (C111/C116): both held
-    // only reminders, now on this Reminders tab — an old bookmark lands
-    // there instead of silently falling back to Profile.
-    if (rawTab === "bookings") router.replace("/portal/profile?tab=reminders");
-    if (rawTab === "inspections") router.replace("/portal/profile?tab=reminders");
+    // Settings simplification (S019, captain 2026-09-27): Applications, Lease
+    // documents/clauses, Forms, Tours, Residents, Services, Tasks, Reminders,
+    // Notifications, and every old alias that pointed at one of them left
+    // Settings for good — their choices live on each property's own section,
+    // or (Reminders) run on one fixed schedule with no settings pane at all.
+    // A bookmark or stale link to any of them must not 404 or render blank,
+    // so it lands on Profile rather than a pane that no longer exists.
+    if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const activeGroup =
@@ -737,13 +814,6 @@ export function PortalProfileClient({
             <AssistantCustomInstructionsSetting role={variant} />
           </>
         );
-      case "notifications":
-        return (
-          <>
-            <ManagerNotificationRoutingSetting />
-            <NotificationsToggle />
-          </>
-        );
       case "security":
         return <PortalChangePasswordPanel accountEmail={dashToEmpty(initialEmail) || initialEmail} />;
       case "developer":
@@ -755,13 +825,27 @@ export function PortalProfileClient({
             embedded
           />
         );
-      case "applicationForm":
-        return <ManagerApplicationFormSettings />;
-      case "forms":
-        return <FormsSettingsModulePane />;
       case "spreadsheets":
-        return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+        // Integrations (S019): Google Calendar connection + Google Sheets
+        // workbooks, the same components the old Calendar dialog and
+        // Spreadsheets pane already used — nothing about the Google logic
+        // itself changed, only where it is reached from.
+        return variant === "manager" && !demo ? (
+          <>
+            <PortalSettingsSection title="Google Calendar">
+              <GoogleCalendarConnectPanel presentation="card" />
+            </PortalSettingsSection>
+            <ManagerSheetLinkPanel />
+          </>
+        ) : null;
+      case "applicationForm":
+        // Kept per the S014 correction (captain, 06:47): the Applications
+        // list-page gear was removed by another worker on the assumption
+        // this workspace-default editing still lives in Settings.
+        return <ManagerApplicationFormSettings />;
       case "leaseDocuments":
+        // Kept per the same S014 correction — the Leases list-page gear was
+        // removed on the same assumption.
         return <LeaseDocumentLibraryPanel />;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
@@ -808,13 +892,13 @@ export function PortalProfileClient({
           className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
         >
           {(() => {
-            const scoped = SCOPED_OPERATIONS_PANES.has(paneGroup.id);
-            const workspaceOnly = WORKSPACE_ONLY_PANES.has(paneGroup.id);
-            const barred = scoped || workspaceOnly;
+            const workspaceScoped = WORKSPACE_SCOPED_PANES.has(paneGroup.id);
+            const workspaceOnlyScoped = WORKSPACE_ONLY_SCOPED_PANES.has(paneGroup.id);
+            const barred = workspaceScoped || workspaceOnlyScoped;
             const accountTagged = ACCOUNT_TAG_PANES.has(paneGroup.id);
             const deviceTagged = DEVICE_TAG_PANES.has(paneGroup.id);
             const headerAction = barred ? (
-              <SettingsScopeBar variant={scoped ? "full" : "workspace-only"} />
+              <SettingsScopeBar variant={workspaceScoped ? "applies-to" : "applies-to-workspace-only"} />
             ) : accountTagged ? (
               <PortalSettingsScopeTag>Account</PortalSettingsScopeTag>
             ) : deviceTagged ? (
@@ -825,7 +909,7 @@ export function PortalProfileClient({
                 {activeGroup === null ? (
                   <div className="space-y-5 lg:hidden">
                     <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-                    {(["Account", "Portfolio", "Operations"] as const).map((group) => {
+                    {(["Account", "Workspace"] as const).map((group) => {
                       const groupItems = groups.filter((item) => item.group === group);
                       if (groupItems.length === 0) return null;
                       return (

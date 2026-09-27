@@ -7,12 +7,11 @@
 //   1. A pane that stops being reachable — the root list and the desktop nav are
 //      the ONLY entry points, so a category dropped from the catalog takes its
 //      controls with it.
-//   2. A control that disappears in the regroup. Every pre-existing setting had
-//      to survive the split: the theme toggle moved from the Account section to
-//      Preferences (row label "Theme"), so Account must still carry the portal
-//      switch / sign out / delete rows and nothing may be lost in between. The
-//      Theme row itself is currently hidden everywhere (DARK_MODE_ENABLED,
-//      src/lib/theme-storage.ts) — Preferences still mounts its other pane.
+//   2. A control that disappears from a pane that is supposed to keep it —
+//      Account must still carry the portal switch / sign out / delete rows
+//      and nothing may be lost. Preferences and Notifications left manager
+//      Settings entirely (S019, captain 2026-09-27): an old bookmark to
+//      either one must land on Profile, never render blank.
 //   3. Back. The category push is `history.pushState`, so the in-page chevron
 //      and the browser/gesture back have to land on the SAME root list — and a
 //      double-tap on the chevron must not pop past Settings out of the portal.
@@ -79,34 +78,39 @@ vi.mock("@/components/portal/settings-module-page", () => ({
 vi.mock("@/components/portal/manager-sheet-link-panel", () => ({
   ManagerSheetLinkPanel: () => <div data-testid="pane-spreadsheets" />,
 }));
-vi.mock("@/components/portal/pro-portal-settings-forms-panel", () => ({
-  ManagerFormsSettingsPanel: () => <div data-testid="pane-forms" />,
+vi.mock("@/components/portal/google-calendar-connect-panel", () => ({
+  GoogleCalendarConnectPanel: () => <div data-testid="pane-google-calendar" />,
+}));
+vi.mock("@/components/portal/manager-application-form-settings", () => ({
+  ManagerApplicationFormSettings: () => <div data-testid="pane-application-form" />,
+}));
+vi.mock("@/components/portal/lease-document-library-panel", () => ({
+  LeaseDocumentLibraryPanel: () => <div data-testid="pane-lease-documents" />,
 }));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 
+// The manager nav after S019/S014 (captain 2026-09-27: "simplify settings
+// fully", corrected 06:47 to keep Application form and Lease documents
+// reachable). Applications, Leases, Forms, Tours, Residents, Services,
+// Tasks, Reminders, Notifications, and Preferences all left manager
+// Settings — see `portal-settings-group-split.test.ts` and
+// `settings-account-tags.test.tsx` for the removal and classification
+// coverage; this file only checks the panes manager Settings still has.
 const CATEGORIES = [
   "profile",
   "workspaces",
   "billing",
-  "notifications",
-  "preferences",
   "security",
   "developer",
-  "feedback",
   "account",
-  "applications",
-  "lease",
-  "forms",
-  "tours",
-  "resident",
   "messaging",
   "payments",
-  "tasks",
-  "reminders",
+  "payouts",
+  "applicationForm",
+  "leaseDocuments",
   "spreadsheets",
-  "services",
 ] as const;
 
 function goto(search: string) {
@@ -121,7 +125,7 @@ function renderSettings() {
       initialFullName="Test Manager"
       initialEmail="manager@example.com"
       initialPhone="+15105550123"
-      axisId="MGR-TEST"
+      idValue="MGR-TEST"
       idLabel="PropLane ID"
     />,
   );
@@ -176,13 +180,14 @@ describe("manager settings categories", () => {
     ["profile", () => screen.getByText("Personal information")],
     ["billing", () => screen.getByTestId("pane-manager-plan")],
     ["messaging", () => screen.getByTestId("pane-messaging")],
-    ["preferences", () => screen.getByTestId("pane-assistant-display")],
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],
-    ["feedback", () => screen.getByTestId("pane-bug-feedback")],
     ["account", () => screen.getByText("Sign out")],
+    ["payments", () => screen.getByTestId("pane-module-payments")],
+    ["payouts", () => screen.getByTestId("pane-module-payouts")],
+    ["applicationForm", () => screen.getByTestId("pane-application-form")],
+    ["leaseDocuments", () => screen.getByTestId("pane-lease-documents")],
     ["spreadsheets", () => screen.getByTestId("pane-spreadsheets")],
-    ["forms", () => screen.getByTestId("pane-forms")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {
     goto(`?tab=${tab}`);
     renderSettings();
@@ -192,24 +197,21 @@ describe("manager settings categories", () => {
     if (tab !== "billing") expect(screen.queryByTestId("pane-manager-plan")).toBeNull();
   });
 
-  it("keeps every pre-existing control after the regroup", async () => {
-    // Theme moved out of Account into Preferences, renamed to avoid an
-    // "Appearance" section holding an "Appearance" row. Dark mode is off
-    // product-wide for now (DARK_MODE_ENABLED, src/lib/theme-storage.ts), so
-    // the Theme row itself is hidden — Preferences still mounts its other pane.
+  it("drops Preferences and Notifications from manager Settings entirely (S019)", async () => {
+    // Neither id is in the manager nav any more — root row and desktop nav
+    // item are both gone (already covered generically by `CATEGORIES` above);
+    // an old bookmark to either one redirects to Profile instead of 404ing
+    // or rendering blank.
+    expect(document.querySelector('[data-attr="settings-open-preferences"]')).toBeNull();
+    expect(document.querySelector('[data-attr="settings-open-notifications"]')).toBeNull();
+
     goto("?tab=preferences");
-    const prefs = renderSettings();
-    expect(screen.queryByText("Theme")).toBeNull();
-    expect(screen.getByTestId("pane-assistant-display")).toBeTruthy();
-    prefs.unmount();
+    renderSettings();
+    expect(screen.queryByTestId("pane-assistant-display")).toBeNull();
+    expect(screen.getByText("Personal information")).toBeTruthy();
+  });
 
-    // Device notifications now have a category of their own under Account.
-    goto("?tab=notifications");
-    const notifications = renderSettings();
-    expect(screen.getByTestId("pane-notifications")).toBeTruthy();
-    notifications.unmount();
-
-    // …and nothing else left Account with it.
+  it("keeps every pre-existing Account control after the regroup", async () => {
     goto("?tab=account");
     renderSettings();
     await waitFor(() => expect(screen.getByText("Switch to Resident portal")).toBeTruthy());
@@ -233,7 +235,7 @@ describe("manager settings categories", () => {
           initialFullName="Test Manager"
           initialEmail="manager@example.com"
           initialPhone="+15105550123"
-          axisId="MGR-TEST"
+          idValue="MGR-TEST"
           idLabel="PropLane ID"
         />,
       );
@@ -271,7 +273,7 @@ describe("manager settings categories", () => {
     // A double tap inside that window must be a no-op: no second pop (which
     // would leave Settings entirely) and no compensating pushState either — an
     // extra entry makes the next browser back feel like "forward".
-    fireEvent.click(document.querySelector('[data-attr="settings-open-feedback"]')!);
+    fireEvent.click(document.querySelector('[data-attr="settings-open-developer"]')!);
     const back2 = document.querySelector('[data-attr="settings-back-to-root"]')!;
     backSpy.mockClear();
     pushSpy.mockClear();

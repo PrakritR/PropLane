@@ -8,17 +8,17 @@ import {
 
 const ROW_DATA_KEY = "automatedMessages";
 
+/**
+ * Fixed reminders (captain, 2026-09-27): automated messages are no longer
+ * customizable — every read answers with the built-in defaults ALWAYS,
+ * regardless of any stored row. `saveAutomatedMessageSettings` below still
+ * writes (nothing already saved is deleted), but nothing reads it back.
+ */
 export async function loadAutomatedMessageSettings(
-  db: SupabaseClient,
-  managerUserId: string,
+  _db: SupabaseClient,
+  _managerUserId: string,
 ): Promise<AutomatedMessageSettings> {
-  const { data, error } = await db
-    .from("manager_automation_settings")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
-  if (error) throw error;
-  return normalizeAutomatedMessageSettings((data?.row_data as Record<string, unknown> | null)?.[ROW_DATA_KEY]);
+  return normalizeAutomatedMessageSettings(undefined);
 }
 
 /** Merge one or more entries into the blob; sibling namespaces survive untouched. */

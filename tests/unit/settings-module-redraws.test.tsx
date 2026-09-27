@@ -207,7 +207,9 @@ describe("settings module redraws — scope tags", () => {
     // Incoming/Outgoing reminders and Delinquency moved to the Reminders hub (C111).
     expect(screen.queryByText("Incoming reminders")).toBeNull();
     expect(screen.queryByText("Outgoing reminders")).toBeNull();
-    expect(screen.getByText("Edit reminder timing and automated messages")).toBeTruthy();
+    // S022 (captain 2026-09-27): the reminders link left Payments settings too —
+    // reminders are fixed everywhere now, with nothing left to link out to.
+    expect(screen.queryByText("Edit reminder timing and automated messages")).toBeNull();
     cleanup();
 
     render(withScope(<ServicesSettingsPanel />));
