@@ -48,18 +48,14 @@ Run security review and no-mistakes before integrating. Review UI changes for
 cache/rendering/performance and web/native parity as applicable. Open the
 agent's review route with `npm run sandbox:open -- </route>`.
 
-Commit and push the keeper without force. Open a PR only on request. Prakrit
-has authorized completed, validated keeper work to be integrated into
-`prakrit`; no repeated integration approval is needed for that bounded step:
-
-```bash
-npm run ship:to-prakrit -- --source <keeper>
-```
-
-Keep the source branch. Fast-forward clean keepers from the integrated tip,
-then verify each completed keeper is an ancestor of `origin/prakrit`.
-Report dirty or divergent keepers explicitly instead of claiming all are
-synchronized. Do not overwrite another agent's unfinished work.
+Commit and push the keeper without force. Open a PR only on request. When a
+keeper is completed and validated, the **captain** types **`/promote prakrit`**
+in that lane's pane to integrate it (runs no-mistakes + security review, merges
+to prakrit, fans back to all lanes). Keep the source branch afterward.
+Fast-forward clean keepers from the integrated tip, then verify each completed
+keeper is an ancestor of `origin/prakrit`. Report dirty or divergent keepers
+explicitly instead of claiming all are synchronized. Do not overwrite another
+agent's unfinished work.
 
 Before closing an obsolete branch/worktree, preserve its commits and working
 copy, distinguish equivalent patches from genuinely missing changes, and

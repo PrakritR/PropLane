@@ -41,23 +41,13 @@ Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
 
 ## Prakrit promotion: sandbox → prakrit
 
-For Prakrit's process, agents build on their standing keeper branch. His
-standing instruction authorizes integration of completed, validated approved
-builds. Integration runs **security review + no-mistakes** before pushing
-`prakrit`; keep the source keeper afterward:
-
-```bash
-npm run ship:to-prakrit -- --source cursor-1
-# optional override:
-npm run ship:to-prakrit -- --source cursor-1 --path /portal/tasks
-```
-
-Then opens `http://localhost:3000` on the review route (from `.proplane-review-path`
-or `--path`). Next ladder step (also no-mistakes):
-
-```bash
-bin/fm-proplane-promote-prakrit-to-main.sh --push-main
-```
+Agents build on standing keeper branches. When ready, **the captain** types
+**`/promote prakrit`** in the lane's own pane. That command syncs the lane,
+runs the full no-mistakes pipeline, and merges to prakrit. Keep the keeper
+afterward. The ladder continues with captain-typed **`/promote main`** →
+**`/promote staging`** → **`/promote staging to production`**. See
+[`AGENTS-prakrit.md`](AGENTS-prakrit.md) § Standing branches, lanes, and the
+promote ladder.
 
 Akhil's process defaults to the same keeper handoff. Only an explicit Akhil ship
 request authorizes agents working for him to promote his reviewed keeper →

@@ -17,9 +17,10 @@ rest of the contract.
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |
 
-`prakrit` is Prakrit's integration branch between agent keepers. Agents do not
-merge there themselves — Prakrit runs `npm run ship:to-prakrit -- --source
-<keeper>` (or `/promote prakrit`). There is no long-lived `dev` branch; feature
+`prakrit` is Prakrit's integration branch between agent keepers. The captain
+climbs the ladder by typing **`/promote prakrit`** in a lane's pane (or
+**`/promote main`** → **`/promote staging`** → **`/promote staging to
+production`** to climb further). There is no long-lived `dev` branch; feature
 and agent branches are the messy layer.
 
 An explicit Akhil ship request authorizes agents working for him to promote
@@ -78,28 +79,28 @@ manual dispatch; `main` retains its CI checks. Staging must use its branch-scope
 variables because generic Preview defaults point at production (see
 [database environments](../database-environments.md)).
 
-## Prakrit ship path
+## Prakrit promote ladder
 
 ```
 agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
-  sandbox:open     ship:to-prakrit      (no-mistakes again)
-  + review path    + no-mistakes
+  sandbox:open     /promote prakrit      /promote main → staging → production
+  + review path    (captain's word)      (captain's word, each rung)
 ```
 
 1. Land feature work on your agent / feature branch only.
 2. **Before handoff:** `npm run sandbox:open -- </route>` (mandatory for all agents).
-3. Captain promotes with **`npm run ship:to-prakrit -- --source <keeper>`**
-   (security review + no-mistakes, opens prakrit on the review route).
-4. Captain tests on `http://localhost:3000`, then
-   `bin/fm-proplane-promote-prakrit-to-main.sh --push-main` (also no-mistakes).
+3. **Captain** types **`/promote prakrit`** in the lane's pane (runs no-mistakes +
+   security review, syncs the lane, merges to prakrit, fans back to all lanes,
+   opens prakrit on the review route).
+4. **Captain** types **`/promote main`** to move prakrit → main (no-mistakes again).
 5. For Akhil only, after his explicit ship request, agents working for him may
-   use the fast-forward-only integration path to land his reviewed keeper on
-   `main`. They do not write `prakrit` or run Prakrit's no-mistakes pipeline.
-6. `npm run ship:staging` then dedicated QA on staging URL by default. An explicit
+   land his reviewed keeper directly on `main` without writing `prakrit`. They
+   do not run Prakrit's no-mistakes pipeline.
+6. **`npm run ship:staging`** then dedicated QA on staging URL by default. An explicit
    Akhil-authorized release omits this rung under the standing policy and
    passes `--skip-staging` to `ship:production`.
 7. Apply production Supabase migrations **before** pushing `production`.
-8. `npm run ship:production` after QA sign-off (live + TestFlight).
+8. **`npm run ship:production`** after QA sign-off (live + TestFlight).
 9. Confirm Vercel Production **and** iOS TestFlight succeeded.
 
 ## Enforcement (do not weaken)

@@ -18,7 +18,7 @@ npm run sandbox:open -- </route-to-the-fix>
 ```
 
 This opens the developer's browser **and** writes `.proplane-review-path` so
-`npm run ship:to-prakrit` can reopen the same route on integration localhost.
+`/promote prakrit` can reopen the same route on integration localhost.
 
 3. Put the **full Review URL** in your reply (`Review URL: http://localhost:…`).
 
@@ -38,15 +38,11 @@ to click (e.g. Tasks → **Settings**).
 
 ## Prakrit promote ladder
 
-Under Prakrit's process, agents **do not** merge to `prakrit` or `main`. After
-Prakrit approves:
-
-```bash
-npm run ship:to-prakrit -- --source <keeper-branch>
-```
-
-Runs **security review + no-mistakes** before pushing `prakrit`, then opens
-`http://localhost:3000` on the route from `.proplane-review-path` (or `--path`).
+Under Prakrit's process, agents **do not** merge to `prakrit` or `main`. The
+**captain** types **`/promote prakrit`** in the lane's pane to integrate
+completed, validated work (runs security review + no-mistakes, opens prakrit on
+the review route). See [`AGENTS-prakrit.md`](../../docs/agents/AGENTS-prakrit.md)
+§ Standing branches, lanes, and the promote ladder.
 
 Akhil's process defaults to keeper handoff plus the Review URL. Only an explicit
 Akhil ship request authorizes agents working for him to promote his keeper →

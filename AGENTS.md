@@ -62,10 +62,11 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   `npm run ship:production -- --skip-staging` under
   [the standing policy](docs/agents/temporary-direct-production-policy.json)
   (delete that file to revoke). Every other gate still applies. Prakrit's
-  agents never merge to protected branches. Agents working for Akhil may merge
-  only his keeper → `main` → `staging` → `production` (or keeper → `main` →
-  `production` under the policy), and only after his explicit ship request
-  under `docs/agents/AGENTS-akhil.md`.
+  agents merge to protected branches only through `/promote`, typed by the
+  captain himself, never on an agent's own initiative. Agents working for
+  Akhil may merge only his keeper → `main` → `staging` → `production` (or
+  keeper → `main` → `production` under the policy), and only after his
+  explicit ship request under `docs/agents/AGENTS-akhil.md`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
@@ -84,10 +85,10 @@ Commit and push the assigned keeper (fast-forward only, never force). Open a PR 
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
-Akhil's explicit release authority bypasses this integration rung only, never
-staging or fast-forward rules.
-Details: `docs/agents/sandbox-open-review.md`.
+**Prakrit captain integration:** the captain types `/promote prakrit` in the
+lane's own pane. Akhil's explicit release authority bypasses this integration
+rung only, never staging or fast-forward rules.
+Details: `docs/agents/AGENTS-prakrit.md`, `docs/agents/sandbox-open-review.md`.
 
 # Branching & deployment (Vercel)
 

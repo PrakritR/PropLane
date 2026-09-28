@@ -64,10 +64,13 @@ Only touch Linear when he asked for a ticket: comment the SHA with
 
 ## ⑤ Promote (captain only)
 
+Type in the lane's pane (or prakrit pane for later rungs):
+
 ```bash
-npm run ship:to-prakrit -- --source <keeper>   # fold keeper → prakrit
-npm run ship:staging      # main → staging (QA)
-npm run ship:production   # staging → production (live + TestFlight)
+/promote prakrit                  # fold keeper → prakrit (no-mistakes)
+/promote main                     # prakrit → main
+/promote staging                  # main → staging (QA)
+/promote staging to production    # staging → production (live + TestFlight)
 ```
 
 ## Production data

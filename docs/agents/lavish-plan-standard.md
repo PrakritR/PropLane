@@ -1,49 +1,49 @@
-# The Lavish plan standard (captain work)
+# The studio lane plan standard (captain work)
 
-**Every prompt from Prakrit starts as a Lavish plan. No product code until he
-says `approved — build`.** The plan is the spec: whatever it shows is exactly
-what gets built. He iterates on the plan, not on your code.
+**Every prompt to a lane starts as a plan in the PropLane studio. No product
+code until its status is `approved` — set from the studio's Approve button, or
+by the captain typing `build` in the lane's own pane.** The plan is the spec:
+whatever it shows is exactly what gets built. He iterates on the plan, not on
+your code.
 
 No Linear ticket is filed for this. File one only when he says "file a ticket".
 
 ## The loop
 
 ```
-his message  →  plan (Lavish)  →  he annotates / edits / picks  →  you poll + apply
-                     ↑                                                      │
-                     └──────────────── re-open, reply in chat ◄─────────────┘
-                                        …until "approved — build"
+his message  →  sync the lane with prakrit  →  studio plan  →  he annotates / edits / picks  →  you watch + apply
+                                                     ↑                                                    │
+                                                     └───────────── edit the same plan.html ◄──────────────┘
+                                                                     …until status is `approved`
 ```
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"   # scaffold + open + listen
-# fill the scaffold, then:
-npm run lavish:listen                                    # UI shows "listening"
-npm run lavish:poll                                      # FIRST command every turn
-npm run lavish:poll -- --reply "Applied — reload the plan"
-npm run lavish:poll -- --clear                           # only after approval
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "<title>"  # scaffold
+# fill plan.html at ~/proplane-mock-kit/studio/plans/<lane>/<id>/plan.html, then:
+node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait     # FIRST thing you start every turn
+node ~/proplane-mock-kit/tools/studio-plan.mjs status --lane <lane>     # exits 0 once buildable
 ```
 
 Rules that are not negotiable:
 
-- **Never end a turn with a plan open and no poll.** Lavish then shows *"your
-  agent is not listening"* and his annotations sit unread.
-- **One poller at a time.** In Claude Code, run the long poll as a tracked
-  background Bash task (`npm run lavish:poll -- --wait`) — the harness wakes you
-  when he sends something. `npm run lavish:listen` is the fallback for hosts
-  without tracked background jobs; do not run both, they race for the same
-  delivery.
-- While `.lavish/active-session.json` exists, `npm run lavish:poll` is the
-  **first** command of every turn — before reading files, before anything.
-- Answer in the plan's own chat with `--reply`, not only in the terminal.
-- The session stays open across iterations. Clear it only on approval.
+- **Never end a turn with a plan open and no watcher.** A lane with no live
+  `studio-inbox.mjs --wait` is a dead page and his annotations sit unread.
+- **One watcher per lane at a time.** Run it as a tracked background task so
+  the harness wakes you when he sends something; do not run a second one for
+  the same lane, they race for the same delivery.
+- While the lane's `active.json` names this plan, checking the watch is
+  live is the **first** thing every turn — before reading files, before
+  anything.
+- Answer in the plan's own chat, not only in the terminal.
+- The plan stays open across iterations. Its status moves to `approved` only
+  on his word.
 - Re-open the same `plan.html` after edits; never start a second plan for the
-  same request.
+  same lane while one is still active.
 
 ## What a plan must contain
 
-The scaffold (`scripts/lavish/plan-template.mjs`) is a **shell**. Every
-`slot` span is a hole you fill before he ever sees it. Five tabs:
+The scaffold `studio-plan.mjs new` writes is a **shell**. Every `slot` span is
+a hole you fill before he ever sees it. Five tabs:
 
 | Tab | Holds | Bar |
 | --- | --- | --- |
@@ -86,32 +86,38 @@ wires:
   on a radio change; he must be able to change his mind.
 - **approved — build** / **Rework the plan** buttons in the footer.
 
-Everything routes through `window.lavish.queuePrompt(...)`, which is what
-`npm run lavish:poll` drains. Add more interactivity when it helps him decide —
-a working prototype of the interaction beats three paragraphs about it.
+Everything routes through the studio's queued-prompt mechanism, which
+`studio-inbox.mjs --lane <lane> --wait` drains. Add more interactivity when it
+helps him decide — a working prototype of the interaction beats three
+paragraphs about it.
 
 ## Filling the scaffold
 
-Edit `.lavish/plans/<ID>-<slug>/plan.html` directly. It is plain HTML with no
-build step and no CDN, so it renders identically inside Lavish, in a browser,
-and after `npx -y lavish-axi export`.
+Edit `~/proplane-mock-kit/studio/plans/<lane>/<id>/plan.html` directly. It is
+plain HTML with no build step and no CDN, so it renders identically in the
+studio and in a plain browser.
 
 - Keep the `data-plan-field` attributes — they are what his edits come back
   labelled with.
 - Delete the Decide tab's placeholder question rather than shipping an empty
   one; a fake open question wastes his review.
-- Remove an open question from the artifact once he answers it. Fold the answer
+- Remove an open question from the plan once he answers it. Fold the answer
   into the plan instead of leaving a resolved thread lying around.
 - Images go in the plan's `assets/` and are referenced relatively.
 
 ## After approval
 
 ```bash
-npm run lavish:poll -- --clear
+node ~/proplane-mock-kit/tools/studio-plan.mjs status --lane <lane>   # confirms buildable
 ```
 
 Then build **what the plan shows**. If implementation forces a departure from
 the plan, that is a plan change: update `plan.html`, re-open it, and tell him
-what moved — do not silently build something the plan does not show.
+what moved — do not silently build something the plan does not show. After
+building, run `npm run gate:prompt` and record what was proved per
+[`plan-evidence.md`](plan-evidence.md).
+
+Once the lane lands via `/promote prakrit`, `studio-plan.mjs promoted --lane
+<lane> --sha <sha>` marks the plan `merged` and clears the lane's active plan.
 
 Ship gate afterwards is unchanged: `docs/ship-gate.md`.

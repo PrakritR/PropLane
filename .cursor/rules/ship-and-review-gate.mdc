@@ -61,15 +61,10 @@ Unit tests alone are insufficient.
 ## Promote to prakrit (Prakrit's captain gate)
 
 Under Prakrit's process, sandbox → **prakrit** integration **must** run
-**no-mistakes** (and security review). Prakrit's agents never run this
-themselves:
-
-```bash
-npm run ship:to-prakrit -- --source cursor-1
-```
-
-Reads `.proplane-review-path` from the agent worktree for the browser open on
-`http://localhost:3000`. Override with `--path /portal/tasks` when needed.
+**no-mistakes** (and security review). The **captain** types **`/promote prakrit`**
+in the lane's pane to integrate completed, validated work. See
+[`AGENTS-prakrit.md`](../../docs/agents/AGENTS-prakrit.md) § Standing branches,
+lanes, and the promote ladder.
 
 ## Do not
 
