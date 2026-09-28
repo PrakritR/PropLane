@@ -1,12 +1,12 @@
-name: Load-time baseline control
+name: Load-time focused unit control
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  baseline-filters:
+  focused-unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -14,30 +14,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - name: Exact original-main filter control
+      - name: Preserve payment-return assertions across isolated autosave queues
         run: |
-          npx playwright test tests/e2e/manager-filter-dropdown-walkthrough.spec.ts --grep 'Applications filter panel|Leases: filter fields|Payments: filter fields' --global-timeout=900000
+          for attempt in 1 2 3; do
+            npx vitest run tests/unit/rental-wizard-public-resume.test.tsx --maxWorkers=1 --no-file-parallelism
+          done
         env:
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
-          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
-          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
-          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
-          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
-          E2E_TESTS_ENABLED: '1'
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: load-time-baseline-filter-results
-          path: test-results/
-          if-no-files-found: ignore
-          retention-days: 5
+          NODE_OPTIONS: --max-old-space-size=768
+      - run: npx eslint tests/unit/rental-wizard-public-resume.test.tsx
