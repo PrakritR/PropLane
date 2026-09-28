@@ -24,7 +24,7 @@
 <body>
 <main>
 <h1>Leases + Applications QA</h1>
-<p class="sub">Updated 2026-09-27 · localhost against dev/test database <code>emstjswhotsnyksqhqyf</code> · isolated keeper agent/lease-upload-polish based on main 881197c18 · production release authorized; final gates pending.</p>
+<p class="sub">Updated 2026-09-27 · localhost against dev/test database <code>emstjswhotsnyksqhqyf</code> · isolated keeper agent/lease-upload-polish based on main 881197c18 · production branch promoted at bc3f388f4 after green full staging CI; Vercel READY on proplane.ai; live read-only checks passed, TestFlight build 257 distributed and verified installable; App Store hold while 1.1.19 awaits review.</p>
 
 <h2>Earlier browser evidence (original worktree)</h2><p>The rows below describe the earlier dev/test browser pass, before isolating this release from unrelated uncommitted work. Current main requires an account for a new application. This release preserves that gate and supports older paid Checkout returns through a separate verification panel.</p>
 <table>
@@ -124,6 +124,6 @@ Signed-out portal links retain the requested path and query through sign in and 
 <li>Priya Sharma's lease is saved server-side at version 4 with HTML text after the current keeper's browser generation check.</li>
 <li>24 malformed lease documents in dev/test were repaired in place; zero remain. The repair did not reseed other records.</li>
 </ul>
-</main>
+<h2>Final release gates</h2><p>Staging CI on bc3f388f4: 2,232 unit files / 15,985 tests passed; lint, normal build/typecheck, integration and 10 browser smoke cases all passed. Deployed staging also verified deep-link query retention, new-application account requirement, fresh occupancy, unauthorized manager access, missing listing and actual invalid-payment retry. Main CI exposed one intermittent inbox assertion; unchanged focused suite passed 23/23 and independent review found no proven product defect. No assertion was weakened. See <a href="lease-application-production-release-20260927.html">release report</a> for final deployment verification.</p></main>
 </body>
 </html>
