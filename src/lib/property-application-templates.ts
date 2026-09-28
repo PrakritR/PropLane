@@ -53,6 +53,14 @@ export type PropertyApplicationTemplate = {
    * application, which code they intend to advertise for it.
    */
   waiverCodeOverride?: string | null;
+  /**
+   * F-editor d: another of this property's application templates whose form
+   * a planned co-signer fills in, instead of the property's generic default
+   * cosigner form. `null`/absent = no link (today's behavior, unchanged).
+   * Read by `resolveCosignerTemplateForApplication` for the co-signer invite
+   * link; never set on a cosigner-variant template itself.
+   */
+  linkedCosignerApplicationTemplateId?: string | null;
 };
 
 export type ApplicationTemplateQuestionConfig = ApplicationConfigSlice & {
