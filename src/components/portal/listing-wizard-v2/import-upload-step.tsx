@@ -67,6 +67,9 @@ export function ImportFileStrip({
   onReread,
   onConfirm,
   onCancel,
+  chips = FORMAT_CHIPS,
+  accept = IMPORT_FILE_ACCEPT,
+  dataAttr = "create-file-strip",
 }: {
   state: ImportStripState;
   busy: boolean;
@@ -76,6 +79,17 @@ export function ImportFileStrip({
   onConfirm?: () => void;
   /** The manager kept what they typed; the picked file is dropped. */
   onCancel?: () => void;
+  /**
+   * F-editor a/e (F002/F013): the format chips shown on the blank state.
+   * Defaults to the property-import formats — the Add application / Add
+   * lease editors pass their own (PDF/DOCX only) instead of relabeling this
+   * strip as a spreadsheet importer.
+   */
+  chips?: readonly string[];
+  /** File picker `accept` — defaults to the property-import formats. */
+  accept?: string;
+  /** Root `data-attr`, so a caller outside property-import gets its own selector instead of colliding on `create-file-strip`. */
+  dataAttr?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -92,7 +106,7 @@ export function ImportFileStrip({
     <input
       ref={fileRef}
       type="file"
-      accept={IMPORT_FILE_ACCEPT}
+      accept={accept}
       className="sr-only"
       onChange={(e) => pick(e.target.files)}
       data-attr="import-upload-file-input"
@@ -125,7 +139,7 @@ export function ImportFileStrip({
           setDragOver(false);
           pick(e.dataTransfer.files);
         }}
-        data-attr="create-file-strip"
+        data-attr={dataAttr}
         data-state="blank"
         className={cn(
           "mb-5 flex cursor-pointer flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
@@ -139,7 +153,7 @@ export function ImportFileStrip({
         <span className="min-w-0 flex-1">
           <span className="block text-[14px] font-bold text-foreground">Start from a file</span>
           <span className="mt-1 flex flex-wrap gap-1.5">
-            {FORMAT_CHIPS.map((chip) => (
+            {chips.map((chip) => (
               <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">
                 {chip}
               </span>
@@ -153,7 +167,7 @@ export function ImportFileStrip({
 
   if (state.kind === "reading") {
     return (
-      <div data-attr="create-file-strip" data-state="reading" className="mb-5 flex items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-card px-4 py-3">
+      <div data-attr={dataAttr} data-state="reading" className="mb-5 flex items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-card px-4 py-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
           <Upload className="h-[18px] w-[18px]" aria-hidden />
         </span>
@@ -172,7 +186,7 @@ export function ImportFileStrip({
 
   if (state.kind === "confirm") {
     return (
-      <div data-attr="create-file-strip" data-state="confirm" role="alertdialog" aria-label="Replace what you typed" className="mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-primary/[0.06] px-4 py-3">
+      <div data-attr={dataAttr} data-state="confirm" role="alertdialog" aria-label="Replace what you typed" className="mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-primary/[0.06] px-4 py-3">
         <span className="min-w-0 flex-1 text-[14px] font-bold text-foreground">Replace what you typed with {state.fileName}?</span>
         <span className="flex gap-2">
           <button type="button" onClick={onCancel} data-attr="create-file-keep" className="min-h-[40px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40">
@@ -187,7 +201,7 @@ export function ImportFileStrip({
   }
 
   return (
-    <div data-attr="create-file-strip" data-state="error" className="mb-5 rounded-2xl border px-4 py-3 portal-banner-danger">
+    <div data-attr={dataAttr} data-state="error" className="mb-5 rounded-2xl border px-4 py-3 portal-banner-danger">
       <div className="flex flex-wrap items-center gap-3.5">
         <span className="min-w-0 flex-1">
           <span className="block text-[14px] font-bold" role="alert" data-attr="import-upload-error">

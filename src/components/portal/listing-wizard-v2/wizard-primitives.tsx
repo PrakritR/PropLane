@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
@@ -998,6 +998,74 @@ export function SegmentedControl<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * F001/F013: a name field whose label floats above the value once it has one
+ * (or the field is focused), with the field's border and label turning red
+ * plus an inline message the moment `error` is set — never only on submit.
+ */
+export function FloatingLabelField({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  error,
+  dataAttr,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  error?: string | null;
+  dataAttr?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const floated = focused || value.trim().length > 0;
+  return (
+    <div>
+      <div
+        className={cn(
+          "rounded-xl border bg-card px-3.5 pb-2.5 pt-2 transition-colors",
+          error ? "border-rose-400" : focused ? "border-primary" : "border-border",
+        )}
+      >
+        <label
+          htmlFor={id}
+          className={cn(
+            "block text-[10px] font-bold uppercase tracking-[0.08em] transition-all",
+            error ? "text-rose-600" : "text-muted",
+            floated ? "mb-0.5 h-auto opacity-100" : "h-0 opacity-0",
+          )}
+        >
+          {label}
+        </label>
+        <input
+          id={id}
+          value={value}
+          placeholder={floated ? undefined : placeholder ?? label}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            onBlur?.();
+          }}
+          onChange={(e) => onChange(e.target.value)}
+          data-attr={dataAttr}
+          className="w-full border-0 bg-transparent p-0 text-[15px] text-foreground outline-none placeholder:text-muted"
+        />
+      </div>
+      {error ? (
+        <p className="mt-1.5 flex items-start gap-1.5 text-sm text-rose-600" role="alert">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{error}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
