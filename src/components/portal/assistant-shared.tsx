@@ -320,3 +320,52 @@ export function AssistantPendingActionCard({
     </div>
   );
 }
+
+/**
+ * M013 — task-step resolution morph on assistant action cards.
+ *
+ * "The system narrates its work" (interior.dev's Task Steps, ported — see
+ * ~/proplane-mock-kit/review-0927/interior-dev-research.md §2's "Task Steps"
+ * row): today {@link AssistantPendingActionCard} resolving just unmounts —
+ * the row below it (the assistant's own reply, "Done." or the tool's real
+ * result) appears with no transition at all. This renders in the SAME slot
+ * for one brief beat right after a genuine successful or denied resolution —
+ * never on click, only once the caller's own success/failure state actually
+ * lands, so it can never claim a still-in-flight action already finished.
+ */
+export function AssistantResolvedActionFlash({
+  decision,
+  title,
+}: {
+  decision: "confirm" | "deny";
+  title: string;
+}) {
+  const isConfirm = decision === "confirm";
+  return (
+    <div
+      className="motion-resolved-flash mb-3 flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5"
+      role="status"
+      aria-live="polite"
+    >
+      <span
+        className={
+          "grid h-6 w-6 shrink-0 place-items-center rounded-full " +
+          (isConfirm ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]" : "bg-accent text-muted")
+        }
+      >
+        {isConfirm ? (
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+            <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+        )}
+      </span>
+      <p className="min-w-0 truncate text-xs font-semibold text-foreground">
+        {title} · {isConfirm ? "Done" : "Cancelled"}
+      </p>
+    </div>
+  );
+}

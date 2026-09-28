@@ -17,10 +17,13 @@ export function PublicApplyAccountPrompt({
   gateKey,
   applyReturnPath,
   propertyTitle,
+  signingOrder,
 }: {
   gateKey: string;
   applyReturnPath: string;
   propertyTitle?: string;
+  /** The listing's resolved leasing-pipeline order (PLAN-0927) — this is the actual FIRST screen an anonymous prospect reaches, so it must say "sign the lease" rather than "apply" for a lease-first listing. */
+  signingOrder?: "application_first" | "lease_first";
 }) {
   const [resolved, setResolved] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -47,16 +50,30 @@ export function PublicApplyAccountPrompt({
   if (!resolved || signedIn) return null;
 
   const listing = propertyTitle?.trim() || "this home";
+  const leaseFirst = signingOrder === "lease_first";
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Before you apply</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+        {leaseFirst ? "Before you sign" : "Before you apply"}
+      </p>
       <h1 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
         Create your resident account
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        A resident account is required to apply for {listing}. Create one and apply from your portal, where you track
-        your application, messages, and payments. Already have an account? Sign in.
+        {leaseFirst ? (
+          <>
+            A resident account is required to sign the lease for {listing}. This home&rsquo;s manager has you sign
+            the lease before the application — create one and you&rsquo;ll sign first, then finish your household
+            application from your portal.
+          </>
+        ) : (
+          <>
+            A resident account is required to apply for {listing}. Create one and apply from your portal, where you
+            track your application, messages, and payments.
+          </>
+        )}{" "}
+        Already have an account? Sign in.
       </p>
       <div className="mt-4 flex flex-wrap gap-2.5">
         <Link

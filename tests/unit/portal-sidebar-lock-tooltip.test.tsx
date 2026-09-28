@@ -35,11 +35,16 @@ vi.mock("@/lib/portal-nav-client", () => ({
   isCrossPortalNavigation: () => false,
   prefetchPortalHref: vi.fn(),
 }));
-vi.mock("@/lib/portal-nav-prefetch", () => ({
+vi.mock("@/lib/portal-nav-prefetch", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/portal-nav-prefetch")>(),
   portalBackgroundPrefetchEnabled: () => false,
   portalMobileLinkPrefetchEnabled: () => false,
 }));
 vi.mock("@/lib/portal-panel-prefetch", () => ({ prefetchPortalPanelChunks: vi.fn() }));
+// N087: "Need help?" now mounts a feedback form (via `usePortalFeedbackForm`)
+// for every portal kind, not only manager/pro, so this minimal render needs
+// the same provider stub the workspace-switcher tests already use.
+vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 
 // jsdom does not implement scrollIntoView; the sidebar calls it to keep the
 // mobile strip's active chip centred.

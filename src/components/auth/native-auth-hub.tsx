@@ -1,5 +1,7 @@
 "use client";
 
+import type { Session } from "@supabase/supabase-js";
+
 import { AuthCard } from "@/components/auth/auth-card";
 import {
   AuthBrandHeader,
@@ -30,9 +32,9 @@ import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { clearPortalBrowserCache, isLocalDevHost } from "@/lib/auth/clear-portal-browser-cache";
 import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { isNativeOAuthInProgress } from "@/lib/native/open-url";
-import { getNativeInfo } from "@/lib/native/push-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -84,6 +86,10 @@ type NativeAuthHubProps = {
   /** @deprecated Create-account uses /auth/create-account; kept for vendor-register invite redirects. */
   defaultMode?: "sign-in" | "create";
 };
+
+/** A passive sign-in check must not hold the credential form behind network polling. */
+const PASSIVE_NATIVE_SESSION_TIMEOUT_MS = 400;
+const PASSIVE_NATIVE_USER_VALIDATION_TIMEOUT_MS = 1_200;
 
 function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const router = useRouter();
@@ -159,45 +165,81 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       return;
     }
 
-    let cancelled = false;
+    const abortController = new AbortController();
     void (async () => {
       try {
-        const { isNative } = await getNativeInfo();
-        if (!isNative || cancelled) return;
-        if (isNativeOAuthInProgress()) {
-          return;
-        }
+        // A marked OAuth return is recovered by the visibility effect below. Do
+        // not make a signed-out person wait through that recovery budget.
+        if (isNativeOAuthInProgress()) return;
         const supabase = createSupabaseBrowserClient();
-        const user = await waitForOAuthUser(supabase, { attempts: 4, delayMs: 200 });
-        if (!cancelled && user) {
-          window.location.replace(signInContinueHref);
+        try {
+          const { data } = await withAuthTimeout<{ data: { session: Session | null } }>(
+            supabase.auth.getSession(),
+            PASSIVE_NATIVE_SESSION_TIMEOUT_MS,
+          );
+          if (!data.session?.user || abortController.signal.aborted) return;
+
+          // getSession reads local storage and can outlive the server-side
+          // session. Keep the form available, then validate the candidate in
+          // the background before sending the person to /auth/continue.
+          setCheckingSession(false);
+          const user = await waitForOAuthUser(supabase, {
+            attempts: 2,
+            delayMs: 100,
+            maxWaitMs: PASSIVE_NATIVE_USER_VALIDATION_TIMEOUT_MS,
+            signal: abortController.signal,
+          });
+          if (!abortController.signal.aborted && user) {
+            window.location.replace(signInContinueHref);
+          }
+        } catch {
+          // A passive lookup is only a convenience. The sign-in form remains
+          // usable when native storage or the network is unavailable.
         }
       } finally {
-        if (!cancelled) setCheckingSession(false);
+        if (!abortController.signal.aborted) setCheckingSession(false);
       }
     })();
     return () => {
-      cancelled = true;
+      abortController.abort();
     };
   }, [signInContinueHref]);
 
   useEffect(() => {
-    if (checkingSession) return;
+    if (!detectNativePlatformSync()) return;
 
+    const abortController = new AbortController();
+    let recoveryInFlight: Promise<void> | null = null;
     const redirectAfterOAuth = async () => {
       if (!isNativeOAuthInProgress()) return;
       const supabase = createSupabaseBrowserClient();
-      const user = await waitForOAuthUser(supabase, { attempts: 6, delayMs: 200 });
-      if (user) window.location.replace(signInContinueHref);
+      const user = await waitForOAuthUser(supabase, {
+        attempts: 6,
+        delayMs: 200,
+        signal: abortController.signal,
+      });
+      if (!abortController.signal.aborted && user) window.location.replace(signInContinueHref);
+    };
+
+    const recoverAfterOAuth = () => {
+      if (recoveryInFlight) return recoveryInFlight;
+      recoveryInFlight = redirectAfterOAuth().finally(() => {
+        recoveryInFlight = null;
+      });
+      return recoveryInFlight;
     };
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") void redirectAfterOAuth();
+      if (document.visibilityState === "visible") void recoverAfterOAuth();
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [checkingSession, signInContinueHref]);
+    onVisible();
+    return () => {
+      abortController.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [signInContinueHref]);
 
   const formRef = useRef<HTMLFormElement | null>(null);
 

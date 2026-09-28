@@ -188,7 +188,12 @@ describe("Tasks card rows", () => {
     });
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Fix the porch light/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    // M008 — the shared confirm-delete modal's Delete is a press-and-hold
+    // guard rail now, not a plain click: hold past the gate, then release.
+    const confirmDeleteButton = await screen.findByRole("button", { name: "Delete" });
+    fireEvent.pointerDown(confirmDeleteButton, { button: 0, clientX: 0, clientY: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    fireEvent.pointerUp(confirmDeleteButton);
     await waitFor(() => {
       expect(deleteManagerTask).toHaveBeenCalledWith("mgr-1", "task-1");
     });

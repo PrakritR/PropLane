@@ -7,6 +7,8 @@ import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { Button } from "@/components/ui/button";
+import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
+import { cn } from "@/lib/utils";
 
 /**
  * The listing's house photos (PLAN-0914-2124). Desktop is the Airbnb mosaic —
@@ -15,11 +17,37 @@ import { Button } from "@/components/ui/button";
  * count. With no photos the page does not open on an empty box: it renders
  * `ListingNoPhotoBand`, one short row, and the key facts become the first
  * thing on screen. Photos are only ever the manager's own uploads.
+ *
+ * M017 (interior.dev, ported — src/components/ui/motion/tokens.css): every
+ * `Photo` blurs up as its own real bytes load (never a fabricated
+ * placeholder image), both lightboxes fade/scale in, and the phone carousel
+ * carries real carousel a11y (roles + Arrow-Left/Right) on top of its
+ * existing scroll-snap.
  */
 const frame = "relative overflow-hidden bg-accent/25";
 
 function Photo({ src, sizes, priority = false }: { src: string; sizes: string; priority?: boolean }) {
-  return <Image src={src} alt="" fill className="object-cover" unoptimized sizes={sizes} priority={priority} />;
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    // A cached image can already be `.complete` before React attaches
+    // `onLoad` (that event never fires again for an already-finished
+    // request) — without this check a cache hit would blur up forever.
+    if (imgRef.current?.complete) setLoaded(true);
+  }, [src]);
+  return (
+    <Image
+      ref={imgRef}
+      src={src}
+      alt=""
+      fill
+      className={cn("object-cover motion-blurup-real", loaded && "is-loaded")}
+      unoptimized
+      sizes={sizes}
+      priority={priority}
+      onLoad={() => setLoaded(true)}
+    />
+  );
 }
 
 const pillButtonClassName =
@@ -59,7 +87,7 @@ function PhotoLightbox({ urls, onClose }: { urls: string[]; onClose: () => void 
   }, [onClose]);
   if (!isClient || typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[240] flex flex-col bg-black/92" role="dialog" aria-modal aria-label="All photos">
+    <div className="motion-lightbox-backdrop fixed inset-0 z-[240] flex flex-col bg-black/92" role="dialog" aria-modal aria-label="All photos">
       <div className="flex items-center justify-between px-4 py-3 text-white [html[data-native]_&]:pt-[max(0.75rem,env(safe-area-inset-top))]">
         <p className="text-sm font-semibold">
           {urls.length} photo{urls.length === 1 ? "" : "s"}
@@ -106,7 +134,7 @@ function VideoLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   }, [onClose]);
   if (!isClient || typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[240] flex flex-col bg-black/92" role="dialog" aria-modal aria-label="Listing video">
+    <div className="motion-lightbox-backdrop fixed inset-0 z-[240] flex flex-col bg-black/92" role="dialog" aria-modal aria-label="Listing video">
       <div className="flex items-center justify-between px-4 py-3 text-white [html[data-native]_&]:pt-[max(0.75rem,env(safe-area-inset-top))]">
         <p className="text-sm font-semibold">Video</p>
         <button
@@ -137,24 +165,58 @@ function PhoneCarousel({
 }) {
   const [index, setIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const reducedMotion = useReducedMotion();
   const onScroll = useCallback(() => {
     const el = trackRef.current;
     if (!el || el.clientWidth === 0) return;
     setIndex(Math.min(urls.length - 1, Math.max(0, Math.round(el.scrollLeft / el.clientWidth))));
   }, [urls.length]);
+  // M017 — snap carousel a11y: Arrow-Left/Right navigate on top of the
+  // existing scroll-snap, matching interior.dev's Snap Carousel contract
+  // (Arrow keys navigate, an aria-live slide-position mirror).
+  const goTo = useCallback(
+    (next: number) => {
+      const el = trackRef.current;
+      const clamped = Math.min(urls.length - 1, Math.max(0, next));
+      if (!el || el.clientWidth === 0) return;
+      el.scrollTo({ left: clamped * el.clientWidth, behavior: reducedMotion ? "auto" : "smooth" });
+    },
+    [urls.length, reducedMotion],
+  );
   return (
     <div className={`${frame} aspect-[4/3] w-full`}>
       <div
         ref={trackRef}
         onScroll={onScroll}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            goTo(index + 1);
+          } else if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            goTo(index - 1);
+          }
+        }}
+        tabIndex={urls.length > 1 ? 0 : undefined}
+        role="group"
+        aria-roledescription="carousel"
         className="flex h-full w-full snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="Listing photos"
       >
         {urls.map((src, i) => (
-          <div key={`${src.slice(0, 48)}-${i}`} className="relative h-full w-full shrink-0 snap-center">
+          <div
+            key={`${src.slice(0, 48)}-${i}`}
+            role="group"
+            aria-roledescription="slide"
+            aria-label={`Photo ${i + 1} of ${urls.length}`}
+            className="relative h-full w-full shrink-0 snap-center"
+          >
             <Photo src={src} sizes="100vw" priority={i === 0} />
           </div>
         ))}
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          Photo {index + 1} of {urls.length}
+        </span>
       </div>
       {topRight ? <div className="absolute right-3 top-3 z-10 flex gap-2">{topRight}</div> : null}
       <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2">

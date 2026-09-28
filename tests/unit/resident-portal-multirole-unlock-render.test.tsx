@@ -47,10 +47,14 @@ vi.mock("@/hooks/use-is-native-app", () => ({
   useIsSmallPortalViewport: () => false,
   useIsNativeApp: () => ({ isNative: false, platform: null }),
 }));
-vi.mock("@/lib/portal-nav-prefetch", () => ({
+vi.mock("@/lib/portal-nav-prefetch", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/portal-nav-prefetch")>(),
   portalMobileLinkPrefetchEnabled: () => false,
   portalBackgroundPrefetchEnabled: () => false,
 }));
+// N087: "Need help?" now mounts a feedback form (via `usePortalFeedbackForm`)
+// for every portal kind, not only manager/pro.
+vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/lib/portal-nav-client", () => ({
   isCrossPortalNavigation: () => false,
   portalNavClick: () => () => {},

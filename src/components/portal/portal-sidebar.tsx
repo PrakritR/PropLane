@@ -34,7 +34,11 @@ import {
   prefetchPortalHref,
   usePortalNavigate,
 } from "@/lib/portal-nav-client";
-import { portalBackgroundPrefetchEnabled, portalMobileLinkPrefetchEnabled } from "@/lib/portal-nav-prefetch";
+import {
+  portalBackgroundPrefetchEnabled,
+  portalIntentPrefetchEnabled,
+  portalMobileLinkPrefetchEnabled,
+} from "@/lib/portal-nav-prefetch";
 import {
   PORTAL_MAIN_CONTENT_ID,
   PORTAL_MOBILE_CHROME_CLASS,
@@ -44,21 +48,19 @@ import {
   PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS,
   PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS,
 } from "@/lib/portal-layout-classes";
-import { prefetchPortalPanelChunks } from "@/lib/portal-panel-prefetch";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/portal-sidebar-cookie";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
 import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle, MessageSquareText } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
-import { Modal } from "@/components/ui/modal";
-import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
+import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
 
 function hrefForSection(def: PortalDefinition, section: string) {
   const meta = def.sections.find((s) => s.section === section);
@@ -245,12 +247,10 @@ export function PortalSidebar({
   const navCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
-  // Manager Settings no longer has its own Feedback pane (S019, captain
-  // 2026-09-27) — "Send feedback" here, next to "Need help?", is the one
-  // feedback path left for the manager portal. Resident/vendor keep their own
-  // Feedback pane in their own profile settings, so this is manager-only.
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const showSidebarFeedback = definition.kind === "manager" || definition.kind === "pro";
+  // N087 (captain 2026-09-27): the standalone "Send feedback" footer item is
+  // gone in every portal; "Need help?" opens a panel with the help center
+  // link plus the feedback form inline instead.
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -309,11 +309,6 @@ export function PortalSidebar({
     () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
     [navGroups],
   );
-
-  useEffect(() => {
-    if (!portalBackgroundPrefetchEnabled()) return;
-    prefetchPortalPanelChunks();
-  }, []);
 
   useEffect(() => {
     if (collapsed) {
@@ -749,7 +744,7 @@ export function PortalSidebar({
                 href={sub.href}
                 prefetch={portalBackgroundPrefetchEnabled()}
                 onMouseEnter={
-                  portalBackgroundPrefetchEnabled()
+                  portalIntentPrefetchEnabled()
                     ? () => {
                         prefetchPortalHref(router, sub.href);
                         for (const href of sub.prefetchHrefs) prefetchPortalHref(router, href);
@@ -818,7 +813,7 @@ export function PortalSidebar({
         href={s.href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
-          portalBackgroundPrefetchEnabled()
+          portalIntentPrefetchEnabled()
             ? () => {
                 prefetchPortalHref(router, s.href);
                 for (const href of s.prefetchHrefs) prefetchPortalHref(router, href);
@@ -884,7 +879,7 @@ export function PortalSidebar({
         href={href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
-          portalBackgroundPrefetchEnabled()
+          portalIntentPrefetchEnabled()
             ? () => {
                 prefetchPortalHref(router, href);
                 for (const prefetchHref of s.prefetchHrefs) prefetchPortalHref(router, prefetchHref);
@@ -1010,52 +1005,32 @@ export function PortalSidebar({
 
       {/*
        * Help sits OUTSIDE the nav so it stays pinned while a long section list
-       * scrolls behind it — `/support` is the real destination; there is no
-       * separate help-centre route.
+       * scrolls behind it. N087 (captain 2026-09-27): the standalone "Send
+       * feedback" row that used to sit below this is gone in every portal —
+       * this button now opens a panel with the help center link plus the
+       * feedback form inline, instead of linking straight to `/support`.
        */}
-      <Link
-        href="/support"
+      <button
+        type="button"
+        onClick={() => setHelpOpen(true)}
         data-attr="portal-sidebar-help"
         className={cn(
-          "shrink-0 border-t border-border text-muted transition-colors hover:text-foreground",
+          "shrink-0 border-t border-border text-left text-muted transition-colors hover:text-foreground",
           collapsed
             ? "grid h-[52px] place-items-center"
             : "flex items-start gap-2.5 px-4 py-3.5",
         )}
-        title={collapsed ? "Need help? Visit our help center" : undefined}
-        aria-label={collapsed ? "Need help? Visit our help center" : undefined}
+        title={collapsed ? "Need help?" : undefined}
+        aria-label={collapsed ? "Need help?" : undefined}
       >
         <HelpCircle className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
         {collapsed ? null : (
           <span className="min-w-0">
             <span className="block text-[13px] font-semibold text-foreground">Need help?</span>
-            <span className="block text-[12px]">Visit our help center</span>
+            <span className="block text-[12px]">Help center and feedback</span>
           </span>
         )}
-      </Link>
-      {showSidebarFeedback ? (
-        <button
-          type="button"
-          onClick={() => setFeedbackOpen(true)}
-          data-attr="portal-sidebar-feedback"
-          className={cn(
-            "shrink-0 border-t border-border text-left text-muted transition-colors hover:text-foreground",
-            collapsed
-              ? "grid h-[52px] place-items-center"
-              : "flex items-start gap-2.5 px-4 py-3.5",
-          )}
-          title={collapsed ? "Send feedback" : undefined}
-          aria-label={collapsed ? "Send feedback" : undefined}
-        >
-          <MessageSquareText className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
-          {collapsed ? null : (
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-foreground">Send feedback</span>
-              <span className="block text-[12px]">Report issues or share product feedback</span>
-            </span>
-          )}
-        </button>
-      ) : null}
+      </button>
     </aside>
   );
 
@@ -1063,11 +1038,14 @@ export function PortalSidebar({
     <>
       {desktopAside}
 
-      {showSidebarFeedback ? (
-        <Modal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} title="Send feedback" panelClassName="max-w-lg">
-          <PortalBugFeedbackPanel reporterRole={definition.kind === "pro" ? "pro" : "manager"} embedded />
-        </Modal>
-      ) : null}
+      <PortalHelpPanel
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        reporterRole={definition.kind}
+        reporterUserId={session.userId}
+        reporterEmail={session.email ?? ""}
+        reporterName={session.email ?? ""}
+      />
 
       <div className="shrink-0 lg:hidden">
         <div className={PORTAL_MOBILE_CHROME_CLASS}>

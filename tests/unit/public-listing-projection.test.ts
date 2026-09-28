@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // import time for the catalog query it also exports.
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 
-import { publicListingProjection } from "@/lib/public-listings.server";
+import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
 import type { MockProperty } from "@/data/types";
 
 /** A stored listing carrying both prospect-facing copy and manager-internal data. */
@@ -371,5 +371,62 @@ describe("publicListingProjection", () => {
     expect(projected.securityDeposit).toBe("");
     expect(projected.customFees).toEqual([]);
     expect(projected.rooms.map((room) => room.securityDeposit)).toEqual(["1050", "900"]);
+  });
+
+  describe("signingOrder / leaseSigningFeeCents (PLAN-0927)", () => {
+    it("adds neither derived field when no signing context is passed — every existing caller keeps compiling unchanged", () => {
+      const projected = publicListingProjection(storedListing());
+      expect(projected).not.toHaveProperty("signingOrder");
+      expect(projected).not.toHaveProperty("leaseSigningFeeCents");
+    });
+
+    it("adds only the two derived fields — never the manager's pipelineOrder preference or override map", () => {
+      const projected = publicListingProjection(storedListing(), null, {
+        signingOrder: "lease_first",
+        leaseSigningFeeCents: 5000,
+      });
+      expect(projected.signingOrder).toBe("lease_first");
+      expect(projected.leaseSigningFeeCents).toBe(5000);
+      const keys = allKeys(projected);
+      expect(keys.has("pipelineOrder")).toBe(false);
+      expect(keys.has("leasingPipelineByPropertyId")).toBe(false);
+      expect(keys.has("requireApplication")).toBe(false);
+      expect(keys.has("requireLease")).toBe(false);
+    });
+
+    it("passes through application_first with a zero fee unchanged", () => {
+      const projected = publicListingProjection(storedListing(), null, {
+        signingOrder: "application_first",
+        leaseSigningFeeCents: 0,
+      });
+      expect(projected.signingOrder).toBe("application_first");
+      expect(projected.leaseSigningFeeCents).toBe(0);
+    });
+  });
+
+  describe("resolvePublicSigningContext", () => {
+    it("resolves the workspace default when no property override or manager state is known", () => {
+      expect(resolvePublicSigningContext(undefined, "prop-1")).toEqual({
+        signingOrder: "application_first",
+        leaseSigningFeeCents: 0,
+      });
+    });
+
+    it("resolves the per-property override over the manager's own portfolio default", () => {
+      const state = {
+        portfolio: { pipelineOrder: "lease_then_application" as const, requireApplication: true, requireLease: true, leaseSigningFeeCents: 5000, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null },
+        byPropertyId: {
+          "prop-1": { pipelineOrder: "application_then_lease" as const, requireApplication: true, requireLease: true, leaseSigningFeeCents: null, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null },
+        },
+      };
+      expect(resolvePublicSigningContext(state, "prop-1")).toEqual({
+        signingOrder: "application_first",
+        leaseSigningFeeCents: 0,
+      });
+      expect(resolvePublicSigningContext(state, "prop-2")).toEqual({
+        signingOrder: "lease_first",
+        leaseSigningFeeCents: 5000,
+      });
+    });
   });
 });

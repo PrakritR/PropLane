@@ -115,6 +115,7 @@ export default function ResetPasswordPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={busy}
+            showStrength
           />
         </div>
         <div>

@@ -78,22 +78,33 @@ describe("the header switcher", () => {
     expect(trigger.textContent).toContain("Owner · 2 houses");
   });
 
-  it("lists every workspace, then settings, invite, and New workspace with the cap", async () => {
+  it("lists every workspace by name only, then settings, invite, and New workspace with the cap", async () => {
+    // N086 (captain 2026-09-27): "reduce size of workspace just cut out the
+    // extra text" — a row is the name (plus the check on the active one), not
+    // "Owner · N houses"; that standing line stays only on the header trigger
+    // tested above.
     setContext();
     render(<WorkspaceSwitcher />);
     fireEvent.pointerDown(screen.getByRole("button", { name: "Switch workspace: My workspace" }), { button: 0 });
     const items = await screen.findAllByRole("menuitem");
     const labels = items.map((el) => el.textContent?.replace(/\s+/g, " ").trim());
-    expect(labels[0]).toContain("My workspace");
-    expect(labels[0]).toContain("Owner");
-    expect(labels[1]).toContain("Ballard houses");
-    expect(labels[1]).toContain("Shared");
+    expect(labels[0]).toBe("My workspace");
+    expect(labels[1]).toBe("Ballard houses");
     expect(labels[2]).toBe("Workspace settings");
     expect(labels[3]).toBe("Invite a manager to My workspace");
     expect(labels[4]).toMatch(/^New workspace\s*1 of 3$/);
     expect(document.querySelector('[data-attr="workspace-switcher-new"]')?.getAttribute("href")).toBe(
       "/portal/profile?tab=workspaces&new=1",
     );
+  });
+
+  it("sizes the menu to its content instead of stretching to fit the standing line", async () => {
+    setContext();
+    render(<WorkspaceSwitcher />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Switch workspace: My workspace" }), { button: 0 });
+    await screen.findAllByRole("menuitem");
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu?.className).toContain("max-w-[320px]");
   });
 
   it("greys New workspace at the cap rather than hiding it", async () => {

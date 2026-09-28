@@ -1650,6 +1650,8 @@ function ManagerHousePropertiesPanelBody({
    * are different answers and neither of them is "does not exist" (PRP-429).
    */
   const [portfolioLoad, setPortfolioLoad] = useState<"pending" | "ready" | "failed">("pending");
+  /** Bumped by the list's own "Try again" — re-runs the sync effect below. */
+  const [portfolioRetry, setPortfolioRetry] = useState(0);
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
     (propertyKey: string) => {
@@ -1673,6 +1675,10 @@ function ManagerHousePropertiesPanelBody({
 
   useEffect(() => {
     if (!scopeUserId) return;
+    // A retry re-enters "pending" so the list shows the loading treatment
+    // again instead of sitting on the stale error/retry card while the new
+    // request is in flight.
+    setPortfolioLoad("pending");
     if (!isDemoModeActive()) {
       // The local-pipeline mirror is NOT run here. `ManagerProperties` — this
       // panel's only parent — already mirrors the same owner's rows on mount,
@@ -1714,7 +1720,7 @@ function ManagerHousePropertiesPanelBody({
       window.removeEventListener(LEASE_PIPELINE_EVENT, on);
       window.removeEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     };
-  }, [scopeUserId]);
+  }, [scopeUserId, portfolioRetry]);
 
 
   /*
@@ -2275,7 +2281,19 @@ function ManagerHousePropertiesPanelBody({
 
   return (
     <>
-      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface
+        className="mt-0"
+        onBulkClear={clearSelection}
+        bulkCount={selectedIds.size}
+        // The very first property-records sync can take several seconds. Until it
+        // resolves and nothing is cached yet for this stage, show the same loading
+        // treatment every other list uses — never the confident "No homes yet"
+        // empty state, which reads as "your houses are gone" during that window
+        // (PRP-429 sibling: the fetch is slow, not the account empty).
+        loading={portfolioLoad === "pending" && rows.length === 0}
+        loadError={portfolioLoad === "failed" && rows.length === 0 ? "Could not load properties." : undefined}
+        onRetry={() => setPortfolioRetry((n) => n + 1)}
+        bulkActions={selectedIds.size > 0 ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {canBulkEdit ? (

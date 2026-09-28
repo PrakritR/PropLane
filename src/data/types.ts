@@ -57,6 +57,21 @@ export type MockProperty = {
    * authoritative row it already holds. Never persisted back to `property_data`.
    */
   publicProjection?: boolean;
+  /**
+   * Set by `publicListingProjection` (PLAN-0927): the workspace/property
+   * leasing-pipeline order, resolved server-side and collapsed to this one
+   * label. Never the manager's `pipelineOrder` preference row or the
+   * per-property override map itself — those never reach an anonymous caller.
+   */
+  signingOrder?: "application_first" | "lease_first";
+  /**
+   * Set by `publicListingProjection` alongside `signingOrder`: the effective
+   * lease-signing fee in cents when `signingOrder` is `"lease_first"` (each
+   * signer pays; `0` = free). Resolved server-side from the same manager
+   * preference — a plain listing amount, like `applicationFee`, not a
+   * preference row.
+   */
+  leaseSigningFeeCents?: number;
 };
 
 export type MockRow = Record<string, string>;

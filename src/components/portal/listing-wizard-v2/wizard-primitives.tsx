@@ -18,8 +18,9 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -266,12 +267,20 @@ export function StepRail({
   current,
   onJump,
   visited,
+  numbered = false,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
+  /**
+   * F-editor / F012: each step shows its number, or a check once nothing on
+   * it is missing, instead of only the plain attention dot. Opt-in per
+   * caller (the Add application / Add lease editors) — every other wizard
+   * using this shared rail keeps today's dot-only look unchanged.
+   */
+  numbered?: boolean;
 }) {
   void visited;
   // On a phone the rail is a strip of chips; the one the manager is on must be
@@ -303,7 +312,17 @@ export function StepRail({
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  {warn ? (
+                  {numbered ? (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                        warn ? "bg-[var(--status-overdue-fg)]/15 text-[var(--status-overdue-fg)]" : "bg-primary/15 text-primary",
+                      )}
+                    >
+                      {warn ? i + 1 : <Check className="h-[11px] w-[11px]" strokeWidth={3} />}
+                    </span>
+                  ) : warn ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
                   ) : null}
                   <span
@@ -531,17 +550,18 @@ export function StepColumn({ children, wide = false }: { children: ReactNode; wi
 
 /* ─────────────────────────── fields ─────────────────────────── */
 
-export function Field({
-  label,
-  required,
-  error,
-  children,
-  group = false,
-  labelAside,
-}: {
+export function Field(props: {
   label: string;
   required?: boolean;
-  /** Shown only after a failed action — the one line of helper copy a field may carry. */
+  /**
+   * Shown only after a failed action — the one line of helper copy a field
+   * may carry. Passing this prop AT ALL (even `error={undefined}`) marks the
+   * field validate-able: M010 then reserves a fixed-height slot for it
+   * before any error exists, so the message crossfading in later never
+   * shoves the field below it (interior.dev's Inline Validation, ported —
+   * see tokens.css's own note). A field that never passes `error` keeps
+   * today's exact layout, with no reserved space.
+   */
   error?: string;
   children: ReactNode;
   /** Sits after the label — the "Follows every room" / "This room · Reset" tag on a room field. */
@@ -558,6 +578,7 @@ export function Field({
    */
   group?: boolean;
 }) {
+  const { label, required, error, children, group = false, labelAside } = props;
   const id = useId();
   const caption = (
     <>
@@ -566,7 +587,23 @@ export function Field({
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
-  const note = error ? <p className="mt-1.5 text-[12px] font-semibold text-red-600">{error}</p> : null;
+  // "error" in props (not just `error` truthy) is the validate-able signal —
+  // see the prop doc above. A field that never writes `error={...}` in its
+  // JSX never gets the reserved slot, so this stays a no-op for the many
+  // Field usages that carry no validation at all.
+  const validatable = "error" in props;
+  const note = validatable ? (
+    <div className="motion-field-error-slot">
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={cn("motion-field-error text-[12px] font-semibold text-red-600", error && "is-shown")}
+      >
+        {error}
+      </p>
+    </div>
+  ) : null;
 
   if (group) {
     return (
@@ -908,6 +945,146 @@ export function CheckboxOption({
       />
       <span className="min-w-0 text-[13px] font-semibold text-foreground">{label}</span>
     </label>
+  );
+}
+
+/**
+ * F-editor c: a settings-style on/off row for a Setup step — label plus the
+ * sliding `PortalSettingsToggle` switch, and NOTHING else. No checkbox input,
+ * no explanatory sentence beneath it (AGENTS.md § "Never generate subtext") —
+ * if the choice needs explaining, the label should say it.
+ */
+export function ToggleRow({
+  label,
+  checked,
+  onChange,
+  dataAttr,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0 text-[13px] font-semibold text-foreground">{label}</span>
+      <PortalSettingsToggle checked={checked} onChange={onChange} label={label} dataAttr={dataAttr} disabled={disabled} />
+    </div>
+  );
+}
+
+/**
+ * F-editor c/g: a pill-shaped segmented control for a small, fixed set of
+ * mutually exclusive choices — the same visual pattern the application-form
+ * variant tabs already use. Replaces a dropdown for a genuinely binary/ternary
+ * pick (AGENTS.md "counts are steppers, picks are dropdowns" is about longer
+ * lists; a 2-3 way pick reads better side by side).
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  dataAttrPrefix,
+  ariaLabel,
+}: {
+  value: T;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  onChange: (next: T) => void;
+  dataAttrPrefix?: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label={ariaLabel}>
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-attr={dataAttrPrefix ? `${dataAttrPrefix}-${option.value}` : undefined}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+              active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * F001/F013: a name field whose label floats above the value once it has one
+ * (or the field is focused), with the field's border and label turning red
+ * plus an inline message the moment `error` is set — never only on submit.
+ */
+export function FloatingLabelField({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  error,
+  dataAttr,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  error?: string | null;
+  dataAttr?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const floated = focused || value.trim().length > 0;
+  return (
+    <div>
+      <div
+        className={cn(
+          "rounded-xl border bg-card px-3.5 pb-2.5 pt-2 transition-colors",
+          error ? "border-rose-400" : focused ? "border-primary" : "border-border",
+        )}
+      >
+        <label
+          htmlFor={id}
+          className={cn(
+            "block text-[10px] font-bold uppercase tracking-[0.08em] transition-all",
+            error ? "text-rose-600" : "text-muted",
+            floated ? "mb-0.5 h-auto opacity-100" : "h-0 opacity-0",
+          )}
+        >
+          {label}
+        </label>
+        <input
+          id={id}
+          value={value}
+          placeholder={floated ? undefined : placeholder ?? label}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            onBlur?.();
+          }}
+          onChange={(e) => onChange(e.target.value)}
+          data-attr={dataAttr}
+          className="w-full border-0 bg-transparent p-0 text-[15px] text-foreground outline-none placeholder:text-muted"
+        />
+      </div>
+      {error ? (
+        <p className="mt-1.5 flex items-start gap-1.5 text-sm text-rose-600" role="alert">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{error}</span>
+        </p>
+      ) : null}
+    </div>
   );
 }
 

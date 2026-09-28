@@ -1,0 +1,604 @@
+/*
+ * Shared motion tokens (M001) — durations/easings ported verbatim from
+ * interior.dev's own source (registry.json + component files), the same
+ * numbers documented in ~/proplane-mock-kit/review-0927/interior-dev-research.md
+ * §2/§4 and already proven in the approved studio drawing
+ * (~/proplane-mock-kit/proto/motion-0927.css). CSS cannot express a literal
+ * spring, so every "spring" token below is the cubic-bezier closest to it in
+ * feel; the two literal eases (EASE_IN/EASE_OUT) are interior.dev's own,
+ * unchanged.
+ *
+ * Every consumer reads these through Tailwind's CSS-variable arbitrary-value
+ * syntax, e.g. `duration-(--motion-base) ease-(--motion-crossfade)`, so no
+ * `@theme` registration is required. `prefers-reduced-motion: reduce`
+ * collapses every duration to 0 in one place — the policy from the research
+ * (skip the TRIP, never the state change) never needs re-deriving per file.
+ */
+
+:root {
+  --motion-ease-in: cubic-bezier(0.23, 1, 0.32, 1); /* interior.dev EASE_IN — decelerating arrive */
+  --motion-ease-out: cubic-bezier(0.4, 0, 1, 1); /* interior.dev EASE_OUT — accelerating leave */
+  --motion-cell: cubic-bezier(0.34, 1.4, 0.64, 1); /* SPRING_CELL 520/34/.45 — snappy per-glyph */
+  --motion-crossfade: cubic-bezier(0.22, 1, 0.36, 1); /* SPRING_CROSSFADE 260/34/.8 — content swap */
+  --motion-nudge: cubic-bezier(0.3, 1.6, 0.7, 1); /* SPRING_NUDGE 700/46/.5 — micro-nudge */
+  --motion-fill: cubic-bezier(0.16, 0.8, 0.3, 1); /* SPRING_FILL 210/34/.9 — value catch-up */
+  --motion-disclose: cubic-bezier(0.16, 1, 0.3, 1); /* DISCLOSE family — panels opening */
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --motion-panel: 300ms;
+  --motion-modal-in: 200ms; /* Modal: entrance/exit are asymmetric — 0.2s in / 0.15s out */
+  --motion-modal-out: 150ms;
+  --motion-wiz-in: 220ms;
+  --motion-wiz-out: 160ms;
+}
+
+/*
+ * The one collapse point: every duration above becomes 0 — the state change
+ * (save completed, panel opened, sort applied, value updated) still always
+ * happens, only the trip is skipped. Consumers should prefer reading
+ * `useReducedMotion()` in JS when they need a boolean (RAF loops, timeouts),
+ * and this class + media query for pure-CSS transitions/animations.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+    --motion-panel: 0ms;
+    --motion-modal-in: 0ms;
+    --motion-modal-out: 0ms;
+    --motion-wiz-in: 0ms;
+    --motion-wiz-out: 0ms;
+  }
+}
+
+/* ============== M006 — wizard step forward/back direction ============== */
+@keyframes motion-wiz-in-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes motion-wiz-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-wiz-dir-fwd {
+  animation: motion-wiz-in-fwd var(--motion-panel) var(--motion-crossfade);
+}
+.motion-wiz-dir-back {
+  animation: motion-wiz-in-back var(--motion-panel) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-wiz-dir-fwd,
+  .motion-wiz-dir-back {
+    animation: none;
+  }
+}
+
+/* ============== M004 — skeleton -> content crossfade ============== */
+@keyframes motion-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-just-loaded {
+  animation: motion-content-in var(--motion-slow) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-just-loaded {
+    animation: none;
+  }
+}
+
+/* ============== M014 — value flash on live count pills ============== */
+@keyframes motion-value-flash {
+  0% {
+    background: color-mix(in srgb, var(--pl-blue) 16%, transparent);
+    color: var(--pl-blue-deep, var(--pl-blue));
+    transform: scale(1.12);
+  }
+  40% {
+    background: color-mix(in srgb, var(--pl-blue) 16%, transparent);
+    color: var(--pl-blue-deep, var(--pl-blue));
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.motion-value-flash {
+  animation: motion-value-flash 0.9s var(--motion-fill);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-value-flash {
+    animation: none;
+  }
+}
+
+/* ============== M007 — modal exit clone (see inert-boundary.ts) ============== */
+@keyframes motion-modal-exit-panel {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}
+@keyframes motion-modal-exit-drawer {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0.4;
+    transform: translateX(24px);
+  }
+}
+.motion-modal-exit-panel-clone {
+  animation: motion-modal-exit-panel var(--motion-modal-out) var(--motion-ease-out) forwards;
+}
+.motion-modal-exit-drawer-clone {
+  animation: motion-modal-exit-drawer var(--motion-wiz-out) var(--motion-ease-out) forwards;
+}
+
+/* ============== M007 — modal panel entrance (Dialog.Content has none today) ============== */
+@keyframes motion-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-modal-panel-in {
+  animation: motion-modal-in var(--motion-modal-in) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-modal-panel-in {
+    animation: none;
+  }
+}
+
+/* ============== M003 — Button's pending/success face, fades in on mount ========== */
+@keyframes motion-face-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-face-in {
+  animation: motion-face-in var(--motion-fast) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-face-in {
+    animation: none;
+  }
+}
+
+/* ============== M001 — CrossfadeSlot primitive (M004 companion, M009) ============ */
+/* Every face shares one grid cell, so swapping the visible one never changes
+ * the container's box — the "Button owns loading" guard never has to account
+ * for width/height shift. The inactive face is not just transparent, it is
+ * also unreachable (`pointer-events:none`, `aria-hidden` set by the caller)
+ * and vertically offset by 3px so the swap reads as a lift, not a snap. */
+.motion-crossfade-slot {
+  display: inline-grid;
+}
+.motion-crossfade-slot > .motion-crossfade-face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem; /* matches Button's own `gap-2` so the pending/success face reads identically */
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition:
+    opacity var(--motion-base) var(--motion-crossfade),
+    transform var(--motion-base) var(--motion-crossfade);
+}
+/* The active face (its `data-face` matches the slot's `data-active-face`) is
+ * the only one visible and reachable; every other face stays present in the
+ * DOM (so nothing needs a mid-swap remount) but inert. */
+.motion-crossfade-slot[data-active-face="idle"] > .motion-crossfade-face[data-face="idle"],
+.motion-crossfade-slot[data-active-face="pending"] > .motion-crossfade-face[data-face="pending"],
+.motion-crossfade-slot[data-active-face="success"] > .motion-crossfade-face[data-face="success"],
+.motion-crossfade-slot[data-active-face="copied"] > .motion-crossfade-face[data-face="copied"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-crossfade-face {
+    transition: none;
+  }
+}
+
+/* ============== M005 — animated underline (FLIP) on header-card tabs ============== */
+.motion-tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  opacity: 0;
+  background: var(--pl-blue, var(--primary));
+  border-radius: 2px 2px 0 0;
+  pointer-events: none;
+  transition:
+    left var(--motion-base) var(--motion-cell),
+    width var(--motion-base) var(--motion-cell),
+    opacity var(--motion-fast) linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-tab-indicator {
+    transition: none;
+  }
+}
+
+/*
+ * ============================================================================
+ * b18-motion-features — M008, M010, M011, M012, M013, M016, M017.
+ * Technique ported from interior.dev (github.com/ddoemonn/interior, MIT
+ * license, © ozzy) — see ~/proplane-mock-kit/review-0927/interior-dev-research.md
+ * and the approved studio drawing (studio/changes.json M008–M017) for the
+ * exact timing values these classes carry forward. Every rule here reads the
+ * SAME `--motion-*` tokens above; nothing here introduces a new timing scale.
+ * ============================================================================
+ */
+
+/* ============== M008 — hold-to-confirm on destructive Delete/Remove ============== */
+/* The press duration is the actual confirmation gate (not decoration), so it
+ * is never shortened under reduced motion — only the smooth animated fill is
+ * swapped for a plain, non-animated bar (see HoldToConfirmButton's own note
+ * for why this deliberately does NOT match the studio prototype's instant-arm
+ * shortcut under reduced motion). */
+.motion-hold-fill {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.32);
+  pointer-events: none;
+  z-index: 0;
+  transition: none;
+}
+.motion-hold-fill.is-holding {
+  width: 100%;
+  transition-property: width;
+  transition-timing-function: linear;
+}
+.motion-hold-fill.is-reduced {
+  transition: none;
+}
+.motion-hold-refused {
+  animation: motion-hold-shake 0.32s var(--motion-ease-out);
+}
+@keyframes motion-hold-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-hold-refused {
+    animation: none;
+  }
+}
+
+/* ============== M010 — inline validation reserved-space error slot ============== */
+/* A fixed-height slot is reserved the moment a Field is validate-able (the
+ * caller passes an `error` prop at all, even `undefined`), BEFORE any error
+ * exists, so the crossfading message never shoves the field below it. */
+.motion-field-error-slot {
+  margin-top: 6px;
+  min-height: 16px;
+}
+.motion-field-error {
+  display: block;
+  opacity: 0;
+  transition: opacity var(--motion-fast) linear;
+}
+.motion-field-error.is-shown {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-field-error {
+    transition: none;
+  }
+}
+
+/* ============== M011 — password strength meter (sign-up / reset) ============== */
+.motion-pw-strength {
+  margin-top: 8px;
+}
+.motion-pw-strength-track {
+  display: flex;
+  gap: 4px;
+}
+.motion-pw-strength-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border, #e2e5eb);
+  transition: background-color var(--motion-base) var(--motion-cell);
+}
+.motion-pw-strength-seg.is-on-weak {
+  background: var(--danger, #dc2626);
+}
+.motion-pw-strength-seg.is-on-fair {
+  background: #d97706;
+}
+.motion-pw-strength-seg.is-on-good {
+  background: #16a34a;
+}
+.motion-pw-strength-label {
+  display: block;
+  margin-top: 4px;
+  min-height: 14px;
+  font-size: 11px;
+  color: var(--muted-foreground, var(--muted));
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-crossfade);
+}
+.motion-pw-strength-label.is-shown {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-pw-strength-seg,
+  .motion-pw-strength-label {
+    transition: none;
+  }
+}
+
+/* ============== M012 — typing indicator wave + one-shot streaming reveal ============== */
+/* interior.dev's Typing Indicator timing: three dots wave on a 1.25s linear
+ * loop, offset per dot — replaces the generic Tailwind `animate-pulse` (an
+ * opacity-only pulse with no lift) the assistant dots used before. */
+.motion-typing-dot {
+  display: inline-block;
+  animation: motion-typing-wave 1.25s linear infinite;
+}
+.motion-typing-dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.motion-typing-dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+@keyframes motion-typing-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-typing-dot {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* One-shot mask-wipe over an assistant reply the instant it lands. The real
+ * text node is never retyped/altered — only a CSS mask sweeps across it — so
+ * assistive tech and the DOM's own text content are correct from the very
+ * first frame (the reveal is purely decorative). */
+.motion-stream-reveal {
+  display: inline;
+  animation: motion-stream-wipe 0.62s steps(14, end) forwards;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, transparent 0);
+  mask-image: linear-gradient(90deg, #000 0, transparent 0);
+}
+@keyframes motion-stream-wipe {
+  from {
+    -webkit-mask-size: 0% 100%;
+    mask-size: 0% 100%;
+  }
+  to {
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-stream-reveal {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* ============== M013 — task-step resolution morph (assistant action cards) ============== */
+.motion-resolved-flash {
+  animation: motion-pop var(--motion-base) var(--motion-cell);
+}
+.motion-resolved-flash svg {
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  animation: motion-draw 0.24s var(--motion-ease-in) forwards;
+}
+@keyframes motion-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes motion-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-resolved-flash,
+  .motion-resolved-flash svg {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ============== M016 — sortable table row-travel (FLIP), admin tables ============== */
+.motion-sort-glyph {
+  display: inline-block;
+  margin-left: 4px;
+  opacity: 0.45;
+  transition:
+    transform var(--motion-fast) var(--motion-cell),
+    opacity var(--motion-fast) linear;
+}
+th[aria-sort="ascending"] .motion-sort-glyph {
+  opacity: 1;
+  transform: rotate(0deg);
+}
+th[aria-sort="descending"] .motion-sort-glyph {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.motion-sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.motion-sortable-th:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+/* Row-travel itself is applied as an inline transform by useFlipRows
+ * (flip-rows.ts) so it can read each row's own measured delta; this class
+ * only supplies the transition the JS then triggers. */
+.motion-flip-row {
+  transition: transform var(--motion-base) var(--motion-cell);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-flip-row {
+    transition: none;
+  }
+}
+
+/* ============== M017 — OTP input / reorder list / blur-up image (primitives) ============== */
+.motion-otp-cell {
+  transition:
+    transform var(--motion-fast) var(--motion-cell),
+    border-color var(--motion-fast) linear;
+}
+.motion-otp-cell.is-filled {
+  animation: motion-pop var(--motion-fast) var(--motion-cell);
+}
+.motion-otp-cell.is-error {
+  animation: motion-hold-shake 0.32s var(--motion-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-otp-cell,
+  .motion-otp-cell.is-filled,
+  .motion-otp-cell.is-error {
+    animation: none;
+    transition: none;
+  }
+}
+
+.motion-reorder-item {
+  transition:
+    transform var(--motion-base) var(--motion-cell),
+    box-shadow var(--motion-fast) linear;
+}
+.motion-reorder-item.is-dragging {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  z-index: 5;
+  cursor: grabbing;
+}
+.motion-reorder-grip {
+  cursor: grab;
+  touch-action: none;
+}
+.motion-reorder-grip.is-armed {
+  color: var(--pl-blue, var(--primary));
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-reorder-item {
+    transition: none;
+  }
+}
+
+/* M017 — blur-up image. No separate placeholder asset exists (or is ever
+ * fabricated — AGENTS.md "Listing images: never fabricate a photo"): the
+ * SAME real photo renders blurred+scaled while its own network load is in
+ * flight, then "develops" into focus the instant it fires `onLoad` — the
+ * container's existing neutral background (`bg-accent/25`) is the implicit
+ * placeholder underneath, exactly as it was before this change. */
+.motion-blurup-real {
+  opacity: 0;
+  filter: blur(18px);
+  transform: scale(1.04);
+  transition:
+    opacity 0.65s var(--motion-ease-in),
+    filter 0.65s var(--motion-ease-in),
+    transform 0.65s var(--motion-ease-in);
+}
+.motion-blurup-real.is-loaded {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-blurup-real {
+    transition: none;
+  }
+}
+
+/* M017 — lightbox / video-lightbox entrance polish (backdrop fade + panel
+ * scale), reusing the same asymmetric Modal timing already proven for M007. */
+.motion-lightbox-backdrop {
+  animation: motion-backdrop-in var(--motion-modal-in) var(--motion-ease-in);
+}
+@keyframes motion-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-lightbox-backdrop {
+    animation: none;
+  }
+}

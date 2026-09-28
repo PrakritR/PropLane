@@ -85,6 +85,16 @@ export type PropertyLeaseTemplate = {
   publishedQuestionConfig?: ApplicationTemplateQuestionConfig;
   /** Immutable prior published snapshots, mirroring the application template's history list. */
   publishedQuestionConfigVersions?: ApplicationTemplateQuestionConfig[];
+  /**
+   * F-editor d/F015: another of this property's lease templates that is the
+   * co-signer / guarantor addendum a planned co-signer or guarantor signs
+   * alongside this main lease. `null`/absent = no addendum linked (today's
+   * behavior, unchanged). Store + show only — no resident-facing signing
+   * wizard reads a lease-side co-signer/guarantor addendum yet (see this
+   * type's own `draftQuestionConfig` comment above), so there is no existing
+   * invite path to wire this into on the lease side.
+   */
+  linkedGuarantorLeaseTemplateId?: string | null;
 };
 
 export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {
@@ -455,4 +465,24 @@ export function publishedLeaseQuestionConfigVersionForTemplate(
   const candidates = [template.publishedQuestionConfig, ...(template.publishedQuestionConfigVersions ?? [])];
   const found = candidates.find((config) => config?.version === version);
   return found ? copyLeaseQuestionConfig(found) : null;
+}
+
+/**
+ * F016 safety boundary: `PropertyLeaseTemplate` (this file) is a property's
+ * reusable FORM/DRAFT — it has no signature, execution, or "fully signed"
+ * fields at all, unlike a `LeasePipelineRow` (the resident-facing signed
+ * lease, `docs/agents/lease-generation.md` "Signed documents are immutable in
+ * practice"). The template editor must never be handed one of those instead.
+ *
+ * This checks defensively and structurally (not by the TypeScript type
+ * alone, which a refactor could silently widen) for any of the fields that
+ * would mark a `LeasePipelineRow` as executed. It should always be `false`
+ * for a real `PropertyLeaseTemplate`; if it is ever `true`, the caller must
+ * refuse rather than let an import silently overwrite what could be an
+ * executed lease's body.
+ */
+export function templateAppearsToBeExecutedLease(candidate: unknown): boolean {
+  if (!candidate || typeof candidate !== "object") return false;
+  const row = candidate as Record<string, unknown>;
+  return Boolean(row.fullySignedAt) || Boolean(row.managerSignature) || Boolean(row.residentSignature) || Boolean(row.signatureName) || Boolean(row.signedAtIso);
 }

@@ -102,3 +102,36 @@ describe("PublicApplyAccountPrompt offers only account actions", () => {
     expect(await screen.findByText("Create account")).toBeTruthy();
   });
 });
+
+describe("PublicApplyAccountPrompt says 'sign the lease' for a lease-first listing (PLAN-0927)", () => {
+  afterEach(() => cleanup());
+
+  it("this IS the anonymous prospect's actual first screen — it must not say Apply for lease_first", async () => {
+    render(
+      <PublicApplyAccountPrompt
+        gateKey={PROPERTY_ID}
+        applyReturnPath={`/resident/applications/apply?propertyId=${PROPERTY_ID}`}
+        propertyTitle="QA Madison Studio"
+        signingOrder="lease_first"
+      />,
+    );
+    await screen.findByText("Create account");
+    expect(screen.getByText("Before you sign")).toBeTruthy();
+    expect(screen.getByText(/account is required to sign the lease for QA Madison Studio/i)).toBeTruthy();
+    expect(screen.queryByText(/account is required to apply/i)).toBeNull();
+  });
+
+  it("keeps the Apply copy for application_first or an unresolved signing order", async () => {
+    render(
+      <PublicApplyAccountPrompt
+        gateKey={PROPERTY_ID}
+        applyReturnPath={`/resident/applications/apply?propertyId=${PROPERTY_ID}`}
+        propertyTitle="QA Madison Studio"
+        signingOrder="application_first"
+      />,
+    );
+    await screen.findByText("Create account");
+    expect(screen.getByText("Before you apply")).toBeTruthy();
+    expect(screen.getByText(/account is required to apply for QA Madison Studio/i)).toBeTruthy();
+  });
+});

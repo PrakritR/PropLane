@@ -131,6 +131,18 @@ export function effectiveLeaseSigningFeeCents(prefs: LeasingPipelinePreferences)
   return prefs.leaseSigningFeeCents ?? 0;
 }
 
+/** The minimal derived label a public/anonymous surface may see (PLAN-0927). */
+export type SigningOrder = "application_first" | "lease_first";
+
+/**
+ * Collapse `pipelineOrder` to the one label a prospect-facing surface needs.
+ * Never expose `pipelineOrder`, the workspace default, or the per-property
+ * override map itself to an anonymous caller — only this derived value.
+ */
+export function signingOrderForPipeline(prefs: LeasingPipelinePreferences): SigningOrder {
+  return prefs.pipelineOrder === "lease_then_application" ? "lease_first" : "application_first";
+}
+
 /**
  * Whether the resident lease section unlocks without an approved application.
  * Lease-first workspaces unlock lease when a lease is required; application-first
@@ -183,6 +195,39 @@ export async function loadLeasingPipeline(
 ): Promise<LeasingPipelinePreferences> {
   const state = await loadLeasingPipelineState(db, managerUserId);
   return state.portfolio;
+}
+
+/**
+ * Batch-load leasing-pipeline state for several managers in one query. The
+ * public listing catalog resolves a signing order per listing and must not
+ * issue one `manager_automation_settings` query per manager. A manager with
+ * no row (never saved) is simply absent from the map — callers resolve that
+ * with `resolveLeasingPipelineForProperty` against `DEFAULT_LEASING_PIPELINE`,
+ * same fallback as the single-manager loader above.
+ */
+export async function loadLeasingPipelineStatesByManagerId(
+  db: SupabaseClient,
+  managerUserIds: readonly string[],
+): Promise<Map<string, LeasingPipelineState>> {
+  const ids = [...new Set(managerUserIds.filter((id): id is string => typeof id === "string" && id.length > 0))];
+  const out = new Map<string, LeasingPipelineState>();
+  if (ids.length === 0) return out;
+  const { data, error } = await db
+    .from("manager_automation_settings")
+    .select("manager_user_id, row_data")
+    .in("manager_user_id", ids);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const managerUserId = row.manager_user_id;
+    if (!managerUserId) continue;
+    const raw = row.row_data;
+    const rowData = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    out.set(String(managerUserId), {
+      portfolio: normalizeLeasingPipelinePreferences(rowData[ROW_DATA_KEY]),
+      byPropertyId: normalizeLeasingPipelineByPropertyId(rowData[ROW_DATA_BY_PROPERTY_KEY]),
+    });
+  }
+  return out;
 }
 
 export async function saveLeasingPipeline(

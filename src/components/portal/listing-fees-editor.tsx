@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { ReorderList } from "@/components/ui/motion/reorder-list";
 import { cn } from "@/lib/utils";
 import {
   LISTING_FEE_PRESETS,
@@ -159,8 +160,24 @@ export function ListingFeesEditor({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted">Enter 0 for anything you do not charge — it stays off the public listing.</p>
-      <div className="space-y-3">
-        {rows.map((fee, i) => {
+      {/*
+       * M017 — reorder list (a grip + the gap-is-the-drop-target technique,
+       * ReorderList in src/components/ui/motion/, see its own header for
+       * the interior.dev source and why it carries no new dependency). This
+       * whole editor has zero importers today (grep -rln "ListingFeesEditor"
+       * src returns only this file) — the v2 listing wizard's own fee rows
+       * (listing-pricing-step.tsx) mix inherited/room-scoped/preset rows in
+       * a money-adjacent, non-trivially-ordered way that is not safe to
+       * retrofit free reordering onto without a separate, reviewed change.
+       * Built exactly as named in the brief on the one component actually
+       * named "fee rows"; documented here so nobody expects it live today.
+       */}
+      <ReorderList<ListingFeeRow>
+        items={rows}
+        label="Fees"
+        className="space-y-3"
+        onReorder={(next) => patchFees(() => next)}
+        renderRow={(fee, i) => {
           const isCustom = !fee.presetId || fee.presetId === "custom";
           const fieldKey = listingFeeWizardFieldKey(fee.id);
           const legacyKey = legacyFieldKeyForFee(fee);
@@ -265,8 +282,8 @@ export function ListingFeesEditor({
               </div>
             </FeeCard>
           );
-        })}
-      </div>
+        }}
+      />
       <Button type="button" variant="outline" className={ACTION_BTN} onClick={addFee}>
         + Add fee
       </Button>

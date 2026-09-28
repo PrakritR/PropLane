@@ -5,7 +5,16 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import {
+  FloatingLabelField,
+  MoneyInput,
+  PanelSection,
+  SegmentedControl,
+  StepColumn,
+  StepHeading,
+  ToggleRow,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
@@ -50,6 +59,8 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
+import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
+import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
   APPLICATION_QUESTION_PACKS,
   buildQuestionsFromPack,
@@ -62,6 +73,7 @@ import {
   applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
   draftQuestionConfigForTemplate,
+  makePropertyApplicationTemplateId,
   withPropertyApplicationTemplatesExplicit,
   updatePropertyApplicationTemplate,
   type ApplicationTemplateQuestionConfig,
@@ -184,10 +196,6 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose,
   onSaved,
   showToast,
-  autoImportFile = null,
-  onAutoImportConsumed,
-  onUploadPdf,
-  uploadingPdf = false,
 }: {
   open: boolean;
   title?: string;
@@ -222,24 +230,6 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose: () => void;
   onSaved: () => void;
   showToast: (m: string) => void;
-  /**
-   * "+ Add → Upload PDF" in one step: the caller already created and saved a
-   * real (empty) template — `applicationTemplate` is never null here — and
-   * hands the just-picked PDF through so this modal can run the same import
-   * `importPdf` already runs for an existing template, once, automatically,
-   * the first time it opens with a template + a pending file. The caller
-   * clears this after one render (`onAutoImportConsumed`) so re-opening the
-   * same template later never re-imports on its own.
-   */
-  autoImportFile?: File | null;
-  onAutoImportConsumed?: () => void;
-  /**
-   * Add mode only: start this new application from a PDF. The caller creates
-   * and saves the template, then reopens this modal in edit mode with the
-   * file as `autoImportFile`, so the upload lives in the same popup as Add.
-   */
-  onUploadPdf?: (file: File, label: string) => void;
-  uploadingPdf?: boolean;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -254,6 +244,9 @@ export function ManagerApplicationQuestionsEditorModal({
   const [feeOverrideCents, setFeeOverrideCents] = useState<number>(0);
   const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
   const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
+  // F-editor d: another of this property's application templates whose form
+  // a planned co-signer fills in — see `PropertyApplicationTemplate.linkedCosignerApplicationTemplateId`.
+  const [linkedCosignerTemplateId, setLinkedCosignerTemplateId] = useState<string | null>(null);
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
@@ -285,17 +278,37 @@ export function ManagerApplicationQuestionsEditorModal({
   // Settings -> Forms already uses (recopies onto every OTHER listing that
   // still follows the workspace, via `recopyWorkspaceApplicationFormOntoFollowingListings`).
   const [makingDefault, setMakingDefault] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  /** F002: the file name shown on the dashed "Start from a file" card's reading state. */
+  const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
   const [importedQuestionDraft, setImportedQuestionDraft] = useState<ApplicationTemplateQuestionConfig | null>(null);
   const [importIssues, setImportIssues] = useState<Array<{ pageNumber: number | null; code: string; message: string }>>([]);
   const [resolvedImportIssueIndexes, setResolvedImportIssueIndexes] = useState<number[]>([]);
   const [compareView, setCompareView] = useState<"original" | "form">("form");
   const [reviewingSource, setReviewingSource] = useState(false);
+  // F004: a freshly parsed import, held here until the manager explicitly
+  // applies it — picking a file must never silently replace what is already
+  // on screen. `sourcePath` lets "Compare" show the Original PDF before Apply.
+  const [pendingImport, setPendingImport] = useState<{
+    draft: ApplicationTemplateQuestionConfig;
+    issues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    sourcePath: string | null;
+  } | null>(null);
+  const [pendingImportCompareOpen, setPendingImportCompareOpen] = useState(false);
   const [questionDisplayOrder, setQuestionDisplayOrder] = useState<string[]>([]);
+  // F-editor a: the Sections step's checklist — default sections the manager
+  // unchecked for THIS template, hidden from the Form step below. See
+  // `ApplicationTemplateQuestionConfig.disabledSectionIds`'s own doc comment.
+  const [disabledSectionIds, setDisabledSectionIds] = useState<RentalApplicationSectionId[]>([]);
   const initializedEditorRef = useRef<string | null>(null);
+  // F004/F007: a brand-new ("add" mode) application has no id until the
+  // footer commit creates it. Generated once per open and reused both as the
+  // storage/import id an in-progress "Sections" pick stages against and as
+  // the created template's real id at commit, so a staged import's
+  // `importProvenance.sourcePath` and a Setup "Default" pick both still
+  // point at whatever template actually gets created.
+  const addModeTemplateIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -326,6 +339,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setFeeOverrideCents(applicationTemplate?.feeCentsOverride ?? 0);
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
+    setLinkedCosignerTemplateId(applicationTemplate?.linkedCosignerApplicationTemplateId ?? null);
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
@@ -339,6 +353,10 @@ export function ManagerApplicationQuestionsEditorModal({
     setImportIssues(applicationTemplate?.draftQuestionConfig?.importProvenance?.issues ?? []);
     setResolvedImportIssueIndexes(applicationTemplate?.draftQuestionConfig?.importProvenance?.resolvedIssueIndexes ?? []);
     setCompareView("form");
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
+    setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
+    addModeTemplateIdRef.current = templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null;
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -403,6 +421,41 @@ export function ManagerApplicationQuestionsEditorModal({
     });
     setDirty(true);
   };
+
+  // F-editor b: the property Add/Edit application editor no longer offers a
+  // "Workspace form / Custom for this listing" switch, or "Make default
+  // format" — this property's application is always its OWN form, seeded
+  // from the workspace template exactly the way "Custom for this listing"
+  // already seeded it. A template that is still following the workspace
+  // (never explicitly customized before this redesign) is detached from it
+  // once, silently, the moment the workspace form finishes loading — the
+  // same one-time copy as `setApplicationFormSource("custom")` above, minus
+  // `setDirty`, because materializing the already-effective fields is not a
+  // user edit. Nothing here touches the listing-wide editor (`isTemplateEditor`
+  // is false there), which keeps the picker and its live "follows the
+  // workspace" resolution untouched.
+  useEffect(() => {
+    if (!open || !isTemplateEditor || isBulkTemplateEditor) return;
+    if (!workspaceFormLoaded || applicationFormSource === "custom") return;
+    setLocalSub((prev) => (prev.applicationFormSource === "custom" ? prev : {
+      ...prev,
+      applicationFormSource: "custom",
+      ...(workspaceForm
+        ? {
+            customApplicationFields: workspaceForm.customApplicationFields,
+            disabledStandardApplicationKeys: workspaceForm.disabledStandardApplicationKeys,
+            applicationConfigMode: workspaceForm.applicationConfigMode,
+            shortTermCustomApplicationFields: workspaceForm.shortTermCustomApplicationFields,
+            shortTermDisabledStandardApplicationKeys: workspaceForm.shortTermDisabledStandardApplicationKeys,
+            shortTermApplicationConfigMode: workspaceForm.shortTermApplicationConfigMode,
+            cosignerCustomApplicationFields: workspaceForm.cosignerCustomApplicationFields,
+            cosignerDisabledStandardApplicationKeys: workspaceForm.cosignerDisabledStandardApplicationKeys,
+            cosignerApplicationConfigMode: workspaceForm.cosignerApplicationConfigMode,
+          }
+        : {}),
+    }));
+  }, [open, isTemplateEditor, isBulkTemplateEditor, workspaceFormLoaded, workspaceForm, applicationFormSource]);
+
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
@@ -483,6 +536,23 @@ export function ManagerApplicationQuestionsEditorModal({
     [configSlice, variant],
   );
 
+  // F004: the staged import's own field list, resolved the same way
+  // `applicationFields` is, so the diff compares like with like.
+  const pendingImportFields = useMemo(
+    () => (pendingImport ? resolveListingApplicationFields(pendingImport.draft, normalizeCustomApplicationFieldsForEditor) : null),
+    [pendingImport],
+  );
+  const pendingImportDiff = useMemo(
+    () =>
+      pendingImportFields
+        ? diffImportSections(
+            applicationFieldsToImportSections(applicationFields),
+            applicationFieldsToImportSections(pendingImportFields),
+          )
+        : null,
+    [applicationFields, pendingImportFields],
+  );
+
   // Inline per-row validation (duplicate key, empty label, options required) —
   // the old per-question modal's `validateField` run once per field in
   // question order, so the SECOND row to claim a key is the one flagged.
@@ -536,13 +606,17 @@ export function ManagerApplicationQuestionsEditorModal({
       // After (proto/property-forms.js ED_STEPS); the listing-wide editor
       // below (opened outside a property record) keeps its own separate
       // per-section step rail, out of scope for this collapse.
-      const totalQuestions = applicationFields.length;
+      // F003: a section the manager unchecked drops out of every count too.
+      const includedSectionIds = new Set(
+        RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== "review" && !disabledSectionIds.includes(s.id)).map((s) => s.id),
+      );
+      const totalQuestions = applicationFields.filter((f) => includedSectionIds.has((f.section ?? "additional") as RentalApplicationSectionId)).length;
       const steps: AddWorkspaceStep[] = [
-        { id: "name", label: "Name", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
+        { id: "name", label: "Sections", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
         {
           id: "sections",
           label: "Form",
-          summary: totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`,
+          summary: `${totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`} · ${includedSectionIds.size === 1 ? "1 section" : `${includedSectionIds.size} sections`}`,
         },
       ];
       // P003: Setup — fee, promo code, pipeline order, default for this
@@ -632,6 +706,7 @@ export function ManagerApplicationQuestionsEditorModal({
         setTemplateLabelError("Enter a name for this application.");
         return;
       }
+      if (duplicateTemplateNameError) return;
       setTemplateLabelError(null);
       if (!templates || !onPersistSubmission) {
         showToast("Could not save application.");
@@ -677,11 +752,25 @@ export function ManagerApplicationQuestionsEditorModal({
           ...templates,
           {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
+            // F004/F007: reuse the SAME id a staged import was parsed
+            // against (and a Setup "Default" pick already wrote to this
+            // property's settings) — otherwise either would end up pointing
+            // at an id no template ever ends up with.
+            id: addModeTemplateIdRef.current ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
+            linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
             draftQuestionConfig: {
-              ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
+              ...applicationTemplateQuestionConfigFromSlice(
+                applicationConfigForVariant(sanitizedSub, "standard"),
+                // F004: carries a staged-then-applied import's `importProvenance`
+                // (source name/path/sha, issues) onto the newly created
+                // template — the PDF was already parsed and stored at Apply
+                // time; nothing here re-parses or re-uploads it.
+                importedQuestionDraft ?? undefined,
+              ),
               questionDisplayOrder: applicationFields.map((field) => field.id),
+              disabledSectionIds: [...disabledSectionIds],
             },
           },
         ];
@@ -691,38 +780,51 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
+          linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
               importedQuestionDraft ?? draftQuestionConfigForTemplate(applicationTemplate!),
             ),
             questionDisplayOrder: configSlice.questionDisplayOrder,
+            disabledSectionIds: [...disabledSectionIds],
           },
         });
       }
       // Template edits must not mutate the listing-wide legacy triplet. That
       // triplet remains the fallback for templates created before versioning.
+      // F-editor c: the footer Save/Add button is the ONLY commit action now
+      // (the in-body "Publish application" button is gone) — it tries to
+      // publish, but a failed gate falls back to an ordinary draft save
+      // rather than discarding the manager's edits. Losing unsaved work to a
+      // publish-readiness check would be worse than landing on Setup with a
+      // draft that is not live yet.
       let publishTarget: PropertyApplicationTemplate | null = null;
+      let publishBlockedReason: string | null = null;
       if (publish) {
         const target = nextTemplates.find((template) =>
           template.id === applicationTemplate?.id || (templateEditorMode === "add" && template.label === trimmed),
         );
         if (!target) {
-          setSaving(false);
-          setSaveError("Could not prepare this application for publishing.");
-          return;
+          publishBlockedReason = "Could not prepare this application for publishing.";
+        } else {
+          const gate = applicationTemplateQuestionPublishGate(target);
+          if (gate.ok) {
+            publishTarget = target;
+          } else {
+            publishBlockedReason = gate.reason;
+          }
         }
-        const gate = applicationTemplateQuestionPublishGate(target);
-        if (!gate.ok) {
-          setSaving(false);
-          setSaveError(gate.reason);
-          return;
-        }
-        publishTarget = target;
       }
       const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
       const okSaved = await onPersistSubmission(merged, {
-        message: publish ? "Application draft saved." : templateEditorMode === "add" ? "Application added." : "Application saved.",
+        message: publishTarget
+          ? "Application published."
+          : publishBlockedReason
+            ? `Saved as a draft — ${publishBlockedReason}`
+            : templateEditorMode === "add"
+              ? "Application added."
+              : "Application saved.",
       });
       if (!okSaved) {
         setSaving(false);
@@ -774,59 +876,75 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
-  const importPdf = async (file: File) => {
-    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+  type StagedApplicationImport = {
+    draft: ApplicationTemplateQuestionConfig;
+    issues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    sourcePath: string | null;
+  };
+
+  // F004: parses the uploaded PDF and STAGES the result — nothing on screen
+  // changes yet, and nothing is persisted (a brand-new "add" application has
+  // no saved template row at all until the footer commit creates one).
+  // `applyPendingImport` below is the only thing that writes it into the
+  // template being edited. Works the same for a new template (staged against
+  // `addModeTemplateIdRef.current`, reused as the real id at commit) and an
+  // existing one (`applicationTemplate.id`) — picking a file on the Sections
+  // card never distinguishes the two any more.
+  const importPdf = async (file: File): Promise<StagedApplicationImport | null> => {
+    const templateIdForImport = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+    if (!templateIdForImport || !applicationPreviewPropertyId || isBulkSave) return null;
     setImporting(true);
     try {
       const body = new FormData();
       body.set("propertyId", applicationPreviewPropertyId);
-      body.set("templateId", applicationTemplate.id);
+      body.set("templateId", templateIdForImport);
       body.set("file", file);
       const response = await fetch("/api/portal/application-template-import", { method: "POST", body });
       const result = await response.json().catch(() => null) as { error?: string; draft?: ApplicationTemplateQuestionConfig; source?: { path?: string }; issues?: Array<{ pageNumber: number | null; code: string; message: string }> } | null;
       if (!response.ok || !result) throw new Error(result?.error || "Could not import the application PDF.");
-      setOriginalPdfPath(result.source?.path ?? null);
-      setImportIssues(result.issues ?? []);
-      setResolvedImportIssueIndexes([]);
-      if (result.draft) {
-        setImportedQuestionDraft(result.draft);
-        setQuestionDisplayOrder(result.draft.questionDisplayOrder ?? []);
-        setLocalSub((previous) => ({
-          ...previous,
-          ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate), result.draft!),
-        }));
-        setDirty(true);
-      }
-      showToast(result.issues?.length ? "Imported as a draft. Resolve the flagged source issues before publishing." : "Imported application draft saved.");
+      if (!result.draft) throw new Error("Could not read any questions from that PDF.");
+      const staged: StagedApplicationImport = { draft: result.draft, issues: result.issues ?? [], sourcePath: result.source?.path ?? null };
+      setPendingImport(staged);
+      setPendingImportCompareOpen(false);
+      return staged;
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Could not import the application PDF.");
+      return null;
     } finally {
       setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
     }
   };
 
-  // "+ Add → Upload PDF" in one step: the caller already created and saved
-  // the (empty) template before opening this modal, so `applicationTemplate`
-  // is already real — run the same import the manual "Import PDF" button
-  // runs, once, then land on Preview where the source comparison and any
-  // flagged issues live. Guarded by a ref (not state) so this can never
-  // re-fire from an unrelated re-render while `autoImportFile` is still set.
-  const autoImportRanRef = useRef(false);
-  useEffect(() => {
-    if (!open || !autoImportFile || autoImportRanRef.current) return;
-    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
-    autoImportRanRef.current = true;
-    // The state updates below happen once the import network call settles,
-    // not synchronously in the effect body — an async completion callback,
-    // the same shape `importPdf`'s own button handler already uses.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void importPdf(autoImportFile).then(() => {
-      setStepIdx(workspaceSteps.length - 1);
-      onAutoImportConsumed?.();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, autoImportFile, applicationTemplate, applicationPreviewPropertyId, isBulkSave]);
+  // F004: writes a staged import into the template being edited — the same
+  // state `importPdf`'s success branch used to set immediately. This is the
+  // ONLY place that happens; picking a file never does it on its own. Works
+  // in "add" mode too (`applicationTemplate` is null there): the variant
+  // falls back to "standard", the only variant a brand-new template can be.
+  const applyPendingImport = (staged: StagedApplicationImport | null = pendingImport) => {
+    if (!staged) return;
+    const { draft, issues, sourcePath } = staged;
+    const importVariant = applicationTemplate ? applicationFormVariantForTemplate(applicationTemplate) : "standard";
+    setOriginalPdfPath(sourcePath);
+    setImportIssues(issues);
+    setResolvedImportIssueIndexes([]);
+    setImportedQuestionDraft(draft);
+    setQuestionDisplayOrder(draft.questionDisplayOrder ?? []);
+    setLocalSub((previous) => ({
+      ...previous,
+      ...mergeApplicationConfigForVariant(importVariant, draft),
+    }));
+    setDirty(true);
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
+    showToast(issues.length ? "Applied. Resolve the flagged source issues before publishing." : "Applied the imported questions.");
+  };
+
+  // F004: drops the staged import. The template is left exactly as it was —
+  // nothing that `applyPendingImport` would have written is touched.
+  const discardPendingImport = () => {
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
+  };
 
   const reviewImportedSource = async () => {
     if (!applicationTemplate || !applicationPreviewPropertyId || !templates || !onPersistSubmission || isBulkSave) return;
@@ -906,6 +1024,37 @@ export function ManagerApplicationQuestionsEditorModal({
   const reenableField = (field: ResolvedApplicationField) => {
     if (!field.standardKey || !canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(reenableListingApplicationField(configSlice, field.standardKey));
+  };
+
+  // F-editor a: a section holding a never-removable standard field (identity
+  // trio, SSN/ID, income) can never actually drop to zero questions, so its
+  // Sections-step checklist entry stays locked checked rather than offering
+  // an uncheck that would not do anything.
+  const sectionHasLockedField = (sectionId: RentalApplicationSectionId): boolean =>
+    [...applicationFields, ...disabledFields].some(
+      (field) => (field.section ?? "additional") === sectionId && Boolean(field.standardKey) && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey!),
+    );
+
+  /** Unchecking drops every standard question in the section that can be turned off (never a custom one the manager wrote). Re-checking brings them back. */
+  const toggleSection = (sectionId: RentalApplicationSectionId, on: boolean): void => {
+    if (!on && sectionHasLockedField(sectionId)) return;
+    let nextConfig: ApplicationConfigSlice = configSlice;
+    if (!on) {
+      for (const field of applicationFields) {
+        if ((field.section ?? "additional") !== sectionId || !field.isStandard) continue;
+        if (!canEditBuiltIn(field, "visibility")) continue;
+        nextConfig = { ...nextConfig, ...removeListingApplicationField(nextConfig, field) };
+      }
+    } else {
+      for (const field of disabledFields) {
+        if ((field.section ?? "additional") !== sectionId || !field.standardKey) continue;
+        nextConfig = { ...nextConfig, ...reenableListingApplicationField(nextConfig, field.standardKey) };
+      }
+    }
+    applyEditedSlice(nextConfig);
+    setDisabledSectionIds((prev) =>
+      on ? prev.filter((id) => id !== sectionId) : prev.includes(sectionId) ? prev : [...prev, sectionId],
+    );
   };
 
   const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
@@ -1091,6 +1240,19 @@ export function ManagerApplicationQuestionsEditorModal({
     isTemplateEditor && (templateEditorMode === "add" || (applicationTemplate != null && !applicationTemplate.listingSeedKey))
       ? "Reset all standard questions"
       : "Restore PropLane defaults";
+
+  // F001: inline duplicate-name validation — another application already
+  // saved on this property with the same (trimmed, case-insensitive) name.
+  const duplicateTemplateNameError = useMemo(() => {
+    if (!isTemplateEditor || !templates) return null;
+    const trimmed = templateLabel.trim().toLowerCase();
+    if (!trimmed) return null;
+    const clashes = templates.some(
+      (candidate) => candidate.id !== applicationTemplate?.id && candidate.label.trim().toLowerCase() === trimmed,
+    );
+    return clashes ? `An application named "${templateLabel.trim()}" already exists on this property.` : null;
+  }, [isTemplateEditor, templates, templateLabel, applicationTemplate?.id]);
+  const nameStepError = templateLabelError || duplicateTemplateNameError;
 
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
@@ -1318,9 +1480,7 @@ export function ManagerApplicationQuestionsEditorModal({
         steps={workspaceSteps}
         current={current}
         onJump={jump}
-        // While Upload PDF is creating the form, closing would let the modal
-        // pop back open in edit mode when that save lands.
-        onClose={uploadingPdf ? () => {} : onClose}
+        onClose={onClose}
         onRequestClose={() => {
           if (addChooserSectionId) {
             setAddChooserSectionId(null);
@@ -1341,18 +1501,25 @@ export function ManagerApplicationQuestionsEditorModal({
           />
         }
         lastLabel={templateEditorMode === "add" ? "Add application" : "Save"}
-        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty) || hasFieldErrors}
+        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
           if (stepId === "name" && !templateLabel.trim()) {
             setTemplateLabelError("Enter a name for this application.");
             return false;
           }
+          if (stepId === "name" && duplicateTemplateNameError) return false;
           return true;
         }}
-        busy={saving || uploadingPdf}
-        onFinish={() => void commitSave()}
+        busy={saving}
+        // F-editor c: footer-only commit. The old separate "Publish
+        // application" button is gone — the same footer Save/Add action
+        // now tries to publish for a single-property template editor, and
+        // falls back to an ordinary draft save (see commitSave) when the
+        // publish gate is not satisfied yet.
+        onFinish={() => void commitSave({ publish: isTemplateEditor && !isBulkTemplateEditor })}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"
+        numberedSteps
         finishDataAttr="application-questions-save"
         footerNote={
           saveError ? (
@@ -1379,79 +1546,95 @@ export function ManagerApplicationQuestionsEditorModal({
       >
         {stepId === "name" ? (
           <StepColumn>
-            <StepHeading
-              title="Name"
-              action={
-                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
-                  {restoreLabel}
-                </button>
+            <StepHeading title="Sections" />
+            {/* F002/F004: the same dashed drop-zone card the listing wizard uses
+                for "Start from a file" — upload lives ONLY here now, for both
+                a brand-new ("add") application and an existing one. Either
+                way, picking a file only STAGES the parse (`importPdf`); it
+                is never persisted until the footer commit. */}
+            <ImportFileStrip
+              dataAttr="property-application-start-from-file"
+              chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
+              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              busy={importing}
+              state={
+                importing
+                  ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
+                  : { kind: "blank" }
               }
-            />
-            <label className={WIZARD_LABEL_CLASS} htmlFor="application-template-name">
-              Application name
-            </label>
-            <Input
-              id="application-template-name"
-              value={templateLabel}
-              onChange={(e) => {
-                setTemplateLabel(e.target.value);
-                setTemplateLabelError(null);
-                setDirty(true);
+              onPickFile={(file) => {
+                setSectionsUploadFileName(file.name);
+                if (isTemplateEditor && applicationPreviewPropertyId && !isBulkSave) {
+                  void importPdf(file);
+                }
               }}
-              placeholder="e.g. Summer intern application"
-              data-attr="property-application-name"
+              onReread={() => {}}
             />
-            {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
-            {applicationFormSourcePicker}
-            {/* P012 (captain 2026-09-27): "have upload application and lease in
-                first tab." Uploading your own application now happens on this
-                first step, not tucked into Preview at the end. */}
-            {/* origin/main (Akhil, "move Upload PDF into the Add popup"): start a
-                BRAND NEW template from a PDF, add mode only. Complementary to the
-                isTemplateEditor block just below, which re-imports a PDF onto a
-                template that already exists — the two conditions never overlap. */}
-            {templateEditorMode === "add" && onUploadPdf ? (
-              <div className="mt-4">
-                <p className={WIZARD_LABEL_CLASS}>Start from a PDF</p>
-                <input
-                  ref={uploadPdfInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="sr-only"
-                  data-attr="property-application-upload-pdf-input"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onUploadPdf(file, templateLabel);
-                    event.target.value = "";
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={uploadingPdf}
-                  data-attr="property-application-upload-pdf"
-                  onClick={() => uploadPdfInputRef.current?.click()}
-                >
-                  {uploadingPdf ? "Uploading…" : "Upload PDF"}
-                </Button>
+            {/* F004: a freshly parsed import waits here — nothing above or
+                below has changed yet. "Apply changes" is the only thing that
+                writes it in; "Discard" drops it and leaves the template
+                exactly as it was. */}
+            {pendingImport && pendingImportDiff ? (
+              <div className="mb-4 rounded-2xl border border-primary/40 bg-primary/[0.04] p-3.5" data-attr="application-pending-import">
+                <p className="text-[13.5px] font-bold text-foreground" data-attr="application-pending-import-summary">
+                  {pendingImportDiff.totalIncoming} section{pendingImportDiff.totalIncoming === 1 ? "" : "s"} found · {pendingImportDiff.changedCount === 0 ? "up to date" : `${pendingImportDiff.changedCount} changed`}
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" className="rounded-full" onClick={() => setPendingImportCompareOpen((v) => !v)} data-attr="application-pending-import-compare">
+                    {pendingImportCompareOpen ? "Hide compare" : "Compare"}
+                  </Button>
+                  <Button type="button" variant="primary" className="rounded-full" onClick={() => applyPendingImport()} data-attr="application-pending-import-apply">
+                    Apply changes from the file
+                  </Button>
+                  <Button type="button" variant="outline" className="rounded-full" onClick={discardPendingImport} data-attr="application-pending-import-discard">
+                    Discard
+                  </Button>
+                </div>
+                {pendingImportCompareOpen ? (
+                  <ul className="mt-3 space-y-2" data-attr="application-pending-import-changed-sections">
+                    {changedSectionEntries(pendingImportDiff).length === 0 ? (
+                      <li className="text-[13px] text-muted">No sections changed.</li>
+                    ) : (
+                      changedSectionEntries(pendingImportDiff).map((entry) => (
+                        <li key={entry.key} className="rounded-xl border border-border bg-card p-2.5 text-[13px]" data-attr="application-pending-import-changed-section">
+                          <p className="font-semibold text-foreground">
+                            {entry.title} <span className="font-normal text-muted">({entry.status})</span>
+                          </p>
+                          <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Current</p>
+                              <p className="whitespace-pre-line text-foreground/80">{entry.currentBody || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">From the file</p>
+                              <p className="whitespace-pre-line text-foreground/80">{entry.incomingBody || "—"}</p>
+                            </div>
+                          </div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                ) : null}
               </div>
             ) : null}
-            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
-              <div className="flex flex-wrap gap-2">
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="sr-only"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void importPdf(file);
-                  }}
-                />
-                <Button type="button" variant="outline" className="rounded-full" disabled={importing} onClick={() => importInputRef.current?.click()}>
-                  {importing ? "Importing…" : "Start from a file"}
-                </Button>
+            <div className="mt-4">
+              <FloatingLabelField
+                id="application-template-name"
+                label="Application name"
+                placeholder="Application name"
+                value={templateLabel}
+                error={nameStepError}
+                dataAttr="property-application-name"
+                onChange={(next) => {
+                  setTemplateLabel(next);
+                  setTemplateLabelError(null);
+                  setDirty(true);
+                }}
+              />
+            </div>
+            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&
+            (originalPdfPath || (importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256) ? (
+              <div className="mt-3 flex flex-wrap gap-2">
                 {originalPdfPath ? (
                   <a
                     className="inline-flex min-h-[44px] items-center rounded-full border border-border px-4 text-sm font-semibold"
@@ -1477,7 +1660,7 @@ export function ManagerApplicationQuestionsEditorModal({
               </div>
             ) : null}
             {importIssues.length > 0 ? (
-              <ul className="space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
+              <ul className="mt-2 space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
                 {importIssues.map((issue, index) => (
                   <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
                     <label className="flex items-start gap-2">
@@ -1497,6 +1680,40 @@ export function ManagerApplicationQuestionsEditorModal({
                 ))}
               </ul>
             ) : null}
+            {/* F003: PropLane's default sections, with a live question count.
+                Unchecking one hides it from the Form step below and disables
+                its standard questions (never a manager-written custom one).
+                A section holding a never-removable question (identity trio,
+                SSN/ID, income) stays locked checked. */}
+            <div className="mt-6">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">PropLane default sections</p>
+              <div className="space-y-2" data-attr="application-sections-checklist">
+                {RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review").map((section) => {
+                  const count = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
+                  const on = !disabledSectionIds.includes(section.id);
+                  const locked = on && sectionHasLockedField(section.id);
+                  return (
+                    <label
+                      key={section.id}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 has-[:disabled]:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={locked}
+                          onChange={(e) => toggleSection(section.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-border text-primary"
+                          data-attr={`application-sections-checklist-${section.id}`}
+                        />
+                        <span className="text-[13.5px] font-semibold text-foreground">{section.title}</span>
+                      </span>
+                      <span className="text-xs text-muted">{count === 1 ? "1 question" : `${count} questions`}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -1549,13 +1766,17 @@ export function ManagerApplicationQuestionsEditorModal({
             {!formSetup.loaded ? (
               <p className="text-sm text-muted">Loading…</p>
             ) : (
-              <div className="space-y-5">
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">This application&apos;s fee</p>
-                  <CheckboxOption
-                    label="Override the account's application fee for this application"
+              <div>
+                {/* F-editor c/F007: ONE application fee — this property's
+                    own, toggle + amount. No separate account-default block
+                    (that lives in Settings → Forms); an application that
+                    never sets its own fee simply keeps using whatever the
+                    account charges by default. */}
+                <PanelSection title="Application fee">
+                  <ToggleRow
+                    label="Charge an application fee"
                     checked={feeOverrideEnabled}
-                    dataAttr="application-setup-fee-override-toggle"
+                    dataAttr="application-setup-fee-toggle"
                     onChange={(next) => {
                       setFeeOverrideEnabled(next);
                       if (next && feeOverrideCents === 0) {
@@ -1569,7 +1790,7 @@ export function ManagerApplicationQuestionsEditorModal({
                       <span className={WIZARD_LABEL_CLASS}>Application cost</span>
                       <MoneyInput
                         label="Application cost"
-                        dataAttr="application-setup-fee-override-amount"
+                        dataAttr="application-setup-fee-amount"
                         value={String(feeOverrideCents / 100)}
                         placeholder="50"
                         onChange={(raw) => {
@@ -1579,153 +1800,97 @@ export function ManagerApplicationQuestionsEditorModal({
                       />
                     </div>
                   ) : null}
-                  {feeOverrideEnabled ? (
-                    <div className="mt-2">
-                      <CheckboxOption
-                        label="This application's own promo code that waives its fee"
-                        checked={waiverOverrideEnabled}
-                        dataAttr="application-setup-waiver-override-toggle"
-                        onChange={(next) => {
-                          setWaiverOverrideEnabled(next);
-                          setDirty(true);
-                        }}
-                      />
-                      {waiverOverrideEnabled ? (
-                        <div className="mt-2">
-                          <Input
-                            aria-label="This application's promo code"
-                            placeholder="SUMMER26"
-                            value={waiverOverrideCode}
-                            data-attr="application-setup-waiver-override-code"
-                            onChange={(e) => {
-                              setWaiverOverrideCode(e.target.value);
-                              setDirty(true);
-                            }}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <p className="mt-1.5 text-xs text-muted">
-                    {feeOverrideEnabled
-                      ? "Applies to applicants who apply with this application only."
-                      : `Falls back to the account's application fee (${
-                          (formSetup.applicationSettings.applicationFeeCents ?? 0) > 0
-                            ? `$${((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100).toFixed(0)}`
-                            : "no fee"
-                        }) until you override it here.`}
-                  </p>
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Account default</p>
-                  <CheckboxOption
-                    label="Charge an application fee"
-                    checked={(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0}
-                    dataAttr="application-setup-fee-toggle"
+                </PanelSection>
+                {/* F008: its own group — one toggle that reveals the code field. */}
+                <PanelSection title="Promo code">
+                  <ToggleRow
+                    label="Promo code that waives the fee"
+                    checked={waiverOverrideEnabled}
+                    dataAttr="application-setup-waiver-toggle"
                     onChange={(next) => {
-                      const cents = next ? formSetup.applicationSettings.applicationFeeCents || 5000 : 0;
-                      void formSetup.patch({ applicationFeeCents: cents });
+                      setWaiverOverrideEnabled(next);
+                      setDirty(true);
                     }}
                   />
-                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <span className={WIZARD_LABEL_CLASS}>Application cost</span>
-                      <MoneyInput
-                        label="Application cost"
-                        dataAttr="application-setup-fee-amount"
-                        value={String((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100)}
-                        placeholder="50"
-                        onChange={(raw) => {
-                          const cents = Math.round((parseFloat(raw) || 0) * 100);
-                          void formSetup.patch({ applicationFeeCents: cents });
-                        }}
-                      />
-                    </div>
+                  {waiverOverrideEnabled ? (
+                    <Input
+                      aria-label="Promo code that waives the fee"
+                      placeholder="SUMMER26"
+                      value={waiverOverrideCode}
+                      className="mt-2"
+                      data-attr="application-setup-waiver-code"
+                      onChange={(e) => {
+                        setWaiverOverrideCode(e.target.value);
+                        setDirty(true);
+                      }}
+                    />
                   ) : null}
-                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
-                    <div className="mt-2">
-                      <CheckboxOption
-                        label="Promo code that waives the fee"
-                        checked={Boolean(formSetup.waiverCode)}
-                        dataAttr="application-setup-waiver-toggle"
-                        onChange={(next) => void formSetup.patch({ waiverCode: next ? formSetup.waiverCode || "" : "" })}
-                      />
-                      {formSetup.waiverCode !== null ? (
-                        <div className="mt-2">
-                          <Input
-                            aria-label="Promo code that waives the fee"
-                            placeholder="SUMMER26"
-                            defaultValue={formSetup.waiverCode ?? ""}
-                            data-attr="application-setup-waiver-code"
-                            onBlur={(e) => void formSetup.patch({ waiverCode: e.target.value.trim().toUpperCase() })}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <p className="mt-1.5 text-xs text-muted">
-                    This is the account&apos;s application fee — it applies to every application on this account, not just this
-                    one.
-                  </p>
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
+                </PanelSection>
+                {/* F009: another of this property's OWN application forms —
+                    never the whole workspace catalog, and never itself. */}
+                <PanelSection title="Linked co-signer form">
                   <FieldSingleSelect
-                    label="Pipeline order"
+                    label="If a co-signer is planned, they fill in"
                     labelClassName={WIZARD_LABEL_CLASS}
-                    value={formSetup.leasingPipeline.pipelineOrder}
-                    dataAttr="application-setup-pipeline-order"
+                    value={linkedCosignerTemplateId ?? "__none__"}
+                    dataAttr="application-setup-linked-cosigner"
                     options={[
-                      { value: "application_then_lease", label: "Application first → then lease" },
-                      { value: "lease_then_application", label: "Lease first → then application" },
+                      { value: "__none__", label: "None" },
+                      ...(templates ?? [])
+                        .filter((candidate) => candidate.id !== applicationTemplate?.id)
+                        .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                    ]}
+                    onChange={(next) => {
+                      setLinkedCosignerTemplateId(next === "__none__" ? null : next);
+                      setDirty(true);
+                    }}
+                  />
+                </PanelSection>
+                <PanelSection title="Pipeline order">
+                  <SegmentedControl
+                    ariaLabel="Pipeline order"
+                    value={formSetup.leasingPipeline.pipelineOrder}
+                    dataAttrPrefix="application-setup-pipeline-order"
+                    options={[
+                      { value: "application_then_lease", label: "Application first" },
+                      { value: "lease_then_application", label: "Lease first" },
                     ]}
                     onChange={(next) =>
                       void formSetup.patch({
-                        leasingPipeline: {
-                          ...formSetup.leasingPipeline,
-                          pipelineOrder: next as "application_then_lease" | "lease_then_application",
-                        },
+                        leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
                       })
                     }
                   />
-                </div>
-                {applicationTemplate ? (
-                  <div>
-                    <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
-                    <CheckboxOption
-                      label={`Default application for this property`}
-                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
-                      dataAttr="application-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                ) : null}
+                </PanelSection>
+                {(() => {
+                  // F007: reachable in "add" mode too, not only once the
+                  // template already exists — `applicationTemplateIdForDefault`
+                  // is the real saved id in edit mode, or the pending id this
+                  // new template WILL be created with at the footer commit
+                  // (see `addModeTemplateIdRef` / the `templateEditorMode ===
+                  // "add"` branch of `commitSave`).
+                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+                  if (!applicationTemplateIdForDefault) return null;
+                  return (
+                    <PanelSection title="Default">
+                      <ToggleRow
+                        label="Default application for this property"
+                        checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplateIdForDefault}
+                        dataAttr="application-setup-default-toggle"
+                        onChange={(next) =>
+                          void formSetup.patch({
+                            leasingPipeline: {
+                              ...formSetup.leasingPipeline,
+                              defaultApplicationTemplateId: next ? applicationTemplateIdForDefault : null,
+                            },
+                          })
+                        }
+                      />
+                    </PanelSection>
+                  );
+                })()}
               </div>
             )}
-            {/* P002: Setup is now the final step for the template editor, so
-                Publish (a distinct action from the generic Save/Add button
-                below — it advances the published question-config version,
-                see `commitSave({ publish: true })`) moved here from the
-                retired dedicated Preview step. */}
-            {isTemplateEditor && !isBulkSave ? (
-              <Button
-                type="button"
-                variant="primary"
-                className="mt-2 rounded-full"
-                disabled={saving || hasFieldErrors || !templateLabel.trim()}
-                data-attr="application-questions-publish"
-                onClick={() => void commitSave({ publish: true })}
-              >
-                Publish application
-              </Button>
-            ) : null}
           </StepColumn>
         ) : null}
         {stepId === "sections" ? (
@@ -1738,9 +1903,11 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
-            {applicationFormSourcePicker}
             <div className="space-y-2">
-              {RENTAL_APPLICATION_SECTIONS.map((section) => {
+              {/* F003/F005: a section unchecked on the Sections step drops
+                  out of the Form step's list entirely — no dropdown, just
+                  the included sections' questions. */}
+              {RENTAL_APPLICATION_SECTIONS.filter((section) => !disabledSectionIds.includes(section.id)).map((section) => {
                 const n = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
                 return (
                   <PortalCollapsibleEditRow

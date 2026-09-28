@@ -13,7 +13,6 @@ import { ResidentProspectHandoffOnMount } from "@/components/portal/resident-pro
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
-import { PublicHomePrefetch } from "@/components/layout/public-home-prefetch";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -74,7 +73,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} smsTestPortal="resident" dockable>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       <SurfaceThemeDefault theme="light" />
-      <PublicHomePrefetch />
       <PortalDataPrefetch kind="resident" />
       <PortalSessionKeepalive />
       <PortalClientSessionGuard />
