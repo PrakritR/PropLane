@@ -6,10 +6,24 @@ export type BugFeedbackType = "bug" | "feedback";
 export type BugFeedbackReporterRole = "manager" | "resident" | "admin" | "pro" | "vendor";
 export type BugFeedbackStatus = "open" | "in_progress" | "completed";
 export type BugSeverity = "low" | "medium" | "high" | "critical";
+/**
+ * N087: the redesigned feedback form's Type dropdown — Bug / Idea / Question.
+ * Finer than {@link BugFeedbackType}'s admin bucket (bug vs. feedback), so it
+ * rides along inside the same `row_data` JSON payload rather than a new
+ * column: no schema change, and admin's Bugs/Feedback split still works off
+ * `type`, derived from this with {@link reportTypeForKind}.
+ */
+export type BugFeedbackKind = "bug" | "idea" | "question";
+
+export function reportTypeForKind(kind: BugFeedbackKind): BugFeedbackType {
+  return kind === "bug" ? "bug" : "feedback";
+}
 
 export type PortalBugFeedbackRow = {
   id: string;
   type: BugFeedbackType;
+  /** Present once a row was submitted through the N087 form; absent on older rows. */
+  reportKind?: BugFeedbackKind;
   reporterUserId: string;
   reporterName: string;
   reporterEmail: string;
@@ -106,6 +120,8 @@ export async function syncBugFeedbackFromServer(opts?: {
 
 export async function submitBugFeedbackReport(input: {
   type: BugFeedbackType;
+  /** N087 Type dropdown selection (Bug / Idea / Question), when submitted through that form. */
+  reportKind?: BugFeedbackKind;
   reporterUserId: string;
   reporterName: string;
   reporterEmail: string;
@@ -121,6 +137,7 @@ export async function submitBugFeedbackReport(input: {
   const row: PortalBugFeedbackRow = {
     id: rid(),
     type: input.type,
+    reportKind: input.reportKind,
     reporterUserId: input.reporterUserId,
     reporterName: input.reporterName.trim(),
     reporterEmail: input.reporterEmail.trim().toLowerCase(),

@@ -186,12 +186,17 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
   return (
     <div className={`mx-auto ${view === "wizard" ? "max-w-5xl" : "max-w-3xl"} px-4 py-8 sm:py-12`}>
       {view === "signed-in-create-resident" ? (
-        <SignedInResidentAccountPrompt applyReturnPath={applyReturnPath} propertyTitle={propertyTitle} />
+        <SignedInResidentAccountPrompt
+          applyReturnPath={applyReturnPath}
+          propertyTitle={propertyTitle}
+          purpose={linkedProperty?.signingOrder === "lease_first" ? "lease" : "apply"}
+        />
       ) : view === "account-prompt" ? (
         <PublicApplyAccountPrompt
           gateKey={applyGateKey}
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
+          signingOrder={linkedProperty?.signingOrder}
         />
       ) : !applicationsAvailable ? (
         <ApplicationUnavailableContactManager

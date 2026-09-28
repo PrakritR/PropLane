@@ -5,6 +5,11 @@ export const runtime = "nodejs";
 
 const route = createJsonRecordRoute({
   table: "portal_pro_relationship_records",
+  // portal_pro_relationship_records actually has manager_user_id (see
+  // 20260428201000_portal_backend_records.sql) — keep selecting it for the
+  // existing-row check and delete targets, matching this table's schema.
+  existingRowSelect: "id, manager_user_id, row_data",
+  deleteRowSelect: "id, manager_user_id, row_data",
   scope: (query, user) => {
     const q = query as { or: (expr: string) => unknown };
     if (user.role === "admin") return query;

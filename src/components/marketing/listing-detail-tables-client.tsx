@@ -400,12 +400,15 @@ export function ListingDetailModal({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  signingOrder = null,
 }: {
   state: ModalState;
   onClose: () => void;
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  /** The listing's resolved leasing-pipeline order — swaps "Apply" for "Sign lease" below. */
+  signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const stop = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
   const isClient = useIsClient();
@@ -424,7 +427,7 @@ export function ListingDetailModal({
     textEnabled
       ? buildSmsDeepLink({ intent: "question", propertyId: listingPropertyId, propertyLabel: label, topic, toPhone: contactSmsPhone })
       : webMessageHref;
-  const applyLabel = listingApplyLabel(textEnabled);
+  const applyLabel = listingApplyLabel(textEnabled, signingOrder);
   const messageLabel = listingMessageLabel(textEnabled);
   const stageWebMessageCompose = textEnabled ? undefined : stageMessageCompose;
   const messageCtaExtras = { onClick: stageWebMessageCompose };
@@ -910,11 +913,13 @@ export function InteractiveFloorPlanCard({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  signingOrder = null,
 }: {
   floor: ListingFloorCard;
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
 
@@ -931,6 +936,7 @@ export function InteractiveFloorPlanCard({
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
         contactSmsPhone={contactSmsPhone}
+        signingOrder={signingOrder}
       />
     </>
   );
@@ -946,12 +952,14 @@ export function LeaseBasicsTableInteractive({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  signingOrder = null,
   showTermSections = false,
 }: {
   rows: LeaseBasicRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  signingOrder?: "application_first" | "lease_first" | null;
   /** When true, always render Long term / Short term headings (short-term may be empty). */
   showTermSections?: boolean;
 }) {
@@ -1013,6 +1021,7 @@ export function LeaseBasicsTableInteractive({
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
         contactSmsPhone={contactSmsPhone}
+        signingOrder={signingOrder}
       />
     </>
   );
@@ -1074,11 +1083,13 @@ export function BundleTableInteractive({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  signingOrder = null,
 }: {
   rows: BundleCard[];
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
 
@@ -1133,6 +1144,7 @@ export function BundleTableInteractive({
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
         contactSmsPhone={contactSmsPhone}
+        signingOrder={signingOrder}
       />
     </>
   );
@@ -1272,6 +1284,7 @@ export function SpacesInteractive({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  signingOrder = null,
 }: {
   floorPlans: ListingFloorCard[];
   bathrooms: ListingBathroomRow[];
@@ -1279,6 +1292,7 @@ export function SpacesInteractive({
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
   const rooms = floorPlans.flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })));
@@ -1535,6 +1549,7 @@ export function SpacesInteractive({
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
         contactSmsPhone={contactSmsPhone}
+        signingOrder={signingOrder}
       />
     </>
   );

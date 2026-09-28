@@ -11,4 +11,15 @@ describe("listing-prospect-cta-labels", () => {
     expect(listingMessageLabel(true)).toBe("Text a message");
     expect(listingApplyLabel(true)).toBe("Text to apply");
   });
+
+  it("says Sign lease instead of Apply for a lease-first listing (PLAN-0927)", () => {
+    expect(listingApplyLabel(false, "lease_first")).toBe("Sign lease");
+    expect(listingApplyLabel(true, "lease_first")).toBe("Text to sign lease");
+  });
+
+  it("keeps the Apply copy for application-first or an unresolved signing order", () => {
+    expect(listingApplyLabel(false, "application_first")).toBe("Apply online");
+    expect(listingApplyLabel(false, null)).toBe("Apply online");
+    expect(listingApplyLabel(false, undefined)).toBe("Apply online");
+  });
 });

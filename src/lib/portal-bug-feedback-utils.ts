@@ -1,10 +1,18 @@
 import type {
+  BugFeedbackKind,
   BugFeedbackReporterRole,
   BugFeedbackStatus,
   BugFeedbackType,
   BugSeverity,
   PortalBugFeedbackRow,
 } from "@/lib/portal-bug-feedback";
+
+const BUG_FEEDBACK_KINDS: BugFeedbackKind[] = ["bug", "idea", "question"];
+
+function normalizeBugFeedbackKind(value: unknown): BugFeedbackKind | undefined {
+  const raw = String(value ?? "").toLowerCase();
+  return BUG_FEEDBACK_KINDS.includes(raw as BugFeedbackKind) ? (raw as BugFeedbackKind) : undefined;
+}
 
 export function normalizeBugFeedbackRow(row: unknown): PortalBugFeedbackRow | null {
   if (!row || typeof row !== "object") return null;
@@ -17,6 +25,7 @@ export function normalizeBugFeedbackRow(row: unknown): PortalBugFeedbackRow | nu
   return {
     id,
     type,
+    reportKind: normalizeBugFeedbackKind(r.reportKind ?? r.report_kind),
     reporterUserId: String(r.reporterUserId ?? r.reporter_user_id ?? "").trim(),
     reporterName: String(r.reporterName ?? r.reporter_name ?? "").trim(),
     reporterEmail: String(r.reporterEmail ?? r.reporter_email ?? "").trim().toLowerCase(),
@@ -106,6 +115,7 @@ export function isPortalBugFeedbackSchemaError(message: string | undefined | nul
 
 export function buildBugFeedbackReportInput(input: {
   type: BugFeedbackType;
+  reportKind?: BugFeedbackKind;
   reporterUserId: string;
   reporterName: string;
   reporterEmail: string;
@@ -122,6 +132,7 @@ export function buildBugFeedbackReportInput(input: {
   return {
     id: input.id ?? `bf-test-${now}`,
     type: input.type,
+    reportKind: input.reportKind,
     reporterUserId: input.reporterUserId,
     reporterName: input.reporterName.trim(),
     reporterEmail: input.reporterEmail.trim().toLowerCase(),
