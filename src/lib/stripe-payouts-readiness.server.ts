@@ -25,10 +25,24 @@ export type PayoutsReadiness = {
  * never a second computation:
  *
  *   ready = identity verified (Stripe's own `requirements`, the same source
- *           `payout_identity_status` is refreshed from) AND at least one
- *           VERIFIED payout destination (a card is always verified; a bank
- *           account must have cleared micro-deposit/instant verification —
- *           "has some external account" is not enough).
+ *           `payout_identity_status` is refreshed from) AND a payable
+ *           default payout destination.
+ *
+ * "Payable" is Stripe's own semantics, not the UI-facing verified/verifying/
+ * errored label {@link bankAccountStatus} in `stripe-external-accounts.server.ts`
+ * produces. Per Stripe's docs, a Connect external bank account's `status` is
+ * one of `new` / `validated` / `verified` / `verification_failed` / `errored`
+ * — `new` is the ordinary starting state for a manually-added bank (e.g. the
+ * documented test success account 110000000/000123456789) and Stripe pays out
+ * to it exactly as with `verified` once the connected account itself has
+ * `payouts_enabled: true`; there is no further per-bank verification step to
+ * wait for. Only `verification_failed`/`errored` mean Stripe rejected that
+ * specific bank and it must be fixed before it can receive money — the ONE
+ * state this still refuses. A card is always immediately payable (Stripe
+ * accepts or rejects it synchronously at attach time, mapped to "verified"
+ * unconditionally by `bankAccountStatus`'s sibling). Gating on `verified`
+ * alone left `payouts_enabled` accounts with a fresh bank permanently stuck
+ * on "Add a bank account" even though Stripe would pay out today.
  *
  * Takes an `Account` already fetched by the caller (every caller already
  * does `stripe.accounts.retrieve` for its own balance/create/status read) so
@@ -40,8 +54,10 @@ export function resolvePayoutsReadiness(account: Stripe.Account): PayoutsReadine
     identitySnapshot.status === "verified" ? "done" : identitySnapshot.status === "pending" ? "pending" : "needed";
 
   const destinations = payoutDestinationsFromAccount(account);
-  const hasVerifiedDestination = destinations.some((d) => d.status === "verified");
-  const bank: "done" | "needed" = hasVerifiedDestination ? "done" : "needed";
+  const defaultDestination = destinations.find((d) => d.default) ?? destinations[0] ?? null;
+  const hasPayableDefaultDestination =
+    account.payouts_enabled === true && defaultDestination != null && defaultDestination.status !== "errored";
+  const bank: "done" | "needed" = hasPayableDefaultDestination ? "done" : "needed";
 
   return {
     identity,
