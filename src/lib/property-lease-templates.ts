@@ -85,6 +85,16 @@ export type PropertyLeaseTemplate = {
   publishedQuestionConfig?: ApplicationTemplateQuestionConfig;
   /** Immutable prior published snapshots, mirroring the application template's history list. */
   publishedQuestionConfigVersions?: ApplicationTemplateQuestionConfig[];
+  /**
+   * F-editor d/F015: another of this property's lease templates that is the
+   * co-signer / guarantor addendum a planned co-signer or guarantor signs
+   * alongside this main lease. `null`/absent = no addendum linked (today's
+   * behavior, unchanged). Store + show only — no resident-facing signing
+   * wizard reads a lease-side co-signer/guarantor addendum yet (see this
+   * type's own `draftQuestionConfig` comment above), so there is no existing
+   * invite path to wire this into on the lease side.
+   */
+  linkedGuarantorLeaseTemplateId?: string | null;
 };
 
 export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {
