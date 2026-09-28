@@ -589,6 +589,16 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   const { userId, email, ready: authReady } = useManagerUserId();
   const [tick, setTick] = useState(0);
   const bump = () => setTick((n) => n + 1);
+  /**
+   * Whether the dashboard's main store sync has settled at least once. The
+   * "Your properties" card reads from the same local store the Properties
+   * page does, which starts empty on every fresh load — without this, a slow
+   * `/api/property-records` fetch (it can run several seconds behind the
+   * other dashboard sources) shows "No properties yet" for a real portfolio
+   * (PRP-429 sibling). Set once and never cleared, so a later background
+   * refresh failure keeps the last known cards rather than blanking them.
+   */
+  const [dashboardSynced, setDashboardSynced] = useState(false);
   // `nowMs` is frozen for the whole session: it only feeds the 6-month cash-flow
   // buckets in the heavy `data` memo, where a boundary stale by minutes is fine.
   const [nowMs] = useState(() => Date.now());
@@ -775,7 +785,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       syncManagerWorkOrdersFromServer(),
       syncServiceRequestsFromServer(),
       syncManagerOutgoingExpensesFromServer(),
-    ]).then(bump);
+    ]).then(() => {
+      bump();
+      setDashboardSynced(true);
+    });
     window.addEventListener(PROPERTY_PIPELINE_EVENT, bump);
     window.addEventListener(LEASE_PIPELINE_EVENT, bump);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, bump);
@@ -1298,6 +1311,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
 
         <PortfolioPropertiesSection
           cards={portfolio.cards}
+          loading={!dashboardSynced && portfolio.cards.length === 0}
           basePath={BASE}
           occupiedByProperty={occupiedByProperty}
           addPropertyAction={

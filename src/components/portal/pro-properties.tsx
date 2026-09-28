@@ -116,6 +116,16 @@ export function ManagerProperties({
   const [skuLoaded, setSkuLoaded] = useState(false);
   const [skuTier, setSkuTier] = useState<string | null>(null);
   const [propCount, setPropCount] = useState(0);
+  /**
+   * Whether the portfolio has synced from the server at least once. The tab
+   * strip's counts read the same local store the list does, which starts
+   * empty on every fresh load — showing "All 0 / Listed 0 / …" during the
+   * first, sometimes multi-second, property-records fetch reads as an
+   * emptied account rather than a slow load (PRP-429 sibling). Once true it
+   * stays true; a later background refresh failure keeps showing the last
+   * known counts rather than hiding them again.
+   */
+  const [portfolioReady, setPortfolioReady] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   /**
    * Create is one door: CreateWorkspace. `?wizard=v2` still opens it straight
@@ -192,6 +202,7 @@ export function ManagerProperties({
     }
     setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
     setPortfolioTick((t) => t + 1);
+    if (synced) setPortfolioReady(true);
     return synced;
   }, [scopeUserId]);
 
@@ -492,7 +503,7 @@ export function ManagerProperties({
               id: stage.key,
               label: stage.label,
               href: propertyListHref(basePath, stage.key),
-              count: stageCounts[stage.key],
+              count: portfolioReady ? stageCounts[stage.key] : undefined,
               dataAttr: `manager-properties-tab-${stage.key}`,
             }))}
             activeDestinationId={activeStage}
