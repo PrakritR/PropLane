@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 //
-// The "Workspace form" / "Custom for this listing" picker
-// (`applicationFormSourcePicker` in `pro-application-questions-editor-modal.tsx`)
-// was unreachable dead code: the ONLY real call site
-// (`pro-property-application-questions-panel.tsx`) always opens this modal
-// with a `templateEditorMode`, and the picker used to render only when
-// `!isTemplateEditor`. These tests render with `templateEditorMode="edit"` —
-// the real-world shape — to prove the picker is actually reachable and that
-// switching it copies the workspace form onto the listing once, and back.
+// F-editor b/F005/F020: the property Add/Edit application editor no longer
+// offers a "Workspace form" / "Custom for this listing" picker, or a "Make
+// default format" link — this property's application is always its own
+// form. A template that was still following the workspace (never explicitly
+// customized) is detached from it once, silently, the moment the workspace
+// form finishes loading — the same one-time copy "Custom for this listing"
+// used to do by hand, now automatic and never user-visible as an edit.
+//
+// The listing-wide editor (opened outside a property record, `isTemplateEditor`
+// false) is untouched and keeps its own picker — out of scope here.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { PropertyApplicationTemplate } from "@/lib/property-application-templates";
@@ -82,23 +84,6 @@ async function waitWorkspace() {
   await screen.findByRole("dialog", { name: "Edit application" });
 }
 
-function picker(): HTMLElement {
-  return screen.getByRole("button", { name: "Application form" });
-}
-
-async function pickOption(label: string) {
-  // The menu's own close (from a previous pick) can still be settling —
-  // wait for any stale listbox to clear before opening a fresh one, or a
-  // rapid second pick can toggle open-then-immediately-closed.
-  await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-  fireEvent.click(picker());
-  const listbox = await screen.findByRole("listbox");
-  const option = within(listbox).getByText(label);
-  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-}
-
 beforeEach(() => {
   persistOnServer.mockReset();
   persistOnServer.mockResolvedValue(true);
@@ -114,40 +99,40 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Workspace form / Custom for this listing picker (templateEditorMode='edit', the real call shape)", () => {
-  it("is reachable and defaults to 'Workspace form' for a listing that never set applicationFormSource", async () => {
+describe("F-editor b: no Workspace form / Custom for this listing picker in the property template editor", () => {
+  it("never renders the picker or Make default format, even after the workspace form loads", async () => {
     renderTemplateEditor();
     await waitWorkspace();
 
-    // The real Applications tab always opens this modal in templateEditorMode,
-    // landing on the "Name" step first — the picker must show there.
-    await waitFor(() => expect(picker()).toBeTruthy());
-    expect(picker().textContent).toContain("Workspace form");
-    expect(picker().textContent).not.toContain("not set up yet");
-  });
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Application form" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make default format" })).toBeNull();
 
-  it("switching to 'Custom for this listing' copies the workspace form onto the listing and stays editable", async () => {
-    renderTemplateEditor();
-    await waitWorkspace();
-    await waitFor(() => expect(picker()).toBeTruthy());
-
-    await pickOption("Custom for this listing");
-
-    await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
-
-    // P002: sections no longer have their own rail steps — jump to the
-    // "Form" step, then expand the "Additional details" accordion row to
-    // reach the section holding the copied question, and confirm it renders
-    // the EDITABLE builder (a real question card), not the read-only summary.
     const formRail = document.querySelector('[data-attr="listing-v2-rail-sections"]') as HTMLElement | null;
     expect(formRail).not.toBeNull();
     fireEvent.click(formRail!);
+    expect(screen.queryByRole("button", { name: "Application form" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make default format" })).toBeNull();
+  });
+
+  it("silently detaches from the workspace form once it loads, copying its fields onto the template", async () => {
+    renderTemplateEditor();
+    await waitWorkspace();
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+
+    // Jump to the Form step and expand the section holding the copied
+    // question — no picker to switch first, it is already there.
+    const formRail = document.querySelector('[data-attr="listing-v2-rail-sections"]') as HTMLElement | null;
+    expect(formRail).not.toBeNull();
+    fireEvent.click(formRail!);
+
+    // No read-only "Following the workspace application form" notice — the
+    // template is editable immediately.
+    expect(screen.queryByText(/Following the workspace application form/i)).toBeNull();
+
     const sectionToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
     expect(sectionToggle).not.toBeNull();
     fireEvent.click(sectionToggle!);
-
-    // No read-only "Following the workspace application form" notice once switched.
-    await waitFor(() => expect(screen.queryByText(/Following the workspace application form/i)).toBeNull());
 
     // Expand the copied question's card (same id it had on the workspace
     // template — proving it was actually copied, not re-created) and confirm
@@ -159,51 +144,7 @@ describe("Workspace form / Custom for this listing picker (templateEditorMode='e
     expect(labelInput.getAttribute("data-attr")).toBe("application-question-label");
   });
 
-  it("switching back to 'Workspace form' returns to the read-only workspace preview", async () => {
-    renderTemplateEditor();
-    await waitWorkspace();
-    await waitFor(() => expect(picker()).toBeTruthy());
-
-    await pickOption("Custom for this listing");
-    await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
-
-    await pickOption("Workspace form");
-    await waitFor(() => expect(picker().textContent).toContain("Workspace form"));
-
-    const formRail = document.querySelector('[data-attr="listing-v2-rail-sections"]') as HTMLElement | null;
-    fireEvent.click(formRail!);
-    const sectionToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
-    fireEvent.click(sectionToggle!);
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Following the workspace application form/i)).not.toBeNull();
-    });
-  });
-
-  it('P011: "Make default format" PATCHes the workspace template with this listing\'s custom config', async () => {
-    renderTemplateEditor();
-    await waitWorkspace();
-    await waitFor(() => expect(picker()).toBeTruthy());
-
-    await pickOption("Custom for this listing");
-    await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
-
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockClear();
-    fetchMock.mockImplementationOnce(async () =>
-      jsonResponse({ template: { ...WORKSPACE_TEMPLATE, updatedAt: "2026-09-27T00:00:00.000Z" }, workspaceId: "ws-1", configured: true }),
-    );
-
-    const button = await screen.findByRole("button", { name: "Make default format" });
-    fireEvent.click(button);
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/portal/application-form", expect.objectContaining({ method: "PATCH" })));
-    const call = fetchMock.mock.calls.find(([url]) => url === "/api/portal/application-form" && fetchMock.mock.calls.length);
-    const body = JSON.parse(String(call?.[1]?.body)) as { template?: { customApplicationFields?: unknown[] } };
-    expect(body.template?.customApplicationFields).toBeDefined();
-  });
-
-  it("is hidden for a bulk (multi-property) edit, where a single listing's flag is ambiguous", async () => {
+  it("is unreachable for a bulk (multi-property) edit, where a single listing's flag is ambiguous", async () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();
     render(
@@ -226,5 +167,6 @@ describe("Workspace form / Custom for this listing picker (templateEditorMode='e
     );
     await waitWorkspace();
     expect(screen.queryByRole("button", { name: "Application form" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make default format" })).toBeNull();
   });
 });

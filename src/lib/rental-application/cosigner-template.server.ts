@@ -3,6 +3,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationConfigForApplicant } from "./application-template-config";
 import type { ApplicationConfigSlice } from "./application-field-catalog";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 export type CosignerTemplateResolution = {
   config: ApplicationConfigSlice;
@@ -29,7 +30,22 @@ export async function resolveCosignerTemplateForApplication(
   if (error || !data) return null;
   const propertyData = data.property_data as { listingSubmission?: ManagerListingSubmissionV1 } | null;
   const submission = propertyData?.listingSubmission;
-  const resolved = applicationConfigForApplicant(submission, "cosigner", templateId, templateVersion);
+  // F-editor d: an explicit `templateId` (a real signer link already pinned
+  // to one) always wins. Otherwise, when the PRIMARY applicant's own
+  // application named a "Linked co-signer form" in its Setup step, the
+  // co-signer fills in THAT form rather than the property's generic default
+  // cosigner template.
+  let effectiveTemplateId = templateId;
+  const primaryApplicationTemplateId = (row?.application as { applicationTemplateId?: string } | undefined)?.applicationTemplateId;
+  if (!effectiveTemplateId && primaryApplicationTemplateId && submission) {
+    const primaryTemplate = readPropertyApplicationTemplates(submission).find(
+      (candidate) => candidate.id === primaryApplicationTemplateId,
+    );
+    if (primaryTemplate?.linkedCosignerApplicationTemplateId) {
+      effectiveTemplateId = primaryTemplate.linkedCosignerApplicationTemplateId;
+    }
+  }
+  const resolved = applicationConfigForApplicant(submission, "cosigner", effectiveTemplateId, templateVersion);
   // The link is public. Never return a published snapshot's manager-only
   // importProvenance (private source path, reviewer id, draft fingerprint).
   return {

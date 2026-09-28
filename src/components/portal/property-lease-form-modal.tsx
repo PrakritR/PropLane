@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
-import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import {
+  FloatingLabelField,
+  MoneyInput,
+  PanelSection,
+  SegmentedControl,
+  StepColumn,
+  StepHeading,
+  ToggleRow,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
@@ -27,6 +35,7 @@ import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   createPropertyLeaseTemplate,
   normalizeLeaseTemplateKind,
+  templateAppearsToBeExecutedLease,
   updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
   type PropertyLeaseTemplateKind,
@@ -41,6 +50,8 @@ import {
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf, type ParseLeasePdfResult } from "@/lib/lease-template-parse.client";
 import { summarizeImportIssues } from "@/lib/pdf-import/import-issue-summary";
+import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
+import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-sections";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
@@ -132,8 +143,13 @@ export function PropertyLeaseFormModal({
   const [error, setError] = useState<string | null>(null);
   /** Which applicant lease-term choices route to this lease ("Applies to"). */
   const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
+  // F-editor d/F015: another of this property's lease templates whose form is
+  // the co-signer/guarantor addendum — see `PropertyLeaseTemplate.linkedGuarantorLeaseTemplateId`.
+  const [linkedGuarantorTemplateId, setLinkedGuarantorTemplateId] = useState<string | null>(null);
   const [htmlOverride, setHtmlOverride] = useState("");
   const [templateUploading, setTemplateUploading] = useState(false);
+  /** F013/F002: the file name shown on the Sections step's dashed "Start from a file" card while reading. */
+  const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [parsingLease, setParsingLease] = useState(false);
   const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
   const [importSourceReviewed, setImportSourceReviewed] = useState(false);
@@ -144,6 +160,21 @@ export function PropertyLeaseFormModal({
     [importSource],
   );
   const [importReviewError, setImportReviewError] = useState<string | null>(null);
+  // F016: a freshly parsed lease upload, held here until the manager
+  // explicitly applies it. Nothing above (`draft.leaseTemplateDocUrl`,
+  // `htmlOverride`, `importSource`) changes until then, so picking a new file
+  // while editing an already-saved lease never silently overwrites it.
+  const [pendingLeaseImport, setPendingLeaseImport] = useState<{
+    docUrl: string;
+    fileName: string;
+    html: string;
+    sections: Array<{ title: string; body: string }>;
+    inferredKind: PropertyLeaseTemplateKind;
+    sourceSha256: string;
+    sourceIssues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    coverage: { extractedCharacters: number; representedCharacters: number; complete: boolean };
+  } | null>(null);
+  const [pendingLeaseImportCompareOpen, setPendingLeaseImportCompareOpen] = useState(false);
   const [mobileTemplateTab, setMobileTemplateTab] = useState<"original" | "converted">("converted");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -153,6 +184,17 @@ export function PropertyLeaseFormModal({
   // signing fee (real charge path: `lease-signing-fee-checkout.server.ts`,
   // "each signer pays" per docs/agents/resident-payments.md), default lease.
   const formSetup = usePropertyFormSetupSettings(propertyId);
+
+  // F013: inline duplicate-name validation — another lease already saved on
+  // this property with the same (trimmed, case-insensitive) name.
+  const duplicateLeaseNameError = useMemo(() => {
+    const trimmed = label.trim().toLowerCase();
+    if (!trimmed || !templates) return null;
+    const clashes = templates.some(
+      (candidate) => candidate.id !== template?.id && candidate.label.trim().toLowerCase() === trimmed,
+    );
+    return clashes ? `A lease named "${label.trim()}" already exists on this property.` : null;
+  }, [label, templates, template?.id]);
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -232,6 +274,9 @@ export function PropertyLeaseFormModal({
       } : null);
       setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
       setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
+      setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
+      setPendingLeaseImport(null);
+      setPendingLeaseImportCompareOpen(false);
       return;
     }
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
@@ -243,6 +288,9 @@ export function PropertyLeaseFormModal({
     setImportSource(null);
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
+    setLinkedGuarantorTemplateId(null);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
   }, [open, mode, template]);
 
   useEffect(() => {
@@ -261,6 +309,8 @@ export function PropertyLeaseFormModal({
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
     const applied = applyPropertyLeaseDocumentMode(next);
     setDocumentMode(next);
     setKind(applied.kind);
@@ -269,35 +319,51 @@ export function PropertyLeaseFormModal({
 
   const leaseTemplateError = error && documentMode === "upload" ? error : null;
 
+  // F016: parses the uploaded PDF and STAGES the result — `draft`,
+  // `htmlOverride`, and `importSource` are untouched until
+  // `applyPendingLeaseImport` runs. Picking a new file while editing an
+  // ALREADY-SAVED lease must never silently replace what is on screen.
   const onPickLeaseTemplateDoc = (file: File | null) => {
+    if (templateAppearsToBeExecutedLease(template)) {
+      setError("This lease has already been signed and cannot be edited here.");
+      return;
+    }
     readLeaseTemplateFile(
       file,
       (dataUrl, fileName) => {
         setError(null);
-        setHtmlOverride("");
-        setImportSource(null);
-        setImportSourceReviewed(false);
-        setTranscribedUnreadableSourcePages(false);
-        setImportReviewError(null);
-        setDraft((d) => ({ ...d, leaseTemplateDocUrl: dataUrl, leaseTemplateDocName: fileName }));
         if (dataUrl.startsWith("data:")) {
+          // Demo mode has no server session to parse against — nothing was
+          // parsed, so there is nothing to stage; this upload becomes the
+          // document (and is parsed) only after save, same as before.
+          setHtmlOverride("");
+          setImportSource(null);
+          setImportSourceReviewed(false);
+          setTranscribedUnreadableSourcePages(false);
+          setImportReviewError(null);
+          setPendingLeaseImport(null);
+          setPendingLeaseImportCompareOpen(false);
+          setDraft((d) => ({ ...d, leaseTemplateDocUrl: dataUrl, leaseTemplateDocName: fileName }));
           showToast("Lease uploaded. Parsing runs after save in demo mode.");
           return;
         }
+        setPendingLeaseImport(null);
+        setPendingLeaseImportCompareOpen(false);
         setParsingLease(true);
         track("lease_import_started", { import_kind: "property_template" });
         void parseUploadedLeasePdf({ url: dataUrl, fileName, kind })
           .then((result) => {
-            setImportSource({ sourceSha256: result.sourceSha256, sourceIssues: result.sourceIssues, coverage: result.coverage });
-            if (!result.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(result.html);
-            if (mode === "add") {
-              setKind(result.inferredKind);
-            }
-            showToast(
-              result.sourceIssues.length
-                ? "Lease read. Check it against the original PDF before saving."
-                : `Lease parsed into PropLane format (${result.sectionCount} section${result.sectionCount === 1 ? "" : "s"}).`,
-            );
+            setPendingLeaseImport({
+              docUrl: dataUrl,
+              fileName,
+              html: result.html,
+              sections: result.sections,
+              inferredKind: result.inferredKind,
+              sourceSha256: result.sourceSha256,
+              sourceIssues: result.sourceIssues,
+              coverage: result.coverage,
+            });
+            showToast(`Found ${result.sections.length} section${result.sections.length === 1 ? "" : "s"}. Review before applying.`);
           })
           .catch((err) => {
             track("lease_import_failed", { import_kind: "property_template", reason_code: "parse_failed" });
@@ -310,6 +376,54 @@ export function PropertyLeaseFormModal({
       setTemplateUploading,
     );
   };
+
+  // F016: writes a staged import into the lease being edited — the same
+  // state the parse success handler used to set immediately. This is the
+  // ONLY place that happens; picking a file never does it on its own.
+  const applyPendingLeaseImport = () => {
+    if (!pendingLeaseImport) return;
+    if (templateAppearsToBeExecutedLease(template)) {
+      setError("This lease has already been signed and cannot be edited here.");
+      setPendingLeaseImport(null);
+      setPendingLeaseImportCompareOpen(false);
+      return;
+    }
+    const p = pendingLeaseImport;
+    setError(null);
+    setImportSource({ sourceSha256: p.sourceSha256, sourceIssues: p.sourceIssues, coverage: p.coverage });
+    setImportSourceReviewed(false);
+    setTranscribedUnreadableSourcePages(false);
+    setImportReviewError(null);
+    setDraft((d) => ({ ...d, leaseTemplateDocUrl: p.docUrl, leaseTemplateDocName: p.fileName }));
+    if (!p.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(p.html);
+    else setHtmlOverride("");
+    if (mode === "add") setKind(p.inferredKind);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
+    showToast(
+      p.sourceIssues.length
+        ? "Applied. Check it against the original PDF before saving."
+        : `Applied ${p.sections.length} section${p.sections.length === 1 ? "" : "s"}.`,
+    );
+  };
+
+  // F016: drops the staged import. The lease is left exactly as it was —
+  // nothing that `applyPendingLeaseImport` would have written is touched.
+  const discardPendingLeaseImport = () => {
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
+  };
+
+  // F016: the staged import's sections, diffed against the CURRENT document
+  // (best-effort recovered from its rendered HTML — see
+  // `extractLeaseSectionsFromHtml`'s own doc comment).
+  const pendingLeaseImportDiff = useMemo(
+    () =>
+      pendingLeaseImport
+        ? diffImportSections(extractLeaseSectionsFromHtml(editorHtml), pendingLeaseImport.sections)
+        : null,
+    [pendingLeaseImport, editorHtml],
+  );
 
   /** Why the converted document can't be saved yet, or null. */
   const importReviewBlocker = (resolvedHtml: string | null | undefined): string | null => {
@@ -332,6 +446,10 @@ export function PropertyLeaseFormModal({
   };
 
   const commitSave = async () => {
+    if (duplicateLeaseNameError) {
+      setError(duplicateLeaseNameError);
+      return;
+    }
     const validationError = validateLeaseDraft(draft, documentMode);
     if (validationError) {
       setError(validationError);
@@ -395,6 +513,7 @@ export function PropertyLeaseFormModal({
           }),
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
           leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
+          linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
         };
         const next = [...(templates ?? []), created];
         if (!(await Promise.resolve(onSave(next)))) return;
@@ -419,6 +538,7 @@ export function PropertyLeaseFormModal({
         label: trimmedLabel,
         kind,
         applicationLeaseTerms,
+        linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
         ...leaseFields,
       });
       if (!(await Promise.resolve(onSave(next)))) return;
@@ -488,7 +608,7 @@ export function PropertyLeaseFormModal({
   const workspaceSteps: AddWorkspaceStep[] = [
     {
       id: "name",
-      label: mode === "edit" ? "Name & applies to" : "Name",
+      label: "Sections",
       incomplete: !label.trim() || (mode === "edit" && applicationLeaseTerms.length === 0),
       summary: label.trim() || "Name this lease",
     },
@@ -530,6 +650,60 @@ export function PropertyLeaseFormModal({
     </div>
   );
 
+  // F016: a freshly parsed lease upload waits here — nothing above or below
+  // has changed yet. "Apply changes from the file" is the only thing that
+  // writes it in; "Discard" drops it and leaves the lease exactly as it was.
+  const pendingLeaseImportCard = pendingLeaseImport && pendingLeaseImportDiff ? (
+    <div className="mb-4 rounded-2xl border border-primary/40 bg-primary/[0.04] p-3.5" data-attr="property-lease-pending-import">
+      <p className="text-[13.5px] font-bold text-foreground" data-attr="property-lease-pending-import-summary">
+        {pendingLeaseImportDiff.totalIncoming} section{pendingLeaseImportDiff.totalIncoming === 1 ? "" : "s"} found ·{" "}
+        {pendingLeaseImportDiff.changedCount === 0 ? "up to date" : `${pendingLeaseImportDiff.changedCount} changed`}
+      </p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-full"
+          onClick={() => setPendingLeaseImportCompareOpen((v) => !v)}
+          data-attr="property-lease-pending-import-compare"
+        >
+          {pendingLeaseImportCompareOpen ? "Hide compare" : "Compare"}
+        </Button>
+        <Button type="button" variant="primary" className="rounded-full" onClick={applyPendingLeaseImport} data-attr="property-lease-pending-import-apply">
+          Apply changes from the file
+        </Button>
+        <Button type="button" variant="outline" className="rounded-full" onClick={discardPendingLeaseImport} data-attr="property-lease-pending-import-discard">
+          Discard
+        </Button>
+      </div>
+      {pendingLeaseImportCompareOpen ? (
+        <ul className="mt-3 space-y-2" data-attr="property-lease-pending-import-changed-sections">
+          {changedSectionEntries(pendingLeaseImportDiff).length === 0 ? (
+            <li className="text-[13px] text-muted">No sections changed.</li>
+          ) : (
+            changedSectionEntries(pendingLeaseImportDiff).map((entry) => (
+              <li key={entry.key} className="rounded-xl border border-border bg-card p-2.5 text-[13px]" data-attr="property-lease-pending-import-changed-section">
+                <p className="font-semibold text-foreground">
+                  {entry.title} <span className="font-normal text-muted">({entry.status})</span>
+                </p>
+                <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Current</p>
+                    <p className="whitespace-pre-line text-foreground/80">{entry.currentBody || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">From the file</p>
+                    <p className="whitespace-pre-line text-foreground/80">{entry.incomingBody || "—"}</p>
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
+  ) : null;
+
   if (!open) return null;
 
   return (
@@ -544,13 +718,14 @@ export function PropertyLeaseFormModal({
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
       sidePanel={htmlPreview}
-      lastLabel="Save"
-      lastDisabled={templateUploading || parsingLease || saving}
+      lastLabel={mode === "add" ? "Add lease" : "Save"}
+      lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
           setError("Enter a name for this lease.");
           return false;
         }
+        if (stepId === "name" && duplicateLeaseNameError) return false;
         if (stepId === "name" && mode === "edit" && applicationLeaseTerms.length === 0) {
           setError("A lease must apply to at least one lease type.");
           return false;
@@ -574,6 +749,7 @@ export function PropertyLeaseFormModal({
       onFinish={save}
       saveState={saving ? "Saving…" : parsingLease ? "Parsing…" : templateUploading ? "Uploading…" : "Not saved yet"}
       dataAttrPrefix="property-lease"
+      numberedSteps
       finishDataAttr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
       footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
       dangerAction={
@@ -591,55 +767,48 @@ export function PropertyLeaseFormModal({
     >
       {stepId === "name" ? (
         <StepColumn>
-          <StepHeading title={mode === "edit" ? "Name & applies to" : "Name"} />
-          <label className={WIZARD_LABEL_CLASS} htmlFor="property-lease-name">
-            Lease document name
-          </label>
-          <Input
-            id="property-lease-name"
-            value={label}
-            onChange={(e) => {
-              setError(null);
-              setLabel(e.target.value);
-            }}
-            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-            data-attr="property-lease-name"
-          />
-          {/* P012 (captain 2026-09-27): "have upload application and lease in
-              first tab." A quick-pick lands the file straight from Name —
-              full document-mode choices still live on the Document step. */}
+          <StepHeading title="Sections" />
+          {/* F002/F013: the same dashed drop-zone card the listing wizard and
+              the application editor use for "Start from a file". A quick-pick
+              lands the file straight from this first step — full document-mode
+              choices still live on the Form (document) step. */}
           {mode === "add" || !draft.leaseTemplateDocUrl ? (
-            <div className="mt-3">
-              <input
-                id="property-lease-name-step-upload"
-                type="file"
-                accept="application/pdf"
-                className="sr-only"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  if (!file) return;
-                  if (documentMode !== "upload") handleDocumentModeChange("upload");
-                  if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
-                  onPickLeaseTemplateDoc(file);
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                disabled={templateUploading || parsingLease}
-                data-attr="property-lease-name-upload"
-                onClick={() => document.getElementById("property-lease-name-step-upload")?.click()}
-              >
-                {templateUploading || parsingLease ? "Reading…" : "Start from a file"}
-              </Button>
-            </div>
+            <ImportFileStrip
+              dataAttr="property-lease-name-upload"
+              chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
+              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              busy={templateUploading || parsingLease}
+              state={
+                templateUploading || parsingLease
+                  ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
+                  : { kind: "blank" }
+              }
+              onPickFile={(file) => {
+                setSectionsUploadFileName(file.name);
+                if (documentMode !== "upload") handleDocumentModeChange("upload");
+                if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+                onPickLeaseTemplateDoc(file);
+              }}
+              onReread={() => {}}
+            />
           ) : (
-            <p className="mt-2 text-xs text-muted" data-attr="property-lease-name-uploaded">
+            <p className="mb-3 text-xs text-muted" data-attr="property-lease-name-uploaded">
               Using {draft.leaseTemplateDocName || "your uploaded lease"}.
             </p>
           )}
+          {pendingLeaseImportCard}
+          <FloatingLabelField
+            id="property-lease-name"
+            label="Lease document name"
+            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+            value={label}
+            error={error && !label.trim() ? error : duplicateLeaseNameError}
+            dataAttr="property-lease-name"
+            onChange={(next) => {
+              setError(null);
+              setLabel(next);
+            }}
+          />
           {mode === "edit" ? (
             <fieldset className="mt-4 space-y-2">
               <legend className={WIZARD_LABEL_CLASS}>Applies to</legend>
@@ -701,6 +870,7 @@ export function PropertyLeaseFormModal({
               />
             </div>
           ) : null}
+          {documentMode === "upload" ? <div className="mt-4">{pendingLeaseImportCard}</div> : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
               {importSource ? (
@@ -817,10 +987,11 @@ export function PropertyLeaseFormModal({
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
-            <div className="space-y-5">
-              <div>
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Payment</p>
-                <CheckboxOption
+            <div>
+              {/* F014: ONE lease fee — toggle + amount, no separate segmented
+                  None/Custom control. */}
+              <PanelSection title="Lease fee">
+                <ToggleRow
                   label="Charge a lease fee"
                   checked={(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0}
                   dataAttr="lease-setup-fee-toggle"
@@ -850,36 +1021,45 @@ export function PropertyLeaseFormModal({
                     />
                   </div>
                 ) : null}
-                <p className="mt-1.5 text-xs text-muted">
-                  Charged at signing — each signer pays. This is this property&apos;s one lease signing fee, shared by every
-                  lease type on it.
-                </p>
-              </div>
-              <div>
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
+              </PanelSection>
+              {/* F015: another of this property's OWN lease templates — never itself. */}
+              <PanelSection title="Linked co-signer / guarantor addendum">
                 <FieldSingleSelect
-                  label="Pipeline order"
+                  label="A co-signer or guarantor signs"
                   labelClassName={WIZARD_LABEL_CLASS}
-                  value={formSetup.leasingPipeline.pipelineOrder}
-                  dataAttr="lease-setup-pipeline-order"
+                  value={linkedGuarantorTemplateId ?? "__none__"}
+                  dataAttr="lease-setup-linked-guarantor"
                   options={[
-                    { value: "application_then_lease", label: "Application first → then lease" },
-                    { value: "lease_then_application", label: "Lease first → then application" },
+                    { value: "__none__", label: "None" },
+                    ...(templates ?? [])
+                      .filter((candidate) => candidate.id !== template?.id)
+                      .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                  ]}
+                  onChange={(next) => {
+                    setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
+                    setError(null);
+                  }}
+                />
+              </PanelSection>
+              <PanelSection title="Pipeline order">
+                <SegmentedControl
+                  ariaLabel="Pipeline order"
+                  value={formSetup.leasingPipeline.pipelineOrder}
+                  dataAttrPrefix="lease-setup-pipeline-order"
+                  options={[
+                    { value: "application_then_lease", label: "Application first" },
+                    { value: "lease_then_application", label: "Lease first" },
                   ]}
                   onChange={(next) =>
                     void formSetup.patch({
-                      leasingPipeline: {
-                        ...formSetup.leasingPipeline,
-                        pipelineOrder: next as "application_then_lease" | "lease_then_application",
-                      },
+                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
                     })
                   }
                 />
-              </div>
+              </PanelSection>
               {mode === "edit" && template ? (
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
-                  <CheckboxOption
+                <PanelSection title="Default">
+                  <ToggleRow
                     label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
                     checked={formSetup.leasingPipeline.defaultLeaseTemplateId === template.id}
                     dataAttr="lease-setup-default-toggle"
@@ -892,7 +1072,7 @@ export function PropertyLeaseFormModal({
                       })
                     }
                   />
-                </div>
+                </PanelSection>
               ) : null}
             </div>
           )}
