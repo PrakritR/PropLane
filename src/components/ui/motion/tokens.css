@@ -261,3 +261,344 @@
     transition: none;
   }
 }
+
+/*
+ * ============================================================================
+ * b18-motion-features — M008, M010, M011, M012, M013, M016, M017.
+ * Technique ported from interior.dev (github.com/ddoemonn/interior, MIT
+ * license, © ozzy) — see ~/proplane-mock-kit/review-0927/interior-dev-research.md
+ * and the approved studio drawing (studio/changes.json M008–M017) for the
+ * exact timing values these classes carry forward. Every rule here reads the
+ * SAME `--motion-*` tokens above; nothing here introduces a new timing scale.
+ * ============================================================================
+ */
+
+/* ============== M008 — hold-to-confirm on destructive Delete/Remove ============== */
+/* The press duration is the actual confirmation gate (not decoration), so it
+ * is never shortened under reduced motion — only the smooth animated fill is
+ * swapped for a plain, non-animated bar (see HoldToConfirmButton's own note
+ * for why this deliberately does NOT match the studio prototype's instant-arm
+ * shortcut under reduced motion). */
+.motion-hold-fill {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.32);
+  pointer-events: none;
+  z-index: 0;
+  transition: none;
+}
+.motion-hold-fill.is-holding {
+  width: 100%;
+  transition-property: width;
+  transition-timing-function: linear;
+}
+.motion-hold-fill.is-reduced {
+  transition: none;
+}
+.motion-hold-refused {
+  animation: motion-hold-shake 0.32s var(--motion-ease-out);
+}
+@keyframes motion-hold-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-hold-refused {
+    animation: none;
+  }
+}
+
+/* ============== M010 — inline validation reserved-space error slot ============== */
+/* A fixed-height slot is reserved the moment a Field is validate-able (the
+ * caller passes an `error` prop at all, even `undefined`), BEFORE any error
+ * exists, so the crossfading message never shoves the field below it. */
+.motion-field-error-slot {
+  margin-top: 6px;
+  min-height: 16px;
+}
+.motion-field-error {
+  display: block;
+  opacity: 0;
+  transition: opacity var(--motion-fast) linear;
+}
+.motion-field-error.is-shown {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-field-error {
+    transition: none;
+  }
+}
+
+/* ============== M011 — password strength meter (sign-up / reset) ============== */
+.motion-pw-strength {
+  margin-top: 8px;
+}
+.motion-pw-strength-track {
+  display: flex;
+  gap: 4px;
+}
+.motion-pw-strength-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border, #e2e5eb);
+  transition: background-color var(--motion-base) var(--motion-cell);
+}
+.motion-pw-strength-seg.is-on-weak {
+  background: var(--danger, #dc2626);
+}
+.motion-pw-strength-seg.is-on-fair {
+  background: #d97706;
+}
+.motion-pw-strength-seg.is-on-good {
+  background: #16a34a;
+}
+.motion-pw-strength-label {
+  display: block;
+  margin-top: 4px;
+  min-height: 14px;
+  font-size: 11px;
+  color: var(--muted-foreground, var(--muted));
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-crossfade);
+}
+.motion-pw-strength-label.is-shown {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-pw-strength-seg,
+  .motion-pw-strength-label {
+    transition: none;
+  }
+}
+
+/* ============== M012 — typing indicator wave + one-shot streaming reveal ============== */
+/* interior.dev's Typing Indicator timing: three dots wave on a 1.25s linear
+ * loop, offset per dot — replaces the generic Tailwind `animate-pulse` (an
+ * opacity-only pulse with no lift) the assistant dots used before. */
+.motion-typing-dot {
+  display: inline-block;
+  animation: motion-typing-wave 1.25s linear infinite;
+}
+.motion-typing-dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.motion-typing-dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+@keyframes motion-typing-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-typing-dot {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* One-shot mask-wipe over an assistant reply the instant it lands. The real
+ * text node is never retyped/altered — only a CSS mask sweeps across it — so
+ * assistive tech and the DOM's own text content are correct from the very
+ * first frame (the reveal is purely decorative). */
+.motion-stream-reveal {
+  display: inline;
+  animation: motion-stream-wipe 0.62s steps(14, end) forwards;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, transparent 0);
+  mask-image: linear-gradient(90deg, #000 0, transparent 0);
+}
+@keyframes motion-stream-wipe {
+  from {
+    -webkit-mask-size: 0% 100%;
+    mask-size: 0% 100%;
+  }
+  to {
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-stream-reveal {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* ============== M013 — task-step resolution morph (assistant action cards) ============== */
+.motion-resolved-flash {
+  animation: motion-pop var(--motion-base) var(--motion-cell);
+}
+.motion-resolved-flash svg {
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  animation: motion-draw 0.24s var(--motion-ease-in) forwards;
+}
+@keyframes motion-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes motion-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-resolved-flash,
+  .motion-resolved-flash svg {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ============== M016 — sortable table row-travel (FLIP), admin tables ============== */
+.motion-sort-glyph {
+  display: inline-block;
+  margin-left: 4px;
+  opacity: 0.45;
+  transition:
+    transform var(--motion-fast) var(--motion-cell),
+    opacity var(--motion-fast) linear;
+}
+th[aria-sort="ascending"] .motion-sort-glyph {
+  opacity: 1;
+  transform: rotate(0deg);
+}
+th[aria-sort="descending"] .motion-sort-glyph {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.motion-sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.motion-sortable-th:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+/* Row-travel itself is applied as an inline transform by useFlipRows
+ * (flip-rows.ts) so it can read each row's own measured delta; this class
+ * only supplies the transition the JS then triggers. */
+.motion-flip-row {
+  transition: transform var(--motion-base) var(--motion-cell);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-flip-row {
+    transition: none;
+  }
+}
+
+/* ============== M017 — OTP input / reorder list / blur-up image (primitives) ============== */
+.motion-otp-cell {
+  transition:
+    transform var(--motion-fast) var(--motion-cell),
+    border-color var(--motion-fast) linear;
+}
+.motion-otp-cell.is-filled {
+  animation: motion-pop var(--motion-fast) var(--motion-cell);
+}
+.motion-otp-cell.is-error {
+  animation: motion-hold-shake 0.32s var(--motion-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-otp-cell,
+  .motion-otp-cell.is-filled,
+  .motion-otp-cell.is-error {
+    animation: none;
+    transition: none;
+  }
+}
+
+.motion-reorder-item {
+  transition:
+    transform var(--motion-base) var(--motion-cell),
+    box-shadow var(--motion-fast) linear;
+}
+.motion-reorder-item.is-dragging {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  z-index: 5;
+  cursor: grabbing;
+}
+.motion-reorder-grip {
+  cursor: grab;
+  touch-action: none;
+}
+.motion-reorder-grip.is-armed {
+  color: var(--pl-blue, var(--primary));
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-reorder-item {
+    transition: none;
+  }
+}
+
+/* M017 — blur-up image. No separate placeholder asset exists (or is ever
+ * fabricated — AGENTS.md "Listing images: never fabricate a photo"): the
+ * SAME real photo renders blurred+scaled while its own network load is in
+ * flight, then "develops" into focus the instant it fires `onLoad` — the
+ * container's existing neutral background (`bg-accent/25`) is the implicit
+ * placeholder underneath, exactly as it was before this change. */
+.motion-blurup-real {
+  opacity: 0;
+  filter: blur(18px);
+  transform: scale(1.04);
+  transition:
+    opacity 0.65s var(--motion-ease-in),
+    filter 0.65s var(--motion-ease-in),
+    transform 0.65s var(--motion-ease-in);
+}
+.motion-blurup-real.is-loaded {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-blurup-real {
+    transition: none;
+  }
+}
+
+/* M017 — lightbox / video-lightbox entrance polish (backdrop fade + panel
+ * scale), reusing the same asymmetric Modal timing already proven for M007. */
+.motion-lightbox-backdrop {
+  animation: motion-backdrop-in var(--motion-modal-in) var(--motion-ease-in);
+}
+@keyframes motion-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-lightbox-backdrop {
+    animation: none;
+  }
+}

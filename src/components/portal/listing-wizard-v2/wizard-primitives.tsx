@@ -550,17 +550,18 @@ export function StepColumn({ children, wide = false }: { children: ReactNode; wi
 
 /* ─────────────────────────── fields ─────────────────────────── */
 
-export function Field({
-  label,
-  required,
-  error,
-  children,
-  group = false,
-  labelAside,
-}: {
+export function Field(props: {
   label: string;
   required?: boolean;
-  /** Shown only after a failed action — the one line of helper copy a field may carry. */
+  /**
+   * Shown only after a failed action — the one line of helper copy a field
+   * may carry. Passing this prop AT ALL (even `error={undefined}`) marks the
+   * field validate-able: M010 then reserves a fixed-height slot for it
+   * before any error exists, so the message crossfading in later never
+   * shoves the field below it (interior.dev's Inline Validation, ported —
+   * see tokens.css's own note). A field that never passes `error` keeps
+   * today's exact layout, with no reserved space.
+   */
   error?: string;
   children: ReactNode;
   /** Sits after the label — the "Follows every room" / "This room · Reset" tag on a room field. */
@@ -577,6 +578,7 @@ export function Field({
    */
   group?: boolean;
 }) {
+  const { label, required, error, children, group = false, labelAside } = props;
   const id = useId();
   const caption = (
     <>
@@ -585,7 +587,23 @@ export function Field({
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
-  const note = error ? <p className="mt-1.5 text-[12px] font-semibold text-red-600">{error}</p> : null;
+  // "error" in props (not just `error` truthy) is the validate-able signal —
+  // see the prop doc above. A field that never writes `error={...}` in its
+  // JSX never gets the reserved slot, so this stays a no-op for the many
+  // Field usages that carry no validation at all.
+  const validatable = "error" in props;
+  const note = validatable ? (
+    <div className="motion-field-error-slot">
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={cn("motion-field-error text-[12px] font-semibold text-red-600", error && "is-shown")}
+      >
+        {error}
+      </p>
+    </div>
+  ) : null;
 
   if (group) {
     return (

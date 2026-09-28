@@ -672,6 +672,7 @@ export default function CreateAccountClient() {
                 placeholder="Minimum 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                showStrength
               />
             </div>
             <div>
@@ -777,6 +778,7 @@ export default function CreateAccountClient() {
                 placeholder="Minimum 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                showStrength
               />
             </div>
             <div>
@@ -947,6 +949,7 @@ export default function CreateAccountClient() {
                 placeholder="Minimum 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                showStrength
               />
               {displayedEmailStatusLoading ? <p className="mt-1 text-xs text-muted/70">Checking for an existing PropLane login…</p> : null}
             </div>

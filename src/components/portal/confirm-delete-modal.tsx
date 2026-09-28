@@ -65,6 +65,9 @@ export function ConfirmDeleteModal({
         disabled: busy || confirmDisabled,
         loading: busy,
         dataAttr,
+        // M008 — every destructive confirm through this shared modal is a
+        // press-and-hold guard rail, not a plain tap.
+        confirmGuard: "hold",
       }}
     >
       <p className="text-sm text-muted">{description}</p>

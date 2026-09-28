@@ -12,7 +12,11 @@ import {
   MANAGER_ASSISTANT_ENDPOINT,
   VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
-import { AssistantPendingActionCard, VENDOR_ASSISTANT_SUGGESTIONS } from "@/components/portal/assistant-shared";
+import {
+  AssistantPendingActionCard,
+  AssistantResolvedActionFlash,
+  VENDOR_ASSISTANT_SUGGESTIONS,
+} from "@/components/portal/assistant-shared";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
 import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
@@ -90,6 +94,18 @@ export function AssistantDockPanel({
   const [historyPortal, setHistoryPortal] = useState<HTMLElement | null>(null);
   const smsTestActive = usePortalAssistantConfig()?.smsTest?.active ?? false;
 
+  // M013 — task-step resolution morph. `resolvingRef` remembers which
+  // decision is in flight (set the instant the card's own button is
+  // pressed, purely for bookkeeping — it never gates anything); the effect
+  // below only shows the resolved flash once `pendingAction` genuinely
+  // clears WITHOUT an error, i.e. strictly after the real confirm/deny
+  // request already succeeded. A non-retryable failure also clears
+  // `pendingAction` (use-assistant-conversation.ts's own contract) but sets
+  // `error` in the same pass, so this never claims a failed action "Done".
+  const resolvingRef = useRef<"confirm" | "deny" | null>(null);
+  const prevPendingRef = useRef(pendingAction);
+  const [resolvedFlash, setResolvedFlash] = useState<{ decision: "confirm" | "deny"; title: string } | null>(null);
+
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
   const visibleMessages = visibleConversationMessages(messages);
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
@@ -99,6 +115,18 @@ export function AssistantDockPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const previous = prevPendingRef.current;
+    prevPendingRef.current = pendingAction;
+    const decision = resolvingRef.current;
+    if (!previous || pendingAction || !decision) return;
+    resolvingRef.current = null;
+    if (error) return; // a non-retryable failure also clears pendingAction — never flash "Done" for that.
+    setResolvedFlash({ decision, title: previous.preview.title });
+    const timer = setTimeout(() => setResolvedFlash(null), 1100);
+    return () => clearTimeout(timer);
+  }, [pendingAction, error]);
 
   useEffect(() => {
     void hydrateArchive();
@@ -197,8 +225,13 @@ export function AssistantDockPanel({
           <AssistantPendingActionCard
             pendingAction={pendingAction}
             loading={loading}
-            onResolve={(decision) => void resolvePendingAction(decision)}
+            onResolve={(decision) => {
+              resolvingRef.current = decision;
+              void resolvePendingAction(decision);
+            }}
           />
+        ) : resolvedFlash ? (
+          <AssistantResolvedActionFlash decision={resolvedFlash.decision} title={resolvedFlash.title} />
         ) : null}
         <AssistantChatComposer
           input={input}

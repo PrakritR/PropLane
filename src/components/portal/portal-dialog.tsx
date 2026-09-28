@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HoldToConfirmButton } from "@/components/ui/motion/hold-to-confirm-button";
 import { Modal, MODAL_HEADER_CLOSE_CLASS, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,15 @@ export type PortalDialogAction = {
   /** Independent of Button's own promise-tracking loading state, for a caller that owns `saving` itself. */
   loading?: boolean;
   dataAttr?: string;
+  /**
+   * M008 — "hold" requires a genuine press-and-hold (pointer or Enter/Space)
+   * before the action fires; a plain tap is refused. Opt-in and scoped to
+   * {@link ConfirmDeleteModal} in `confirm-delete-modal.tsx` — the one
+   * destructive-confirm shape `useConfirm()` renders app-wide — rather than
+   * every `tone="danger"` dialog, so a hand-built danger confirm elsewhere in
+   * the portal keeps today's plain-click behavior unless it opts in too.
+   */
+  confirmGuard?: "hold";
 };
 
 export type PortalDialogStep = {
@@ -92,20 +102,36 @@ function PortalDialogFooter({
         // Keeps the primary pinned right even with no secondary — never re-centers.
         <span aria-hidden />
       )}
-      <Button
-        type="button"
-        variant="primary"
-        className={cn(
-          "rounded-full",
-          tone === "danger" && "!bg-danger !text-white hover:!brightness-110 !shadow-none",
-        )}
-        disabled={primaryAction.disabled}
-        loading={primaryAction.loading}
-        onClick={primaryAction.onClick}
-        data-attr={primaryAction.dataAttr}
-      >
-        {primaryAction.label}
-      </Button>
+      {primaryAction.confirmGuard === "hold" ? (
+        // M008 — a destructive confirm is a press-and-hold guard rail, not a
+        // plain tap. Scoped to callers that opt in via `confirmGuard: "hold"`
+        // (ConfirmDeleteModal) — see the field's own doc comment.
+        <HoldToConfirmButton
+          variant="primary"
+          className="rounded-full !bg-danger !text-white hover:!brightness-110 !shadow-none"
+          disabled={primaryAction.disabled}
+          loading={primaryAction.loading}
+          onConfirm={primaryAction.onClick}
+          dataAttr={primaryAction.dataAttr}
+        >
+          {primaryAction.label}
+        </HoldToConfirmButton>
+      ) : (
+        <Button
+          type="button"
+          variant="primary"
+          className={cn(
+            "rounded-full",
+            tone === "danger" && "!bg-danger !text-white hover:!brightness-110 !shadow-none",
+          )}
+          disabled={primaryAction.disabled}
+          loading={primaryAction.loading}
+          onClick={primaryAction.onClick}
+          data-attr={primaryAction.dataAttr}
+        >
+          {primaryAction.label}
+        </Button>
+      )}
     </ModalFooter>
   );
 }
