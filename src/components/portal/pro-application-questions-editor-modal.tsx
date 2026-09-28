@@ -5,7 +5,16 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { MoneyInput, SegmentedControl, StepColumn, StepHeading, ToggleRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import {
+  FloatingLabelField,
+  MoneyInput,
+  PanelSection,
+  SegmentedControl,
+  StepColumn,
+  StepHeading,
+  ToggleRow,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
@@ -254,6 +263,9 @@ export function ManagerApplicationQuestionsEditorModal({
   const [feeOverrideCents, setFeeOverrideCents] = useState<number>(0);
   const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
   const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
+  // F-editor d: another of this property's application templates whose form
+  // a planned co-signer fills in — see `PropertyApplicationTemplate.linkedCosignerApplicationTemplateId`.
+  const [linkedCosignerTemplateId, setLinkedCosignerTemplateId] = useState<string | null>(null);
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
@@ -285,9 +297,9 @@ export function ManagerApplicationQuestionsEditorModal({
   // Settings -> Forms already uses (recopies onto every OTHER listing that
   // still follows the workspace, via `recopyWorkspaceApplicationFormOntoFollowingListings`).
   const [makingDefault, setMakingDefault] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  /** F002: the file name shown on the dashed "Start from a file" card's reading state. */
+  const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
   const [importedQuestionDraft, setImportedQuestionDraft] = useState<ApplicationTemplateQuestionConfig | null>(null);
   const [importIssues, setImportIssues] = useState<Array<{ pageNumber: number | null; code: string; message: string }>>([]);
@@ -330,6 +342,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setFeeOverrideCents(applicationTemplate?.feeCentsOverride ?? 0);
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
+    setLinkedCosignerTemplateId(applicationTemplate?.linkedCosignerApplicationTemplateId ?? null);
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
@@ -576,13 +589,17 @@ export function ManagerApplicationQuestionsEditorModal({
       // After (proto/property-forms.js ED_STEPS); the listing-wide editor
       // below (opened outside a property record) keeps its own separate
       // per-section step rail, out of scope for this collapse.
-      const totalQuestions = applicationFields.length;
+      // F003: a section the manager unchecked drops out of every count too.
+      const includedSectionIds = new Set(
+        RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== "review" && !disabledSectionIds.includes(s.id)).map((s) => s.id),
+      );
+      const totalQuestions = applicationFields.filter((f) => includedSectionIds.has((f.section ?? "additional") as RentalApplicationSectionId)).length;
       const steps: AddWorkspaceStep[] = [
-        { id: "name", label: "Name", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
+        { id: "name", label: "Sections", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
         {
           id: "sections",
           label: "Form",
-          summary: totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`,
+          summary: `${totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`} · ${includedSectionIds.size === 1 ? "1 section" : `${includedSectionIds.size} sections`}`,
         },
       ];
       // P003: Setup — fee, promo code, pipeline order, default for this
@@ -672,6 +689,7 @@ export function ManagerApplicationQuestionsEditorModal({
         setTemplateLabelError("Enter a name for this application.");
         return;
       }
+      if (duplicateTemplateNameError) return;
       setTemplateLabelError(null);
       if (!templates || !onPersistSubmission) {
         showToast("Could not save application.");
@@ -719,6 +737,7 @@ export function ManagerApplicationQuestionsEditorModal({
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
             feeCentsOverride,
             waiverCodeOverride,
+            linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
               questionDisplayOrder: applicationFields.map((field) => field.id),
@@ -732,6 +751,7 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
+          linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -855,7 +875,6 @@ export function ManagerApplicationQuestionsEditorModal({
       setSaveError(error instanceof Error ? error.message : "Could not import the application PDF.");
     } finally {
       setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
     }
   };
 
@@ -1176,6 +1195,19 @@ export function ManagerApplicationQuestionsEditorModal({
       ? "Reset all standard questions"
       : "Restore PropLane defaults";
 
+  // F001: inline duplicate-name validation — another application already
+  // saved on this property with the same (trimmed, case-insensitive) name.
+  const duplicateTemplateNameError = useMemo(() => {
+    if (!isTemplateEditor || !templates) return null;
+    const trimmed = templateLabel.trim().toLowerCase();
+    if (!trimmed) return null;
+    const clashes = templates.some(
+      (candidate) => candidate.id !== applicationTemplate?.id && candidate.label.trim().toLowerCase() === trimmed,
+    );
+    return clashes ? `An application named "${templateLabel.trim()}" already exists on this property.` : null;
+  }, [isTemplateEditor, templates, templateLabel, applicationTemplate?.id]);
+  const nameStepError = templateLabelError || duplicateTemplateNameError;
+
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
@@ -1425,12 +1457,13 @@ export function ManagerApplicationQuestionsEditorModal({
           />
         }
         lastLabel={templateEditorMode === "add" ? "Add application" : "Save"}
-        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty) || hasFieldErrors}
+        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors}
         onBeforeNext={() => {
           if (stepId === "name" && !templateLabel.trim()) {
             setTemplateLabelError("Enter a name for this application.");
             return false;
           }
+          if (stepId === "name" && duplicateTemplateNameError) return false;
           return true;
         }}
         busy={saving || uploadingPdf}
@@ -1469,78 +1502,51 @@ export function ManagerApplicationQuestionsEditorModal({
       >
         {stepId === "name" ? (
           <StepColumn>
-            <StepHeading
-              title="Name"
-              action={
-                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
-                  {restoreLabel}
-                </button>
+            <StepHeading title="Sections" />
+            {/* F002: the same dashed drop-zone card the listing wizard uses for
+                "Start from a file" — a brand-new template hands the file to
+                the caller's create-from-PDF flow; an existing template
+                re-imports it through the same parser Start from a file
+                already ran. The two conditions never overlap (see the
+                comments this replaced). */}
+            <ImportFileStrip
+              dataAttr="property-application-start-from-file"
+              chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
+              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              busy={importing || uploadingPdf}
+              state={
+                importing || uploadingPdf
+                  ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
+                  : { kind: "blank" }
               }
-            />
-            <label className={WIZARD_LABEL_CLASS} htmlFor="application-template-name">
-              Application name
-            </label>
-            <Input
-              id="application-template-name"
-              value={templateLabel}
-              onChange={(e) => {
-                setTemplateLabel(e.target.value);
-                setTemplateLabelError(null);
-                setDirty(true);
+              onPickFile={(file) => {
+                setSectionsUploadFileName(file.name);
+                if (templateEditorMode === "add" && onUploadPdf) {
+                  onUploadPdf(file, templateLabel);
+                } else if (isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave) {
+                  void importPdf(file);
+                }
               }}
-              placeholder="e.g. Summer intern application"
-              data-attr="property-application-name"
+              onReread={() => {}}
             />
-            {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
-            {/* P012 (captain 2026-09-27): "have upload application and lease in
-                first tab." Uploading your own application now happens on this
-                first step, not tucked into Preview at the end. */}
-            {/* origin/main (Akhil, "move Upload PDF into the Add popup"): start a
-                BRAND NEW template from a PDF, add mode only. Complementary to the
-                isTemplateEditor block just below, which re-imports a PDF onto a
-                template that already exists — the two conditions never overlap. */}
-            {templateEditorMode === "add" && onUploadPdf ? (
-              <div className="mt-4">
-                <p className={WIZARD_LABEL_CLASS}>Start from a PDF</p>
-                <input
-                  ref={uploadPdfInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="sr-only"
-                  data-attr="property-application-upload-pdf-input"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onUploadPdf(file, templateLabel);
-                    event.target.value = "";
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={uploadingPdf}
-                  data-attr="property-application-upload-pdf"
-                  onClick={() => uploadPdfInputRef.current?.click()}
-                >
-                  {uploadingPdf ? "Uploading…" : "Upload PDF"}
-                </Button>
-              </div>
-            ) : null}
-            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
-              <div className="flex flex-wrap gap-2">
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="sr-only"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void importPdf(file);
-                  }}
-                />
-                <Button type="button" variant="outline" className="rounded-full" disabled={importing} onClick={() => importInputRef.current?.click()}>
-                  {importing ? "Importing…" : "Start from a file"}
-                </Button>
+            <div className="mt-4">
+              <FloatingLabelField
+                id="application-template-name"
+                label="Application name"
+                placeholder="Application name"
+                value={templateLabel}
+                error={nameStepError}
+                dataAttr="property-application-name"
+                onChange={(next) => {
+                  setTemplateLabel(next);
+                  setTemplateLabelError(null);
+                  setDirty(true);
+                }}
+              />
+            </div>
+            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&
+            (originalPdfPath || (importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256) ? (
+              <div className="mt-3 flex flex-wrap gap-2">
                 {originalPdfPath ? (
                   <a
                     className="inline-flex min-h-[44px] items-center rounded-full border border-border px-4 text-sm font-semibold"
@@ -1566,7 +1572,7 @@ export function ManagerApplicationQuestionsEditorModal({
               </div>
             ) : null}
             {importIssues.length > 0 ? (
-              <ul className="space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
+              <ul className="mt-2 space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
                 {importIssues.map((issue, index) => (
                   <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
                     <label className="flex items-start gap-2">
@@ -1586,6 +1592,40 @@ export function ManagerApplicationQuestionsEditorModal({
                 ))}
               </ul>
             ) : null}
+            {/* F003: PropLane's default sections, with a live question count.
+                Unchecking one hides it from the Form step below and disables
+                its standard questions (never a manager-written custom one).
+                A section holding a never-removable question (identity trio,
+                SSN/ID, income) stays locked checked. */}
+            <div className="mt-6">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">PropLane default sections</p>
+              <div className="space-y-2" data-attr="application-sections-checklist">
+                {RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review").map((section) => {
+                  const count = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
+                  const on = !disabledSectionIds.includes(section.id);
+                  const locked = on && sectionHasLockedField(section.id);
+                  return (
+                    <label
+                      key={section.id}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 has-[:disabled]:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={locked}
+                          onChange={(e) => toggleSection(section.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-border text-primary"
+                          data-attr={`application-sections-checklist-${section.id}`}
+                        />
+                        <span className="text-[13.5px] font-semibold text-foreground">{section.title}</span>
+                      </span>
+                      <span className="text-xs text-muted">{count === 1 ? "1 question" : `${count} questions`}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -1638,13 +1678,13 @@ export function ManagerApplicationQuestionsEditorModal({
             {!formSetup.loaded ? (
               <p className="text-sm text-muted">Loading…</p>
             ) : (
-              <div className="space-y-5">
-                {/* F-editor c: ONE application fee — this property's own,
-                    toggle + amount. No separate account-default block (that
-                    lives in Settings → Forms); an application that never sets
-                    its own fee simply keeps using whatever the account
-                    charges by default. */}
-                <div className="space-y-2">
+              <div>
+                {/* F-editor c/F007: ONE application fee — this property's
+                    own, toggle + amount. No separate account-default block
+                    (that lives in Settings → Forms); an application that
+                    never sets its own fee simply keeps using whatever the
+                    account charges by default. */}
+                <PanelSection title="Application fee">
                   <ToggleRow
                     label="Charge an application fee"
                     checked={feeOverrideEnabled}
@@ -1658,7 +1698,7 @@ export function ManagerApplicationQuestionsEditorModal({
                     }}
                   />
                   {feeOverrideEnabled ? (
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="mt-2 flex items-center justify-between gap-3">
                       <span className={WIZARD_LABEL_CLASS}>Application cost</span>
                       <MoneyInput
                         label="Application cost"
@@ -1672,21 +1712,24 @@ export function ManagerApplicationQuestionsEditorModal({
                       />
                     </div>
                   ) : null}
+                </PanelSection>
+                {/* F008: its own group — one toggle that reveals the code field. */}
+                <PanelSection title="Promo code">
                   <ToggleRow
                     label="Promo code that waives the fee"
                     checked={waiverOverrideEnabled}
-                    disabled={!feeOverrideEnabled}
                     dataAttr="application-setup-waiver-toggle"
                     onChange={(next) => {
                       setWaiverOverrideEnabled(next);
                       setDirty(true);
                     }}
                   />
-                  {feeOverrideEnabled && waiverOverrideEnabled ? (
+                  {waiverOverrideEnabled ? (
                     <Input
                       aria-label="Promo code that waives the fee"
                       placeholder="SUMMER26"
                       value={waiverOverrideCode}
+                      className="mt-2"
                       data-attr="application-setup-waiver-code"
                       onChange={(e) => {
                         setWaiverOverrideCode(e.target.value);
@@ -1694,35 +1737,59 @@ export function ManagerApplicationQuestionsEditorModal({
                       }}
                     />
                   ) : null}
-                </div>
-                <SegmentedControl
-                  ariaLabel="Pipeline order"
-                  value={formSetup.leasingPipeline.pipelineOrder}
-                  dataAttrPrefix="application-setup-pipeline-order"
-                  options={[
-                    { value: "application_then_lease", label: "Application first" },
-                    { value: "lease_then_application", label: "Lease first" },
-                  ]}
-                  onChange={(next) =>
-                    void formSetup.patch({
-                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
-                    })
-                  }
-                />
-                {applicationTemplate ? (
-                  <ToggleRow
-                    label="Default application for this property"
-                    checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
-                    dataAttr="application-setup-default-toggle"
+                </PanelSection>
+                {/* F009: another of this property's OWN application forms —
+                    never the whole workspace catalog, and never itself. */}
+                <PanelSection title="Linked co-signer form">
+                  <FieldSingleSelect
+                    label="If a co-signer is planned, they fill in"
+                    labelClassName={WIZARD_LABEL_CLASS}
+                    value={linkedCosignerTemplateId ?? "__none__"}
+                    dataAttr="application-setup-linked-cosigner"
+                    options={[
+                      { value: "__none__", label: "None" },
+                      ...(templates ?? [])
+                        .filter((candidate) => candidate.id !== applicationTemplate?.id)
+                        .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                    ]}
+                    onChange={(next) => {
+                      setLinkedCosignerTemplateId(next === "__none__" ? null : next);
+                      setDirty(true);
+                    }}
+                  />
+                </PanelSection>
+                <PanelSection title="Pipeline order">
+                  <SegmentedControl
+                    ariaLabel="Pipeline order"
+                    value={formSetup.leasingPipeline.pipelineOrder}
+                    dataAttrPrefix="application-setup-pipeline-order"
+                    options={[
+                      { value: "application_then_lease", label: "Application first" },
+                      { value: "lease_then_application", label: "Lease first" },
+                    ]}
                     onChange={(next) =>
                       void formSetup.patch({
-                        leasingPipeline: {
-                          ...formSetup.leasingPipeline,
-                          defaultApplicationTemplateId: next ? applicationTemplate.id : null,
-                        },
+                        leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
                       })
                     }
                   />
+                </PanelSection>
+                {applicationTemplate ? (
+                  <PanelSection title="Default">
+                    <ToggleRow
+                      label="Default application for this property"
+                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
+                      dataAttr="application-setup-default-toggle"
+                      onChange={(next) =>
+                        void formSetup.patch({
+                          leasingPipeline: {
+                            ...formSetup.leasingPipeline,
+                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
+                          },
+                        })
+                      }
+                    />
+                  </PanelSection>
                 ) : null}
               </div>
             )}
@@ -1739,7 +1806,10 @@ export function ManagerApplicationQuestionsEditorModal({
               }
             />
             <div className="space-y-2">
-              {RENTAL_APPLICATION_SECTIONS.map((section) => {
+              {/* F003/F005: a section unchecked on the Sections step drops
+                  out of the Form step's list entirely — no dropdown, just
+                  the included sections' questions. */}
+              {RENTAL_APPLICATION_SECTIONS.filter((section) => !disabledSectionIds.includes(section.id)).map((section) => {
                 const n = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
                 return (
                   <PortalCollapsibleEditRow
