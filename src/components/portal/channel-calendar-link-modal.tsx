@@ -23,8 +23,7 @@ import {
   parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { Copy } from "lucide-react";
+import { CopyIconAction } from "@/components/portal/portal-icon-action";
 
 const FIELD_LABEL = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
 
@@ -421,11 +420,10 @@ export function ChannelCalendarLinkFields({
                 data-attr="channel-calendar-proplane-export"
               >
                 <code className="min-w-0 flex-1 truncate text-[12px] text-foreground">{proplaneExportUrl}</code>
-                <PortalIconAction
-                  icon={Copy}
+                <CopyIconAction
                   label="Copy PropLane calendar link"
                   data-attr="channel-calendar-copy-proplane-export"
-                  onClick={copyProplaneExport}
+                  onCopy={copyProplaneExport}
                 />
               </div>
             ) : null}

@@ -1,8 +1,10 @@
 "use client";
 
-import { forwardRef, type ButtonHTMLAttributes } from "react";
-import { Plus, type LucideIcon } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Check, Copy, Plus, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CrossfadeFace, CrossfadeSlot } from "@/components/ui/motion/crossfade-slot";
+import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
 
 /**
  * Utility control — Filter, Settings, Share, Export, Edit, Delete.
@@ -44,10 +46,12 @@ export const PortalIconAction = forwardRef<
     ring?: boolean;
     /** The one filled `ring` action per record header — the record's primary act. */
     ringPrimary?: boolean;
+    /** M009 — overrides the default `<Icon>` render (e.g. {@link CopyIconAction}'s check-morph). The `icon` prop is still required for a11y fallback callers that don't need this. */
+    iconSlot?: ReactNode;
   }
 >(function PortalIconAction(
   // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
-  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, className, type = "button", ...rest },
+  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, iconSlot, className, type = "button", ...rest },
   ref,
 ) {
   return (
@@ -72,9 +76,78 @@ export const PortalIconAction = forwardRef<
       )}
       {...rest}
     >
-      <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />
+      {iconSlot ?? <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />}
       <PortalIconBadge badge={badge} />
     </button>
+  );
+});
+
+/**
+ * M009 — copy button check morph. Exact fit for AGENTS.md's icon-chrome rule
+ * (tooltip-only label, no text pill): a width-locked morph from the copy
+ * glyph to a drawn checkmark, reverting after ~1.6s, replacing a plain
+ * toast-only "Copied" cue wherever a `PortalIconAction` already sits in a
+ * title/card header. `onCopy` owns the actual clipboard write (and any
+ * toast) exactly as it already did — this only adds the decorative morph on
+ * top, the same "add a face swap without touching the real action" shape as
+ * the Button's own M003 change.
+ */
+export const CopyIconAction = forwardRef<
+  HTMLButtonElement,
+  Omit<
+    ButtonHTMLAttributes<HTMLButtonElement>,
+    "onClick"
+  > & {
+    label: string;
+    /** Performs the real copy (and any toast); may return a promise. The check morph only plays once this resolves. */
+    onCopy: () => unknown;
+    tone?: "default" | "primary" | "danger";
+    badge?: "dot" | "warn" | "ok" | number | null;
+    ring?: boolean;
+    ringPrimary?: boolean;
+  }
+>(function CopyIconAction({ label, onCopy, className, ...rest }, ref) {
+  const [copied, setCopied] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const handleClick = useCallback(() => {
+    const result = onCopy();
+    void Promise.resolve(result).then(() => {
+      if (!mounted.current) return;
+      setCopied(true);
+      setTimeout(() => {
+        if (mounted.current) setCopied(false);
+      }, reducedMotion ? 0 : 1600);
+    });
+  }, [onCopy, reducedMotion]);
+
+  return (
+    <PortalIconAction
+      ref={ref}
+      icon={Copy}
+      label={copied ? "Copied" : label}
+      onClick={handleClick}
+      className={className}
+      data-copied={copied || undefined}
+      iconSlot={
+        <CrossfadeSlot activeKey={copied ? "copied" : "idle"}>
+          <CrossfadeFace face="idle">
+            <Copy className="size-[18px]" strokeWidth={1.75} aria-hidden />
+          </CrossfadeFace>
+          <CrossfadeFace face="copied">
+            <Check className="size-[18px] text-[var(--pl-good,theme(colors.emerald.600))]" strokeWidth={2} aria-hidden />
+          </CrossfadeFace>
+        </CrossfadeSlot>
+      }
+      {...rest}
+    />
   );
 });
 
