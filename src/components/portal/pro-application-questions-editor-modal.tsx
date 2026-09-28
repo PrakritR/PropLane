@@ -59,6 +59,8 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
+import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
+import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
   APPLICATION_QUESTION_PACKS,
   buildQuestionsFromPack,
@@ -306,6 +308,15 @@ export function ManagerApplicationQuestionsEditorModal({
   const [resolvedImportIssueIndexes, setResolvedImportIssueIndexes] = useState<number[]>([]);
   const [compareView, setCompareView] = useState<"original" | "form">("form");
   const [reviewingSource, setReviewingSource] = useState(false);
+  // F004: a freshly parsed import, held here until the manager explicitly
+  // applies it — picking a file must never silently replace what is already
+  // on screen. `sourcePath` lets "Compare" show the Original PDF before Apply.
+  const [pendingImport, setPendingImport] = useState<{
+    draft: ApplicationTemplateQuestionConfig;
+    issues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    sourcePath: string | null;
+  } | null>(null);
+  const [pendingImportCompareOpen, setPendingImportCompareOpen] = useState(false);
   const [questionDisplayOrder, setQuestionDisplayOrder] = useState<string[]>([]);
   // F-editor a: the Sections step's checklist — default sections the manager
   // unchecked for THIS template, hidden from the Form step below. See
@@ -356,6 +367,8 @@ export function ManagerApplicationQuestionsEditorModal({
     setImportIssues(applicationTemplate?.draftQuestionConfig?.importProvenance?.issues ?? []);
     setResolvedImportIssueIndexes(applicationTemplate?.draftQuestionConfig?.importProvenance?.resolvedIssueIndexes ?? []);
     setCompareView("form");
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
@@ -534,6 +547,23 @@ export function ManagerApplicationQuestionsEditorModal({
   const disabledFields = useMemo(
     () => editorVisibleDisabledApplicationFields(variant, configSlice),
     [configSlice, variant],
+  );
+
+  // F004: the staged import's own field list, resolved the same way
+  // `applicationFields` is, so the diff compares like with like.
+  const pendingImportFields = useMemo(
+    () => (pendingImport ? resolveListingApplicationFields(pendingImport.draft, normalizeCustomApplicationFieldsForEditor) : null),
+    [pendingImport],
+  );
+  const pendingImportDiff = useMemo(
+    () =>
+      pendingImportFields
+        ? diffImportSections(
+            applicationFieldsToImportSections(applicationFields),
+            applicationFieldsToImportSections(pendingImportFields),
+          )
+        : null,
+    [applicationFields, pendingImportFields],
   );
 
   // Inline per-row validation (duplicate key, empty label, options required) —
@@ -847,8 +877,21 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
-  const importPdf = async (file: File) => {
-    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+  type StagedApplicationImport = {
+    draft: ApplicationTemplateQuestionConfig;
+    issues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    sourcePath: string | null;
+  };
+
+  // F004: parses the uploaded PDF and STAGES the result — nothing on screen
+  // changes yet. `applyPendingImport` below is the only thing that writes it
+  // into the template being edited. Returns the staged payload (or null on
+  // failure) so the auto-import ("+ Add → Upload PDF") effect below can apply
+  // it right away without racing this function's own `setPendingImport` —
+  // reading `pendingImport` state back in that same callback would still hold
+  // its pre-update value, since state updates are not synchronous.
+  const importPdf = async (file: File): Promise<StagedApplicationImport | null> => {
+    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return null;
     setImporting(true);
     try {
       const body = new FormData();
@@ -858,24 +901,49 @@ export function ManagerApplicationQuestionsEditorModal({
       const response = await fetch("/api/portal/application-template-import", { method: "POST", body });
       const result = await response.json().catch(() => null) as { error?: string; draft?: ApplicationTemplateQuestionConfig; source?: { path?: string }; issues?: Array<{ pageNumber: number | null; code: string; message: string }> } | null;
       if (!response.ok || !result) throw new Error(result?.error || "Could not import the application PDF.");
-      setOriginalPdfPath(result.source?.path ?? null);
-      setImportIssues(result.issues ?? []);
-      setResolvedImportIssueIndexes([]);
-      if (result.draft) {
-        setImportedQuestionDraft(result.draft);
-        setQuestionDisplayOrder(result.draft.questionDisplayOrder ?? []);
-        setLocalSub((previous) => ({
-          ...previous,
-          ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate), result.draft!),
-        }));
-        setDirty(true);
-      }
-      showToast(result.issues?.length ? "Imported as a draft. Resolve the flagged source issues before publishing." : "Imported application draft saved.");
+      if (!result.draft) throw new Error("Could not read any questions from that PDF.");
+      const staged: StagedApplicationImport = { draft: result.draft, issues: result.issues ?? [], sourcePath: result.source?.path ?? null };
+      setPendingImport(staged);
+      setPendingImportCompareOpen(false);
+      return staged;
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Could not import the application PDF.");
+      return null;
     } finally {
       setImporting(false);
     }
+  };
+
+  // F004: writes a staged import into the template being edited — the same
+  // state `importPdf`'s success branch used to set immediately. This is the
+  // ONLY place that happens; picking a file never does it on its own. Takes
+  // an explicit `staged` payload (defaulting to the pending-import state,
+  // what the "Apply changes" button uses) rather than only ever reading
+  // state, so the auto-import effect can apply the just-staged result
+  // without a stale-closure race against `setPendingImport`.
+  const applyPendingImport = (staged: StagedApplicationImport | null = pendingImport) => {
+    if (!staged || !applicationTemplate) return;
+    const { draft, issues, sourcePath } = staged;
+    setOriginalPdfPath(sourcePath);
+    setImportIssues(issues);
+    setResolvedImportIssueIndexes([]);
+    setImportedQuestionDraft(draft);
+    setQuestionDisplayOrder(draft.questionDisplayOrder ?? []);
+    setLocalSub((previous) => ({
+      ...previous,
+      ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate), draft),
+    }));
+    setDirty(true);
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
+    showToast(issues.length ? "Applied. Resolve the flagged source issues before publishing." : "Applied the imported questions.");
+  };
+
+  // F004: drops the staged import. The template is left exactly as it was —
+  // nothing that `applyPendingImport` would have written is touched.
+  const discardPendingImport = () => {
+    setPendingImport(null);
+    setPendingImportCompareOpen(false);
   };
 
   // "+ Add → Upload PDF" in one step: the caller already created and saved
@@ -884,6 +952,10 @@ export function ManagerApplicationQuestionsEditorModal({
   // runs, once, then land on Preview where the source comparison and any
   // flagged issues live. Guarded by a ref (not state) so this can never
   // re-fire from an unrelated re-render while `autoImportFile` is still set.
+  // There is nothing on screen yet to protect (the template was just
+  // created for exactly this file), so this one-step flow applies the
+  // staged result immediately rather than showing the stage/apply summary —
+  // that summary is for re-importing while ALREADY editing real content.
   const autoImportRanRef = useRef(false);
   useEffect(() => {
     if (!open || !autoImportFile || autoImportRanRef.current) return;
@@ -893,7 +965,8 @@ export function ManagerApplicationQuestionsEditorModal({
     // not synchronously in the effect body — an async completion callback,
     // the same shape `importPdf`'s own button handler already uses.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void importPdf(autoImportFile).then(() => {
+    void importPdf(autoImportFile).then((staged) => {
+      applyPendingImport(staged);
       setStepIdx(workspaceSteps.length - 1);
       onAutoImportConsumed?.();
     });
@@ -1457,7 +1530,7 @@ export function ManagerApplicationQuestionsEditorModal({
           />
         }
         lastLabel={templateEditorMode === "add" ? "Add application" : "Save"}
-        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors}
+        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
           if (stepId === "name" && !templateLabel.trim()) {
             setTemplateLabelError("Enter a name for this application.");
@@ -1529,6 +1602,53 @@ export function ManagerApplicationQuestionsEditorModal({
               }}
               onReread={() => {}}
             />
+            {/* F004: a freshly parsed import waits here — nothing above or
+                below has changed yet. "Apply changes" is the only thing that
+                writes it in; "Discard" drops it and leaves the template
+                exactly as it was. */}
+            {pendingImport && pendingImportDiff ? (
+              <div className="mb-4 rounded-2xl border border-primary/40 bg-primary/[0.04] p-3.5" data-attr="application-pending-import">
+                <p className="text-[13.5px] font-bold text-foreground" data-attr="application-pending-import-summary">
+                  {pendingImportDiff.totalIncoming} section{pendingImportDiff.totalIncoming === 1 ? "" : "s"} found · {pendingImportDiff.changedCount === 0 ? "up to date" : `${pendingImportDiff.changedCount} changed`}
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" className="rounded-full" onClick={() => setPendingImportCompareOpen((v) => !v)} data-attr="application-pending-import-compare">
+                    {pendingImportCompareOpen ? "Hide compare" : "Compare"}
+                  </Button>
+                  <Button type="button" variant="primary" className="rounded-full" onClick={() => applyPendingImport()} data-attr="application-pending-import-apply">
+                    Apply changes from the file
+                  </Button>
+                  <Button type="button" variant="outline" className="rounded-full" onClick={discardPendingImport} data-attr="application-pending-import-discard">
+                    Discard
+                  </Button>
+                </div>
+                {pendingImportCompareOpen ? (
+                  <ul className="mt-3 space-y-2" data-attr="application-pending-import-changed-sections">
+                    {changedSectionEntries(pendingImportDiff).length === 0 ? (
+                      <li className="text-[13px] text-muted">No sections changed.</li>
+                    ) : (
+                      changedSectionEntries(pendingImportDiff).map((entry) => (
+                        <li key={entry.key} className="rounded-xl border border-border bg-card p-2.5 text-[13px]" data-attr="application-pending-import-changed-section">
+                          <p className="font-semibold text-foreground">
+                            {entry.title} <span className="font-normal text-muted">({entry.status})</span>
+                          </p>
+                          <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Current</p>
+                              <p className="whitespace-pre-line text-foreground/80">{entry.currentBody || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">From the file</p>
+                              <p className="whitespace-pre-line text-foreground/80">{entry.incomingBody || "—"}</p>
+                            </div>
+                          </div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-4">
               <FloatingLabelField
                 id="application-template-name"
