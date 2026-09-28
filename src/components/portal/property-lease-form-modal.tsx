@@ -576,7 +576,7 @@ export function PropertyLeaseFormModal({
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
       sidePanel={htmlPreview}
-      lastLabel="Save"
+      lastLabel={mode === "add" ? "Add lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError)}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
