@@ -4,7 +4,7 @@
  * PLAN-0927) must show "Sign lease" on the public listing detail page's
  * price card and mobile sticky bar instead of "Apply" — and, when no
  * application fee is charged up front, the price card's "Application fee"
- * row becomes a "Due at signing" row for the resolved lease-signing fee
+ * row becomes a "Lease fee" row for the resolved lease-signing fee
  * (never client math — `leaseSigningFeeCents` is the server's own resolved
  * amount).
  */
@@ -102,7 +102,7 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease");
   });
 
-  it("swaps Application fee for Due at signing when lease-first and no fee is charged up front", () => {
+  it("swaps Application fee for Lease fee when lease-first and no fee is charged up front", () => {
     render(
       <ListingDetailSections
         property={property({ signingOrder: "lease_first", leaseSigningFeeCents: 10000 })}
@@ -113,7 +113,7 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(card.textContent).not.toContain("Application fee");
     const dueAtSigning = card.querySelector('[data-attr="listing-price-due-at-signing"]');
     expect(dueAtSigning).not.toBeNull();
-    expect(dueAtSigning!.textContent).toContain("Due at signing");
+    expect(dueAtSigning!.textContent).toContain("Lease fee");
     expect(dueAtSigning!.textContent).toContain("$100");
     // The unrelated deposit row is untouched.
     expect(card.textContent).toContain("Security deposit");

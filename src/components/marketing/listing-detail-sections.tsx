@@ -195,7 +195,7 @@ function PriceCard({
           ))}
           {showDueAtSigning ? (
             <div className="flex items-baseline justify-between gap-3 py-2" data-attr="listing-price-due-at-signing">
-              <dt className="text-muted">Due at signing</dt>
+              <dt className="text-muted">Lease fee</dt>
               <dd className="font-bold tabular-nums text-foreground">{formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0)}</dd>
             </div>
           ) : null}
