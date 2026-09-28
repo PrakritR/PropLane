@@ -51,6 +51,9 @@ vi.mock("@/lib/portal-nav-prefetch", () => ({
   portalMobileLinkPrefetchEnabled: () => false,
   portalBackgroundPrefetchEnabled: () => false,
 }));
+// N087: "Need help?" now mounts a feedback form (via `usePortalFeedbackForm`)
+// for every portal kind, not only manager/pro.
+vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/lib/portal-nav-client", () => ({
   isCrossPortalNavigation: () => false,
   portalNavClick: () => () => {},

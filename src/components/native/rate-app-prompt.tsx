@@ -195,7 +195,7 @@ export function RateAppPrompt({ reporterRole }: { reporterRole: BugFeedbackRepor
         reporterUserId={session.userId}
         reporterEmail={session.email ?? ""}
         reporterName={session.email ?? ""}
-        initialTitle={stars ? `Rated ${stars}/5 in the app` : ""}
+        initialMessage={stars ? `Rated ${stars}/5 in the app — ` : ""}
         onSubmitted={() => {}}
       />
     </>
