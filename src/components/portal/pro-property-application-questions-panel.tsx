@@ -31,7 +31,6 @@ import {
 } from "@/lib/manager-property-save-target";
 import {
   applicationFormVariantForTemplate,
-  createPropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -139,8 +138,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
-  const [autoImportFile, setAutoImportFile] = useState<File | null>(null);
-  const [uploadingPdf, setUploadingPdf] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -333,50 +330,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditorOpen(true);
   }, []);
 
-  /**
-   * Add popup → Upload PDF (captain override — an uploaded application PDF
-   * becomes a NAMED form, e.g. "Intake form", never a Lease/Application nav
-   * rename). Creates a real (empty) template and saves it FIRST — exactly
-   * `addSeedTemplate`'s pattern — so the editor reopens with a real
-   * `applicationTemplate.id` and its Import PDF step is already live, then
-   * hands the picked file through as `autoImportFile` so the modal runs the
-   * same import a manual "Import PDF" click runs. A name typed in the popup
-   * wins over the one derived from the file name.
-   */
-  const handleUploadPdfFile = useCallback(
-    async (file: File, typedLabel = "") => {
-      if (!managerUserId) {
-        showToast("Could not create the form.");
-        return;
-      }
-      setUploadingPdf(true);
-      try {
-        const created = createPropertyApplicationTemplate({
-          kind: "long-term",
-          label: typedLabel.trim() || deriveFormNameFromFileName(file.name),
-        });
-        if (bulkPropertyIds.length > 0) {
-          // A bulk (multi-property) edit has no single listing to import a
-          // source PDF against — PDF import stays a single-property action.
-          showToast("Upload a PDF for one property at a time.");
-          return;
-        }
-        const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
-        const next = withPropertyApplicationTemplatesExplicit(base, [...readPropertyApplicationTemplates(base), created]);
-        const saved = await persistSubmission(next, { message: "Form created. Importing your PDF…" });
-        if (!saved) return;
-        onUpdated();
-        setAutoImportFile(file);
-        setEditorMode("edit");
-        setEditingTemplate(created);
-        setEditorOpen(true);
-      } finally {
-        setUploadingPdf(false);
-      }
-    },
-    [bulkPropertyIds.length, managerUserId, onUpdated, persistSubmission, showToast, sub, syncedSub],
-  );
-
   const openEditApplication = useCallback(async (template: PropertyApplicationTemplate) => {
     // Older properties render their default forms from listing terms before the
     // generated templates have been stored. The PDF import route reads the
@@ -448,7 +401,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
-    setAutoImportFile(null);
     clearSelection();
   };
 
@@ -600,13 +552,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
           onClose={closeEditor}
           onSaved={onUpdated}
           showToast={showToast}
-          autoImportFile={autoImportFile}
-          onAutoImportConsumed={() => setAutoImportFile(null)}
-          // PDF import is a single-property action; bulk edit has no one listing.
-          onUploadPdf={
-            bulkPropertyIds.length === 0 ? (file, label) => void handleUploadPdfFile(file, label) : undefined
-          }
-          uploadingPdf={uploadingPdf}
         />
       ) : null}
 
