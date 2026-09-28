@@ -294,6 +294,13 @@ require both without either flag knowing about the other:
   `vendor_invoices` directly was out of scope ("don't invent a payment
   rail"); this is deliberately unbuilt, not overlooked.
 
+**Vendor banking (`VENDOR_BANKING_ENABLED`, `src/lib/vendor-banking/flag.ts`)**
+— the 3% vendor take rate, manual Connect payout schedule, 90-day hold-expiry
+job, vendor refund route, and balance/statement/reconciliation surface — is
+**default ON** (captain, 2026-09-28). Set `VENDOR_BANKING_ENABLED=0` (or
+`false` / `off`) in an environment to fall back to the pre-feature behavior
+(no `vendor_banking_*` row is written, fee/schedule math returns 0).
+
 # Financials Phase 5: AP bills, budgets, owner statements
 
 **Schema** — `supabase/migrations/20260712120000_manager_bills_ap.sql`: `manager_bills`, `manager_budgets`, `manager_property_owners`, `manager_reserve_policies`, `manager_owner_distributions`; `vendor_invoices.bill_id` FK to `manager_bills`.
