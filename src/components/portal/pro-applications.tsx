@@ -81,7 +81,7 @@ import {
   readCosignerSubmissionsForSignerAppId,
 } from "@/lib/cosigner-submissions-storage";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
-import { applicationPdfFilename } from "@/lib/manager-application-pdf";
+import { applicationPdfFilename } from "@/lib/manager-application-pdf-filename";
 import {
   downloadFetchedUrl,
   portalDownloadToastMessage,

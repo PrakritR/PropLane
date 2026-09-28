@@ -15,6 +15,7 @@ import {
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
+import { track } from "@/lib/analytics/posthog";
 
 /**
  * Server-only manager_purchases reads/writes (service role). Split out of
@@ -67,6 +68,7 @@ async function loadManagerPurchaseRowsForUser(userId: string): Promise<ManagerPu
 }
 
 const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
+  hasPurchaseRow: boolean;
   tier: string | null;
   billing: string | null;
   stripeCustomerId: string | null;
@@ -81,6 +83,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   const best = pickBestManagerPurchaseRow(rows, userId);
   if (!best) {
     return {
+      hasPurchaseRow: rows.length > 0,
       tier: null,
       billing: null,
       stripeCustomerId: null,
@@ -93,6 +96,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
     };
   }
   return {
+    hasPurchaseRow: true,
     readFailed,
     tier: best.tier != null ? String(best.tier) : null,
     billing: best.billing != null ? String(best.billing) : null,
@@ -121,6 +125,26 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
 });
 
 /**
+ * Reconciliation is authoritative, but several plan views can resolve during one
+ * server render. Keep that work request-scoped so Stripe/RevenueCat are never
+ * contacted twice for the same manager in one render. React's cache does not
+ * persist across requests, so provider freshness and write-time checks remain.
+ */
+const syncManagerPurchaseTierStateOnce = cache(async (userId: string): Promise<void> => {
+  const startedAt = performance.now();
+  try {
+    const { syncManagerPurchaseTierState } = await import("@/lib/manager-tier-sync");
+    await syncManagerPurchaseTierState(userId);
+  } finally {
+    if (process.env.VERCEL_ENV === "production") {
+      track("manager_entitlement_sync_completed", "manager-entitlement-sync", {
+        duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+      });
+    }
+  }
+});
+
+/**
  * The single authoritative manager access tier, sourced from the manager's OWN
  * `manager_purchases` row — the SAME source and logic the Settings "Compare plans"
  * page uses via `/api/manager/subscription`. Every portal surface (sidebar brand
@@ -139,11 +163,9 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
  */
 const getManagerSubscriptionTierCached = cache(async (userId: string): Promise<ManagerSubscriptionTier> => {
   try {
-    const { syncManagerPurchaseTierState } = await import("@/lib/manager-tier-sync");
-    await syncManagerPurchaseTierState(userId);
-    const rows = await loadManagerPurchaseRowsForUser(userId);
-    if (rows.length === 0) return null;
+    await syncManagerPurchaseTierStateOnce(userId);
     const purchase = await getManagerPurchaseRowByUserId(userId);
+    if (!purchase.hasPurchaseRow) return null;
     const sku = normalizeManagerSkuTier(purchase.tier);
     if (sku === "free") return "free";
     if (sku === "pro" || sku === "business") return "paid";
@@ -161,13 +183,11 @@ export async function getManagerSubscriptionTier(userId: string): Promise<Manage
 
 const getManagerNavLockTierCached = cache(async (userId: string): Promise<ManagerSubscriptionTier> => {
   try {
-    const { syncManagerPurchaseTierState } = await import("@/lib/manager-tier-sync");
-    await syncManagerPurchaseTierState(userId);
-    const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId);
+    await syncManagerPurchaseTierStateOnce(userId);
     const purchase = await getManagerPurchaseRowByUserId(userId);
     return resolveManagerNavLockTierFromPurchase({
-      readFailed,
-      hasPurchaseRow: rows.length > 0,
+      readFailed: purchase.readFailed,
+      hasPurchaseRow: purchase.hasPurchaseRow,
       tier: purchase.tier,
       billing: purchase.billing,
       stripeSubscriptionId: purchase.stripeSubscriptionId,

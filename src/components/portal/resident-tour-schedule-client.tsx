@@ -6,6 +6,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PORTAL_DATA_TABLE_WRAP } from "@/components/portal/portal-data-table";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { getPropertyForPublicLink } from "@/lib/rental-application/data";
+import { notifyResidentToursChanged } from "@/lib/resident-tour-sync-client";
 import { useSearchParams } from "next/navigation";
 
 export function ResidentTourScheduleClient() {
@@ -40,7 +41,7 @@ export function ResidentTourScheduleClient() {
               property={property}
               returnAfterAuth="/resident/tour/pending"
               embedded
-              onSuccess={() => undefined}
+              onSuccess={notifyResidentToursChanged}
             />
           </div>
         )}

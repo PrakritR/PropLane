@@ -1,8 +1,99 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { cn } from "@/lib/utils";
+
+/**
+ * M005 — the "command" appearance's tab row already draws a static
+ * `border-b-2` underline per item (colored on whichever is active); this adds
+ * ONE indicator element that FLIPs between the previously and newly active
+ * item's measured rect (the same ref/`useLayoutEffect`/`ResizeObserver`
+ * technique `TabNav` in `tabs.tsx` already uses for its sliding pill), so the
+ * underline travels instead of jumping. Scoped to `appearance === "command"`
+ * only — the "segmented" pill appearance has its own, unrelated highlight.
+ */
+function useCommandTabIndicator(activeKey: string, itemCount: number, enabled: boolean) {
+  const wrapRef = useRef<HTMLElement | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLElement>());
+  const [rect, setRect] = useState<{ left: number; width: number } | null>(null);
+
+  const sync = useCallback(() => {
+    if (!enabled) return;
+    const wrap = wrapRef.current;
+    const el = itemRefs.current.get(activeKey);
+    if (!wrap || !el) {
+      setRect(null);
+      return;
+    }
+    setRect({ left: el.offsetLeft, width: el.offsetWidth });
+  }, [activeKey, enabled]);
+
+  useLayoutEffect(() => {
+    sync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sync, itemCount]);
+
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const ro = new ResizeObserver(() => sync());
+    ro.observe(wrap);
+    window.addEventListener("resize", sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [sync, enabled]);
+
+  const registerItem = useCallback(
+    (id: string) => (el: HTMLElement | null) => {
+      if (el) itemRefs.current.set(id, el);
+      else itemRefs.current.delete(id);
+    },
+    [],
+  );
+
+  return { wrapRef, registerItem, rect };
+}
+
+/**
+ * M014 — value flash on the count pill: marks the pill for one animation
+ * cycle the instant its number changes between renders (the same "marks what
+ * just changed" cue a live KPI wants), never on first mount.
+ */
+function useCountFlash(items: { id: string; count?: number }[]) {
+  const prevCounts = useRef<Map<string, number>>(new Map());
+  const mountedOnce = useRef(false);
+  const [flashing, setFlashing] = useState<Set<string>>(new Set());
+  // A stable string key, not `items` itself (most callers inline a fresh
+  // array literal every render) — so the effect only fires on an actual
+  // count change, never on every unrelated re-render.
+  const countsKey = useMemo(
+    () => items.map((item) => `${item.id}:${item.count ?? ""}`).join("|"),
+    [items],
+  );
+
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const item of items) {
+      if (item.count == null) continue;
+      const prev = prevCounts.current.get(item.id);
+      if (mountedOnce.current && prev !== undefined && prev !== item.count) next.add(item.id);
+      prevCounts.current.set(item.id, item.count);
+    }
+    mountedOnce.current = true;
+    if (next.size === 0) return;
+    setFlashing(next);
+    const timer = setTimeout(() => setFlashing(new Set()), 900);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countsKey]);
+
+  return flashing;
+}
 
 export type DestinationNavItem = {
   id: string;
@@ -52,20 +143,30 @@ export function DestinationNav({
 }) {
   const normalize = (href: string) => href.replace(/\/$/, "");
   const compactItems = itemLayout === "equal" ? false : items.length > 4;
+  const commandEnabled = appearance === "command";
+  const activeItemId =
+    items.find(
+      (item) =>
+        (activeId != null && item.id === activeId) ||
+        (activeHref != null && normalize(activeHref) === normalize(item.href)),
+    )?.id ?? "";
+  const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeItemId, items.length, commandEnabled);
+  const flashing = useCountFlash(items);
 
   return (
     <nav
-      className={destinationNavShellClassName(
-        className,
-        itemLayout,
-        denseEqualRow,
-        centerEqualRow,
-        appearance,
+      ref={commandEnabled ? (wrapRef as never) : undefined}
+      className={cn(
+        destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow, appearance),
+        commandEnabled && "relative",
       )}
       aria-label={ariaLabel}
       data-slot="destination-nav"
       {...(itemLayout === "equal" ? {} : { [HORIZONTAL_SCROLL_ATTR]: "" })}
     >
+      {commandEnabled && rect ? (
+        <span aria-hidden className="motion-tab-indicator" style={{ left: rect.left, width: rect.width }} />
+      ) : null}
       {items.map((item) => {
         const active =
           (activeId != null && item.id === activeId) ||
@@ -75,6 +176,7 @@ export function DestinationNav({
             key={item.id}
             href={item.href}
             data-attr={item.dataAttr}
+            ref={commandEnabled ? (registerItem(item.id) as never) : undefined}
             className={cn(
               itemLayout === "equal"
                 ? "min-w-0"
@@ -126,6 +228,9 @@ export function DestinationNav({
                 className={cn(
                   "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                   active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                  // M014 — flashes once, right when the count you're already
+                  // looking at changes underneath you.
+                  flashing.has(item.id) && "motion-value-flash",
                 )}
                 aria-label={`${item.count} ${item.count === 1 ? "item" : "items"}`}
               >
@@ -248,20 +353,24 @@ export function LocalDestinationNav({
   appearance?: "segmented" | "command";
 }) {
   const compactItems = itemLayout === "equal" ? false : items.length > 4;
+  const commandEnabled = appearance === "command";
+  const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeId, items.length, commandEnabled);
+  const flashing = useCountFlash(items);
 
   return (
     <nav
-      className={destinationNavShellClassName(
-        className,
-        itemLayout,
-        denseEqualRow,
-        centerEqualRow,
-        appearance,
+      ref={commandEnabled ? (wrapRef as never) : undefined}
+      className={cn(
+        destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow, appearance),
+        commandEnabled && "relative",
       )}
       aria-label={ariaLabel}
       data-slot="local-destination-nav"
       {...(itemLayout === "equal" ? {} : { [HORIZONTAL_SCROLL_ATTR]: "" })}
     >
+      {commandEnabled && rect ? (
+        <span aria-hidden className="motion-tab-indicator" style={{ left: rect.left, width: rect.width }} />
+      ) : null}
       {items.map((item) => {
         const active = item.id === activeId;
         return (
@@ -269,6 +378,7 @@ export function LocalDestinationNav({
             key={item.id}
             type="button"
             data-attr={item.dataAttr}
+            ref={commandEnabled ? (registerItem(item.id) as never) : undefined}
             className={cn(
               itemLayout === "equal"
                 ? "min-w-0"
@@ -329,6 +439,7 @@ export function LocalDestinationNav({
                 className={cn(
                   "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                   active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                  flashing.has(item.id) && "motion-value-flash",
                 )}
                 aria-label={`${item.count} ${item.count === 1 ? "item" : "items"}`}
               >

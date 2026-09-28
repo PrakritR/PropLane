@@ -21,6 +21,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import { formatApplicationGroupMemberLine } from "@/lib/application-group-document";
+export { applicationPdfFilename } from "@/lib/manager-application-pdf-filename";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -627,12 +628,4 @@ export async function buildApplicationPdf(
   });
 
   return pdf.save();
-}
-
-/** Filesystem-safe download name for an application PDF. */
-export function applicationPdfFilename(row: Pick<DemoApplicantRow, "id" | "name">): string {
-  const name = clean(row.name).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
-  const id = clean(row.id).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  const base = [name || "application", id].filter(Boolean).join("-");
-  return `${base}.pdf`;
 }

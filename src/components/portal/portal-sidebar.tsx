@@ -34,7 +34,11 @@ import {
   prefetchPortalHref,
   usePortalNavigate,
 } from "@/lib/portal-nav-client";
-import { portalBackgroundPrefetchEnabled, portalMobileLinkPrefetchEnabled } from "@/lib/portal-nav-prefetch";
+import {
+  portalBackgroundPrefetchEnabled,
+  portalIntentPrefetchEnabled,
+  portalMobileLinkPrefetchEnabled,
+} from "@/lib/portal-nav-prefetch";
 import {
   PORTAL_MAIN_CONTENT_ID,
   PORTAL_MOBILE_CHROME_CLASS,
@@ -44,7 +48,6 @@ import {
   PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS,
   PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS,
 } from "@/lib/portal-layout-classes";
-import { prefetchPortalPanelChunks } from "@/lib/portal-panel-prefetch";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/portal-sidebar-cookie";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
@@ -306,11 +309,6 @@ export function PortalSidebar({
     () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
     [navGroups],
   );
-
-  useEffect(() => {
-    if (!portalBackgroundPrefetchEnabled()) return;
-    prefetchPortalPanelChunks();
-  }, []);
 
   useEffect(() => {
     if (collapsed) {
@@ -746,7 +744,7 @@ export function PortalSidebar({
                 href={sub.href}
                 prefetch={portalBackgroundPrefetchEnabled()}
                 onMouseEnter={
-                  portalBackgroundPrefetchEnabled()
+                  portalIntentPrefetchEnabled()
                     ? () => {
                         prefetchPortalHref(router, sub.href);
                         for (const href of sub.prefetchHrefs) prefetchPortalHref(router, href);
@@ -815,7 +813,7 @@ export function PortalSidebar({
         href={s.href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
-          portalBackgroundPrefetchEnabled()
+          portalIntentPrefetchEnabled()
             ? () => {
                 prefetchPortalHref(router, s.href);
                 for (const href of s.prefetchHrefs) prefetchPortalHref(router, href);
@@ -881,7 +879,7 @@ export function PortalSidebar({
         href={href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
-          portalBackgroundPrefetchEnabled()
+          portalIntentPrefetchEnabled()
             ? () => {
                 prefetchPortalHref(router, href);
                 for (const prefetchHref of s.prefetchHrefs) prefetchPortalHref(router, prefetchHref);

@@ -68,7 +68,7 @@ export function AccountLinksSync() {
           writeProRelationships(session.userId, next);
         }
 
-        await syncManagerPortfolioFromServer(session.userId, { force: true });
+        await syncManagerPortfolioFromServer(session.userId);
         return;
       } catch {
         /* ignore */

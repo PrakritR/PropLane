@@ -1,6 +1,7 @@
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthOAuthErrorHandler } from "@/components/auth/auth-oauth-error-handler";
+import { NavigationTiming } from "@/components/analytics/navigation-timing";
 import { GeneralAssistant } from "@/components/general/general-assistant";
 import { NativeAppGate } from "@/components/native/native-app-gate";
 import { NativeBridge } from "@/components/native/native-bridge";
@@ -83,6 +84,7 @@ export default function RootLayout({
         </Script>
         <ThemeProvider defaultTheme="light">
           <AppUiProvider>
+            <NavigationTiming />
             <AuthOAuthErrorHandler />
             <NativeBridge />
             <NativeAppGate>{children}</NativeAppGate>

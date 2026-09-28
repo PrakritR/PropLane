@@ -1,0 +1,207 @@
+{
+  "captured_at_utc": "2026-09-28T04:08:14.891958+00:00",
+  "baseline_commit": "bc3f388f483517fac4cddcf4a6a9e865793f83b9",
+  "host": "proplane.ai",
+  "route": "/auth/sign-in",
+  "kind": "public HTTP document requests; no browser or native rendering measurement",
+  "samples": [
+    {
+      "ttfb_seconds": 0.277748,
+      "total_seconds": 0.27954,
+      "bytes": 38928,
+      "status": 200
+    },
+    {
+      "ttfb_seconds": 0.172407,
+      "total_seconds": 0.190899,
+      "bytes": 38928,
+      "status": 200
+    },
+    {
+      "ttfb_seconds": 0.229724,
+      "total_seconds": 0.239755,
+      "bytes": 38928,
+      "status": 200
+    },
+    {
+      "ttfb_seconds": 0.162432,
+      "total_seconds": 0.174081,
+      "bytes": 38928,
+      "status": 200
+    },
+    {
+      "ttfb_seconds": 0.159445,
+      "total_seconds": 0.169792,
+      "bytes": 38928,
+      "status": 200
+    }
+  ],
+  "baseline_sign_in_script_inventory": {
+    "captured_at_utc": "2026-09-28T04:10:33.442349+00:00",
+    "note": "Scripts present in returned HTML; wire sizes via compressed independent HTTP requests, not browser transfer or parsing timings",
+    "assets": [
+      {
+        "path": "/_next/static/immutable/chunks/1ezyzgky1ns0o.js",
+        "wire_bytes": 8431,
+        "decoded_bytes": 31423,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3ik8t2uczrdpn.js",
+        "wire_bytes": 72696,
+        "decoded_bytes": 229503,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1_xz6gvi56rf9.js",
+        "wire_bytes": 43483,
+        "decoded_bytes": 156228,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1fir8eopwy87c.js",
+        "wire_bytes": 69071,
+        "decoded_bytes": 209797,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/turbopack-15he2v9sc3u4a.js",
+        "wire_bytes": 4335,
+        "decoded_bytes": 11030,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/34lz7gwwhfpuv.js",
+        "wire_bytes": 4088,
+        "decoded_bytes": 15736,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/31rzrsafijs90.js",
+        "wire_bytes": 10567,
+        "decoded_bytes": 31492,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3ndirvqoszqo1.js",
+        "wire_bytes": 4222,
+        "decoded_bytes": 17048,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0i7tvay8hsm-g.js",
+        "wire_bytes": 9929,
+        "decoded_bytes": 31136,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/23vro698i2fyq.js",
+        "wire_bytes": 8317,
+        "decoded_bytes": 24227,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1vbuu466hnzlr.js",
+        "wire_bytes": 16673,
+        "decoded_bytes": 49498,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/06s5gnkryw87r.js",
+        "wire_bytes": 12472,
+        "decoded_bytes": 36430,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/43wbiiejm81xo.js",
+        "wire_bytes": 80602,
+        "decoded_bytes": 268446,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1u5r4s4kts7es.js",
+        "wire_bytes": 55411,
+        "decoded_bytes": 208593,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/31_xzr2_wq_6m.js",
+        "wire_bytes": 28857,
+        "decoded_bytes": 103833,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0xz4n3uf-n0ny.js",
+        "wire_bytes": 8634,
+        "decoded_bytes": 27439,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3kqmfa-hnxqh3.js",
+        "wire_bytes": 332291,
+        "decoded_bytes": 974827,
+        "pdf_symbols": true
+      },
+      {
+        "path": "/_next/static/immutable/chunks/093cuq47k72h4.js",
+        "wire_bytes": 50763,
+        "decoded_bytes": 177746,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1djawh9sna_kg.js",
+        "wire_bytes": 125454,
+        "decoded_bytes": 414851,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3yfnpc6zle16g.js",
+        "wire_bytes": 14541,
+        "decoded_bytes": 43126,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/2l-qzyhtl0a0c.js",
+        "wire_bytes": 995,
+        "decoded_bytes": 995,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1wkutue27emt0.js",
+        "wire_bytes": 6088,
+        "decoded_bytes": 18378,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3bmbrh7jygyjc.js",
+        "wire_bytes": 6606,
+        "decoded_bytes": 21521,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1udgdi5usk0-3.js",
+        "wire_bytes": 10992,
+        "decoded_bytes": 30708,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/28cq_u1ndp1-_.js",
+        "wire_bytes": 1137,
+        "decoded_bytes": 2570,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0c0hxoamwjsbw.js",
+        "wire_bytes": 39797,
+        "decoded_bytes": 112594,
+        "pdf_symbols": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0c3qvn961npnn.js",
+        "wire_bytes": 3948,
+        "decoded_bytes": 13894,
+        "pdf_symbols": false
+      }
+    ]
+  }
+}

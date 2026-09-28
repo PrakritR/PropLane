@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Load-time implementation handoff - 28 September 2026</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 980px; margin: 40px auto; padding: 0 24px; color: #18212b; }
+  h1, h2 { line-height: 1.2; }
+  h2 { margin-top: 32px; }
+  code { background: #eef1f4; padding: 2px 5px; overflow-wrap: anywhere; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #d7dde3; padding: 9px; text-align: left; vertical-align: top; }
+  .status { background: #eef7ef; padding: 16px; }
+</style>
+<h1>PropLane load-time implementation handoff</h1>
+<p>Execution date: 28 September 2026. Plan: <code>docs/plans/load-time-implementation-20260928.html</code>. Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-load-times</code>. Branch: <code>codex/load-time-diagnosis</code>. Starting revision: <code>43c9e0f669f6947081828896880d9d07b755a6b2</code>.</p>
+<p class="status">The planned code changes are integrated and focused validation is green. The keeper commit, remote full validation, independent review, seeded browser QA, and release ladder are the next phase owned by the root release agent. No deployment, production data change, schema change, locked-listing write, or native-device claim occurred in this execution session.</p>
+
+<h2>Implemented behavior</h2>
+<ul>
+  <li><strong>Native auth:</strong> passive native session detection is a bounded 400 ms <code>getSession</code> check. A signed-out user or failed lookup reaches the credential form promptly. Active OAuth recovery retains bounded polling, now honors attempt and wall-clock limits, clamps each call and delay to the remaining budget, supports cancellation, and removes abort listeners after settlement.</li>
+  <li><strong>Portal startup:</strong> removed the role-unscoped ten-panel warm queue and immediate marketing-home prefetch from every portal layout. Automatic route prefetch is disabled while desktop hover intent prefetch remains available in production.</li>
+  <li><strong>Refresh work:</strong> manager account-link and onboarding reads no longer force duplicate portfolio refreshes. Resident application mount sync runs once without bypassing the cache. Post-write forced paths remain.</li>
+  <li><strong>Resident data:</strong> tour reads are keyed by user id and normalized email, coalesce concurrent requests, keep a 15-second successful-read TTL, do not cache malformed/error responses, clear old-viewer display immediately, and force refresh after successful scheduling/cancellation. Application, lease, and tour-link access reads now run in parallel. The already-authorized application result supplies the manager id, removing two later profile/application reads.</li>
+  <li><strong>PDF bundle boundary:</strong> the client Applications panel now imports a pure filename helper rather than the top-level <code>pdf-lib</code> implementation. PDF generation remains in the authenticated server route and loads only when a PDF is requested.</li>
+  <li><strong>Manager entitlements:</strong> provider reconciliation remains authoritative on ordinary reads and write/API gates. Request-scoped caching prevents duplicate reconciliation and duplicate purchase-row reads. Reconciliation now happens before the displayed purchase snapshot is cached, preventing a stale same-render display. A production-only aggregate <code>manager_entitlement_sync_completed</code> timing event uses a constant distinct id and carries only duration.</li>
+  <li><strong>Browser telemetry:</strong> PostHog initializes on known production web/native hosts and excludes localhost, staging, and previews. The existing single <code>$web_vitals</code> event is attributed to its sanitized metric navigation URL in both <code>$current_url</code> and <code>$pathname</code>, with a coarse web/native runtime. A lightweight initial-navigation timing event waits until load settles, uses the original navigation entry URL, omits zero fields, and removes listeners/timers.</li>
+</ul>
+
+<h2>Safety decisions</h2>
+<p>The implementation deliberately did not move Stripe or RevenueCat reconciliation out of the render path. The same resolver controls displayed plan state, co-manager behavior, immediate expiry/revocation, and sensitive API authorization. A separately maintained snapshot was not proven safe within this change. Provider latency therefore remains, but duplicate same-request work is removed and aggregate timing is now observable without user/account properties.</p>
+<p>Analytics sanitization strips queries and token-bearing path segments. Runtime metadata is a coarse enum. No email, phone, secret, document body, raw sensitive URL, billing identifier, or account id is added to telemetry.</p>
+
+<h2>Focused validation</h2>
+<table>
+  <tr><th>Command</th><th>Result</th></tr>
+  <tr><td><code>npm exec vitest run -- [18 auth, telemetry, prefetch, resident access/tour, PDF, plan tests] --maxWorkers=2</code></td><td>Exit 0. 18 files, 74 tests passed in 6.49 seconds.</td></tr>
+  <tr><td><code>npm exec eslint -- [all changed TypeScript/TSX and focused test files]</code></td><td>Exit 0. No errors. Existing warnings were reported; three new resident-dashboard warnings were corrected, then the focused lint rerun exited 0.</td></tr>
+  <tr><td><code>npm exec vitest run -- tests/unit/resident-dashboard-journey-banner.test.tsx tests/unit/resident-tour-sync-client.test.ts --maxWorkers=1</code></td><td>Exit 0. 2 files, 7 tests passed.</td></tr>
+  <tr><td><code>git diff --check</code></td><td>Exit 0.</td></tr>
+</table>
+<p>Node was pinned to <code>v22.23.0</code>; npm was <code>10.9.8</code>. Environment inspection identified dev/test <code>emstjswhotsnyksqhqyf</code> in <code>.env</code>/<code>.env.test</code> and staging <code>xwszcafaontidfgznlxd</code> in <code>.env.staging.local</code>; no production environment file was seeded.</p>
+
+<h2>Remaining validation and limitations</h2>
+<ul>
+  <li>Remote full workflow is pending at handoff and must cover unit, lint, build, integration, and full E2E on the exact keeper revision.</li>
+  <li>Seeded real-data browser QA and production-mode request/load measurement are pending. Exercise sign-in, manager dashboard, resident dashboard, repeat navigation, workspace/viewer isolation, malformed/offline reads, and phone viewport. Staging is the appropriate production build for final measurements.</li>
+  <li>Actual iOS/Android validation is unavailable on this host: <code>xcrun simctl</code>, Xcode, and Android <code>adb</code> are absent. Native logic has focused jsdom/unit coverage only.</li>
+  <li>The other project on this 8 GB laptop had active Next workers, so broad local validation was intentionally deferred to remote CI. No task-owned server or browser is running.</li>
+  <li>Required graph refresh could not run. <code>npx graphify hook-rebuild</code> could not resolve an executable; the installed <code>graphify</code> CLI reports <code>hook-rebuild</code> as an unknown command. This worktree has no <code>.graphify/graph.json</code>. No private graph state was created or committed.</li>
+</ul>
+
+<h2>Next owner</h2>
+<p>The root agent should commit and push the keeper if not already done, dispatch <code>.github/workflows/test.yml</code> with <code>build_only=false</code> and <code>e2e_scope=full</code>, record the exact SHA and run URL, then run fresh Astra, security, and bug reviews. Resolve findings before the fast-forward branch ladder. Complete seeded staging QA and measurable production-mode browser checks before production promotion. Release authorization covers these load-time fixes only.</p>
+</html>
