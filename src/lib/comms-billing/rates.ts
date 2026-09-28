@@ -50,18 +50,25 @@ export function isCommsPaygBillingEnabled(): boolean {
 }
 
 /**
- * Messaging-credit pool (S27). Default OFF: with this unset, `wallet.server.ts`
- * reserves/settles/refunds exactly as it did before this flag existed, against
- * the per-(owner,workspace) wallet. Flipping it to `"1"` switches those three
- * operations to the account-level funder pool (`comms_account_pools`,
- * `comms_workspace_funding`, `reserve_comms_credit_pool` and friends) so the
- * migration and the pool code can land before this reaches staging/production.
- * It does NOT change what the old wallet tables contain or how they are read
- * for reporting (`loadCommsWallet`, admin's `loadCommsWalletTotals`) — only
- * which model a new reservation spends against.
+ * Messaging-credit pool (S27). Default ON (captain, 2026-09-28 — the promote
+ * that ships this applies `20260927160148_comms_credit_pool` first, so the
+ * schema is always there by the time this flag can read on). With it unset
+ * (or reading on any other way), `wallet.server.ts` switches
+ * reserve/finish/settle to the account-level funder pool
+ * (`comms_account_pools`, `comms_workspace_funding`,
+ * `reserve_comms_credit_pool` and friends); set `COMMS_CREDIT_POOL_ENABLED=0`
+ * (or `false` / `off`) in an environment to fall back to the pre-feature
+ * per-(owner,workspace) wallet. It does NOT change what the old wallet
+ * tables contain or how they are read for reporting (`loadCommsWallet`,
+ * admin's `loadCommsWalletTotals`) — only which model a new reservation
+ * spends against. `wallet.server.ts`'s reserve/finish/settle trio also
+ * falls back to the legacy wallet at runtime (logging it) if the pool
+ * schema itself is not deployed yet in some environment — see
+ * `isMissingPoolSchemaError` in `pool.server.ts`.
  */
 export function isCommsCreditPoolEnabled(): boolean {
-  return process.env.COMMS_CREDIT_POOL_ENABLED?.trim() === "1";
+  const raw = process.env.COMMS_CREDIT_POOL_ENABLED?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off";
 }
 
 /**

@@ -45,6 +45,22 @@ export function isMissingPoolSchemaError(error: unknown): boolean {
 }
 
 /**
+ * Thrown by `reserveCommsCreditPool` / `finishCommsCreditPool` /
+ * `settleCommsCreditQuantityPool` in place of their ordinary failure message
+ * when the failure is specifically `isMissingPoolSchemaError` — i.e. the pool
+ * flag reads on but the migration has not landed in this environment yet.
+ * `wallet.server.ts` catches exactly this type to fall back to the legacy
+ * per-workspace wallet (with a server log) instead of failing the send;
+ * every other error from these three still throws its ordinary message.
+ */
+export class CommsCreditPoolSchemaMissingError extends Error {
+  constructor() {
+    super("Communication credit pool schema is not deployed in this environment yet.");
+    this.name = "CommsCreditPoolSchemaMissingError";
+  }
+}
+
+/**
  * The messaging-credit pool (S27, `COMMS_CREDIT_POOL_ENABLED`). Every export
  * here is inert while that flag is off — `wallet.server.ts` is the only
  * caller, and it dispatches to this module only when the flag reads `"1"`.
@@ -134,12 +150,14 @@ export async function reserveCommsCreditPool(
     p_metadata: input.metadata ?? {},
     p_allow_unfunded: allowUnfunded,
   });
-  if (error || !data)
+  if (error || !data) {
+    if (error && isMissingPoolSchemaError(error)) throw new CommsCreditPoolSchemaMissingError();
     throw new Error("Communication credit could not be reserved.", {
       cause: error
         ? { code: error.code, message: error.message, details: error.details, hint: error.hint }
         : "empty_result",
     });
+  }
   if (data.allowed !== true)
     return { allowed: false, reason: String(data.reason ?? "usage_already_processed") };
   return {
@@ -161,7 +179,10 @@ export async function finishCommsCreditPool(
     p_key: key,
     p_release: release,
   });
-  if (error || data !== true) throw new Error("Communication credit reconciliation failed.");
+  if (error || data !== true) {
+    if (error && isMissingPoolSchemaError(error)) throw new CommsCreditPoolSchemaMissingError();
+    throw new Error("Communication credit reconciliation failed.");
+  }
 }
 
 export async function settleCommsCreditQuantityPool(
@@ -175,7 +196,10 @@ export async function settleCommsCreditQuantityPool(
     p_key: key,
     p_quantity: quantity,
   });
-  if (error) throw new Error("Communication credit settlement failed.");
+  if (error) {
+    if (isMissingPoolSchemaError(error)) throw new CommsCreditPoolSchemaMissingError();
+    throw new Error("Communication credit settlement failed.");
+  }
 }
 
 export type CommsPoolSnapshot = {

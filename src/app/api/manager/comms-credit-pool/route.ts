@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 import {
+  isMissingPoolSchemaError,
   loadCommsPoolSnapshot,
   loadFunderWorkspaceRows,
   setFunderFundingScope,
@@ -62,11 +63,16 @@ function poolDisabledSummary(): CommsCreditPoolSummary {
 /**
  * The messaging-credit pool summary for the SIGNED-IN funder (never a
  * caller-named user). This route is mounted unconditionally (every Billing &
- * plan page load calls it via `useCommsCreditPoolSummary`), but staging and
- * production run with `COMMS_CREDIT_POOL_ENABLED` off AND without the pool
- * migration applied at all — its tables do not exist there. With the flag
+ * plan page load calls it via `useCommsCreditPoolSummary`). With the flag
  * off this answers `{ poolEnabled: false }` immediately, before touching the
  * database at all, rather than 503ing on every page load.
+ *
+ * `COMMS_CREDIT_POOL_ENABLED` defaults ON (captain, 2026-09-28), but an
+ * environment can still lag the migration that creates the pool tables — if
+ * loading the snapshot fails specifically because that schema is not
+ * deployed here yet, this answers the SAME `{ poolEnabled: false }` legacy
+ * shape (so the client falls back to the old "Extra usage" panel) rather
+ * than surfacing an error banner, and logs it once so it gets noticed.
  */
 export async function GET() {
   if (!isCommsCreditPoolEnabled()) {
@@ -101,6 +107,12 @@ export async function GET() {
     };
     return NextResponse.json(summary, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
+    if (isMissingPoolSchemaError(e)) {
+      console.error("[comms-credit-pool] schema missing on summary load; answering poolEnabled:false", {
+        userId: auth.userId,
+      });
+      return NextResponse.json(poolDisabledSummary(), { headers: { "Cache-Control": "private, no-store" } });
+    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "We couldn't load your messaging credit. Try again." },
       { status: 503 },

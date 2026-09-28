@@ -253,19 +253,30 @@ export async function reserveCommsCredit(
     // below (S27 / W009).
     const workspaceId = input.workspaceId?.trim();
     if (!workspaceId) return { allowed: false, reason: "workspace_unknown" };
-    const { reserveCommsCreditPool } = await import("./pool.server");
-    return reserveCommsCreditPool(
-      db,
-      {
-        managerUserId: input.managerUserId,
-        workspaceId,
-        meter: input.meter,
-        quantity: input.quantity,
-        idempotencyKey: input.idempotencyKey,
-        metadata: input.metadata,
-      },
-      allowUnfunded,
-    );
+    const { reserveCommsCreditPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");
+    try {
+      return await reserveCommsCreditPool(
+        db,
+        {
+          managerUserId: input.managerUserId,
+          workspaceId,
+          meter: input.meter,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+          metadata: input.metadata,
+        },
+        allowUnfunded,
+      );
+    } catch (err) {
+      if (!(err instanceof CommsCreditPoolSchemaMissingError)) throw err;
+      // The pool flag reads on (default ON, captain 2026-09-28) but its
+      // migration has not landed in this environment yet — fall back to the
+      // legacy per-workspace wallet below rather than failing every send.
+      console.error(
+        "[comms-credit-pool] schema missing on reserve; falling back to the legacy wallet",
+        { managerUserId: input.managerUserId, workspaceId },
+      );
+    }
   }
   const budget = await commsPlanBudget(input.managerUserId);
   const quantity = input.quantity ?? 1;
@@ -321,10 +332,21 @@ export async function finishCommsCredit(
   key: string,
   release = false,
 ) {
+  let usedPool = false;
   if (isCommsCreditPoolEnabled()) {
-    const { finishCommsCreditPool } = await import("./pool.server");
-    await finishCommsCreditPool(db, owner, key, release);
-  } else {
+    const { finishCommsCreditPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");
+    try {
+      await finishCommsCreditPool(db, owner, key, release);
+      usedPool = true;
+    } catch (err) {
+      if (!(err instanceof CommsCreditPoolSchemaMissingError)) throw err;
+      console.error(
+        "[comms-credit-pool] schema missing on finish; falling back to the legacy wallet",
+        { owner, key, release },
+      );
+    }
+  }
+  if (!usedPool) {
     const { data, error } = await db.rpc("finish_comms_credit", {
       p_owner: owner,
       p_key: key,
@@ -353,9 +375,17 @@ export async function settleCommsCreditQuantity(
   quantity: number,
 ) {
   if (isCommsCreditPoolEnabled()) {
-    const { settleCommsCreditQuantityPool } = await import("./pool.server");
-    await settleCommsCreditQuantityPool(db, owner, key, quantity);
-    return;
+    const { settleCommsCreditQuantityPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");
+    try {
+      await settleCommsCreditQuantityPool(db, owner, key, quantity);
+      return;
+    } catch (err) {
+      if (!(err instanceof CommsCreditPoolSchemaMissingError)) throw err;
+      console.error(
+        "[comms-credit-pool] schema missing on settle; falling back to the legacy wallet",
+        { owner, key, quantity },
+      );
+    }
   }
   const { error } = await db.rpc("settle_comms_credit_quantity", {
     p_owner: owner,
