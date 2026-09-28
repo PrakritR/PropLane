@@ -553,13 +553,12 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
 
   if (selected.listingSubmission?.v === 1) {
     const sub = normalizeManagerListingSubmissionV1(selected.listingSubmission);
-    const roomRows = sub.rooms.filter(
-      (r) =>
-        r.name.trim() &&
-        (options.includeUnavailable ||
-          isRoomChoiceAvailable(`${selected.id}${LISTING_ROOM_CHOICE_SEP}${r.id}`, r.availability, options)),
-    );
-    if (roomRows.length > 0) {
+    const configuredRooms = sub.rooms.filter((room) => room.name.trim());
+    if (!isEntireHomeListing(sub) && configuredRooms.length > 0) {
+      const roomRows = configuredRooms.filter((room) =>
+        options.includeUnavailable ||
+        isRoomChoiceAvailable(`${selected.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`, room.availability, options),
+      );
       return roomRows.map((r) => {
         const daily = roomDailyRentPrice(r);
         const rent = daily !== undefined ? `$${daily}/day` : r.monthlyRent > 0 ? `$${r.monthlyRent}/mo` : "Rent TBD";

@@ -91,7 +91,9 @@ export async function middleware(request: NextRequest) {
   const forwarded = () => {
     const headers = new Headers(request.headers);
     headers.delete("x-pathname");
+    headers.delete("x-requested-path");
     headers.set("x-pathname", path);
+    headers.set("x-requested-path", `${path}${request.nextUrl.search}`);
     return { request: { headers } };
   };
 
@@ -140,7 +142,7 @@ export async function middleware(request: NextRequest) {
 
   if (needsAuth && !user) {
     const redirectUrl = new URL("/auth/sign-in", request.url);
-    redirectUrl.searchParams.set("next", path);
+    redirectUrl.searchParams.set("next", `${path}${request.nextUrl.search}`);
     return stampCrawlPolicy(request, NextResponse.redirect(redirectUrl));
   }
 

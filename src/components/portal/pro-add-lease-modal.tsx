@@ -26,6 +26,7 @@ import {
   confirmUploadedLeaseParseOnServer,
   ensureManagerReviewLeaseForApplication,
   leaseAllowsManagerDocumentEdits,
+  leasePipelineRowsForManagerResident,
   leaseGenerationSupportedForRow,
   readLeasePipeline,
   syncLeasePipelineFromServer,
@@ -315,7 +316,7 @@ export function ManagerAddLeaseModal({
       return;
     }
     if (!leaseAllowsManagerDocumentEdits(row)) {
-      showToast("This lease can no longer be edited.");
+      showToast(lockedLeaseError ?? "This lease can no longer be edited.");
       return;
     }
     const gate = leaseGenerationSupportedForRow(row);
@@ -336,7 +337,19 @@ export function ManagerAddLeaseModal({
 
   const noProperties = propertyOptions.length === 0;
   const method = isNewResident ? "upload" : leaseMethod;
-  const whoIncomplete = !propertyId || !applicationId;
+  // Generate and upload both reuse the resident's one lease row. Once it is out
+  // for signature or signed it cannot change, so say so here, not on the last step.
+  const lockedLeaseError = (() => {
+    if (!selectedResident) return null;
+    const app = readManagerApplicationRows().find((row) => row.id === selectedResident.applicationId);
+    const email = app?.email?.trim().toLowerCase();
+    if (!email) return null;
+    const lease = leasePipelineRowsForManagerResident(managerUserId, email, selectedResident.applicationId)[0];
+    return lease && !leaseAllowsManagerDocumentEdits(lease)
+      ? `${selectedResident.residentName} already has a lease out for signature or signed. Open it from Leases.`
+      : null;
+  })();
+  const whoIncomplete = !propertyId || !applicationId || Boolean(lockedLeaseError);
   const propertyLabel = selectedProperty?.propertyLabel ?? "Not set";
   const residentLabel = isNewResident
     ? "New resident"
@@ -345,7 +358,6 @@ export function ManagerAddLeaseModal({
       : "Not set";
   const steps: AddWorkspaceStep[] = [
     { id: "who", label: "Who", summary: whoIncomplete ? "Property and resident" : `${propertyLabel} · ${residentLabel}`, incomplete: whoIncomplete },
-    { id: "lease", label: "Lease", summary: method === "upload" ? "Upload PDF" : "Generate" },
     { id: "review", label: "Review", summary: "Ready" },
   ];
   const current = Math.min(stepIdx, steps.length - 1);
@@ -390,7 +402,7 @@ export function ManagerAddLeaseModal({
           nextDisabled={stepId === "who" && whoIncomplete}
           onBeforeNext={() => {
             if (stepId === "who" && whoIncomplete) {
-              setStepError(noProperties ? "Add a property first." : "Select a property and resident.");
+              setStepError(lockedLeaseError ?? (noProperties ? "Add a property first." : "Select a property and resident."));
               return false;
             }
             setStepError(null);
@@ -403,7 +415,7 @@ export function ManagerAddLeaseModal({
           }}
           dataAttrPrefix="add-lease"
           finishDataAttr={method === "upload" ? "add-lease-upload" : "add-lease-generate"}
-          footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+          footerNote={stepError || lockedLeaseError ? <span className="text-sm text-rose-600">{stepError ?? lockedLeaseError}</span> : null}
           headerActions={
             <>
               <PortalIconAction
@@ -466,11 +478,6 @@ export function ManagerAddLeaseModal({
                   />
                 </>
               )}
-            </StepColumn>
-          ) : null}
-          {stepId === "lease" ? (
-            <StepColumn>
-              <StepHeading title={method === "upload" ? "Upload PDF" : "Generate"} />
             </StepColumn>
           ) : null}
           {stepId === "review" ? (

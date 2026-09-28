@@ -841,18 +841,23 @@ describe("send_resident_welcome", () => {
   it("execute resolves recipient + Axis ID server-side and records the send", async () => {
     process.env.RESEND_API_KEY = "re_test_key";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email_1" }), { status: 200 }));
-    const { ctx, tables, log } = makeWriteCtx(residentSeed());
-    const res = await executeWrite(sendResidentWelcomeTool, ctx, { applicationId: "app_1" });
+    const seed = residentSeed();
+    // Application records use a public PropLane ID; the welcome lookup and
+    // persisted setup token must resolve the same real record.
+    seed.manager_application_records[0]!.id = "PROPLANE-APP1";
+    seed.manager_application_records[0]!.row_data.id = "PROPLANE-APP1";
+    const { ctx, tables, log } = makeWriteCtx(seed);
+    const res = await executeWrite(sendResidentWelcomeTool, ctx, { applicationId: "PROPLANE-APP1" });
     expect(res).toMatchObject({ ok: true });
     if (res.ok) {
       expect(res.reply).toContain("t@x.com");
       expect(res.reply).toContain("PROPLANE-");
     }
-    expect(auditRows(tables)[0]!.dedupe_key).toBe(`send_resident_welcome:manager_a:app_1:${auditDayBucket()}`);
+    expect(auditRows(tables)[0]!.dedupe_key).toBe(`send_resident_welcome:manager_a:PROPLANE-APP1:${auditDayBucket()}`);
     // The manager's Sent inbox record was written.
     expect(log.upserts.some((u) => u.table === "portal_inbox_thread_records")).toBe(true);
 
-    const second = await executeWrite(sendResidentWelcomeTool, ctx, { applicationId: "app_1" });
+    const second = await executeWrite(sendResidentWelcomeTool, ctx, { applicationId: "PROPLANE-APP1" });
     expect(second).toMatchObject({ ok: true });
     if (second.ok) expect(second.reply).toContain("already");
   });

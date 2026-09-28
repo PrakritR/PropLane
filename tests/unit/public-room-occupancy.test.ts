@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aggregateRoomOccupancy } from "@/lib/public-room-occupancy";
-import { readPublicRoomOccupancy, replacePublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
+import { readPublicRoomOccupancy, replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
 
 describe("anonymous room occupancy snapshots", () => {
   beforeEach(() => { vi.useRealTimers(); replacePublicRoomOccupancy([]); });
@@ -25,4 +25,32 @@ describe("anonymous room occupancy snapshots", () => {
     expect(readPublicRoomOccupancy("home::a")).toBeUndefined();
     vi.useRealTimers();
   });
+  it("refreshes one property without extending another property's expiry", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+    const spans = [{ start: "2030-01-01", end: null, count: 1 }];
+    replacePublicRoomOccupancy([{ roomChoice: "home::a", spans }, { roomChoice: "other::b", spans }]);
+    vi.advanceTimersByTime(45_000);
+    replacePublicRoomOccupancyForProperty("home", [{ roomChoice: "home::a", spans: [] }, { roomChoice: "other::b", spans: [] }]);
+    expect(readPublicRoomOccupancy("other::b")).toEqual(spans);
+    vi.advanceTimersByTime(15_001);
+    expect(readPublicRoomOccupancy("other::b")).toBeUndefined();
+    expect(readPublicRoomOccupancy("home::a")).toEqual([]);
+  });
+  it("removes obsolete rooms only from the property being refreshed", () => {
+    replacePublicRoomOccupancy([{ roomChoice: "home::a", spans: [] }, { roomChoice: "other::b", spans: [] }]);
+    replacePublicRoomOccupancyForProperty("home", []);
+    expect(readPublicRoomOccupancy("home::a")).toBeUndefined();
+    expect(readPublicRoomOccupancy("other::b")).toEqual([]);
+  });
+
+  it("merges a background response without undoing a newer scoped refresh", () => {
+    const occupied = [{ start: "2030-01-01", end: null, count: 1 }];
+    replacePublicRoomOccupancy([{ roomChoice: "home::a", spans: occupied }, { roomChoice: "other::b", spans: occupied }]);
+    replacePublicRoomOccupancyForProperty("home", []);
+    replacePublicRoomOccupancy([{ roomChoice: "home::a", spans: occupied }, { roomChoice: "other::b", spans: [] }], ["home"]);
+    expect(readPublicRoomOccupancy("home::a")).toBeUndefined();
+    expect(readPublicRoomOccupancy("other::b")).toEqual([]);
+  });
+
 });

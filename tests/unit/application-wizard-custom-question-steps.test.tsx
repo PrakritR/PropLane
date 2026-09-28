@@ -123,6 +123,26 @@ describe("manager custom questions on the household step", () => {
   });
 });
 
+describe("paired built-in question labels", () => {
+  it("labels each employment input separately with the default questions", () => {
+    const noop = () => {};
+    render(<RentalWizardStepBody
+      step={6}
+      form={{ ...createInitialRentalWizardState(), propertyId: property.id }}
+      errors={{}}
+      mode="portal"
+      propertyOptions={[{ value: property.id, label: property.title }]}
+      patch={noop}
+      setPhone={noop} setLandlordPhone={noop} setPrevLandlordPhone={noop} setSupervisorPhone={noop}
+      setRef1Phone={noop} setRef2Phone={noop} setSsn={noop} goToStep={noop} editFromReview={noop}
+    />);
+    expect(screen.getByLabelText(/^Employer\s*\*$/)).toHaveProperty("id", "employer");
+    expect(screen.getByLabelText(/^Employer address$/)).toHaveProperty("id", "employerAddress");
+    expect(screen.getByLabelText(/^Supervisor name$/)).toHaveProperty("id", "supervisorName");
+    expect(screen.getByLabelText(/^Supervisor phone$/)).toHaveProperty("id", "supervisorPhone");
+  });
+});
+
 describe("every section's step can draw its questions", () => {
   it("no section maps to a step the wizard never renders them on", () => {
     // The render window is derived from this catalog, so a section added with a

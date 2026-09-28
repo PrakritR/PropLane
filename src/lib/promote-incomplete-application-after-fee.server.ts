@@ -17,7 +17,7 @@ import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upse
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
-import { sealApplicantRow, prepareApplicantIdentityWrite } from "@/lib/security/applicant-identity";
+import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import {
   isApplicationFeeCheckoutSession,
 } from "@/lib/stripe-application-fee";
@@ -121,7 +121,15 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     return { ok: true, promoted: false, reason: "no_draft" };
   }
 
-  const previousRow = draft.row;
+  // Stored row_data is sealed: ssn / dateOfBirth / driversLicense live only in
+  // the ciphertext. Validating it sealed failed every paid guest application,
+  // and re-sealing it would have written those answers back as blanks.
+  let previousRow: DemoApplicantRow;
+  try {
+    previousRow = { ...openApplicantRow(draft.record.row_data, draft.record.id), id: draft.record.id };
+  } catch {
+    return { ok: false, error: "The saved application could not be read." };
+  }
   const previousApplication = previousRow.application;
   if (!previousApplication) {
     return { ok: true, promoted: false, reason: "no_draft" };
@@ -160,6 +168,13 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     existing: previousRow,
   });
   if (!prepared.ok) {
+    // The fee is already collected, so a refusal here is never silent. Field
+    // names only: the answers themselves may be identity data.
+    console.warn("[application-fee-promote] refused", {
+      applicationId: draft.record.id,
+      status: prepared.status,
+      fields: Object.keys(prepared.fieldErrors ?? {}),
+    });
     return { ok: true, promoted: false, reason: "validation_failed" };
   }
 
