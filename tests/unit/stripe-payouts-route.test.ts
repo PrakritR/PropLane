@@ -158,15 +158,19 @@ function makeFakeStripe(config: FakeStripeConfig) {
       retrieve: vi.fn().mockResolvedValue({
         id: "acct_owner",
         details_submitted: true,
+        // Readiness (`stripe-payouts-readiness.server.ts`) requires Stripe's
+        // own `payouts_enabled` on top of a payable default destination —
+        // matches every test in this file expecting `setup.ready`.
+        payouts_enabled: true,
         requirements: { currently_due: [], pending_verification: [] },
         external_accounts: {
           data: [
             {
               id: "ba_default",
               object: "bank_account",
-              // Readiness (`stripe-payouts-readiness.server.ts`) requires a
-              // VERIFIED destination, not merely "some external account" —
-              // matches every test in this file expecting `setup.ready`.
+              // A "verified" default destination is payable too, but so is
+              // Stripe's ordinary starting "new"/"validated" state — see the
+              // dedicated coverage in stripe-payouts-readiness.test.ts.
               status: "verified",
               last4: "4421",
               bank_name: "Chase",
