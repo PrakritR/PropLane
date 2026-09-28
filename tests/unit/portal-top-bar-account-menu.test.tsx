@@ -31,9 +31,6 @@ vi.mock("@/components/portal/portal-sign-out-button", () => ({
     </button>
   ),
 }));
-vi.mock("@/components/portal/assistant-layout-controls", () => ({
-  AssistantDockExpandButton: () => null,
-}));
 vi.mock("@/components/portal/axis-assistant", () => ({
   useAxisAssistantDock: () => ({ dockable: false, mode: "popup", setMode: vi.fn() }),
 }));
