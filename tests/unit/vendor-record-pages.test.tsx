@@ -164,6 +164,7 @@ describe("vendor invoice record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/financials/invoices/inv-1");
   });
 
+
   it("the rail has Overview, Lines, Payout, Communication, Documents and the header icons match the registry", async () => {
     render(
       <AppUiProvider>
@@ -188,7 +189,7 @@ describe("vendor payout record page", () => {
     vi.stubGlobal("fetch", stubInvoiceFetch(null));
   });
 
-  it("the rail has Overview, Included invoices, Communication and the header icons match the registry", async () => {
+  it("the rail has Overview, Included invoices, Communication, and no Receipt/Refund header action while VENDOR_BANKING_ENABLED is off", async () => {
     render(
       <AppUiProvider>
         <VendorFinancesPanel tabId="payouts" recordId="payout-1" />
@@ -200,6 +201,40 @@ describe("vendor payout record page", () => {
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual(["Overview", "Included invoices", "Communication"]);
 
-    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    // VD52/VD53's Receipt/Refund header actions are part of the new
+    // vendor-banking UI (`VendorPayoutRecordPage`'s `vendorBankingOn` gate,
+    // signaled by `feeBps` on the balance snapshot) — this test's fetch stub
+    // answers every non-invoice URL with `{}`, so `feeBps` is absent and
+    // neither action renders, matching flag-off byte-for-byte.
+    expect(screen.queryByRole("button", { name: "Receipt" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refund" })).toBeNull();
+  });
+
+  it("shows Receipt and Refund once VENDOR_BANKING_ENABLED is on, and Receipt opens the print route (never a Stripe redirect)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : String((input as Request).url ?? input);
+        if (url.includes("/api/vendor/invoices")) return { ok: true, json: async () => ({ invoices: [], linkedManagers: [] }) } as unknown as Response;
+        if (url.includes("/api/vendor/payouts/balance")) {
+          return { ok: true, json: async () => ({ feeBps: 300, setup: { ready: true }, history: [] }) } as unknown as Response;
+        }
+        return { ok: true, json: async () => ({}) } as unknown as Response;
+      }),
+    );
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(
+      <AppUiProvider>
+        <VendorFinancesPanel tabId="payouts" recordId="payout-1" />
+      </AppUiProvider>,
+    );
+    await screen.findAllByText("Replace water heater");
+
+    const receiptButton = await screen.findByRole("button", { name: "Receipt" });
+    expect(screen.getByRole("button", { name: "Refund" })).toBeTruthy();
+
+    fireEvent.click(receiptButton);
+    expect(openSpy).toHaveBeenCalledWith("/print/vendor-payout/payout-1", "_blank", "noopener");
   });
 });

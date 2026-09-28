@@ -882,7 +882,14 @@ const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
       { id: "overview", label: "Overview" },
       { id: "included-invoices", label: "Included invoices" },
     ] }],
-    headerActions: [{ id: "download", label: "Download", icon: Download }],
+    // VD53 — Receipt opens the print-styled receipt route (never a Stripe
+    // redirect); Refund (VD52) is offered only on a refundable payment —
+    // `VendorPayoutRecordPage` filters it out itself when the caller passes
+    // no `onRefund`, so a terminal/failed payout never shows a dead action.
+    headerActions: [
+      { id: "receipt", label: "Receipt", icon: Download },
+      { id: "refund", label: "Refund", icon: RefreshCw, tone: "danger" },
+    ],
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => {

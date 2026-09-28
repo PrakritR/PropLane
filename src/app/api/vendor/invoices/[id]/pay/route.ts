@@ -7,11 +7,12 @@ export const runtime = "nodejs";
 
 /**
  * Manager pays an approved/scheduled vendor invoice in-app — "Request
- * payment" (VD48/49). New: no manager-facing pay screen for `vendor_invoices`
- * existed before this build. Gated behind VENDOR_BANKING_ENABLED like every
- * other new vendor-banking money path; with the flag off this route 404s and
- * the manager still uses the existing decision route's bookkeeping-only
- * "mark paid", unchanged.
+ * payment" (VD48/49). Returns a Stripe EMBEDDED Checkout client secret (never
+ * a hosted redirect URL) so the card/ACH form mounts inside a PropLane modal
+ * — the manager never leaves the app. Gated behind VENDOR_BANKING_ENABLED
+ * like every other new vendor-banking money path; with the flag off this
+ * route 404s and the manager still uses the existing decision route's
+ * bookkeeping-only "mark paid", unchanged.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -30,7 +31,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       managerEmail: auth.email || "manager@proplane.app",
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ url: result.url, sessionId: result.sessionId });
+    return NextResponse.json({
+      clientSecret: result.clientSecret,
+      sessionId: result.sessionId,
+      invoiceCents: result.invoiceCents,
+      platformFeeCents: result.platformFeeCents,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start payment.";
     return NextResponse.json({ error: message }, { status: 500 });

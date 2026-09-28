@@ -7,6 +7,7 @@ import {
   readBalanceSnapshot,
 } from "@/lib/proplane-balance/ledger.server";
 import { workspaceConnectEnabled } from "@/lib/workspace-connect/flag";
+import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,13 @@ export const runtime = "nodejs";
  * alongside `enabled` and stays hidden unless BOTH are on, so those new
  * surfaces dark-launch even while the underlying balance itself is already
  * live for older callers.
+ *
+ * `vendorBankingEnabled` is a third, independent flag: it gives the manager
+ * Finances Overview an in-app way to pay an approved vendor invoice
+ * (`PayVendorsCard`'s "Pay" action) even when the balance/connect flags above
+ * are off. Read here, server-side, and handed to the client in this response
+ * rather than read from `process.env` in client code (`VENDOR_BANKING_ENABLED`
+ * has no `NEXT_PUBLIC_` prefix, so it is not otherwise reachable there).
  */
 export async function GET() {
   try {
@@ -29,6 +37,7 @@ export async function GET() {
         paidThisMonthCents: 0,
         currency: "usd",
         workspaceConnectEnabled: workspaceConnectEnabled(),
+        vendorBankingEnabled: vendorBankingEnabled(),
       });
     }
     const auth = await getReportsAuthContext({ preferRole: "manager" });
@@ -46,6 +55,7 @@ export async function GET() {
       ...snapshot,
       paidThisMonthCents,
       workspaceConnectEnabled: workspaceConnectEnabled(),
+      vendorBankingEnabled: vendorBankingEnabled(),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not read the PropLane balance.";

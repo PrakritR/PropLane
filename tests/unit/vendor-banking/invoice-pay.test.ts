@@ -14,11 +14,11 @@ vi.mock("@/lib/stripe-platform-hold.server", () => ({
 }));
 
 const createAxisAchCheckoutSession = vi.hoisted(() =>
-  vi.fn(async (_stripe: unknown, input: { amountCents?: number; extraApplicationFeeCents?: number }) => {
+  vi.fn(async (_stripe: unknown, input: { amountCents?: number; extraApplicationFeeCents?: number; mode?: string; returnUrl?: string }) => {
     const subtotalCents = input.amountCents ?? 0;
     return {
-      mode: "hosted" as const,
-      url: "https://checkout.stripe.test/x",
+      mode: "embedded" as const,
+      clientSecret: "cs_test_secret_x",
       sessionId: "cs_invoice_1",
       subtotalCents,
       processingFeeCents: 100,
@@ -76,7 +76,7 @@ describe("startVendorInvoicePayCheckout", () => {
     if (!result.ok) expect(result.status).toBe(409);
   });
 
-  it("flag off: no PropLane fee applied", async () => {
+  it("flag off: no PropLane fee applied, and the manager gets an embedded client secret", async () => {
     const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
     const result = await startVendorInvoicePayCheckout(db as never, {
       invoiceId: "inv_1",
@@ -84,8 +84,16 @@ describe("startVendorInvoicePayCheckout", () => {
       managerEmail: "m@test.proplane.local",
     });
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clientSecret).toBe("cs_test_secret_x");
+    expect(result.platformFeeCents).toBe(0);
+    expect(result.invoiceCents).toBe(10_000);
     const call = createAxisAchCheckoutSession.mock.calls[0]![1] as Record<string, unknown>;
     expect(call.extraApplicationFeeCents).toBe(0);
+    // Never a hosted redirect — the manager stays inside PropLane.
+    expect(call.mode).toBe("embedded");
+    expect(typeof call.returnUrl).toBe("string");
+    expect(call.returnUrl).toContain("/portal/finances");
   });
 
   it("flag on: 3% PropLane fee applied", async () => {
@@ -97,6 +105,8 @@ describe("startVendorInvoicePayCheckout", () => {
       managerEmail: "m@test.proplane.local",
     });
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.platformFeeCents).toBe(300);
     const call = createAxisAchCheckoutSession.mock.calls[0]![1] as Record<string, unknown>;
     expect(call.extraApplicationFeeCents).toBe(300);
   });

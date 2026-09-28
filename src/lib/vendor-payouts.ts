@@ -19,6 +19,14 @@ export type VendorPayout = {
   platformFeeCents?: number;
   refundedGrossCents?: number;
   refundedFeeCents?: number;
+  /**
+   * Which rail settled this payment — `destination_charge` reached the
+   * vendor's connected Stripe balance directly (no manual transfer step);
+   * `hold` means it sat on the platform until a bank was ready, then the
+   * existing auto-transfer job moved it. Absent on rows written before this
+   * column existed. Drives the VD52 status timeline's "Transferred" step.
+   */
+  destination?: "destination_charge" | "hold" | null;
 };
 
 export async function fetchVendorPayouts(): Promise<VendorPayout[]> {

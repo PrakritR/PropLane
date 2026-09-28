@@ -465,6 +465,7 @@ export function PortalPayoutsSettingsPage({
         schedule={balance.schedule}
         availableCents={balance.availableCents}
         currency={balance.currency}
+        portal={portal}
         onChange={(interval) => {
           setBalance((current) => (current ? { ...current, schedule: { ...current.schedule, interval } } : current));
           void fetch(`${apiBase}/payouts/schedule`, {

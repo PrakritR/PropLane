@@ -85,6 +85,19 @@ const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[]
   { value: "manual", label: "Manual" },
 ];
 
+/**
+ * VENDOR_BANKING_ENABLED — vendor Connect accounts default to manual payouts
+ * (money leaves only when the vendor presses Withdraw); the Settings toggle
+ * offers only the two schedules the vendor-banking decision brief names
+ * ("Only when I withdraw / Weekly"), never daily/monthly, which were never
+ * part of that decision and would payout automatically before the vendor
+ * asked. Manager schedule options (`SCHEDULE_OPTIONS`) are untouched.
+ */
+const VENDOR_SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[] = [
+  { value: "manual", label: "Only when I withdraw" },
+  { value: "weekly", label: "Weekly" },
+];
+
 export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || "usd").toUpperCase() }).format(
     cents / 100,
@@ -132,13 +145,18 @@ export function ScheduleCard({
   availableCents,
   currency,
   onChange,
+  portal = "manager",
 }: {
   schedule: PortalPayoutBalance["schedule"];
   availableCents: number;
   currency: string;
   onChange: (interval: PortalPayoutScheduleInterval) => void;
+  /** VD68 — vendor Connect accounts pick from `VENDOR_SCHEDULE_OPTIONS` only. */
+  portal?: PortalPayoutsPortalKind;
 }) {
   const nextPayout = formatDate(schedule.nextPayoutAt);
+  const options = portal === "vendor" ? VENDOR_SCHEDULE_OPTIONS : SCHEDULE_OPTIONS;
+  const manualLabel = portal === "vendor" ? "Only when I withdraw" : "Manual";
   return (
     <PortalSettingsSection title="Schedule">
       <PortalSettingsGroup>
@@ -147,7 +165,7 @@ export function ScheduleCard({
             label="Automatic payout"
             hideLabel
             value={schedule.interval}
-            options={SCHEDULE_OPTIONS}
+            options={options}
             onChange={(next) => onChange(next as PortalPayoutScheduleInterval)}
             dataAttr="payouts-schedule-select"
           />
@@ -155,7 +173,7 @@ export function ScheduleCard({
         <PortalSettingsRow label="Next payout">
           <span className="text-sm text-foreground">
             {schedule.interval === "manual"
-              ? "Manual"
+              ? manualLabel
               : nextPayout
                 ? `${nextPayout} · ${formatMoney(availableCents, currency)}`
                 : "—"}

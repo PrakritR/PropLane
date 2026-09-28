@@ -69,7 +69,8 @@ import {
 import { VendorInvoiceTimeline } from "@/components/portal/vendor-invoice-timeline";
 import { VendorRefundModal } from "@/components/portal/vendor-refund-modal";
 import { VendorStatementModal } from "@/components/portal/vendor-statement-modal";
-import { vendorPaymentFeeBreakdown } from "@/lib/vendor-payments";
+import { vendorPaymentDetailBreakdown, vendorPaymentFeeBreakdown, vendorPaymentStatusTimeline } from "@/lib/vendor-payments";
+import { VendorPaymentStatusTimeline } from "@/components/portal/vendor-payment-status-timeline";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 
 type VendorLinkedManagerOption = {
@@ -338,12 +339,17 @@ function VendorPaymentsTable({
   return (
     <PortalRecordListSurface isEmpty={false} dataAttr="vendor-payments-list">
       {rows.map((row) => {
-        const viewHref =
-          row.kind === "invoice"
+        // A row whose money arrived through vendor banking (a matching
+        // `vendor_payouts` row — invoice_id for an invoice row, work_order_id
+        // for an income row) opens that payment's banking detail page
+        // (breakdown, timeline, Receipt, Refund) instead of the plain
+        // invoice detail — otherwise the vendor never sees Receipt/Refund for
+        // the common invoice-paid case.
+        const viewHref = row.payoutId
+          ? vendorPayoutDetailHref(basePath, row.payoutId)
+          : row.kind === "invoice"
             ? vendorInvoiceDetailHref(basePath, row.invoice!.id)
-            : row.payoutId
-              ? vendorPayoutDetailHref(basePath, row.payoutId)
-              : null;
+            : null;
         const submittedInvoice = row.kind === "invoice" && row.invoice!.status === "submitted" ? row.invoice : null;
         const downloadable = row.statusId === "invoice:paid" || row.statusId === "invoice:approved" || row.statusId === "income:paid";
         const rowMenu = (
@@ -831,6 +837,16 @@ function VendorInvoiceDetailPage({
  * order (not a Stripe-style batch of several invoices), so "Included
  * invoices" shows the one job that produced this payout rather than a real
  * invoice list — the closest honest mapping onto this data model.
+ *
+ * VD52/VD53 — the Overview tab adds the amount breakdown (gross / PropLane
+ * fee / net / refunded, `vendorPaymentDetailBreakdown`) and the banking-aware
+ * status timeline (`vendorPaymentStatusTimeline`). The header's Receipt
+ * action opens the print-styled receipt route (`/print/vendor-payout/<id>`,
+ * `window.print()` — the same house-printables/inspection pattern, never a
+ * generated PDF); Refund opens a `VendorRefundModal` scoped to this one
+ * payment. Both are inert (never shown) while VENDOR_BANKING_ENABLED is off,
+ * signaled the same way the rest of this file already does — by `feeBps`
+ * being a number on the balance snapshot.
  */
 function VendorPayoutRecordPage({
   payoutId,
@@ -843,17 +859,30 @@ function VendorPayoutRecordPage({
 }) {
   const { showToast } = useAppUi();
   const [payout, setPayout] = useState<VendorPayout | null | undefined>(undefined);
+  const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
+  const [refundOpen, setRefundOpen] = useState(false);
+
+  const loadPayout = useCallback(async () => {
+    const result = await fetchVendorPayoutsResult();
+    setPayout(result.ok ? (result.payouts.find((p) => p.id === payoutId) ?? null) : null);
+  }, [payoutId]);
+
+  useEffect(() => {
+    void loadPayout();
+  }, [loadPayout]);
 
   useEffect(() => {
     let active = true;
-    void fetchVendorPayoutsResult().then((result) => {
-      if (!active) return;
-      setPayout(result.ok ? (result.payouts.find((p) => p.id === payoutId) ?? null) : null);
-    });
+    fetch("/api/vendor/payouts/balance", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: PortalPayoutBalance | null) => {
+        if (active) setBalance(body ?? null);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
-  }, [payoutId]);
+  }, []);
 
   if (payout === undefined) {
     return <PortalDataTableEmpty icon="default" message="Loading…" />;
@@ -866,6 +895,35 @@ function VendorPayoutRecordPage({
   const backHref = `${basePath}/financials/payouts`;
   const sections = recordSections("vendor", "payout", { basePath });
   const title = job?.title || "Payout";
+  const vendorBankingOn = typeof balance?.feeBps === "number";
+  const breakdown = vendorPaymentDetailBreakdown(payout);
+  const isRefundable = (payout.status === "paid" || payout.status === "partially_refunded") && breakdown.refundedGrossCents < breakdown.grossCents;
+  const lastWithdrawalAt =
+    balance?.history?.filter((row) => row.status === "paid").sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0]?.createdAt ?? null;
+  const timelineSteps = vendorPaymentStatusTimeline(payout, {
+    bankReady: balance?.setup?.ready ?? false,
+    lastWithdrawalAt,
+  });
+  // The registry always lists Receipt+Refund for this kind; hide Refund here
+  // when the flag is off or this specific payment cannot be refunded, rather
+  // than offering a header action that would 404/409 on click.
+  const headerActions = sections.headerActions.filter((action) => {
+    if (!vendorBankingOn) return action.id !== "receipt" && action.id !== "refund";
+    if (action.id === "refund") return isRefundable;
+    return true;
+  });
+
+  function handleHeaderAction(actionId: string) {
+    if (actionId === "receipt") {
+      window.open(`/print/vendor-payout/${encodeURIComponent(payout!.id)}`, "_blank", "noopener");
+      return;
+    }
+    if (actionId === "refund") {
+      setRefundOpen(true);
+      return;
+    }
+    showToast("Coming soon");
+  }
 
   const ownContent =
     detailTab === "included-invoices" ? (
@@ -885,12 +943,37 @@ function VendorPayoutRecordPage({
         recordLabel: title,
       })
     ) : (
-      <div className="px-3 pb-4 sm:px-4" data-attr="vendor-payout-overview">
+      <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-payout-overview">
         <p className="text-sm text-foreground">
           {formatInvoiceMoney(payout.amountCents)} · {payout.status}
         </p>
-        <p className="mt-1 text-xs text-muted">Created {formatIncomeDate(payout.createdAt)}</p>
-        {payout.failureReason ? <p className="mt-2 text-sm text-muted">{payout.failureReason}</p> : null}
+        <p className="text-xs text-muted">Created {formatIncomeDate(payout.createdAt)}</p>
+        {payout.failureReason ? <p className="text-sm text-muted">{payout.failureReason}</p> : null}
+
+        {vendorBankingOn ? (
+          <dl className="divide-y divide-border rounded-xl border border-border text-sm" data-attr="vendor-payout-breakdown">
+            <div className="flex items-center justify-between px-3 py-2">
+              <dt className="text-muted">Gross</dt>
+              <dd className="font-medium text-foreground tabular-nums">{formatInvoiceMoney(breakdown.grossCents)}</dd>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <dt className="text-muted">PropLane fee</dt>
+              <dd className="tabular-nums text-foreground">−{formatInvoiceMoney(breakdown.feeCents)}</dd>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <dt className="font-medium text-foreground">Net to you</dt>
+              <dd className="font-semibold text-foreground tabular-nums">{formatInvoiceMoney(breakdown.netCents)}</dd>
+            </div>
+            {breakdown.refundedGrossCents > 0 ? (
+              <div className="flex items-center justify-between px-3 py-2">
+                <dt className="text-muted">Refunded</dt>
+                <dd className="tabular-nums text-foreground">{formatInvoiceMoney(breakdown.refundedGrossCents)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
+
+        {vendorBankingOn ? <VendorPaymentStatusTimeline steps={timelineSteps} /> : null}
       </div>
     );
 
@@ -908,10 +991,10 @@ function VendorPayoutRecordPage({
       pinScrollBody
     >
       <PortalRecordActions>
-        <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={() => showToast("Coming soon")} />
+        <PortalRecordHeaderIconActions actions={headerActions} onAction={handleHeaderAction} />
       </PortalRecordActions>
       <PortalRecordSectionChrome
-        sections={sections}
+        sections={{ ...sections, headerActions }}
         recordId={payout.id}
         activeId={detailTab}
         title={title}
@@ -919,10 +1002,21 @@ function VendorPayoutRecordPage({
         backHref={backHref}
         backLabel="All payouts"
         ariaLabel="Payout sections"
-        onHeaderAction={() => showToast("Coming soon")}
+        onHeaderAction={handleHeaderAction}
       >
         {ownContent}
       </PortalRecordSectionChrome>
+      {vendorBankingOn ? (
+        <VendorRefundModal
+          open={refundOpen}
+          onClose={() => setRefundOpen(false)}
+          feeBps={balance?.feeBps ?? 0}
+          initialPayoutId={payout.id}
+          onDone={() => {
+            void loadPayout();
+          }}
+        />
+      ) : null}
     </PortalRecordDetailPage>
   );
 }
