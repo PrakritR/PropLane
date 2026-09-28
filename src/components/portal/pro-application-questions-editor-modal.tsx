@@ -73,6 +73,7 @@ import {
   applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
   draftQuestionConfigForTemplate,
+  makePropertyApplicationTemplateId,
   withPropertyApplicationTemplatesExplicit,
   updatePropertyApplicationTemplate,
   type ApplicationTemplateQuestionConfig,
@@ -195,10 +196,6 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose,
   onSaved,
   showToast,
-  autoImportFile = null,
-  onAutoImportConsumed,
-  onUploadPdf,
-  uploadingPdf = false,
 }: {
   open: boolean;
   title?: string;
@@ -233,24 +230,6 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose: () => void;
   onSaved: () => void;
   showToast: (m: string) => void;
-  /**
-   * "+ Add → Upload PDF" in one step: the caller already created and saved a
-   * real (empty) template — `applicationTemplate` is never null here — and
-   * hands the just-picked PDF through so this modal can run the same import
-   * `importPdf` already runs for an existing template, once, automatically,
-   * the first time it opens with a template + a pending file. The caller
-   * clears this after one render (`onAutoImportConsumed`) so re-opening the
-   * same template later never re-imports on its own.
-   */
-  autoImportFile?: File | null;
-  onAutoImportConsumed?: () => void;
-  /**
-   * Add mode only: start this new application from a PDF. The caller creates
-   * and saves the template, then reopens this modal in edit mode with the
-   * file as `autoImportFile`, so the upload lives in the same popup as Add.
-   */
-  onUploadPdf?: (file: File, label: string) => void;
-  uploadingPdf?: boolean;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -323,6 +302,13 @@ export function ManagerApplicationQuestionsEditorModal({
   // `ApplicationTemplateQuestionConfig.disabledSectionIds`'s own doc comment.
   const [disabledSectionIds, setDisabledSectionIds] = useState<RentalApplicationSectionId[]>([]);
   const initializedEditorRef = useRef<string | null>(null);
+  // F004/F007: a brand-new ("add" mode) application has no id until the
+  // footer commit creates it. Generated once per open and reused both as the
+  // storage/import id an in-progress "Sections" pick stages against and as
+  // the created template's real id at commit, so a staged import's
+  // `importProvenance.sourcePath` and a Setup "Default" pick both still
+  // point at whatever template actually gets created.
+  const addModeTemplateIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -370,6 +356,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setPendingImport(null);
     setPendingImportCompareOpen(false);
     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
+    addModeTemplateIdRef.current = templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null;
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -765,11 +752,23 @@ export function ManagerApplicationQuestionsEditorModal({
           ...templates,
           {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
+            // F004/F007: reuse the SAME id a staged import was parsed
+            // against (and a Setup "Default" pick already wrote to this
+            // property's settings) — otherwise either would end up pointing
+            // at an id no template ever ends up with.
+            id: addModeTemplateIdRef.current ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
             linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
             draftQuestionConfig: {
-              ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
+              ...applicationTemplateQuestionConfigFromSlice(
+                applicationConfigForVariant(sanitizedSub, "standard"),
+                // F004: carries a staged-then-applied import's `importProvenance`
+                // (source name/path/sha, issues) onto the newly created
+                // template — the PDF was already parsed and stored at Apply
+                // time; nothing here re-parses or re-uploads it.
+                importedQuestionDraft ?? undefined,
+              ),
               questionDisplayOrder: applicationFields.map((field) => field.id),
               disabledSectionIds: [...disabledSectionIds],
             },
@@ -884,19 +883,21 @@ export function ManagerApplicationQuestionsEditorModal({
   };
 
   // F004: parses the uploaded PDF and STAGES the result — nothing on screen
-  // changes yet. `applyPendingImport` below is the only thing that writes it
-  // into the template being edited. Returns the staged payload (or null on
-  // failure) so the auto-import ("+ Add → Upload PDF") effect below can apply
-  // it right away without racing this function's own `setPendingImport` —
-  // reading `pendingImport` state back in that same callback would still hold
-  // its pre-update value, since state updates are not synchronous.
+  // changes yet, and nothing is persisted (a brand-new "add" application has
+  // no saved template row at all until the footer commit creates one).
+  // `applyPendingImport` below is the only thing that writes it into the
+  // template being edited. Works the same for a new template (staged against
+  // `addModeTemplateIdRef.current`, reused as the real id at commit) and an
+  // existing one (`applicationTemplate.id`) — picking a file on the Sections
+  // card never distinguishes the two any more.
   const importPdf = async (file: File): Promise<StagedApplicationImport | null> => {
-    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return null;
+    const templateIdForImport = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+    if (!templateIdForImport || !applicationPreviewPropertyId || isBulkSave) return null;
     setImporting(true);
     try {
       const body = new FormData();
       body.set("propertyId", applicationPreviewPropertyId);
-      body.set("templateId", applicationTemplate.id);
+      body.set("templateId", templateIdForImport);
       body.set("file", file);
       const response = await fetch("/api/portal/application-template-import", { method: "POST", body });
       const result = await response.json().catch(() => null) as { error?: string; draft?: ApplicationTemplateQuestionConfig; source?: { path?: string }; issues?: Array<{ pageNumber: number | null; code: string; message: string }> } | null;
@@ -916,14 +917,13 @@ export function ManagerApplicationQuestionsEditorModal({
 
   // F004: writes a staged import into the template being edited — the same
   // state `importPdf`'s success branch used to set immediately. This is the
-  // ONLY place that happens; picking a file never does it on its own. Takes
-  // an explicit `staged` payload (defaulting to the pending-import state,
-  // what the "Apply changes" button uses) rather than only ever reading
-  // state, so the auto-import effect can apply the just-staged result
-  // without a stale-closure race against `setPendingImport`.
+  // ONLY place that happens; picking a file never does it on its own. Works
+  // in "add" mode too (`applicationTemplate` is null there): the variant
+  // falls back to "standard", the only variant a brand-new template can be.
   const applyPendingImport = (staged: StagedApplicationImport | null = pendingImport) => {
-    if (!staged || !applicationTemplate) return;
+    if (!staged) return;
     const { draft, issues, sourcePath } = staged;
+    const importVariant = applicationTemplate ? applicationFormVariantForTemplate(applicationTemplate) : "standard";
     setOriginalPdfPath(sourcePath);
     setImportIssues(issues);
     setResolvedImportIssueIndexes([]);
@@ -931,7 +931,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setQuestionDisplayOrder(draft.questionDisplayOrder ?? []);
     setLocalSub((previous) => ({
       ...previous,
-      ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate), draft),
+      ...mergeApplicationConfigForVariant(importVariant, draft),
     }));
     setDirty(true);
     setPendingImport(null);
@@ -945,33 +945,6 @@ export function ManagerApplicationQuestionsEditorModal({
     setPendingImport(null);
     setPendingImportCompareOpen(false);
   };
-
-  // "+ Add → Upload PDF" in one step: the caller already created and saved
-  // the (empty) template before opening this modal, so `applicationTemplate`
-  // is already real — run the same import the manual "Import PDF" button
-  // runs, once, then land on Preview where the source comparison and any
-  // flagged issues live. Guarded by a ref (not state) so this can never
-  // re-fire from an unrelated re-render while `autoImportFile` is still set.
-  // There is nothing on screen yet to protect (the template was just
-  // created for exactly this file), so this one-step flow applies the
-  // staged result immediately rather than showing the stage/apply summary —
-  // that summary is for re-importing while ALREADY editing real content.
-  const autoImportRanRef = useRef(false);
-  useEffect(() => {
-    if (!open || !autoImportFile || autoImportRanRef.current) return;
-    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
-    autoImportRanRef.current = true;
-    // The state updates below happen once the import network call settles,
-    // not synchronously in the effect body — an async completion callback,
-    // the same shape `importPdf`'s own button handler already uses.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void importPdf(autoImportFile).then((staged) => {
-      applyPendingImport(staged);
-      setStepIdx(workspaceSteps.length - 1);
-      onAutoImportConsumed?.();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, autoImportFile, applicationTemplate, applicationPreviewPropertyId, isBulkSave]);
 
   const reviewImportedSource = async () => {
     if (!applicationTemplate || !applicationPreviewPropertyId || !templates || !onPersistSubmission || isBulkSave) return;
@@ -1507,9 +1480,7 @@ export function ManagerApplicationQuestionsEditorModal({
         steps={workspaceSteps}
         current={current}
         onJump={jump}
-        // While Upload PDF is creating the form, closing would let the modal
-        // pop back open in edit mode when that save lands.
-        onClose={uploadingPdf ? () => {} : onClose}
+        onClose={onClose}
         onRequestClose={() => {
           if (addChooserSectionId) {
             setAddChooserSectionId(null);
@@ -1539,7 +1510,7 @@ export function ManagerApplicationQuestionsEditorModal({
           if (stepId === "name" && duplicateTemplateNameError) return false;
           return true;
         }}
-        busy={saving || uploadingPdf}
+        busy={saving}
         // F-editor c: footer-only commit. The old separate "Publish
         // application" button is gone — the same footer Save/Add action
         // now tries to publish for a single-property template editor, and
@@ -1576,27 +1547,24 @@ export function ManagerApplicationQuestionsEditorModal({
         {stepId === "name" ? (
           <StepColumn>
             <StepHeading title="Sections" />
-            {/* F002: the same dashed drop-zone card the listing wizard uses for
-                "Start from a file" — a brand-new template hands the file to
-                the caller's create-from-PDF flow; an existing template
-                re-imports it through the same parser Start from a file
-                already ran. The two conditions never overlap (see the
-                comments this replaced). */}
+            {/* F002/F004: the same dashed drop-zone card the listing wizard uses
+                for "Start from a file" — upload lives ONLY here now, for both
+                a brand-new ("add") application and an existing one. Either
+                way, picking a file only STAGES the parse (`importPdf`); it
+                is never persisted until the footer commit. */}
             <ImportFileStrip
               dataAttr="property-application-start-from-file"
               chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
               accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              busy={importing || uploadingPdf}
+              busy={importing}
               state={
-                importing || uploadingPdf
+                importing
                   ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
                   : { kind: "blank" }
               }
               onPickFile={(file) => {
                 setSectionsUploadFileName(file.name);
-                if (templateEditorMode === "add" && onUploadPdf) {
-                  onUploadPdf(file, templateLabel);
-                } else if (isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave) {
+                if (isTemplateEditor && applicationPreviewPropertyId && !isBulkSave) {
                   void importPdf(file);
                 }
               }}
@@ -1894,23 +1862,33 @@ export function ManagerApplicationQuestionsEditorModal({
                     }
                   />
                 </PanelSection>
-                {applicationTemplate ? (
-                  <PanelSection title="Default">
-                    <ToggleRow
-                      label="Default application for this property"
-                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
-                      dataAttr="application-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
-                          },
-                        })
-                      }
-                    />
-                  </PanelSection>
-                ) : null}
+                {(() => {
+                  // F007: reachable in "add" mode too, not only once the
+                  // template already exists — `applicationTemplateIdForDefault`
+                  // is the real saved id in edit mode, or the pending id this
+                  // new template WILL be created with at the footer commit
+                  // (see `addModeTemplateIdRef` / the `templateEditorMode ===
+                  // "add"` branch of `commitSave`).
+                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+                  if (!applicationTemplateIdForDefault) return null;
+                  return (
+                    <PanelSection title="Default">
+                      <ToggleRow
+                        label="Default application for this property"
+                        checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplateIdForDefault}
+                        dataAttr="application-setup-default-toggle"
+                        onChange={(next) =>
+                          void formSetup.patch({
+                            leasingPipeline: {
+                              ...formSetup.leasingPipeline,
+                              defaultApplicationTemplateId: next ? applicationTemplateIdForDefault : null,
+                            },
+                          })
+                        }
+                      />
+                    </PanelSection>
+                  );
+                })()}
               </div>
             )}
           </StepColumn>

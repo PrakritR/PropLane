@@ -22,6 +22,8 @@ export const maxDuration = 60;
 
 const IMPORT_PATH = /^[0-9a-f-]{36}\/application-import\/[A-Za-z0-9-]{1,120}\/[A-Za-z0-9._-]+\.pdf$/i;
 
+const TEMPLATE_ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
+
 function sourcePath(userId: string, templateId: string): string {
   return `${userId}/application-import/${templateId}/${Date.now()}-${crypto.randomUUID()}.pdf`;
 }
@@ -130,7 +132,12 @@ function submissionFrom(row: unknown): ManagerListingSubmissionV1 | null {
     : null;
 }
 
-async function ownedTemplate(userId: string, propertyId: string, templateId: string) {
+async function ownedTemplate(
+  userId: string,
+  propertyId: string,
+  templateId: string,
+  opts: { requireTemplate?: boolean } = {},
+) {
   const db = createSupabaseServiceRoleClient();
   const { data, error } = await db
     .from("manager_property_records")
@@ -140,7 +147,9 @@ async function ownedTemplate(userId: string, propertyId: string, templateId: str
     .maybeSingle();
   if (error || !data) return null;
   const submission = submissionFrom(data.property_data);
-  if (!submission || !readPropertyApplicationTemplates(submission).some((template) => template.id === templateId)) return null;
+  if (!submission) return null;
+  const requireTemplate = opts.requireTemplate ?? true;
+  if (requireTemplate && !readPropertyApplicationTemplates(submission).some((template) => template.id === templateId)) return null;
   return { db, submission, propertyData: data.property_data as Record<string, unknown>, updatedAt: data.updated_at };
 }
 
@@ -156,10 +165,23 @@ export async function POST(req: Request) {
   const templateId = typeof body?.get("templateId") === "string" ? String(body.get("templateId")).trim() : "";
   const file = body?.get("file");
   if (!propertyId || !templateId || !(file instanceof File)) return NextResponse.json({ error: "Property, application, and PDF are required." }, { status: 400 });
+  // The id becomes a storage path segment and (F004) may name a template that
+  // doesn't exist yet, so it must be a plain id — never a path.
+  if (!TEMPLATE_ID_PATTERN.test(templateId)) return NextResponse.json({ error: "Invalid application id." }, { status: 400 });
   if (file.type !== "application/pdf" || file.size < 8 || file.size > LEASE_TEMPLATE_MAX_BYTES) {
     return NextResponse.json({ error: "Upload a PDF between 8 bytes and 8 MB." }, { status: 400 });
   }
-  const owned = await ownedTemplate(auth.userId, propertyId, templateId);
+  // F004: a brand-new ("add" mode) application stages its import against a
+  // client-generated id before the manager ever commits "Add application" —
+  // `requireTemplate: false` lets the property owner parse+store an original
+  // PDF against that id without a template by that id existing yet.
+  // `targetTemplate` is then null, and the property record write below is
+  // skipped entirely: nothing about the property changes here. The footer
+  // commit creates the template reusing this SAME id and folds the returned
+  // `draft.importProvenance` (already pointing at the now-stored PDF) into
+  // it, so nothing is re-uploaded and no manager edit made after Apply is
+  // ever overwritten by a second parse.
+  const owned = await ownedTemplate(auth.userId, propertyId, templateId, { requireTemplate: false });
   if (!owned) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const bytes = new Uint8Array(await file.arrayBuffer());
   let source;
@@ -174,8 +196,8 @@ export async function POST(req: Request) {
   });
   if (uploadError) return NextResponse.json({ error: "Could not securely store the original PDF." }, { status: 502 });
   const mapping = mapApplicationPdfImport(source);
-  const targetTemplate = readPropertyApplicationTemplates(owned.submission).find((item) => item.id === templateId)!;
-  if (applicationFormVariantForTemplate(targetTemplate) === "cosigner") {
+  const targetTemplate = readPropertyApplicationTemplates(owned.submission).find((item) => item.id === templateId) ?? null;
+  if (targetTemplate && applicationFormVariantForTemplate(targetTemplate) === "cosigner") {
     for (const question of mapping.questions.filter((item) => item.type === "file" || item.type === "photos")) {
       mapping.issues.push({ pageNumber: question.sourcePage, code: "cosigner_upload_unavailable", message: `“${question.label}” needs an upload, which the co-signer form cannot collect. Remove this question before publishing.` });
     }
@@ -189,22 +211,24 @@ export async function POST(req: Request) {
     unresolvedCount: mapping.issues.length,
     issues: mapping.issues,
   };
-  const templates = updatePropertyApplicationTemplate(
-    readPropertyApplicationTemplates(owned.submission),
-    templateId,
-    { draftQuestionConfig: draft },
-  );
-  const nextSubmission = withPropertyApplicationTemplatesExplicit(owned.submission, templates);
-  const { data: savedRows, error: saveError } = await owned.db
-    .from("manager_property_records")
-    .update({ property_data: { ...owned.propertyData, listingSubmission: nextSubmission }, updated_at: new Date().toISOString() })
-    .eq("id", propertyId)
-    .eq("manager_user_id", auth.userId)
-    .eq("updated_at", owned.updatedAt)
-    .select("id");
-  if (saveError || !savedRows?.length) {
-    await owned.db.storage.from(LEASE_TEMPLATE_BUCKET).remove([path]);
-    return NextResponse.json({ error: "Could not save the imported application draft." }, { status: 502 });
+  if (targetTemplate) {
+    const templates = updatePropertyApplicationTemplate(
+      readPropertyApplicationTemplates(owned.submission),
+      templateId,
+      { draftQuestionConfig: draft },
+    );
+    const nextSubmission = withPropertyApplicationTemplatesExplicit(owned.submission, templates);
+    const { data: savedRows, error: saveError } = await owned.db
+      .from("manager_property_records")
+      .update({ property_data: { ...owned.propertyData, listingSubmission: nextSubmission }, updated_at: new Date().toISOString() })
+      .eq("id", propertyId)
+      .eq("manager_user_id", auth.userId)
+      .eq("updated_at", owned.updatedAt)
+      .select("id");
+    if (saveError || !savedRows?.length) {
+      await owned.db.storage.from(LEASE_TEMPLATE_BUCKET).remove([path]);
+      return NextResponse.json({ error: "Could not save the imported application draft." }, { status: 502 });
+    }
   }
   return NextResponse.json({ draft, issues: mapping.issues, source: { path, pageCount: source.pages.length, sourceSha256: source.sourceSha256 } });
 }

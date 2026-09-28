@@ -16,7 +16,13 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: limit }));
 vi.mock("@/lib/pdf-import/pdf-source.server", () => ({ parsePdfForImport: parseSource }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
-    storage: { from: () => ({ download: async () => ({ data: new Blob(["stored original PDF"]), error: null }) }) },
+    storage: {
+      from: () => ({
+        download: async () => ({ data: new Blob(["stored original PDF"]), error: null }),
+        upload: async () => ({ data: { path: "stored.pdf" }, error: null }),
+        remove: async () => ({ data: null, error: null }),
+      }),
+    },
     from: () => ({
       update,
       select: () => ({
@@ -89,6 +95,30 @@ describe("application template import route authorization", () => {
     expect(response.status).toBe(422);
     expect((await response.json()).error).toMatch(/file and photo uploads are unavailable/);
     expect(template.draftQuestionConfig.customApplicationFields[0]?.label).toBe("Upload proof of income");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("F004: parses and stores an original PDF for a new (not-yet-created) template id without writing the property record", async () => {
+    const { createDefaultListingSubmission } = await import("@/lib/manager-listing-submission");
+    auth.mockResolvedValue({ userId: "11111111-1111-1111-1111-111111111111" });
+    maybeSingle.mockResolvedValue({
+      data: { property_data: { listingSubmission: createDefaultListingSubmission() }, updated_at: "2026-09-24T00:00:00Z" },
+      error: null,
+    });
+    const body = new FormData();
+    body.set("propertyId", "prop-1");
+    // A pending "add" id the client generated locally — nothing by this id
+    // exists in the property's stored templates yet.
+    body.set("templateId", "app-tpl-pending-new");
+    body.set("file", new File(["%PDF-1.4"], "application.pdf", { type: "application/pdf" }));
+    const { POST } = await import("@/app/api/portal/application-template-import/route");
+    const response = await POST(new Request("http://localhost/api/portal/application-template-import", { method: "POST", body }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.draft.importProvenance.sourcePath).toContain("app-tpl-pending-new");
+    // Nothing about the property record itself is written for a template
+    // that does not exist yet — only the footer "Add application" commit
+    // creates it (reusing this same id).
     expect(update).not.toHaveBeenCalled();
   });
 
