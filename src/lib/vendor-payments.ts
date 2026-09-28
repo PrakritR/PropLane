@@ -129,6 +129,103 @@ export function vendorPaymentFeeBreakdown(
   return { grossCents, feeCents, netCents: Math.max(0, grossCents - feeCents) };
 }
 
+export type VendorPaymentDetailBreakdown = {
+  grossCents: number;
+  feeCents: number;
+  netCents: number;
+  refundedGrossCents: number;
+};
+
+/**
+ * VD53 — the payment detail page's full amount card (gross / PropLane fee /
+ * net / refunded). Unlike {@link vendorPaymentFeeBreakdown} (used by the flat
+ * list, which hides the row entirely when no fee was ever taken), the detail
+ * page always shows every figure — a legacy pre-VENDOR_BANKING_ENABLED
+ * payment simply shows a 0 fee and 0 refunded, never a missing row. Every
+ * amount floors at 0 and the fee never exceeds gross, mirroring the
+ * server-side invariant in `platform-fees.ts`'s `vendorPayFeeCents`.
+ */
+export function vendorPaymentDetailBreakdown(payout: VendorPayout): VendorPaymentDetailBreakdown {
+  const grossCents = Math.max(0, Math.round(payout.amountCents));
+  const feeCents = Math.min(grossCents, Math.max(0, Math.round(payout.platformFeeCents ?? 0)));
+  const refundedGrossCents = Math.min(grossCents, Math.max(0, Math.round(payout.refundedGrossCents ?? 0)));
+  return { grossCents, feeCents, netCents: Math.max(0, grossCents - feeCents), refundedGrossCents };
+}
+
+export type VendorPaymentTimelineStepId = "paid" | "held" | "transferred" | "withdrawn";
+export type VendorPaymentTimelineState = "done" | "pending" | "skipped";
+export type VendorPaymentTimelineStep = {
+  id: VendorPaymentTimelineStepId;
+  label: string;
+  state: VendorPaymentTimelineState;
+  detail: string | null;
+};
+
+/**
+ * VD52 — "Paid by manager → In your PropLane balance → Transferred to your
+ * account → Withdrawn", for one payment received. Stripe balances are
+ * fungible once money lands in the vendor's connected account, so the last
+ * two steps are the best HONEST read of where a specific payment's money
+ * probably sits today, not a byte-exact trace of that one dollar:
+ *
+ * - "Paid by manager": done once the manager's charge settled (any status
+ *   other than pending/failed/skipped) — still done even if later refunded.
+ * - "In your PropLane balance": done the same moment as "Paid" — every
+ *   settled payment lands in a PropLane-mediated balance first, whether or
+ *   not it stays there.
+ * - "Transferred to your account": a `destination_charge` payout reaches the
+ *   vendor's own connected Stripe balance immediately, so this is done as
+ *   soon as it is paid. A `hold` payout (no bank yet at charge time) is only
+ *   marked transferred once `bankReady` is true — the existing auto-transfer
+ *   job moves a hold the moment the vendor's bank is ready, so a ready bank
+ *   is the honest signal that any past hold has since cleared. Absent
+ *   `destination` (a row written before this column existed) is treated as
+ *   `hold`, the safer assumption.
+ * - "Withdrawn": no single payment keeps its own withdrawal record once
+ *   pooled into the vendor's Stripe balance, so this is inferred from
+ *   `lastWithdrawalAt` (the vendor's most recent successful payout-to-bank) —
+ *   done only when that withdrawal happened AFTER this payment transferred.
+ *   Never claimed with more certainty than that.
+ */
+export function vendorPaymentStatusTimeline(
+  payout: VendorPayout,
+  opts: { bankReady: boolean; lastWithdrawalAt?: string | null },
+): VendorPaymentTimelineStep[] {
+  const paidDone = payout.status !== "pending" && payout.status !== "failed" && payout.status !== "skipped";
+  const transferredAt = payout.updatedAt ?? payout.createdAt;
+  const isDestinationCharge = payout.destination === "destination_charge";
+  const transferredDone = paidDone && (isDestinationCharge || opts.bankReady);
+  const withdrawnDone =
+    transferredDone && Boolean(opts.lastWithdrawalAt) && new Date(opts.lastWithdrawalAt as string).getTime() > new Date(transferredAt).getTime();
+
+  return [
+    {
+      id: "paid",
+      label: "Paid by manager",
+      state: paidDone ? "done" : "pending",
+      detail: null,
+    },
+    {
+      id: "held",
+      label: "In your PropLane balance",
+      state: !paidDone ? "pending" : "done",
+      detail: null,
+    },
+    {
+      id: "transferred",
+      label: "Transferred to your account",
+      state: !paidDone ? "pending" : transferredDone ? "done" : "pending",
+      detail: !paidDone || transferredDone ? null : "Waiting on your bank — add one to release it.",
+    },
+    {
+      id: "withdrawn",
+      label: "Withdrawn",
+      state: !transferredDone ? "pending" : withdrawnDone ? "done" : "pending",
+      detail: transferredDone && !withdrawnDone ? "Still in your available balance." : null,
+    },
+  ];
+}
+
 export function formatVendorPaymentMoney(row: VendorPaymentRow): string {
   return row.kind === "invoice" ? formatInvoiceMoney(row.amountCents, row.currency) : formatVendorIncomeMoney(row.amountCents);
 }

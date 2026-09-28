@@ -17,7 +17,7 @@ export async function GET() {
     const { data, error } = await db
       .from("vendor_payouts")
       .select(
-        "id, work_order_id, invoice_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at, updated_at, platform_fee_cents, refunded_gross_cents, refunded_fee_cents",
+        "id, work_order_id, invoice_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at, updated_at, platform_fee_cents, refunded_gross_cents, refunded_fee_cents, destination",
       )
       .eq("vendor_user_id", access.actor.userId)
       .order("created_at", { ascending: false });
@@ -37,6 +37,7 @@ export async function GET() {
       platformFeeCents: Number(row.platform_fee_cents) || 0,
       refundedGrossCents: Number(row.refunded_gross_cents) || 0,
       refundedFeeCents: Number(row.refunded_fee_cents) || 0,
+      destination: row.destination === "destination_charge" || row.destination === "hold" ? row.destination : null,
     }));
 
     return NextResponse.json({ payouts });

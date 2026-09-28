@@ -29,7 +29,20 @@ function payoutLabel(payout: VendorPayout): string {
   return `${formatUsd(payout.amountCents)} · ${date}`;
 }
 
-export function VendorRefundModal({ open, onClose, feeBps, onDone }: { open: boolean; onClose: () => void; feeBps: number; onDone: () => void }) {
+export function VendorRefundModal({
+  open,
+  onClose,
+  feeBps,
+  onDone,
+  initialPayoutId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  feeBps: number;
+  onDone: () => void;
+  /** VD52 — preselects a specific payment when opened from its own detail page's Refund action, instead of defaulting to the most recent refundable one. */
+  initialPayoutId?: string | null;
+}) {
   const { showToast } = useAppUi();
   const [payouts, setPayouts] = useState<VendorPayout[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,11 +61,11 @@ export function VendorRefundModal({ open, onClose, feeBps, onDone }: { open: boo
         (p) => (p.status === "paid" || p.status === "partially_refunded") && refundableCents(p) > 0,
       );
       setPayouts(refundable);
-      setSelectedId(refundable[0]?.id ?? "");
+      setSelectedId((initialPayoutId && refundable.some((p) => p.id === initialPayoutId) ? initialPayoutId : refundable[0]?.id) ?? "");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialPayoutId]);
 
   useEffect(() => {
     if (open) {
