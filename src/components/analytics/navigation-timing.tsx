@@ -16,7 +16,7 @@ export function NavigationTiming() {
 
   useEffect(() => {
     if (reported.current || !isProductionAnalyticsHost(window.location.hostname)) return;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let timeout: number | undefined;
     const report = () => {
       const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
       const pathname = entry ? analyticsRouteFromUrl(entry.name) : null;

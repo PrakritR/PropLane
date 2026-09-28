@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { SlidersHorizontal } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -43,7 +43,6 @@ import {
 import {
   MANAGER_APPLICATIONS_EVENT,
   readManagerApplicationRows,
-  syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { applicationsForResidentEmail } from "@/lib/rental-application/application-policy";
@@ -60,7 +59,6 @@ import {
 import {
   readServiceRequestsForResident,
   SERVICE_REQUESTS_EVENT,
-  syncServiceRequestsFromServer,
 } from "@/lib/service-requests-storage";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -88,6 +86,8 @@ import {
   resolveResidentJourneyNextAction,
   type ResidentJourneyStep,
 } from "@/lib/resident-journey-timeline";
+
+import { refreshResidentDashboardApplications, refreshResidentDashboardServices } from "@/lib/resident-dashboard-sync-client";
 
 const BASE = "/resident";
 
@@ -572,7 +572,7 @@ export function ResidentDashboard({
     void Promise.allSettled([
       syncLeasePipelineFromServer(),
       syncManagerWorkOrdersFromServer(),
-      syncServiceRequestsFromServer(),
+      refreshResidentDashboardServices(userId),
       syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY),
       syncHouseholdChargesFromServer(false, { skipReconcile: true }),
     ]).then(bump);
@@ -596,6 +596,7 @@ export function ResidentDashboard({
     };
   }, [session.ready, userId]);
 
+  const applicationMountRead = useRef("");
   useEffect(() => {
     let alive = true;
     const apply = () => {
@@ -641,7 +642,11 @@ export function ResidentDashboard({
         alive = false;
       };
     }
-    void syncManagerApplicationsFromServer({ selfScope: true }).then(() => { if (alive) apply(); });
+    const mountKey = JSON.stringify([userId, email]);
+    if (applicationMountRead.current !== mountKey) {
+      applicationMountRead.current = mountKey;
+      void refreshResidentDashboardApplications(userId).then(() => { if (alive) apply(); });
+    }
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, apply);
     window.addEventListener("storage", apply);
     return () => {
