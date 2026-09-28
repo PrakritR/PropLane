@@ -14,7 +14,13 @@ import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.ser
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
 
 export type StartInvoicePayFailure = { ok: false; status: number; error: string };
-export type StartInvoicePaySuccess = { ok: true; url: string; sessionId: string };
+export type StartInvoicePaySuccess = {
+  ok: true;
+  clientSecret: string;
+  sessionId: string;
+  invoiceCents: number;
+  platformFeeCents: number;
+};
 
 /**
  * Manager pays an approved/scheduled vendor invoice in-app — "Request
@@ -27,6 +33,12 @@ export type StartInvoicePaySuccess = { ok: true; url: string; sessionId: string 
  * VENDOR_BANKING_ENABLED — PropLane's 3% take on top as
  * application_fee_amount, coming out of the vendor's net rather than added
  * to what the manager pays.
+ *
+ * Uses Stripe's EMBEDDED Checkout (`ui_mode: "embedded_page"`) rather than a
+ * hosted redirect — the manager never leaves PropLane. The form mounts
+ * inside a PropLane modal (`vendor-invoice-manager-pay-sheet.tsx`); Stripe's
+ * own `return_url` navigation lands back on `/portal/finances` once payment
+ * completes (captain: "never leave the app").
  */
 export async function startVendorInvoicePayCheckout(
   db: SupabaseClient,
@@ -75,17 +87,22 @@ export async function startVendorInvoicePayCheckout(
       platform_fee_cents: String(platformFeeCents),
     },
     destinationAccountId: destinationAccountId ?? undefined,
-    mode: "hosted",
+    mode: "embedded",
     paymentMethod: "ach",
     feePayer: "resident",
     extraApplicationFeeCents: platformFeeCents,
-    successUrl: `${origin}/portal/vendors?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${origin}/portal/vendors?invoice_pay=cancel`,
+    returnUrl: `${origin}/portal/finances?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
   });
-  if (result.mode !== "hosted" || !result.url) {
+  if (result.mode !== "embedded" || !result.clientSecret) {
     return { ok: false, status: 500, error: "Could not start invoice checkout." };
   }
-  return { ok: true, url: result.url, sessionId: result.sessionId };
+  return {
+    ok: true,
+    clientSecret: result.clientSecret,
+    sessionId: result.sessionId,
+    invoiceCents,
+    platformFeeCents,
+  };
 }
 
 /** Settles a direct invoice-pay Checkout session — idempotent on the invoice's own status. */

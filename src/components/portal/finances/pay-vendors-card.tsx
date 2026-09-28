@@ -4,12 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { selectVendorInvoicesWithinBalance, vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
+import {
+  VendorInvoiceManagerPaySheet,
+  type VendorInvoicePayLineItem,
+  type VendorInvoicePayTarget,
+} from "@/components/portal/vendor-invoice-manager-pay-sheet";
 
 type PayVendorsInvoiceRow = {
   id: string;
   vendorName: string;
   invoiceNumber: string | null;
   totalCents: number;
+  memo: string | null;
+  lineItems: VendorInvoicePayLineItem[];
 };
 
 function formatMoney(cents: number): string {
@@ -40,12 +47,20 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
   const [invoices, setInvoices] = useState<PayVendorsInvoiceRow[] | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [bulkPaying, setBulkPaying] = useState(false);
+  const [payTarget, setPayTarget] = useState<VendorInvoicePayTarget | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/manager/vendor-invoices?status=approved,scheduled", { credentials: "include" });
       const body = (await res.json().catch(() => ({}))) as {
-        invoices?: Array<{ id: string; vendorName?: string; invoiceNumber: string | null; totalCents: number }>;
+        invoices?: Array<{
+          id: string;
+          vendorName?: string;
+          invoiceNumber: string | null;
+          totalCents: number;
+          memo?: string | null;
+          lineItems?: VendorInvoicePayLineItem[];
+        }>;
       };
       if (!res.ok) return;
       setInvoices(
@@ -54,6 +69,8 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
           vendorName: row.vendorName?.trim() || "Vendor",
           invoiceNumber: row.invoiceNumber,
           totalCents: row.totalCents,
+          memo: row.memo ?? null,
+          lineItems: row.lineItems ?? [],
         })),
       );
     } catch {
@@ -65,6 +82,26 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Stripe's embedded-checkout `return_url` (vendor-invoice-pay.server.ts)
+  // lands back here with `?invoice_pay=success` after the manager pays — the
+  // webhook (not this read) is what actually marks the invoice paid, so this
+  // is a courtesy toast + refresh, never the source of truth.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("invoice_pay");
+    if (!result) return;
+    if (result === "success") {
+      showToast("Payment sent.");
+      void load();
+    }
+    params.delete("invoice_pay");
+    params.delete("session_id");
+    const next = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
+    // Runs once on mount only — this reads the URL Stripe's redirect left behind.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const payOne = useCallback(
     async (id: string): Promise<{ ok: true } | { ok: false; error: string; insufficientBalance?: boolean }> => {
@@ -163,22 +200,42 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
                       {invoice.invoiceNumber ? `Invoice ${invoice.invoiceNumber}` : "Invoice"} · {formatMoney(invoice.totalCents)}
                     </span>
                   </span>
-                  {shortfall > 0 ? (
-                    <span className="shrink-0 text-right text-[12px] font-medium text-[var(--status-overdue-fg)]" data-attr="finances-pay-vendors-shortfall">
-                      Balance short {formatMoney(shortfall)}
-                    </span>
-                  ) : (
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {shortfall > 0 ? (
+                      <span className="text-right text-[12px] font-medium text-[var(--status-overdue-fg)]" data-attr="finances-pay-vendors-shortfall">
+                        Balance short {formatMoney(shortfall)}
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-full px-3 py-1 text-[12px]"
+                        onClick={() => handlePayOne(invoice.id)}
+                        disabled={payingId === invoice.id || bulkPaying}
+                        data-attr="finances-pay-vendors-pay-one"
+                      >
+                        {payingId === invoice.id ? "Paying…" : "Pay from balance"}
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
-                      className="shrink-0 rounded-full px-3 py-1 text-[12px]"
-                      onClick={() => handlePayOne(invoice.id)}
-                      disabled={payingId === invoice.id || bulkPaying}
-                      data-attr="finances-pay-vendors-pay-one"
+                      className="rounded-full px-3 py-1 text-[12px]"
+                      onClick={() =>
+                        setPayTarget({
+                          id: invoice.id,
+                          vendorName: invoice.vendorName,
+                          invoiceNumber: invoice.invoiceNumber,
+                          totalCents: invoice.totalCents,
+                          memo: invoice.memo,
+                          lineItems: invoice.lineItems,
+                        })
+                      }
+                      data-attr="finances-pay-vendors-pay-card"
                     >
-                      {payingId === invoice.id ? "Paying…" : "Pay from balance"}
+                      Pay
                     </Button>
-                  )}
+                  </span>
                 </li>
               );
             })}
@@ -199,6 +256,13 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
           ) : null}
         </>
       )}
+      <VendorInvoiceManagerPaySheet
+        invoice={payTarget}
+        onClose={() => {
+          setPayTarget(null);
+          void load();
+        }}
+      />
     </section>
   );
 }
