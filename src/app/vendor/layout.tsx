@@ -8,7 +8,6 @@ import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { VendorMessagingSetupBanner } from "@/components/portal/vendor-messaging-setup-banner";
-import { PublicHomePrefetch } from "@/components/layout/public-home-prefetch";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -36,7 +35,6 @@ export default async function VendorLayout({ children }: { children: React.React
     <AxisAssistant endpoint="/api/agent/vendor-chat" managerName={profile?.full_name ?? null}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       <SurfaceThemeDefault theme="light" />
-      <PublicHomePrefetch />
       <PortalDataPrefetch kind="vendor" />
       <PortalClientSessionGuard />
       <RateAppPrompt reporterRole="vendor" />

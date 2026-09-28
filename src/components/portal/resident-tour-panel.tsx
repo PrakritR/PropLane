@@ -39,6 +39,7 @@ import {
   sortResidentTourViews,
 } from "@/lib/resident-tour-list";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
+import { notifyResidentToursChanged } from "@/lib/resident-tour-sync-client";
 
 const TOUR_DETAIL_TABS = [
   { id: "details", label: "Tour details" },
@@ -328,6 +329,7 @@ export function ResidentTourPanel({
           showToast(body.error ?? "Could not cancel the tour.");
           return;
         }
+        notifyResidentToursChanged();
         if (!options?.silent) showToast(body.outcome === "tour-cancelled" ? "Tour cancelled." : "Tour request withdrawn.");
         await loadTours();
         if (!options?.silent) navigate(residentTourListHref(basePath, "declined"));
@@ -550,6 +552,7 @@ export function ResidentTourPanel({
         }}
         initialPropertyId={rescheduleFor?.propertyId ?? null}
         onScheduled={() => {
+          notifyResidentToursChanged();
           // A reschedule is a new request for the same home; the old one is
           // withdrawn only once the new one is actually on file.
           const previous = rescheduleFor;

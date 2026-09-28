@@ -671,7 +671,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       }
       let portfolioSynced = false;
       try {
-        portfolioSynced = await syncManagerPortfolioFromServer(userId, { force: true });
+        portfolioSynced = await syncManagerPortfolioFromServer(userId);
       } catch {
         /* offline */
       }

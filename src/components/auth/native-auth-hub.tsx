@@ -30,9 +30,9 @@ import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { clearPortalBrowserCache, isLocalDevHost } from "@/lib/auth/clear-portal-browser-cache";
 import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { isNativeOAuthInProgress } from "@/lib/native/open-url";
-import { getNativeInfo } from "@/lib/native/push-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -84,6 +84,9 @@ type NativeAuthHubProps = {
   /** @deprecated Create-account uses /auth/create-account; kept for vendor-register invite redirects. */
   defaultMode?: "sign-in" | "create";
 };
+
+/** A passive sign-in check must not hold the credential form behind network polling. */
+const PASSIVE_NATIVE_SESSION_TIMEOUT_MS = 400;
 
 function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const router = useRouter();
@@ -162,15 +165,21 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const { isNative } = await getNativeInfo();
-        if (!isNative || cancelled) return;
-        if (isNativeOAuthInProgress()) {
-          return;
-        }
+        // A marked OAuth return is recovered by the visibility effect below. Do
+        // not make a signed-out person wait through that recovery budget.
+        if (isNativeOAuthInProgress()) return;
         const supabase = createSupabaseBrowserClient();
-        const user = await waitForOAuthUser(supabase, { attempts: 4, delayMs: 200 });
-        if (!cancelled && user) {
-          window.location.replace(signInContinueHref);
+        try {
+          const { data } = await withAuthTimeout(
+            supabase.auth.getSession(),
+            PASSIVE_NATIVE_SESSION_TIMEOUT_MS,
+          );
+          if (!cancelled && data.session?.user) {
+            window.location.replace(signInContinueHref);
+          }
+        } catch {
+          // A passive lookup is only a convenience. The sign-in form remains
+          // usable when native storage or the network is unavailable.
         }
       } finally {
         if (!cancelled) setCheckingSession(false);
@@ -184,11 +193,16 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   useEffect(() => {
     if (checkingSession) return;
 
+    const abortController = new AbortController();
     const redirectAfterOAuth = async () => {
       if (!isNativeOAuthInProgress()) return;
       const supabase = createSupabaseBrowserClient();
-      const user = await waitForOAuthUser(supabase, { attempts: 6, delayMs: 200 });
-      if (user) window.location.replace(signInContinueHref);
+      const user = await waitForOAuthUser(supabase, {
+        attempts: 6,
+        delayMs: 200,
+        signal: abortController.signal,
+      });
+      if (!abortController.signal.aborted && user) window.location.replace(signInContinueHref);
     };
 
     const onVisible = () => {
@@ -196,7 +210,10 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      abortController.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [checkingSession, signInContinueHref]);
 
   const formRef = useRef<HTMLFormElement | null>(null);
