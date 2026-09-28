@@ -35,7 +35,8 @@ vi.mock("@/lib/portal-nav-client", () => ({
   isCrossPortalNavigation: () => false,
   prefetchPortalHref: vi.fn(),
 }));
-vi.mock("@/lib/portal-nav-prefetch", () => ({
+vi.mock("@/lib/portal-nav-prefetch", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/portal-nav-prefetch")>(),
   portalBackgroundPrefetchEnabled: () => false,
   portalMobileLinkPrefetchEnabled: () => false,
 }));

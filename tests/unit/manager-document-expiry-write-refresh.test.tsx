@@ -15,25 +15,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+// Match the providers' stable callbacks. A fresh showToast on each render
+// changes the library's load callback and repeatedly restarts its load effect.
+const ui = vi.hoisted(() => ({
+  confirm: vi.fn((req: { description?: unknown }) => Promise.resolve(
+    window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+  )),
+  showToast: vi.fn(),
+  navigate: vi.fn(),
+  searchParams: new URLSearchParams(),
+}));
 vi.mock("@/components/providers/app-ui-provider", () => ({
-  useConfirm: () => (req: { description?: unknown }) =>
-    Promise.resolve(
-      typeof window === "undefined"
-        ? true
-        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
-    ),
-
-  useAppUi: () => ({ showToast: vi.fn() }),
+  useConfirm: () => ui.confirm,
+  useAppUi: () => ({ showToast: ui.showToast }),
 }));
 vi.mock("@/lib/manager-vendors-storage", () => ({
   MANAGER_VENDORS_EVENT: "manager-vendors",
   syncManagerVendorsFromServer: async () => [],
 }));
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => ui.searchParams,
   usePathname: () => "/portal/documents",
 }));
-vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => ui.navigate }));
 
 import { ManagerDocumentLibrary } from "@/components/portal/pro-document-library";
 import {
@@ -92,6 +96,7 @@ function stubFetch() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   expiringSoon = 3;
   expired = 1;
   requestLog.length = 0;
@@ -137,18 +142,22 @@ describe("document write → dashboard expiry counts", () => {
 
     const deleteBtn = await waitFor(() => {
       const el = container.querySelector<HTMLButtonElement>('[data-attr="record-header-action-delete"]');
-      if (!el) throw new Error("Delete action not rendered yet");
-      return el;
+      expect(el).toBeInTheDocument();
+      expect(el).toBeEnabled();
+      return el!;
     });
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
+      expect(ui.confirm).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining(DOC.displayName) }));
       expect(requestLog).toContain("DELETE /api/manager-documents/doc-1");
     });
     await waitFor(async () => {
       // Still well inside the 15s TTL — only the forced post-write read can
       // make this the new number.
       expect(await dashboardRead()).toMatchObject({ expiringSoon: 2, expired: 0 });
+      const deleteIndex = requestLog.indexOf("DELETE /api/manager-documents/doc-1");
+      expect(requestLog.slice(deleteIndex + 1)).toContain("GET /api/manager-documents/expiration-summary");
     });
   });
 

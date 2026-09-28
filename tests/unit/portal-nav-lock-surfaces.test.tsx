@@ -16,7 +16,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/dashboard",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
-vi.mock("@/lib/portal-nav-prefetch", () => ({ portalMobileLinkPrefetchEnabled: () => false }));
+vi.mock("@/lib/portal-nav-prefetch", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/portal-nav-prefetch")>(),
+  portalMobileLinkPrefetchEnabled: () => false,
+}));
 vi.mock("@/lib/portal-nav-client", () => ({
   isCrossPortalNavigation: () => false,
   portalNavClick: () => () => {},

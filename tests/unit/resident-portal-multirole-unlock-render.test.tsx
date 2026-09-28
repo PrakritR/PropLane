@@ -47,7 +47,8 @@ vi.mock("@/hooks/use-is-native-app", () => ({
   useIsSmallPortalViewport: () => false,
   useIsNativeApp: () => ({ isNative: false, platform: null }),
 }));
-vi.mock("@/lib/portal-nav-prefetch", () => ({
+vi.mock("@/lib/portal-nav-prefetch", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/portal-nav-prefetch")>(),
   portalMobileLinkPrefetchEnabled: () => false,
   portalBackgroundPrefetchEnabled: () => false,
 }));
