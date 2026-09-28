@@ -22,6 +22,8 @@ export const maxDuration = 60;
 
 const IMPORT_PATH = /^[0-9a-f-]{36}\/application-import\/[A-Za-z0-9-]{1,120}\/[A-Za-z0-9._-]+\.pdf$/i;
 
+const TEMPLATE_ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
+
 function sourcePath(userId: string, templateId: string): string {
   return `${userId}/application-import/${templateId}/${Date.now()}-${crypto.randomUUID()}.pdf`;
 }
@@ -163,6 +165,9 @@ export async function POST(req: Request) {
   const templateId = typeof body?.get("templateId") === "string" ? String(body.get("templateId")).trim() : "";
   const file = body?.get("file");
   if (!propertyId || !templateId || !(file instanceof File)) return NextResponse.json({ error: "Property, application, and PDF are required." }, { status: 400 });
+  // The id becomes a storage path segment and (F004) may name a template that
+  // doesn't exist yet, so it must be a plain id — never a path.
+  if (!TEMPLATE_ID_PATTERN.test(templateId)) return NextResponse.json({ error: "Invalid application id." }, { status: 400 });
   if (file.type !== "application/pdf" || file.size < 8 || file.size > LEASE_TEMPLATE_MAX_BYTES) {
     return NextResponse.json({ error: "Upload a PDF between 8 bytes and 8 MB." }, { status: 400 });
   }
