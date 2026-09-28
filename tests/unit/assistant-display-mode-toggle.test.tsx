@@ -23,7 +23,7 @@ import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
-import { readAssistantDisplayMode } from "@/lib/assistant-display-preferences";
+import { readAssistantDisplayMode, setAssistantDisplayMode } from "@/lib/assistant-display-preferences";
 import { initAssistantDockState } from "@/lib/axis-assistant/dock-store";
 
 const USER = "mgr-1";
@@ -115,6 +115,15 @@ describe("assistant display mode", () => {
     expect(askPropLane()).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("opens and closes the popup with ⌘K", async () => {
+    renderPortal();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).toBeNull());
+  });
+
   it("pins from the Ask PropLane popup header", async () => {
     renderPortal();
     fireEvent.click(askPropLane());
@@ -131,7 +140,10 @@ describe("assistant display mode", () => {
     await waitFor(() => expect(fab()!.className).toContain("lg:hidden"));
   });
 
-  it("opens the desktop rail on Communication while a thread is selected", async () => {
+  it("opens the desktop rail on Communication while a thread is selected, when the saved mode is docked", async () => {
+    // N085: Ask PropLane opens whatever the manager already saved — it never
+    // forces the mode into "docked" on its own.
+    setAssistantDisplayMode(USER, "docked");
     document.documentElement.setAttribute("data-communication-surface", "true");
     document.documentElement.setAttribute("data-communication-thread-selected", "true");
     vi.stubGlobal(
@@ -148,7 +160,11 @@ describe("assistant display mode", () => {
     document.documentElement.removeAttribute("data-communication-thread-selected");
   });
 
-  it("opens Ask PropLane in the right-side conversation rail on desktop", async () => {
+  it("opens Ask PropLane in the right-side conversation rail on desktop when the saved mode is docked", async () => {
+    // N085: the saved preference decides the presentation — Ask PropLane
+    // reopens the rail here because "docked" was already chosen, not because
+    // clicking it always docks.
+    setAssistantDisplayMode(USER, "docked");
     vi.stubGlobal(
       "matchMedia",
       vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -163,6 +179,22 @@ describe("assistant display mode", () => {
     );
     expect(readAssistantDisplayMode(USER)).toBe("docked");
     expect(screen.queryByText("Opening PropLane Assistant")).toBeNull();
+  });
+
+  it("opens the popup, not the rail, when Ask PropLane is clicked and the saved mode is still popup", async () => {
+    // N085 regression guard: a dockable, wide-viewport portal must not force
+    // the rail on a manager who never pinned it.
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    renderPortalWithTopBar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask PropLane" }));
+
+    await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());
+    expect(rail()).toBeNull();
+    expect(readAssistantDisplayMode(USER)).toBe("popup");
   });
 
   it("keeps the popup panel fixed to its viewport anchor when it opens", async () => {
@@ -193,6 +225,7 @@ describe("assistant display mode", () => {
   });
 
   it("closes the rail from Ask PropLane and reopens it there", async () => {
+    setAssistantDisplayMode(USER, "docked");
     // A desktop viewport: only min-width queries match.
     vi.stubGlobal(
       "matchMedia",
@@ -220,7 +253,15 @@ describe("assistant display mode", () => {
     await waitFor(() => expect(rail()).not.toBeNull());
   });
 
-  it("closes the dock rail without reserving a white strip", async () => {
+  it("closes the dock rail without reserving a white strip, and Ask PropLane reopens it (N085: no expand arrow)", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query.includes("min-width"),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
     renderPortal();
     fireEvent.click(askPropLane());
     fireEvent.click(await screen.findByLabelText("Pin PropLane Assistant to the right side"));
@@ -229,10 +270,12 @@ describe("assistant display mode", () => {
     fireEvent.click(screen.getByLabelText("Close PropLane Assistant"));
     await waitFor(() => expect(dock()).toBeNull());
     expect(rail()).toBeNull();
-    expect(screen.getByLabelText("Expand PropLane Assistant")).toBeTruthy();
-    expect(document.querySelector('[data-attr="portal-assistant-dock-expand"]')?.closest("header")).not.toBeNull();
+    // N085: the collapse arrow is gone entirely — Ask PropLane is the only
+    // control left to bring the docked rail back.
+    expect(screen.queryByLabelText("Expand PropLane Assistant")).toBeNull();
+    expect(document.querySelector('[data-attr="portal-assistant-dock-expand"]')).toBeNull();
 
-    fireEvent.click(screen.getByLabelText("Expand PropLane Assistant"));
+    fireEvent.click(askPropLane());
     await waitFor(() => expect(dock()).not.toBeNull());
   });
 
@@ -247,12 +290,12 @@ describe("assistant display mode", () => {
 
     // A reload reads the stored preference back. The harness remounts with
     // the default collapsed cookie, so the docked choice must still be on
-    // (expand control in the top bar) even when the panel itself is folded.
+    // (Ask PropLane, the only control now — N085) even when the panel itself
+    // is folded.
     first.unmount();
     renderPortal();
-    await waitFor(() =>
-      expect(screen.getByLabelText("Expand PropLane Assistant")).toBeTruthy(),
-    );
+    await waitFor(() => expect(askPropLane()).toBeInTheDocument());
+    expect(screen.queryByLabelText("Expand PropLane Assistant")).toBeNull();
     expect(rail()).toBeNull();
     expect(
       await screen.findByRole("radio", { name: /Pinned to the right/ }),

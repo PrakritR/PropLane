@@ -15,16 +15,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { track } from "@/lib/analytics/track-client";
-import { AssistantDockExpandButton } from "@/components/portal/assistant-layout-controls";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { useAxisAssistantDock } from "@/components/portal/axis-assistant";
 import {
   collapseAssistantDock,
+  expandAssistantDock,
   getAssistantDockCollapsed,
-  getAssistantDocked,
   subscribeAssistantDockCollapsed,
-  subscribeAssistantDocked,
-  toggleAssistantDock,
 } from "@/lib/axis-assistant/dock-store";
 import {
   closeAxisAssistant,
@@ -70,15 +67,17 @@ export function PortalTopBar({
     getAxisAssistantOpen,
     () => false,
   );
-  const { dockable, mode, setMode } = useAxisAssistantDock();
+  const { dockable, mode } = useAxisAssistantDock();
   const dockCollapsed = useSyncExternalStore(
     subscribeAssistantDockCollapsed,
     getAssistantDockCollapsed,
     () => true,
   );
-  const storeDocked = useSyncExternalStore(subscribeAssistantDocked, getAssistantDocked, () => false);
-  const showCollapsedDockExpand =
-    dockCollapsed && (dockable ? mode === "docked" : storeDocked);
+  // Ask PropLane is the one control for both presentations: a docked, expanded
+  // rail counts as "open" here too, so the button toggles it closed just like
+  // the popup — there is no separate expand affordance any more (N085).
+  const dockRailOpen = dockable && mode === "docked" && !dockCollapsed;
+  const assistantVisible = assistantOpen || dockRailOpen;
 
   const openAskProPlane = useCallback(() => {
     track("assistant_opened");
@@ -89,11 +88,11 @@ export function PortalTopBar({
       return;
     }
 
-    // The rail is intentionally `lg`-only. On a wide, dock-enabled portal,
-    // make it the active presentation and wait for React to mount its composer
-    // before moving focus into it.
-    if (dockable && window.matchMedia?.("(min-width: 1024px)").matches) {
-      setMode("docked");
+    // The rail is intentionally `lg`-only and only takes over when the SAVED
+    // preference says "docked" — Ask PropLane opens whatever the manager last
+    // chose (Settings or the popup's pin), never forcing a mode switch.
+    if (dockable && mode === "docked" && window.matchMedia?.("(min-width: 1024px)").matches) {
+      expandAssistantDock();
       closeAxisAssistant();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -106,9 +105,11 @@ export function PortalTopBar({
     startTransition(() => {
       openAxisAssistant();
     });
-  }, [dockable, setMode]);
+  }, [dockable, mode]);
 
-  function toggleAssistant() {
+  // The one toggle for both presentations (N085): open when neither is
+  // showing, close whichever is showing when clicked (or ⌘K'd) again.
+  const toggleAssistant = useCallback(() => {
     const dockInput = document.getElementById(ASSISTANT_DOCK_INPUT_ID) as HTMLTextAreaElement | null;
     if (assistantOpen) {
       closeAxisAssistant();
@@ -120,20 +121,21 @@ export function PortalTopBar({
       return;
     }
     openAskProPlane();
-  }
+  }, [assistantOpen, openAskProPlane]);
 
-  // ⌘K / Ctrl+K opens the assistant, matching the visible keyboard chip. Only
-  // this shortcut is claimed; nothing else in the app binds ⌘K.
+  // ⌘K / Ctrl+K toggles the assistant, matching the visible keyboard chip and
+  // the button's own click behavior. Only this shortcut is claimed; nothing
+  // else in the app binds ⌘K.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === "k" || event.key === "K")) {
         event.preventDefault();
-        openAskProPlane();
+        toggleAssistant();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openAskProPlane]);
+  }, [toggleAssistant]);
 
   return (
     <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
@@ -142,7 +144,7 @@ export function PortalTopBar({
         onClick={toggleAssistant}
         data-attr="portal-ask-proplane"
         aria-label={assistantOpen ? "Close PropLane Assistant" : "Ask PropLane"}
-        aria-expanded={assistantOpen}
+        aria-expanded={assistantVisible}
         aria-keyshortcuts="Meta+K Control+K"
         className="group flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pl-2.5 pr-2 text-[13px] font-medium text-muted outline-none transition hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
       >
@@ -199,8 +201,6 @@ export function PortalTopBar({
           <PortalSignOutButton className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60" />
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {showCollapsedDockExpand ? <AssistantDockExpandButton onClick={toggleAssistantDock} /> : null}
     </header>
   );
 }
