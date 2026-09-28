@@ -23,18 +23,20 @@ export const vendorPortal: PortalDefinition = {
         { id: "invoices", label: "Invoices" },
       ],
     },
+    // No status tabs (VD16, 2026-09-27) — the checklist groups by section
+    // (Tax / Business license / Insurance) inline instead.
+    { section: "documents", label: "Documents", tabs: [] },
+    // Top bar with sections (VD21, 2026-09-27) — All / Needs reply / Replied,
+    // a real routed tab like every other portal list.
     {
-      section: "documents",
-      label: "Documents",
-      // Status (All / On file / Missing) is the routed tab with real counts;
-      // Source and Category are Filter-sheet fields, not separate tabs.
+      section: "reviews",
+      label: "Reviews",
       tabs: [
         { id: "all", label: "All" },
-        { id: "on-file", label: "On file" },
-        { id: "missing", label: "Missing" },
+        { id: "needs-reply", label: "Needs reply" },
+        { id: "replied", label: "Replied" },
       ],
     },
-    { section: "reviews", label: "Reviews", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -47,7 +49,7 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Communication", path: "/vendor/communication/active" },
   { label: "Payments", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
-  { label: "Documents", path: "/vendor/documents/all" },
+  { label: "Documents", path: "/vendor/documents" },
   { label: "Reviews", path: "/vendor/reviews" },
   { label: "Settings", path: "/vendor/profile" },
 ] as const;

@@ -59,7 +59,10 @@ export const VENDOR_DOCUMENT_HINTS: Record<VendorDocumentKind, string> = {
   bond: "Contractor or performance bond, if your license or the manager requires it.",
 };
 
-/** Grouped checklist shown on the vendor Documents tab. */
+/**
+ * Grouped checklist shown on the vendor Documents tab — order and labels are
+ * captain-specified (VD17, 2026-09-27): Tax, Business license, Insurance.
+ */
 export const VENDOR_DOCUMENT_SECTIONS: {
   id: string;
   label: string;
@@ -67,18 +70,18 @@ export const VENDOR_DOCUMENT_SECTIONS: {
 }[] = [
   {
     id: "tax",
-    label: "Tax & income",
+    label: "Tax",
     kinds: ["w9", "income_tax_return", "form_1099", "ein_letter", "sales_tax_permit"],
+  },
+  {
+    id: "licensing",
+    label: "Business license",
+    kinds: ["license", "bond"],
   },
   {
     id: "insurance",
     label: "Insurance",
     kinds: ["insurance", "workers_comp"],
-  },
-  {
-    id: "licensing",
-    label: "Business & licensing",
-    kinds: ["license", "bond"],
   },
 ];
 

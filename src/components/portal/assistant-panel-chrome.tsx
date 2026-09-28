@@ -10,6 +10,7 @@ import {
   AssistantPinIcon,
   AssistantSuggestionChips,
   AxisAssistantSparkleIcon,
+  type AssistantSuggestion,
 } from "@/components/portal/assistant-shared";
 import { useManagerAttentionQueue } from "@/hooks/use-manager-attention-queue";
 import type { ChatMessage } from "@/lib/axis-assistant/use-assistant-conversation";
@@ -24,6 +25,8 @@ import { cn } from "@/lib/utils";
 
 /** The manager endpoint — the only surface whose empty state is the manager's queue. */
 export const MANAGER_ASSISTANT_ENDPOINT = "/api/agent/chat";
+/** The vendor endpoint — its empty state gets its own job-shaped chip set (VD23). */
+export const VENDOR_ASSISTANT_ENDPOINT = "/api/agent/vendor-chat";
 
 const WORD_BTN =
   "inline-flex h-8 shrink-0 items-center rounded-full px-2 text-[12.5px] font-semibold text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
@@ -179,6 +182,7 @@ export function AssistantEmptyState({
   disabled,
   hideChips,
   className,
+  suggestions,
 }: {
   firstName?: string | null;
   /** Replaces the default subline when the surface has its own task framing. */
@@ -189,6 +193,8 @@ export function AssistantEmptyState({
   disabled?: boolean;
   hideChips?: boolean;
   className?: string;
+  /** Portal-specific chip set (defaults to the manager set) — see `VENDOR_ASSISTANT_SUGGESTIONS`. */
+  suggestions?: AssistantSuggestion[];
 }) {
   return (
     <div className={cn("flex flex-1 flex-col gap-3.5", className)} data-attr="assistant-empty-state">
@@ -199,7 +205,12 @@ export function AssistantEmptyState({
       </div>
       {showQueue ? <AssistantAttentionQueue onNavigate={onNavigate} /> : null}
       {hideChips ? null : (
-        <AssistantSuggestionChips onPick={onPick} disabled={disabled} className="flex flex-wrap items-center gap-2" />
+        <AssistantSuggestionChips
+          onPick={onPick}
+          disabled={disabled}
+          className="flex flex-wrap items-center gap-2"
+          suggestions={suggestions}
+        />
       )}
     </div>
   );

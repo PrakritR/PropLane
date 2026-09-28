@@ -83,7 +83,7 @@ export function vendorLinkPaths() {
     income: "/vendor/financials/income",
     invoices: "/vendor/financials/invoices",
     payments: "/vendor/financials/income",
-    documents: "/vendor/documents/all",
+    documents: "/vendor/documents",
     /** Bank payout setup, W-9, insurance, licensing. */
     profile: "/vendor/profile",
     signIn: "/auth/sign-in",
