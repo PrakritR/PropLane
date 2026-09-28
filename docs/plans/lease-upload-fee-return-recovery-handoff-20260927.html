@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fee return recovery correction</title><style>body{font:16px system-ui;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.55}pre{background:#f3f3f3;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body>
+<h1>Fee return recovery correction</h1>
+<p>Workspace: /Users/akhilvemuri/coding/AXIS-2-lease-upload. Keeper: agent/lease-upload-polish. Starting HEAD: 881197c184a7ca8874a5132e028eac4a56deeef7. Parent owns the integrated correction plan at docs/plans/lease-upload-release-corrections-20260927.html and all broader validation/review.</p>
+<h2>Owned changes</h2><ul>
+<li>src/components/marketing/rental-application-wizard.tsx: pause local draft saves and server autosave immediately while returning from Stripe. The partial identity form stays hidden until server promotion succeeds.</li>
+<li>Wrap return verification in catch/finally. Failed preview, verify, HTTP, unpaid, identity mismatch, and unpromoted payment paths retain Checkout URL/session context and submission suppression. Failed attempts clear the module processed-session flag, while an attempt ref prevents automatic retry loops.</li>
+<li>A visible Retry verification action permits a fresh verification attempt. Legacy bank processing gets a visible processing message and Retry. Paid-but-unpromoted responses retain best-effort orphan reporting for durable payment and manager notice without browser submission.</li>
+<li>Remove token consumption and direct account setup CTA from verification responses. Retain the server applicationSetupEmailSent flag so successful promotion does not send another setup email. Normal creator-submit setup behavior and same-browser saved-confirm replay remain intact.</li>
+<li>tests/unit/rental-wizard-public-resume.test.tsx: five new behavioral tests cover network-rejection retry into confirmation, preview rejection before verify, HTTP failure and remount retry, paid-but-unpromoted recovery with orphan report, and legacy ACH processing. They assert no partial manager-application writes or identity-only local draft save.</li>
+</ul>
+<h2>Validation</h2><pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/vitest/vitest.mjs run tests/unit/rental-wizard-public-resume.test.tsx --maxWorkers=1
+Exit 0: 1 file, 15 tests passed.
+
+PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/eslint/bin/eslint.js src/components/marketing/rental-application-wizard.tsx tests/unit/rental-wizard-public-resume.test.tsx --format json
+Exit 0: wizard 0 errors / 10 existing hook warnings; tests 0 errors / 0 warnings. The new unused setup-link import warning was removed.
+
+git diff --check
+Exit 0.</pre>
+<h2>Public account-gate integration correction</h2>
+<p>The public client previously account-gated signed-out property-linked returns before mounting the wizard. Added a dedicated verification panel ahead of all ordinary public apply hooks and gates.</p>
+<ul><li><code>src/components/marketing/application-fee-return-panel.tsx</code>: verifies sessionId only, requires paid + promoted + a nonempty application ID, and uses the existing guest finish panel with empty email, explicit email-sent boolean, and no setup or mailto link. Network, HTTP, unpaid, processing, and unpromoted outcomes show Retry while retaining the URL. A 15-second abort timeout exposes retry for a silent network hang. Cleanup aborts and ignores stale requests after unmount, retry, or session change.</li>
+<li><code>src/app/(public)/rent/apply/public-apply-client.tsx</code>: an outer dispatcher mounts only the dedicated panel for fee_checkout=return or success with a nonempty trimmed session_id. All other URLs continue through the original account, listing, and property-picker gates. The normal application component, property reads and wizard effects do not mount for payment returns, including unpublished-property links.</li>
+<li>The Retry button has <code>data-attr="application-fee-retry-verification"</code>. Paid-but-unpromoted sessions are reported by server verification using Stripe’s stored applicant email. The public panel posts only to verification; the public orphan-report endpoint keeps its existing email check.</li>
+<li><code>tests/unit/public-apply-fee-return.test.tsx</code>: behavioral coverage for return/success account bypass, unpublished listing, safe email failure, no email/token/mailto exposure, ordinary gate retention, unpaid/processing/unpromoted/invalid results, network retry, timeout, orphan reporting, session change, and unmount cleanup.</li></ul>
+<pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/vitest/vitest.mjs run tests/unit/public-apply-fee-return.test.tsx tests/unit/public-apply-multi-property-prefill.test.ts --maxWorkers=1
+Exit 0: 2 files / 24 tests passed, 3.06 seconds.
+
+PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/eslint/bin/eslint.js src/components/marketing/application-fee-return-panel.tsx 'src/app/(public)/rent/apply/public-apply-client.tsx' tests/unit/public-apply-fee-return.test.tsx --format json
+Exit 0: new panel and tests 0 errors / 0 warnings; existing public client 0 errors / 2 existing hook warnings.
+
+git diff --check
+Exit 0.</pre>
+<h2>Orphan-report authorization correction</h2>
+<p>Independent review found that the new panel’s session-only orphan-report request could not satisfy the existing public endpoint’s required expectedEmail. The request was removed. Verification now calls the existing <code>reportOrphanedApplicationFeePayment</code> server helper for a paid session whose application could not be promoted, passing the verified Stripe session ID and normalized Stripe metadata/customer email. The request body’s expectedEmail is never used for this report. No public endpoint or helper authorization was relaxed.</p>
+<p>Reporting failures remain best effort: payment verification stays recoverable, and the log contains a fixed reason only. Submitted/promoted applications and unpaid sessions do not trigger reporting; missing stored Stripe identity never falls back to a caller email.</p>
+<p>Changed files: <code>src/app/api/stripe/application-fee-verify/route.ts</code>, <code>src/components/marketing/application-fee-return-panel.tsx</code>, <code>tests/unit/application-fee-verify-route.test.ts</code>, and <code>tests/unit/public-apply-fee-return.test.tsx</code>. No schema change, server, commit, push, or production mutation. Production/test edits frozen for root’s final full-suite snapshot.</p>
+<pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/vitest/vitest.mjs run tests/unit/application-fee-verify-route.test.ts tests/unit/public-apply-fee-return.test.tsx tests/unit/prp-428-orphaned-application-fee.test.ts --maxWorkers=1
+Exit 0: 3 files / 45 tests passed, 5.04 seconds.
+
+PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/eslint/bin/eslint.js src/app/api/stripe/application-fee-verify/route.ts src/components/marketing/application-fee-return-panel.tsx tests/unit/application-fee-verify-route.test.ts tests/unit/public-apply-fee-return.test.tsx
+Exit 0; no diagnostics.
+
+git diff --check
+Exit 0.</pre>
+<p>Behavioral route cases cover server identity instead of caller identity, customer-email fallback, no recipient disclosure, report rejection without losing the paid result, skip after submitted/promoted, and skip without Stripe identity. The panel test now requires exactly one verification request for an unpromoted payment. Existing helper tests still verify fee recording and idempotent manager notice. Root’s fresh security reviewer was asked for a bounded read-only rereview of this correction.</p>
+<h2>Limits and next session</h2><p>No server, browser, commit, push, schema change, or production mutation. Root owns whole-project checks, graph refresh, seeded browser validation and independent review. Preserve inherited work. Review both changed files; run the focused suite on the final integrated snapshot, verify failure and retry in the real apply flow, and follow repository release gates.</p>
+</body></html>

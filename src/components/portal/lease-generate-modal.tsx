@@ -25,8 +25,10 @@ import {
   getLeaseDocumentHtml,
   leaseGenerationPreviewContextForRow,
   leaseApplicationSnapshotForRow,
+  persistLeaseRowToServerAwait,
   readLeasePipeline,
   resolveManagerLeaseGenerationRow,
+  updateLeasePipelineRow,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -143,7 +145,7 @@ export function LeaseGenerateModal({
     [actionRow],
   );
 
-  const commitGenerate = () => {
+  const commitGenerate = async () => {
     if (!actionRow || busy || generating) return;
     if (choices.length > 0 && !selectedTemplateId) return;
     if (!editorHtml.trim()) {
@@ -153,9 +155,16 @@ export function LeaseGenerateModal({
     if (draft?.error) return;
 
     setGenerating(true);
+    const originalRow = readLeasePipeline(managerUserId).find((candidate) => candidate.id === actionRow.id);
+    const restoreLocalRow = () => {
+      if (originalRow) updateLeasePipelineRow(actionRow.id, originalRow, managerUserId, { persist: false });
+    };
+    // Local only: the awaited upsert below is the save, so a server refusal is
+    // reported instead of hidden behind a "Lease generated" toast.
     const res = generateLeaseHtmlForRow(actionRow.id, managerUserId, {
       discardManagerEdits: replacesManagerEdits,
       templateId: selectedTemplateId,
+      persist: false,
     });
     if (!res.ok) {
       setGenerating(false);
@@ -166,14 +175,27 @@ export function LeaseGenerateModal({
     const rowAfter = readLeasePipeline(managerUserId).find((candidate) => candidate.id === actionRow.id);
     const generatedHtml = rowAfter ? getLeaseDocumentHtml(rowAfter)?.trim() ?? "" : "";
     if (editorHtml.trim() !== generatedHtml) {
-      const saveRes = saveLeaseDocumentHtml(actionRow.id, editorHtml, managerUserId);
-      setGenerating(false);
+      const saveRes = saveLeaseDocumentHtml(actionRow.id, editorHtml, managerUserId, {
+        persist: false,
+        incrementVersion: false,
+      });
       if (!saveRes.ok) {
+        restoreLocalRow();
+        setGenerating(false);
         showToast(saveRes.error);
         return;
       }
-    } else {
-      setGenerating(false);
+    }
+
+    const savedRow = readLeasePipeline(managerUserId).find((candidate) => candidate.id === actionRow.id);
+    const persisted = savedRow
+      ? await persistLeaseRowToServerAwait(savedRow)
+      : { ok: false as const, error: "Could not save generated lease." };
+    setGenerating(false);
+    if (!persisted.ok) {
+      restoreLocalRow();
+      showToast(persisted.error);
+      return;
     }
 
     showToast(`Lease generated (v${res.version}).`);
@@ -193,7 +215,7 @@ export function LeaseGenerateModal({
       showToast("Add your full name in Settings → Profile, then regenerate this lease.");
       return;
     }
-    commitGenerate();
+    void commitGenerate();
   };
 
   const canGenerate = Boolean(

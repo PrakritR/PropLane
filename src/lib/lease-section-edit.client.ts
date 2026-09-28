@@ -99,6 +99,7 @@ function persistLeaseDocumentHtml(
   leaseId: string,
   nextHtml: string,
   managerUserId?: string | null,
+  options?: { persist?: boolean; incrementVersion?: boolean },
 ): { ok: true; row: LeasePipelineRow } | { ok: false; error: string } {
   const row = readLeasePipeline(managerUserId).find((r) => r.id === leaseId);
   if (!row) return { ok: false, error: "Lease not found." };
@@ -120,7 +121,7 @@ function persistLeaseDocumentHtml(
   }
 
   const iso = new Date().toISOString();
-  const version = (row.versionNumber ?? row.pdfVersion ?? 0) + 1;
+  const version = (row.versionNumber ?? row.pdfVersion ?? 0) + (options?.incrementVersion === false ? 0 : 1);
   const saved = updateLeasePipelineRow(
     leaseId,
     {
@@ -138,6 +139,7 @@ function persistLeaseDocumentHtml(
       bucket: "manager",
     },
     managerUserId,
+    options?.persist === false ? { persist: false } : undefined,
   );
   if (!saved) return { ok: false, error: "Could not save document edits." };
   const updated = readLeasePipeline(managerUserId).find((r) => r.id === leaseId);
@@ -149,6 +151,7 @@ export function saveLeaseDocumentHtml(
   leaseId: string,
   documentHtml: string,
   managerUserId?: string | null,
+  options?: { persist?: boolean; incrementVersion?: boolean },
 ): { ok: true; row: LeasePipelineRow } | { ok: false; error: string } {
-  return persistLeaseDocumentHtml(leaseId, documentHtml, managerUserId);
+  return persistLeaseDocumentHtml(leaseId, documentHtml, managerUserId, options);
 }

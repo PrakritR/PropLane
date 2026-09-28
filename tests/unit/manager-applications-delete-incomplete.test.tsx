@@ -55,6 +55,7 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
   return {
     ...actual,
     syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
+    syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: ROWS, ok: true }),
     readManagerApplicationRows: () => ROWS,
     writeManagerApplicationRows: (rows: DemoApplicantRow[]) => {
       writtenRows = rows;

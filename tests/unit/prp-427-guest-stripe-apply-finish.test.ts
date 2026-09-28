@@ -33,17 +33,10 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
     expect(CHECKOUT).toContain("propertyId=${pidQ}&fee_checkout=success&session_id={CHECKOUT_SESSION_ID}");
   });
 
-  it("marks the fee paid only after finalize returns ok (client path)", () => {
-    expect(WIZARD).toContain("const submitted = await finalizeApplicationSubmit(feeStepUserId)");
-    expect(WIZARD).toContain("if (!submitted.ok)");
-    const submitIdx = WIZARD.indexOf("const submitted = await finalizeApplicationSubmit(feeStepUserId)");
-    const markIdx = WIZARD.indexOf(
-      "const marked = markApplicationFeePaidAfterStripe(em, sessionPid, feeStepUserId)",
-      submitIdx,
-    );
-    expect(submitIdx).toBeGreaterThan(-1);
-    expect(markIdx).toBeGreaterThan(submitIdx);
-  });
+  // Stripe-return submission is server-owned. Behavioral coverage now lives in
+  // rental-wizard-public-resume.test.tsx, "Stripe return verification recovery":
+  // failed verification can retry, and paid-but-unpromoted returns preserve the
+  // receipt without submitting the identity-only form restored after Checkout.
 
   it("offers multi-select properties without Select all or Clear", () => {
     expect(SETTINGS).toContain("CheckboxMultiSelect");

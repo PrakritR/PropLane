@@ -31,6 +31,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
     (row as { bookingResidency?: unknown } | null)?.bookingResidency === true,
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
+    syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: ROWS, ok: true }),
   readManagerApplicationRows: () => ROWS,
   deleteManagerApplicationFromServer: () => Promise.resolve({ ok: true }),
   normalizeApplicationAxisId: (id: string) => id,

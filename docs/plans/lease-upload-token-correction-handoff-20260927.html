@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Resident welcome token correction handoff</title>
+<style>body{font:16px system-ui;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.55}code,pre{background:#f3f3f3}pre{padding:16px;white-space:pre-wrap;overflow-wrap:anywhere}h2{margin-top:30px}</style></head>
+<body>
+<h1>Resident welcome token correction handoff</h1>
+<p>Bounded execution of <code>/Users/akhilvemuri/coding/AXIS-2-lease-upload/docs/plans/lease-upload-release-corrections-20260927.html</code>.</p>
+<p>Workspace: <code>/Users/akhilvemuri/coding/AXIS-2-lease-upload</code>. Keeper: <code>agent/lease-upload-polish</code>. Starting and current HEAD: <code>881197c184a7ca8874a5132e028eac4a56deeef7</code>. Existing staged and unstaged changes preserved. No commit, push, server, schema change, or production mutation.</p>
+<h2>Changes</h2>
+<ul>
+<li><code>src/lib/auth/resident-setup-token.ts</code>: a rejected Supabase upsert now returns failure without exposing the raw minted credential. A preferred token already validated against the stored application remains reusable without writing.</li>
+<li><code>src/lib/resident-welcome.server.ts</code>: approval and manager-added resident welcomes return 503 with an empty mailto fallback when setup-token issuance fails. No email, SMS, or inbox invitation is delivered on this path.</li>
+<li><code>tests/unit/resident-welcome-setup-persistence.test.ts</code>: 11 behavioral cases cover rejected persistence, sealed successful persistence, preferred-token reuse, expired-token replacement failure, missing applications, both welcome delivery variants, existing-auth-user application rows, and placeholder-email SMS suppression.</li>
+</ul>
+<h2>Existing-account decision</h2>
+<p>The manager-added existing resident flow describes an existing tenancy, not proof that a login exists. The setup route validates the application token before creating a user or handling an already-registered user. Both welcome variants therefore require a persisted token. Successful token-bearing delivery remains unchanged for applications linked to an existing auth user. No account discovery or alternate sign-in URL was introduced.</p>
+<h2>Validation</h2>
+<p>Node 22.23.0 matches <code>.nvmrc</code> and package engines. Root retains sole ownership of heavy validation.</p>
+<pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/vitest/vitest.mjs run tests/unit/resident-welcome-setup-persistence.test.ts tests/unit/existing-resident-onboarding.server.test.ts tests/unit/booking-resident-invite.test.ts tests/unit/import-ambika-seattle-occupancy.test.ts --maxWorkers=1
+Exit 0: 4 files, 41 tests passed; 3.34 seconds.
+
+PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH node node_modules/eslint/bin/eslint.js src/lib/auth/resident-setup-token.ts src/lib/resident-welcome.server.ts tests/unit/resident-welcome-setup-persistence.test.ts
+Exit 0; no diagnostics.
+
+git diff --check
+Exit 0.</pre>
+<h2>Review and limits</h2>
+<p>Owned diffs inspected. A requested narrow read-only worker could not launch because the team agent slots were full. The parent orchestrator owns the independent review phase. No browser evidence was generated in this bounded server correction. Root owns integrated browser, full unit/lint/build, and graph refresh. This worktree has no <code>.graphify/graph.json</code>. No known unresolved issue in this owned scope.</p>
+<h2>Next-session prompt</h2>
+<p>Inspect the two server-file diffs and new test file against the correction plan, include the new test in integrated validation, refresh the graph once after all edits, and independently review the integrated keeper. Keep one heavy-validation owner and preserve inherited modifications. Release only under the parent task's repository gates and user authorization.</p>
+</body></html>

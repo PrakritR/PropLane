@@ -83,10 +83,13 @@ key id, transport, input, and result; manager approvals retain their existing
 `axis-agent-action` trace. No customer PII or secrets belong in PostHog event
 properties.
 
-Rate limiting is best-effort in-memory: 120 calls/minute per key plus an
-unauthenticated IP limiter. On a multi-instance Vercel deployment that is an
-abuse brake, not a durable global quota. Introduce a durable limiter before
-making a billing or strict-quota promise.
+Deployed rate limiting uses a shared Supabase counter and fails closed when
+unavailable: 120 calls/minute per key plus an unauthenticated IP limiter.
+Local development and tests use an in-memory counter. These limits are an
+abuse brake, not a daily billing quota.
 
 The catalog is deliberate: a newly added tool is not externally available until
-it is assigned to a product area in the capabilities file.
+it is assigned to a product area in the capabilities file. Metered Brave
+property-location research is explicitly excluded from direct MCP and REST
+credentials, including legacy broad keys: those calls have no assistant-turn
+search budget.

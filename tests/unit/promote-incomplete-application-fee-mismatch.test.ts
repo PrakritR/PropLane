@@ -22,6 +22,7 @@ vi.mock("@/lib/auth/guest-application-upsert", () => ({
 }));
 
 vi.mock("@/lib/security/applicant-identity", () => ({
+  openApplicantRow: (row: unknown) => row,
   sealApplicantRow: (row: unknown) => row,
   prepareApplicantIdentityWrite: (row: unknown) => row,
 }));

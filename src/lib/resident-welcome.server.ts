@@ -205,13 +205,20 @@ export async function deliverResidentWelcome(
   // Mint (or refresh) a setup token on the application so the approval email links
   // to a working /auth/resident-setup?token=&axis_id= handoff — the same machinery
   // the guest apply flow uses. Scoped to the sending manager so one manager cannot
-  // rotate another's applicant token. A missing token (application not found under
-  // this manager) falls back to the token-less URL, which the setup page rejects
-  // gracefully with "apply first".
+  // rotate another's applicant token. Delivery requires a persisted token, since
+  // the setup page rejects a token-less URL even for an existing auth account.
   const ensured = await ensureResidentSetupTokenForApplication(db, axisId, {
     managerUserId: actor.userId,
   });
-  const setupToken = ensured.ok ? ensured.token : undefined;
+  if (!ensured.ok) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Could not prepare the resident account setup link. Please try again.",
+      mailtoHref: "",
+    };
+  }
+  const setupToken = ensured.token;
 
   const managerReachability = await resolveManagerReachabilityForResident(db, actor.userId);
 
@@ -374,7 +381,15 @@ export async function deliverExistingResidentWelcome(
   const ensured = await ensureResidentSetupTokenForApplication(db, axisId, {
     managerUserId: actor.userId,
   });
-  const setupToken = ensured.ok ? ensured.token : undefined;
+  if (!ensured.ok) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Could not prepare the resident account setup link. Please try again.",
+      mailtoHref: "",
+    };
+  }
+  const setupToken = ensured.token;
 
   const managerReachability = await resolveManagerReachabilityForResident(db, actor.userId);
 

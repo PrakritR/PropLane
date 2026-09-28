@@ -17,6 +17,7 @@ import {
   resolveResidentMoveInFromApplications,
 } from "@/lib/resident-move-in-resolve";
 import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
+import { applicationPropertyId } from "./property-research-application";
 
 /**
  * Safe projection of the resident's own lease: workflow status + key dates +
@@ -65,15 +66,32 @@ export const getMyApplicationStatusTool = defineTool({
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
-    const rows = await loadResidentEmailRows(ctx, "manager_application_records", (rd) => rd as DemoApplicantRow);
-    const applications = rows.map((r) => ({
-      id: r.id,
+    const rows: { id: string; row_data: DemoApplicantRow; property_id: string | null; assigned_property_id: string | null }[] = [];
+    if (ctx.email?.trim()) {
+      for (let from = 0; ; from += 1000) {
+        let query = ctx.db.from("manager_application_records")
+          .select("id, row_data, property_id, assigned_property_id")
+          .eq("resident_email", ctx.email);
+        if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+        const { data, error } = await query.order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw new Error(error.message);
+        const page = (data ?? []) as typeof rows;
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
+    }
+    const applications = rows.map((record) => {
+      const r = record.row_data;
+      return {
+      id: record.id || r.id,
+      propertyId: applicationPropertyId(record),
       property: r.property || null,
       stage: r.stage || null,
       bucket: r.bucket || null,
       assignedRoom: r.assignedRoomChoice || null,
       signedMonthlyRent: typeof r.signedMonthlyRent === "number" ? r.signedMonthlyRent : null,
-    }));
+      };
+    });
     return { count: applications.length, applications };
   },
 });

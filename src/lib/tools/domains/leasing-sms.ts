@@ -35,6 +35,7 @@ import {
 } from "@/lib/room-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server";
+import { researchPropertyLocation } from "@/lib/property-location-research.server";
 import { exactListingIdentityMatch, normalizeListingIdentity, normalizeListingWords } from "@/lib/listing-identity";
 import { isStandaloneSmsAcknowledgment } from "@/lib/sms/standalone-acknowledgment";
 import { updateAuditResult, writeAuditLog } from "../audit";
@@ -755,6 +756,40 @@ export const getNearbyTransitTool = defineTool({
     if (!rec) return { found: false, error: "listing_not_found" };
     const result = await getNearbyTransit(propertySource(rec) ?? {}, (input.mode ?? "public_transit") as TransitMode);
     return { found: true, ...result };
+  },
+});
+
+export const getPropertyLocationResearchTool = defineTool({
+  name: "research_property_location",
+  description: "Research sourced public facts about schools, parks, groceries, operational transit, or nearby amenities for one resolved live listing. Use schools_dual_language for dual-language or immersion program questions, and transit_stops for mapped stop locations. Results include source links and limitations; they do not establish school eligibility, walk time, rankings, or suitability.",
+  kind: "read",
+  inputSchema: z.object({
+    propertyId: z.string().min(1).describe("Listing / property id returned by list_live_listings."),
+    topic: z.enum(["schools", "schools_dual_language", "parks", "groceries", "transit_service", "transit_stops", "nearby_amenities"]),
+  }).strict(),
+  handler: async (ctx, input) => {
+    const rec = await loadResolvableListing(ctx, input.propertyId);
+    if (!rec) return { found: false, error: "listing_not_found" };
+    const src = propertySource(rec) ?? {};
+    // Only public location fields are allowed across the search boundary. In
+    // particular, never forward listingSubmission, notes, contacts, or row data.
+    const location: Record<string, unknown> = {};
+    for (const key of ["address", "neighborhood", "city", "state", "zip", "mapLat", "mapLng"] as const) {
+      const value = src[key];
+      if ((typeof value === "string" && value.trim()) || (typeof value === "number" && Number.isFinite(value))) {
+        location[key] = value;
+      }
+    }
+    if (!location.address && !location.zip && !location.neighborhood && !location.city) {
+      return { found: true, available: false, reason: "location_unavailable" };
+    }
+    const result = await researchPropertyLocation({
+      scopeKey: `leasing:${rec.id}`,
+      propertyId: rec.id,
+      location,
+      topic: input.topic,
+    });
+    return { ...result, found: true };
   },
 });
 

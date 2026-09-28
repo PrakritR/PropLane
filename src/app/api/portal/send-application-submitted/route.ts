@@ -174,6 +174,8 @@ export async function POST(req: Request) {
       setupToken: token,
       accountReady,
     });
+    const safeMailtoHref = accountReady || reuseToken ? mailtoHref : undefined;
+    const safeSetupHref = includeSetupHandoff && reuseToken ? setupHref : undefined;
 
     const rowData = (match.row_data ?? {}) as {
       application?: { phone?: string; smsConsent?: boolean };
@@ -217,19 +219,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // The setup token is a resident-account claim capability. It normally only
-    // leaves via email. When includeSetupHandoff is true (guest wizard immediately
-    // after submit), the same token is also returned to the client that proved
-    // axisId+email ownership so account creation can continue without waiting
-    // for email. Sandbox skip and unconfigured-email paths include it too.
+    // A setup token is an account-claim capability. The caller may receive it
+    // only by proving it already holds the valid token minted at submit.
     if (shouldSkipOutboundEmail(email)) {
       return NextResponse.json({
         ok: true,
         skipped: true,
         smsSent,
         smsAccepted,
-        mailtoHref,
-        ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
+        ...(safeMailtoHref ? { mailtoHref: safeMailtoHref } : {}),
+        ...(safeSetupHref ? { setupHref: safeSetupHref } : {}),
       });
     }
 
@@ -241,8 +240,8 @@ export async function POST(req: Request) {
           error: "Email delivery is not configured.",
           smsSent,
           smsAccepted,
-          mailtoHref,
-          ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
+          ...(safeMailtoHref ? { mailtoHref: safeMailtoHref } : {}),
+          ...(safeSetupHref ? { setupHref: safeSetupHref } : {}),
         },
         { status: 503 },
       );
@@ -271,7 +270,7 @@ export async function POST(req: Request) {
           error: payload.message ?? res.statusText,
           smsSent,
           smsAccepted,
-          ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
+          ...(safeSetupHref ? { setupHref: safeSetupHref } : {}),
         },
         { status: 502 },
       );
@@ -281,7 +280,7 @@ export async function POST(req: Request) {
       id: payload.id ?? null,
       smsSent,
       smsAccepted,
-      ...(includeSetupHandoff ? { setupHref } : {}),
+      ...(safeSetupHref ? { setupHref: safeSetupHref } : {}),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to send email." }, { status: 500 });

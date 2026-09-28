@@ -10,6 +10,7 @@
  */
 import { Langfuse } from "langfuse";
 import { startObservation } from "@langfuse/tracing";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentObserver, PendingActionProposal, ToolEvidenceEntry } from "@/lib/agent/loop";
 import { estimateCostUsd } from "@/lib/agent/model";
 import type { AgentPromptMeta } from "@/lib/agent/prompt-metadata";
@@ -157,6 +158,62 @@ export type TraceLike = {
   generation(args: Record<string, unknown>): void | { end(): unknown };
   span(args: Record<string, unknown>): void | { end(): unknown };
 };
+
+type PropertyResearchTrace = {
+  trace: TraceLike;
+  actorMetadata: Record<string, unknown>;
+};
+const propertyResearchTraceContext = new AsyncLocalStorage<PropertyResearchTrace>();
+
+/** Keep nested property research generations on the active agent-turn trace. */
+export function withPropertyResearchTraceContext<T>(
+  trace: TraceLike,
+  actor: TraceActor,
+  run: () => Promise<T>,
+): Promise<T> {
+  return propertyResearchTraceContext.run({ trace, actorMetadata: actor.metadata ?? {} }, run);
+}
+
+/** Record Brave retrieval as a span; parent model generations own token usage. */
+export function recordPropertyResearchGeneration(args: {
+  topic: string;
+  propertyId: string;
+  outcome: "verified" | "unverified" | "unavailable";
+  latencyMs: number;
+  attempt?: boolean;
+  billingOutcome?: "confirmed_estimate" | "unknown" | "no_attempt";
+  estimatedCostUsd?: number | null;
+}): void {
+  const context = propertyResearchTraceContext.getStore();
+  if (!context) return;
+  safe(() => {
+    endObservation(context.trace.span({
+      name: "property-location-research",
+      input: { topic: args.topic, propertyId: args.propertyId },
+      output: { outcome: args.outcome },
+      metadata: {
+        ...context.actorMetadata,
+        provider: "brave_llm_context",
+        latencyMs: args.latencyMs,
+        outcome: args.outcome,
+        attempt: args.attempt ?? false,
+        billingOutcome: args.billingOutcome ?? "no_attempt",
+        ...(args.estimatedCostUsd != null ? { estimatedCostUsd: args.estimatedCostUsd } : {}),
+      },
+    }));
+  });
+}
+
+export function recordPropertyResearchDisposition(args: { topic: string; propertyId: string; status: "cache_hit" | "coalesced" | "budget_blocked" }): void {
+  const context = propertyResearchTraceContext.getStore();
+  if (!context) return;
+  safe(() => endObservation(context.trace.span({
+    name: "property-location-research",
+    input: { topic: args.topic, propertyId: args.propertyId },
+    output: { status: args.status },
+    metadata: { ...context.actorMetadata, provider: "brave_llm_context", status: args.status, attempt: false, incrementalEstimatedCostUsd: 0 },
+  })));
+}
 
 /** Successful tool output captured for the grounding judge observation. */
 export type ToolEvidence = {
@@ -572,7 +629,9 @@ export async function traceAgentTurn<T extends TracedResult>(
   const built = trace ? buildTraceObserver(trace, actor, opts?.promptMeta) : undefined;
 
   try {
-    const result = await run(built?.observer);
+    const result = await (trace
+      ? withPropertyResearchTraceContext(trace, actor, () => run(built?.observer))
+      : run());
     try {
       // Per-call generations and per-tool spans are recorded live via the
       // observer; here we only stamp the turn-level summary for quick scanning.

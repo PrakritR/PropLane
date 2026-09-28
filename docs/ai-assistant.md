@@ -301,7 +301,8 @@ the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` 
 `create_work_order` W, `assign_vendor` W, `offer_to_vendors` W,
 `schedule_vendor_visit` W, `accept_bid` W, `complete_work_order` W,
 `approve_and_pay_work_order` W destructive, `send_work_order_reminder` W),
-properties (`list_properties` R, `get_property_details` R, `create_property` W,
+properties (`list_properties` R, `get_property_details` R,
+`get_property_location_research` R, `create_property` W,
 `update_property` W, `get_property_links` R, `share_property_link` W,
 `listing_syndication_status` R — see
 [`docs/agents/listing-syndication.md`](agents/listing-syndication.md)), residents (`list_residents` R,
@@ -331,7 +332,7 @@ rating; see [`docs/agents/inspections.md`](agents/inspections.md)).
 ### Resident (`src/lib/tools/resident-index.ts`)
 
 Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
-`get_my_application_status`, `list_my_service_requests`,
+`get_my_application_status`, `research_my_property_location`, `list_my_service_requests`,
 `list_my_work_orders`, `get_move_in_info`, `list_my_inbox_threads`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
 `list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
