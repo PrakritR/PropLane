@@ -62,6 +62,9 @@ export async function POST(req: Request) {
       html,
       inferredKind: parsed.inferredKind,
       sectionCount: parsed.sections.length,
+      // F016: additive — the same sections the parser already computed, so
+      // the client can stage-then-diff instead of only knowing a count.
+      sections: parsed.sections,
       sourceSha256,
       sourceIssues,
       coverage,

@@ -5,6 +5,14 @@ export type ParseLeasePdfResult = {
   html: string;
   inferredKind: PropertyLeaseTemplateKind;
   sectionCount: number;
+  /**
+   * F016: the same sections the count above is derived from, `{title, body}`
+   * per section — additive, so every existing caller that only reads
+   * `sectionCount`/`html` is unaffected. Lets the import-staging diff compare
+   * a freshly parsed import against the template's current content
+   * section-by-section instead of only knowing a count.
+   */
+  sections: Array<{ title: string; body: string }>;
   sourceSha256: string;
   sourceIssues: Array<{ pageNumber: number | null; code: string; message: string }>;
   coverage: { extractedCharacters: number; representedCharacters: number; complete: boolean };

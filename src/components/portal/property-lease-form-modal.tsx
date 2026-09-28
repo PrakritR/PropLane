@@ -35,6 +35,7 @@ import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   createPropertyLeaseTemplate,
   normalizeLeaseTemplateKind,
+  templateAppearsToBeExecutedLease,
   updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
   type PropertyLeaseTemplateKind,
@@ -49,6 +50,8 @@ import {
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf, type ParseLeasePdfResult } from "@/lib/lease-template-parse.client";
 import { summarizeImportIssues } from "@/lib/pdf-import/import-issue-summary";
+import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
+import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-sections";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
@@ -157,6 +160,21 @@ export function PropertyLeaseFormModal({
     [importSource],
   );
   const [importReviewError, setImportReviewError] = useState<string | null>(null);
+  // F016: a freshly parsed lease upload, held here until the manager
+  // explicitly applies it. Nothing above (`draft.leaseTemplateDocUrl`,
+  // `htmlOverride`, `importSource`) changes until then, so picking a new file
+  // while editing an already-saved lease never silently overwrites it.
+  const [pendingLeaseImport, setPendingLeaseImport] = useState<{
+    docUrl: string;
+    fileName: string;
+    html: string;
+    sections: Array<{ title: string; body: string }>;
+    inferredKind: PropertyLeaseTemplateKind;
+    sourceSha256: string;
+    sourceIssues: Array<{ pageNumber: number | null; code: string; message: string }>;
+    coverage: { extractedCharacters: number; representedCharacters: number; complete: boolean };
+  } | null>(null);
+  const [pendingLeaseImportCompareOpen, setPendingLeaseImportCompareOpen] = useState(false);
   const [mobileTemplateTab, setMobileTemplateTab] = useState<"original" | "converted">("converted");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -257,6 +275,8 @@ export function PropertyLeaseFormModal({
       setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
       setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
       setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
+      setPendingLeaseImport(null);
+      setPendingLeaseImportCompareOpen(false);
       return;
     }
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
@@ -269,6 +289,8 @@ export function PropertyLeaseFormModal({
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
     setLinkedGuarantorTemplateId(null);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
   }, [open, mode, template]);
 
   useEffect(() => {
@@ -287,6 +309,8 @@ export function PropertyLeaseFormModal({
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
     const applied = applyPropertyLeaseDocumentMode(next);
     setDocumentMode(next);
     setKind(applied.kind);
@@ -295,35 +319,51 @@ export function PropertyLeaseFormModal({
 
   const leaseTemplateError = error && documentMode === "upload" ? error : null;
 
+  // F016: parses the uploaded PDF and STAGES the result — `draft`,
+  // `htmlOverride`, and `importSource` are untouched until
+  // `applyPendingLeaseImport` runs. Picking a new file while editing an
+  // ALREADY-SAVED lease must never silently replace what is on screen.
   const onPickLeaseTemplateDoc = (file: File | null) => {
+    if (templateAppearsToBeExecutedLease(template)) {
+      setError("This lease has already been signed and cannot be edited here.");
+      return;
+    }
     readLeaseTemplateFile(
       file,
       (dataUrl, fileName) => {
         setError(null);
-        setHtmlOverride("");
-        setImportSource(null);
-        setImportSourceReviewed(false);
-        setTranscribedUnreadableSourcePages(false);
-        setImportReviewError(null);
-        setDraft((d) => ({ ...d, leaseTemplateDocUrl: dataUrl, leaseTemplateDocName: fileName }));
         if (dataUrl.startsWith("data:")) {
+          // Demo mode has no server session to parse against — nothing was
+          // parsed, so there is nothing to stage; this upload becomes the
+          // document (and is parsed) only after save, same as before.
+          setHtmlOverride("");
+          setImportSource(null);
+          setImportSourceReviewed(false);
+          setTranscribedUnreadableSourcePages(false);
+          setImportReviewError(null);
+          setPendingLeaseImport(null);
+          setPendingLeaseImportCompareOpen(false);
+          setDraft((d) => ({ ...d, leaseTemplateDocUrl: dataUrl, leaseTemplateDocName: fileName }));
           showToast("Lease uploaded. Parsing runs after save in demo mode.");
           return;
         }
+        setPendingLeaseImport(null);
+        setPendingLeaseImportCompareOpen(false);
         setParsingLease(true);
         track("lease_import_started", { import_kind: "property_template" });
         void parseUploadedLeasePdf({ url: dataUrl, fileName, kind })
           .then((result) => {
-            setImportSource({ sourceSha256: result.sourceSha256, sourceIssues: result.sourceIssues, coverage: result.coverage });
-            if (!result.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(result.html);
-            if (mode === "add") {
-              setKind(result.inferredKind);
-            }
-            showToast(
-              result.sourceIssues.length
-                ? "Lease read. Check it against the original PDF before saving."
-                : `Lease parsed into PropLane format (${result.sectionCount} section${result.sectionCount === 1 ? "" : "s"}).`,
-            );
+            setPendingLeaseImport({
+              docUrl: dataUrl,
+              fileName,
+              html: result.html,
+              sections: result.sections,
+              inferredKind: result.inferredKind,
+              sourceSha256: result.sourceSha256,
+              sourceIssues: result.sourceIssues,
+              coverage: result.coverage,
+            });
+            showToast(`Found ${result.sections.length} section${result.sections.length === 1 ? "" : "s"}. Review before applying.`);
           })
           .catch((err) => {
             track("lease_import_failed", { import_kind: "property_template", reason_code: "parse_failed" });
@@ -336,6 +376,54 @@ export function PropertyLeaseFormModal({
       setTemplateUploading,
     );
   };
+
+  // F016: writes a staged import into the lease being edited — the same
+  // state the parse success handler used to set immediately. This is the
+  // ONLY place that happens; picking a file never does it on its own.
+  const applyPendingLeaseImport = () => {
+    if (!pendingLeaseImport) return;
+    if (templateAppearsToBeExecutedLease(template)) {
+      setError("This lease has already been signed and cannot be edited here.");
+      setPendingLeaseImport(null);
+      setPendingLeaseImportCompareOpen(false);
+      return;
+    }
+    const p = pendingLeaseImport;
+    setError(null);
+    setImportSource({ sourceSha256: p.sourceSha256, sourceIssues: p.sourceIssues, coverage: p.coverage });
+    setImportSourceReviewed(false);
+    setTranscribedUnreadableSourcePages(false);
+    setImportReviewError(null);
+    setDraft((d) => ({ ...d, leaseTemplateDocUrl: p.docUrl, leaseTemplateDocName: p.fileName }));
+    if (!p.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(p.html);
+    else setHtmlOverride("");
+    if (mode === "add") setKind(p.inferredKind);
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
+    showToast(
+      p.sourceIssues.length
+        ? "Applied. Check it against the original PDF before saving."
+        : `Applied ${p.sections.length} section${p.sections.length === 1 ? "" : "s"}.`,
+    );
+  };
+
+  // F016: drops the staged import. The lease is left exactly as it was —
+  // nothing that `applyPendingLeaseImport` would have written is touched.
+  const discardPendingLeaseImport = () => {
+    setPendingLeaseImport(null);
+    setPendingLeaseImportCompareOpen(false);
+  };
+
+  // F016: the staged import's sections, diffed against the CURRENT document
+  // (best-effort recovered from its rendered HTML — see
+  // `extractLeaseSectionsFromHtml`'s own doc comment).
+  const pendingLeaseImportDiff = useMemo(
+    () =>
+      pendingLeaseImport
+        ? diffImportSections(extractLeaseSectionsFromHtml(editorHtml), pendingLeaseImport.sections)
+        : null,
+    [pendingLeaseImport, editorHtml],
+  );
 
   /** Why the converted document can't be saved yet, or null. */
   const importReviewBlocker = (resolvedHtml: string | null | undefined): string | null => {
@@ -562,6 +650,60 @@ export function PropertyLeaseFormModal({
     </div>
   );
 
+  // F016: a freshly parsed lease upload waits here — nothing above or below
+  // has changed yet. "Apply changes from the file" is the only thing that
+  // writes it in; "Discard" drops it and leaves the lease exactly as it was.
+  const pendingLeaseImportCard = pendingLeaseImport && pendingLeaseImportDiff ? (
+    <div className="mb-4 rounded-2xl border border-primary/40 bg-primary/[0.04] p-3.5" data-attr="property-lease-pending-import">
+      <p className="text-[13.5px] font-bold text-foreground" data-attr="property-lease-pending-import-summary">
+        {pendingLeaseImportDiff.totalIncoming} section{pendingLeaseImportDiff.totalIncoming === 1 ? "" : "s"} found ·{" "}
+        {pendingLeaseImportDiff.changedCount === 0 ? "up to date" : `${pendingLeaseImportDiff.changedCount} changed`}
+      </p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-full"
+          onClick={() => setPendingLeaseImportCompareOpen((v) => !v)}
+          data-attr="property-lease-pending-import-compare"
+        >
+          {pendingLeaseImportCompareOpen ? "Hide compare" : "Compare"}
+        </Button>
+        <Button type="button" variant="primary" className="rounded-full" onClick={applyPendingLeaseImport} data-attr="property-lease-pending-import-apply">
+          Apply changes from the file
+        </Button>
+        <Button type="button" variant="outline" className="rounded-full" onClick={discardPendingLeaseImport} data-attr="property-lease-pending-import-discard">
+          Discard
+        </Button>
+      </div>
+      {pendingLeaseImportCompareOpen ? (
+        <ul className="mt-3 space-y-2" data-attr="property-lease-pending-import-changed-sections">
+          {changedSectionEntries(pendingLeaseImportDiff).length === 0 ? (
+            <li className="text-[13px] text-muted">No sections changed.</li>
+          ) : (
+            changedSectionEntries(pendingLeaseImportDiff).map((entry) => (
+              <li key={entry.key} className="rounded-xl border border-border bg-card p-2.5 text-[13px]" data-attr="property-lease-pending-import-changed-section">
+                <p className="font-semibold text-foreground">
+                  {entry.title} <span className="font-normal text-muted">({entry.status})</span>
+                </p>
+                <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Current</p>
+                    <p className="whitespace-pre-line text-foreground/80">{entry.currentBody || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">From the file</p>
+                    <p className="whitespace-pre-line text-foreground/80">{entry.incomingBody || "—"}</p>
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
+  ) : null;
+
   if (!open) return null;
 
   return (
@@ -577,7 +719,7 @@ export function PropertyLeaseFormModal({
       assistantScopeKey="Lease modal"
       sidePanel={htmlPreview}
       lastLabel={mode === "add" ? "Add lease" : "Save"}
-      lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError)}
+      lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
           setError("Enter a name for this lease.");
@@ -654,6 +796,7 @@ export function PropertyLeaseFormModal({
               Using {draft.leaseTemplateDocName || "your uploaded lease"}.
             </p>
           )}
+          {pendingLeaseImportCard}
           <FloatingLabelField
             id="property-lease-name"
             label="Lease document name"
@@ -727,6 +870,7 @@ export function PropertyLeaseFormModal({
               />
             </div>
           ) : null}
+          {documentMode === "upload" ? <div className="mt-4">{pendingLeaseImportCard}</div> : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
               {importSource ? (
