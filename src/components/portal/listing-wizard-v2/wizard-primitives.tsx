@@ -20,6 +20,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -908,6 +909,78 @@ export function CheckboxOption({
       />
       <span className="min-w-0 text-[13px] font-semibold text-foreground">{label}</span>
     </label>
+  );
+}
+
+/**
+ * F-editor c: a settings-style on/off row for a Setup step — label plus the
+ * sliding `PortalSettingsToggle` switch, and NOTHING else. No checkbox input,
+ * no explanatory sentence beneath it (AGENTS.md § "Never generate subtext") —
+ * if the choice needs explaining, the label should say it.
+ */
+export function ToggleRow({
+  label,
+  checked,
+  onChange,
+  dataAttr,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0 text-[13px] font-semibold text-foreground">{label}</span>
+      <PortalSettingsToggle checked={checked} onChange={onChange} label={label} dataAttr={dataAttr} disabled={disabled} />
+    </div>
+  );
+}
+
+/**
+ * F-editor c/g: a pill-shaped segmented control for a small, fixed set of
+ * mutually exclusive choices — the same visual pattern the application-form
+ * variant tabs already use. Replaces a dropdown for a genuinely binary/ternary
+ * pick (AGENTS.md "counts are steppers, picks are dropdowns" is about longer
+ * lists; a 2-3 way pick reads better side by side).
+ */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  dataAttrPrefix,
+  ariaLabel,
+}: {
+  value: T;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  onChange: (next: T) => void;
+  dataAttrPrefix?: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label={ariaLabel}>
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-attr={dataAttrPrefix ? `${dataAttrPrefix}-${option.value}` : undefined}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+              active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

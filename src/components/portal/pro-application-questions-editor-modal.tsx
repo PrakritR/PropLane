@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { MoneyInput, SegmentedControl, StepColumn, StepHeading, ToggleRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
@@ -702,27 +702,38 @@ export function ManagerApplicationQuestionsEditorModal({
       }
       // Template edits must not mutate the listing-wide legacy triplet. That
       // triplet remains the fallback for templates created before versioning.
+      // F-editor c: the footer Save/Add button is the ONLY commit action now
+      // (the in-body "Publish application" button is gone) — it tries to
+      // publish, but a failed gate falls back to an ordinary draft save
+      // rather than discarding the manager's edits. Losing unsaved work to a
+      // publish-readiness check would be worse than landing on Setup with a
+      // draft that is not live yet.
       let publishTarget: PropertyApplicationTemplate | null = null;
+      let publishBlockedReason: string | null = null;
       if (publish) {
         const target = nextTemplates.find((template) =>
           template.id === applicationTemplate?.id || (templateEditorMode === "add" && template.label === trimmed),
         );
         if (!target) {
-          setSaving(false);
-          setSaveError("Could not prepare this application for publishing.");
-          return;
+          publishBlockedReason = "Could not prepare this application for publishing.";
+        } else {
+          const gate = applicationTemplateQuestionPublishGate(target);
+          if (gate.ok) {
+            publishTarget = target;
+          } else {
+            publishBlockedReason = gate.reason;
+          }
         }
-        const gate = applicationTemplateQuestionPublishGate(target);
-        if (!gate.ok) {
-          setSaving(false);
-          setSaveError(gate.reason);
-          return;
-        }
-        publishTarget = target;
       }
       const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
       const okSaved = await onPersistSubmission(merged, {
-        message: publish ? "Application draft saved." : templateEditorMode === "add" ? "Application added." : "Application saved.",
+        message: publishTarget
+          ? "Application published."
+          : publishBlockedReason
+            ? `Saved as a draft — ${publishBlockedReason}`
+            : templateEditorMode === "add"
+              ? "Application added."
+              : "Application saved.",
       });
       if (!okSaved) {
         setSaving(false);
@@ -1350,7 +1361,12 @@ export function ManagerApplicationQuestionsEditorModal({
           return true;
         }}
         busy={saving || uploadingPdf}
-        onFinish={() => void commitSave()}
+        // F-editor c: footer-only commit. The old separate "Publish
+        // application" button is gone — the same footer Save/Add action
+        // now tries to publish for a single-property template editor, and
+        // falls back to an ordinary draft save (see commitSave) when the
+        // publish gate is not satisfied yet.
+        onFinish={() => void commitSave({ publish: isTemplateEditor && !isBulkTemplateEditor })}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"
         finishDataAttr="application-questions-save"
@@ -1550,12 +1566,16 @@ export function ManagerApplicationQuestionsEditorModal({
               <p className="text-sm text-muted">Loading…</p>
             ) : (
               <div className="space-y-5">
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">This application&apos;s fee</p>
-                  <CheckboxOption
-                    label="Override the account's application fee for this application"
+                {/* F-editor c: ONE application fee — this property's own,
+                    toggle + amount. No separate account-default block (that
+                    lives in Settings → Forms); an application that never sets
+                    its own fee simply keeps using whatever the account
+                    charges by default. */}
+                <div className="space-y-2">
+                  <ToggleRow
+                    label="Charge an application fee"
                     checked={feeOverrideEnabled}
-                    dataAttr="application-setup-fee-override-toggle"
+                    dataAttr="application-setup-fee-toggle"
                     onChange={(next) => {
                       setFeeOverrideEnabled(next);
                       if (next && feeOverrideCents === 0) {
@@ -1565,11 +1585,11 @@ export function ManagerApplicationQuestionsEditorModal({
                     }}
                   />
                   {feeOverrideEnabled ? (
-                    <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <span className={WIZARD_LABEL_CLASS}>Application cost</span>
                       <MoneyInput
                         label="Application cost"
-                        dataAttr="application-setup-fee-override-amount"
+                        dataAttr="application-setup-fee-amount"
                         value={String(feeOverrideCents / 100)}
                         placeholder="50"
                         onChange={(raw) => {
@@ -1579,153 +1599,60 @@ export function ManagerApplicationQuestionsEditorModal({
                       />
                     </div>
                   ) : null}
-                  {feeOverrideEnabled ? (
-                    <div className="mt-2">
-                      <CheckboxOption
-                        label="This application's own promo code that waives its fee"
-                        checked={waiverOverrideEnabled}
-                        dataAttr="application-setup-waiver-override-toggle"
-                        onChange={(next) => {
-                          setWaiverOverrideEnabled(next);
-                          setDirty(true);
-                        }}
-                      />
-                      {waiverOverrideEnabled ? (
-                        <div className="mt-2">
-                          <Input
-                            aria-label="This application's promo code"
-                            placeholder="SUMMER26"
-                            value={waiverOverrideCode}
-                            data-attr="application-setup-waiver-override-code"
-                            onChange={(e) => {
-                              setWaiverOverrideCode(e.target.value);
-                              setDirty(true);
-                            }}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <p className="mt-1.5 text-xs text-muted">
-                    {feeOverrideEnabled
-                      ? "Applies to applicants who apply with this application only."
-                      : `Falls back to the account's application fee (${
-                          (formSetup.applicationSettings.applicationFeeCents ?? 0) > 0
-                            ? `$${((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100).toFixed(0)}`
-                            : "no fee"
-                        }) until you override it here.`}
-                  </p>
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Account default</p>
-                  <CheckboxOption
-                    label="Charge an application fee"
-                    checked={(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0}
-                    dataAttr="application-setup-fee-toggle"
+                  <ToggleRow
+                    label="Promo code that waives the fee"
+                    checked={waiverOverrideEnabled}
+                    disabled={!feeOverrideEnabled}
+                    dataAttr="application-setup-waiver-toggle"
                     onChange={(next) => {
-                      const cents = next ? formSetup.applicationSettings.applicationFeeCents || 5000 : 0;
-                      void formSetup.patch({ applicationFeeCents: cents });
+                      setWaiverOverrideEnabled(next);
+                      setDirty(true);
                     }}
                   />
-                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <span className={WIZARD_LABEL_CLASS}>Application cost</span>
-                      <MoneyInput
-                        label="Application cost"
-                        dataAttr="application-setup-fee-amount"
-                        value={String((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100)}
-                        placeholder="50"
-                        onChange={(raw) => {
-                          const cents = Math.round((parseFloat(raw) || 0) * 100);
-                          void formSetup.patch({ applicationFeeCents: cents });
-                        }}
-                      />
-                    </div>
+                  {feeOverrideEnabled && waiverOverrideEnabled ? (
+                    <Input
+                      aria-label="Promo code that waives the fee"
+                      placeholder="SUMMER26"
+                      value={waiverOverrideCode}
+                      data-attr="application-setup-waiver-code"
+                      onChange={(e) => {
+                        setWaiverOverrideCode(e.target.value);
+                        setDirty(true);
+                      }}
+                    />
                   ) : null}
-                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
-                    <div className="mt-2">
-                      <CheckboxOption
-                        label="Promo code that waives the fee"
-                        checked={Boolean(formSetup.waiverCode)}
-                        dataAttr="application-setup-waiver-toggle"
-                        onChange={(next) => void formSetup.patch({ waiverCode: next ? formSetup.waiverCode || "" : "" })}
-                      />
-                      {formSetup.waiverCode !== null ? (
-                        <div className="mt-2">
-                          <Input
-                            aria-label="Promo code that waives the fee"
-                            placeholder="SUMMER26"
-                            defaultValue={formSetup.waiverCode ?? ""}
-                            data-attr="application-setup-waiver-code"
-                            onBlur={(e) => void formSetup.patch({ waiverCode: e.target.value.trim().toUpperCase() })}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <p className="mt-1.5 text-xs text-muted">
-                    This is the account&apos;s application fee — it applies to every application on this account, not just this
-                    one.
-                  </p>
                 </div>
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
-                  <FieldSingleSelect
-                    label="Pipeline order"
-                    labelClassName={WIZARD_LABEL_CLASS}
-                    value={formSetup.leasingPipeline.pipelineOrder}
-                    dataAttr="application-setup-pipeline-order"
-                    options={[
-                      { value: "application_then_lease", label: "Application first → then lease" },
-                      { value: "lease_then_application", label: "Lease first → then application" },
-                    ]}
+                <SegmentedControl
+                  ariaLabel="Pipeline order"
+                  value={formSetup.leasingPipeline.pipelineOrder}
+                  dataAttrPrefix="application-setup-pipeline-order"
+                  options={[
+                    { value: "application_then_lease", label: "Application first" },
+                    { value: "lease_then_application", label: "Lease first" },
+                  ]}
+                  onChange={(next) =>
+                    void formSetup.patch({
+                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
+                    })
+                  }
+                />
+                {applicationTemplate ? (
+                  <ToggleRow
+                    label="Default application for this property"
+                    checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
+                    dataAttr="application-setup-default-toggle"
                     onChange={(next) =>
                       void formSetup.patch({
                         leasingPipeline: {
                           ...formSetup.leasingPipeline,
-                          pipelineOrder: next as "application_then_lease" | "lease_then_application",
+                          defaultApplicationTemplateId: next ? applicationTemplate.id : null,
                         },
                       })
                     }
                   />
-                </div>
-                {applicationTemplate ? (
-                  <div>
-                    <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
-                    <CheckboxOption
-                      label={`Default application for this property`}
-                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
-                      dataAttr="application-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
-                          },
-                        })
-                      }
-                    />
-                  </div>
                 ) : null}
               </div>
             )}
-            {/* P002: Setup is now the final step for the template editor, so
-                Publish (a distinct action from the generic Save/Add button
-                below — it advances the published question-config version,
-                see `commitSave({ publish: true })`) moved here from the
-                retired dedicated Preview step. */}
-            {isTemplateEditor && !isBulkSave ? (
-              <Button
-                type="button"
-                variant="primary"
-                className="mt-2 rounded-full"
-                disabled={saving || hasFieldErrors || !templateLabel.trim()}
-                data-attr="application-questions-publish"
-                onClick={() => void commitSave({ publish: true })}
-              >
-                Publish application
-              </Button>
-            ) : null}
           </StepColumn>
         ) : null}
         {stepId === "sections" ? (
