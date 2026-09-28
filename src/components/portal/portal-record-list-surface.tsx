@@ -106,6 +106,19 @@ export function PortalRecordListSurface({
   onRetry?: () => void;
 }) {
   const [scopeRevision, setScopeRevision] = useState(0);
+  // M004 — skeleton -> content crossfade. `ui.listSurface`'s loading skeleton
+  // (just tuned in b13) is a binary swap; this borrows the CROSSFADE opacity
+  // handoff so the resolved content fades/rises in for ONE cycle right after
+  // `loading` clears, rather than popping in — same zero-layout-shift
+  // principle b13 already cares about (the swap itself is still instant; only
+  // the newly-resolved content's own entrance is animated). Every list page
+  // built on this shared surface gets it for free.
+  const wasLoadingRef = useRef(loading);
+  const [justLoaded, setJustLoaded] = useState(false);
+  useEffect(() => {
+    if (wasLoadingRef.current && !loading && !loadError) setJustLoaded(true);
+    wasLoadingRef.current = loading;
+  }, [loading, loadError]);
   const clearRef = useRef(onBulkClear);
   useEffect(() => { clearRef.current = onBulkClear; }, [onBulkClear]);
   const pathname = usePathname();
@@ -160,7 +173,10 @@ export function PortalRecordListSurface({
           {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />)}
         </div> : loadError ? <div role="alert" className="rounded-2xl border border-border bg-card p-6 text-center">
           <p className="mb-3 text-sm">{loadError}</p><Button variant="outline" onClick={onRetry}>Try again</Button>
-        </div> : <div>{isEmpty ? emptyBody : children}</div>}
+        </div> : <div
+          className={cn(justLoaded && "motion-just-loaded")}
+          onAnimationEnd={justLoaded ? () => setJustLoaded(false) : undefined}
+        >{isEmpty ? emptyBody : children}</div>}
         {/* The dashed row survives only for a call site with an explicit `inline` — a
             ledger embedded in a resident record, which has no page head to add from. */}
         {add && add.inline != null && !isEmpty && !loading && !loadError ? (
