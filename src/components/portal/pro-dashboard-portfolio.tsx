@@ -181,6 +181,7 @@ export function PortfolioPropertiesSection({
   basePath,
   occupiedByProperty,
   addPropertyAction,
+  loading = false,
 }: {
   cards: PortfolioPropertyCardData[];
   basePath: string;
@@ -188,6 +189,12 @@ export function PortfolioPropertiesSection({
   occupiedByProperty?: ReadonlyMap<string, number>;
   /** Primary add-home control (dashboard moved it off the page hero). */
   addPropertyAction?: ReactNode;
+  /**
+   * The first portfolio sync is still in flight and nothing is cached yet —
+   * show the same loading treatment `PortalRecordListSurface` uses on the
+   * list pages instead of the confident "No properties yet" empty state.
+   */
+  loading?: boolean;
 }) {
   const shown = cards.slice(0, 3);
   return (
@@ -205,7 +212,21 @@ export function PortfolioPropertiesSection({
           </Link>
         </div>
       </div>
-      {shown.length === 0 ? (
+      {loading ? (
+        <div
+          role="status"
+          aria-label="Loading properties"
+          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <span className="sr-only">Loading properties…</span>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-[178px] animate-pulse rounded-2xl border border-border bg-accent/50 motion-reduce:animate-none"
+            />
+          ))}
+        </div>
+      ) : shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted">
           No properties yet. Add your first home to start leasing.
         </p>
