@@ -13,6 +13,27 @@ type RecordConfig = {
   table: string;
   select?: string;
   orderColumn?: string;
+  /**
+   * Columns selected when checking whether an upsert target row already
+   * exists, before deciding insert vs update. Every table has `id` and
+   * `row_data`; add only additional columns THIS table's schema actually
+   * has, that a hook below (`reconcileExisting` / `atomicWrite` /
+   * `afterWrite`) reads off the `existing` row it receives. Defaults to
+   * "id, row_data" — never add `manager_user_id` or any other ownership
+   * column here unless the table's own migration actually created it; an
+   * unconditional column that doesn't exist 500s the write for every
+   * caller (how `portal_bug_feedback_records` broke: commit aee8c7a15a
+   * added an unconditional `manager_user_id` here for every table, but
+   * that table has only `reporter_user_id`).
+   */
+  existingRowSelect?: string;
+  /**
+   * Columns selected for each delete/deleteIds target before
+   * `authorizeDelete` runs. Every table has `id` and `row_data`; add only
+   * additional columns this table's schema actually has that
+   * `authorizeDelete` reads. Defaults to "id, row_data".
+   */
+  deleteRowSelect?: string;
   normalize?: (row: Record<string, unknown>) => Record<string, unknown>;
   scope?: (query: unknown, user: RecordUser) => unknown;
   /** Optional server-side reader for tables with item-level authorization inside JSON containers. */
@@ -171,11 +192,15 @@ export function createJsonRecordRoute(config: RecordConfig) {
           for (const id of ids) {
             const { data, error } = await ctx.db
               .from(config.table)
-              .select("id, manager_user_id, property_id, record_type, row_data")
+              .select(config.deleteRowSelect ?? "id, row_data")
               .eq("id", id)
               .limit(1);
             if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-            const target = Array.isArray(data) ? data[0] as Record<string, unknown> | undefined : undefined;
+            // A per-table, non-literal select string defeats supabase-js's
+            // literal-select type inference, so this cast goes through
+            // `unknown` first rather than directly to `Record<string, unknown>`.
+            const deleteTargetRows = data as unknown as Record<string, unknown>[] | null;
+            const target = Array.isArray(deleteTargetRows) ? deleteTargetRows[0] : undefined;
             if (!target) return NextResponse.json({ error: "Record not found." }, { status: 404 });
             targets.push(target);
           }
@@ -226,12 +251,15 @@ export function createJsonRecordRoute(config: RecordConfig) {
         for (const record of records) {
           if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
           const id = String(record.id);
-          const { data: existing, error: existingError } = await ctx.db
+          const { data: existingData, error: existingError } = await ctx.db
             .from(config.table)
-            .select("id, manager_user_id, row_data")
+            .select(config.existingRowSelect ?? "id, row_data")
             .eq("id", id)
             .limit(1);
           if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+          // Same non-literal-select type-inference workaround as the delete
+          // path above.
+          const existing = existingData as unknown as Record<string, unknown>[] | null;
           const recordExists = Array.isArray(existing) && existing.length > 0;
           if (recordExists && config.scope) {
             let visibleQuery = ctx.db.from(config.table).select("id").eq("id", id).limit(1);

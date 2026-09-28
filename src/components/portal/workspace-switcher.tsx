@@ -159,7 +159,15 @@ export function WorkspaceSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-[240px]">
+      {/*
+       * N086 (captain 2026-09-27): "reduce size of workspace just cut out the
+       * extra text" — a row is the name and, on the active one, the check;
+       * the "Owner · N houses" standing line that stretched this to ~770px
+       * moved out. The menu now sizes to its content instead of the trigger's
+       * min width, capped so a long list of short names still reads as one
+       * compact card.
+       */}
+      <DropdownMenuContent align="start" className="w-max min-w-[220px] max-w-[320px]">
         {ctx.workspaces.length === 0 && !ctx.loading ? (
           // A brand-new account has no persisted workspace yet; the menu still
           // names the one it is standing in rather than opening on a separator.
@@ -167,7 +175,9 @@ export function WorkspaceSwitcher({
             <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10" aria-hidden>
               <AxisLogoGlyph size="micro" />
             </span>
-            <span className="min-w-0 flex-1 truncate">{name}</span>
+            <span className="min-w-0 flex-1 truncate" title={name}>
+              {name}
+            </span>
             <Check className="size-4" aria-hidden />
           </DropdownMenuItem>
         ) : null}
@@ -185,14 +195,10 @@ export function WorkspaceSwitcher({
             >
               <AxisLogoGlyph size="micro" />
             </span>
-            <span className="min-w-0 flex-1 truncate">
+            <span className="min-w-0 flex-1 truncate" title={switcherDisplayName(workspace)}>
               {switcherDisplayName(workspace)}
-              {/* The home count is what tells a manager WHERE their portfolio
-                  is: a workspace showing nothing is answered by the row that
-                  holds the homes, without opening settings first. */}
-              <span className="ml-2 text-xs text-muted">{standingLabel(workspace)}</span>
             </span>
-            {workspace.id === ctx.active?.id && <Check className="size-4" aria-hidden />}
+            {workspace.id === ctx.active?.id && <Check className="size-4 shrink-0" aria-hidden />}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />

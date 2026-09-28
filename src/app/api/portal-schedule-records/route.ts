@@ -163,6 +163,12 @@ function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: str
 
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
+  // portal_schedule_records actually has these columns (see
+  // 20260428201000_portal_backend_records.sql) — keep selecting them for
+  // the existing-row check and delete targets, matching what this table's
+  // schema supports (unlike portal_bug_feedback_records, which does not).
+  existingRowSelect: "id, manager_user_id, property_id, record_type, row_data",
+  deleteRowSelect: "id, manager_user_id, property_id, record_type, row_data",
   readRecords: async ({ db, user }) => {
     const select = "id, manager_user_id, property_id, record_type, row_data, updated_at";
     // Shared JSON containers are fetched by exact id so an ordinary-row limit
