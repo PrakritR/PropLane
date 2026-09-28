@@ -10,7 +10,6 @@ type FinishPanelProps = {
   axisId: string;
   email: string;
   emailSent?: boolean;
-  syncError?: string;
   /** Guest apply — offer inline account creation instead of email-only instructions. */
   guestFlow?: boolean;
   /** Signed-in resident portal apply — already has an account. */
@@ -89,7 +88,6 @@ export function RentalApplicationFinishPanel({
   axisId,
   email,
   emailSent,
-  syncError,
   guestFlow = false,
   portalFlow = false,
   mailtoHref,
@@ -133,12 +131,6 @@ export function RentalApplicationFinishPanel({
               : "Sign in to track your application in the resident portal."}
       </p>
 
-      {syncError ? (
-        <p className="mt-3 text-[12px] text-amber-800 sm:text-sm">
-          Sync issue: {guestFlow ? "try submitting again, or sign in if you already have an account." : "sign in to confirm your application status."}
-        </p>
-      ) : null}
-
       <p className="mt-4 font-mono text-xs text-muted">Application ID: {axisId}</p>
 
       {showGroup ? (
@@ -169,7 +161,9 @@ export function RentalApplicationFinishPanel({
             ) : null}
             {emailFailed ? (
               <p className="text-[12px] text-amber-800 sm:text-sm">
-                Email delivery is not configured on this environment. Use the button below to open a draft with your setup link, or ask your manager to resend the welcome email.
+                {mailtoHref
+                  ? "We couldn't send your setup email. Open the draft below to send it to yourself, or ask your property manager to resend it."
+                  : "We couldn't send your setup email. Ask your property manager to resend it."}
               </p>
             ) : null}
             {mailtoHref ? (

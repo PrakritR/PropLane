@@ -130,6 +130,9 @@ Every agent turn on every portal surface, via `src/lib/observability/langfuse.ts
   - one **generation** per LLM call — model, prompt, output, per-call token
     counts, estimated cost, tools chosen, `iteration`, `stopReason`;
   - one **span** per tool call — full arguments and result, `ok`;
+  - one **property-location-research** span per Brave attempt, cache hit,
+    coalesced request, or budget refusal. It records billing certainty and
+    incremental estimated search cost separately from the parent model's tokens;
   - one **span** per proposed write action;
   - one **`axis-agent-turn-summary`** span when the turn had successful tool
     evidence — packs `{ userRequest, toolEvidence }` as input and the final

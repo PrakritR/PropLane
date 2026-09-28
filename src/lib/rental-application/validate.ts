@@ -17,6 +17,7 @@ import {
 } from "@/app/(public)/rent/apply/apply-validation";
 import type { MockProperty } from "@/data/types";
 import {
+  isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
@@ -25,9 +26,9 @@ import {
   propertyAllowsShortTermRental,
   listingAllowedLeaseTerms,
   getPropertyById,
-  isEntireHomeProperty,
   parseRoomChoiceValue,
   canonicalRoomChoiceValue,
+  isRoomChoiceAvailable,
   firstChoiceSlotIsTaken,
 } from "./data";
 import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms";
@@ -224,6 +225,12 @@ export function validateStandardWizardStep(
   }
 
   if (step === 3) {
+    const listingProp = prop ?? (f.propertyId.trim() ? getPropertyById(f.propertyId) : undefined);
+    const listingSub = listingProp?.listingSubmission?.v === 1
+      ? normalizeManagerListingSubmissionV1(listingProp.listingSubmission)
+      : undefined;
+    const entireHome = Boolean(listingSub && isEntireHomeListing(listingSub));
+    const byRoom = Boolean(listingSub && !entireHome && listingSub.rooms.some((room) => room.name.trim()));
     if (fieldRequired("propertyId") && !f.propertyId.trim()) e.propertyId = "Property is required.";
     // A bundle application replaces ranked room choices — no first-choice room
     // needed. Entire-home listings apply for the whole place (roomChoice1 is
@@ -232,7 +239,7 @@ export function validateStandardWizardStep(
       fieldRequired("roomChoice1") &&
       !f.bundleId.trim() &&
       !f.roomChoice1.trim() &&
-      !isEntireHomeProperty(f.propertyId)
+      !entireHome
     ) {
       e.roomChoice1 = "First choice room is required.";
     }
@@ -250,18 +257,13 @@ export function validateStandardWizardStep(
     }
     if (fieldEnabled("roomChoice1") && r1 && !f.bundleId.trim()) {
       const parsed = parseRoomChoiceValue(r1);
-      const listingProp = f.propertyId.trim() ? getPropertyById(f.propertyId) : undefined;
-      const listingSub =
-        listingProp?.listingSubmission?.v === 1
-          ? normalizeManagerListingSubmissionV1(listingProp.listingSubmission)
-          : prop?.listingSubmission?.v === 1
-            ? normalizeManagerListingSubmissionV1(prop.listingSubmission)
-            : undefined;
       const room = parsed.listingRoomId && listingSub
         ? listingSub.rooms.find((row) => row.id === parsed.listingRoomId)
         : undefined;
       const slot = f.residentSlot ?? parsed.residentSlot;
-      if (room && normalizeRoomOccupancyCapacity(room.occupancyCapacity) >= 2 && !slot) {
+      if (byRoom && (parsed.propertyId !== f.propertyId || !room)) {
+        e.roomChoice1 = "Choose an available room.";
+      } else if (room && normalizeRoomOccupancyCapacity(room.occupancyCapacity) >= 2 && !slot) {
         e.roomChoice1 = "Choose which resident you are applying as.";
       } else if (
         slot &&
@@ -272,6 +274,12 @@ export function validateStandardWizardStep(
         })
       ) {
         e.roomChoice1 = "That bed is taken. Choose another.";
+      } else if (
+        !slot &&
+        f.leaseStart.trim() &&
+        !isRoomChoiceAvailable(r1, "", { leaseStart: f.leaseStart, leaseEnd: f.leaseEnd })
+      ) {
+        e.roomChoice1 = "That room is taken for these dates. Choose another room or different dates.";
       }
     }
     if (fieldRequired("leaseTerm") && !f.leaseTerm.trim()) e.leaseTerm = "Lease term is required.";

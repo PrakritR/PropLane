@@ -1,5 +1,7 @@
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
@@ -29,9 +31,14 @@ export const getProPortalRenderContext = cache(async () => {
     const primaryAdminManager =
       isPrimaryAdminEmail(ctx.user?.email) && hasRole(ctx, "manager");
     if (!primaryAdminManager) {
-      redirect(`/auth/choose-portal?next=${encodeURIComponent("/portal/dashboard")}`);
+      const requestedPath = (await headers()).get("x-requested-path") ?? "";
+      redirect(`/auth/choose-portal?next=${encodeURIComponent(normalizePostAuthPath(requestedPath, "manager"))}`);
     }
   } else if (ctx.effectiveRole !== null && ctx.effectiveRole !== "manager") {
+    if (hasRole(ctx, "manager")) {
+      const requestedPath = (await headers()).get("x-requested-path") ?? "";
+      redirect(`/auth/choose-portal?next=${encodeURIComponent(normalizePostAuthPath(requestedPath, "manager"))}`);
+    }
     redirect(portalDashboardPath(ctx.effectiveRole));
   }
 

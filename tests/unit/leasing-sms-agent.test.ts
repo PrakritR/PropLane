@@ -186,6 +186,7 @@ describe("leasing SMS agent registry", () => {
         "escalate_to_manager",
         "get_listing_details",
         "get_nearby_transit",
+        "research_property_location",
         "get_site_links",
         "list_live_listings",
         "list_open_tour_slots",

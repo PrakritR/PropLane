@@ -6,6 +6,10 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ "x-requested-path": "/resident/tours?status=scheduled" }),
+}));
+
 vi.mock("@/lib/auth/admin-preview", () => ({
   getAdminPreviewFromCookies: vi.fn(async () => null),
 }));
@@ -46,6 +50,19 @@ describe("assertPortalLayoutRole resident tour access", () => {
 
     await expect(
       assertPortalLayoutRole("resident", "resident", { allowResidentTourAccess: true }),
-    ).rejects.toThrow("redirect:/auth/sign-in");
+    ).rejects.toThrow("redirect:/auth/sign-in?next=%2Fresident%2Ftours%3Fstatus%3Dscheduled");
+  });
+
+  it("preserves the requested tour path for a signed-out visitor", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({
+      user: null,
+      profile: null,
+      roles: [],
+      effectiveRole: null,
+    } as never);
+
+    await expect(
+      assertPortalLayoutRole("resident", "resident", { allowResidentTourAccess: true }),
+    ).rejects.toThrow("redirect:/auth/sign-in?next=%2Fresident%2Ftours%3Fstatus%3Dscheduled");
   });
 });

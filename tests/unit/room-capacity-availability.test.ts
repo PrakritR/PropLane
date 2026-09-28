@@ -57,6 +57,7 @@ vi.mock("@/data/mock-properties", () => ({
         unitLabel: "Room A",
         listingSubmission: {
           ...base,
+          listingPlaceCategoryId: "shared_home",
           rooms: [
             { ...template, id: "r1", name: "Room A", monthlyRent: 700, availability: "Now", occupancyCapacity: roomCapacity },
             { ...template, id: "r2", name: "Room B", monthlyRent: 700, availability: "Now", occupancyCapacity: 1 },
@@ -68,6 +69,7 @@ vi.mock("@/data/mock-properties", () => ({
 }));
 
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   effectiveRoomAvailabilityLabel,
   getRoomUnavailabilityWindows,
@@ -262,5 +264,58 @@ describe("bed counts shown to a prospect", () => {
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 1 });
     holdingResident("app-1", "2020-01-01", null);
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 0 });
+  });
+});
+
+describe("the apply wizard refuses a room taken for the applicant's dates", () => {
+  const form = (leaseStart: string, leaseEnd: string) => ({
+    ...createInitialRentalWizardState(),
+    propertyId: "prop-1",
+    roomChoice1: ROOM,
+    leaseTerm: "12 months",
+    leaseStart,
+    leaseEnd,
+  });
+
+  it("flags the first choice when a signed resident holds the room for those dates", async () => {
+    const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
+    holdingResident("app-1", "2026-10-05", "2027-10-04");
+    expect(validateRentalWizardStep(3, form("2026-11-01", "2026-11-30")).roomChoice1).toBe(
+      "That room is taken for these dates. Choose another room or different dates.",
+    );
+  });
+
+  it("accepts the same room for dates that do not overlap", async () => {
+    const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
+    holdingResident("app-1", "2026-10-05", "2027-10-04");
+    expect(validateRentalWizardStep(3, form("2027-11-01", "2027-11-30")).roomChoice1).toBeUndefined();
+  });
+
+  it("offers no property fallback and rejects a property-only choice when every room is full", async () => {
+    const { getRoomOptionsForProperty } = await import("@/lib/rental-application/data");
+    const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
+    rows.push({ ...approved("app-1", "2026-10-05", "2027-10-04"), manuallyAdded: true });
+    rows.push({ ...approved("app-2", "2026-10-05", "2027-10-04"), assignedRoomChoice: "prop-1::r2", manuallyAdded: true });
+    expect(getRoomOptionsForProperty("prop-1", { leaseStart: "2026-11-01", leaseEnd: "2026-11-30" })).toEqual([]);
+    expect(validateRentalWizardStep(3, { ...form("2026-11-01", "2026-11-30"), roomChoice1: "prop-1" }).roomChoice1).toBe(
+      "Choose an available room.",
+    );
+  });
+
+  it("uses the supplied listing to reject a property-only choice without a cached listing", async () => {
+    const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
+    const base = createDefaultListingSubmission();
+    const property = {
+      id: "server-only-property",
+      listingSubmission: {
+        ...base,
+        listingPlaceCategoryId: "shared_home",
+        rooms: [{ ...base.rooms[0]!, id: "server-room", name: "Room A" }],
+      },
+    };
+    const answers = { ...form("2027-11-01", "2027-11-30"), propertyId: property.id, roomChoice1: property.id };
+    expect(validateRentalWizardStep(3, answers, { property }).roomChoice1).toBe("Choose an available room.");
+    expect(validateRentalWizardStep(3, { ...answers, roomChoice1: `${property.id}::missing-room` }, { property }).roomChoice1).toBe("Choose an available room.");
+    expect(validateRentalWizardStep(3, { ...answers, roomChoice1: `${property.id}::server-room` }, { property }).roomChoice1).toBeUndefined();
   });
 });

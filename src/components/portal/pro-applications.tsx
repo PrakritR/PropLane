@@ -31,7 +31,6 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
-  PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
@@ -55,6 +54,7 @@ import {
   readManagerApplicationRows,
   residentSlotOverrideFields,
   syncManagerApplicationsFromServer,
+  syncManagerApplicationsFromServerWithStatus,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import {
@@ -615,6 +615,9 @@ export function ManagerApplications({
   const [rows, setRows] = useState<DemoApplicantRow[]>(() =>
     typeof window === "undefined" ? [] : readManagerApplicationRows(),
   );
+  const [initialReadUserId, setInitialReadUserId] = useState<string | null>(null);
+  const [initialReadErrorUserId, setInitialReadErrorUserId] = useState<string | null | undefined>(undefined);
+  const [readRetryEpoch, setReadRetryEpoch] = useState(0);
   const [portfolioTick, setPortfolioTick] = useState(() =>
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
@@ -652,10 +655,24 @@ export function ManagerApplications({
   const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
   useEffect(() => {
     if (!authReady) return;
+    let active = true;
+    let readVersion = 0;
     const sync = () => setRows(readManagerApplicationRows());
-    const pull = () => void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(sync);
+    const read = async (force: boolean) => {
+      const version = ++readVersion;
+      const result = await syncManagerApplicationsFromServerWithStatus({ force, managerUserId: userId });
+      if (!active || version !== readVersion || result.stale) return;
+      sync();
+      if (result.ok) {
+        setInitialReadUserId(userId);
+        setInitialReadErrorUserId(undefined);
+      } else {
+        setInitialReadErrorUserId(userId);
+      }
+    };
+    const pull = () => void read(true);
     sync();
-    void syncManagerApplicationsFromServer({ managerUserId: userId }).then(sync);
+    void read(readRetryEpoch > 0);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
     const onVisible = () => {
       if (document.visibilityState === "visible") pull();
@@ -664,12 +681,13 @@ export function ManagerApplications({
     document.addEventListener("visibilitychange", onVisible);
     const poll = window.setInterval(pull, 20_000);
     return () => {
+      active = false;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, sync);
       window.removeEventListener("focus", pull);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(poll);
     };
-  }, [authReady, userId]);
+  }, [authReady, userId, readRetryEpoch]);
 
   // Returning from embedded Stripe screening checkout (?screening=return|paid|cancelled).
   useEffect(() => {
@@ -2025,7 +2043,7 @@ export function ManagerApplications({
           recordId: detailRow.id,
           recordLabel: applicantDisplayName(detailRow),
           overviewTiles: [
-            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "danger" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
+            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "warning" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
             { id: "income", label: "Income", value: detailRow.application?.monthlyIncome ? `$${detailRow.application.monthlyIncome}` : "—", detail: "per month" },
             { id: "property", label: "Property", value: detailRow.property ?? "—" },
             { id: "phone", label: "Phone", value: detailRow.application?.phone ?? "—" },
@@ -2180,12 +2198,14 @@ export function ManagerApplications({
       <div className="mt-2 space-y-4 max-md:mt-3">
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
       {checkrScreeningModal}
-      {!authReady && rows.length === 0 ? (
-        <div className={PORTAL_DATA_TABLE_WRAP}>
-          <ListSkeleton rows={5} showLeading={false} />
-        </div>
-      ) : (
         <PortalRecordListSurface
+          loading={rows.length === 0 && (!authReady || (initialReadErrorUserId !== userId && initialReadUserId !== userId))}
+          loadError={authReady && rows.length === 0 && initialReadErrorUserId === userId ? "Could not load applications." : undefined}
+          onRetry={() => {
+            setInitialReadErrorUserId(undefined);
+            setInitialReadUserId(null);
+            setReadRetryEpoch((epoch) => epoch + 1);
+          }}
           isEmpty={visibleRows.length === 0}
           add={{
             ariaLabel: "Add application",
@@ -2338,7 +2358,6 @@ export function ManagerApplications({
             />
           ) : null}
         </PortalRecordListSurface>
-      )}
       </div>
     </ManagerPortalPageShell>
       {applicationModals}

@@ -18,6 +18,7 @@ import { createPendingAction } from "@/lib/tools/pending-actions";
 import { track } from "@/lib/analytics/posthog";
 import { traceExternalToolCall } from "@/lib/observability/langfuse";
 import type { ApiKeyScope } from "./api-keys.server";
+import { EXTERNAL_EXCLUDED_TOOL_NAMES } from "./capabilities";
 
 /** MCP names the field `inputSchema`; the payload is the same JSON Schema. */
 export type McpToolSchema = {
@@ -37,6 +38,7 @@ function isLegacyBroadKey(allowedTools: readonly string[]): boolean {
 
 /** Old rows created before the allowlist migration retain their broad scope. */
 function toolIsAllowed(name: string, allowedTools: readonly string[], scopes: readonly ApiKeyScope[]): boolean {
+  if (EXTERNAL_EXCLUDED_TOOL_NAMES.has(name)) return false;
   if (!isLegacyBroadKey(allowedTools)) return allowedTools.includes(name);
   const tool = agentRegistry.get(name);
   return tool?.kind === "read" || (tool?.kind === "write" && scopes.includes("write"));

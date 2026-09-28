@@ -1,5 +1,7 @@
 "use client";
 
+import { formatPacificDate } from "@/lib/pacific-time";
+import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
@@ -100,6 +102,10 @@ async function reviewHtmlSha256(html: string): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure review hashing is unavailable.");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(html));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function formatSignedAt(iso: string): string {
+  return formatPacificDate(iso, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
@@ -1358,13 +1364,19 @@ export function ManagerLeasesPipelinePanel({
           recordId: detailRow.id,
           recordLabel: detailRow.residentName,
           overviewTiles: [
-            { id: "rent", label: "Rent", value: detailRow.signedRentLabel ?? "—", detail: "per month" },
-            { id: "term", label: "Term", value: detailRow.application?.leaseTerm ?? "—", detail: detailRow.application?.leaseEnd ? `Ends ${detailRow.application.leaseEnd}` : undefined },
-            { id: "signatures", label: "Signatures", value: `${[detailRow.managerSignature, detailRow.residentSignature].filter(Boolean).length} of 2`, detail: detailRow.residentSignature ? undefined : "Resident pending" },
-            { id: "status", label: "Status", value: detailRow.status ?? detailRow.stageLabel, tone: detailRow.status === "Fully Signed" ? "default" : "danger" },
+            { id: "rent", label: "Rent", value: detailRow.signedRentLabel ?? "—" },
+            { id: "term", label: "Term", value: detailRow.application?.leaseTerm ?? "—", detail: detailRow.application?.leaseEnd ? `Ends ${formatLeaseDateLabel(detailRow.application.leaseEnd)}` : undefined },
+            { id: "signatures", label: "Signatures", value: `${[detailRow.managerSignature, detailRow.residentSignature].filter(Boolean).length} of 2`, detail: detailRow.residentSignature ? undefined : detailRow.bucket === "manager" ? "Not sent" : "Resident pending" },
+            { id: "status", label: "Status", value: detailRow.status ?? detailRow.stageLabel, tone: detailRow.status === "Fully Signed" ? "default" : detailRow.status === "Voided" ? "danger" : "warning" },
           ],
           overviewNeeds: [
-            ...(!detailRow.residentSignature ? [{ id: "resident-signature", title: "Resident signature pending", detail: "Sent — remind", onClick: () => openLeaseSigningReminderPreview(detailRow) }] : []),
+            ...(detailRow.bucket === "manager"
+              ? leasePipelineRowHasDocument(detailRow)
+                ? [{ id: "send-lease", title: "Review and send", detail: "Draft", onClick: () => openSendLeasePreview(detailRow) }]
+                : [{ id: "generate-lease", title: "Generate the lease", detail: "No document yet", onClick: () => runGenerateLease(detailRow) }]
+              : !detailRow.residentSignature
+                ? [{ id: "resident-signature", title: "Resident signature pending", detail: "Sent · remind", onClick: () => openLeaseSigningReminderPreview(detailRow) }]
+                : []),
           ],
           overviewCards: [
             {
@@ -1373,7 +1385,7 @@ export function ManagerLeasesPipelinePanel({
               action: { label: "Read the lease", href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document") },
               rows: [
                 { label: "Rent", value: detailRow.signedRentLabel ?? "—" },
-                { label: "Term", value: [detailRow.application?.leaseStart, detailRow.application?.leaseEnd].filter(Boolean).join(" – ") || "—" },
+                { label: "Term", value: [detailRow.application?.leaseStart, detailRow.application?.leaseEnd].map(formatLeaseDateLabel).filter(Boolean).join(" – ") || "—" },
                 { label: "Unit", value: detailRow.unit || "—" },
               ],
             },
@@ -1382,8 +1394,8 @@ export function ManagerLeasesPipelinePanel({
               title: "Signatures",
               action: { label: "Lease document", href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document") },
               rows: [
-                { label: "Manager", value: detailRow.managerSignature ? `Signed ${detailRow.managerSignature.signedAtIso}` : "Not signed", tone: detailRow.managerSignature ? "ok" : "bad" },
-                { label: "Resident", value: detailRow.residentSignature ? `Signed ${detailRow.residentSignature.signedAtIso}` : "Pending", tone: detailRow.residentSignature ? "ok" : "bad" },
+                { label: "Manager", value: detailRow.managerSignature ? `Signed ${formatSignedAt(detailRow.managerSignature.signedAtIso)}` : "Not signed", tone: detailRow.managerSignature ? "ok" : "bad" },
+                { label: "Resident", value: detailRow.residentSignature ? `Signed ${formatSignedAt(detailRow.residentSignature.signedAtIso)}` : "Pending", tone: detailRow.residentSignature ? "ok" : "bad" },
               ],
             },
             {

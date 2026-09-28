@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
+import { ApplicationFeeReturnPanel } from "@/components/marketing/application-fee-return-panel";
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
 import { ApplyPropertyPicker } from "@/components/marketing/apply-property-picker";
@@ -35,6 +36,20 @@ function publicApplyResumeLinkActive(searchParams: { get(name: string): string |
  * is redirected to the portal apply flow before this component mounts.
  */
 export function PublicApplyClient({ signedInNonResident = false }: { signedInNonResident?: boolean }) {
+  const searchParams = useSearchParams();
+  const feeCheckout = searchParams.get("fee_checkout");
+  const sessionId = searchParams.get("session_id")?.trim();
+  if ((feeCheckout === "return" || feeCheckout === "success") && sessionId) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+        <ApplicationFeeReturnPanel sessionId={sessionId} />
+      </div>
+    );
+  }
+  return <PublicApplyApplicationClient signedInNonResident={signedInNonResident} />;
+}
+
+function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResident: boolean }) {
   const { showToast } = useAppUi();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -169,7 +184,7 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+    <div className={`mx-auto ${view === "wizard" ? "max-w-5xl" : "max-w-3xl"} px-4 py-8 sm:py-12`}>
       {view === "signed-in-create-resident" ? (
         <SignedInResidentAccountPrompt applyReturnPath={applyReturnPath} propertyTitle={propertyTitle} />
       ) : view === "account-prompt" ? (

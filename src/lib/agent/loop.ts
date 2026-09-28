@@ -20,6 +20,7 @@ import { MANAGER_SYSTEM_PROMPT } from "./system-prompts";
 import { selectModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
 import { completeAgentModel } from "./provider";
 import { guardLunaFailedLookupClaim, guardLunaReplyLinks } from "./luna-link-guard";
+import { withPropertyResearchBudget } from "@/lib/property-research-budget.server";
 
 const MAX_ITERATIONS = 8;
 
@@ -120,7 +121,7 @@ function notify(fn: (() => void) | undefined) {
   }
 }
 
-export async function runAgentTurn<Ctx = AgentContext>(opts: {
+async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   ctx: Ctx;
   registry: ToolRegistry<Ctx>;
   messages: Anthropic.MessageParam[];
@@ -507,4 +508,9 @@ async function runInlineTool<Ctx>(
     content: ok ? JSON.stringify(output) : String(output),
     is_error: !ok,
   };
+}
+
+/** A new search budget starts for each turn, independent of tracing. */
+export function runAgentTurn<Ctx = AgentContext>(opts: Parameters<typeof runAgentTurnWithinBudget<Ctx>>[0]): Promise<AgentTurnResult> {
+  return withPropertyResearchBudget(() => runAgentTurnWithinBudget(opts));
 }

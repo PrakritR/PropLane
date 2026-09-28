@@ -239,7 +239,22 @@ function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
+/**
+ * A paired question's default label names both of its inputs ("Employer &
+ * employer address"), which reads wrong on the first input alone. Use that
+ * input's own label unless the manager wrote their own wording.
+ */
+function pairedInputLabel(question: ResolvedApplicationField | null | undefined, own: string): string {
+  if (!question) return own;
+  const defaultLabel = question.standardKey ? applicationFieldCatalogDef(question.standardKey)?.label : undefined;
+  return !defaultLabel || question.label.trim() === defaultLabel.trim() ? own : question.label;
+}
+
 function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: ListingQuote; title?: string }) {
+  // signingTotal sums only lines due at signing; listing the others above it
+  // made the lines add up to more than the total.
+  const dueNow = quote.signingLines.filter((line) => line.dueAtSigning);
+  const dueLater = quote.signingLines.filter((line) => !line.dueAtSigning);
   const monthlyBreakdown = [
     quote.monthlyRent > 0 ? `rent ${formatQuoteMoney(quote.monthlyRent)}` : "",
     quote.monthlyUtilities > 0 ? `utilities ${formatQuoteMoney(quote.monthlyUtilities)}` : "",
@@ -258,11 +273,9 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
     <aside className="rounded-2xl border border-border bg-card p-4">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
-      {quote.signingLines.map((line) => (
+      {dueNow.map((line) => (
         <div key={line.key} className="flex items-baseline justify-between gap-3 pt-2">
-          <span className={line.dueAtSigning ? "text-[13px] text-foreground" : "text-[13px] text-muted"}>
-            {line.label}
-          </span>
+          <span className="text-[13px] text-foreground">{line.label}</span>
           <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-foreground">
             {formatQuoteMoney(line.amount)}
           </b>
@@ -274,6 +287,19 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
           {formatQuoteMoney(quote.signingTotal)}
         </b>
       </div>
+      {dueLater.length > 0 ? (
+        <>
+          <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due later</p>
+          {dueLater.map((line) => (
+            <div key={line.key} className="flex items-baseline justify-between gap-3 pt-2">
+              <span className="text-[13px] text-foreground">{line.label}</span>
+              <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-foreground">
+                {formatQuoteMoney(line.amount)}
+              </b>
+            </div>
+          ))}
+        </>
+      ) : null}
       {quote.isStay ? (
         <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl bg-accent/50 p-2.5">
           <span className="text-[13px] font-semibold text-foreground">Stay rate</span>
@@ -937,7 +963,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </div>
         ) : null}
 
-        <div className={listingQuote ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] lg:items-start" : undefined}>
+        <div className={listingQuote ? "space-y-6" : undefined}>
         <WizardFieldGate fieldKey="roomChoice1" enabled={showWizardField}>
         {isByRoom && !bundleSelected ? (
         <div className="space-y-2">
@@ -1037,7 +1063,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="leaseStart" enabled={showWizardField}>
         <div className={form.leaseTerm === "Month-to-Month" ? "space-y-2" : "grid gap-4 sm:grid-cols-2"}>
           <div className="space-y-2">
-            <Label htmlFor="leaseStart" required={datesQuestion?.required}>{datesQuestion?.label ?? (form.rentalType === "short_term" ? "Check-in date" : "Lease start date")}</Label>
+            <Label htmlFor="leaseStart" required={datesQuestion?.required}>{pairedInputLabel(datesQuestion, form.rentalType === "short_term" ? "Check-in date" : "Lease start date")}</Label>
             <DateField
               id="leaseStart"
               min="2020-01-01"
@@ -1214,8 +1240,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       <div className="space-y-8">
         {autofillBanner}
         <StepIntro>
-          Start with how we can reach you, then confirm your identity exactly as it appears on your ID. This section is
-          encrypted in transit in production environments.
+          Start with how we can reach you, then confirm your identity exactly as it appears on your ID. Your Social
+          Security number, date of birth, and ID number are stored encrypted.
         </StepIntro>
         <div className="grid gap-4 sm:grid-cols-2" data-application-section="personal">
           {personalFields.map(renderPersonalField)}
@@ -1312,7 +1338,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="currentLandlordName" enabled={showWizardField}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="currentLandlordName" required={landlord?.required}>{landlord?.label ?? "Current landlord name"}</Label>
+            <Label htmlFor="currentLandlordName" required={landlord?.required}>{pairedInputLabel(landlord, "Current landlord name")}</Label>
             <Input
               id="currentLandlordName"
               value={form.currentLandlordName}
@@ -1336,7 +1362,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="currentMoveIn" enabled={showWizardField}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="currentMoveIn" required={dates?.required}>{dates?.label ?? "Current move-in date"}</Label>
+            <Label htmlFor="currentMoveIn" required={dates?.required}>{pairedInputLabel(dates, "Current move-in date")}</Label>
             <DateField id="currentMoveIn" value={form.currentMoveIn} onChange={(next) => patch({ currentMoveIn: next })} />
           </div>
           <div className="space-y-2">
@@ -1444,7 +1470,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <WizardFieldGate fieldKey="prevLandlordName" enabled={showWizardField}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="prevLandlordName" required={landlord?.required}>{landlord?.label ?? "Previous landlord name"}</Label>
+                <Label htmlFor="prevLandlordName" required={landlord?.required}>{pairedInputLabel(landlord, "Previous landlord name")}</Label>
                 <Input id="prevLandlordName" value={form.prevLandlordName} onChange={(e) => patch({ prevLandlordName: e.target.value })} />
               </div>
               <div className="space-y-2">
@@ -1464,7 +1490,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <WizardFieldGate fieldKey="prevMoveIn" enabled={showWizardField}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="prevMoveIn" required={dates?.required}>{dates?.label ?? "Move-in date"}</Label>
+                <Label htmlFor="prevMoveIn" required={dates?.required}>{pairedInputLabel(dates, "Move-in date")}</Label>
                 <DateField id="prevMoveIn" value={form.prevMoveIn} onChange={(next) => patch({ prevMoveIn: next })} />
               </div>
               <div className="space-y-2">
@@ -1507,7 +1533,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       switch (fieldKey) {
         case "employer":
           return gate(<>
-            <Label htmlFor="employer" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Label htmlFor="employer" required={field.required && !form.notEmployed}>{pairedInputLabel(field, "Employer")}</Label>
             <Input id="employer" value={form.employer} disabled={form.notEmployed}
               onChange={(e) => patch({ employer: e.target.value })} className={errors.employer ? "border-red-400 ring-2 ring-red-100" : ""} />
             <FieldError msg={errors.employer} />
@@ -1517,7 +1543,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </>);
         case "supervisorName":
           return gate(<>
-            <Label htmlFor="supervisorName" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Label htmlFor="supervisorName" required={field.required && !form.notEmployed}>{pairedInputLabel(field, "Supervisor name")}</Label>
             <Input id="supervisorName" value={form.supervisorName} disabled={form.notEmployed}
               onChange={(e) => patch({ supervisorName: e.target.value })} />
             <Label htmlFor="supervisorPhone">Supervisor phone</Label>
@@ -1527,7 +1553,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </>);
         case "jobTitle":
           return gate(<>
-            <Label htmlFor="jobTitle" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Label htmlFor="jobTitle" required={field.required && !form.notEmployed}>{pairedInputLabel(field, "Job title")}</Label>
             <Input id="jobTitle" value={form.jobTitle} disabled={form.notEmployed}
               onChange={(e) => patch({ jobTitle: e.target.value })} />
             <Label htmlFor="employmentStart">Employment start date</Label>
@@ -1536,7 +1562,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </>);
         case "monthlyIncome":
           return gate(<>
-            <Label htmlFor="monthlyIncome" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Label htmlFor="monthlyIncome" required={field.required && !form.notEmployed}>{pairedInputLabel(field, "Monthly income")}</Label>
             <Input id="monthlyIncome" inputMode="decimal" value={form.monthlyIncome}
               onChange={(e) => patch({ monthlyIncome: e.target.value })}
               onBlur={() => patch({ monthlyIncome: formatMoneyBlur(form.monthlyIncome) })}
@@ -1599,7 +1625,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted/70">Reference 1</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ref1Name" required={first?.required}>{first?.label ?? "Name"}</Label>
+              <Label htmlFor="ref1Name" required={first?.required}>{pairedInputLabel(first, "Name")}</Label>
               <Input id="ref1Name" value={form.ref1Name} onChange={(e) => patch({ ref1Name: e.target.value })} className={errors.ref1Name ? "border-red-400 ring-2 ring-red-100" : ""} />
               <FieldError msg={errors.ref1Name} />
             </div>
@@ -1637,7 +1663,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <p className="mt-1 text-xs text-muted">Optional. Leave blank if you only have one reference.</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ref2Name" required={second?.required}>{second?.label ?? "Name"}</Label>
+              <Label htmlFor="ref2Name" required={second?.required}>{pairedInputLabel(second, "Name")}</Label>
               <Input id="ref2Name" value={form.ref2Name} onChange={(e) => patch({ ref2Name: e.target.value })} className={errors.ref2Name ? "border-red-400 ring-2 ring-red-100" : ""} />
               <FieldError msg={errors.ref2Name} />
             </div>
@@ -1886,10 +1912,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 }
                 return (
                   <>
-                    {reviewQuote.signingLines.map((line) => (
+                    {reviewQuote.signingLines.filter((line) => line.dueAtSigning).map((line) => (
                       <ReviewRow key={line.key} k={line.label} v={formatQuoteMoney(line.amount)} />
                     ))}
                     <ReviewRow k="Payment due at signing" v={formatQuoteMoney(reviewQuote.signingTotal)} />
+                    {reviewQuote.signingLines.filter((line) => !line.dueAtSigning).map((line) => (
+                      <ReviewRow key={line.key} k={`${line.label} (due later)`} v={formatQuoteMoney(line.amount)} />
+                    ))}
                     {reviewQuote.isStay ? (
                       reviewQuote.nightlyRate ? (
                         <ReviewRow k="Stay rate" v={`${formatQuoteMoney(reviewQuote.nightlyRate)}/night`} />

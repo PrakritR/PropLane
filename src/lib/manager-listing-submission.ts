@@ -3832,12 +3832,15 @@ export function listingSubmissionCityStateLine(
 
 /** City, state, and ZIP for leases and formal addresses. */
 export function listingSubmissionCityZipLine(
-  sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood" | "zip">,
+  sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood" | "zip"> &
+    Partial<Pick<ManagerListingSubmissionV1, "address">>,
 ): string {
   const cityState = listingSubmissionCityStateLine(sub);
   const zip = sub.zip?.trim() ?? "";
   if (cityState && zip) return `${cityState} ${zip}`;
-  return cityState || zip;
+  if (cityState) return cityState;
+  if (zip && (sub.address?.trim() ?? "").endsWith(zip)) return "";
+  return zip;
 }
 
 /**

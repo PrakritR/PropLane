@@ -1,6 +1,6 @@
 import { canonicalRoomChoiceValue, parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
-import { replacePublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
+import { replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -48,6 +48,8 @@ export type ManagerApplicationsSyncResult = {
 };
 let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
+let publicOccupancyRevision = 0;
+const publicPropertyRefreshRevisions = new Map<string, number>();
 
 let applicationsScopeGeneration = 0;
 let applicationsReadSucceeded = false;
@@ -61,6 +63,7 @@ function clearSensitiveApplicationCache() {
   managerApplicationsLastSyncedAt = 0;
   managerApplicationsSuccessfulServerSyncAt = 0;
   publicApprovedApplicationsLastSyncedAt = 0;
+  publicPropertyRefreshRevisions.clear();
   managerApplicationsSyncPromise = null;
   replacePublicRoomOccupancy([]);
   if (changed) emit();
@@ -908,13 +911,15 @@ export async function syncManagerApplicationsFromServer(opts?: {
 
 const publicOccupancyRefresh = createCoalescedRefresher(async (): Promise<DemoApplicantRow[]> => {
   const generation = applicationsScopeGeneration;
+  const startedRevision = publicOccupancyRevision;
   try {
     const res = await fetch("/api/public/approved-room-occupancy");
     if (generation !== applicationsScopeGeneration) return [];
     if (!res.ok) return readManagerApplicationRows();
     const body = (await res.json()) as { rooms?: PublicRoomOccupancy[] };
     if (generation !== applicationsScopeGeneration) return [];
-    replacePublicRoomOccupancy(Array.isArray(body.rooms) ? body.rooms : []);
+    const renewedProperties = [...publicPropertyRefreshRevisions].filter(([, revision]) => revision > startedRevision).map(([id]) => id);
+    replacePublicRoomOccupancy(Array.isArray(body.rooms) ? body.rooms : [], renewedProperties);
     publicApprovedApplicationsLastSyncedAt = Date.now();
     return readManagerApplicationRows();
   } catch { return readManagerApplicationRows(); }
@@ -924,6 +929,26 @@ export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: 
   if (isDemoModeActive()) return readManagerApplicationRows();
   if (!opts?.force && publicApprovedApplicationsLastSyncedAt > 0 && Date.now() - publicApprovedApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) return readManagerApplicationRows();
   return publicOccupancyRefresh.run(opts?.force === true);
+}
+
+/** Check an applicant's chosen dates against a fresh, uncached public snapshot. */
+export async function refreshPublicApprovedRoomOccupancyForContinue(propertyId: string): Promise<boolean> {
+  if (!canUseStorage() || isDemoModeActive()) return true;
+  if (!propertyId.trim()) return false;
+  const generation = applicationsScopeGeneration;
+  try {
+    const res = await fetch(`/api/public/approved-room-occupancy?fresh=1&propertyId=${encodeURIComponent(propertyId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok || generation !== applicationsScopeGeneration) return false;
+    const body = (await res.json()) as { rooms?: PublicRoomOccupancy[] };
+    if (!Array.isArray(body.rooms) || generation !== applicationsScopeGeneration) return false;
+    replacePublicRoomOccupancyForProperty(propertyId, body.rooms);
+    publicPropertyRefreshRevisions.set(propertyId, ++publicOccupancyRevision);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_FALLBACK): DemoApplicantRow[] {

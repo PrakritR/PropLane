@@ -248,7 +248,7 @@ export async function ensureResidentSetupTokenForApplication(
   }
 
   const { row: withToken, token } = attachResidentSetupToken(row);
-  await db.from("manager_application_records").upsert(
+  const { error: persistError } = await db.from("manager_application_records").upsert(
     {
       id: withToken.id,
       manager_user_id: withToken.managerUserId || record.manager_user_id || null,
@@ -260,6 +260,7 @@ export async function ensureResidentSetupTokenForApplication(
     },
     { onConflict: "id" },
   );
+  if (persistError) return { ok: false, error: persistError.message };
 
   return { ok: true, token, axisId: withToken.id, email, row: withToken };
 }

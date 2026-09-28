@@ -293,6 +293,11 @@ export function markApplicationSubmitInitiated(axisId: string): void {
   if (id) submitInitiatedAxisIds.add(id);
 }
 
+/** Re-enables draft writes when a submit did not land, so later edits are saved again. */
+export function unmarkApplicationSubmitInitiated(axisId: string): void {
+  submitInitiatedAxisIds.delete(axisId.trim());
+}
+
 export function syncInProgressApplicationRow(input: {
   axisId: string;
   form: RentalWizardFormState;
