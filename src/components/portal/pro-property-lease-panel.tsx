@@ -1,6 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { Check, CreditCard, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -27,15 +28,15 @@ import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import {
   addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
+  buildLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
-import { PropertyLeaseTemplateSuggestions } from "@/components/portal/property-lease-template-suggestions";
+import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
-import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
   propertyLeaseSourceFromTemplate,
   readPropertyLeaseTemplates,
@@ -44,6 +45,9 @@ import {
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -120,7 +124,6 @@ export function ManagerPropertyLeasePanel({
     if (!leaseKindFilter) return templates;
     return templates.filter((template) => template.kind === leaseKindFilter);
   }, [leaseKindFilter, templates]);
-  const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
@@ -129,10 +132,23 @@ export function ManagerPropertyLeasePanel({
     [propertyIds],
   );
 
-  // `settingsPropertyId`/`settingsPropertyLabel` no longer resolve a local automation
-  // sheet (C228) — kept as props so callers need no change, just unused here.
-  void settingsPropertyId;
+  // `settingsPropertyLabel` no longer resolves a local automation sheet (C228)
+  // — kept as a prop so callers need no change, just unused here.
   void settingsPropertyLabel;
+
+  // P006/P009/P011: this property's pipeline order, lease signing fee and
+  // default lease template — same per-property override
+  // (`leasing-pipeline-preferences.ts`) the application panel reads, so the
+  // two forms can never disagree about "who signs first".
+  const rowFactPropertyId =
+    settingsPropertyId ?? propertyId ?? (bulkPropertyIds.length === 0 ? saveTarget?.saveId ?? null : null);
+  const formSetup = usePropertyFormSetupSettings(rowFactPropertyId);
+
+  // P004/P006/P007: one row per lease type the LISTING offers (Long-term,
+  // Short-term, Airbnb when allowed) — a type with no lease yet gets a plain
+  // "No lease yet" placeholder with its own +, rather than a generic
+  // Add-lease footer.
+  const offeredSeeds = useMemo(() => buildLeaseTemplateSeeds(syncedSub), [syncedSub]);
 
   const persistSubmission = useCallback(
     async (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -405,33 +421,112 @@ export function ManagerPropertyLeasePanel({
     </PortalFilterSortSheet>
   ) : null;
 
+  const renderLeaseTemplateRow = (template: PropertyLeaseTemplate, typeLabel?: string | null) => {
+    const isDefault = Boolean(
+      formSetup.loaded &&
+        formSetup.leasingPipeline.defaultLeaseTemplateId &&
+        formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
+    );
+    const feeCents = formSetup.loaded ? formSetup.leasingPipeline.leaseSigningFeeCents : null;
+    return (
+      <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <RowSelectCheckbox
+            aria-label={`Select ${template.label}`}
+            checked={selectedIds.has(template.id)}
+            data-attr={`property-lease-select-${template.id}`}
+            onChange={() => toggleSelected(template.id)}
+            onClick={(event) => event.stopPropagation()}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">{template.label}</p>
+            {formSetup.loaded ? (
+              <p
+                className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
+                data-attr="property-lease-row-facts"
+              >
+                {typeLabel ? (
+                  <PortalRowFact icon={FileText} srLabel="Lease type">
+                    {typeLabel}
+                  </PortalRowFact>
+                ) : null}
+                {isDefault ? (
+                  <PortalRowFact icon={Check} srLabel="Default">
+                    Default
+                  </PortalRowFact>
+                ) : null}
+                <PortalRowFact icon={CreditCard} srLabel="Lease fee">
+                  {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} lease fee` : "No lease fee"}
+                </PortalRowFact>
+                {template.leaseTemplateDocName ? (
+                  <PortalRowFact icon={FileUp} srLabel="Source">
+                    From {template.leaseTemplateDocName}
+                  </PortalRowFact>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const emptyLeaseTypeRow = (key: string, label: string, onAdd: () => void, dataAttr: string) => (
+    <div key={key} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} data-attr={`property-lease-empty-type-${dataAttr}`}>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/40 text-muted">
+          <FileText className="size-4" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-muted">{label}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+            <AlertTriangle className="size-3.5 shrink-0" aria-hidden /> No lease yet
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border text-foreground"
+        title={`Add ${label}`}
+        aria-label={`Add ${label}`}
+        data-attr={`property-lease-add-type-${dataAttr}`}
+        onClick={onAdd}
+      >
+        <Plus className="size-4" aria-hidden />
+      </button>
+    </div>
+  );
+
+  const seedTypeLabel = (seedKey: PropertyLeaseListingSeedKey | undefined): string | null => {
+    if (seedKey === "primary") return "Long-term";
+    if (seedKey === "short-term") return "Short-term";
+    if (seedKey === "airbnb") return "Airbnb";
+    return null;
+  };
+
+  const hasCustomTemplate = templates.some((t) => t.kind === "custom");
+
   const catalogBody = (
     <>
       <PortalPropertyDetailSection contentClassName="space-y-0">
-        {visibleTemplates.map((template) => (
-          <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <RowSelectCheckbox
-                aria-label={`Select ${template.label}`}
-                checked={selectedIds.has(template.id)}
-                data-attr={`property-lease-select-${template.id}`}
-                onChange={() => toggleSelected(template.id)}
-                onClick={(event) => event.stopPropagation()}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">{template.label}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+        {offeredSeeds.flatMap((seed) => {
+          const rowsForSeed = visibleTemplates.filter((t) => t.listingSeedKey === seed.seedKey);
+          if (rowsForSeed.length > 0) {
+            return rowsForSeed.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(seed.seedKey)));
+          }
+          return [emptyLeaseTypeRow(seed.seedKey, seed.label, () => addSeedTemplate(seed.seedKey), seed.seedKey)];
+        })}
+        {!hasCustomTemplate ? emptyLeaseTypeRow("custom", "Custom lease", openAdd, "custom") : null}
+        {visibleTemplates
+          .filter((t) => !offeredSeeds.some((seed) => seed.seedKey === t.listingSeedKey))
+          .map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </PortalPropertyDetailSection>
-
-      {availableSeeds.length > 0 ? (
-        <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
-          <PropertyLeaseTemplateSuggestions seeds={availableSeeds} onAddSeed={addSeedTemplate} />
-        </div>
-      ) : null}
-
+      {/* origin/main's separate "Add a lease type" suggestions block (availableSeeds
+          + PropertyLeaseTemplateSuggestions) is superseded here: P004/P006/P009's
+          row-grouping above already renders an inline add-row (emptyLeaseTypeRow)
+          for every offered seed type with no template yet — the same set
+          availableLeaseTemplateSeeds would suggest, just inline instead of in a
+          separate block below. Kept only the still-needed embedded-modal case. */}
       {/* The page's command bar carries the one "+" (its form also takes a
           PDF upload); only the embedded modal, which has no command bar,
           needs a footer add row. */}

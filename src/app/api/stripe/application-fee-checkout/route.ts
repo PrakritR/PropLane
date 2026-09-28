@@ -17,6 +17,8 @@ type Body = {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type — picks the listing's per-type fee when it set one. */
   leaseTerm?: string;
+  /** P003: the application template the applicant is actually applying with — a selector into the listing's own stored templates, never an amount. */
+  applicationTemplateId?: string;
   /** Checkout return path (defaults to public apply). Must start with `/`. */
   returnPath?: string;
   /**
@@ -74,6 +76,7 @@ export async function POST(req: Request) {
       managerUserId,
       rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
       leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
+      applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
       mode,
       // Embedded returns the applicant to the same apply step after paying; the
       // wizard verifies the session server-side before treating the fee as paid.

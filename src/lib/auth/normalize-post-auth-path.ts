@@ -52,7 +52,7 @@ function pathMatchesRole(path: string, role: AuthRole): boolean {
   if (role === "manager") return path.startsWith("/portal") || path.startsWith("/pro");
   if (role === "resident") return path.startsWith("/resident");
   if (role === "admin") return path.startsWith("/admin");
-  return false;
+  return path.startsWith("/vendor");
 }
 
 function defaultPostAuthPath(role?: AuthRole): string {

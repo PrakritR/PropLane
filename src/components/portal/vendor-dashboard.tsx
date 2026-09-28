@@ -13,10 +13,10 @@ import {
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { VendorDashboardBalanceCard } from "@/components/portal/vendor-dashboard-balance-card";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { Button } from "@/components/ui/button";
 import { CalendarDays, ListChecks, Wrench, FileText, Mail } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -25,7 +25,6 @@ import {
   syncManagerWorkOrdersFromServer,
 } from "@/lib/manager-work-orders-storage";
 import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
-import { takePendingNotice } from "@/lib/pending-notice";
 import {
   loadPersistedInbox,
   PORTAL_INBOX_CHANGED_EVENT,
@@ -34,16 +33,6 @@ import {
 } from "@/lib/portal-inbox-storage";
 
 const BASE = "/vendor";
-const CONTACT_NUDGE_DISMISSED_KEY = "axis_vendor_contact_nudge_dismissed";
-
-function readContactNudgeDismissed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(CONTACT_NUDGE_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
@@ -57,57 +46,6 @@ export function VendorDashboard({}: { displayName: string }) {
   const [nowMs] = useState(() => Date.now());
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
-  const [needsContact, setNeedsContact] = useState(false);
-  const [contactNudgeDismissed, setContactNudgeDismissed] = useState(false);
-  const [signupNotice, setSignupNotice] = useState<string | null>(null);
-  // STATE-driven, not delivery-driven: a vendor with no linked manager sees this
-  // every time they load the dashboard while unlinked — not just once, right
-  // after the signup redirect that happened to queue a reason (docs/agents/vendor-portal.md).
-  const [unlinked, setUnlinked] = useState(false);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [onboarding, setOnboarding] = useState<{
-    businessDone: boolean;
-    tradesAreaDone: boolean;
-    licenseInsuranceDone: boolean;
-    completedAt: string | null;
-  } | null>(null);
-
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    void fetch("/api/vendor/business-profile", { credentials: "include" })
-      .then((r) => r.json())
-      .then(
-        (data: {
-          profile?: {
-            businessName?: string;
-            trades?: string[];
-            serviceArea?: string;
-            serviceAreaZips?: string[];
-            serviceRadiusMiles?: number | null;
-            licenseNumber?: string;
-            insuranceProvider?: string;
-            onboardingCompletedAt?: string | null;
-          };
-        }) => {
-          const p = data.profile;
-          if (!p) return;
-          setOnboarding({
-            businessDone: Boolean(p.businessName?.trim()),
-            tradesAreaDone:
-              Boolean(p.trades?.length) &&
-              Boolean(p.serviceArea?.trim() || p.serviceAreaZips?.length || p.serviceRadiusMiles != null),
-            licenseInsuranceDone: Boolean(p.licenseNumber?.trim() || p.insuranceProvider?.trim()),
-            completedAt: p.onboardingCompletedAt ?? null,
-          });
-        },
-      )
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const pending = takePendingNotice(window.location.pathname);
-    if (pending) setSignupNotice(pending);
-  }, []);
 
   useEffect(() => {
     void Promise.allSettled([
@@ -138,27 +76,6 @@ export function VendorDashboard({}: { displayName: string }) {
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    setContactNudgeDismissed(readContactNudgeDismissed());
-    if (isDemoModeActive()) return;
-    void fetch("/api/vendor/profile", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { linked?: boolean; contact?: { phone?: string; smsConsent?: boolean } }) => {
-        setNeedsContact(!data.contact?.phone || !data.contact?.smsConsent);
-        setUnlinked(data.linked === false);
-      })
-      .catch(() => undefined);
-  }, []);
-
-  function dismissContactNudge() {
-    setContactNudgeDismissed(true);
-    try {
-      window.localStorage.setItem(CONTACT_NUDGE_DISMISSED_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-  }
-
   const data = useMemo(() => {
     void tick;
     const rows = readVendorWorkOrderRows();
@@ -182,16 +99,6 @@ export function VendorDashboard({}: { displayName: string }) {
   const payoutItems = paymentsConnected ? pendingPayouts : [];
 
   const attentionRows: ManagerAttentionRow[] = [];
-  if (needsContact && !contactNudgeDismissed) {
-    attentionRows.push({
-      id: "phone",
-      title: "Phone number not set up",
-      detail: "Phone",
-      actionLabel: "Set up",
-      href: `${BASE}/profile`,
-      tone: "pending",
-    });
-  }
   if (quotesPending.length > 0) {
     attentionRows.push({
       id: "quotes",
@@ -236,18 +143,6 @@ export function VendorDashboard({}: { displayName: string }) {
 
   const jobCards = openWorkOrders.slice(0, 3);
 
-  // Shown until every item is done — Payout bank reuses the existing payouts
-  // connect flow rather than duplicating it here.
-  const onboardingChecklistItems = onboarding
-    ? [
-        { id: "business", label: "Business", done: onboarding.businessDone, href: "/vendor/onboarding" },
-        { id: "trades-area", label: "Trades & area", done: onboarding.tradesAreaDone, href: "/vendor/onboarding" },
-        { id: "license-insurance", label: "License & insurance", done: onboarding.licenseInsuranceDone, href: "/vendor/onboarding" },
-        { id: "payout-bank", label: "Payout bank", done: paymentsConnected, href: `${BASE}/financials/payouts` },
-      ]
-    : [];
-  const onboardingChecklistOpen = onboarding !== null && onboardingChecklistItems.some((item) => !item.done);
-
   return (
     <ManagerPortalPageShell
       title="Dashboard"
@@ -255,48 +150,6 @@ export function VendorDashboard({}: { displayName: string }) {
       hideTitleOnMobileNav
     >
       <PortalHomeLayout
-        banner={
-          <>
-            {unlinked && !bannerDismissed ? (
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm" role="status">
-                <p className="min-w-0 text-sm font-semibold text-foreground">
-                  {signupNotice ?? "Waiting on a property manager to connect with you."}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 rounded-full px-3 py-1 text-xs"
-                  data-attr="vendor-signup-notice-dismiss"
-                  onClick={() => setBannerDismissed(true)}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            ) : null}
-            {onboardingChecklistOpen ? (
-              <div className="rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-checklist">
-                <p className="text-sm font-semibold text-foreground">Finish setting up</p>
-                <ul className="mt-3 flex flex-wrap gap-2">
-                  {onboardingChecklistItems.map((item) => (
-                    <li key={item.id}>
-                      <Link
-                        href={item.href}
-                        className="flex min-h-11 items-center gap-2 rounded-full border border-border px-3 text-sm font-medium text-foreground hover:bg-secondary/60"
-                        data-attr={`vendor-onboarding-checklist-${item.id}`}
-                      >
-                        <span
-                          aria-hidden
-                          className={`size-2 rounded-full ${item.done ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
-                        />
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        }
         kpis={
           <>
             <KpiCard
@@ -342,9 +195,11 @@ export function VendorDashboard({}: { displayName: string }) {
           </>
         }
         below={
-          <section className="space-y-3" data-attr="dashboard-your-jobs">
+          <>
+            <VendorDashboardBalanceCard />
+            <section className="space-y-3" data-attr="dashboard-your-jobs">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your jobs</h2>
+              <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Services</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <PortalPrimaryIconAction
                   label="Add"
@@ -360,7 +215,7 @@ export function VendorDashboard({}: { displayName: string }) {
               </div>
             </div>
             {jobCards.length === 0 ? (
-              // Exactly one create control for "Your jobs": the header icon
+              // Exactly one create control for "Services": the header icon
               // action above stays the CTA — this card explains the empty
               // state without a second, duplicate "Add" button (C147).
               <PortalListEmptyCard
@@ -389,7 +244,8 @@ export function VendorDashboard({}: { displayName: string }) {
                 ))}
               </div>
             )}
-          </section>
+            </section>
+          </>
         }
       />
     </ManagerPortalPageShell>

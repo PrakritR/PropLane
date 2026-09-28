@@ -62,6 +62,25 @@ describe("inbox bubble alignment", () => {
     expect(document.querySelector('[data-inbox-bubble-align="start"]')?.className).toMatch(/mr-auto/);
   });
 
+  it("renders an auto-sent lifecycle turn as a centered system notice, not a bubble", () => {
+    render(
+      <InboxBubble
+        message={{
+          id: "sys",
+          author: "Akhil",
+          body: "Lease sent for signature.",
+          at: "2:14 PM",
+          direction: "system",
+        }}
+      />,
+    );
+    const notice = document.querySelector('[data-inbox-bubble-kind="system"]');
+    expect(notice).toBeTruthy();
+    expect(notice?.textContent).toContain("Lease sent for signature.");
+    // Never a chat bubble — no aligned wrap, no author, no sending/failed chrome.
+    expect(document.querySelector('[data-inbox-bubble-align]')).toBeNull();
+  });
+
   it("keeps mixed timeline sides correct when an outbound body has a long URL", () => {
     const messages: InboxBubbleMessage[] = [
       { id: "1", author: "Akhil", body: "Hello this is akhil", at: "1", direction: "inbound" },

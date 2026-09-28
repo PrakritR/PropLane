@@ -19,12 +19,50 @@
 import "server-only";
 
 import type { AgentContext } from "@/lib/tools/context";
+import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { findLiveApiKey, touchApiKey, type ApiKeyScope } from "./api-keys.server";
 import type { ApiKeyTransport } from "./capabilities";
 import { findLiveMcpAccessToken, touchMcpAccessToken } from "./oauth.server";
 import { API_KEY_TOOL_NAMES } from "./capabilities";
+import { resolveActiveWorkspace } from "@/lib/workspaces/active.server";
+import { loadWorkspaces } from "@/lib/workspaces/server";
+
+/**
+ * The same `AgentWorkspaceScope` shape `resolveAgentContext` builds from a
+ * browser session's selection cookie (W001) — resolved here from the
+ * workspace id STORED ON THE CREDENTIAL instead, since a bearer request has
+ * no cookie. Returns null when the credential carries no workspace at all (a
+ * pre-migration row that has not backfilled, or the resolve itself failed),
+ * so the caller can refuse rather than build an `AgentContext` with
+ * `workspace: undefined` — the shape every tool's `!workspace => allow`
+ * fallback reads as "workspace scoping does not apply here", which is
+ * exactly how an API key used to reach every workspace a manager owns.
+ */
+async function resolveApiKeyWorkspaceScope(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  workspaceId: string | null,
+): Promise<AgentWorkspaceScope | null> {
+  const id = (workspaceId ?? "").trim();
+  if (!id) return null;
+  try {
+    const [active, workspaces] = await Promise.all([
+      resolveActiveWorkspace(db, userId, id),
+      loadWorkspaces(db, userId),
+    ]);
+    return {
+      id: active.id,
+      name: active.name,
+      isDefault: active.isDefault,
+      narrowing: workspaces.length > 1,
+      propertyIds: active.propertyIds.map((pid) => pid.trim()).filter(Boolean),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export type ApiKeyContext = {
   ctx: AgentContext;
@@ -91,6 +129,20 @@ export async function resolveApiKeyContext(
     return { ok: false, status: 403, error: "This account no longer has manager access." };
   }
 
+  // Every tool call made through this credential must land inside ONE
+  // workspace, resolved from what the key/connection was scoped to at mint
+  // (or approval) time — never left `undefined`, which every module's
+  // `!workspace => allow` fallback reads as "don't narrow" (W001).
+  const storedWorkspaceId = key?.workspaceId ?? oauthToken?.workspaceId ?? null;
+  const workspace = await resolveApiKeyWorkspaceScope(db, userId, storedWorkspaceId);
+  if (!workspace) {
+    return {
+      ok: false,
+      status: 403,
+      error: "This key has no workspace scope. Recreate it from Settings › API & MCP.",
+    };
+  }
+
   if (key) touchApiKey(db, key);
   else if (oauthToken) touchMcpAccessToken(db, oauthToken);
 
@@ -105,6 +157,7 @@ export async function resolveApiKeyContext(
       email: (profile?.email ?? "").trim().toLowerCase(),
       roles,
       isAdmin,
+      workspace,
       db,
     },
   };

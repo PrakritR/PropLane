@@ -74,11 +74,18 @@ describe("Pricing card — shared room same price per resident", () => {
   });
 
   it("shows residents count and Rent /mo per resident with (i) on a shared room", () => {
+    // N082 / 633b90975 replaced the flat "Residents" summary row and its
+    // ColumnHelp with the arrangement editor's "Offered as" picker plus a
+    // "Rent /mo per resident" row per offered head count — same invariant
+    // (a shared room names the resident count and labels rent as per-resident),
+    // different chrome.
     render(<Harness />);
     openRoomCard("Room B");
-    expect(document.querySelector('[data-attr="listing-v2-price-residents"]')?.textContent).toMatch(/2/);
-    expect(screen.getByText(/Rent \/mo per resident/)).toBeTruthy();
-    expect(document.querySelector('[data-attr="listing-v2-rent-per-resident-help"]')).toBeTruthy();
+    const offeredAs = document.querySelector('[data-attr="listing-v2-offered-as"]');
+    expect(offeredAs?.textContent).toMatch(/Shared by 2/);
+    expect(screen.getAllByText(/Rent \/mo per resident/).length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('[data-attr="listing-v2-arrangement-rent"]').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-attr="listing-v2-price-residents"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-price-per-resident"]')).toBeNull();
     expect(document.querySelectorAll('[data-attr="listing-v2-price-resident-block"]').length).toBe(0);
   });

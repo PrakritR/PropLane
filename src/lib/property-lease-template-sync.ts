@@ -2,7 +2,7 @@ import {
   resolveAllowedLeaseTerms,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import {
@@ -23,6 +23,8 @@ type LeaseTemplateSeed = {
 
 const LONG_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "primary";
 const SHORT_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "short-term";
+/** P007: Airbnb stays get their own lease row when the listing allows them. */
+const AIRBNB_SEED_KEY: PropertyLeaseListingSeedKey = "airbnb";
 export const BUNDLE_LONG_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "bundle-primary";
 export const BUNDLE_SHORT_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "bundle-short-term";
 
@@ -82,13 +84,14 @@ export function buildLeaseTemplateSeeds(
     | "allowedLeaseTerms"
     | "leaseTermsBody"
     | "shortTermRentalsAllowed"
+    | "airbnbRentalsAllowed"
     | "rooms"
     | "entireHomeMonthlyRent"
     | "listingPlaceCategoryId"
   >,
 ): LeaseTemplateSeed[] {
   const longTerms = longTermApplicationLeaseTerms(sub);
-  return [
+  const seeds: LeaseTemplateSeed[] = [
     {
       seedKey: LONG_TERM_SEED_KEY,
       kind: "long-term",
@@ -102,11 +105,26 @@ export function buildLeaseTemplateSeeds(
       applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
     },
   ];
+  // P007 (captain 2026-09-27): "Show an Airbnb row too." Reuses the
+  // "short-term" template kind — an Airbnb stay already behaves like a
+  // short-term stay everywhere else (`applicationRentalTypeFor`) — with its
+  // own seed key and application lease term so it never merges into the
+  // generic short-term row.
+  if (sub.airbnbRentalsAllowed) {
+    seeds.push({
+      seedKey: AIRBNB_SEED_KEY,
+      kind: "short-term",
+      label: "Airbnb stay agreement",
+      applicationLeaseTerms: [AIRBNB_LEASE_TERM],
+    });
+  }
+  return seeds;
 }
 
 function defaultLabelForLeaseTemplate(template: PropertyLeaseTemplate): string {
   if (template.listingSeedKey === BUNDLE_LONG_TERM_SEED_KEY) return "Lease bundle · Long-term";
   if (template.listingSeedKey === BUNDLE_SHORT_TERM_SEED_KEY) return "Lease bundle · Short-term";
+  if (template.listingSeedKey === AIRBNB_SEED_KEY) return "Airbnb stay agreement";
   if (template.listingSeedKey === SHORT_TERM_SEED_KEY || template.kind === "short-term") {
     return "Short-term stay lease";
   }
@@ -127,6 +145,7 @@ const KNOWN_DEFAULT_LEASE_TEMPLATE_LABELS: Partial<
   "custom-term": ["Custom lease"],
   "bundle-primary": ["Lease bundle · Long-term"],
   "bundle-short-term": ["Lease bundle · Short-term"],
+  airbnb: ["Airbnb stay agreement"],
 };
 
 function isDefaultLeaseTemplateLabel(template: PropertyLeaseTemplate): boolean {

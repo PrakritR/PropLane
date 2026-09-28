@@ -1359,6 +1359,43 @@ manager-leases-pipeline-panel.tsx  runGenerateLease(row)
 
 `buildLeaseHtml` then picks the short-term agreement or the long-form lease.
 
+## Shared-room arrangement pricing — a UI-only feature so far (Sep 2026)
+
+`src/lib/room-arrangement-pricing.ts` is the resolver for "Private / Shared by
+2 / Shared by 3 / …" room pricing (`room.occupancyPrices[]`, one row per head
+count, with `sameAs` inheriting a smaller count's figures). `roomPriceForResidentCount(room, count)`
+is the one decision point for a count's rent, utilities, deposit and —
+additive, N082 (Sep 27) — Partial months answer (`prorateMethod` /
+`dailyRentRate` / `dailyUtilitiesRate`), each following the same `sameAs`
+chain. N082 also added per-arrangement **Other fees**: a `ListingFeeRow` can
+carry `arrangementCounts?: number[]` (`src/lib/listing-fees.ts`,
+`feeAppliesToArrangementCount`), the same absent-means-everyone shape as
+`residentSlots` — a fee added inside a Shared by 2 block is that arrangement's
+alone (`ArrangementPriceEditor`, `listing-arrangement-editor.tsx`, reusing the
+room card's own `FeeRows`/`ProrateRows` from `listing-pricing-step.tsx` with an
+`arrangementCount` prop). The room-level Other fees/Partial months block
+(rendered once, below `ArrangementPriceEditor`) IS Private's (count 1) —
+every caller in a shared room passes `arrangementCount={1}` there, so a fee
+has exactly one owning card and no arrangement's list can double up another's.
+
+**⚠️ Not yet wired to any billing or lease-document consumer.** Confirmed by
+grep (Sep 27): `roomPriceForResidentCount` and `occupancyPrices` are read
+ONLY inside the wizard UI (`listing-arrangement-editor.tsx`,
+`arrangementSummaryLine`) — `listing-quote.ts` (the application quote
+preview), `household-charges.ts` (real billing), and `lease-billing-snapshot.ts`
+never call it. This is true for arrangement-based **rent** too, not only the
+N082 fee/prorate additions — a pre-existing gap N082 did not introduce or
+worsen. Concretely: a manager can record "Shared by 2 costs $900/resident,
+plus a $30 cleaning fee, prorated at $30/day" in the wizard today, and the
+number renders correctly back in the wizard's own summary line — but an
+actual application/lease/charge for that room still prices off
+`room.monthlyRent` and the room-wide fee list, exactly as if none of this had
+ever been set. Wiring `roomPriceForResidentCount` into `listing-quote.ts` and
+`household-charges.ts` needs, first, a resolvable "which arrangement did this
+resident's application pick" — the same missing piece arrangement-based rent
+itself is waiting on. Do not assume a fee's `arrangementCounts` or a room's
+`occupancyPrices[].prorateMethod` narrows a real charge until that lands.
+
 ## Stay pricing: one resolver, two consumers (Jul 2026)
 
 ### The bug

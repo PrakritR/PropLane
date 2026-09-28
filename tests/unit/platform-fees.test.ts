@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   axisResidentPaymentFeePlanLine,
   platformFeeCents,
   platformFeeDisplayPercents,
+  vendorInstantWithdrawFeeCents,
+  vendorPayFeeBps,
+  vendorPayFeeCents,
+  vendorPayFeeDisplayPercent,
+  VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS,
 } from "@/lib/platform-fees";
 import {
   residentConnectApplicationFeeCents,
@@ -33,6 +38,59 @@ describe("platform-fees", () => {
       expect(line).toContain("PropLane covers payment processing");
       expect(line).not.toMatch(/residents pay processing/i);
     }
+  });
+});
+
+describe("vendor pay take rate (VENDOR_BANKING_ENABLED)", () => {
+  const PREV = process.env.VENDOR_BANKING_ENABLED;
+
+  beforeEach(() => {
+    delete process.env.VENDOR_BANKING_ENABLED;
+  });
+
+  afterEach(() => {
+    if (PREV === undefined) delete process.env.VENDOR_BANKING_ENABLED;
+    else process.env.VENDOR_BANKING_ENABLED = PREV;
+  });
+
+  it("is 0 bps / 0 cents / 0% with the flag off — today's behavior, byte-for-byte", () => {
+    expect(vendorPayFeeBps()).toBe(0);
+    expect(vendorPayFeeCents(10_000)).toBe(0);
+    expect(vendorPayFeeDisplayPercent()).toBe(0);
+    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(0);
+  });
+
+  it("is 300 bps (3%) once the flag is on", () => {
+    process.env.VENDOR_BANKING_ENABLED = "1";
+    expect(vendorPayFeeBps()).toBe(300);
+    expect(vendorPayFeeDisplayPercent()).toBe(3);
+  });
+
+  it("floors to the cent and never exceeds the gross amount", () => {
+    process.env.VENDOR_BANKING_ENABLED = "1";
+    expect(vendorPayFeeCents(10_000)).toBe(300); // exactly 3%
+    expect(vendorPayFeeCents(10_001)).toBe(300); // floors, not rounds up
+    expect(vendorPayFeeCents(3333)).toBe(99); // 99.99 -> floors to 99
+    expect(vendorPayFeeCents(1)).toBe(0); // 0.03 -> floors to 0
+    expect(vendorPayFeeCents(0)).toBe(0);
+    expect(vendorPayFeeCents(-500)).toBe(0);
+    expect(vendorPayFeeCents(Number.NaN)).toBe(0);
+  });
+
+  it("never goes negative or exceeds gross even at extreme inputs", () => {
+    process.env.VENDOR_BANKING_ENABLED = "1";
+    const gross = 7;
+    const fee = vendorPayFeeCents(gross);
+    expect(fee).toBeGreaterThanOrEqual(0);
+    expect(fee).toBeLessThanOrEqual(gross);
+  });
+
+  it("Instant-withdraw fee is 1.5% with a 50-cent minimum, only when the flag is on", () => {
+    process.env.VENDOR_BANKING_ENABLED = "1";
+    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(150); // 1.5% of $100
+    expect(vendorInstantWithdrawFeeCents(1_000)).toBe(VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS); // 15c -> floors to the 50c minimum
+    expect(vendorInstantWithdrawFeeCents(0)).toBe(0);
+    expect(vendorInstantWithdrawFeeCents(-100)).toBe(0);
   });
 });
 

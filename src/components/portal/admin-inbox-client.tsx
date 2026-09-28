@@ -15,6 +15,7 @@ import {
   type PortalInboxTableRow,
 } from "@/components/portal/portal-inbox-ui";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
@@ -877,11 +878,12 @@ export const AdminInboxClient = forwardRef<
       ) : null}
       {embeddedInCommunication && tabId === "all" ? (
         <div className="mb-4">
-          <ManagerPortalStatusPills
-            activeTone="primary"
-            tabs={inboxTabs.filter((tab) => tab.id === "unopened" || tab.id === "opened" || tab.id === "sent")}
+          <LocalDestinationNav
+            items={inboxTabs.filter((tab) => tab.id === "unopened" || tab.id === "opened" || tab.id === "sent")}
             activeId={embeddedInboxTab}
             onChange={(id) => setEmbeddedInboxTab(id as "unopened" | "opened" | "sent")}
+            ariaLabel="Message status"
+            appearance="command"
           />
         </div>
       ) : null}

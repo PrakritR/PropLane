@@ -148,15 +148,18 @@ account override does — [resident-payments.md](resident-payments.md).
 
 `src/components/portal/pro-plan.tsx` (`ManagerPlan`) owns the whole page, in
 this order: Plan (one resolved `effectiveTier`, no pill, a scheduled-change
-banner with Undo when one is pending) → Usage
-(`manager-usage-panel.tsx`'s `ManagerUsagePanel` — communication, listings,
-workspaces, work numbers, co-managers as bars) → Extra usage
-(`ManagerExtraUsagePanel` — typed-dollar credit purchase via
-`use-credit-checkout.ts`, alert threshold, usage rates) → Add-ons
+banner with Undo when one is pending) → Extra usage / Messaging credit
+(`ManagerExtraUsagePanel` when `COMMS_CREDIT_POOL_ENABLED` is off — typed-dollar
+credit purchase via `use-credit-checkout.ts`, alert threshold, usage rates —
+or `MessagingCreditPanel` when it is on, see
+[comms-billing.md § messaging-credit pool](comms-billing.md)) → Add-ons
 (`ManagerPlanAddonsPanel`, mounted, not re-implemented) → Payment
 (`ManagerPaymentMethodsPanel`) → Invoices (`GET /api/manager/invoices`) →
 Cancellation. The three plan cards from the pre-PLAN-0920-1400 page live
 behind the **Adjust plan** sheet (`pro-plan-adjust-sheet.tsx`), never inline.
+The Usage and Residents sections (`ManagerUsagePanel`, `ManagerDoorsPanel` in
+`manager-usage-panel.tsx`) were removed from this page (S27) — the components
+still exist for any other caller, they are simply no longer mounted here.
 
 Every tier read on the page goes through one resolved `effectiveTier`
 (`resolveEffectiveManagerSkuTier`) — the header, Usage's plan label and the
@@ -264,8 +267,22 @@ staff-authored text about a commercial decision, not lifted from a resident — 
 it is trimmed to 280 characters. `dedupe_key` is left unset on purpose: setting
 the same cap twice is two real decisions.
 
-Not yet built (a separate ticket): **global defaults** — changing what a plan
-includes for everyone, rather than excepting one account.
+**One global default now exists (S27):** the Plan credit table
+(`PlanCreditRulesSection`, `src/components/portal/admin-billing-client.tsx`)
+sets each plan's included messaging credit, whether it is shared across a
+funder's workspaces, and whether unused credit rolls over
+(`comms_plan_credit_rules`, seeded from `RATE_CARD`) — see
+[comms-billing.md § messaging-credit pool](comms-billing.md). It only takes
+effect through that pool (`COMMS_CREDIT_POOL_ENABLED`, off by default); every
+other plan-wide figure (doors, floor price, residents) is still hand-typed in
+`RATE_CARD` and not yet admin-editable.
+
+It landed pointed at `/admin/billing`, but `"billing"` was never registered in
+`adminPortal.sections` (`src/lib/portals/admin.ts`), so that URL 404s — the
+table was reachable in code review, never in the product. It now mounts from
+Accounts (`/admin/axis-users`) behind the header "Plan credit" icon action
+(`AdminAxisUsersClient`), which opens it in a modal; there is no separate
+`/admin/billing` route.
 
 Coverage: `tests/unit/admin-billing-rows.test.ts`,
 `admin-manager-billing-overrides-route.test.ts`,

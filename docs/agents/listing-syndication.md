@@ -4,10 +4,22 @@
 # Listing syndication: Zillow Rental Network
 
 **Scope: Zillow Rental Network only (Zillow · Trulia · HotPads), one feed per
-manager account, registered once with Zillow.** Each listing opts in
+WORKSPACE, registered once with Zillow (W013).** Each listing opts in
 individually from its Review step. There is no Apartments.com feed, no lead
 ingestion (leads already arrive through tour requests + the inbox, same as
 every other prospect channel), and no key-regeneration flow.
+
+**W013 — per-workspace feeds.** A manager account may hold several
+`portal_workspaces`; the feed used to be scoped by `manager_user_id` alone, so
+a multi-workspace manager's single feed mixed every workspace's listings.
+`manager_syndication_feeds` now carries `workspace_id`
+(`supabase/migrations/20260927134258_listing_syndication_per_workspace.sql`,
+additive, service-role only), unique on `(manager_user_id, workspace_id)`. A
+pre-existing single feed keeps its exact `feed_key` — never regenerated — and
+was backfilled onto that manager's DEFAULT workspace
+(`ensure_default_portal_workspace`), so a URL already registered with Zillow
+keeps working, now scoped to that workspace's listings. A second (or shared)
+workspace gets its own feed, created lazily on first read.
 
 ## The feed is a projection of the public payload, nothing more
 
@@ -76,21 +88,31 @@ splitting per room is future work if it turns out to matter.
 
 `GET /api/feeds/zillow/[feedKey]` (`src/app/api/feeds/zillow/[feedKey]/route.ts`)
 is anonymous, keyed by an opaque `feed_key` from `manager_syndication_feeds`
-(never the manager's user id — the URL alone reveals no identity). It looks up
-the feed row with the service-role client, 404s on an unknown or disabled key,
-then intersects `getPublicListings()` (already sandbox-filtered, contact-
-resolved, projected) with this manager's raw opt-in flags before mapping to
-XML. `Content-Type: application/xml`, `Cache-Control` matches the other public
-listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
+(never the manager's user id or workspace id — the URL alone reveals no
+identity). It looks up the feed row (now also reading `workspace_id`) with the
+service-role client, 404s on an unknown or disabled key, then intersects
+`getPublicListings()` (already sandbox-filtered, contact-resolved, projected)
+with `zillowEnabledPropertyIds`'s id set — a raw `manager_property_records`
+query filtered to `manager_user_id` AND `workspace_id` — before mapping to
+XML. `publicListingProjection` carries neither `syndication` nor `workspaceId`
+(both excluded from the public allowlist), so the workspace scoping happens
+entirely through that pre-computed id set, never by filtering the projected
+listing itself. `Content-Type: application/xml`, `Cache-Control` matches the
+other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
 
-`manager_syndication_feeds` (`supabase/migrations/20260920203000_listing_syndication.sql`)
-follows `manager_house_public_links`'s shape exactly: service-role only,
-`revoke all ... from anon, authenticated`. The manager-facing "Zillow feed URL"
-settings row (Settings → Properties, `ZillowFeedUrlRow` in
+`manager_syndication_feeds` (`supabase/migrations/20260920203000_listing_syndication.sql`,
+`20260927134258_listing_syndication_per_workspace.sql`) follows
+`manager_house_public_links`'s shape exactly: service-role only, `revoke all
+... from anon, authenticated`. The manager-facing "Zillow feed URL" settings
+row (Settings → Properties, `ZillowFeedUrlRow` in
 `pro-portal-settings-panels.tsx`) reads/creates it through
-`GET /api/manager/syndication-feed`, an authenticated route pinned to
-`auth.uid()`. Regenerating the key is out of scope — a manager who already
-handed this exact URL to Zillow would break that registration.
+`GET /api/manager/syndication-feed`, an authenticated route that resolves the
+caller's ACTIVE workspace (`resolveWorkspaceFromSettingsRequest` — explicit
+`?workspaceId=`, else the workspace-switcher cookie, else the viewer's own
+default) and keys the feed to that workspace's OWNER, never the viewer's own
+id when a co-manager is acting in a shared workspace. Regenerating the key is
+out of scope — a manager who already handed this exact URL to Zillow would
+break that registration.
 
 ## Registering the feed with Zillow
 

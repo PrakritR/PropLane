@@ -17,6 +17,8 @@ type Body = {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type — picks the listing's per-type fee when it set one. */
   leaseTerm?: string;
+  /** P003: the application template the applicant is actually applying with — a selector into the listing's own stored templates, never an amount. */
+  applicationTemplateId?: string;
   /** Optional — when present, also reports whether the code currently looks redeemable. */
   waiverCode?: string;
   /**
@@ -71,6 +73,7 @@ export async function POST(req: Request) {
         managerUserId,
         rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
         leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
+        applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
       },
       { allowZeroFee: true },
     );
@@ -126,6 +129,11 @@ export async function POST(req: Request) {
       // code is invalid. No machine tag is added here until a surface actually
       // branches on one — an unread field only invites drift.
       waiver: waiver ? { valid: waiver.ok, error: waiver.ok ? undefined : waiver.error } : undefined,
+      // P003: a DISPLAY default only, from the resolved application template's
+      // own advertised code — redemption is still the unchanged
+      // account/property waiver lookup above, keyed on whatever code the
+      // applicant actually submits, never this value directly.
+      templateWaiverCodeOverride: resolved.value.templateWaiverCodeOverride,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load application fee.";

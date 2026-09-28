@@ -80,5 +80,10 @@ export function buildSeedLeaseHtml({ application, propertyData, monthlyRent }) {
     submission: mockProperty.listingSubmission?.v === 1 ? mockProperty.listingSubmission : undefined,
     generatedAtIso: new Date().toISOString(),
   };
-  return buildAiGeneratedLeaseHtml(ctx);
+  // The builder returns an outcome, not HTML. Storing the outcome object put
+  // `{ html, kind, ... }` where the app expects a string, so every seeded lease
+  // read as having no document.
+  const outcome = buildAiGeneratedLeaseHtml(ctx);
+  if (outcome.kind !== "generated") throw new Error(outcome.error ?? "Lease generation failed.");
+  return outcome.html;
 }

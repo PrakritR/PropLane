@@ -285,6 +285,7 @@ async function deliverProjection(
     toUserIds: input.recipient.userId ? [input.recipient.userId] : undefined,
     toEmails: input.recipient.email ? [input.recipient.email] : undefined,
     eventCategory: input.category,
+    automated: true,
     suppressSms: input.suppressSms,
     suppressEmail: input.retryMode === "sms",
     suppressInbox: Boolean(input.retryMode),

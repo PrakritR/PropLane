@@ -599,6 +599,12 @@ export type DemoMeeting = {
   kind?: "partner" | "tour" | "service" | "task";
   /** Present on manager task blocks — links back to the task list row. */
   sourceTaskId?: string;
+  /**
+   * A task synthesized from a due DATE with no explicit time. Drawn in the
+   * "All day" row instead of the synthetic 9am slot its `startSlot` still
+   * carries for any legacy reader that has not adopted the row.
+   */
+  allDay?: boolean;
   hostLabel?: string;
   isPeerTour?: boolean;
   /**
@@ -1415,6 +1421,21 @@ export function PortalCalendarPanels({
     return n;
   }, [monthYear, monthIndex, activeSlots]);
 
+  // A live clock for the compact grid's "today" disc and now-line (K003). One
+  // minute of drift is invisible at half-hour granularity, so a 60s tick — the
+  // same cadence the rest of this panel already polls on — is plenty; no need
+  // for a per-second timer that would re-render the whole grid needlessly.
+  const [nowClock, setNowClock] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNowClock(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const todayDs = useMemo(() => toLocalDateStr(nowClock), [nowClock]);
+  const nowSlotIndex = useMemo(
+    () => Math.floor((nowClock.getHours() * 60 + nowClock.getMinutes()) / SLOT_DURATION_MINUTES),
+    [nowClock],
+  );
+
   const visibleSlotIndices = useMemo(
     () => slotRowIndices.filter((slot) => slot >= visibleStartSlot && slot < visibleEndSlotExclusive),
     [visibleEndSlotExclusive, visibleStartSlot],
@@ -2038,6 +2059,9 @@ export function PortalCalendarPanels({
     const map = new Map<string, DemoMeeting>();
     for (const meeting of meetings) {
       if (!meetingPaintsCalendarGrid(meeting)) continue;
+      // An all-day task draws in the dedicated all-day row (K003), not its
+      // synthetic 9am slot — otherwise it would occupy the grid cell twice.
+      if (meeting.allDay) continue;
       for (const key of meetingOccupiedSlotKeys(meeting)) {
         const current = map.get(key);
         if (current && calendarCellPriority(current) < calendarCellPriority(meeting)) continue;
@@ -2046,6 +2070,18 @@ export function PortalCalendarPanels({
     }
     return map;
   }, [meetings]);
+
+  /** Tasks with no explicit time — drawn in the compact grid's all-day row. */
+  const allDayMeetingsByDate = useMemo(() => {
+    const map = new Map<string, DemoMeeting[]>();
+    for (const meeting of scheduledMeetings) {
+      if (!meeting.allDay) continue;
+      const list = map.get(meeting.dateStr);
+      if (list) list.push(meeting);
+      else map.set(meeting.dateStr, [meeting]);
+    }
+    return map;
+  }, [scheduledMeetings]);
 
   /**
    * The half hours that are genuinely TAKEN — informational Google metadata is
@@ -3016,6 +3052,214 @@ export function PortalCalendarPanels({
     );
   }
 
+  const renderSlotButton = (ds: string, slotIdx: number) => {
+    const key = dateSlotKey(ds, slotIdx);
+    const active = publishedActiveSlots.has(key);
+    const vendorAvailabilityState = active ? "open" : "empty";
+    const coManagerOverlay = coManagerOverlayBySlotKey.get(key);
+    const coManagerOpen = Boolean(coManagerOverlay && !active && !meetingBySlotKey.get(key));
+    const selected = isSlotInDragSelection(ds, slotIdx);
+    const meeting = meetingBySlotKey.get(key);
+    // Bookable by the 9-5 default rather than by anything the manager
+    // painted. Shown so the calendar tells the truth about what
+    // prospects can book; clicking removes just this window.
+    const defaultOpen = Boolean(
+      !active && !meeting && !coManagerOpen && defaultOnlySlots.has(key),
+    );
+    const isMeetingStart = Boolean(
+      meeting && key === dateSlotKey(meeting.dateStr, meeting.startSlot),
+    );
+    // A run merges same-kind-set contiguous open cells into one visual
+    // block (PLAN-0914-1710 §1) — only ever set for a painted or
+    // default-open cell, mutually exclusive with meeting/coManagerOpen.
+    const run = active || defaultOpen ? findOpenRun(ds, slotIdx) : undefined;
+    const isRunFirstCell = Boolean(run && run.startSlot === slotIdx);
+    const isRunLastCell = Boolean(run && run.endSlotExclusive === slotIdx + 1);
+    const runTint = run ? (run.isDefault ? CALENDAR_DEFAULT_OPEN_RUN_TINT : CALENDAR_OPEN_RUN_TINTS[run.kinds[0] ?? "tours"]) : undefined;
+    const runLabel = run
+      ? vendorViewer
+        ? "Available"
+        : run.isDefault
+          ? "Tours"
+          : formatOpenRunKindsLabel(run.kinds)
+      : "";
+    // Super plan item 43: a small × on the first cell of an open run
+    // (not a chip). Week toolbar icons stay; Delete block in the
+    // dialog remains as the longer edit path.
+    return (
+      <div
+        key={key}
+        className={cn(
+          "group/slot relative min-h-9 min-w-0",
+          // Pull a continuation cell up over the grid's `gap-px` row gap so
+          // the run's fill reads as one continuous block instead of a
+          // stack of 30-min cells with a hairline between each.
+          run && !isRunFirstCell && "-mt-px",
+        )}
+      >
+        <button
+          type="button"
+          onMouseDown={() => {
+            if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+            // Weekday must come from the column's actual date, not its position in the
+            // window — the compact view can start on any weekday, so the Nth column is
+            // not the Nth weekday.
+            startDragSelection(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
+          }}
+          onMouseEnter={() => {
+            if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+            extendDragSelection(ds, slotIdx);
+          }}
+          onMouseUp={() => {
+            if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+            finishDragSelection();
+          }}
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            if (vendorViewer && !meeting && !coManagerOpen) {
+              onVendorAvailabilityEdit?.(ds, slotIdx);
+              return;
+            }
+            if (defaultOpen) {
+              if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
+              return;
+            }
+            if (!readOnly && !meeting && !active && !coManagerOpen) {
+              const drag = lastMultiDragRef.current;
+              if (
+                drag &&
+                drag.dateStr === ds &&
+                slotIdx >= drag.startSlot &&
+                slotIdx < drag.endSlotExclusive
+              ) {
+                lastMultiDragRef.current = null;
+                return;
+              }
+              if (canEditAvailability) {
+                if (vendorDayFlexibility) {
+                  openBlockModalForSlot(
+                    ds,
+                    mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
+                    slotIdx,
+                  );
+                } else {
+                  addAvailabilitySlot(ds, slotIdx);
+                }
+              }
+              return;
+            }
+            openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
+          }}
+          className={cn(
+            "portal-calendar-grid-slot relative h-full min-h-9 w-full px-2 text-center text-[11px] font-semibold transition",
+            meeting
+              ? `${meeting.color} ring-1 ring-inset`
+              : selected
+                ? "bg-primary/[0.14] text-primary ring-2 ring-inset ring-primary/35"
+                : run
+                  ? cn(
+                      runTint!.fill,
+                      "border-x",
+                      runTint!.border,
+                      isRunFirstCell ? cn("border-t", "rounded-t-lg") : "border-t-0",
+                      isRunLastCell ? cn("border-b", "rounded-b-lg") : "border-b-0",
+                    )
+                  : coManagerOpen
+                    ? CALENDAR_CO_MANAGER_SLOT
+                    : CALENDAR_EMPTY_SLOT,
+          )}
+          title={
+            defaultOpen
+              ? canEditAvailability
+                ? "Open for tours by default — click to remove this time"
+                : "Open for tours by default. Select one house to edit availability."
+              : meeting
+                ? `${meetingCalendarGridTooltip(meeting)} · ${formatRangeLabel(meeting.startIso, meeting.endIso)}`
+                : undefined
+          }
+          aria-label={
+            vendorViewer && !meeting && !coManagerOpen
+              ? `${active ? "Available" : "Unavailable"} at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Set availability.`
+              : defaultOpen
+              ? canEditAvailability
+                ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
+              : meeting || active || coManagerOpen
+                ? `Open details for ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                : canEditAvailability
+                  ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                  : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+          }
+          data-availability-state={vendorViewer ? vendorAvailabilityState : undefined}
+          data-availability-date={vendorViewer ? ds : undefined}
+          data-availability-slot={vendorViewer ? slotIdx : undefined}
+        >
+          {meeting ? (
+            isMeetingStart ? (
+              <span className="flex items-center justify-center gap-1 truncate">
+                <MeetingTypeDot kind={meeting.kind} />
+                <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
+              </span>
+            ) : (
+              <span className="block truncate opacity-70">
+                {isGoogleCalendarPrivateBlock(meeting)
+                  ? googleBusyBlockStatusLabel(meeting)
+                  : meeting.statusLabel}
+              </span>
+            )
+          ) : selected ? (
+            "Selected"
+          ) : run ? (
+            isRunFirstCell ? (
+              <span className="flex flex-col items-center justify-center leading-tight">
+                <span className="block truncate">
+                  {runLabel}
+                </span>
+                <span className="block truncate text-[9px] font-medium opacity-80">
+                  {formatOpenRunTimeRangeLabel(run.startSlot, run.endSlotExclusive)}
+                </span>
+              </span>
+            ) : null
+          ) : coManagerOpen ? (
+            `${coManagerOverlay!.label}`
+          ) : (
+            // A faint "+" that only reveals on hover of a genuinely
+            // empty cell (the fill/colour comes from CALENDAR_EMPTY_SLOT).
+            // Previously this rendered the word "Add", which the empty
+            // cell's hover style turned into a stray blue label mid-grid
+            // (PLAN-0916-0041).
+            readOnly ? "" : <span aria-hidden className="text-base leading-none">+</span>
+          )}
+        </button>
+        {isRunFirstCell && run && canEditAvailability && !readOnly ? (
+          <button
+            type="button"
+            data-attr="calendar-remove-availability-slot"
+            aria-label={`Remove ${runLabel} block on ${ds}`}
+            className="absolute right-0.5 top-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-current/70 hover:bg-foreground/10 hover:text-foreground"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (vendorViewer) {
+                // The vendor's own run only — never the manager-only
+                // legacy schedule-record paths below, which write to
+                // a storage the vendor never reads from.
+                onVendorAvailabilityRemove?.(ds, run.startSlot, run.endSlotExclusive);
+                return;
+              }
+              if (run.isDefault) {
+                removeDefaultRun(ds, run.startSlot, run.endSlotExclusive);
+              } else {
+                removeOpenRun(ds, run.startSlot, run.endSlotExclusive, run.kinds);
+              }
+            }}
+          >
+            <X className="h-3 w-3" strokeWidth={2} aria-hidden />
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
   if (compactAvailability) {
     const vendorMode = Boolean(vendorDayFlexibility);
     const compactShellClass = cn(
@@ -3113,6 +3357,263 @@ export function PortalCalendarPanels({
         />
       </div>
     ) : null;
+
+    /**
+     * A thin red marker crossing the CURRENT half hour, but only on the row
+     * that is visible and only when one of the grid's own dates is today —
+     * navigating to a past/future week or day must never draw a stray line.
+     * `gridColumn: "1 / -1"` spans every column regardless of how many the
+     * caller's grid has (8 for the week grid, 2 for the day grid), so this one
+     * function serves both without a per-grid variant.
+     */
+    const renderNowLine = (dateStrs: string[], slotIdx: number) => {
+      if (slotIdx !== nowSlotIndex || !dateStrs.includes(todayDs)) return null;
+      return (
+        <div
+          key="now-line"
+          aria-hidden
+          data-attr="calendar-now-line"
+          className="pointer-events-none relative h-0.5 -translate-y-1/2 bg-red-500 before:absolute before:-left-1 before:-top-[3px] before:h-2 before:w-2 before:rounded-full before:bg-red-500"
+          style={{ gridColumn: "1 / -1" }}
+        />
+      );
+    };
+
+    /** Tasks with no explicit time (K003) — one row of chips above the time grid instead of a fake 9am slot. */
+    const renderAllDayRow = (dates: Date[]) => {
+      const hasAny = dates.some((d) => (allDayMeetingsByDate.get(toLocalDateStr(d))?.length ?? 0) > 0);
+      if (!hasAny) return null;
+      return (
+        <div
+          className={cn(`grid border-b border-border/60 ${CALENDAR_GRID_GAP}`)}
+          style={{ gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))` }}
+          data-attr="calendar-all-day-row"
+        >
+          <div className={`flex items-center justify-end bg-card px-1.5 text-[9px] font-semibold uppercase tracking-wide ${CALENDAR_TIME_CELL}`}>
+            All day
+          </div>
+          {dates.map((d) => {
+            const ds = toLocalDateStr(d);
+            const items = allDayMeetingsByDate.get(ds) ?? [];
+            return (
+              <div key={ds} className="flex min-h-7 flex-col gap-0.5 bg-card p-0.5">
+                {items.map((meeting) => (
+                  <button
+                    key={meeting.id}
+                    type="button"
+                    onClick={(e: MouseEvent<HTMLButtonElement>) =>
+                      openSlotDetails(meeting.dateStr, meeting.startSlot, e.currentTarget, meeting)
+                    }
+                    className={cn(
+                      "flex items-center gap-1 truncate rounded-md border-l-2 px-1.5 py-0.5 text-[10px] font-semibold",
+                      meeting.color,
+                    )}
+                  >
+                    <MeetingTypeDot kind={meeting.kind} />
+                    <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    /**
+     * Kind colors + "Open for tours" (K003) — same legend under Week and Day.
+     * Manager-only: a vendor's own calendar has no Tours/Services/Tasks tab
+     * split to key the legend off (C264 asked only for the week-at-a-glance
+     * grid, not this), and a vendor's own visit meetings carry no `kind`.
+     */
+    const renderCalendarLegend = () => {
+      if (vendorViewer) return null;
+      return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 pt-2 text-[11px] text-muted" data-attr="calendar-legend">
+        {(["tour", "service", "task"] as const).map((kind) => (
+          <span key={kind} className="flex items-center gap-1.5">
+            <span className={cn("h-2.5 w-2.5 rounded-sm", meetingTypeDotColor(kind))} />
+            {kind === "tour" ? "Tours" : kind === "service" ? "Services" : "Tasks"}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              "h-2.5 w-2.5 rounded-sm border",
+              CALENDAR_OPEN_RUN_TINTS.tours.fill,
+              CALENDAR_OPEN_RUN_TINTS.tours.border,
+            )}
+          />
+          Open for tours
+        </span>
+      </div>
+      );
+    };
+
+    /** K004: Monday-first month grid, up to three items a day, "+N more", hours open. */
+    const renderCompactMonthView = () => {
+      const monthWeekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      return (
+        <div className={cn(compactGridTopGap, bareSurface ? "" : "overflow-hidden rounded-2xl border border-border bg-card")}>
+          <div className={`grid grid-cols-7 text-center text-[10px] font-bold uppercase tracking-wide text-muted ${CALENDAR_GRID_GAP}`}>
+            {monthWeekdayLabels.map((label) => (
+              <div key={label} className="bg-card py-1.5">
+                {label}
+              </div>
+            ))}
+          </div>
+          <div className={`grid grid-cols-7 ${CALENDAR_GRID_GAP}`} data-slot="calendar-month-grid">
+            {monthCells.map((day, i) => {
+              if (!day) return <div key={`pad-${i}`} className="min-h-[6.5rem] bg-card/60" />;
+              const cellDate = new Date(monthYear, monthIndex, day, 12, 0, 0, 0);
+              const ds = toLocalDateStr(cellDate);
+              const isToday = ds === todayDs;
+              const isWeekend = cellDate.getDay() === 0 || cellDate.getDay() === 6;
+              const dayMeetings = scheduledMeetings
+                .filter((meeting) => meeting.dateStr === ds)
+                .sort((a, b) => a.startSlot - b.startSlot);
+              const shown = dayMeetings.slice(0, 3);
+              const moreCount = dayMeetings.length - shown.length;
+              const openHalfHours = openSlotCountForDate(ds);
+              return (
+                <button
+                  key={ds}
+                  type="button"
+                  data-attr="calendar-month-day"
+                  onClick={() => {
+                    setAnchorDate(cellDate);
+                    setViewMode("day");
+                  }}
+                  className={cn(
+                    "flex min-h-[6.5rem] flex-col items-stretch gap-1 bg-card p-1.5 text-left transition hover:bg-accent/20",
+                    isWeekend && "bg-accent/10",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                      isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+                    )}
+                  >
+                    {day}
+                  </span>
+                  <span className="flex flex-col gap-0.5">
+                    {shown.map((meeting) => (
+                      <span
+                        key={meeting.id}
+                        className={cn(
+                          "flex items-center gap-1 truncate rounded-md border-l-2 px-1 py-0.5 text-[10px] font-medium",
+                          meeting.color,
+                        )}
+                      >
+                        <MeetingTypeDot kind={meeting.kind} />
+                        <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
+                      </span>
+                    ))}
+                    {moreCount > 0 ? (
+                      <span className="px-1 text-[10px] font-semibold text-primary">+{moreCount} more</span>
+                    ) : null}
+                  </span>
+                  {openHalfHours > 0 ? (
+                    <span className={cn("mt-auto px-1 text-[10px] font-semibold", CALENDAR_OPEN_COUNT)}>
+                      {(openHalfHours / 2).toFixed(openHalfHours % 2 ? 1 : 0)} h open
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    /** K002/K003: single day, the same time grid plus an agenda panel with the day's items and open hours. */
+    const renderCompactDayView = () => {
+      const ds = toLocalDateStr(anchorDate);
+      const isToday = ds === todayDs;
+      const dayAllDay = allDayMeetingsByDate.get(ds) ?? [];
+      const dayAgendaItems = scheduledMeetings
+        .filter((meeting) => meeting.dateStr === ds && !meeting.allDay)
+        .sort((a, b) => a.startSlot - b.startSlot);
+      const agendaItems = [...dayAllDay, ...dayAgendaItems];
+      const openHalfHours = openSlotCountForDate(ds);
+      return (
+        <>
+        <div className={cn("grid gap-3", compactGridTopGap, "lg:grid-cols-[minmax(0,1fr)_16rem]")}>
+          <div className={bareSurface ? "min-w-0" : "min-w-0 overflow-hidden rounded-2xl border border-border bg-card"}>
+            <div className={`grid grid-cols-[4rem_1fr] text-[10px] ${CALENDAR_GRID_GAP}`}>
+              <div
+                className={`px-1 py-1.5 text-[9px] font-semibold uppercase tracking-wide ${bareSurface ? "bg-transparent" : ""} ${CALENDAR_HEADER_CELL}`}
+              >
+                Time
+              </div>
+              <div className={`flex items-center justify-center gap-1.5 px-1 py-1.5 text-[9px] font-semibold uppercase tracking-wide ${CALENDAR_HEADER_CELL}`}>
+                <span>{anchorDate.toLocaleDateString(undefined, { weekday: "long" })}</span>
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
+                    isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+                  )}
+                >
+                  {anchorDate.getDate()}
+                </span>
+              </div>
+            </div>
+            {renderAllDayRow([anchorDate])}
+            <div className={`grid grid-cols-[4rem_1fr] text-[10px] ${CALENDAR_GRID_GAP}`}>
+              {visibleSlotIndices.map((slotIdx) => (
+                <Fragment key={slotIdx}>
+                  <div className={`flex min-h-8 items-center bg-card px-1.5 sm:min-h-9 sm:px-2 ${CALENDAR_TIME_CELL}`}>
+                    {formatAvailabilitySlotLabel(slotIdx)}
+                  </div>
+                  {renderSlotButton(ds, slotIdx)}
+                  {renderNowLine([ds], slotIdx)}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+          <aside className="rounded-2xl border border-border bg-card p-3" data-attr="calendar-day-agenda">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted">
+              {anchorDate.toLocaleDateString(undefined, { weekday: "long" })}
+            </p>
+            <div className="mt-2 flex flex-col gap-1">
+              {agendaItems.length === 0 ? (
+                <p className="text-xs text-muted">Nothing scheduled</p>
+              ) : (
+                agendaItems.map((meeting) => (
+                  <button
+                    key={meeting.id}
+                    type="button"
+                    onClick={(e: MouseEvent<HTMLButtonElement>) =>
+                      openSlotDetails(meeting.dateStr, meeting.startSlot, e.currentTarget, meeting)
+                    }
+                    className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/30"
+                  >
+                    <MeetingTypeDot kind={meeting.kind} className="mt-1" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-foreground">
+                        {meetingCalendarGridLabel(meeting)}
+                      </span>
+                      <span className="block text-[11px] text-muted">
+                        {meeting.allDay ? "All day" : formatAvailabilitySlotLabel(meeting.startSlot)}
+                        {meeting.propertyTitle ? ` · ${meeting.propertyTitle}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <p className={cn("mt-3 flex items-center gap-1.5 text-xs font-semibold", openHalfHours > 0 ? CALENDAR_OPEN_COUNT : "text-muted")}>
+              {openHalfHours > 0
+                ? `${(openHalfHours / 2).toFixed(openHalfHours % 2 ? 1 : 0)} h open for tours`
+                : "No open tour time"}
+            </p>
+          </aside>
+        </div>
+        {renderCalendarLegend()}
+        </>
+      );
+    };
     return (
       <>
         <div className={compactShellClass} ref={compactShellRef}>
@@ -3149,8 +3650,8 @@ export function PortalCalendarPanels({
                   type="button"
                   variant="ghost"
                   className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
-                  onClick={() => shiftAvailabilityWeek(-1)}
-                  aria-label="Previous week"
+                  onClick={() => shiftAnchor(-1)}
+                  aria-label={`Previous ${viewMode}`}
                 >
                   ←
                 </Button>
@@ -3164,20 +3665,26 @@ export function PortalCalendarPanels({
                   Today
                 </Button>
                 <p className={cn("shrink-0 whitespace-nowrap px-0.5 text-center text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT, "lg:text-sm lg:font-semibold")}>
-                  <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
-                  <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
-                  <span className="hidden lg:inline">{formatWeekRangeMonSun(weekMonday)}</span>
+                  {viewMode === "week" ? (
+                    <>
+                      <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
+                      <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
+                      <span className="hidden lg:inline">{formatWeekRangeMonSun(weekMonday)}</span>
+                    </>
+                  ) : (
+                    <span>{formatNavTitle(anchorDate, viewMode)}</span>
+                  )}
                 </p>
                 <Button
                   type="button"
                   variant="ghost"
                   className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
-                  onClick={() => shiftAvailabilityWeek(1)}
-                  aria-label="Next week"
+                  onClick={() => shiftAnchor(1)}
+                  aria-label={`Next ${viewMode}`}
                 >
                   →
                 </Button>
-                {!vendorMode ? (
+                {!vendorMode && viewMode !== "month" ? (
                   <>
                     <div className="lg:hidden">{renderCompactMobileTimeWindow()}</div>
                     <div className="hidden lg:block">{renderTimeWindowControl(true)}</div>
@@ -3185,223 +3692,47 @@ export function PortalCalendarPanels({
                 ) : null}
               </div>
               <div className="flex min-w-0 items-center justify-end gap-1">
+                {hideViewModeControl ? null : (
+                  <div className="hidden shrink-0 sm:block" data-attr="calendar-view-mode">
+                    <PortalSegmentedControl<CalendarMode>
+                      options={[
+                        { id: "day", label: "Day" },
+                        { id: "week", label: "Week" },
+                        { id: "month", label: "Month" },
+                      ]}
+                      value={viewMode}
+                      onChange={setViewMode}
+                    />
+                  </div>
+                )}
                 {weekActionsHost ? createPortal(availabilityMenuAction, weekActionsHost) : availabilityMenuAction}
                 {weekPrimaryActionHost
                   ? createPortal(availabilityAddAction, weekPrimaryActionHost)
                   : availabilityAddAction}
               </div>
             </div>
+            {hideViewModeControl ? null : (
+              <div className="mt-1.5 flex justify-center sm:hidden" data-attr="calendar-view-mode-mobile">
+                <PortalSegmentedControl<CalendarMode>
+                  options={[
+                    { id: "day", label: "Day" },
+                    { id: "week", label: "Week" },
+                    { id: "month", label: "Month" },
+                  ]}
+                  value={viewMode}
+                  onChange={setViewMode}
+                />
+              </div>
+            )}
           </div>
 
           <div className={compactBodyClass}>
-          {(() => {
-            const renderSlotButton = (ds: string, slotIdx: number) => {
-              const key = dateSlotKey(ds, slotIdx);
-              const active = publishedActiveSlots.has(key);
-              const vendorAvailabilityState = active ? "open" : "empty";
-              const coManagerOverlay = coManagerOverlayBySlotKey.get(key);
-              const coManagerOpen = Boolean(coManagerOverlay && !active && !meetingBySlotKey.get(key));
-              const selected = isSlotInDragSelection(ds, slotIdx);
-              const meeting = meetingBySlotKey.get(key);
-              // Bookable by the 9-5 default rather than by anything the manager
-              // painted. Shown so the calendar tells the truth about what
-              // prospects can book; clicking removes just this window.
-              const defaultOpen = Boolean(
-                !active && !meeting && !coManagerOpen && defaultOnlySlots.has(key),
-              );
-              const isMeetingStart = Boolean(
-                meeting && key === dateSlotKey(meeting.dateStr, meeting.startSlot),
-              );
-              // A run merges same-kind-set contiguous open cells into one visual
-              // block (PLAN-0914-1710 §1) — only ever set for a painted or
-              // default-open cell, mutually exclusive with meeting/coManagerOpen.
-              const run = active || defaultOpen ? findOpenRun(ds, slotIdx) : undefined;
-              const isRunFirstCell = Boolean(run && run.startSlot === slotIdx);
-              const isRunLastCell = Boolean(run && run.endSlotExclusive === slotIdx + 1);
-              const runTint = run ? (run.isDefault ? CALENDAR_DEFAULT_OPEN_RUN_TINT : CALENDAR_OPEN_RUN_TINTS[run.kinds[0] ?? "tours"]) : undefined;
-              const runLabel = run
-                ? vendorViewer
-                  ? "Available"
-                  : run.isDefault
-                    ? "Tours"
-                    : formatOpenRunKindsLabel(run.kinds)
-                : "";
-              // Super plan item 43: a small × on the first cell of an open run
-              // (not a chip). Week toolbar icons stay; Delete block in the
-              // dialog remains as the longer edit path.
-              return (
-                <div
-                  key={key}
-                  className={cn(
-                    "group/slot relative min-h-9 min-w-0",
-                    // Pull a continuation cell up over the grid's `gap-px` row gap so
-                    // the run's fill reads as one continuous block instead of a
-                    // stack of 30-min cells with a hairline between each.
-                    run && !isRunFirstCell && "-mt-px",
-                  )}
-                >
-                  <button
-                    type="button"
-                    onMouseDown={() => {
-                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                      // Weekday must come from the column's actual date, not its position in the
-                      // window — the compact view can start on any weekday, so the Nth column is
-                      // not the Nth weekday.
-                      startDragSelection(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
-                    }}
-                    onMouseEnter={() => {
-                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                      extendDragSelection(ds, slotIdx);
-                    }}
-                    onMouseUp={() => {
-                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                      finishDragSelection();
-                    }}
-                    onClick={(e: MouseEvent<HTMLButtonElement>) => {
-                      if (vendorViewer && !meeting && !coManagerOpen) {
-                        onVendorAvailabilityEdit?.(ds, slotIdx);
-                        return;
-                      }
-                      if (defaultOpen) {
-                        if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
-                        return;
-                      }
-                      if (!readOnly && !meeting && !active && !coManagerOpen) {
-                        const drag = lastMultiDragRef.current;
-                        if (
-                          drag &&
-                          drag.dateStr === ds &&
-                          slotIdx >= drag.startSlot &&
-                          slotIdx < drag.endSlotExclusive
-                        ) {
-                          lastMultiDragRef.current = null;
-                          return;
-                        }
-                        if (canEditAvailability) {
-                          if (vendorMode) {
-                            openBlockModalForSlot(
-                              ds,
-                              mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
-                              slotIdx,
-                            );
-                          } else {
-                            addAvailabilitySlot(ds, slotIdx);
-                          }
-                        }
-                        return;
-                      }
-                      openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
-                    }}
-                    className={cn(
-                      "portal-calendar-grid-slot relative h-full min-h-9 w-full px-2 text-center text-[11px] font-semibold transition",
-                      meeting
-                        ? `${meeting.color} ring-1 ring-inset`
-                        : selected
-                          ? "bg-primary/[0.14] text-primary ring-2 ring-inset ring-primary/35"
-                          : run
-                            ? cn(
-                                runTint!.fill,
-                                "border-x",
-                                runTint!.border,
-                                isRunFirstCell ? cn("border-t", "rounded-t-lg") : "border-t-0",
-                                isRunLastCell ? cn("border-b", "rounded-b-lg") : "border-b-0",
-                              )
-                            : coManagerOpen
-                              ? CALENDAR_CO_MANAGER_SLOT
-                              : CALENDAR_EMPTY_SLOT,
-                    )}
-                    title={
-                      defaultOpen
-                        ? canEditAvailability
-                          ? "Open for tours by default — click to remove this time"
-                          : "Open for tours by default. Select one house to edit availability."
-                        : meeting
-                          ? `${meetingCalendarGridTooltip(meeting)} · ${formatRangeLabel(meeting.startIso, meeting.endIso)}`
-                          : undefined
-                    }
-                    aria-label={
-                      vendorViewer && !meeting && !coManagerOpen
-                        ? `${active ? "Available" : "Unavailable"} at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Set availability.`
-                        : defaultOpen
-                        ? canEditAvailability
-                          ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                          : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
-                        : meeting || active || coManagerOpen
-                          ? `Open details for ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                          : canEditAvailability
-                            ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                            : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                    }
-                    data-availability-state={vendorViewer ? vendorAvailabilityState : undefined}
-                    data-availability-date={vendorViewer ? ds : undefined}
-                    data-availability-slot={vendorViewer ? slotIdx : undefined}
-                  >
-                    {meeting ? (
-                      isMeetingStart ? (
-                        <span className="flex items-center justify-center gap-1 truncate">
-                          <MeetingTypeDot kind={meeting.kind} />
-                          <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
-                        </span>
-                      ) : (
-                        <span className="block truncate opacity-70">
-                          {isGoogleCalendarPrivateBlock(meeting)
-                            ? googleBusyBlockStatusLabel(meeting)
-                            : meeting.statusLabel}
-                        </span>
-                      )
-                    ) : selected ? (
-                      "Selected"
-                    ) : run ? (
-                      isRunFirstCell ? (
-                        <span className="flex flex-col items-center justify-center leading-tight">
-                          <span className="block truncate">
-                            {runLabel}
-                          </span>
-                          <span className="block truncate text-[9px] font-medium opacity-80">
-                            {formatOpenRunTimeRangeLabel(run.startSlot, run.endSlotExclusive)}
-                          </span>
-                        </span>
-                      ) : null
-                    ) : coManagerOpen ? (
-                      `${coManagerOverlay!.label}`
-                    ) : (
-                      // A faint "+" that only reveals on hover of a genuinely
-                      // empty cell (the fill/colour comes from CALENDAR_EMPTY_SLOT).
-                      // Previously this rendered the word "Add", which the empty
-                      // cell's hover style turned into a stray blue label mid-grid
-                      // (PLAN-0916-0041).
-                      readOnly ? "" : <span aria-hidden className="text-base leading-none">+</span>
-                    )}
-                  </button>
-                  {isRunFirstCell && run && canEditAvailability && !readOnly ? (
-                    <button
-                      type="button"
-                      data-attr="calendar-remove-availability-slot"
-                      aria-label={`Remove ${runLabel} block on ${ds}`}
-                      className="absolute right-0.5 top-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-current/70 hover:bg-foreground/10 hover:text-foreground"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (vendorViewer) {
-                          // The vendor's own run only — never the manager-only
-                          // legacy schedule-record paths below, which write to
-                          // a storage the vendor never reads from.
-                          onVendorAvailabilityRemove?.(ds, run.startSlot, run.endSlotExclusive);
-                          return;
-                        }
-                        if (run.isDefault) {
-                          removeDefaultRun(ds, run.startSlot, run.endSlotExclusive);
-                        } else {
-                          removeOpenRun(ds, run.startSlot, run.endSlotExclusive, run.kinds);
-                        }
-                      }}
-                    >
-                      <X className="h-3 w-3" strokeWidth={2} aria-hidden />
-                    </button>
-                  ) : null}
-                </div>
-              );
-            };
+          {viewMode === "month" ? (
+            renderCompactMonthView()
+          ) : viewMode === "day" ? (
+            renderCompactDayView()
+          ) : (
+            (() => {
 
             const mobileDs = activeBlockDateStrs[mobileDayIndex] ?? activeBlockDateStrs[0]!;
             const mobileDate = activeBlockDates[mobileDayIndex] ?? activeBlockDates[0]!;
@@ -3499,16 +3830,28 @@ export function PortalCalendarPanels({
                       </div>
                       {activeBlockDates.map((d) => {
                         const ds = toLocalDateStr(d);
+                        const isToday = ds === todayDs;
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                         return (
                           <div
                             key={ds}
-                            className={`bg-card px-0.5 py-2 text-center sm:px-1 ${CALENDAR_HEADER_CELL}`}
+                            className={cn(
+                              `px-0.5 py-2 text-center sm:px-1 ${CALENDAR_HEADER_CELL}`,
+                              isWeekend ? "bg-accent/10" : "bg-card",
+                            )}
                           >
                             <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
                               {d.toLocaleDateString(undefined, { weekday: "short" })}
                             </p>
-                            <p className="mt-0.5 text-xs font-semibold leading-tight text-foreground">
-                              {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                            <p className="mt-0.5 flex items-center justify-center">
+                              <span
+                                className={cn(
+                                  "flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold leading-tight",
+                                  isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+                                )}
+                              >
+                                {d.getDate()}
+                              </span>
                             </p>
                             <p className={`mt-0.5 text-[9px] font-medium uppercase leading-tight ${CALENDAR_OPEN_COUNT}`}>
                               {dayHeaderCountLabel(ds)}
@@ -3518,6 +3861,8 @@ export function PortalCalendarPanels({
                         );
                       })}
                     </div>
+
+                    {renderAllDayRow(activeBlockDates)}
 
                     <div className="min-w-0 overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
                       {/*
@@ -3535,15 +3880,18 @@ export function PortalCalendarPanels({
                               {formatAvailabilitySlotLabel(slotIdx)}
                             </div>
                             {activeBlockDateStrs.map((ds) => renderSlotButton(ds, slotIdx))}
+                            {renderNowLine(activeBlockDateStrs, slotIdx)}
                           </Fragment>
                         ))}
                       </div>
                     </div>
                   </div>
                 </div>
+                {renderCalendarLegend()}
               </>
             );
-          })()}
+          })()
+          )}
           </div>
         </div>
 

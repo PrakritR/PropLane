@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CreditCard, Settings } from "lucide-react";
+import { Coins, CreditCard, Settings } from "lucide-react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { Modal } from "@/components/ui/modal";
+import { PlanCreditRulesSection } from "@/components/portal/admin-billing-client";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import {
@@ -194,6 +196,11 @@ export function AdminAxisUsersClient({ detailId }: { detailId?: string } = {}) {
   const searchParams = useSearchParams();
   const category = categoryFromParam(searchParams.get("category"));
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  // Global per-plan messaging-credit defaults (S27) — a GLOBAL, not
+  // per-account, setting, so it lives behind a header action rather than
+  // inside any one row's editor. See `PlanCreditRulesSection`'s doc comment
+  // (admin-billing-client.tsx) for why it mounts here.
+  const [planCreditOpen, setPlanCreditOpen] = useState(false);
   // Seeded from `?q=` so the Billing redirect card's "Find a manager" search
   // lands with the query already applied, not a blank list to re-search.
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -497,6 +504,16 @@ export function AdminAxisUsersClient({ detailId }: { detailId?: string } = {}) {
                 ) : null}
               </FilterFieldsAccordion>
             </PortalFilterSortSheet>
+            {/* Global per-plan messaging-credit defaults (S27) — not one account's
+                setting, so it opens in a modal from the header rather than living
+                inside a row's editor. See admin-billing-client.tsx's
+                PlanCreditRulesSection doc comment. */}
+            <PortalIconAction
+              icon={Coins}
+              label="Plan credit"
+              data-attr="admin-plan-credit-open"
+              onClick={() => setPlanCreditOpen(true)}
+            />
             {/* Matches every manager list page's command header — search + Filter + a
                 settings gear into the shared Settings screen (mock: "search and a
                 settings gear are back"). */}
@@ -574,6 +591,23 @@ export function AdminAxisUsersClient({ detailId }: { detailId?: string } = {}) {
           })}
         </PortalRecordListSurface>
       )}
+
+      {/*
+        Renders via Radix Dialog.Portal regardless of nesting depth, so it can
+        sit here as an ordinary child rather than a Fragment-wrapped sibling
+        of ManagerPortalPageShell (tests/unit/admin-list-surface-adoption.test.ts
+        locates the header dock by slicing up to the literal
+        "return (\n    <ManagerPortalPageShell" string).
+      */}
+      <Modal
+        open={planCreditOpen}
+        title="Plan credit"
+        onClose={() => setPlanCreditOpen(false)}
+        assistantStrip={false}
+        dataAttr="admin-plan-credit-modal"
+      >
+        <PlanCreditRulesSection />
+      </Modal>
     </ManagerPortalPageShell>
   );
 }

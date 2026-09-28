@@ -2,6 +2,7 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
@@ -9,22 +10,17 @@ import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type Port
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
-import { AddResidentWizard } from "@/components/portal/resident-wizard";
+import { ScheduleTourSimpleModal } from "@/components/portal/schedule-tour-simple-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/pro-tours-grouped-table";
 import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { FinancesExportMenu, type FinancesExportItem } from "@/components/portal/finances/finances-export-menu";
-import { CalendarClock, CalendarPlus, MessageSquare, Settings, Share2, Trash2, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -101,8 +97,6 @@ import {
 } from "@/lib/tour-notifications";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-
-const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
@@ -325,8 +319,6 @@ function buildTourNotifyCarouselItems(
   });
 }
 
-const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
-
 export function ManagerTours({
   bucket = "pending",
   basePath = "/portal",
@@ -355,6 +347,14 @@ export function ManagerTours({
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
+  // C201: the active workspace resolves via its own async fetch, racing the
+  // tour sync below; `workspaceContainsProperty` reads that resolution off a
+  // plain module variable, so a memo that never depends on it can compute
+  // against a workspace still mid-load and then sit stale once it finishes —
+  // the list reads empty until something else happens to bump `tick`. Reading
+  // the id reactively (same hook every other workspace-scoped consumer uses)
+  // forces `allRows` to recompute the moment the workspace actually lands.
+  const activeWorkspaceId = useSelectedWorkspaceId();
   const { reminders: tourReminders, reload: reloadTourReminders } = useScheduledTourReminders();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tick, setTick] = useState(0);
@@ -364,7 +364,6 @@ export function ManagerTours({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
@@ -460,7 +459,7 @@ export function ManagerTours({
       viewerUserId: userId,
       propertyIds: scopedPropertyId ? [scopedPropertyId] : null,
     }).filter((row) => workspaceContainsProperty(row.propertyId));
-  }, [tick, userId, scopedPropertyId]);
+  }, [tick, userId, scopedPropertyId, activeWorkspaceId]);
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 
@@ -1833,12 +1832,6 @@ export function ManagerTours({
               disabled={scopedPropertyIds.length === 0}
             />
             <PortalIconAction
-              icon={Settings}
-              label={toursSettingsEntry.label}
-              data-attr={toursSettingsEntry.dataAttr}
-              onClick={() => setSettingsOpen(true)}
-            />
-            <PortalIconAction
               icon={Share2}
               label="Share tour link"
               disabled={scopedPropertyIds.length === 0}
@@ -1920,13 +1913,12 @@ export function ManagerTours({
         preselectedPropertyId={scopedPropertyId}
       />
       {addTourOpen ? (
-        <AddResidentWizard
-          mode="tour"
+        <ScheduleTourSimpleModal
+          open={addTourOpen}
           onClose={() => setAddTourOpen(false)}
           managerUserId={userId ?? null}
           propertyOptions={propertyOptions}
           propertyTick={propertyTick}
-          executedLeaseKeys={EMPTY_LEASE_KEYS}
           defaultPropertyId={scopedPropertyId}
           onAdded={() => {
             void refresh();
@@ -1944,12 +1936,6 @@ export function ManagerTours({
         propertyLabel={scopedPropertyLabel}
         propertyOptions={propertyOptions}
         showToast={showToast}
-      />
-      <ManagerPortalSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        initialTab="tours"
-        scopedTitle={settingsDialogTitlePrefix(toursSettingsEntry)}
       />
     </>
   );

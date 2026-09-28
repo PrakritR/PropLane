@@ -474,6 +474,27 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(screen.getByRole("button", { name: /Add payment/i })).toBeTruthy();
   });
 
+  // C208: the whole row opened the record everywhere except this list, where
+  // only ⋯ → View did. Same `PortalApplicantRecordRow`/`onOpen` wiring every
+  // other list uses (`portal-record-row.tsx`) — this pins it for the real
+  // manager Payments ledger route (`listBasePath` set, not embedded).
+  it("opens the manager charge record by clicking the row itself, not just ⋯ → View", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[sampleRow()]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        listBasePath="/portal"
+        direction="incoming"
+      />,
+    );
+
+    const recordButton = container.querySelector('button[data-attr="payment-list-row"]');
+    expect(recordButton).toBeTruthy();
+    fireEvent.click(recordButton!);
+    expect(navigate).toHaveBeenCalledWith("/portal/payments/incoming/pending/hc_test_1");
+  });
+
   it("opens embedded charge detail via the card row", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel

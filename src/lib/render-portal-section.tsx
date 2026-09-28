@@ -22,7 +22,6 @@ import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
-import { AdminBillingClient } from "@/components/portal/admin-billing-client";
 import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
@@ -522,8 +521,22 @@ export async function renderPortalSection(
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
-    if (tabParts?.length) notFound();
-    return <VendorReviewsPanel />;
+    // Top bar with sections (VD21, 2026-09-27) — a real routed tab, not a
+    // client-only toggle.
+    const { VENDOR_REVIEW_STATUS_TABS, isVendorReviewStatusTab } = await import("@/lib/vendor-reviews");
+    if (tabParts && tabParts.length > 1) notFound();
+    const raw = tabParts?.[0];
+    if (!raw) redirect(`${def.basePath}/${section}/${VENDOR_REVIEW_STATUS_TABS[0].id}`);
+    if (!isVendorReviewStatusTab(raw)) notFound();
+    return <VendorReviewsPanel tabId={raw} basePath={def.basePath} />;
+  }
+  if (kind === "vendor" && section === "documents") {
+    // Status (All / On file / Missing) tabs and the tax/insurance/licensing
+    // category tabs are gone (VD16/VD17, 2026-09-27) — the vendor's own
+    // checklist is grouped by section inline instead. A stale bookmark or
+    // emailed link to any old segment still lands, on the bare section.
+    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
+    return <VendorDocumentsPanel basePath={def.basePath} />;
   }
 
   const meta = findSection(def, section);
@@ -581,10 +594,15 @@ export async function renderPortalSection(
     return <AdminAxisUsersClient detailId={detailId} />;
   }
 
-  if (kind === "admin" && section === "billing") {
-    if (tabParts?.length) notFound();
-    return <AdminBillingClient />;
-  }
+  // A branch handling the admin "billing" section used to live here — dead
+  // code. That section id was never registered in `adminPortal.sections`
+  // (`src/lib/portals/admin.ts`), so `findSection` above always 404s an
+  // incoming `/admin/billing` request before reaching a branch here — this
+  // one never ran. Removed rather than fixed forward: the
+  // captain's call was "combine Billing and Accounts", so `/admin/billing`
+  // gets no route at all now. The Plan credit table that briefly lived behind
+  // it now mounts on Accounts (`AdminAxisUsersClient`'s "Plan credit" header
+  // action + modal); `AdminBillingClient` itself is unused by any route.
 
   if (kind === "admin" && section === "test-accounts") {
     // A workspace row's record page is `/admin/test-accounts/<workspaceId>` (C168).
@@ -1793,7 +1811,11 @@ export async function renderPortalSection(
         if (finTab === "payouts") {
           redirect(`${def.basePath}/profile?tab=payouts`);
         }
-        return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
+        // VD11 — Income and Invoices merged into one Payments list at the
+        // `income` tabId; the bare Invoices tab is a door to it, same shape
+        // as the Payouts redirect above. An invoice record below still
+        // renders here.
+        redirect(`${def.basePath}/financials/income`);
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${finTab}`);
@@ -1828,28 +1850,6 @@ export async function renderPortalSection(
     }
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }
-
-  if (kind === "vendor" && section === "documents") {
-    if (!meta.tabs.length) notFound();
-    if (!tabParts?.length) {
-      redirect(`${def.basePath}/${section}/${meta.tabs[0]!.id}`);
-    }
-    if (tabParts.length > 1) {
-      if (tabParts.length === 2 && tabParts[1] === "pending") {
-        redirect(`${def.basePath}/${section}/${tabParts[0]}`);
-      }
-      notFound();
-    }
-    const documentsTab = tabParts[0]!;
-    // The category and former source tabs collapsed into one source-filtered list. A vendor's
-    // bookmark, or a manager's emailed link, must still land somewhere.
-    if (["tax", "insurance", "licensing", "mine", "shared"].includes(documentsTab)) {
-      redirect(`${def.basePath}/${section}/all`);
-    }
-    if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
-    return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
-  }
-
 
   if (!meta.tabs.length) {
     if (tabParts?.length) notFound();

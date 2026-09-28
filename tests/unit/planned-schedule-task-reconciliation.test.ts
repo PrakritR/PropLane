@@ -156,7 +156,10 @@ describe("planned schedule task reconciliation", () => {
       createdAt: "2098-01-01T00:00:00.000Z",
       updatedAt: "2098-01-01T00:00:00.000Z",
     };
-    const exactEvent = { ...event, id: `task_${task.id}`, title: "Task · manager-1", assignee: task.assignee };
+    // K003: taskToPlannedEvent now always stamps an `allDay` field (false for
+    // a normal timed task like this one) — match it or the real reapply path
+    // sees a changed projection and (correctly) rewrites it.
+    const exactEvent = { ...event, id: `task_${task.id}`, title: "Task · manager-1", assignee: task.assignee, allDay: false };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(plannedResponse([exactEvent]))
       .mockResolvedValueOnce(jsonResponse({ tasks: [task] }));

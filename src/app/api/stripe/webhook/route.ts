@@ -6,6 +6,11 @@ import {
   reverseCommsCreditForCharge,
   reverseCommsCreditForPaymentIntent,
 } from "@/lib/comms-billing/credit-purchase.server";
+import {
+  COMMS_CREDIT_POOL_PURPOSE,
+  fulfillCommsCreditPoolPurchase,
+  reverseCommsCreditPoolForPaymentIntent,
+} from "@/lib/comms-billing/pool.server";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -47,6 +52,10 @@ import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
 import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import {
+  completeVendorInvoicePaymentFromStripeSession,
+  VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+} from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
 import {
   handleAutopayPaymentIntentFailed,
@@ -247,6 +256,7 @@ export async function POST(req: Request) {
       logCheckoutCompleted(session);
       if (
         session.metadata?.purpose !== COMMS_CREDIT_PURPOSE &&
+        session.metadata?.purpose !== COMMS_CREDIT_POOL_PURPOSE &&
         !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
       ) {
         const owner = await checkoutOwner(db, session);
@@ -262,6 +272,15 @@ export async function POST(req: Request) {
             // A payment that does not match the purchase can never validate, so
             // redelivering it forever only hides it. Record it for a human and
             // acknowledge — without granting a cent of credit.
+            if (!(e instanceof CommsCreditValidationError)) throw e;
+            await recordCommsCreditPaymentReview(db, session, event.id, e.message);
+          }
+        });
+      } else if (session.metadata?.purpose === COMMS_CREDIT_POOL_PURPOSE) {
+        await runCommsCreditStep("comms credit pool fulfillment", async () => {
+          try {
+            await fulfillCommsCreditPoolPurchase(db, session, event.id);
+          } catch (e) {
             if (!(e instanceof CommsCreditValidationError)) throw e;
             await recordCommsCreditPaymentReview(db, session, event.id, e.message);
           }
@@ -316,6 +335,14 @@ export async function POST(req: Request) {
           await enrichCheckoutLedgerFees(stripe, session).catch(() => undefined);
         } catch (e) {
           console.error("[stripe webhook] vendor_invoice_pay checkout", e);
+          throw e;
+        }
+      } else if (session.metadata?.purpose === VENDOR_INVOICE_DIRECT_PAY_PURPOSE) {
+        try {
+          await completeVendorInvoicePaymentFromStripeSession(db, session);
+          await enrichCheckoutLedgerFees(stripe, session).catch(() => undefined);
+        } catch (e) {
+          console.error("[stripe webhook] vendor_invoice_direct_pay checkout", e);
           throw e;
         }
       } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
@@ -477,6 +504,10 @@ export async function POST(req: Request) {
       await runCommsCreditStep("charge.refunded comms credit", () =>
         reverseCommsCreditForCharge(db, charge, event.id),
       );
+      await runCommsCreditStep("charge.refunded comms credit pool", () => {
+        const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+        return reverseCommsCreditPoolForPaymentIntent(db, paymentIntentId, event.id, { loadCharge: async () => charge });
+      });
       const refunds = charge.refunds?.data ?? [];
       for (const refund of refunds) {
         if (refund.status === "succeeded" || refund.status === "pending") {
@@ -503,6 +534,11 @@ export async function POST(req: Request) {
               reverseCommsCreditForPaymentIntent(db, paymentIntentId, event.id, {
                 loadCharge: () => stripe.charges.retrieve(chargeId),
                 onUnmatched: "defer",
+              }),
+            );
+            await runCommsCreditStep("refund event comms credit pool", () =>
+              reverseCommsCreditPoolForPaymentIntent(db, paymentIntentId, event.id, {
+                loadCharge: () => stripe.charges.retrieve(chargeId),
               }),
             );
           }
@@ -534,6 +570,12 @@ export async function POST(req: Request) {
       ) {
         await runCommsCreditStep("dispute event comms credit", () =>
           reverseCommsCreditForPaymentIntent(db, disputedPaymentIntent, event.id, {
+            dispute: true,
+            loadCharge: () => stripe.charges.retrieve(disputedCharge),
+          }),
+        );
+        await runCommsCreditStep("dispute event comms credit pool", () =>
+          reverseCommsCreditPoolForPaymentIntent(db, disputedPaymentIntent, event.id, {
             dispute: true,
             loadCharge: () => stripe.charges.retrieve(disputedCharge),
           }),

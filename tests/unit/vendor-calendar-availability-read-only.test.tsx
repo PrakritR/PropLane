@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const demoMode = vi.fn(() => false);
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
@@ -21,7 +25,7 @@ import { installVendorAvailabilityPaintCache, VendorCalendarPanel } from "@/comp
 import {
   VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT,
   VendorAvailabilityEditor,
-} from "@/components/portal/vendor-settings-panel";
+} from "@/components/portal/vendor-availability-editor";
 import { readAvailabilityDateSetForStorageKey } from "@/lib/demo-admin-scheduling";
 import { resetVendorAvailabilityCacheForTests, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 

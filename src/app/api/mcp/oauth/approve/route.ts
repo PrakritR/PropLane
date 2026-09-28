@@ -16,7 +16,22 @@ export async function POST(req: Request) {
   const { clientId, redirectUri, codeChallenge: challenge, scope, state } = approval;
   const client = await getMcpOAuthClient(actor.db, clientId);
   if (!client || !client.redirectUris.includes(redirectUri) || challenge.length < 43 || !scope.split(/\s+/).every((item) => item === MCP_OAUTH_SCOPE)) return failure();
-  const code = await createMcpAuthorizationCode(actor.db, { userId: actor.userId, clientId, redirectUri, codeChallenge: challenge, scopes: [MCP_OAUTH_SCOPE] });
+  // The manager's active workspace, read here because this is the only step
+  // in the whole OAuth dance with a real browser session/cookie to resolve it
+  // from (W001) — the token exchange and every later refresh just carry this
+  // value forward. `id: ""` is the resolution-FAILURE sentinel
+  // (`UNRESOLVED_AGENT_WORKSPACE_SCOPE`), never a real workspace, so it must
+  // refuse rather than mint a connection with no workspace to narrow it.
+  const workspaceId = actor.workspace?.id?.trim() || "";
+  if (!workspaceId) return NextResponse.json({ error: "server_error" }, { status: 500 });
+  const code = await createMcpAuthorizationCode(actor.db, {
+    userId: actor.userId,
+    clientId,
+    redirectUri,
+    codeChallenge: challenge,
+    scopes: [MCP_OAUTH_SCOPE],
+    workspaceId,
+  });
   if (!code) return NextResponse.json({ error: "server_error" }, { status: 500 });
   track("mcp_connection_authorized", actor.userId, { client: clientId.slice(-8) });
   const destination = new URL(redirectUri);

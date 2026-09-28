@@ -74,6 +74,8 @@ export type PortalPayoutBalance = {
   history: PortalPayoutHistoryRow[];
   /** The saved Stripe account could not be reached; the setup card offers Reconnect. */
   needsRelink?: boolean;
+  /** VENDOR_BANKING_ENABLED — present (and > 0) only once the vendor take rate is on. */
+  feeBps?: number;
 };
 
 const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[] = [

@@ -11,14 +11,8 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings } from "lucide-react";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import {
   PortalFilterSortSheet,
   filterApplyLabel,
@@ -149,8 +143,6 @@ function TaskFilterApplyLabel({
   return <>{filterApplyLabel(count, "task")}</>;
 }
 
-const tasksSettingsEntry = getSettingsEntryPoint("tasks");
-
 function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "denied" {
   if (req.status === "approved") return "approved";
   if (req.status === "denied") return "denied";
@@ -180,7 +172,6 @@ export function ManagerTaskList({
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
@@ -806,17 +797,7 @@ export function ManagerTaskList({
           dataAttr: "manager-tasks-search",
         }}
         activeFilterChips={activeFilterChips.length > 0 ? <PortalActiveFilterChips chips={activeFilterChips} /> : undefined}
-        actions={
-          <>
-            {tasksFilterSheet}
-            <PortalIconAction
-              icon={Settings}
-              label={tasksSettingsEntry.label}
-              data-attr={tasksSettingsEntry.dataAttr}
-              onClick={() => setSettingsOpen(true)}
-            />
-          </>
-        }
+        actions={tasksFilterSheet}
         primary={<PortalPrimaryIconAction label="Add task" data-attr="manager-task-add-top" onClick={openAddTask} />}
       />
 
@@ -933,13 +914,6 @@ export function ManagerTaskList({
           setComposeDraft(null);
           showToast("Message sent.");
         }}
-      />
-      <ManagerPortalSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        initialTab="tasks"
-        scopedTitle={settingsDialogTitlePrefix(tasksSettingsEntry)}
-        propertyOptions={propertyOptions}
       />
     </ManagerPortalPageShell>
   );

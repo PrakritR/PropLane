@@ -112,7 +112,7 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
     );
   });
 
-  it("rotates a fresh token when the caller provides none", async () => {
+  it("emails a fresh token but never returns it to a caller without the prior token", async () => {
     const { row } = attachResidentSetupToken(baseRow());
     serviceRows.push({ id: row.id, resident_email: row.email!, row_data: row, manager_user_id: "mgr-1" });
     ensureMock.mockResolvedValue({ ok: true, token: "rotated-token", axisId: row.id, email: row.email, row });
@@ -120,9 +120,10 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
     const res = await POST(post({ email: row.email, axisId: row.id, includeSetupHandoff: true }));
 
     expect(res.status).toBe(503);
-    const body = (await res.json()) as { setupHref?: string };
+    const body = (await res.json()) as { setupHref?: string; mailtoHref?: string };
     expect(ensureMock).toHaveBeenCalledOnce();
-    expect(body.setupHref).toBe(`/auth/resident-setup?token=rotated-token&proplane_id=${row.id}`);
+    expect(body.setupHref).toBeUndefined();
+    expect(body.mailtoHref).toBeUndefined();
   });
 
   it("does not mark a failed SMS as sent and logs the non-PII failure reason", async () => {

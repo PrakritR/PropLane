@@ -119,6 +119,11 @@ export const DELETE_ORDER = [
   // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
   // financial like vendor_invoices/vendor_payouts above.
   "proplane_balance_accounts",
+  // night/vendor-banking (VENDOR_BANKING_ENABLED) statement ledger, reconciliation
+  // stamp, and refund shortfall — financial history like vendor_payouts above.
+  "vendor_banking_ledger_entries",
+  "vendor_banking_reconciliation",
+  "vendor_banking_shortfalls",
   "vendor_tax_profiles",
   "vendor_business_profiles",
   "vendor_availability_rules",
@@ -178,6 +183,13 @@ export const DELETE_ORDER = [
   // Per-workspace credit balance; references `portal_workspaces` (cascade), so it
   // clears before the workspace delete at the end of this list.
   "manager_comms_workspace_wallets",
+  // S27 messaging-credit pool (comms_account_pools etc.); funder is always a
+  // manager, classified and ordered the same as the legacy wallet tables above.
+  "comms_pool_credit_adjustments",
+  "comms_pool_credit_purchases",
+  "comms_funder_workspace_spend",
+  "comms_workspace_funding",
+  "comms_account_pools",
   "manager_document_templates",
   "manager_promotion_records",
   "manager_reserve_policies",

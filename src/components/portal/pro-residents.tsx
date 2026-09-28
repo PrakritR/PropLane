@@ -5,8 +5,8 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Mail, Settings } from "lucide-react";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { Link2, Mail } from "lucide-react";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -1116,6 +1116,19 @@ export function ManagerResidents({
     if (!row || !shouldOfferApplicationCompletionReminder(row)) return null;
     return row;
   }, [singleListSelectedId, hcTick]);
+
+  // C252 (U035): every Potential row that can be chased to finish its
+  // application, keyed by application id (the same id `ManagerResidentListRow`
+  // uses) — lets the list row itself offer the nudge instead of requiring a
+  // checkbox selection first.
+  const nudgeEligibleResidentIds = useMemo(() => {
+    void hcTick;
+    const ids = new Set<string>();
+    for (const row of readManagerApplicationRows()) {
+      if (shouldOfferApplicationCompletionReminder(row)) ids.add(row.id);
+    }
+    return ids;
+  }, [hcTick]);
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -3764,17 +3777,7 @@ export function ManagerResidents({
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
         search={{ value: residentSearch, onChange: setResidentSearch, placeholder: "Search residents", dataAttr: "residents-search" }}
-        actions={
-          <>
-            {residentsFilterSheet}
-            <PortalIconAction
-              icon={Settings}
-              label={residentsSettingsEntry.label}
-              data-attr={residentsSettingsEntry.dataAttr}
-              onClick={() => openResidentDetailSettings("resident")}
-            />
-          </>
-        }
+        actions={residentsFilterSheet}
         primary={
           <PortalPrimaryIconAction
             label="Add resident"
@@ -3931,6 +3934,11 @@ export function ManagerResidents({
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
           onToggleCluster={(ids) => togglePortalListClusterSelection(setSelectedIds, ids)}
+          nudgeEligibleIds={nudgeEligibleResidentIds}
+          onNudge={(res) => {
+            const row = readManagerApplicationRows().find((app) => app.id === res.id);
+            if (row) void openApplicationCompletionReminderPreview(row);
+          }}
           onOpenResident={(res) =>
             navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }

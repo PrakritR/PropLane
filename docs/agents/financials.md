@@ -266,10 +266,33 @@ require both without either flag knowing about the other:
   the ACH-fallback handling (switch to `"ach"` on 422, never a dead end) are
   new here.
 - **Finances overview "Money-in" actions (C255)** — a gated row of "Pay
-  vendors" / "Plan & credit" (equal-weight cards) and "Withdraw"
+  vendors" / "Plan & credit" and "Withdraw"
   (`ProplaneBalanceCard variant="subordinate"`, deliberately lighter chrome so
   it never reads as a third same-weight action) on
   `finances-overview.tsx`.
+- **"Pay vendors" bulk pay (C260/U043, Sep 2026)** — `PayVendorsCard`
+  (`src/components/portal/finances/pay-vendors-card.tsx`) replaced the plain
+  link with the real list: every `approved`/`scheduled` invoice from
+  `GET /api/manager/vendor-invoices`, each with its own "Pay from balance" (or
+  an honest "Balance short $X" in place of the button when it will not fit),
+  plus a "Pay all approved" bulk action once more than one is outstanding.
+  Both single and bulk pay call the SAME existing
+  `POST /api/vendor/invoices/[id]/pay-from-balance` route, once per invoice,
+  sequentially and server-authorized every time — no batch endpoint was
+  added. `selectVendorInvoicesWithinBalance`
+  (`src/lib/vendor-invoice-bulk-pay.ts`) is the pure running-balance greedy
+  pick "Pay all approved" previews client-side (an invoice that does not fit
+  is skipped, not a stop, so a smaller one later in the list can still be
+  taken); it decides only what to ATTEMPT — the server re-checks the real
+  balance and status on every call, so a stale preview can under- or
+  over-attempt but never mis-charge. No ACH fallback: the only card-funded
+  rail in the codebase (`work-order-approve-pay.server.ts`'s Stripe Checkout
+  path) writes to `portal_work_order_records`/`vendor_payouts` and never
+  touches `vendor_invoices`, so routing a balance shortfall through it would
+  leave the invoice stuck `approved` while already paid on a different rail —
+  a real desync, not a UI gap. Building a genuine ACH rail for
+  `vendor_invoices` directly was out of scope ("don't invent a payment
+  rail"); this is deliberately unbuilt, not overlooked.
 
 # Financials Phase 5: AP bills, budgets, owner statements
 

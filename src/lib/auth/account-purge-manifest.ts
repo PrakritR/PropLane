@@ -306,6 +306,30 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["owner_key"], preserveFinancial: true },
   },
   {
+    // night/vendor-banking, VENDOR_BANKING_ENABLED. Append-only statement
+    // history — never deleted or reassigned, same financial-history
+    // preservation as ledger_entries/vendor_payouts.
+    table: "vendor_banking_ledger_entries",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // The reconciliation stamp is derived from vendor_banking_ledger_entries
+    // (which is itself preserved) — kept for the same reason.
+    table: "vendor_banking_reconciliation",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // A refund shortfall is real money the vendor still owes — preserved
+    // like every other financial-history row here rather than wiped by an
+    // account deletion.
+    table: "vendor_banking_shortfalls",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -481,14 +505,52 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // S27 messaging-credit pool: `funder_user_id` (added by the pool migration) is the
+    // separate identity that actually paid a reservation, which may be a co-manager
+    // distinct from the event's own `manager_user_id` — same detach pattern as
+    // vendor_reviews' `reviewer_user_id` above: the event stays the owning manager's
+    // usage record, only the funder pointer clears.
     table: "manager_comms_usage_events",
     phase: 2,
-    manager: { ids: ["manager_user_id"] },
+    manager: { ids: ["manager_user_id"], detachIds: ["funder_user_id"] },
   },
   {
     table: "manager_comms_workspace_wallets",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+  },
+  {
+    // S27 messaging-credit pool: one row per FUNDER (always a manager — the
+    // pool is resolved off getEffectiveManagerSkuTier and funded through the
+    // /api/manager/comms-credit-pool route), same treatment as the legacy
+    // per-workspace manager_comms_workspace_wallets above.
+    table: "comms_account_pools",
+    phase: 2,
+    manager: { ids: ["funder_user_id"] },
+  },
+  {
+    table: "comms_workspace_funding",
+    phase: 2,
+    manager: { ids: ["funder_user_id"] },
+  },
+  {
+    table: "comms_funder_workspace_spend",
+    phase: 2,
+    manager: { ids: ["funder_user_id"] },
+  },
+  {
+    // Stripe purchases into a funder's pool; parallel to (never mixed with)
+    // manager_comms_credit_purchases and classified exactly the same way.
+    table: "comms_pool_credit_purchases",
+    phase: 2,
+    manager: { ids: ["funder_user_id"] },
+  },
+  {
+    // Audit trail for pool purchase adjustments; parallel to (never mixed
+    // with) manager_comms_credit_adjustments and classified exactly the same way.
+    table: "comms_pool_credit_adjustments",
+    phase: 2,
+    manager: { ids: ["funder_user_id"] },
   },
   {
     table: "manager_document_templates",
@@ -994,6 +1056,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
   payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
+  comms_plan_credit_rules: "Admin-editable per-tier defaults for the messaging-credit pool; global plan config, not owned by any one account.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",
   account_recovery_object_holds: "Shared file retention ownership; lifecycle-managed.",

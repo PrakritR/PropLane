@@ -62,7 +62,8 @@ test.describe("Manager portal", () => {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes("ERR_ABORTED")) throw error;
     }
-    await expect(page).toHaveURL(/\/portal\/properties/, { timeout: 30_000 });
+    // Wait for the Properties index redirect before navigating to another route.
+    await expect(page).toHaveURL(/\/portal\/properties\/all/, { timeout: 30_000 });
 
     try {
       await page.goto("/portal/work-orders", { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -76,10 +77,7 @@ test.describe("Manager portal", () => {
   test("properties tab shows listing and create button", async ({ page }) => {
     await gotoAppPath(page, "/portal/properties");
     await expect(page.getByRole("heading").first()).toBeVisible();
-    const createBtn = page
-      .locator('[data-attr="manager-properties-create"]')
-      .or(page.getByRole("button", { name: /^Add$/i }))
-      .first();
+    const createBtn = page.getByRole("button", { name: "Add property", exact: true });
     await expect(createBtn).toBeVisible({ timeout: 15_000 });
   });
 

@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 //
-// C004: Settings lives only in the avatar/account menu (never the sidebar),
-// and that menu also carries Billing & plan, Switch workspace, and Help —
-// the full set the spec names, alongside the existing Appearance/role-switch
-// items this test must not regress.
+// C004: Settings lives only in the avatar/account menu (never the sidebar).
+//
+// S001 (captain, 2026-09-27): Billing & plan, the Switch workspace submenu,
+// and Help were dropped from this desktop menu — it already matched the
+// phone menu's shorter shape. Workspace switching stays reachable from the
+// sidebar's own WorkspaceSwitcher, and Help from the sidebar's pinned footer
+// link; this menu keeps only Settings, Appearance, the role switcher, and
+// Sign out.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -74,40 +78,37 @@ function openMenu() {
 }
 
 describe("PortalTopBar account menu", () => {
-  it("keeps Settings only in the account menu, and adds Billing & plan and Help for a workspace portal", async () => {
-    setWorkspaces([workspace("w1", "My workspace")]);
+  it("keeps Settings and Sign out, and drops Billing & plan, Switch workspace, and Help for a workspace portal", async () => {
+    setWorkspaces([workspace("w1", "My workspace"), workspace("w2", "Ballard houses")]);
     render(<PortalTopBar kind="manager" basePath="/portal" name="Alex Rivera" email="alex@example.com" />);
     openMenu();
 
     expect(await screen.findByText("Settings")).toBeInTheDocument();
-    expect(screen.getByText("Billing & plan")).toBeInTheDocument();
-    expect(screen.getByText("Help")).toBeInTheDocument();
+    expect(screen.getByText("Sign out")).toBeInTheDocument();
+    expect(document.querySelector('[data-attr="portal-role-switcher-stub"]')).not.toBeNull();
+    expect(screen.queryByText("Billing & plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Switch workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Help")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Billing & plan"));
+    fireEvent.click(screen.getByText("Settings"));
     expect(pushMock).toHaveBeenCalledWith(expect.stringContaining("/portal/profile"));
   });
 
-  it("only offers Switch workspace when the account has more than one workspace", async () => {
-    setWorkspaces([workspace("w1", "My workspace")]);
+  it("never shows Switch workspace, even with more than one workspace", async () => {
+    setWorkspaces([workspace("w1", "My workspace"), workspace("w2", "Ballard houses")]);
     render(<PortalTopBar kind="manager" basePath="/portal" name="Alex Rivera" email="alex@example.com" />);
     openMenu();
     expect(await screen.findByText("Settings")).toBeInTheDocument();
     expect(screen.queryByText("Switch workspace")).not.toBeInTheDocument();
-
-    cleanup();
-    setWorkspaces([workspace("w1", "My workspace"), workspace("w2", "Ballard houses")]);
-    render(<PortalTopBar kind="manager" basePath="/portal" name="Alex Rivera" email="alex@example.com" />);
-    openMenu();
-    expect(await screen.findByText("Switch workspace")).toBeInTheDocument();
   });
 
-  it("never shows Billing & plan or Switch workspace for a non-workspace portal (resident)", async () => {
+  it("keeps the same shape for a non-workspace portal (resident)", async () => {
     setWorkspaces([workspace("w1", "My workspace"), workspace("w2", "Ballard houses")]);
     render(<PortalTopBar kind="resident" basePath="/resident" name="Jamie Lee" email="jamie@example.com" />);
     openMenu();
     expect(await screen.findByText("Settings")).toBeInTheDocument();
     expect(screen.queryByText("Billing & plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Switch workspace")).not.toBeInTheDocument();
-    expect(screen.getByText("Help")).toBeInTheDocument();
+    expect(screen.queryByText("Help")).not.toBeInTheDocument();
   });
 });

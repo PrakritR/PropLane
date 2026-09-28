@@ -90,6 +90,17 @@ export type ListingFeeRow = ManagerCustomFeeRow & {
    * through {@link feeAppliesToResidentSlot}.
    */
   residentSlots?: number[];
+  /**
+   * Which SHARED-ROOM arrangement head counts (N082) this fee bills — "Cleaning
+   * fee $30" added inside the Shared by 2 block only. A different axis from
+   * `residentSlots`: this keys on the arrangement (how many people share the
+   * room — `RoomOccupancyPrice.count` in room-arrangement-pricing.ts), not on
+   * which named resident holds a per-resident-priced slot. Absent or empty
+   * means EVERY arrangement of the fee's rooms, exactly as an absent `roomIds`
+   * means every room; only a real narrowing is stored. Read it through
+   * {@link feeAppliesToArrangementCount}.
+   */
+  arrangementCounts?: number[];
 };
 
 /**
@@ -109,6 +120,24 @@ export function feeAppliesToResidentSlot(
   return slots.includes(slot);
 }
 
+/**
+ * Whether this fee bills a resident under this SHARED-ROOM arrangement `count`
+ * (N082). Absent or empty `arrangementCounts` is every arrangement — same
+ * fail-open shape as {@link feeAppliesToResidentSlot} and `feeAppliesToRoom`:
+ * a fee is never silently dropped for want of a count, including for an
+ * unshared room (`count` null/undefined, e.g. a private room has no
+ * arrangement at all) or a count outside 1..20.
+ */
+export function feeAppliesToArrangementCount(
+  fee: Pick<ListingFeeRow, "arrangementCounts">,
+  count: number | null | undefined,
+): boolean {
+  const counts = fee.arrangementCounts;
+  if (!Array.isArray(counts) || counts.length === 0) return true;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) return true;
+  return counts.includes(count);
+}
+
 /** Whole numbers 1..20, de-duplicated and sorted; an empty scope is stored as absent ("all"). */
 function normalizeFeeResidentSlots(raw: unknown): number[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -120,6 +149,11 @@ function normalizeFeeResidentSlots(raw: unknown): number[] | undefined {
     ),
   ].sort((a, b) => a - b);
   return out.length > 0 ? out : undefined;
+}
+
+/** Same shape as {@link normalizeFeeResidentSlots}, for `arrangementCounts`. */
+function normalizeFeeArrangementCounts(raw: unknown): number[] | undefined {
+  return normalizeFeeResidentSlots(raw);
 }
 
 export type ListingFeePresetMeta = {
@@ -337,6 +371,7 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
     leaseTypes: normalizeFeeScopeIds(row.leaseTypes),
     roomIds: normalizeFeeScopeIds(row.roomIds),
     residentSlots: normalizeFeeResidentSlots(row.residentSlots),
+    arrangementCounts: normalizeFeeArrangementCounts(row.arrangementCounts),
     // The per-day figure for a "Set per day" partial month. Kept only when positive.
     dailyRate: typeof row.dailyRate === "number" && Number.isFinite(row.dailyRate) && row.dailyRate > 0 ? row.dailyRate : undefined,
   };

@@ -105,6 +105,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
   // `setRows`. Resolving to undefined here wiped the list the panel had just
   // read synchronously, so every row assertion saw an empty table.
   syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
+    syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: ROWS, ok: true }),
   readManagerApplicationRows: () => ROWS,
   writeManagerApplicationRows: () => {},
   deleteManagerApplicationFromServer: () => Promise.resolve({ ok: true }),

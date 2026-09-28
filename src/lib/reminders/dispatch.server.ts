@@ -252,6 +252,7 @@ export async function dispatchReminderRow(
         deliverViaEmail: channels.email,
         deliverViaSms: channels.sms,
         eventCategory: CATEGORY_BY_KIND[row.kind],
+        automated: true,
         senderRole: "manager",
         recordRef: recordRefFromReminderRow(row.kind, row.subjectId, row.payload as ReminderPayload, subject) ?? undefined,
         ...(row.recipientRole === "vendor"

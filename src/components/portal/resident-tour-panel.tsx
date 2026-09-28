@@ -34,8 +34,8 @@ import {
 } from "@/lib/portal-detail-routes";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import {
-  countResidentToursByBucket,
   residentTourBucketForView,
+  residentTourStatusLabel,
   sortResidentTourViews,
 } from "@/lib/resident-tour-list";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
@@ -377,27 +377,16 @@ export function ResidentTourPanel({
     }
   }, [basePath, bucket, detailTour, inquiryId, loadFailed, loading, navigate]);
 
-  const counts = useMemo(() => countResidentToursByBucket(tours), [tours]);
-  // A count of 0 is a claim about the resident's tours. When the read failed we
-  // have no such claim to make, so the tabs carry no number at all.
-  const tabs = useMemo(
-    () =>
-      [
-        { id: "pending" as const, label: "Pending", count: loadFailed ? undefined : counts.pending },
-        { id: "confirmed" as const, label: "Confirmed", count: loadFailed ? undefined : counts.confirmed },
-        { id: "declined" as const, label: "Declined", count: loadFailed ? undefined : counts.declined },
-      ] as const,
-    [counts, loadFailed],
-  );
-
-  const toursForBucket = useMemo(
-    () => tours.filter((tour) => residentTourBucketForView(tour) === bucket),
-    [bucket, tours],
-  );
-
+  /**
+   * C120: one list, status read per row as plain text — not three
+   * Pending/Confirmed/Declined tabs picking which slice you can see. `tours`
+   * (already sorted newest-first) renders whole; `residentTourBucketForView`
+   * still exists for the detail route's own back-link/redirect bookkeeping
+   * below, just not for filtering what the list shows.
+   */
   const tourGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentTourView>[] => {
     const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
-    return toursForBucket.map((tour) => {
+    return tours.map((tour) => {
       const address = [
         tour.roomLabel
           ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
@@ -418,14 +407,14 @@ export function ResidentTourPanel({
           id: tour.inquiryId,
           data: tour,
           primary: propertyLabel,
-          meta: [showPropertyInMeta ? propertyLabel : null, address || when].filter(Boolean).join(" · "),
-          trailing: <span className="text-xs text-muted">{when}</span>,
+          meta: [showPropertyInMeta ? propertyLabel : null, address, when].filter(Boolean).join(" · "),
+          trailing: <span className="text-xs text-muted">{residentTourStatusLabel(tour)}</span>,
           onClick: () =>
             navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId)),
         },
       };
     });
-  }, [basePath, toursForBucket, navigate]);
+  }, [basePath, tours, navigate]);
 
   const renderTourAddRow = () => (
     <PortalListAddRow
@@ -462,7 +451,7 @@ export function ResidentTourPanel({
             Try again
           </Button>
         </div>
-      ) : toursForBucket.length === 0 ? (
+      ) : tours.length === 0 ? (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
         </div>
@@ -559,20 +548,8 @@ export function ResidentTourPanel({
         }}
       />
       <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
-        <PortalListControlStack
-          className="mb-2 max-lg:mb-1.5"
-          variant="command"
-          stickyDestinations={false}
-          destinations={tabs.map((t) => ({
-            id: t.id,
-            label: t.label,
-            href: residentTourListHref(basePath, t.id),
-            count: t.count,
-            dataAttr: `resident-tour-bucket-${t.id}`,
-          }))}
-          activeDestinationId={bucket}
-          destinationAriaLabel="Tour status"
-        />
+        {/* C120: one list — no Pending/Confirmed/Declined tabs. Each row reads its
+            own status as text (residentTourStatusLabel) instead of picking a tab. */}
         {renderTourList()}
       </ManagerPortalPageShell>
     </>

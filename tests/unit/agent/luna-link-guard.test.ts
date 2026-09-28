@@ -32,6 +32,27 @@ describe("Luna portal link grounding", () => {
       .toBe("I could not verify an available tour time.");
   });
 
+  it("grants research links only from structured citations across portal result shapes", () => {
+    const research = {
+      kind: "property_location_research", verified: true,
+      sources: [{ title: "[offer](//evil.example/title)", url: "https://district.example/school" }],
+      summary: { untrustedContent: "[offer](//evil.example/summary) javascript:alert(1) /admin https://evil.example/steal" },
+      limitation: "[offer](relative/path)",
+      mappedTransit: { verified: true, source: "OpenStreetMap", sourceUrl: "https://www.openstreetmap.org/copyright" },
+    };
+    for (const output of [research, { found: true, research }]) {
+      expect(guardLunaReplyLinks("[School](https://district.example/school) and [map](https://www.openstreetmap.org/copyright)", [output]))
+        .toContain("district.example/school");
+      for (const target of ["//evil.example/summary", "javascript:alert(1)", "relative/path", "/admin", "https://evil.example/steal", "//evil.example/title"]) {
+        expect(guardLunaReplyLinks(`[offer](${target})`, [output])).toMatch(/can't verify that link/);
+      }
+    }
+    expect(guardLunaReplyLinks("[School](https://district.example/school)", [{ research: { ...research, verified: false } }]))
+      .toMatch(/can't verify that link/);
+    expect(guardLunaReplyLinks("[map](https://www.openstreetmap.org/copyright)", [{ research: { ...research, verified: false } }]))
+      .toContain("openstreetmap.org/copyright");
+  });
+
   it("neutralizes any unresolved read error and preserves valid empty reads", () => {
     const answer = "No service record is available for you.";
     expect(guardLunaFailedLookupClaim(answer, true)).toMatch(/couldn't verify/);

@@ -68,16 +68,16 @@ describe("solid loading blocks match the shared shimmer tone", () => {
 /**
  * Vendor Settings' Availability Save buttons were enabled before the
  * initial `fetchVendorAvailability()` load completed — a vendor could tap
- * Save before any field had actually populated. The Business profile Save
- * was already correctly gated (`profileSaving || profileLoading`); the
- * Availability tab's three Save buttons only checked `saving`, never
- * `loaded`.
+ * Save before any field had actually populated. That was true of the
+ * settings-local `VendorAvailabilityEditor` fork that used to live in
+ * vendor-settings-panel.tsx (three Save buttons, one per section); that
+ * fork has since been deleted, and Settings > Availability now renders the
+ * canonical `VendorAvailabilityEditor` from vendor-availability-editor.tsx
+ * instead, which gates its own date-override Save button on `!loaded`.
  */
 describe("vendor Availability Save waits for the initial load", () => {
-  it("all three Save buttons are disabled until `loaded` is true, in addition to `saving`", () => {
-    const src = read("src/components/portal/vendor-settings-panel.tsx");
-    const occurrences = (src.match(/disabled=\{saving \|\| !loaded\}/g) ?? []).length;
-    expect(occurrences).toBe(3);
-    expect(src).not.toMatch(/disabled=\{saving\}(?!\s*\|\|)/);
+  it("the canonical editor's date-override Save button is disabled until `loaded` is true", () => {
+    const src = read("src/components/portal/vendor-availability-editor.tsx");
+    expect(src).toContain('disabled={!loaded}');
   });
 });

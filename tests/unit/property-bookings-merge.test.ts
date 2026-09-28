@@ -144,6 +144,30 @@ describe("leaseBookingEntries", () => {
     expect(entry?.roomId).toBe("");
     expect(entry?.roomLabel).toBe("Whole home");
   });
+
+  // N080: a lease whose resident has no surviving directory row is orphaned
+  // data (a completed delete, or a bug, left it behind) and must not draw a
+  // stay on Bookings.
+  it("drops a lease whose resident fails isResidentLinked", () => {
+    expect(
+      leaseBookingEntries(
+        [{ ...base, residentEmail: "gone@example.com" }],
+        leaseOpts({ isResidentLinked: () => false }),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a lease whose resident passes isResidentLinked", () => {
+    const [entry] = leaseBookingEntries(
+      [{ ...base, residentEmail: "still-here@example.com" }],
+      leaseOpts({ isResidentLinked: (email) => email === "still-here@example.com" }),
+    );
+    expect(entry?.summary).toBe("Cv Ponce");
+  });
+
+  it("does not filter at all when isResidentLinked is omitted", () => {
+    expect(leaseBookingEntries([base], leaseOpts())).toHaveLength(1);
+  });
 });
 
 describe("merged day lookup", () => {

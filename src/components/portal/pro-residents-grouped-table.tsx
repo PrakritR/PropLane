@@ -15,7 +15,7 @@
  * that order, so a house's residents still sit together.
  */
 
-import { CalendarDays, Mail, Users } from "lucide-react";
+import { BellRing, CalendarDays, Mail, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
   residentHousingMeta,
@@ -55,6 +55,8 @@ export function ManagerResidentsGroupedTable({
   selectedIds,
   onToggleSelected,
   selectable = false,
+  nudgeEligibleIds,
+  onNudge,
 }: {
   clusters: ManagerResidentListCluster[] | ManagerResidentHouseCluster[];
   groupMode: PortalListGroupMode;
@@ -66,6 +68,14 @@ export function ManagerResidentsGroupedTable({
   /** Kept for callers; there is no cluster header to select from any more. */
   onToggleCluster?: (ids: readonly string[]) => void;
   selectable?: boolean;
+  /**
+   * C252 (U035): Potential rows this manager can chase to finish their
+   * application (`shouldOfferApplicationCompletionReminder`). Everything
+   * else — Current, Past, an already-submitted Potential row — gets no
+   * button at all, not a disabled one.
+   */
+  nudgeEligibleIds?: ReadonlySet<string>;
+  onNudge?: (row: ManagerResidentListRow) => void;
 }) {
   const select = (id: string) => (selectable && onToggleSelected ? () => onToggleSelected(id) : undefined);
   const dataAttr = groupMode === "house" ? "residents-house-groups" : "residents-resident-groups";
@@ -79,36 +89,57 @@ export function ManagerResidentsGroupedTable({
         // title, so repeating it as a fact would print the same string twice.
         const email = row.email.trim().toLowerCase() === name.toLowerCase() ? "" : row.email.trim();
         const status = row.statusLabel?.trim() ?? "";
+        const canNudge = Boolean(onNudge && nudgeEligibleIds?.has(row.id));
         return (
-          <PortalApplicantRecordRow
-            key={row.id}
-            name={row.name}
-            address={residentHousingMeta(row, true)}
-            facts={
-              <>
-                {email ? (
-                  <PortalRowFact icon={Mail} srLabel="Email">
-                    {email}
-                  </PortalRowFact>
-                ) : null}
-                {row.residentSlotFact ? (
-                  <PortalRowFact icon={Users} srLabel="Resident">
-                    {row.residentSlotFact}
-                  </PortalRowFact>
-                ) : null}
-                {row.leaseStart ? (
-                  <PortalRowFact icon={CalendarDays} srLabel="Lease start">
-                    {shortDateLabel(row.leaseStart)}
-                  </PortalRowFact>
-                ) : null}
-                {status ? <span data-attr="resident-row-status">{status}</span> : null}
-              </>
-            }
-            checked={selectable && selectedIds?.has(row.id)}
-            onSelectedChange={select(row.id)}
-            onOpen={() => onOpenResident(row)}
-            dataAttr="resident-list-row"
-          />
+          // Wraps the row (rather than a `trailing`/`amount` prop) so the
+          // button never lands INSIDE the row's own clickable `<button>` —
+          // that prop duplicates its content there on phone, which nested a
+          // `<button>` inside a `<button>` and broke the tap on small screens.
+          <div key={row.id} className={canNudge ? "relative" : undefined}>
+            <PortalApplicantRecordRow
+              name={row.name}
+              address={residentHousingMeta(row, true)}
+              facts={
+                <>
+                  {email ? (
+                    <PortalRowFact icon={Mail} srLabel="Email">
+                      {email}
+                    </PortalRowFact>
+                  ) : null}
+                  {row.residentSlotFact ? (
+                    <PortalRowFact icon={Users} srLabel="Resident">
+                      {row.residentSlotFact}
+                    </PortalRowFact>
+                  ) : null}
+                  {row.leaseStart ? (
+                    <PortalRowFact icon={CalendarDays} srLabel="Lease start">
+                      {shortDateLabel(row.leaseStart)}
+                    </PortalRowFact>
+                  ) : null}
+                  {status ? <span data-attr="resident-row-status">{status}</span> : null}
+                </>
+              }
+              checked={selectable && selectedIds?.has(row.id)}
+              onSelectedChange={select(row.id)}
+              onOpen={() => onOpenResident(row)}
+              dataAttr="resident-list-row"
+            />
+            {canNudge ? (
+              <button
+                type="button"
+                data-attr="resident-row-nudge"
+                aria-label={`Remind ${row.name.trim() || "this applicant"} to finish their application`}
+                title="Remind to finish"
+                className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted transition-colors hover:bg-accent/60 hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onNudge?.(row);
+                }}
+              >
+                <BellRing className="size-4" strokeWidth={1.75} aria-hidden />
+              </button>
+            ) : null}
+          </div>
         );
       })}
     </div>

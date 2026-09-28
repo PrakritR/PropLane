@@ -36,6 +36,9 @@ import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notif
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
+import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { vendorPayFeeCents } from "@/lib/platform-fees";
+import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -457,6 +460,11 @@ async function startVendorPayCheckout(
     return { ok: false, status: 500, error: payoutInsertError.message };
   }
   const origin = resolveShareableAppOrigin();
+  // VENDOR_BANKING_ENABLED: PropLane's 3% take on top of Stripe's own
+  // processing cost, which the manager still pays exactly as before — the
+  // fee comes out of what the vendor nets. 0 with the flag off, so the
+  // checkout Stripe sees is byte-for-byte unchanged.
+  const platformFeeCents = vendorBankingEnabled() ? vendorPayFeeCents(input.invoiceCents) : 0;
   const result = await createAxisAchCheckoutSession(stripe, {
     residentEmail: input.managerEmail,
     amountCents: input.invoiceCents,
@@ -468,11 +476,13 @@ async function startVendorPayCheckout(
       manager_user_id: input.ownerManagerUserId,
       vendor_user_id: input.vendorUserId,
       invoice_cents: String(input.invoiceCents),
+      platform_fee_cents: String(platformFeeCents),
     },
     destinationAccountId: destinationAccountId ?? undefined,
     mode: "hosted",
     paymentMethod: "ach",
     feePayer: "resident",
+    extraApplicationFeeCents: platformFeeCents,
     successUrl: `${origin}/portal/services?vendor_pay=success&session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${origin}/portal/services?vendor_pay=cancel`,
   });
@@ -549,13 +559,54 @@ export async function completeVendorPayFromStripeSession(
   const vendorUserId = String(existing.vendor_user_id ?? session.metadata.vendor_user_id ?? "").trim();
   const invoiceCents = Number(session.metadata.invoice_cents ?? pending?.vendorCostCents ?? 0);
   if (vendorUserId && invoiceCents > 0) {
+    const isHold = session.metadata.platform_hold === "1";
+    const platformFeeCents = vendorBankingEnabled() ? Number(session.metadata.platform_fee_cents ?? 0) || 0 : 0;
+    // Best-effort, flag-gated: resolves the real Stripe charge id so a hold
+    // row can later be refunded/expired against it. `platform_payment_holds`
+    // never stored this for a vendor_invoice-sourced hold before this flag —
+    // populating it is itself a (harmless) behavior change, so it stays
+    // behind the flag like everything else here.
+    const stripeChargeId = vendorBankingEnabled()
+      ? await resolveChargeIdFromCheckoutSession(getStripe(), session).catch(() => null)
+      : null;
     await recordVendorPayoutSettled(db, {
       workOrderId,
       managerUserId,
       vendorUserId,
       amountCents: invoiceCents,
-      stripeTransferId: session.metadata.platform_hold === "1" ? null : session.id,
+      stripeTransferId: isHold ? null : session.id,
+      ...(vendorBankingEnabled()
+        ? {
+            platformFeeCents,
+            destination: (isHold ? "hold" : "destination_charge") as "hold" | "destination_charge",
+            stripeChargeId,
+          }
+        : {}),
     });
-    await creditHoldFromPaidSession(db, session);
+    await creditHoldFromPaidSession(db, session, stripeChargeId ?? undefined);
+    if (vendorBankingEnabled()) {
+      await recordVendorBankingChargeAndFee(db, {
+        vendorUserId,
+        managerUserId,
+        grossCents: invoiceCents,
+        feeCents: platformFeeCents,
+        source: "work_order",
+        sourceId: workOrderId,
+        description: `Payment for ${row.title || "service"}`,
+        stripeObjectId: stripeChargeId ?? session.id,
+      }).catch((e) => console.error("[vendor-banking] ledger write failed for work order pay", e));
+    }
   }
+}
+
+/** Resolves the real Stripe charge id behind a settled Checkout session (payment_intent → latest_charge). */
+async function resolveChargeIdFromCheckoutSession(
+  stripe: ReturnType<typeof getStripe>,
+  session: import("stripe").default.Checkout.Session,
+): Promise<string | null> {
+  const pi = session.payment_intent;
+  if (!pi) return null;
+  const intent = typeof pi === "string" ? await stripe.paymentIntents.retrieve(pi) : pi;
+  const charge = intent.latest_charge;
+  return typeof charge === "string" ? charge : charge?.id ?? null;
 }

@@ -23,8 +23,12 @@ export const adminPortal: PortalDefinition = {
     { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Billing merged into Accounts (captain: "combine Billing and Accounts") -
     // plan, caps, complimentary status and comms credit all live on the
-    // account record page now. No separate nav row; the `/admin/billing` URL
-    // still resolves (render-portal-section.tsx), to a one-line redirect card.
+    // account record page now. No separate nav row, and no `/admin/billing`
+    // route either: `"billing"` was never a registered section here, so that
+    // URL 404s (`findSection` in render-portal-section.tsx). The one thing
+    // that used to live behind it — the global per-plan "Plan credit" table
+    // (`PlanCreditRulesSection`) — now mounts on Accounts (`axis-users`)
+    // behind a header icon action instead.
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -45,9 +49,6 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Meetings", path: "/admin/events" },
   { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
-  // Billing is off the nav (merged into Accounts) but the URL must keep
-  // resolving — a bookmark that 404s is worse than a redundant redirect card.
-  { label: "Billing", path: "/admin/billing" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Settings", path: "/admin/profile" },
 ] as const;

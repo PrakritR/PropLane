@@ -689,14 +689,14 @@ export function VendorWorkOrdersPanel({
 
         {row.biddingOpen || bid ? (
           <div className="mt-4 border-t border-border pt-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Quote</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
+              Quote
               {bid ? (
-                <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
-                  {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
+                <span className="ml-1.5 font-semibold normal-case text-foreground">
+                  · {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
                 </span>
               ) : null}
-            </div>
+            </p>
 
             {bid && !canEditBid ? (
               <p className="mt-1.5 text-xs text-muted">

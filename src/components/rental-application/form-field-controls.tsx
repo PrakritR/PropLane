@@ -27,7 +27,7 @@ export function Label({
     <label htmlFor={htmlFor} className="block text-sm font-semibold text-foreground">
       {children}
       {required ? <span className="text-primary"> *</span> : null}
-      {optional ? <span className="pl-1 font-normal text-muted/70">(optional)</span> : null}
+      {optional ? <span className="font-normal text-muted/70"> (optional)</span> : null}
     </label>
   );
 }

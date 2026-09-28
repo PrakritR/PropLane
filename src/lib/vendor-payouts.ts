@@ -1,9 +1,11 @@
 /** Client-side shape returned by GET /api/vendor/payouts. */
-export type VendorPayoutStatus = "pending" | "paid" | "failed" | "skipped";
+export type VendorPayoutStatus = "pending" | "paid" | "failed" | "skipped" | "refunded" | "partially_refunded";
 
 export type VendorPayout = {
   id: string;
-  workOrderId: string;
+  workOrderId: string | null;
+  /** VENDOR_BANKING_ENABLED "Request payment" — set when this payout settled a vendor_invoices row instead of a work order. */
+  invoiceId?: string | null;
   amountCents: number;
   stripeTransferId: string | null;
   /** `pending` is the claim row written before the Stripe call resolves — a transfer in flight. */
@@ -13,6 +15,10 @@ export type VendorPayout = {
   /** When the row last changed status — the transfer-sent / failed / skipped instant. Absent on
    * older demo seeds, which render that step's date as "—" rather than guessing. */
   updatedAt?: string | null;
+  /** VENDOR_BANKING_ENABLED — PropLane's 3% take on this payment, 0 when the flag was off at charge time. */
+  platformFeeCents?: number;
+  refundedGrossCents?: number;
+  refundedFeeCents?: number;
 };
 
 export async function fetchVendorPayouts(): Promise<VendorPayout[]> {

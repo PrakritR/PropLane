@@ -89,7 +89,7 @@ describe("ResidentTourPanel surfaces a failed read instead of an empty list", ()
     expect(document.querySelector('[data-attr="resident-tour-retry"]')).not.toBeNull();
   });
 
-  it("does not print 0 counts on the status tabs when the read failed", async () => {
+  it("does not render like a genuine empty list when the read failed", async () => {
     stubToursResponse({
       ok: false,
       status: 503,
@@ -99,13 +99,14 @@ describe("ResidentTourPanel surfaces a failed read instead of an empty list", ()
     render(<ResidentTourPanel />);
     await screen.findByRole("alert");
 
-    // A resident with a confirmed tour was told "Confirmed 0". With no data,
-    // the tabs must carry no number at all rather than a fabricated zero.
-    for (const id of ["pending", "confirmed", "declined"]) {
-      const tab = document.querySelector(`[data-attr="resident-tour-bucket-${id}"]`);
-      expect(tab).not.toBeNull();
-      expect(tab?.textContent ?? "").not.toMatch(/\b0\b/);
-    }
+    // C120 collapsed the Pending/Confirmed/Declined status tabs (which used to
+    // print a fabricated "Confirmed 0" on a failed read) into one merged list
+    // with per-row status text — there is no longer a per-bucket count
+    // anywhere to fabricate. The invariant this file guards now lives in the
+    // load-error surface itself: a failure must render its own alert box
+    // (asserted above) and never the "schedule a tour" empty-state row a
+    // genuinely empty list shows.
+    expect(document.querySelector('[data-attr="resident-tour-schedule"]')).toBeNull();
   });
 
   it("treats a 401 as a load failure rather than zero tours", async () => {
@@ -126,14 +127,12 @@ describe("ResidentTourPanel surfaces a failed read instead of an empty list", ()
       expect(document.querySelector('[data-attr="resident-tour-schedule"]')).not.toBeNull();
     });
     // "no tours" and "we could not read your tours" must never look the same:
-    // an empty read shows the ordinary empty state and NO error.
+    // an empty read shows the ordinary empty state and NO error. The sibling
+    // test above pins the other half: a load failure never renders this same
+    // "schedule a tour" empty state (which is what would have made a failure
+    // look like a confident, genuine zero).
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.querySelector('[data-attr="resident-tour-load-error"]')).toBeNull();
     expect(document.querySelector('[data-attr="resident-tour-list"]')).toBeNull();
-    // A genuine zero DOES get a count — that is the whole distinction this file
-    // draws. The sibling test above pins the other half: when the read FAILED,
-    // no count is printed, because "0" would be a lie rather than a fact.
-    const pendingTab = document.querySelector('[data-attr="resident-tour-bucket-pending"]');
-    expect(pendingTab?.textContent ?? "").toBe("Pending0");
   });
 });

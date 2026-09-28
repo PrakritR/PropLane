@@ -7,15 +7,14 @@ const src = readFileSync(resolve("src/components/portal/portal-profile-client.ts
 function groupFor(id: string): string | null {
   const block = src.split(`id: "${id}"`)[1];
   if (!block) return null;
-  const match = block.match(/group:\s*"(Account|Operations|Portfolio)"/);
+  const match = block.match(/group:\s*"(Account|Workspace)"/);
   return match?.[1] ?? null;
 }
 
-describe("settings account vs operations groups", () => {
+describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 simplification, corrected 06:47)", () => {
   it("keeps person settings on Account", () => {
     expect(groupFor("profile")).toBe("Account");
     expect(groupFor("preferences")).toBe("Account");
-    expect(groupFor("notifications")).toBe("Account");
     expect(groupFor("security")).toBe("Account");
     expect(groupFor("feedback")).toBe("Account");
     expect(groupFor("account")).toBe("Account");
@@ -25,29 +24,38 @@ describe("settings account vs operations groups", () => {
     expect(groupFor("workspaces")).toBe("Account");
   });
 
-  it("puts Communication on Operations — it follows the top-left workspace", () => {
+  it("puts Communication on Workspace — it follows the top-left workspace", () => {
     expect(groupFor("team")).toBeNull();
     expect(groupFor("vendors")).toBeNull();
-    expect(groupFor("messaging")).toBe("Operations");
+    expect(groupFor("messaging")).toBe("Workspace");
   });
 
-  it("puts Application, Lease, and Tour modules on Portfolio — Properties is not a settings pane", () => {
+  it("removed Applications, Leases, Tours, and Residents from Settings — their choices moved to each property's own section", () => {
     expect(groupFor("properties")).toBeNull();
-    expect(groupFor("applications")).toBe("Portfolio");
-    expect(groupFor("lease")).toBe("Portfolio");
-    expect(groupFor("tours")).toBe("Portfolio");
-    expect(groupFor("resident")).toBe("Portfolio");
+    expect(src).not.toContain('id: "applications"');
+    expect(src).not.toContain('id: "lease"');
+    expect(src).not.toContain('id: "forms"');
+    expect(src).not.toContain('id: "tours"');
+    expect(src).not.toContain('id: "resident"');
   });
 
-  it("puts remaining workspace modules on Operations", () => {
-    expect(groupFor("payments")).toBe("Operations");
-    expect(groupFor("tasks")).toBe("Operations");
-    expect(groupFor("reminders")).toBe("Operations");
-    expect(groupFor("services")).toBe("Operations");
-    // Bookings and Inspections settings tabs are gone (C111/C116) — both held
-    // only reminders, now on the "reminders" nav entry above.
-    expect(groupFor("bookings")).toBeNull();
-    expect(groupFor("inspections")).toBeNull();
+  it("keeps Application form and Lease documents on Workspace — S014 correction (captain, 06:47): another worker's list-page gear removal assumed Settings still hosts this editing", () => {
+    expect(groupFor("applicationForm")).toBe("Workspace");
+    expect(groupFor("leaseDocuments")).toBe("Workspace");
+  });
+
+  it("removed Services and Tasks from Settings, and Reminders and Notifications entirely", () => {
+    expect(src).not.toContain('id: "services"');
+    expect(src).not.toContain('id: "tasks"');
+    expect(src).not.toContain('id: "reminders"');
+    expect(src).not.toContain('id: "notifications"');
+  });
+
+  it("keeps Payments and Payouts on Workspace, and renames Spreadsheets to Integrations", () => {
+    expect(groupFor("payments")).toBe("Workspace");
+    expect(groupFor("payouts")).toBe("Workspace");
+    expect(groupFor("spreadsheets")).toBe("Workspace");
+    expect(src).toContain('label: "Integrations"');
   });
 
   it("moves Billing and API onto Account — they belong to the login", () => {
@@ -67,20 +75,33 @@ describe("settings account vs operations groups", () => {
     expect(src).not.toContain('id: "team"');
   });
 
-  it("aliases ?tab=properties onto Applications", () => {
-    expect(src).toContain('rawTab === "properties"');
-    expect(src).toContain('router.replace("/portal/profile?tab=applications")');
+  it("routes every removed pane's old deep link (and legacy alias) to Profile", () => {
+    expect(src).toContain("REMOVED_SETTINGS_TAB_IDS");
+    for (const id of [
+      "notifications",
+      "applications",
+      "lease",
+      "forms",
+      "tours",
+      "resident",
+      "services",
+      "tasks",
+      "reminders",
+      "properties",
+      "automation",
+      "leases",
+      "residents",
+      "bookings",
+      "inspections",
+    ]) {
+      expect(src).toContain(`"${id}"`);
+    }
+    expect(src).toContain('router.replace("/portal/profile?tab=profile")');
   });
 
-  it("aliases ?tab=residents onto the Residents hub pane", () => {
-    expect(src).toContain('rawTab === "residents"');
-    expect(src).toContain('router.replace("/portal/profile?tab=resident")');
-  });
-
-  it("puts Manager alerts on Notifications, not Preferences", () => {
-    expect(src).toContain('id: "notifications"');
-    const prefs = src.slice(src.indexOf('case "preferences"'), src.indexOf('case "notifications"'));
-    expect(prefs).not.toContain("ManagerNotificationRoutingSetting");
-    expect(src.slice(src.indexOf('case "notifications"'))).toContain("ManagerNotificationRoutingSetting");
+  it("does NOT redirect Application form or Lease documents away — S014 kept both reachable", () => {
+    const removedSetBlock = src.slice(src.indexOf("const REMOVED_SETTINGS_TAB_IDS"), src.indexOf("]);") + 3);
+    expect(removedSetBlock).not.toContain('"applicationForm"');
+    expect(removedSetBlock).not.toContain('"leaseDocuments"');
   });
 });

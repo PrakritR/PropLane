@@ -62,18 +62,14 @@ async function mount() {
   });
 }
 
-it("does not leave bank editing enabled when the payout owner could not be resolved", async () => {
+it("carries no Payouts door of its own — nothing left here for an ambiguous co-manager refusal to gate (S022, captain 2026-09-27)", async () => {
   // PLAN-0920-0853 moved identity, bank and balance to the dedicated Payouts
-  // page — this row is a door to it, not its own Stripe card, so the specific
-  // server refusal text (`AMBIGUOUS`) no longer renders inline here. What
-  // still matters, and what this asserts: a 409 `canEditBankAccount` refusal
-  // keeps this row from opening the door at all, and the click surfaces some
-  // explanation rather than silently doing nothing.
+  // page; the redundant quick-link row that used to sit in Payment setup
+  // (and the `canEditBankAccount` refusal that gated it) was removed
+  // entirely in the Payments settings simplification (S022) — Payouts is
+  // reachable only through its own Settings tab now, which gates its own
+  // access independently of this panel.
   await mount();
-  const link = document.querySelector<HTMLButtonElement>('[data-attr="manager-payment-stripe-link"]');
-  expect(link).toBeTruthy();
-  const hrefBefore = window.location.href;
-  await act(async () => { link!.click(); });
-  expect(window.location.href).toBe(hrefBefore);
-  expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Only the property owner"));
+  expect(document.querySelector('[data-attr="manager-payment-stripe-link"]')).toBeNull();
+  expect(document.querySelector('[data-attr="manager-payment-stripe-link-locked"]')).toBeNull();
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { MEETING_CONFIRMED_COLOR, PortalCalendarPanels, type DemoMeeting } from "@/components/portal/portal-calendar-panels";
@@ -9,7 +10,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { FilterCollapsibleSection, FilterCheckboxList } from "@/components/portal/filter-field-lists";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
-import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-settings-panel";
+import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
@@ -132,6 +133,8 @@ const VENDOR_CALENDAR_TAB_LABELS: Record<VendorCalendarViewTabId, string> = {
 export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewTabId } = {}) {
   const { showToast } = useAppUi();
   const { userId, ready } = usePortalSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const demo = isDemoModeActive();
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
   const [listSearch, setListSearch] = useState("");
@@ -175,6 +178,22 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
     window.addEventListener(VENDOR_AVAILABILITY_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(VENDOR_AVAILABILITY_CHANGED_EVENT, onChanged);
   }, [paintAndBump]);
+
+  // The assistant's "Set availability" chip (VD23, 2026-09-27) is reachable
+  // from any vendor page, so it navigates here with a query flag rather than
+  // dispatching the open event directly — the editor only lives on THIS page,
+  // and a same-page dispatch would be lost if no listener were mounted yet.
+  useEffect(() => {
+    if (searchParams?.get("openAvailability") !== "1") return;
+    window.dispatchEvent(
+      new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date: toLocalDateStr(new Date()) } }),
+    );
+    const params = new URLSearchParams(searchParams);
+    params.delete("openAvailability");
+    const query = params.toString();
+    router.replace(`/vendor/calendar${query ? `?${query}` : ""}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // The manager's Tours availability blocks get a one-click × on the run's
   // first cell (`PortalCalendarPanels`); this is the vendor equivalent — a
@@ -368,11 +387,18 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
           />
         }
       />
+      <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
       <PortalCalendarPanels
         storageKey={showAvailability ? storageKey : null}
         vendorViewer
         hideViewModeControl
         defaultViewMode="week"
+        // C264: the same compact week-at-a-glance grid the manager Calendar
+        // uses (`bareSurface` just drops the manager card chrome), instead of
+        // the non-compact branch's vertical stack of seven full-day agendas —
+        // reuses the manager component, does not fork it.
+        compactAvailability
+        bareSurface
         calendarRefreshSignal={refreshSignal}
         externalMeetings={externalMeetings}
         onVendorAvailabilityEdit={(date, slotIdx) => {
@@ -384,6 +410,7 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
           void handleVendorAvailabilityRemove(date, startSlot, endSlotExclusive);
         }}
       />
+      </div>
       <VendorAvailabilityEditor dialog />
     </ManagerPortalPageShell>
   );

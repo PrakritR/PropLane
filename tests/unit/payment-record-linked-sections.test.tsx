@@ -112,3 +112,47 @@ describe("payment record page hides tabs that can never have content (C095)", ()
     expect(hrefs.some((h) => h?.endsWith("/documents"))).toBe(false);
   });
 });
+
+// C095: Overview renders the shared StatTile/RecordFactCard kit
+// (`portal-record-overview-kit.tsx`, docs/agents/record-page.md point 3)
+// instead of the bespoke grid every other kind had already moved off of.
+describe("payment record Overview uses the shared record-page kit (C095)", () => {
+  it("shows the four StatTiles and a Details/Resident RecordFactCard pair, with Resident linking to its tab", () => {
+    const { container } = renderDetail(sampleRow());
+    expect(container.querySelector('[data-attr="payment-overview-tile-amount"]')?.textContent).toContain(
+      "$1,850.00",
+    );
+    expect(container.querySelector('[data-attr="payment-overview-tile-balance"]')?.textContent).toContain(
+      "$1,850.00",
+    );
+    expect(container.querySelector('[data-attr="payment-overview-tile-due"]')?.textContent).toContain(
+      "Jul 1, 2026",
+    );
+    expect(container.querySelector('[data-attr="payment-overview-tile-status"]')?.textContent).toContain(
+      "Pending",
+    );
+    const detailsCard = container.querySelector('[data-attr="payment-overview-card-details"]');
+    expect(detailsCard?.textContent).toContain("The Magnolia");
+    expect(detailsCard?.textContent).toContain("July rent");
+    const residentCard = container.querySelector('[data-attr="payment-overview-card-resident"]');
+    expect(residentCard?.textContent).toContain("Maya Chen");
+    const residentLink = residentCard?.querySelector("a[href]");
+    expect(residentLink?.getAttribute("href")).toBe("/portal/payments/incoming/pending/hc_test_1/resident");
+  });
+
+  it("shows a Resident message card only when the charge carries one", () => {
+    const { container } = renderDetail(
+      sampleRow({
+        residentChargeMessages: [{ id: "msg1", body: "Can I pay this in two parts?", sentAt: "2026-06-30T12:00:00.000Z" }],
+      }),
+    );
+    expect(container.querySelector('[data-attr="payment-overview-card-resident-message"]')?.textContent).toContain(
+      "Can I pay this in two parts?",
+    );
+  });
+
+  it("omits the Resident message card when there is none", () => {
+    const { container } = renderDetail(sampleRow());
+    expect(container.querySelector('[data-attr="payment-overview-card-resident-message"]')).toBeNull();
+  });
+});

@@ -88,17 +88,23 @@ const PROPERTY_B = "prop-b";
 const CREATED_AT = "2024-01-01T12:00:00.000Z";
 const NOW = new Date("2024-01-01T12:30:00.000Z");
 
-// Quiet hours off so a computed send time is exactly anchor + timing, never
-// pushed forward — the test only cares about which timing fired.
+// Fixed reminders (S020, captain 2026-09-27): "reminders always consistent
+// for everything… remove adjustable reminders." A stored quiet-hours
+// override is exactly the kind of customization the engine now ignores — the
+// built-in default (9 PM-8 AM Pacific, `DEFAULT_QUIET_HOURS`) always applies,
+// so `CREATED_AT` (4 AM Pacific) + the built-in 1-day-after default lands at
+// 4 AM Pacific the next day and gets pushed to 8 AM Pacific
+// (`2024-01-02T16:00:00.000Z`) regardless of what any row below still says.
 const QUIET_HOURS_OFF = { quietHours: { enabled: false, startHour: 0, endHour: 0 } };
+const PUSHED_SEND_AT = "2024-01-02T16:00:00.000Z";
 
-/** Property A's own Services rule: escalate an unassigned request after 2 hours (120 min). */
+/** Property A's own STORED Services override: escalate after 2 hours. Never read now. */
 const PROPERTY_A_OVERRIDE = {
   ...QUIET_HOURS_OFF,
   rules: { work_order_unassigned: { timings: ["after:120"] } },
 };
 
-/** The account default: escalate after 1 day (1440 min) — property B never overrides it. */
+/** The account's STORED settings: escalate after 1 day, quiet hours off. Never read now either. */
 const ACCOUNT_SETTINGS = {
   ...QUIET_HOURS_OFF,
   rules: { work_order_unassigned: { timings: ["after:1440"] } },
@@ -120,15 +126,17 @@ function workOrderRow(id: string, propertyId: string) {
   };
 }
 
-describe("services sweep honours the property/workspace scope", () => {
-  it("an unassigned request at property A queues at the house's 2-hour rule, one at B keeps the account's 1-day rule", async () => {
+describe("services sweep ignores stored property/workspace overrides — fixed reminders (S020, captain 2026-09-27)", () => {
+  it("an unassigned request at property A does NOT get the house's stored 2-hour rule; both A and B queue at the built-in 1-day default, quiet hours applied", async () => {
     const upserts: Row[] = [];
     const db = makeDb(
       {
         portal_work_order_records: [workOrderRow("wo-a", PROPERTY_A), workOrderRow("wo-b", PROPERTY_B)],
         manager_automation_settings: [{ manager_user_id: MGR, row_data: { reminderRules: ACCOUNT_SETTINGS } }],
         manager_property_records: [
-          // Property A is customized; Property B is not and has no workspace either.
+          // Property A has its own stored override; Property B has none. Neither
+          // is read any more — the resolver always answers with the built-in
+          // default now, regardless of what either row holds.
           { id: PROPERTY_A, manager_user_id: MGR, row_data: { operationsSettings: { reminderRules: PROPERTY_A_OVERRIDE } } },
           { id: PROPERTY_B, manager_user_id: MGR, row_data: {} },
         ],
@@ -146,16 +154,19 @@ describe("services sweep honours the property/workspace scope", () => {
     const a = byWorkOrder.get("wo-a")!;
     const b = byWorkOrder.get("wo-b")!;
 
-    // Property A: 2 hours after creation (lead_minutes is negative for "after").
-    expect(a.lead_minutes).toBe(-120);
-    expect(a.send_at).toBe(new Date(Date.parse(CREATED_AT) + 120 * 60_000).toISOString());
+    // Property A's stored 2-hour override (-120) is ignored — it gets the
+    // same built-in 1-day-after default as B, with the built-in quiet hours
+    // (never the stored `QUIET_HOURS_OFF`) pushing the send time to 8 AM Pacific.
+    expect(a.lead_minutes).toBe(-1440);
+    expect(a.send_at).toBe(PUSHED_SEND_AT);
 
-    // Property B: the account's untouched 1-day-after default.
+    // Property B: same built-in default, same quiet-hours push. The stored
+    // "account" row above (also 1-day, also quiet-hours-off) is never read either.
     expect(b.lead_minutes).toBe(-1440);
-    expect(b.send_at).toBe(new Date(Date.parse(CREATED_AT) + 1440 * 60_000).toISOString());
+    expect(b.send_at).toBe(PUSHED_SEND_AT);
   });
 
-  it("a request with no property resolves to the account value (today's behaviour)", async () => {
+  it("a request with no property also resolves to the built-in default, quiet hours applied — nothing stored changes it", async () => {
     const upserts: Row[] = [];
     const db = makeDb(
       {
@@ -177,5 +188,6 @@ describe("services sweep honours the property/workspace scope", () => {
     const queued = await sweepWorkOrderEscalations(db, NOW);
     expect(queued).toBe(1);
     expect(upserts[0]!.lead_minutes).toBe(-1440);
+    expect(upserts[0]!.send_at).toBe(PUSHED_SEND_AT);
   });
 });

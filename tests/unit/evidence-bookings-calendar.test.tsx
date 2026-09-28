@@ -29,6 +29,17 @@ vi.mock("@/lib/lease-pipeline-storage", () => ({
   },
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
+// N080: Bookings now drops a lease whose resident has no surviving directory
+// (application) row. This fixture's lease is a real, executed stay, so give
+// it a matching application row rather than letting the new filter treat it
+// as orphaned data.
+vi.mock("@/lib/manager-applications-storage", () => ({
+  MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
+  normalizeApplicationAxisId: (id: unknown) => String(id ?? ""),
+  readManagerApplicationRows: () => [{ email: "cv.ponce@example.test", bucket: "current" }],
+  syncManagerApplicationsFromServer: () =>
+    Promise.resolve([{ email: "cv.ponce@example.test", bucket: "current" }]),
+}));
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () =>
     Promise.resolve([
@@ -66,6 +77,7 @@ const LEASES = [
     id: "lease-1",
     propertyId: "mgr-house-1",
     residentName: "Cv Ponce",
+    residentEmail: "cv.ponce@example.test",
     roomChoice: "mgr-house-1::room-a",
     stageLabel: "Signed",
     status: "Fully Signed",

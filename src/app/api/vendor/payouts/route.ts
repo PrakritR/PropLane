@@ -16,7 +16,9 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const { data, error } = await db
       .from("vendor_payouts")
-      .select("id, work_order_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at, updated_at")
+      .select(
+        "id, work_order_id, invoice_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at, updated_at, platform_fee_cents, refunded_gross_cents, refunded_fee_cents",
+      )
       .eq("vendor_user_id", access.actor.userId)
       .order("created_at", { ascending: false });
 
@@ -24,13 +26,17 @@ export async function GET() {
 
     const payouts = (data ?? []).map((row) => ({
       id: row.id as string,
-      workOrderId: row.work_order_id as string,
+      workOrderId: (row.work_order_id as string | null) ?? null,
+      invoiceId: (row.invoice_id as string | null) ?? null,
       amountCents: row.amount_cents as number,
       stripeTransferId: (row.stripe_transfer_id as string | null) ?? null,
       status: row.status as VendorPayoutStatus,
       failureReason: (row.failure_reason as string | null) ?? null,
       createdAt: row.created_at as string,
       updatedAt: (row.updated_at as string | null) ?? null,
+      platformFeeCents: Number(row.platform_fee_cents) || 0,
+      refundedGrossCents: Number(row.refunded_gross_cents) || 0,
+      refundedFeeCents: Number(row.refunded_fee_cents) || 0,
     }));
 
     return NextResponse.json({ payouts });

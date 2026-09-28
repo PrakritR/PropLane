@@ -70,6 +70,12 @@ import {
   SERVICE_REQUESTS_EVENT,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
+import {
+  MANAGER_APPLICATIONS_EVENT,
+  readManagerApplicationRows,
+  syncManagerApplicationsFromServer,
+} from "@/lib/manager-applications-storage";
+import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
 import { ManagerWorkOrdersPanel } from "@/components/portal/pro-work-orders-panel";
@@ -130,6 +136,7 @@ export function ManagerAllServicesPanel({
   const { userId, ready: authReady } = useManagerUserId();
   const [propertyTick, setPropertyTick] = useState(0);
   const [dataTick, setDataTick] = useState(0);
+  const [applicationTick, setApplicationTick] = useState(0);
   /** Approve / Deny / Edit / Delete, published by the detail and docked below it. */
   const [detailFooterActions, setDetailFooterActions] = useState<ReactNode | null>(null);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
@@ -168,30 +175,50 @@ export function ManagerAllServicesPanel({
     void syncPropertyPipelineFromServer().then(() => setPropertyTick((t) => t + 1));
     void syncManagerWorkOrdersFromServer({ force: true });
     void syncServiceRequestsFromServer({ force: true });
+    void syncManagerApplicationsFromServer({ managerUserId: userId }).then(() => setApplicationTick((t) => t + 1));
     const onWo = () => setDataTick((t) => t + 1);
     const onSr = () => setDataTick((t) => t + 1);
+    const onApp = () => setApplicationTick((t) => t + 1);
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, onWo);
     window.addEventListener(SERVICE_REQUESTS_EVENT, onSr);
+    window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApp);
     return () => {
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, onWo);
       window.removeEventListener(SERVICE_REQUESTS_EVENT, onSr);
+      window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApp);
     };
   }, [authReady, userId]);
+
+  // N080: a work order / service request whose resident has no surviving
+  // Potential/Current/Past application row is orphaned data — the manager
+  // already deleted them from Residents (or a bug left the row behind) — and
+  // must not keep showing up in Services or its dashboard counts.
+  const directoryEmails = useMemo(() => {
+    void applicationTick;
+    return directoryResidentEmailSet(readManagerApplicationRows());
+  }, [applicationTick]);
 
   const workOrders = useMemo<DemoManagerWorkOrderRow[]>(() => {
     void dataTick;
     if (!userId) return [];
     // Owner rows + linked-property rows for co-managers with services access.
-    return readManagerWorkOrderRows().filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"));
-  }, [userId, dataTick]);
+    // A general property maintenance row (no resident named at all) is never
+    // "orphaned" — only a row that names an email with no surviving directory
+    // row is dropped.
+    return readManagerWorkOrderRows()
+      .filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"))
+      .filter((r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails));
+  }, [userId, dataTick, directoryEmails]);
 
   const serviceRequests = useMemo<ServiceRequest[]>(() => {
     void dataTick;
     if (!userId) return [];
     // Match work orders: owned manager id OR owned/linked property — not exact
     // managerUserId alone (stale/mis-stamped rows still show for property owners).
-    return readAllServiceRequests().filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"));
-  }, [userId, dataTick]);
+    return readAllServiceRequests()
+      .filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"))
+      .filter((r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails));
+  }, [userId, dataTick, directoryEmails]);
 
   // C253: bid counts for the Overview tile and the list row's glyph fact — one
   // batched fetch (no workOrderId = every bid across this manager's work orders,

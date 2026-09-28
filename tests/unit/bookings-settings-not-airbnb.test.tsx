@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 /**
- * Settings on Bookings is the SECTION's settings, not a second Link Airbnb button.
+ * Link calendars is the one dialog Bookings' header opens.
  *
  * Both controls used to drive one `ChannelCalendarLinkModal`
  * (`open={linkModalOpen || settingsModalOpen}`), so the section offered two
  * buttons that led to the same dialog and had nowhere to keep a booking
- * preference.
+ * preference. S021 (captain, 2026-09-27) later dropped the reminders-hub
+ * Settings gear entirely — its reminder settings stay reachable from the
+ * central Settings -> Notifications hub.
  */
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
@@ -64,30 +66,6 @@ function stubFetch() {
 }
 
 describe("Bookings → Settings", () => {
-  it("does NOT open the Link Airbnb dialog", async () => {
-    stubFetch();
-    const view = await (async () => {
-      const v = render(
-        <AppUiProvider>
-          <ManagerBookings bucket="upcoming" basePath="/portal" />
-        </AppUiProvider>,
-      );
-      await settle();
-      return v;
-    })();
-
-    fireEvent.click(view.container.querySelector('[data-attr="settings-open-bookings"]')!);
-    await settle();
-
-    const text = document.body.textContent ?? "";
-    expect(text).not.toContain("Airbnb import URL");
-    expect(text).not.toContain("paste the Airbnb export URL");
-    // Was "Bookings settings" (plural) here while the button beside it said
-    // "Booking settings" (singular) — the two are now the same entry (see
-    // settings-entry-points.ts), so the dialog matches the button exactly.
-    expect(text).toContain("Booking settings");
-  });
-
   it("Link calendars still opens the Link calendars dialog", async () => {
     stubFetch();
     const view = render(

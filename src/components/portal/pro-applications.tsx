@@ -16,7 +16,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, Check, Download, Plus, Settings, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
+import { Bell, Check, Download, Plus, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -31,7 +31,6 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
-  PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
@@ -44,11 +43,6 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -60,6 +54,7 @@ import {
   readManagerApplicationRows,
   residentSlotOverrideFields,
   syncManagerApplicationsFromServer,
+  syncManagerApplicationsFromServerWithStatus,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import {
@@ -171,7 +166,6 @@ import {
   portalPropertyFilterIdsEqual,
   sanitizePortalPropertyFilterIds,
 } from "@/lib/portal-property-list-filters";
-const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 
 function isApprovableApplicationRow(row: DemoApplicantRow): boolean {
   if (isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row)) return false;
@@ -621,6 +615,9 @@ export function ManagerApplications({
   const [rows, setRows] = useState<DemoApplicantRow[]>(() =>
     typeof window === "undefined" ? [] : readManagerApplicationRows(),
   );
+  const [initialReadUserId, setInitialReadUserId] = useState<string | null>(null);
+  const [initialReadErrorUserId, setInitialReadErrorUserId] = useState<string | null | undefined>(undefined);
+  const [readRetryEpoch, setReadRetryEpoch] = useState(0);
   const [portfolioTick, setPortfolioTick] = useState(() =>
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
@@ -649,7 +646,6 @@ export function ManagerApplications({
     setInviteModalOpen(true);
   }, []);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
-  const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
@@ -659,10 +655,24 @@ export function ManagerApplications({
   const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
   useEffect(() => {
     if (!authReady) return;
+    let active = true;
+    let readVersion = 0;
     const sync = () => setRows(readManagerApplicationRows());
-    const pull = () => void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(sync);
+    const read = async (force: boolean) => {
+      const version = ++readVersion;
+      const result = await syncManagerApplicationsFromServerWithStatus({ force, managerUserId: userId });
+      if (!active || version !== readVersion || result.stale) return;
+      sync();
+      if (result.ok) {
+        setInitialReadUserId(userId);
+        setInitialReadErrorUserId(undefined);
+      } else {
+        setInitialReadErrorUserId(userId);
+      }
+    };
+    const pull = () => void read(true);
     sync();
-    void syncManagerApplicationsFromServer({ managerUserId: userId }).then(sync);
+    void read(readRetryEpoch > 0);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
     const onVisible = () => {
       if (document.visibilityState === "visible") pull();
@@ -671,12 +681,13 @@ export function ManagerApplications({
     document.addEventListener("visibilitychange", onVisible);
     const poll = window.setInterval(pull, 20_000);
     return () => {
+      active = false;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, sync);
       window.removeEventListener("focus", pull);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(poll);
     };
-  }, [authReady, userId]);
+  }, [authReady, userId, readRetryEpoch]);
 
   // Returning from embedded Stripe screening checkout (?screening=return|paid|cancelled).
   useEffect(() => {
@@ -1674,17 +1685,6 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  // Application form lives inside Settings (Form | Automation), so the toolbar
-  // stays one row of plain icons; Send application is the share glyph.
-  const applicationsSettingsButton = (
-    <PortalIconAction
-      icon={Settings}
-      label={applicationsSettingsEntry.label}
-      data-attr={applicationsSettingsEntry.dataAttr}
-      onClick={() => setApplicationSettingsOpen(true)}
-    />
-  );
-
   const applicationsAddButton = (
     <PortalIconAction
       icon={Share2}
@@ -1714,7 +1714,6 @@ export function ManagerApplications({
   const applicationsListActions = (
     <>
       {applicationsFilterSort}
-      {applicationsSettingsButton}
       {applicationsAddButton}
       {applicationsManualAddButton}
     </>
@@ -2044,7 +2043,7 @@ export function ManagerApplications({
           recordId: detailRow.id,
           recordLabel: applicantDisplayName(detailRow),
           overviewTiles: [
-            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "danger" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
+            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "warning" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
             { id: "income", label: "Income", value: detailRow.application?.monthlyIncome ? `$${detailRow.application.monthlyIncome}` : "—", detail: "per month" },
             { id: "property", label: "Property", value: detailRow.property ?? "—" },
             { id: "phone", label: "Phone", value: detailRow.application?.phone ?? "—" },
@@ -2198,23 +2197,15 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
-      <ManagerPortalSettingsModal
-        open={applicationSettingsOpen}
-        onClose={() => setApplicationSettingsOpen(false)}
-        initialTab="applications"
-        scoped
-        scopedTitle={settingsDialogTitlePrefix(applicationsSettingsEntry)}
-        propertyOptions={propertyOptions}
-        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        onFormSaved={() => setPortfolioTick((n) => n + 1)}
-      />
       {checkrScreeningModal}
-      {!authReady && rows.length === 0 ? (
-        <div className={PORTAL_DATA_TABLE_WRAP}>
-          <ListSkeleton rows={5} showLeading={false} />
-        </div>
-      ) : (
         <PortalRecordListSurface
+          loading={rows.length === 0 && (!authReady || (initialReadErrorUserId !== userId && initialReadUserId !== userId))}
+          loadError={authReady && rows.length === 0 && initialReadErrorUserId === userId ? "Could not load applications." : undefined}
+          onRetry={() => {
+            setInitialReadErrorUserId(undefined);
+            setInitialReadUserId(null);
+            setReadRetryEpoch((epoch) => epoch + 1);
+          }}
           isEmpty={visibleRows.length === 0}
           add={{
             ariaLabel: "Add application",
@@ -2367,7 +2358,6 @@ export function ManagerApplications({
             />
           ) : null}
         </PortalRecordListSurface>
-      )}
       </div>
     </ManagerPortalPageShell>
       {applicationModals}

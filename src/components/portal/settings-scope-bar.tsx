@@ -39,29 +39,41 @@ export function SettingsGroupSourceTag({ namespace }: { namespace: SettingsSourc
 }
 
 /**
- * One scope bar per settings module (AGENTS.md § Icon chrome: "one property
- * control in module chrome … never repeat it on each section header").
+ * One scope bar, four shapes.
  *
- * `variant="full"` (the Portfolio + Operations modules, including Payouts) is a
- * workspace select, a properties multi-select scoped to that workspace, a
- * bar-level tag describing the CURRENT SELECTION, and a Reset control once
- * houses are picked. `variant="workspace-only"` (Notifications) drops the
- * properties picker entirely — manager alert routing has no per-house rung.
+ * `variant="full"` / `"workspace-only"` (the default) is the pre-existing
+ * per-list-page settings gear picker (`ProPortalSettingsModal`, opened from
+ * Tours/Applications/Leases/… list headers) — unchanged here.
  *
- * The workspace select is Settings-only. It does not call the portal header
- * `WorkspaceSwitcher`'s `select()` — All workspaces can mean the account
- * while Inbox / Properties stay on whichever workspace the header last picked.
+ * `variant="applies-to"` / `"applies-to-workspace-only"` are what the
+ * Settings *nav* pages use (S008/S014, captain 2026-09-27 — the S014
+ * correction KEPT the properties picker after an earlier pass had dropped
+ * it): same workspace select, properties multi-select, and Reset as `"full"`
+ * / `"workspace-only"` — per-property overrides stay settable from Settings,
+ * exactly as before — except the label reads "Applies to" / "All my
+ * workspaces" instead of "Workspace" / "All workspaces", and the bar's own
+ * Account/Workspace/"Own values on N properties" tag is gone (still removed
+ * per S008). `applies-to` carries the properties picker (Communication,
+ * Payments, Payouts); `applies-to-workspace-only` does not (Application
+ * form, Lease documents — no per-house rung, same reason `"workspace-only"`
+ * never carried one either).
  */
-export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "workspace-only" }) {
+export function SettingsScopeBar({
+  variant = "full",
+}: {
+  variant?: "full" | "workspace-only" | "applies-to" | "applies-to-workspace-only";
+}) {
   const scope = useSettingsPropertyScope();
   const workspaces = useWorkspaces();
+  const appliesTo = variant === "applies-to" || variant === "applies-to-workspace-only";
+  const showProperties = variant === "full" || variant === "applies-to";
 
   const workspaceOptions = useMemo(
     () => [
-      { value: ALL_WORKSPACES, label: "All workspaces" },
+      { value: ALL_WORKSPACES, label: appliesTo ? "All my workspaces" : "All workspaces" },
       ...(workspaces?.workspaces.map((w) => ({ value: w.id, label: w.name })) ?? []),
     ],
-    [workspaces?.workspaces],
+    [appliesTo, workspaces?.workspaces],
   );
 
   // Houses from the workspace payload first (even when the local pipeline is
@@ -95,8 +107,9 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {appliesTo ? <span className="text-[13px] font-semibold text-foreground">Applies to</span> : null}
       <FieldSingleSelect
-        label="Workspace"
+        label={appliesTo ? "Applies to" : "Workspace"}
         hideLabel
         value={scope.workspaceId || ALL_WORKSPACES}
         onChange={handleWorkspaceChange}
@@ -104,9 +117,9 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
         disabled={scope.loading || !workspaces || workspaces.loading}
         dataAttr="settings-scope-workspace"
         variant="pill"
-        triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[13rem]`}
+        triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} ${appliesTo ? "max-w-[16rem]" : "max-w-[13rem]"}`}
       />
-      {variant === "full" ? (
+      {showProperties ? (
         <CheckboxMultiSelect
           label="Properties"
           hideLabel
@@ -121,8 +134,10 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
           className="max-w-[15rem]"
         />
       ) : null}
-      <PortalSettingsScopeTag>{scopeTagLabel(selectionSource, scope.propertyIds.length)}</PortalSettingsScopeTag>
-      {variant === "full" && scope.propertyIds.length > 0 ? (
+      {appliesTo ? null : (
+        <PortalSettingsScopeTag>{scopeTagLabel(selectionSource, scope.propertyIds.length)}</PortalSettingsScopeTag>
+      )}
+      {showProperties && scope.propertyIds.length > 0 ? (
         <button
           type="button"
           onClick={() => {

@@ -7,6 +7,14 @@ import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/li
 
 export type CreateManagerBillInput = {
   managerUserId: string;
+  /**
+   * Active-workspace scope is resolved for THIS actor, not `managerUserId` —
+   * a co-manager filing a bill under the property's real owner still gets
+   * gated by their OWN active-workspace selection. Defaults to
+   * `managerUserId` when omitted, preserving prior behavior for every caller
+   * that always acts as the bill's own owner (e.g. `createBillFromVendorInvoice`).
+   */
+  viewerUserId?: string;
   description: string;
   amountCents: number;
   dueDate?: string | null;
@@ -29,7 +37,7 @@ export async function createManagerBill(db: SupabaseClient, input: CreateManager
   // rule instead (see `resolveActiveWorkspaceRowScope`), so it is never
   // refused here.
   if (input.propertyId) {
-    const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+    const scope = await resolveActiveWorkspaceRowScope(db, input.viewerUserId ?? input.managerUserId);
     if (scope.propertyIds !== null && !scope.propertyIds.includes(input.propertyId)) {
       throw new Error("This property is outside your active workspace.");
     }
@@ -169,6 +177,28 @@ export async function payManagerBill(
     .select(MANAGER_BILL_SELECT)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Bill pay update failed");
+
+  return mapManagerBillRow(data as Record<string, unknown>);
+}
+
+export async function voidManagerBill(
+  db: SupabaseClient,
+  managerUserId: string,
+  billId: string,
+): Promise<ManagerBill> {
+  const bill = await loadBill(db, managerUserId, billId);
+  if (!bill) throw new Error("Bill not found.");
+  await assertBillInActiveWorkspace(db, managerUserId, bill);
+
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from("manager_bills")
+    .update({ status: "void", updated_at: now, ...smsTestProvenanceColumns() })
+    .eq("id", billId)
+    .eq("manager_user_id", managerUserId)
+    .select(MANAGER_BILL_SELECT)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Void failed");
 
   return mapManagerBillRow(data as Record<string, unknown>);
 }

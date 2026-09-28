@@ -7,6 +7,7 @@ import {
   CalendarOff,
   CalendarPlus,
   CalendarSync,
+  Coins,
   Copy,
   Download,
   Phone,
@@ -49,6 +50,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
+  Coins, // Plan credit (admin Accounts, S27)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

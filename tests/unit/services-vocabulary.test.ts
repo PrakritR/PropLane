@@ -37,10 +37,15 @@ const EXEMPT = [
  * `manager-notification-preferences.ts` and `manager-scheduled-work-tasks.ts`
  * match TITLES ALREADY STORED on rows, which still carry the "Work order ·"
  * prefix written before the rename. Those literals are data, not copy.
+ * `pro-house-properties-panel.tsx`'s `propertyActivityEventCategory` keyword
+ * matcher is the same case: it buckets an activity event's label — which may
+ * be one of those legacy stored titles — into a filter category, and never
+ * renders the phrase itself.
  */
 const STORED_TITLE_READERS = new Set([
   join("src", "lib", "manager-notification-preferences.ts"),
   join("src", "lib", "manager-scheduled-work-tasks.ts"),
+  join("src", "components", "portal", "pro-house-properties-panel.tsx"),
 ]);
 
 describe("user-visible copy", () => {

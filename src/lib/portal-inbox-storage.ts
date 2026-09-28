@@ -49,6 +49,17 @@ export type InboxThreadMessage = {
    * from the previous email turn's.
    */
   subject?: string;
+  /**
+   * True only for a turn that PropLane itself generated from an action event
+   * or a reminder rule — never a manager's or resident's own typed text, and
+   * never a bare notification category (a manual send can carry one of
+   * those too, via `eventCategory`). Stamped only at the two automated
+   * origins: `emitActionEvent` (`action-events.server.ts`) and the reminder
+   * dispatcher (`reminders/dispatch.server.ts`). Absent on every row written
+   * before this existed and on every human-composed message — it renders as
+   * an ordinary bubble, never a guessed system notice.
+   */
+  automated?: boolean;
 };
 
 export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
@@ -94,6 +105,8 @@ export type PersistedInboxThread = {
   /** Channel / email subject of the root turn — the root lives in `body`, so its stamps live here. */
   rootChannel?: InboxThreadMessageChannel;
   rootSubject?: string;
+  /** Root-turn stamp of `InboxThreadMessage.automated` — the root lives in `body`. */
+  rootAutomated?: boolean;
   /** Root-turn attachments when the thread was opened with media. */
   attachments?: { url: string; name?: string }[];
   messages?: InboxThreadMessage[];
@@ -984,6 +997,7 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
     ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
     ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
+    ...(thread.rootAutomated ? { automated: true } : {}),
   });
   // Merged person-threads can carry a prior thread's synthetic root in `messages`.
   // A collapsed row may itself later be persisted and merged again, which can
@@ -1214,6 +1228,7 @@ export function collapsePersonInboxThreads(
       // (usually the newest Sent copy), whose root is not this one.
       rootChannel: first.channel,
       rootSubject: first.subject,
+      rootAutomated: first.automated === true,
       from: first.from,
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),

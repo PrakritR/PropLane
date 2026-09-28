@@ -14,6 +14,7 @@ import {
   StatTile,
   type RecordNeedsYouItem,
   type RecordRowItem,
+  type RecordStatTone,
 } from "@/components/portal/portal-record-overview-kit";
 
 /**
@@ -44,7 +45,7 @@ export type OverviewStatTile = {
   value: string;
   detail?: string;
   href?: string;
-  tone?: "danger" | "default";
+  tone?: RecordStatTone;
 };
 
 /** One `RecordFactCard` on Overview — a label/value fact card or a row-list card, same shell either way. */

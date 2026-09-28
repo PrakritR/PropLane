@@ -53,6 +53,7 @@ import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { buildDurableLeaseTransitionEnvelope, leaseEventForTransition } from "@/lib/domain-action-events.server";
+import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
 
 /** The resident-identity scope for this route's two reads; null = match nothing. */
 function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
@@ -820,6 +821,15 @@ export async function POST(req: Request) {
       }
       if (!check.allowed && check.propertyExists) {
         return NextResponse.json({ error: "That property is not yours to file a lease under." }, { status: 403 });
+      }
+      // Ownership/co-manager grant alone is not enough: the property must also
+      // lie in the caller's ACTIVE workspace, or an owner with Workspace A
+      // active could file a lease under a property that lives in their own
+      // Workspace B — contradicting `co-manager-access.md`'s "active-workspace
+      // narrowing runs beside module scoping" rule that already gates every
+      // other write path against this same table's read side.
+      if (!(await assertPropertyInActiveWorkspace(ctx.db, ctx.user.id, named))) {
+        return NextResponse.json({ error: "That property is outside your active workspace." }, { status: 403 });
       }
       return null;
     };

@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 
 /**
  * Controller config for NEW manager/vendor recipient accounts (destination
@@ -79,9 +80,17 @@ export async function createAxisConnectAccount(
     // in-app "Pay out" button remains available any time regardless of this
     // setting (Stripe's `payouts.create` isn't gated by the schedule
     // interval; the schedule only controls Stripe's OWN automatic payouts).
+    //
+    // VD39/VENDOR_BANKING_ENABLED: a NEW vendor account instead defaults to
+    // manual — money leaves only when the vendor presses Withdraw. A manager
+    // account, or a vendor account created with the flag off, is completely
+    // unaffected (still weekly/Friday, byte-for-byte).
     settings: {
       payouts: {
-        schedule: { interval: "weekly", weekly_anchor: "friday" },
+        schedule:
+          opts.axisPortal === "vendor" && vendorBankingEnabled()
+            ? { interval: "manual" }
+            : { interval: "weekly", weekly_anchor: "friday" },
       },
     },
   });

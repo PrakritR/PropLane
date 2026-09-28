@@ -6,8 +6,8 @@
  * `partitionPortalPageChildren` splits chrome from body by inspecting the page
  * shell's OWN children, and React cannot see through a component boundary — so
  * a page that hands the shell one wrapper component puts its whole header
- * inside `PortalPageScrollBody` and the tabs, Filter, Settings and Link Airbnb
- * scroll away with the bookings.
+ * inside `PortalPageScrollBody` and the tabs, Filter and Link Airbnb scroll
+ * away with the bookings.
  */
 import { describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
@@ -90,10 +90,10 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
     expect(scroller.contains(list!)).toBe(true);
   });
 
-  it("renders the Link Airbnb and Settings controls in the pinned chrome", async () => {
+  it("renders the Link Airbnb control in the pinned chrome", async () => {
     const view = await renderBookings();
-    // Add booking is the filled primary ("Add <noun>"); Link calendars and
-    // Settings are plain icons beside it. All stay outside the scroller.
+    // Add booking is the filled primary ("Add <noun>"); Link calendars is a
+    // plain icon beside it. Both stay outside the scroller.
     const scroller = view.container.querySelector(`.${PORTAL_PAGE_SCROLL_BODY_CLASS}`)!;
     expect(view.container.querySelector('[data-slot="portal-page-headline"]')).toBeNull();
     const actions = view.container.querySelector('[data-attr="portal-list-command-actions"]')!;
@@ -101,7 +101,6 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
       "Add booking",
     );
     expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
-    expect(actions.querySelector('[data-attr="settings-open-bookings"]')).not.toBeNull();
     expect(scroller.contains(actions)).toBe(false);
   });
 

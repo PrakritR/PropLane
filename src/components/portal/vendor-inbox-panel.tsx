@@ -784,6 +784,69 @@ export const VendorInboxPanel = forwardRef<
     [local, tabId, moveToArchive, restoreFromArchive, deleteForever, markUnread],
   );
 
+  /**
+   * C156: the embedded Communication thread header (used only when
+   * `suppressListPane` mounts inside `VendorUnifiedInbox`) matches the
+   * manager unified inbox's own thread header exactly — Restore + Delete on
+   * an archived thread, Archive + Delete otherwise. The legacy standalone
+   * five-tab table (`renderExtraActions`, /demo-only) keeps its own
+   * Unopened/Opened-aware Mark unread action; that shape never reaches the
+   * real portal, so it stays as it was.
+   */
+  const renderEmbeddedThreadHeaderActions = useCallback(
+    (row: PortalInboxTableRow) => {
+      const thread = local.find((t) => t.id === row.id);
+      const folder = thread?.folder ?? (tabId === "trash" ? "trash" : "inbox");
+      if (folder === "trash") {
+        return (
+          <>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN}
+              aria-label="Restore conversation"
+              title="Restore"
+              onClick={() => restoreFromArchive(row.id)}
+            >
+              <ArchiveRestore className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN_DANGER}
+              aria-label="Delete conversation"
+              title="Delete"
+              onClick={() => deleteForever(row.id)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </button>
+          </>
+        );
+      }
+      return (
+        <>
+          <button
+            type="button"
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Archive conversation"
+            title="Archive"
+            onClick={() => moveToArchive(row.id)}
+          >
+            <Archive className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className={INBOX_THREAD_ICON_BTN_DANGER}
+            aria-label="Delete conversation"
+            title="Delete"
+            onClick={() => deleteForever(row.id)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+          </button>
+        </>
+      );
+    },
+    [local, tabId, moveToArchive, restoreFromArchive, deleteForever],
+  );
+
   const emptyCopy = inboxTabEmptyCopy(tabId);
 
   const bulkMarkRead = () => {
@@ -992,7 +1055,7 @@ export const VendorInboxPanel = forwardRef<
               alignAssistantStart={activeIsAssistantThread}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
-              headerActions={renderExtraActions({
+              headerActions={renderEmbeddedThreadHeaderActions({
                 id: activeThread.id,
                 name: activeThread.from,
                 email: activeThread.email,

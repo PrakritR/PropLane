@@ -12,6 +12,7 @@ import {
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { doorCountForListing } from "@/lib/billing/door-count";
+import { researchPropertyLocation } from "@/lib/property-location-research.server";
 import { acceptedPaymentMethodsForListing } from "@/lib/payment-policy";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import { copyListingMediaBetweenSubmissions } from "@/lib/listing-media-copy";
@@ -206,6 +207,29 @@ export const getPropertyDetailsTool = defineTool({
           : null,
       },
     };
+  },
+});
+
+export const getPropertyLocationResearchTool = defineTool({
+  name: "get_property_location_research",
+  description: "Research sourced public location facts near one authorized property. Resolve a property id from find_records or list_properties first. Choose schools, schools_dual_language, parks, groceries, transit_stops, transit_service, or nearby_amenities. Use schools_dual_language for dual-language or immersion program questions. transit_stops uses mapped OpenStreetMap data without paid web search. Cite returned source URLs. Never infer school assignment, walking or commute time, suitability, or current operating status from a map distance.",
+  kind: "read",
+  inputSchema: z.object({
+    propertyId: z.string().min(1).describe("Property id returned by a property read tool."),
+    topic: z.enum(["schools", "schools_dual_language", "parks", "groceries", "transit_stops", "transit_service", "nearby_amenities"]),
+  }).strict(),
+  handler: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) return { found: false, message: "No authorized property with that id was found." };
+    const root = asObject(rec.property_data) ?? asObject(rec.row_data);
+    const submission = listingSubmissionOf(rec);
+    const location: Record<string, unknown> = {};
+    for (const field of ["address", "city", "state", "zip", "neighborhood", "mapLat", "mapLng"] as const) {
+      location[field] = root?.[field] ?? submission?.[field];
+    }
+    return { found: true, research: await researchPropertyLocation({
+      scopeKey: `manager:${ctx.userId}`, propertyId: rec.id, location, topic: input.topic,
+    }) };
   },
 });
 

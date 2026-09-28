@@ -41,6 +41,42 @@ function textFromContent(content: Anthropic.MessageParam["content"]): string {
     .join("\n");
 }
 
+const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
+const MAX_PROVIDER_429_RETRIES = 1;
+
+function retryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
+
+function isInsufficientQuota(response: Response): Promise<boolean> {
+  return response.clone().json().then((body: unknown) => {
+    const message = body && typeof body === "object" && "error" in body
+      ? (body as { error?: { code?: unknown; type?: unknown; message?: unknown } }).error
+      : undefined;
+    const details = [message?.code, message?.type, message?.message].filter((part): part is string => typeof part === "string").join(" ");
+    return /insufficient[_\s-]?quota|quota.{0,30}(exceeded|insufficient)|billing.{0,30}limit/i.test(details);
+  }).catch(() => false);
+}
+
+/** Retry one transient 429 inside the original model-request deadline. */
+async function fetchWithTransient429Retry(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const timeout = Number.isFinite(timeoutMs) ? Math.max(250, timeoutMs) : DEFAULT_PROVIDER_TIMEOUT_MS;
+  const deadline = performance.now() + timeout;
+  for (let attempt = 0; ; attempt += 1) {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) throw new DOMException("The operation timed out", "TimeoutError");
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(Math.max(1, Math.ceil(remaining))) });
+    if (response.status !== 429 || attempt >= MAX_PROVIDER_429_RETRIES || await isInsufficientQuota(response)) return response;
+    const delayMs = retryAfterMs(response.headers.get("retry-after")) ?? 250;
+    if (delayMs >= deadline - performance.now()) return response;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 /** Convert the loop's Anthropic-native history into OpenAI-compatible messages. */
 function openRouterMessages(messages: Anthropic.MessageParam[]) {
   const out: Record<string, unknown>[] = [];
@@ -129,10 +165,9 @@ async function completeOpenRouter(args: {
   if (!key) throw new Error("OpenRouter is not configured.");
   const timeoutMs = Number(process.env.AXIS_AGENT_FAST_TIMEOUT_MS || 2500);
   const started = performance.now();
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetchWithTransient429Retry("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(Number.isFinite(timeoutMs) ? Math.max(250, timeoutMs) : 2500),
     body: JSON.stringify({
       model: args.model,
       messages: [{ role: "system", content: args.system }, ...openRouterMessages(args.messages)],
@@ -145,7 +180,7 @@ async function completeOpenRouter(args: {
       max_tokens: 4096,
       provider: { data_collection: "deny", require_parameters: true },
     }),
-  });
+  }, Number.isFinite(timeoutMs) ? Math.max(250, timeoutMs) : 2500);
   const body = (await response.json()) as {
     error?: { message?: string };
     choices?: { finish_reason?: string | null; message?: { content?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[] } }[];
@@ -328,7 +363,7 @@ export async function completeOpenAIResponses(args: {
 }): Promise<ProviderCompletion> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) throw new Error("OpenAI is not configured.");
-  const timeout = Number.isFinite(args.timeoutMs) ? Math.max(250, args.timeoutMs ?? 0) : 10_000;
+  const timeout = Number.isFinite(args.timeoutMs) ? Math.max(250, args.timeoutMs ?? 0) : DEFAULT_PROVIDER_TIMEOUT_MS;
   const started = performance.now();
   const newMessages = args.continuationState
     ? args.messages.slice(args.continuationState.consumedMessageCount)
@@ -340,10 +375,9 @@ export async function completeOpenAIResponses(args: {
         ...openAIInput(newMessages),
       ]
     : openAIInput(newMessages);
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTransient429Retry("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(timeout),
     body: JSON.stringify({
       model: args.model,
       instructions: args.system,
@@ -354,7 +388,7 @@ export async function completeOpenAIResponses(args: {
       max_output_tokens: args.maxOutputTokens ?? 4096,
       ...(args.reasoningEffort ? { reasoning: { effort: args.reasoningEffort } } : {}),
     }),
-  });
+  }, timeout);
   const body = (await response.json()) as OpenAIResponseBody;
   if (!response.ok) throw new Error(`OpenAI request failed (${response.status}): ${body.error?.message || response.statusText}`);
   if (!body.id || !Array.isArray(body.output)) throw new Error("OpenAI returned an invalid response.");

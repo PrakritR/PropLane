@@ -96,6 +96,12 @@ export async function PATCH(req: Request) {
       }
     }
 
+    // Autosave (VD03) catches most bad emails client-side before this ever
+    // fires, but a client check is never authority — reject one here too.
+    if (body.email !== undefined && body.email.trim() && !/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(body.email.trim())) {
+      return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+    }
+
     const preferredLanguage =
       body.preferredLanguage !== undefined
         ? body.preferredLanguage === "es" || body.preferredLanguage === "en"

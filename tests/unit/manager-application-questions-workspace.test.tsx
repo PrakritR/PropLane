@@ -560,8 +560,15 @@ describe("server reviewed application publishing", () => {
       />,
     );
     await waitWorkspace();
-    jumpRail("preview");
+    // P002/P012: bulk template editing has no "setup" step at all (a bulk
+    // edit has no one property's fee/default to show) and Import/Publish are
+    // gated on `!isBulkSave` regardless of step — both start on "name" (P012
+    // moved Import there) and neither button ever appears on any step.
+    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start from a file" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Import PDF" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
+    jumpRail("sections");
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
   });
 
@@ -622,7 +629,8 @@ describe("server reviewed application publishing", () => {
       />,
     );
     await waitWorkspace("Imported form");
-    jumpRail("preview");
+    // P012: "Compare and confirm PDF" is on the Name step now (the default
+    // active step — no jump needed).
     fireEvent.click(await screen.findByRole("button", { name: "Compare and confirm PDF" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     const reviewCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
@@ -634,6 +642,8 @@ describe("server reviewed application publishing", () => {
       expectedRevision: "2026-09-24T00:00:00Z",
     });
 
+    // P002: Publish moved to the Setup step (now the final step).
+    jumpRail("setup");
     fireEvent.click(screen.getByRole("button", { name: "Publish application" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
     const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
@@ -643,5 +653,88 @@ describe("server reviewed application publishing", () => {
       expectedPublishedVersion: 0,
     });
     expect(persist).toHaveBeenCalled();
+  });
+});
+
+describe("P003: this application's own fee override (Setup step)", () => {
+  it("saves feeCentsOverride and waiverCodeOverride onto the template when the override toggle is on", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    const persist = vi.fn().mockResolvedValue(true);
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Long-term application"
+        sub={createDefaultListingSubmission()}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="edit"
+        applicationTemplate={template}
+        templates={[template]}
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Long-term application");
+    jumpRail("setup");
+
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Override the account's application fee for this application" }));
+
+    const amountInput = await screen.findByLabelText("Application cost");
+    fireEvent.change(amountInput, { target: { value: "35" } });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "This application's own promo code that waives its fee" }));
+    const codeInput = await screen.findByLabelText("This application's promo code");
+    fireEvent.change(codeInput, { target: { value: "longstay" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+
+    const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
+    const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
+    expect(savedTemplate?.feeCentsOverride).toBe(3500);
+    expect(savedTemplate?.waiverCodeOverride).toBe("LONGSTAY");
+  });
+
+  it("clears the override back to null (account default) when the toggle is switched off", async () => {
+    const template = {
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" }),
+      feeCentsOverride: 3500,
+      waiverCodeOverride: "LONGSTAY",
+    };
+    const persist = vi.fn().mockResolvedValue(true);
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Long-term application"
+        sub={createDefaultListingSubmission()}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="edit"
+        applicationTemplate={template}
+        templates={[template]}
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Long-term application");
+    jumpRail("setup");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+
+    // Pre-filled from the stored override.
+    expect(await screen.findByLabelText("Application cost")).toHaveValue("35");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Override the account's application fee for this application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+
+    const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
+    const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
+    expect(savedTemplate?.feeCentsOverride).toBeNull();
+    expect(savedTemplate?.waiverCodeOverride).toBeNull();
   });
 });

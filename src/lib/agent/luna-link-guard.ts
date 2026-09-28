@@ -21,7 +21,35 @@ function cleanUrl(value: string): string {
   return value.replace(/[.,;:!?]+$/, "");
 }
 
+function isResearchResult(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value) &&
+    (value as Record<string, unknown>).kind === "property_location_research";
+}
+
+function collectResearchUrls(research: Record<string, unknown>, urls: Set<string>): void {
+  for (const source of research.verified === true && Array.isArray(research.sources) ? research.sources : []) {
+    if (!source || typeof source !== "object") continue;
+    const url = (source as { url?: unknown }).url;
+    if (typeof url !== "string") continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" && !parsed.username && !parsed.password && parsed.href === url) urls.add(url);
+    } catch { /* Invalid citations provide no link authority. */ }
+  }
+  const transit = research.mappedTransit;
+  if (transit && typeof transit === "object" &&
+    (transit as { verified?: unknown }).verified === true &&
+    (transit as { source?: unknown }).source === "OpenStreetMap" &&
+    (transit as { sourceUrl?: unknown }).sourceUrl === "https://www.openstreetmap.org/copyright") {
+    urls.add("https://www.openstreetmap.org/copyright");
+  }
+}
+
 function collectToolUrls(value: unknown, urls: Set<string>): void {
+  if (isResearchResult(value)) {
+    collectResearchUrls(value, urls);
+    return;
+  }
   if (typeof value === "string") {
     for (const target of linkTargets(value.trim())) urls.add(target);
     return;
@@ -29,7 +57,12 @@ function collectToolUrls(value: unknown, urls: Set<string>): void {
   if (Array.isArray(value)) {
     for (const item of value) collectToolUrls(item, urls);
   } else if (value && typeof value === "object") {
-    for (const item of Object.values(value)) collectToolUrls(item, urls);
+    const output = value as Record<string, unknown>;
+    if (isResearchResult(output.research)) {
+      collectResearchUrls(output.research, urls);
+      return;
+    }
+    for (const item of Object.values(output)) collectToolUrls(item, urls);
   }
 }
 

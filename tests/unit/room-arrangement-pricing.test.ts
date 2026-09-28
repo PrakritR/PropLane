@@ -45,3 +45,70 @@ describe("room arrangement pricing", () => {
     expect(arrangementSummaryLine(room)).toContain("Shared by 3 $900 each");
   });
 });
+
+// N082: each arrangement's own Partial months answer — the same `sameAs`
+// inheritance rent/utilities/deposit already use, extended to
+// `prorateMethod` / `dailyRentRate` / `dailyUtilitiesRate`.
+describe("room arrangement pricing — partial months per arrangement (N082)", () => {
+  it("resolves an arrangement's own per-day rate when it set one", () => {
+    const withProrate = {
+      ...room,
+      occupancyPrices: [
+        { count: 1, monthlyRent: 1000, utilitiesEstimate: "80", securityDeposit: "500" },
+        {
+          count: 2,
+          monthlyRent: 900,
+          utilitiesEstimate: "80",
+          securityDeposit: "500",
+          prorateMethod: "daily_rate" as const,
+          dailyRentRate: 32,
+          dailyUtilitiesRate: 4,
+        },
+        { count: 3, sameAs: 2 },
+      ],
+    };
+    const resolved = roomPriceForResidentCount(withProrate, 2);
+    expect(resolved.prorateMethod).toBe("daily_rate");
+    expect(resolved.dailyRentRate).toBe(32);
+    expect(resolved.dailyUtilitiesRate).toBe(4);
+  });
+
+  it("a Same-as arrangement inherits the target's partial-months answer, not the room's", () => {
+    const withProrate = {
+      ...room,
+      // The room itself is "auto" (no prorateMethod), but count 2 set its own per-day rate.
+      occupancyPrices: [
+        { count: 1, monthlyRent: 1000, utilitiesEstimate: "80", securityDeposit: "500" },
+        {
+          count: 2,
+          monthlyRent: 900,
+          utilitiesEstimate: "80",
+          securityDeposit: "500",
+          prorateMethod: "daily_rate" as const,
+          dailyRentRate: 32,
+        },
+        { count: 3, sameAs: 2 },
+      ],
+    };
+    // count 3 is "Same as 2" — it must resolve to count 2's answer, not the room default.
+    const resolved = roomPriceForResidentCount(withProrate, 3);
+    expect(resolved.prorateMethod).toBe("daily_rate");
+    expect(resolved.dailyRentRate).toBe(32);
+  });
+
+  it("defaults to automatic partial months when nothing is set anywhere", () => {
+    const resolved = roomPriceForResidentCount(room, 2);
+    expect(resolved.prorateMethod).toBe("auto");
+    expect(resolved.dailyRentRate).toBeUndefined();
+    expect(resolved.dailyUtilitiesRate).toBeUndefined();
+  });
+
+  it("falls back to the room's own top-level prorate fields when no occupancy row is set", () => {
+    const resolved = roomPriceForResidentCount(
+      { monthlyRent: 750, occupancyCapacity: 2, prorateMethod: "daily_rate" as const, dailyRentRate: 25 },
+      2,
+    );
+    expect(resolved.prorateMethod).toBe("daily_rate");
+    expect(resolved.dailyRentRate).toBe(25);
+  });
+});

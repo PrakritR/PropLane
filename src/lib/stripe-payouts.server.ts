@@ -467,7 +467,20 @@ export type CreateInAppPayoutResult =
 export async function createInAppPayout(
   stripe: Stripe,
   db: SupabaseClient,
-  opts: { accountId: string; ownerUserId: string; vendorUserId?: string | null; input: CreatePayoutInput },
+  opts: {
+    accountId: string;
+    ownerUserId: string;
+    vendorUserId?: string | null;
+    input: CreatePayoutInput;
+    /**
+     * VENDOR_BANKING_ENABLED: overrides the shared 1%
+     * INSTANT_PAYOUT_FEE_BPS with the vendor-specific Instant-withdraw fee
+     * (1.5%, $0.50 minimum). Omitted (every manager caller, and the vendor
+     * route with the flag off), this keeps using `feeCentsForMethod` exactly
+     * as before — byte-for-byte.
+     */
+    computeFeeCents?: (method: PayoutMethod, amountCents: number) => number;
+  },
 ): Promise<CreateInAppPayoutResult> {
   const [account, balance] = await Promise.all([
     stripe.accounts.retrieve(opts.accountId),
@@ -505,7 +518,7 @@ export async function createInAppPayout(
   );
   if (!validation.ok) return { ok: false, status: 422, error: validation.error };
 
-  const feeCents = feeCentsForMethod(opts.input.method, opts.input.amountCents);
+  const feeCents = (opts.computeFeeCents ?? feeCentsForMethod)(opts.input.method, opts.input.amountCents);
 
   await reconcilePendingInAppClaims(stripe, db, opts.accountId);
 

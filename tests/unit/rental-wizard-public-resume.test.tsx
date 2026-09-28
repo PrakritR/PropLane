@@ -22,6 +22,12 @@ import {
 } from "@/lib/rental-application/drafts";
 import type { MockProperty } from "@/data/types";
 import { settlePendingApplicationRowUpserts } from "@/lib/manager-applications-storage";
+import {
+  clearApplicationFeeCheckoutResume,
+  clearApplicationFeeSubmitConfirm,
+  rememberApplicationFeeCheckoutResume,
+} from "@/lib/rental-application/fee-checkout-resume";
+import * as feePreviewClient from "@/lib/rental-application/application-fee-preview-client";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 
 const PID = "mgr-resume-flat";
@@ -120,12 +126,15 @@ function serverRow(): DemoApplicantRow {
 
 const fetchCalls: { url: string; body: string | null }[] = [];
 
-function stubFetch(handlers: { resumeStatus?: number; resumeRow?: DemoApplicantRow | null; resumeRows?: Record<string, DemoApplicantRow>; selfRows?: DemoApplicantRow[]; selfResponse?: () => Promise<Response>; resumeResponse?: (id: string) => Promise<Response> }) {
+function stubFetch(handlers: { verifyResponse?: () => Promise<Response>; resumeStatus?: number; resumeRow?: DemoApplicantRow | null; resumeRows?: Record<string, DemoApplicantRow>; selfRows?: DemoApplicantRow[]; selfResponse?: () => Promise<Response>; resumeResponse?: (id: string) => Promise<Response> }) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       fetchCalls.push({ url, body: typeof init?.body === "string" ? init.body : null });
+      if (url.includes("/api/stripe/application-fee-verify") && handlers.verifyResponse) {
+        return handlers.verifyResponse();
+      }
       if (url.includes("/api/portal/application-resume")) {
         const id = typeof init?.body === "string" ? (JSON.parse(init.body) as { id?: string }).id : undefined;
         if (handlers.resumeResponse) return handlers.resumeResponse(id ?? "");
@@ -183,6 +192,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   clearRentalWizardDraft();
+  clearApplicationFeeCheckoutResume();
+  clearApplicationFeeSubmitConfirm();
   window.sessionStorage.clear();
 });
 
@@ -452,5 +463,104 @@ describe("manager application preview", () => {
     });
     expect(screen.getByText("What should the manager know about your move?", { exact: false })).toBeTruthy();
     expect(fetchCalls.some((call) => call.url.includes("/api/manager-applications"))).toBe(false);
+  });
+});
+
+
+describe("Stripe return verification recovery", () => {
+  function checkoutReturn(sessionId: string) {
+    searchParams = new URLSearchParams({ propertyId: PID, fee_checkout: "return", session_id: sessionId });
+    window.history.replaceState(null, "", `/rent/apply?${searchParams}`);
+    rememberApplicationFeeCheckoutResume({ axisId: AXIS_ID, propertyId: PID, email: "riley.guest@example.com", fullLegalName: "Riley Guest" });
+  }
+
+  function expectNoDraftWrites() {
+    expect(fetchCalls.filter((call) => call.url.includes("/api/manager-applications") && call.body)).toEqual([]);
+    expect(loadRentalWizardDraft()).toBeNull();
+    expect(searchParams.get("fee_checkout")).toBe("return");
+  }
+
+  it("keeps identity-only draft writes paused after network rejection and retries into confirmation", async () => {
+    checkoutReturn("cs_retry_network");
+    const verify = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(new Response(JSON.stringify({ paid: true, applicationPromoted: true, applicationAxisId: AXIS_ID,
+        propertyId: PID, applicationSetupEmailSent: true }), { status: 200 }));
+    stubFetch({ verifyResponse: verify });
+
+    await mountWizard();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check your connection");
+    expectNoDraftWrites();
+    expect(verify).toHaveBeenCalledTimes(1);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry verification" })); });
+
+    expect(await screen.findByRole("heading", { name: "Application submitted" })).toBeTruthy();
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(fetchCalls.some((call) => call.url.includes("/api/portal/send-application-submitted"))).toBe(false);
+    expect(screen.queryByRole("link", { name: "Create your resident account" })).toBeNull();
+  });
+
+  it("recovers when the return fee-preview request rejects before verification", async () => {
+    checkoutReturn("cs_preview_rejection");
+    let returnPreviewAttempts = 0;
+    vi.spyOn(feePreviewClient, "fetchApplicationFeePreview").mockImplementation(async (input) => {
+      // The background pricing request includes residentEmail; the return's
+      // preview is the narrow request without it.
+      if (!("residentEmail" in input) && ++returnPreviewAttempts === 1) throw new Error("preview offline");
+      return { preview: { applicationFeeCents: 1000, serviceFeeCents: 0, totalCents: 1000 } };
+    });
+    const verify = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ paid: true, applicationPromoted: true,
+      applicationAxisId: AXIS_ID, propertyId: PID, applicationSetupEmailSent: true }), { status: 200 }));
+    stubFetch({ verifyResponse: verify });
+
+    await mountWizard();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check your connection");
+    expect(verify).not.toHaveBeenCalled();
+    expectNoDraftWrites();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry verification" })); });
+
+    expect(await screen.findByRole("heading", { name: "Application submitted" })).toBeTruthy();
+    expect(verify).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the complete server draft after HTTP failure and permits retry after remount", async () => {
+    checkoutReturn("cs_retry_http");
+    const verify = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ error: "Verification temporarily unavailable." }), { status: 503 }));
+    stubFetch({ verifyResponse: verify });
+
+    const view = await mountWizard();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Verification temporarily unavailable");
+    expectNoDraftWrites();
+    await act(async () => { view.unmount(); });
+    await mountWizard();
+
+    expect(await screen.findByRole("button", { name: "Retry verification" })).toBeTruthy();
+    expect(verify).toHaveBeenCalledTimes(2);
+    expectNoDraftWrites();
+  });
+
+  it("keeps paid but unpromoted returns recoverable without submitting the identity-only form", async () => {
+    checkoutReturn("cs_unpromoted");
+    stubFetch({ verifyResponse: async () => new Response(JSON.stringify({ paid: true, emailMatches: true,
+      propertyId: PID, applicationPromoted: false }), { status: 200 }) });
+
+    await mountWizard();
+    expect(await screen.findByRole("alert")).toHaveTextContent("saved application could not be submitted");
+    expectNoDraftWrites();
+    const orphanReport = fetchCalls.find((call) => call.url.includes("/api/public/application-fee-orphan-report"));
+    expect(JSON.parse(orphanReport?.body ?? "{}")).toEqual({ sessionId: "cs_unpromoted", expectedEmail: "riley.guest@example.com" });
+    expect(screen.queryByRole("button", { name: /continue/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry verification" })).toBeTruthy();
+  });
+
+  it("shows legacy ACH processing with a verification retry and no partial draft writes", async () => {
+    checkoutReturn("cs_ach_processing");
+    stubFetch({ verifyResponse: async () => new Response(JSON.stringify({ paid: false, processing: true,
+      propertyId: PID }), { status: 200 }) });
+
+    await mountWizard();
+    expect(await screen.findByRole("alert")).toHaveTextContent("bank transfer is still processing");
+    expect(screen.getByRole("button", { name: "Retry verification" })).toBeTruthy();
+    expectNoDraftWrites();
   });
 });

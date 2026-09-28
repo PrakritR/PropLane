@@ -26,6 +26,7 @@ import {
   confirmUploadedLeaseParseOnServer,
   ensureManagerReviewLeaseForApplication,
   leaseAllowsManagerDocumentEdits,
+  leasePipelineRowsForManagerResident,
   leaseGenerationSupportedForRow,
   readLeasePipeline,
   syncLeasePipelineFromServer,
@@ -61,7 +62,7 @@ type PropertyLeaseOption = {
   propertyLabel: string;
 };
 
-type ApprovedResidentOption = {
+export type ApprovedResidentOption = {
   applicationId: string;
   residentName: string;
   residentEmail: string;
@@ -69,6 +70,19 @@ type ApprovedResidentOption = {
   propertyLabel: string;
   roomLabel: string;
 };
+
+/**
+ * C271 (U077): every real entry in this dropdown IS an approved applicant
+ * (`buildApprovedResidentOptions` filters to `bucket === "approved"` below) —
+ * but next to "New resident…" the plain name gave no sign of that, so a
+ * manager had to already know the Residents tab by heart to tell which rows
+ * were ready for a lease. Flagging it here, not by widening which rows show:
+ * the filter to approved-only was already correct.
+ */
+export function approvedResidentOptionLabel(row: Pick<ApprovedResidentOption, "residentName" | "roomLabel">): string {
+  const parts = [row.residentName, row.roomLabel, "Approved"].filter((part) => part.trim());
+  return parts.join(" · ");
+}
 
 function residentBelongsToProperty(resident: ApprovedResidentOption, property: PropertyLeaseOption): boolean {
   if (resident.propertyId && resident.propertyId === property.propertyId) return true;
@@ -315,7 +329,7 @@ export function ManagerAddLeaseModal({
       return;
     }
     if (!leaseAllowsManagerDocumentEdits(row)) {
-      showToast("This lease can no longer be edited.");
+      showToast(lockedLeaseError ?? "This lease can no longer be edited.");
       return;
     }
     const gate = leaseGenerationSupportedForRow(row);
@@ -336,7 +350,19 @@ export function ManagerAddLeaseModal({
 
   const noProperties = propertyOptions.length === 0;
   const method = isNewResident ? "upload" : leaseMethod;
-  const whoIncomplete = !propertyId || !applicationId;
+  // Generate and upload both reuse the resident's one lease row. Once it is out
+  // for signature or signed it cannot change, so say so here, not on the last step.
+  const lockedLeaseError = (() => {
+    if (!selectedResident) return null;
+    const app = readManagerApplicationRows().find((row) => row.id === selectedResident.applicationId);
+    const email = app?.email?.trim().toLowerCase();
+    if (!email) return null;
+    const lease = leasePipelineRowsForManagerResident(managerUserId, email, selectedResident.applicationId)[0];
+    return lease && !leaseAllowsManagerDocumentEdits(lease)
+      ? `${selectedResident.residentName} already has a lease out for signature or signed. Open it from Leases.`
+      : null;
+  })();
+  const whoIncomplete = !propertyId || !applicationId || Boolean(lockedLeaseError);
   const propertyLabel = selectedProperty?.propertyLabel ?? "Not set";
   const residentLabel = isNewResident
     ? "New resident"
@@ -345,7 +371,6 @@ export function ManagerAddLeaseModal({
       : "Not set";
   const steps: AddWorkspaceStep[] = [
     { id: "who", label: "Who", summary: whoIncomplete ? "Property and resident" : `${propertyLabel} · ${residentLabel}`, incomplete: whoIncomplete },
-    { id: "lease", label: "Lease", summary: method === "upload" ? "Upload PDF" : "Generate" },
     { id: "review", label: "Review", summary: "Ready" },
   ];
   const current = Math.min(stepIdx, steps.length - 1);
@@ -390,7 +415,7 @@ export function ManagerAddLeaseModal({
           nextDisabled={stepId === "who" && whoIncomplete}
           onBeforeNext={() => {
             if (stepId === "who" && whoIncomplete) {
-              setStepError(noProperties ? "Add a property first." : "Select a property and resident.");
+              setStepError(lockedLeaseError ?? (noProperties ? "Add a property first." : "Select a property and resident."));
               return false;
             }
             setStepError(null);
@@ -403,7 +428,7 @@ export function ManagerAddLeaseModal({
           }}
           dataAttrPrefix="add-lease"
           finishDataAttr={method === "upload" ? "add-lease-upload" : "add-lease-generate"}
-          footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+          footerNote={stepError || lockedLeaseError ? <span className="text-sm text-rose-600">{stepError ?? lockedLeaseError}</span> : null}
           headerActions={
             <>
               <PortalIconAction
@@ -457,7 +482,7 @@ export function ManagerAddLeaseModal({
                       { value: NEW_RESIDENT_ID, label: "New resident…" },
                       ...residentsForProperty.map((row) => ({
                         value: row.applicationId,
-                        label: row.roomLabel ? `${row.residentName} · ${row.roomLabel}` : row.residentName,
+                        label: approvedResidentOptionLabel(row),
                       })),
                     ]}
                     placeholder={propertyId ? "Select resident" : "Select property first"}
@@ -466,11 +491,6 @@ export function ManagerAddLeaseModal({
                   />
                 </>
               )}
-            </StepColumn>
-          ) : null}
-          {stepId === "lease" ? (
-            <StepColumn>
-              <StepHeading title={method === "upload" ? "Upload PDF" : "Generate"} />
             </StepColumn>
           ) : null}
           {stepId === "review" ? (

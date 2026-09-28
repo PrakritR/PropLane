@@ -106,4 +106,34 @@ describe("inbox turn direction", () => {
     expect(inboxTurnDirection(person, person.messages![0]!, 1, "inbox")).toBe("outbound");
     expect(inboxThreadLastTurnDirection(person)).toBe("outbound");
   });
+
+  it("marks an auto-sent lifecycle turn as a system notice, never You", () => {
+    const person = thread({
+      id: "person-2",
+      from: "Akhil",
+      email: "akhil@example.com",
+      folder: "sent",
+      body: "Your lease is ready to sign.",
+      messages: [
+        {
+          id: "reply",
+          from: "Akhil",
+          body: "Let me know if you have questions.",
+          at: "2",
+          outbound: true,
+        },
+      ],
+    });
+    const automatedRoot = {
+      id: "root",
+      from: "Akhil",
+      body: person.body,
+      at: person.time,
+      automated: true,
+    };
+    expect(inboxTurnDirection(person, automatedRoot, 0, "sent")).toBe("system");
+    expect(inboxTurnIsOutbound(person, automatedRoot, 0, "sent")).toBe(false);
+    // A human-typed reply right after it stays an ordinary outbound bubble.
+    expect(inboxTurnDirection(person, person.messages![0]!, 1, "sent")).toBe("outbound");
+  });
 });

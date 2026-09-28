@@ -4,6 +4,13 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { emptyPayoutSnapshot, readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
+import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { vendorPayFeeBps } from "@/lib/platform-fees";
+
+/** Additive: the vendor pay fee rate (0 with the flag off), for the Balance card / Settings > Payouts row. */
+function vendorBankingExtras() {
+  return vendorBankingEnabled() ? { feeBps: vendorPayFeeBps() } : {};
+}
 
 export const runtime = "nodejs";
 
@@ -21,7 +28,7 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const accountId = await resolveManagerConnectAccountId(db, access.actor.userId);
     if (!accountId) {
-      return NextResponse.json(await snapshotWithPlatformHolds(db, access.actor.userId));
+      return NextResponse.json({ ...(await snapshotWithPlatformHolds(db, access.actor.userId)), ...vendorBankingExtras() });
     }
 
     try {
@@ -31,7 +38,7 @@ export async function GET() {
         ownerUserId: access.actor.userId,
         portal: "vendor",
       });
-      return NextResponse.json(snapshot);
+      return NextResponse.json({ ...snapshot, ...vendorBankingExtras() });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {

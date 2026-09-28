@@ -39,6 +39,9 @@ function mockFetch(eligible: boolean) {
           currency: "usd",
         });
       }
+      if (url.startsWith("/api/manager/vendor-invoices")) {
+        return Response.json({ invoices: [] });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     }),
   );
@@ -67,17 +70,20 @@ describe("Finances overview — balance actions (C255)", () => {
     expect(document.querySelector('[data-attr="finances-balance-actions"]')).toBeNull();
   });
 
-  it("shows Pay vendors and Plan & credit as equal-weight cards once eligible", async () => {
+  // C260: "Pay vendors" is now the real bulk-pay card (PayVendorsCard) —
+  // its own approved-invoice list plus a bulk action — so it renders full
+  // width instead of sharing an equal-weight link card with Plan & credit;
+  // Plan & credit keeps its own bordered card either way.
+  it("shows Pay vendors as a real card and Plan & credit as its own bordered card once eligible", async () => {
     mockFetch(true);
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
-    const payVendors = document.querySelector('[data-attr="finances-balance-action-pay-vendors"]');
+    const payVendors = document.querySelector('[data-attr="finances-pay-vendors-card"]');
     const planCredit = document.querySelector('[data-attr="finances-balance-action-plan-credit"]');
-    expect(payVendors?.className).toContain("border");
-    expect(payVendors?.className).toContain("shadow-sm");
-    // Same card treatment — literally the same class string on both.
-    expect(payVendors?.className).toBe(planCredit?.className);
+    expect(payVendors).toBeTruthy();
+    expect(planCredit?.className).toContain("border");
+    expect(planCredit?.className).toContain("shadow-sm");
   });
 
   it("renders Withdraw in the lighter, unbordered subordinate form — never a third same-weight card", async () => {

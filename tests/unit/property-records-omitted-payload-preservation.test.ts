@@ -180,4 +180,62 @@ describe("POST /api/property-records omitted payload preservation", () => {
     expect(update).toHaveBeenCalledOnce();
     expect(upserts).toHaveLength(0);
   });
+
+  /**
+   * Regression for a real data-loss bug found during property-forms proof
+   * (2026-09-27): a lease-template save returned `{"ok":true}` but the
+   * template was gone after reload. Root cause: the optimistic-concurrency
+   * guard below only ever looked at `propertyApplicationTemplates` — a lease
+   * template save always fell through to a plain `upsert`, so any other
+   * write landing after it silently overwrote it wholesale, with no 409 and
+   * no signal to the caller that anything was lost. `propertyLeaseTemplates`
+   * now gets the exact same protection as application templates.
+   */
+  it("conditionally writes (not a plain upsert) when the incoming submission holds a lease template", async () => {
+    const { createPropertyLeaseTemplate } = await import("@/lib/property-lease-templates");
+    const template = { ...createPropertyLeaseTemplate({ kind: "long-term", source: "axis_default" }), listingSeedKey: "primary" as const };
+    const nextPropertyData = { id: PROPERTY_ID, listingSubmission: { propertyLeaseTemplates: [template] } };
+    const response = await post({ action: "upsert", id: PROPERTY_ID, status: "live", propertyData: nextPropertyData });
+    expect(response.status).toBe(200);
+    // The critical assertion: a save that carries a lease template goes
+    // through the compare-and-swap `update`, never the unguarded `upsert` —
+    // exactly the same path an application-template save already takes.
+    expect(update).toHaveBeenCalledOnce();
+    expect(upserts).toHaveLength(0);
+    const saved = update.mock.calls[0]?.[0] as { property_data?: { listingSubmission?: { propertyLeaseTemplates?: unknown[] } } };
+    expect(saved.property_data?.listingSubmission?.propertyLeaseTemplates).toEqual([template]);
+  });
+
+  it("returns a conflict (never a silent overwrite) when a lease-template save loses the revision race", async () => {
+    const { createPropertyLeaseTemplate } = await import("@/lib/property-lease-templates");
+    const template = { ...createPropertyLeaseTemplate({ kind: "long-term", source: "axis_default" }), listingSeedKey: "primary" as const };
+    existing.property_data = { listingSubmission: { propertyLeaseTemplates: [template] } };
+    // Simulate another writer having already moved `updated_at` between this
+    // request's read and write — the exact shape of the bug: two overlapping
+    // saves, one of which used to win by silently discarding the other.
+    updateResult.mockResolvedValue({ data: [], error: null });
+    const response = await post({
+      action: "upsert",
+      id: PROPERTY_ID,
+      status: "live",
+      propertyData: { listingSubmission: { propertyLeaseTemplates: [] } },
+    });
+    expect(response.status).toBe(409);
+    expect(update).toHaveBeenCalledOnce();
+    // The critical assertion: no `upsert` ever ran, so the newer row in the
+    // "database" (the `existing` fixture, standing in for the row another
+    // writer already landed) is never blindly replaced.
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("also protects a lease template stored on the legacy row_data submission", async () => {
+    const { createPropertyLeaseTemplate } = await import("@/lib/property-lease-templates");
+    const template = { ...createPropertyLeaseTemplate({ kind: "short-term", source: "axis_default" }), listingSeedKey: "short-term" as const };
+    existing.row_data = { listingSubmission: { propertyLeaseTemplates: [template] } };
+    updateResult.mockResolvedValue({ data: [], error: null });
+    const response = await post({ action: "upsert", id: PROPERTY_ID, status: "live", rowData: { marker: "fresh" } });
+    expect(response.status).toBe(409);
+    expect(update).toHaveBeenCalledOnce();
+    expect(upserts).toHaveLength(0);
+  });
 });

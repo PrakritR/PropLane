@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leases + Applications QA</title>
+<style>
+  :root { --bg:#f7f8fb; --card:#fff; --fg:#141a26; --muted:#5b6475; --line:#e3e6ee; --crit:#b42318; --high:#c4480b; --med:#9a6700; --low:#3d5a80; --ok:#1a7f37; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1218; --card:#171b23; --fg:#e8ebf2; --muted:#9aa3b5; --line:#2a3040; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:26px; margin:0 0 4px; } h2 { font-size:19px; margin:32px 0 12px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:0 0 10px; }
+  .card h3 { font-size:15px; margin:0 0 6px; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:1px 7px; border-radius:6px; margin-right:6px; color:#fff; }
+  .crit{background:var(--crit)} .high{background:var(--high)} .med{background:var(--med)} .low{background:var(--low)} .ok{background:var(--ok)}
+  code { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; background:rgba(127,127,127,.12); padding:1px 5px; border-radius:4px; }
+  ul { margin:6px 0 0; padding-left:20px; } li { margin:2px 0; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top; } th { font-size:12px; color:var(--muted); text-transform:uppercase; }
+</style>
+</head>
+<body>
+<main>
+<h1>Leases + Applications QA</h1>
+<p class="sub">Updated 2026-09-27 · localhost against dev/test database <code>emstjswhotsnyksqhqyf</code> · isolated keeper agent/lease-upload-polish based on main 881197c18 · production release authorized; final gates pending.</p>
+
+<h2>Earlier browser evidence (original worktree)</h2><p>The rows below describe the earlier dev/test browser pass, before isolating this release from unrelated uncommitted work. Current main requires an account for a new application. This release preserves that gate and supports older paid Checkout returns through a separate verification panel.</p>
+<table>
+<tr><th>Path</th><th>Result</th></tr>
+<tr><td>Guest apply (all 10 steps), validation edges, invalid waiver code</td><td>Works after fixes</td></tr>
+<tr><td>Stripe test card payment, return, server promote</td><td>Was broken (paid app lost), fixed and re-verified</td></tr>
+<tr><td>Guest to resident account setup from finish screen</td><td>Was dead link, fixed and verified</td></tr>
+<tr><td>Manager sees application, reads full form incl. encrypted identity</td><td>Works</td></tr>
+<tr><td>Approve (room fully occupied)</td><td>Correctly refused with 409 capacity</td></tr>
+<tr><td>Lease list / signed lease detail</td><td>Works; formatting fixed</td></tr>
+<tr><td>Add lease wizard</td><td>Dead end for signed residents, fixed</td></tr>
+<tr><td>Generate lease on a draft</td><td>Fixed and checked in browser: Priya's document persisted as version 3. Success appears after server acceptance.</td></tr>
+<tr><td>Guest room selection for occupied November 2026 dates</td><td>Blocked on the Property Information step with “That room is taken for these dates.”</td></tr>
+<tr><td>Room availability request failure</td><td>Blocked with “Could not check room availability. Try again.”</td></tr>
+<tr><td>Room selectors on desktop and mobile</td><td>Checked at desktop width and 390px mobile width; selectors have their own row and there is no horizontal overflow.</td></tr>
+<tr><td>Employment labels</td><td>Checked in browser: Employer, Employer address, Supervisor name, Supervisor phone.</td></tr>
+<tr><td>Signed-out manager Applications deep link</td><td>Sign in, multi-role chooser, and Property choice return to <code>/portal/applications?bucket=pending</code>.</td></tr>
+<tr><td>Applications cold load</td><td>No premature “No applications pending” message; browser check and a focused test.</td></tr>
+<tr><td>Send + resident signs</td><td>Not exercised in this QA pass.</td></tr>
+</table>
+
+<h2>Fixed (verified in browser + tests)</h2>
+<div class="card"><h3><span class="tag crit">critical</span>Paid guest applications lost every answer</h3>
+After the Stripe full-page return the draft autosave upserted the identity-only rehydrated form over the complete server draft. Applicant charged, application stuck Incomplete, finish screen still said submitted.
+<ul><li>Fix: mark the stashed axis id as submit-initiated before rehydrate; unmark on verify/submit failure. <code>src/components/marketing/rental-application-wizard.tsx</code>, <code>src/lib/rental-application/in-progress-application.ts</code></li></ul></div>
+
+<div class="card"><h3><span class="tag crit">critical</span>Server promote-after-fee validated the sealed row</h3>
+<code>row_data</code> is sealed (SSN, DOB, license in ciphertext), so every paid guest promote failed validation silently. Had it passed, the initial-state spread would have written blank identity back unsealed.
+<ul><li>Fix: open the draft with <code>openApplicantRow</code> first; log refusals with field names only. <code>src/lib/promote-incomplete-application-after-fee.server.ts</code></li><li>Test: <code>tests/unit/promote-incomplete-application-after-fee.test.ts</code></li></ul></div>
+
+<div class="card"><h3><span class="tag high">high</span>"Create your resident account" dead after card payment</h3>
+Hand-built <code>&amp;id=</code> link; the setup page reads <code>proplane_id</code>. Now uses <code>buildResidentSetupHref</code>.</div>
+
+<div class="card"><h3><span class="tag high">high</span>Failed final submit showed "Application submitted" and cleared the form</h3>
+Now keeps answers, shows an error, and only caches the row after the server accepts it. Removed the dead <code>syncError</code> / "Sync issue" path. <code>rental-application-finish-panel.tsx</code> email-failed copy no longer promises a button that is not there.</div>
+
+<div class="card"><h3><span class="tag med">medium</span>Move-in cost card did not add up ($2,450 of lines over a $1,350 total)</h3>
+Lines not due at signing now sit under "Due later" (card) or "(due later)" (review). <code>src/components/marketing/rental-wizard-steps.tsx</code></div>
+
+<div class="card"><h3><span class="tag med">medium</span>Lease detail</h3>
+<ul><li>Raw ISO signature timestamps and dates now formatted; redundant "per month" removed.</li><li>Drafts showed "Resident signature pending · Sent — remind"; now "Generate the lease" or "Review and send" using <code>leasePipelineRowHasDocument</code>.</li></ul>
+<code>src/components/portal/pro-leases-pipeline-panel.tsx</code></div>
+
+<div class="card"><h3><span class="tag med">medium</span>Add lease for a resident with a signed lease failed on step 3</h3>
+Now blocked at the Who step with the reason. <code>src/components/portal/pro-add-lease-modal.tsx</code></div>
+
+<div class="card"><h3><span class="tag high">high</span>Lease generation could claim success without a saved document</h3>
+The seed stored a structured result where the pipeline expects HTML text. The seed now writes the HTML string. Generation waits for server persistence before success, and an edit or save failure restores the original local lease. The intermediate edit no longer persists or increments the document version. Priya's version 3 save was checked in browser. A bounded dev/test repair converted 24 malformed <code>generatedHtml</code> objects to their existing HTML strings; a follow-up read found zero malformed rows and Priya remained at version 3.</div>
+
+<div class="card"><h3><span class="tag high">high</span>Rooms could appear available after occupancy data expired</h3>
+The applicant step now refreshes occupancy while choosing a room and dates, then makes a fresh uncached check when Continue is pressed. A conflicting room and date combination and a failed occupancy request both prevent progress. Checked against Alder Row's actual occupied room and with a simulated 503 response.</div>
+
+<div class="card"><h3><span class="tag med">medium</span>Application and lease presentation</h3><ul>
+<li>Room selectors now occupy a separate row above the resident-pays card; the application form is wider.</li>
+<li>Paired fields have individual labels unless the manager supplied custom wording. Required and optional labels include readable spacing.</li>
+<li>Add lease has Who and Review steps; the empty Generate step is gone.</li>
+<li>Pending review and unfinished lease states are yellow; Voided remains red.</li>
+<li>The identity notice reads “Your Social Security number, date of birth, and ID number are stored encrypted.”</li>
+<li>Generated leases no longer duplicate a ZIP code when the address lacks city and state.</li>
+</ul></div>
+
+<div class="card"><h3><span class="tag med">medium</span>Navigation and loading</h3>
+Signed-out portal links retain the requested path and query through sign in and role choice, including the plain sign-in fallback. The Applications list holds its initial empty state until its first fetch completes.</div>
+
+<h2>Additional release corrections</h2><div class="card"><h3>Account setup and payment recovery</h3><p>Payment verification returns no account-claim credential. It emails only the stored applicant address, including cross-browser/native and webhook-first returns. Setup-token persistence errors stop welcome delivery. The submission email route never returns a newly minted token or a token-bearing mailto link based only on application ID and email.</p></div><div class="card"><h3>Availability and list loading</h3><p>Full shared homes cannot fall back to a property-only room selection. Server-supplied listing validation requires a configured room. Fresh checks are scoped to one public listing and rate limited. A scoped refresh preserves newer room data without changing other listings’ freshness. Failed Applications reads show Retry.</p></div><h2>Remaining observations</h2>
+<div class="card"><h3><span class="tag med">medium</span>Approval email links to setup without a token</h3>The preview body shows <code>/auth/resident-setup?proplane_id=…</code> only, which lands on "Setup link required". Actual delivery now requires a successfully persisted setup token; behavioral failure and success tests cover both welcome variants. The preview remains a template preview.</div>
+<div class="card"><h3><span class="tag med">medium</span>Application persistence error copy</h3>An approval failure can still show a technical “Could not persist the application:” prefix. The room conflict now stops the applicant earlier in the form.</div>
+<div class="card"><h3><span class="tag med">medium</span>Lease editor iframe uses <code>allow-scripts allow-same-origin</code></h3>Defense-in-depth gap (sanitizer is allowlist-based). Dropping <code>allow-scripts</code> needs an editor check. <code>src/components/portal/lease-html-direct-editor.tsx:240</code></div>
+<div class="card"><h3><span class="tag low">low</span>Smaller items</h3><ul>
+<li>Signature name not checked against the applicant name.</li>
+<li>The earlier guest-flow observations predate main's account requirement, which this release preserves.</li>
+<li>Copy and small UI issues:<ul>
+<li>Em dashes in user-facing copy.</li>
+<li>Phone numbers are not formatted.</li>
+<li>The Application nav label is singular.</li>
+</ul></li>
+<li>Listing Ballard House is short-term only with no nightly rate, while the send modal says long-term.</li>
+</ul></div>
+
+<h2>Final isolated validation</h2>
+<p>Release keeper: <code>agent/lease-upload-polish</code> in <code>/Users/akhilvemuri/coding/AXIS-2-lease-upload</code>, base <code>881197c184a7ca8874a5132e028eac4a56deeef7</code>. The original worktree contained unrelated concurrent edits; only the lease/application scope was ported while retaining main's newer upload and account requirements.</p>
+<ul><li>Whole ESLint: exit 0, zero errors, 921 existing warnings. Final added-file focused lint is recorded in the correction handoffs.</li>
+<li>First isolated whole unit run: exit 1, 2,228 files passed, 3 failed; 15,954 tests passed, 3 failed; five unhandled errors. Failures were stale request-header, sync-status and canonical application-ID mocks plus an obsolete client-finalization source assertion. The focused corrections pass. The final local whole run passed all 2,232 files and 15,985 assertions but exited 1 on three unhandled rejections from two more incomplete loading mocks. Those two fixtures were corrected; all five related tests pass, exit 0, without unhandled errors. CI will rerun the final complete snapshot before production promotion.</li>
+<li>Focused behavior tests cover sealed-draft promotion, setup-link secrecy and persistence failure, recovery/retry without draft writes, scoped fresh availability, labels, loading and query-preserving sign-in.</li>
+<li>Independent security, bug and release reviews are retained as HTML. Review found and corrected setup-token disclosure and the account gate intercepting paid returns.</li>
+<li>Integration suite: exit 0, 55 files and 308 tests passed; 10 files and 81 tests skipped because their environment-dependent prerequisites are unavailable.</li><li>Local default build compiled successfully but exited 1 when TypeScript exhausted the capped 3 GB heap. Local compile and generate phases exit 0 and provide the built browser server; the normal CI typecheck/build remains mandatory before production. Current-keeper browser QA is in progress; staging and production are pending. No deployment is claimed until their results are recorded.</li>
+<li>Graph refresh attempted: <code>npx graphify hook-rebuild</code> exit 1 (npm cannot determine executable). Installed graphify does not support hook-rebuild; no usable graph exists in this keeper.</li></ul>
+
+<h2>Current keeper browser evidence</h2><ul><li>Resident room and date validation: Alder Room 1 for November 2026 blocks Continue with the taken-room error. A fresh availability 503 also blocks Continue.</li><li>Measured form width 928 px; first room selector 298.7 px at 1280 px viewport. At 390 px, selector 366 px and no horizontal overflow. Desktop/mobile screenshots are under <code>output/playwright/rooms-*-final.png</code>.</li><li>Fresh QA resident advanced through household, identity, property, current/previous address, employment, references, details and consent to review/fee. Identity autosave returned 200; readback has encrypted identity metadata and no plaintext SSN/DOB/ID fields.</li><li>Distinct Employer, Employer address, Supervisor name and Supervisor phone label lookups each find exactly one input. Screenshot: <code>output/playwright/employment-labels-final.png</code>.</li><li>The canonical resident's older draft <code>PROPLANE-2132828A</code> cannot be opened with the configured local encryption key. It was preserved. A separate QA resident <code>lease-qa-20260927@test.proplane.local</code> and fresh draft <code>PROPLANE-F99B786F</code> were created in dev/test for valid save checks.</li><li>The test env contains stub Stripe keys. Real-payment browser QA uses only the existing Stripe test-mode credentials from <code>.env</code>; the database stays explicitly pinned to dev/test.</li></ul><h2>Latest built-keeper checks</h2><ul><li>Real Stripe test-mode card checkout: PROPLANE-F99B786F returned from payment and is Pending. Stored name, address, reference, signature and dates are retained; identity remains encrypted.</li><li>Priya lease generation: a simulated POST 503 showed the save error and kept the draft open without a success message. Retry returned POST 200 and saved version 4.</li><li>Upload PDF opens the existing Mark lease as signed flow. A PDF was selected and Cancel closed the modal; no execution or signature was committed.</li><li>Desktop and mobile screenshots were visually inspected. Room controls fit their own row on desktop and stack at 390 px with no horizontal overflow.</li><li>Automated browser preflight initially used retired axis.local account names. Current seeded proplane.local accounts authenticate. The first 47-case run passed 40 and failed seven: four test timing/selector issues and three stage-lock assertions on a shared resident already at signed-lease stage. Test waits/selectors were corrected. The task applicant was approved through its owning manager with messaging disabled; three unchanged pre-lease stage assertions passed against that fresh resident.</li><li>The follow-up ran 12 cases: 11 passed; its only failure was a deep-link test inspecting a transient portal URL before the chooser. It now waits for the rendered chooser or Applications screen; the final focused rerun passed all four cases, exit 0.</li></ul><h2>CI warning-tone correction</h2><p>Initial main CI lint and integration passed, but build found two type errors because the shared record kit did not accept warning. The owner now exports a shared RecordStatTone union with warning and renders it using the dedicated yellow token. Renderer consumes the same type. Focused record guards: 119 tests passed; lint and diff check exit 0. Fresh Astra independently reviewed the correction and final payment-return/security wiring with no actionable finding. The corrected snapshot awaits complete CI.</p><h2>Environment and data left behind</h2>
+<ul>
+<li><code>.env.local</code>: a local <code>DATA_ENCRYPTION_*</code> key was appended (approved). Guest submits 500'd without it.</li>
+<li>Dev DB records created:<ul>
+<li>Quinn Tester, <code>qa-applicant-0927@test.axis.local</code>: paid; answers wiped by the old bug.</li>
+<li>Riley Tester <code>PROPLANE-43F2C3DA</code>, <code>qa-applicant-0927b@test.axis.local</code>: Pending, with a resident account.</li>
+<li>A probable stray draft under akhil-manager.</li>
+</ul></li>
+<li>Priya Sharma's lease is saved server-side at version 4 with HTML text after the current keeper's browser generation check.</li>
+<li>24 malformed lease documents in dev/test were repaired in place; zero remain. The repair did not reseed other records.</li>
+</ul>
+</main>
+</body>
+</html>

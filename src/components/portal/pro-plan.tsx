@@ -28,12 +28,8 @@ import { EmbeddedCheckoutMount } from "@/components/stripe/embedded-checkout";
 import { SubscriptionCheckoutHint } from "@/components/stripe/subscription-checkout-hint";
 import { ManagerPlanNative } from "@/components/portal/pro-plan-native";
 import { PlanAdjustSheet, type AdjustablePaidTier, type BillingInterval } from "@/components/portal/pro-plan-adjust-sheet";
-import {
-  ManagerUsagePanel,
-  ManagerExtraUsagePanel,
-  ManagerDoorsPanel,
-  useUsageSummary,
-} from "@/components/portal/manager-usage-panel";
+import { ManagerExtraUsagePanel, useUsageSummary } from "@/components/portal/manager-usage-panel";
+import { MessagingCreditPanel, useCommsCreditPoolSummary } from "@/components/portal/messaging-credit-panel";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
 import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
@@ -249,7 +245,8 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
   const [promoCode, setPromoCode] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
-  const { summary: usageSummary, error: usageError, load: loadUsage } = useUsageSummary();
+  const { summary: usageSummary, load: loadUsage } = useUsageSummary();
+  const { summary: poolSummary, load: loadPool } = useCommsCreditPoolSummary();
 
   const load = useCallback(async () => {
     try {
@@ -718,16 +715,11 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
         )}
       </PortalSettingsSection>
 
-      <ManagerDoorsPanel
-        tier={currentTier}
-        billing={currentBilling}
-        used={usageSummary?.residents.used ?? null}
-        max={usageSummary?.residents.max ?? null}
-        error={usageError}
-        onRefresh={() => void loadUsage()}
-      />
-      <ManagerUsagePanel summary={usageSummary} error={usageError} onRefresh={() => void loadUsage()} />
-      <ManagerExtraUsagePanel summary={usageSummary} load={loadUsage} />
+      {poolSummary?.poolEnabled ? (
+        <MessagingCreditPanel summary={poolSummary} ratesCents={usageSummary?.ratesCents} load={loadPool} />
+      ) : (
+        <ManagerExtraUsagePanel summary={usageSummary} load={loadUsage} />
+      )}
       <ManagerPlanAddonsPanel />
       <ManagerPaymentMethodsPanel />
       <ManagerInvoicesSection />

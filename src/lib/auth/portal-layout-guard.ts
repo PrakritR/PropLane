@@ -1,8 +1,15 @@
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import type { PreviewPortal } from "@/lib/auth/preview-types";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
+
+async function requestedPortalPath(role: "manager" | "resident" | "vendor"): Promise<string | null> {
+  const requestedPath = (await headers()).get("x-requested-path");
+  return requestedPath ? normalizePostAuthPath(requestedPath, role) : null;
+}
 
 /**
  * Ensures only the correct role (or admin with matching preview cookie) can load a portal layout.
@@ -13,7 +20,10 @@ export async function assertPortalLayoutRole(
   options?: { allowSignedInApplyGate?: boolean; allowResidentTourAccess?: boolean },
 ) {
   const ctx = await getPortalAccessContext();
-  if (!ctx.user) redirect("/auth/sign-in");
+  if (!ctx.user) {
+    const next = await requestedPortalPath(role);
+    redirect(next ? `/auth/sign-in?next=${encodeURIComponent(next)}` : "/auth/sign-in");
+  }
 
   const preview = await getAdminPreviewFromCookies();
   if (hasAdminRole(ctx) && preview?.portal === portal) {
@@ -30,11 +40,13 @@ export async function assertPortalLayoutRole(
 
   if (!hasRole(ctx, role)) {
     if (applyGateBypass || tourGateBypass) return;
-    redirect("/auth/sign-in");
+    const next = await requestedPortalPath(role);
+    redirect(next ? `/auth/sign-in?next=${encodeURIComponent(next)}` : "/auth/sign-in");
   }
 
-  if (ctx.roles.length > 1 && ctx.effectiveRole === null) {
-    redirect(`/auth/choose-portal?next=${encodeURIComponent(portalDashboardPath(role))}`);
+  if (ctx.roles.length > 1 && (ctx.effectiveRole === null || ctx.effectiveRole !== role) && !(applyGateBypass || tourGateBypass)) {
+    const next = await requestedPortalPath(role) ?? portalDashboardPath(role);
+    redirect(`/auth/choose-portal?next=${encodeURIComponent(next)}`);
   }
 
   if (ctx.effectiveRole !== role) {

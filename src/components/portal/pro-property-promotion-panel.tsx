@@ -5,13 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
-import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
+import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
 import { PromotionAssetViewModal } from "@/components/portal/promotion-asset-view-modal";
 import {
@@ -27,7 +27,12 @@ import { PromotionNewModal } from "@/components/portal/promotion-new-modal";
 import { PromotionTextGenerateModal } from "@/components/portal/promotion-text-generate-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { track } from "@/lib/analytics/track-client";
-import { syncPropertyPipelineFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
+import {
+  syncPropertyPipelineFromServer,
+  PROPERTY_PIPELINE_EVENT,
+  updatePendingManagerProperty,
+  updateExtraListingFromSubmission,
+} from "@/lib/demo-property-pipeline";
 import { buildManagerPromotionPropertyOptions } from "@/lib/manager-property-links";
 import {
   MANAGER_PROMOTIONS_EVENT,
@@ -116,16 +121,29 @@ function flyerEntryToDraft(
   };
 }
 
+type PromotionSaveTarget =
+  | { mode: "pending"; saveId: string }
+  | { mode: "listing"; saveId: string }
+  | { mode: "requestChange"; saveId: string }
+  | null;
+
 export function ManagerPropertyPromotionPanel({
   listingId,
   showToast,
   onUpdated,
   headerActionsExtra,
+  sub,
+  saveTarget,
+  propertyLabel,
 }: {
   listingId: string;
   showToast: (m: string) => void;
   onUpdated?: () => void;
   headerActionsExtra?: ReactNode;
+  /** For the Settings gear's Zillow Rental Network toggle (S016). */
+  sub?: ManagerListingSubmissionV1 | null;
+  saveTarget?: PromotionSaveTarget;
+  propertyLabel?: string;
 }) {
   const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
   // Aborts the copy request owned by whichever compose modal is open.
@@ -145,6 +163,9 @@ export function ManagerPropertyPromotionPanel({
   const [textModalAssetId, setTextModalAssetId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState<string[]>(["flyer", "text", "upload"]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [zillowSaving, setZillowSaving] = useState(false);
 
   useEffect(() => {
     if (!authReady) return;
@@ -191,7 +212,42 @@ export function ManagerPropertyPromotionPanel({
     return sortPromotionAssets(flattenPromotionAssets(rows), "newest");
   }, [propertyId, tick]);
 
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(assets.length);
+  const visibleAssets = useMemo(
+    () => assets.filter((asset) => kindFilter.includes(asset.kind)),
+    [assets, kindFilter],
+  );
+
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(visibleAssets.length);
+
+  const zillow = sub?.syndication?.zillow;
+  const zillowEnabled = zillow?.enabled ?? false;
+
+  const persistZillowToggle = useCallback(
+    (nextEnabled: boolean) => {
+      if (!sub || !saveTarget) return;
+      setZillowSaving(true);
+      const nextSub: ManagerListingSubmissionV1 = {
+        ...sub,
+        syndication: { ...sub.syndication, zillow: { ...zillow, enabled: nextEnabled } },
+      };
+      let ok = false;
+      if (saveTarget.mode === "pending") {
+        ok = updatePendingManagerProperty(saveTarget.saveId, nextSub, userId ?? "");
+      } else if (saveTarget.mode === "listing") {
+        ok = updateExtraListingFromSubmission(saveTarget.saveId, userId ?? "", nextSub);
+      } else if (saveTarget.mode === "requestChange") {
+        ok = updateRequestChangeProperty(saveTarget.saveId, userId ?? "", nextSub);
+      }
+      setZillowSaving(false);
+      if (!ok) {
+        showToast("Could not save promotion settings.");
+        return;
+      }
+      showToast(nextEnabled ? "Listed on the Zillow Rental Network." : "Removed from the Zillow Rental Network.");
+      onUpdated?.();
+    },
+    [sub, saveTarget, zillow, userId, showToast, onUpdated],
+  );
 
   const addPromotionPreset = useCallback(
     (preset: PromotionPresetKind) => {
@@ -569,6 +625,45 @@ export function ManagerPropertyPromotionPanel({
 
   return (
     <>
+      <PortalPropertySectionToolbar
+        filter={{
+          label: "Kind",
+          options: [
+            { value: "flyer", label: "Flyers" },
+            { value: "text", label: "Listing blurbs" },
+            { value: "upload", label: "Posts" },
+          ],
+          selected: kindFilter,
+          onChange: setKindFilter,
+          dataAttr: "property-promotion-filter",
+        }}
+        onSettings={sub && saveTarget ? () => setSettingsOpen(true) : undefined}
+        settingsLabel="Promotion settings"
+        settingsDataAttr="property-promotion-settings-open"
+        onAdd={openNewPromotion}
+        addLabel="Add promotion"
+        addDataAttr="property-promotion-add-top"
+      />
+      {sub && saveTarget ? (
+        <PortalPropertySectionSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          title="Promotion settings"
+          propertyLabel={propertyLabel ?? "This property"}
+          dataAttr="property-promotion-settings"
+        >
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-3.5 py-3">
+            <span className="text-sm font-semibold text-foreground">Zillow Rental Network</span>
+            <PortalSettingsToggle
+              checked={zillowEnabled}
+              onChange={(next) => persistZillowToggle(next)}
+              label="Zillow Rental Network"
+              disabled={zillowSaving}
+              dataAttr="property-promotion-zillow-toggle"
+            />
+          </div>
+        </PortalPropertySectionSettingsModal>
+      ) : null}
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -587,9 +682,9 @@ export function ManagerPropertyPromotionPanel({
         </>
       ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
-        {assets.length === 0 ? null : (
+        {visibleAssets.length === 0 ? null : (
           <PromotionAssetStack
-            assets={assets}
+            assets={visibleAssets}
             variant="plain"
             showPropertyLabel={false}
             emptyMessage=""
@@ -606,16 +701,6 @@ export function ManagerPropertyPromotionPanel({
           propertyId={propertyId}
           promotionRow={promotionRow}
           onAddPreset={addPromotionPreset}
-        />
-      </div>
-
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add custom promotion"
-          icon={PORTAL_LIST_ADD_ICONS.promotion}
-          onClick={openNewPromotion}
-          dataAttr="manager-property-new-promotion"
         />
       </div>
 

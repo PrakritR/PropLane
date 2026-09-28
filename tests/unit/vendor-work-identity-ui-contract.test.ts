@@ -7,8 +7,12 @@ describe("vendor work identity UI contract", () => {
   it("keeps business contacts separate from account identity and exposes independent channel capability", () => {
     expect(card).toContain("/api/vendor/business-profile");
     expect(card).toContain("/api/vendor/work-identity");
-    expect(card).toContain("Send {capability(\"email\")?.sendReady");
-    expect(card).toContain("Receive {capability(\"sms\")?.receiveReady");
+    // Folded onto the identity card's own state line (captain, 2026-09-27) —
+    // no more separate "Email · Disabled" / "SMS · Disabled" status cards —
+    // but send/receive are still read independently per channel.
+    expect(card).toContain("channelCaption");
+    expect(card).toContain('sendReady ? "ready" : "unavailable"');
+    expect(card).toContain('receiveReady ? "ready" : "unavailable"');
     expect(settings).toContain("Free · covered by PropLane");
   });
   it("renders disabled, unavailable, capacity, failed-read and retry states", () => {

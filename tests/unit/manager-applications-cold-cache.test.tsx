@@ -11,7 +11,7 @@
 // Set APPLICATIONS_COLD_CACHE_HTML_DIR to dump each rendered surface's HTML so
 // it can be screenshotted with the app's real stylesheet.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import fs from "node:fs";
 import path from "node:path";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -33,6 +33,7 @@ let CACHED_LISTINGS: MockProperty[] = [];
 let INVITES: AccountLinkInviteDto[] = [];
 /** Which manager is signed in. */
 let VIEWER = "mgr-self";
+let READ_OK = true;
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/applications",
@@ -57,6 +58,7 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
   return {
     ...actual,
     syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
+    syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: ROWS, ok: READ_OK }),
     readManagerApplicationRows: () => ROWS,
     deleteManagerApplicationFromServer: () => Promise.resolve({ ok: true }),
   };
@@ -154,10 +156,22 @@ beforeEach(() => {
   CACHED_LISTINGS = [];
   INVITES = [];
   VIEWER = "mgr-self";
+  READ_OK = true;
 });
 afterEach(cleanup);
 
 describe("manager Applications tab — pending application on a cold property cache", () => {
+  it("shows a retry state after a failed empty read and recovers on retry", async () => {
+    READ_OK = false;
+    render(<ManagerApplications />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load applications.");
+    expect(screen.queryByText("No applications pending")).toBeNull();
+    READ_OK = true;
+    ROWS = [RESIDENT_APPLICATION];
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getAllByText("Maya Alvarez").length).toBeGreaterThan(0));
+    expect(screen.queryByText("Could not load applications.")).toBeNull();
+  });
   it("shows the resident's freshly submitted application before the property cache hydrates", async () => {
     ROWS = [RESIDENT_APPLICATION, OTHER_MANAGERS_APPLICATION];
 
