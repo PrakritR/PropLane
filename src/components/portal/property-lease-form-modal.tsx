@@ -28,7 +28,10 @@ import { PropertyLeaseDocumentNotice, propertyLeaseNeedsAssistantReview } from "
 import { buildLeaseModalAssistantContext } from "@/lib/lease-assistant-context";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
+import {
+  scopeLeaseDocumentHtmlForInlinePreview,
+  stripDisclosureReviewFromLeaseHtml,
+} from "@/lib/property-lease-document-display";
 import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import {
@@ -73,6 +76,14 @@ const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
 
 /** Steps are Name, Document, Preview; the import review box is on Document. */
 const DOCUMENT_STEP_INDEX = 1;
+
+/**
+ * F013: the class the rendered lease document's own serif/underline look is
+ * scoped under — see `scopeLeaseDocumentHtmlForInlinePreview`. Never applied
+ * to any editor chrome element, only to the div the document HTML is
+ * injected into.
+ */
+export const LEASE_PREVIEW_DOCUMENT_SCOPE = "lease-document-preview-scope";
 
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
@@ -658,7 +669,12 @@ export function PropertyLeaseFormModal({
   const htmlPreview = (
     <div className="max-h-[70vh] overflow-auto rounded-2xl border border-border bg-card p-3 text-[13px] leading-relaxed text-foreground" data-attr="property-lease-html-preview">
       {displayHtml.trim() ? (
-        <div dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        <div
+          className={LEASE_PREVIEW_DOCUMENT_SCOPE}
+          dangerouslySetInnerHTML={{
+            __html: scopeLeaseDocumentHtmlForInlinePreview(displayHtml, LEASE_PREVIEW_DOCUMENT_SCOPE),
+          }}
+        />
       ) : (
         <p>No lease document yet.</p>
       )}
