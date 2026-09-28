@@ -295,6 +295,10 @@ export function ManagerApplicationQuestionsEditorModal({
   const [compareView, setCompareView] = useState<"original" | "form">("form");
   const [reviewingSource, setReviewingSource] = useState(false);
   const [questionDisplayOrder, setQuestionDisplayOrder] = useState<string[]>([]);
+  // F-editor a: the Sections step's checklist — default sections the manager
+  // unchecked for THIS template, hidden from the Form step below. See
+  // `ApplicationTemplateQuestionConfig.disabledSectionIds`'s own doc comment.
+  const [disabledSectionIds, setDisabledSectionIds] = useState<RentalApplicationSectionId[]>([]);
   const initializedEditorRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -339,6 +343,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setImportIssues(applicationTemplate?.draftQuestionConfig?.importProvenance?.issues ?? []);
     setResolvedImportIssueIndexes(applicationTemplate?.draftQuestionConfig?.importProvenance?.resolvedIssueIndexes ?? []);
     setCompareView("form");
+    setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -403,6 +408,41 @@ export function ManagerApplicationQuestionsEditorModal({
     });
     setDirty(true);
   };
+
+  // F-editor b: the property Add/Edit application editor no longer offers a
+  // "Workspace form / Custom for this listing" switch, or "Make default
+  // format" — this property's application is always its OWN form, seeded
+  // from the workspace template exactly the way "Custom for this listing"
+  // already seeded it. A template that is still following the workspace
+  // (never explicitly customized before this redesign) is detached from it
+  // once, silently, the moment the workspace form finishes loading — the
+  // same one-time copy as `setApplicationFormSource("custom")` above, minus
+  // `setDirty`, because materializing the already-effective fields is not a
+  // user edit. Nothing here touches the listing-wide editor (`isTemplateEditor`
+  // is false there), which keeps the picker and its live "follows the
+  // workspace" resolution untouched.
+  useEffect(() => {
+    if (!open || !isTemplateEditor || isBulkTemplateEditor) return;
+    if (!workspaceFormLoaded || applicationFormSource === "custom") return;
+    setLocalSub((prev) => (prev.applicationFormSource === "custom" ? prev : {
+      ...prev,
+      applicationFormSource: "custom",
+      ...(workspaceForm
+        ? {
+            customApplicationFields: workspaceForm.customApplicationFields,
+            disabledStandardApplicationKeys: workspaceForm.disabledStandardApplicationKeys,
+            applicationConfigMode: workspaceForm.applicationConfigMode,
+            shortTermCustomApplicationFields: workspaceForm.shortTermCustomApplicationFields,
+            shortTermDisabledStandardApplicationKeys: workspaceForm.shortTermDisabledStandardApplicationKeys,
+            shortTermApplicationConfigMode: workspaceForm.shortTermApplicationConfigMode,
+            cosignerCustomApplicationFields: workspaceForm.cosignerCustomApplicationFields,
+            cosignerDisabledStandardApplicationKeys: workspaceForm.cosignerDisabledStandardApplicationKeys,
+            cosignerApplicationConfigMode: workspaceForm.cosignerApplicationConfigMode,
+          }
+        : {}),
+    }));
+  }, [open, isTemplateEditor, isBulkTemplateEditor, workspaceFormLoaded, workspaceForm, applicationFormSource]);
+
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
@@ -682,6 +722,7 @@ export function ManagerApplicationQuestionsEditorModal({
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
               questionDisplayOrder: applicationFields.map((field) => field.id),
+              disabledSectionIds: [...disabledSectionIds],
             },
           },
         ];
@@ -697,6 +738,7 @@ export function ManagerApplicationQuestionsEditorModal({
               importedQuestionDraft ?? draftQuestionConfigForTemplate(applicationTemplate!),
             ),
             questionDisplayOrder: configSlice.questionDisplayOrder,
+            disabledSectionIds: [...disabledSectionIds],
           },
         });
       }
@@ -917,6 +959,37 @@ export function ManagerApplicationQuestionsEditorModal({
   const reenableField = (field: ResolvedApplicationField) => {
     if (!field.standardKey || !canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(reenableListingApplicationField(configSlice, field.standardKey));
+  };
+
+  // F-editor a: a section holding a never-removable standard field (identity
+  // trio, SSN/ID, income) can never actually drop to zero questions, so its
+  // Sections-step checklist entry stays locked checked rather than offering
+  // an uncheck that would not do anything.
+  const sectionHasLockedField = (sectionId: RentalApplicationSectionId): boolean =>
+    [...applicationFields, ...disabledFields].some(
+      (field) => (field.section ?? "additional") === sectionId && Boolean(field.standardKey) && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey!),
+    );
+
+  /** Unchecking drops every standard question in the section that can be turned off (never a custom one the manager wrote). Re-checking brings them back. */
+  const toggleSection = (sectionId: RentalApplicationSectionId, on: boolean): void => {
+    if (!on && sectionHasLockedField(sectionId)) return;
+    let nextConfig: ApplicationConfigSlice = configSlice;
+    if (!on) {
+      for (const field of applicationFields) {
+        if ((field.section ?? "additional") !== sectionId || !field.isStandard) continue;
+        if (!canEditBuiltIn(field, "visibility")) continue;
+        nextConfig = { ...nextConfig, ...removeListingApplicationField(nextConfig, field) };
+      }
+    } else {
+      for (const field of disabledFields) {
+        if ((field.section ?? "additional") !== sectionId || !field.standardKey) continue;
+        nextConfig = { ...nextConfig, ...reenableListingApplicationField(nextConfig, field.standardKey) };
+      }
+    }
+    applyEditedSlice(nextConfig);
+    setDisabledSectionIds((prev) =>
+      on ? prev.filter((id) => id !== sectionId) : prev.includes(sectionId) ? prev : [...prev, sectionId],
+    );
   };
 
   const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
@@ -1369,6 +1442,7 @@ export function ManagerApplicationQuestionsEditorModal({
         onFinish={() => void commitSave({ publish: isTemplateEditor && !isBulkTemplateEditor })}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"
+        numberedSteps
         finishDataAttr="application-questions-save"
         footerNote={
           saveError ? (
@@ -1418,7 +1492,6 @@ export function ManagerApplicationQuestionsEditorModal({
               data-attr="property-application-name"
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
-            {applicationFormSourcePicker}
             {/* P012 (captain 2026-09-27): "have upload application and lease in
                 first tab." Uploading your own application now happens on this
                 first step, not tucked into Preview at the end. */}
@@ -1665,7 +1738,6 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
-            {applicationFormSourcePicker}
             <div className="space-y-2">
               {RENTAL_APPLICATION_SECTIONS.map((section) => {
                 const n = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;

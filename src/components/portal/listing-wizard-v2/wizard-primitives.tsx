@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
@@ -267,12 +267,20 @@ export function StepRail({
   current,
   onJump,
   visited,
+  numbered = false,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
+  /**
+   * F-editor / F012: each step shows its number, or a check once nothing on
+   * it is missing, instead of only the plain attention dot. Opt-in per
+   * caller (the Add application / Add lease editors) — every other wizard
+   * using this shared rail keeps today's dot-only look unchanged.
+   */
+  numbered?: boolean;
 }) {
   void visited;
   // On a phone the rail is a strip of chips; the one the manager is on must be
@@ -304,7 +312,17 @@ export function StepRail({
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  {warn ? (
+                  {numbered ? (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                        warn ? "bg-[var(--status-overdue-fg)]/15 text-[var(--status-overdue-fg)]" : "bg-primary/15 text-primary",
+                      )}
+                    >
+                      {warn ? i + 1 : <Check className="h-[11px] w-[11px]" strokeWidth={3} />}
+                    </span>
+                  ) : warn ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
                   ) : null}
                   <span

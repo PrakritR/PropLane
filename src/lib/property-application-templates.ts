@@ -4,6 +4,7 @@ import {
   REQUIRED_IDENTITY_STANDARD_KEYS,
   type ApplicationConfigSlice,
 } from "@/lib/rental-application/application-field-catalog";
+import type { RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
 import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   normalizeLeaseTemplateKind,
@@ -56,6 +57,16 @@ export type PropertyApplicationTemplate = {
 
 export type ApplicationTemplateQuestionConfig = ApplicationConfigSlice & {
   version: number;
+  /**
+   * F-editor a: default sections the manager unchecked in the Sections step's
+   * checklist — hidden from the Form step's accordion. Additive/optional, so
+   * an absent or empty array means every default section still shows exactly
+   * as before this field existed. A section containing a never-removable
+   * field (identity trio, SSN/ID, income) can never fully disable its
+   * questions, so the editor keeps its checklist entry locked on; this array
+   * only ever lists sections the editor actually let the manager turn off.
+   */
+  disabledSectionIds?: RentalApplicationSectionId[];
   /** Source metadata is deliberately manager-only and excludes a storage URL. */
   importProvenance?: {
     sourceName?: string;
@@ -92,6 +103,7 @@ function copyQuestionConfig(config: ApplicationTemplateQuestionConfig): Applicat
     disabledStandardApplicationKeys: [...config.disabledStandardApplicationKeys],
     customApplicationFields: config.customApplicationFields.map((field) => ({ ...field, options: [...field.options] })),
     questionDisplayOrder: config.questionDisplayOrder ? [...config.questionDisplayOrder] : undefined,
+    disabledSectionIds: config.disabledSectionIds ? [...config.disabledSectionIds] : undefined,
     importProvenance: config.importProvenance ? { ...config.importProvenance } : undefined,
   };
 }
@@ -136,12 +148,15 @@ export function publicPropertyApplicationTemplate(template: PropertyApplicationT
 export function applicationTemplateQuestionConfigFromSlice(
   slice: ApplicationConfigSlice,
   previous?: ApplicationTemplateQuestionConfig | null,
+  /** F-editor a: the Sections step's checklist, kept out of `ApplicationConfigSlice` — see that type's own doc comment. */
+  disabledSectionIds?: RentalApplicationSectionId[],
 ): ApplicationTemplateQuestionConfig {
   return {
     ...slice,
     disabledStandardApplicationKeys: [...slice.disabledStandardApplicationKeys],
     customApplicationFields: slice.customApplicationFields.map((field) => ({ ...field, options: [...field.options] })),
     questionDisplayOrder: slice.questionDisplayOrder ? [...slice.questionDisplayOrder] : undefined,
+    disabledSectionIds: disabledSectionIds ? [...disabledSectionIds] : previous?.disabledSectionIds ? [...previous.disabledSectionIds] : undefined,
     version: previous?.version ?? 1,
     importProvenance: previous?.importProvenance ? { ...previous.importProvenance } : undefined,
   };

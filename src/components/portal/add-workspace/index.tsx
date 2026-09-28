@@ -67,6 +67,7 @@ export function AddWorkspace({
   overlay,
   headerActions,
   skipOffPath = false,
+  numberedSteps = false,
 }: {
   title: string;
   subtitle?: string;
@@ -119,6 +120,8 @@ export function AddWorkspace({
    * Other doors keep walking every listed step so optional rail rows stay reachable from Continue.
    */
   skipOffPath?: boolean;
+  /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
+  numberedSteps?: boolean;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
@@ -194,7 +197,7 @@ export function AddWorkspace({
             <ModalAssistantStrip contextHint={assistantContext} storageScopeKey={assistantScopeKey} />
           </>
         }
-        rail={<StepRail steps={railSteps} current={current} onJump={onJump} />}
+        rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} />}
         railHeader={
           <>
             {railHeader}

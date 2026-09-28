@@ -574,6 +574,7 @@ export function PropertyLeaseFormModal({
       onFinish={save}
       saveState={saving ? "Saving…" : parsingLease ? "Parsing…" : templateUploading ? "Uploading…" : "Not saved yet"}
       dataAttrPrefix="property-lease"
+      numberedSteps
       finishDataAttr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
       footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
       dangerAction={
