@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import {
@@ -229,6 +229,19 @@ export function AssistantMessageList({
   loading: boolean;
   trailing?: ReactNode;
 }) {
+  // M012 — a one-shot mask-wipe reveal plays over an assistant reply that
+  // arrives after this component's own first paint (never on a thread
+  // freshly loaded from history). `initialCountRef` snapshots the message
+  // count on mount; every index at or past it is "fresh" for this session.
+  // The reveal itself is a plain CSS class (`motion-stream-reveal`,
+  // tokens.css) that autoplays once on the bubble's own DOM insertion and
+  // never replays on a later re-render of the same node — see the class's
+  // own note. The real text node is never retyped: assistive tech reads the
+  // plain final string from the very first frame.
+  const initialCountRef = useRef<number | null>(null);
+  if (initialCountRef.current === null) initialCountRef.current = messages.length;
+  const freshFrom = initialCountRef.current;
+
   return (
     <div className="space-y-3 text-sm">
       {messages.map((m, i) => m.role === "assistant" && !m.content.trim() ? null : (
@@ -242,7 +255,15 @@ export function AssistantMessageList({
             }
             style={m.role === "user" ? { background: "var(--btn-primary)" } : undefined}
           >
-            {m.role === "user" ? m.content : <AssistantMarkdown text={m.content} />}
+            {m.role === "user" ? (
+              m.content
+            ) : i >= freshFrom ? (
+              <span className="motion-stream-reveal">
+                <AssistantMarkdown text={m.content} />
+              </span>
+            ) : (
+              <AssistantMarkdown text={m.content} />
+            )}
           </span>
           {m.role === "assistant" && m.traceId ? (
             <AssistantMessageRating traceId={m.traceId} rating={ratings[m.traceId]} onRate={onRate} />
@@ -250,10 +271,14 @@ export function AssistantMessageList({
         </div>
       ))}
       {loading ? (
-        <div className="flex w-fit items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.2s]" />
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.1s]" />
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
+        <div
+          className="flex w-fit items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted"
+          role="status"
+          aria-live="polite"
+        >
+          <span aria-hidden className="motion-typing-dot h-1.5 w-1.5 rounded-full bg-primary/70" />
+          <span aria-hidden className="motion-typing-dot h-1.5 w-1.5 rounded-full bg-primary/70" />
+          <span aria-hidden className="motion-typing-dot h-1.5 w-1.5 rounded-full bg-primary/70" />
           <span className="text-xs">Thinking…</span>
         </div>
       ) : null}
