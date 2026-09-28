@@ -1,6 +1,7 @@
 "use client";
 
-import { useLayoutEffect } from "react";
+import { useCallback, useRef } from "react";
+import type { Ref, RefCallback } from "react";
 import { prefersReducedMotionNow } from "@/components/ui/motion/use-reduced-motion";
 
 /**
@@ -15,30 +16,35 @@ import { prefersReducedMotionNow } from "@/components/ui/motion/use-reduced-moti
  * tree. This is additive: it changes nothing about Radix's own focus trap,
  * scroll lock, or `aria-hidden` — it only adds `inert` beside it.
  *
+ * Applied from a CALLBACK REF on the modal/drawer content node, not a
+ * `useEffect`/`useLayoutEffect` keyed on `open`: Radix's own `Portal` (which
+ * both `Dialog.Portal` and vaul's `Drawer.Portal` build on) mounts in TWO
+ * commits — it renders nothing on the first pass
+ * (`useState(false)` + `useLayoutEffect(() => setMounted(true), [])`, the
+ * same "wait for the client" shape `useIsClient` uses), then actually calls
+ * `createPortal` once `mounted` flips. An effect on `ModalShell` keyed on
+ * `open` fires once, on the FIRST of those commits, before the content node
+ * exists, and never re-fires for the second commit (its dependency never
+ * changes again). A callback ref on the content node itself sidesteps that
+ * entirely — React calls it exactly when THAT node is actually inserted,
+ * however many portal commits it took to get there.
+ *
  * Ref-counted at module scope (not per-instance state) so a nested modal
  * (`dismissBlocked`, e.g. a holding-fee confirmation opened from inside a
  * bigger modal) doesn't un-inert the page the moment the INNER one closes —
  * only the LAST one closing restores it. Applied once, at the 0→1 edge, by
  * walking `document.body`'s current children and skipping whichever one
- * already hosts an open modal/drawer host node (matched by
- * `[data-slot="modal-radix-dialog"]` / `[data-slot="modal-vaul-drawer"]`,
- * both already stamped by `ModalShell`) — so a modal opened AFTER that never
+ * contains the modal's own content node — so a modal opened AFTER that never
  * gets excluded by accident, and a modal's own field-select dropdowns
  * (portaled to `document.body` after the fact) are simply never touched.
  */
 let openCount = 0;
 let releaseFns: Array<() => void> = [];
 
-const MODAL_HOST_SELECTOR = '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]';
-
-function inertOutsideOpenModals(): () => void {
-  if (typeof document === "undefined") return () => {};
-  const hosts = document.querySelectorAll(MODAL_HOST_SELECTOR);
-  if (!hosts.length) return () => {};
+function applyInert(host: Element): () => void {
   const restores: Array<() => void> = [];
   Array.prototype.forEach.call(document.body.children, (child: Element) => {
-    const hostsAModal = Array.prototype.some.call(hosts, (host: Element) => child.contains(host));
-    if (hostsAModal) return;
+    if (child.contains(host)) return;
     if (child.hasAttribute("inert")) return; // already inert for some other reason — never our job to remove it
     child.setAttribute("inert", "");
     restores.push(() => child.removeAttribute("inert"));
@@ -46,23 +52,50 @@ function inertOutsideOpenModals(): () => void {
   return () => restores.forEach((fn) => fn());
 }
 
-/** Call from `ModalShell` (or any modal/drawer/sheet host) with `active = open && isClient`. */
-export function useInertOutsideModal(active: boolean) {
-  useLayoutEffect(() => {
-    if (!active) return;
-    openCount += 1;
-    if (openCount === 1) {
-      releaseFns.push(inertOutsideOpenModals());
-    }
-    return () => {
-      openCount = Math.max(0, openCount - 1);
-      if (openCount === 0) {
-        releaseFns.forEach((fn) => fn());
-        releaseFns = [];
+function acquire(host: Element) {
+  openCount += 1;
+  if (openCount === 1) releaseFns.push(applyInert(host));
+}
+
+function release() {
+  openCount = Math.max(0, openCount - 1);
+  if (openCount === 0) {
+    releaseFns.forEach((fn) => fn());
+    releaseFns = [];
+  }
+}
+
+function mergeRefs<T>(a: Ref<T> | undefined, b: RefCallback<T>): RefCallback<T> {
+  return (node) => {
+    if (typeof a === "function") a(node);
+    else if (a && "current" in a) (a as { current: T | null }).current = node;
+    b(node);
+  };
+}
+
+/**
+ * Returns a ref to attach to the modal/drawer's own content element
+ * (`Dialog.Content` / `Drawer.Content`) — call ONLY while the caller intends
+ * this instance to participate in the boundary (i.e. render it unconditionally
+ * whenever the modal is open; the ref's mount/unmount IS the acquire/release
+ * signal). `outerRef` is the caller-supplied `contentRef`, if any — merged in,
+ * never replaced.
+ */
+export function useInertOutsideModalRef<T extends Element>(outerRef: Ref<T> | undefined): RefCallback<T> {
+  const acquiredRef = useRef(false);
+  const innerRef = useCallback((node: T | null) => {
+    if (node) {
+      if (!acquiredRef.current) {
+        acquiredRef.current = true;
+        acquire(node);
       }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+    } else if (acquiredRef.current) {
+      acquiredRef.current = false;
+      release();
+    }
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- outerRef identity churn is fine; mergeRefs re-reads it each call
+  return useCallback(mergeRefs(outerRef, innerRef), [outerRef, innerRef]);
 }
 
 /**
