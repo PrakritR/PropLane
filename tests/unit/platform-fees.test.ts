@@ -45,7 +45,9 @@ describe("vendor pay take rate (VENDOR_BANKING_ENABLED)", () => {
   const PREV = process.env.VENDOR_BANKING_ENABLED;
 
   beforeEach(() => {
-    delete process.env.VENDOR_BANKING_ENABLED;
+    // Default ON (captain, 2026-09-28): tests that need the flag OFF must
+    // say so explicitly rather than relying on unset.
+    process.env.VENDOR_BANKING_ENABLED = "0";
   });
 
   afterEach(() => {
@@ -53,11 +55,24 @@ describe("vendor pay take rate (VENDOR_BANKING_ENABLED)", () => {
     else process.env.VENDOR_BANKING_ENABLED = PREV;
   });
 
-  it("is 0 bps / 0 cents / 0% with the flag off — today's behavior, byte-for-byte", () => {
+  it("is 0 bps / 0 cents / 0% with the flag explicitly off ('0') — today's behavior, byte-for-byte", () => {
     expect(vendorPayFeeBps()).toBe(0);
     expect(vendorPayFeeCents(10_000)).toBe(0);
     expect(vendorPayFeeDisplayPercent()).toBe(0);
     expect(vendorInstantWithdrawFeeCents(10_000)).toBe(0);
+  });
+
+  it("is also off for 'false' and 'off'", () => {
+    for (const value of ["false", "off", "FALSE", "OFF"]) {
+      process.env.VENDOR_BANKING_ENABLED = value;
+      expect(vendorPayFeeBps()).toBe(0);
+    }
+  });
+
+  it("is 300 bps (3%) with the flag unset (default ON)", () => {
+    delete process.env.VENDOR_BANKING_ENABLED;
+    expect(vendorPayFeeBps()).toBe(300);
+    expect(vendorPayFeeDisplayPercent()).toBe(3);
   });
 
   it("is 300 bps (3%) once the flag is on", () => {

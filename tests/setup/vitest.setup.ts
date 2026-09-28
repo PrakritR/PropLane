@@ -7,6 +7,17 @@ process.env.FINANCIALS_TIN_ENCRYPTION_KEY ??= "test-only-tin-key-do-not-use-in-p
 process.env.DATA_ENCRYPTION_ACTIVE_KEY_ID ??= "unit-test";
 process.env.DATA_ENCRYPTION_KEYS_JSON ??= JSON.stringify({ "unit-test": Buffer.alloc(32, 7).toString("base64") });
 
+// VENDOR_BANKING_ENABLED and COMMS_CREDIT_POOL_ENABLED default ON in product
+// code (captain, 2026-09-28) — unset now means on, not off. The wide majority
+// of the suite was written against the old "unset = off" behavior and does
+// not care about either flag, so default both explicitly to "0" here to keep
+// that legacy behavior as the test baseline. A suite that specifically
+// exercises the flag stubs it itself (`vi.stubEnv(...)`, including with
+// `undefined` to prove the real default-ON behavior applies when truly
+// unset) and `vi.unstubAllEnvs()` restores this "0" baseline afterward.
+process.env.VENDOR_BANKING_ENABLED ??= "0";
+process.env.COMMS_CREDIT_POOL_ENABLED ??= "0";
+
 vi.mock("server-only", () => ({}));
 
 // Node 24+ ships its own `localStorage` global, which is `undefined` unless the

@@ -228,14 +228,20 @@ Only the staff-owned account override grants PropLane processing coverage. See
 
 ## The messaging-credit pool (S27, `COMMS_CREDIT_POOL_ENABLED`)
 
-An account-level alternative to the per-workspace wallet above, landed additively
-and OFF by default so the schema can reach staging/production ahead of the
-flag. With `COMMS_CREDIT_POOL_ENABLED` unset, every reserve/settle/refund in
-`wallet.server.ts` runs exactly the per-workspace-wallet code this file
-already documents — the pool tables exist but nothing writes to them. Flip it
-to `"1"` and `reserveCommsCredit` / `finishCommsCredit` / `settleCommsCreditQuantity`
-dispatch to the pool instead (`src/lib/comms-billing/pool.server.ts`,
-`supabase/migrations/20260927160148_comms_credit_pool.sql`). Reads that are not
+An account-level alternative to the per-workspace wallet above. **Default ON**
+(captain, 2026-09-28) — `reserveCommsCredit` / `finishCommsCredit` /
+`settleCommsCreditQuantity` dispatch to the pool
+(`src/lib/comms-billing/pool.server.ts`,
+`supabase/migrations/20260927160148_comms_credit_pool.sql`) unless
+`COMMS_CREDIT_POOL_ENABLED` is explicitly set to `0` / `false` / `off` in an
+environment, which falls back to the per-workspace-wallet code this file
+already documents. The promote that shipped this default applies that
+migration before the code deploys, but if some environment's migration still
+lags, `wallet.server.ts`'s three dispatch points catch
+`CommsCreditPoolSchemaMissingError` (thrown by `pool.server.ts` via
+`isMissingPoolSchemaError`) and fall back to the legacy wallet at runtime,
+logging it, rather than failing the send — so a lagging migration degrades a
+send's billing model, never blocks the send. Reads that are not
 on that write path (`loadCommsWallet`, the admin billing list's
 `loadCommsWalletTotals`, and `evaluateManagerCommsBillingGate`'s pre-send
 check in `owner-sms-dispatcher.server.ts`) still read the OLD per-workspace

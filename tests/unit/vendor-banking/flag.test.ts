@@ -13,19 +13,19 @@ describe("vendorBankingEnabled", () => {
     else process.env.VENDOR_BANKING_ENABLED = PREV;
   });
 
-  it("defaults OFF when unset", () => {
-    expect(vendorBankingEnabled()).toBe(false);
+  it("defaults ON when unset (captain, 2026-09-28)", () => {
+    expect(vendorBankingEnabled()).toBe(true);
   });
 
-  it("is off for an empty string, '0', or any other value", () => {
-    for (const value of ["", "0", "no", "false", " 1x"]) {
+  it("is off for '0', 'false', or 'off' (case/whitespace-insensitive)", () => {
+    for (const value of ["0", "false", "off", "FALSE", "OFF", " 0 ", " false ", " off "]) {
       process.env.VENDOR_BANKING_ENABLED = value;
       expect(vendorBankingEnabled()).toBe(false);
     }
   });
 
-  it("is on for '1' or 'true' (case/whitespace-insensitive)", () => {
-    for (const value of ["1", "true", "TRUE", " 1 ", " true "]) {
+  it("is on for '1', 'true', an empty string, or any other value", () => {
+    for (const value of ["1", "true", "TRUE", " 1 ", " true ", "", "no", " 1x"]) {
       process.env.VENDOR_BANKING_ENABLED = value;
       expect(vendorBankingEnabled()).toBe(true);
     }

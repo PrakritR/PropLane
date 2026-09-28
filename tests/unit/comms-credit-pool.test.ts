@@ -28,10 +28,32 @@ import {
   isMissingPoolSchemaError,
 } from "@/lib/comms-billing/pool.server";
 import { reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 
 const OWNER = "owner-uuid";
 const MEMBER = "member-uuid";
 const WORKSPACE = "workspace-uuid";
+
+describe("isCommsCreditPoolEnabled", () => {
+  it("defaults ON when unset (captain, 2026-09-28)", () => {
+    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", undefined);
+    expect(isCommsCreditPoolEnabled()).toBe(true);
+  });
+
+  it("is off for '0', 'false', or 'off' (case/whitespace-insensitive)", () => {
+    for (const value of ["0", "false", "off", "FALSE", "OFF", " 0 "]) {
+      vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", value);
+      expect(isCommsCreditPoolEnabled()).toBe(false);
+    }
+  });
+
+  it("is on for '1', 'true', or any other value", () => {
+    for (const value of ["1", "true", "TRUE", "yes"]) {
+      vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", value);
+      expect(isCommsCreditPoolEnabled()).toBe(true);
+    }
+  });
+});
 
 function fundingDb(rows: { funder_user_id: string; created_at: string }[], ownerId = OWNER) {
   return {
@@ -204,8 +226,8 @@ describe("per-workspace monthly limit", () => {
 });
 
 describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
-  it("flag off: reserveCommsCredit calls the legacy per-workspace RPC unchanged", async () => {
-    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "");
+  it("flag explicitly off ('0'): reserveCommsCredit calls the legacy per-workspace RPC unchanged", async () => {
+    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "0");
     mocks.tier.mockResolvedValue({ ok: true, tier: "pro" });
     const rpc = vi.fn(async (name: string) => {
       if (name === "ensure_default_portal_workspace") return { data: "default-ws", error: null };
@@ -218,6 +240,16 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
       idempotencyKey: "legacy-key",
     });
     expect(rpc).toHaveBeenCalledWith("reserve_comms_credit", expect.objectContaining({ p_key: "legacy-key" }));
+  });
+
+  it("flag unset (default ON, captain 2026-09-28): reserveCommsCredit refuses rather than defaulting when no workspace is named", async () => {
+    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", undefined);
+    const result = await reserveCommsCredit({} as never, {
+      managerUserId: OWNER,
+      meter: "sms_outbound_segment",
+      idempotencyKey: "pool-key-unset",
+    });
+    expect(result).toEqual({ allowed: false, reason: "workspace_unknown" });
   });
 
   it("flag on: reserveCommsCredit refuses rather than defaulting when no workspace is named", async () => {
@@ -235,6 +267,45 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
     const rpc = vi.fn(async () => ({ data: true, error: null }));
     await finishCommsCredit({ rpc } as never, OWNER, "pool-key-2", false);
     expect(rpc).toHaveBeenCalledWith("finish_comms_credit_pool", { p_manager_context: OWNER, p_key: "pool-key-2", p_release: false });
+  });
+
+  it("flag on but the pool schema is not deployed yet: reserveCommsCredit falls back to the legacy wallet instead of throwing", async () => {
+    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
+    mocks.tier.mockResolvedValue({ ok: true, tier: "pro" });
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "reserve_comms_credit_pool") {
+        return { data: null, error: { code: "42P01", message: 'relation "public.comms_account_pools" does not exist' } };
+      }
+      if (name === "ensure_default_portal_workspace") return { data: "default-ws", error: null };
+      return { data: { allowed: true, duplicate: false, state: "reserved" }, error: null };
+    });
+    const db = { ...fundingDb([{ funder_user_id: OWNER, created_at: "2026-01-01" }]), rpc };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await reserveCommsCredit(db as never, {
+      managerUserId: OWNER,
+      workspaceId: WORKSPACE,
+      meter: "sms_outbound_segment",
+      idempotencyKey: "fallback-key",
+    });
+    expect(rpc).toHaveBeenCalledWith("reserve_comms_credit", expect.objectContaining({ p_key: "fallback-key" }));
+    expect(result).toEqual({ allowed: true, duplicate: false, state: "reserved" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("flag on but the pool schema is not deployed yet: a genuine database error still throws (never silently swallowed)", async () => {
+    vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
+    mocks.tier.mockResolvedValue({ ok: true, tier: "pro" });
+    const rpc = vi.fn(async () => ({ data: null, error: { code: "08006", message: "connection failure" } }));
+    const db = { ...fundingDb([{ funder_user_id: OWNER, created_at: "2026-01-01" }]), rpc };
+    await expect(
+      reserveCommsCredit(db as never, {
+        managerUserId: OWNER,
+        workspaceId: WORKSPACE,
+        meter: "sms_outbound_segment",
+        idempotencyKey: "genuine-error-key",
+      }),
+    ).rejects.toThrow("Communication credit could not be reserved.");
   });
 });
 
