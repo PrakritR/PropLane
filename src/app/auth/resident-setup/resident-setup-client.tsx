@@ -242,6 +242,7 @@ function ResidentSetupInner() {
             onChange={(e) => setPassword(e.target.value)}
             disabled={busy}
             autoComplete="new-password"
+            showStrength
           />
         </div>
         <div>

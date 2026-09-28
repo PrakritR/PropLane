@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, type InputHTMLAttributes } from "react";
+import { useId, useState, type InputHTMLAttributes } from "react";
 import { Input } from "@/components/ui/input";
+import { PasswordStrengthMeter } from "@/components/ui/motion/password-strength-meter";
 
-export type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
+export type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  /**
+   * M011 — shows the segment-by-segment strength meter under the field.
+   * Opt-in and scoped to sign-up / reset (create account, resident/vendor/
+   * manager signup, reset-password) — never a plain sign-in or a "confirm
+   * password" field next to the one already showing it.
+   */
+  showStrength?: boolean;
+};
 
 function EyeIcon({ className }: { className?: string }) {
   return (
@@ -35,27 +44,33 @@ function EyeOffIcon({ className }: { className?: string }) {
   );
 }
 
-/** Password field with optional show/hide toggle (eye). */
-export function PasswordInput({ className = "", id, ...props }: PasswordInputProps) {
+/** Password field with optional show/hide toggle (eye), and an opt-in M011 strength meter. */
+export function PasswordInput({ className = "", id, showStrength = false, ...props }: PasswordInputProps) {
   const [visible, setVisible] = useState(false);
+  const meterId = useId();
+  const value = typeof props.value === "string" ? props.value : "";
 
   return (
-    <div className="relative">
-      <Input
-        id={id}
-        type={visible ? "text" : "password"}
-        className={`${className} pr-12`}
-        {...props}
-      />
-      <button
-        type="button"
-        className="absolute right-2.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-muted transition hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-        onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? "Hide password" : "Show password"}
-        aria-pressed={visible}
-      >
-        {visible ? <EyeOffIcon /> : <EyeIcon />}
-      </button>
+    <div>
+      <div className="relative">
+        <Input
+          id={id}
+          type={visible ? "text" : "password"}
+          className={`${className} pr-12`}
+          {...props}
+          aria-describedby={showStrength ? meterId : props["aria-describedby"]}
+        />
+        <button
+          type="button"
+          className="absolute right-2.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-muted transition hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? "Hide password" : "Show password"}
+          aria-pressed={visible}
+        >
+          {visible ? <EyeOffIcon /> : <EyeIcon />}
+        </button>
+      </div>
+      {showStrength ? <PasswordStrengthMeter password={value} id={meterId} /> : null}
     </div>
   );
 }
