@@ -642,9 +642,12 @@ describe("server reviewed application publishing", () => {
       expectedRevision: "2026-09-24T00:00:00Z",
     });
 
-    // P002: Publish moved to the Setup step (now the final step).
+    // F-editor c: no separate in-body Publish button — the footer Save is
+    // the only commit action, and it tries to publish for a single-property
+    // template editor (falling back to a draft save only when the gate
+    // fails; here it should pass and PATCH the publish endpoint).
     jumpRail("setup");
-    fireEvent.click(screen.getByRole("button", { name: "Publish application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
     const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(publishCall?.[1]?.body))).toMatchObject({
@@ -660,6 +663,13 @@ describe("P003: this application's own fee override (Setup step)", () => {
   it("saves feeCentsOverride and waiverCodeOverride onto the template when the override toggle is on", async () => {
     const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
     const persist = vi.fn().mockResolvedValue(true);
+    // F-editor c: the footer Save now also tries to publish (this template's
+    // draft passes the publish gate), which PATCHes the import endpoint —
+    // stub it so that attempt resolves instead of hitting a real network call.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ template: { ...template } }), { status: 200, headers: { "content-type": "application/json" } })),
+    );
     render(
       <ManagerApplicationQuestionsEditorModal
         open
@@ -680,13 +690,14 @@ describe("P003: this application's own fee override (Setup step)", () => {
     jumpRail("setup");
 
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Override the account's application fee for this application" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Charge an application fee" }));
 
     const amountInput = await screen.findByLabelText("Application cost");
     fireEvent.change(amountInput, { target: { value: "35" } });
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "This application's own promo code that waives its fee" }));
-    const codeInput = await screen.findByLabelText("This application's promo code");
+    fireEvent.click(screen.getByRole("switch", { name: "Promo code that waives the fee" }));
+    const codeInput = document.querySelector('[data-attr="application-setup-waiver-code"]') as HTMLInputElement;
+    expect(codeInput).toBeTruthy();
     fireEvent.change(codeInput, { target: { value: "longstay" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -705,6 +716,11 @@ describe("P003: this application's own fee override (Setup step)", () => {
       waiverCodeOverride: "LONGSTAY",
     };
     const persist = vi.fn().mockResolvedValue(true);
+    // F-editor c: same publish-attempt stub as the test above.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ template: { ...template } }), { status: 200, headers: { "content-type": "application/json" } })),
+    );
     render(
       <ManagerApplicationQuestionsEditorModal
         open
@@ -728,7 +744,7 @@ describe("P003: this application's own fee override (Setup step)", () => {
     // Pre-filled from the stored override.
     expect(await screen.findByLabelText("Application cost")).toHaveValue("35");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Override the account's application fee for this application" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Charge an application fee" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
 
