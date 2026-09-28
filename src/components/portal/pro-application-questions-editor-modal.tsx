@@ -1862,23 +1862,33 @@ export function ManagerApplicationQuestionsEditorModal({
                     }
                   />
                 </PanelSection>
-                {applicationTemplate ? (
-                  <PanelSection title="Default">
-                    <ToggleRow
-                      label="Default application for this property"
-                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
-                      dataAttr="application-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
-                          },
-                        })
-                      }
-                    />
-                  </PanelSection>
-                ) : null}
+                {(() => {
+                  // F007: reachable in "add" mode too, not only once the
+                  // template already exists — `applicationTemplateIdForDefault`
+                  // is the real saved id in edit mode, or the pending id this
+                  // new template WILL be created with at the footer commit
+                  // (see `addModeTemplateIdRef` / the `templateEditorMode ===
+                  // "add"` branch of `commitSave`).
+                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+                  if (!applicationTemplateIdForDefault) return null;
+                  return (
+                    <PanelSection title="Default">
+                      <ToggleRow
+                        label="Default application for this property"
+                        checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplateIdForDefault}
+                        dataAttr="application-setup-default-toggle"
+                        onChange={(next) =>
+                          void formSetup.patch({
+                            leasingPipeline: {
+                              ...formSetup.leasingPipeline,
+                              defaultApplicationTemplateId: next ? applicationTemplateIdForDefault : null,
+                            },
+                          })
+                        }
+                      />
+                    </PanelSection>
+                  );
+                })()}
               </div>
             )}
           </StepColumn>

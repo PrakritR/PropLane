@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   createPropertyLeaseTemplate,
+  makePropertyLeaseTemplateId,
   normalizeLeaseTemplateKind,
   templateAppearsToBeExecutedLease,
   updatePropertyLeaseTemplate,
@@ -184,6 +185,13 @@ export function PropertyLeaseFormModal({
   // signing fee (real charge path: `lease-signing-fee-checkout.server.ts`,
   // "each signer pays" per docs/agents/resident-payments.md), default lease.
   const formSetup = usePropertyFormSetupSettings(propertyId);
+  // F007: a brand-new ("add" mode) lease has no id until the footer commit
+  // creates it, but the Setup step's "Default for this property" toggle
+  // needs a stable id to compare/patch against the moment the step is
+  // reachable — generated once per open and reused as the created
+  // template's real id at commit, exactly like the application editor's
+  // `addModeTemplateIdRef`.
+  const addModeLeaseTemplateIdRef = useRef<string | null>(null);
 
   // F013: inline duplicate-name validation — another lease already saved on
   // this property with the same (trimmed, case-insensitive) name.
@@ -277,8 +285,10 @@ export function PropertyLeaseFormModal({
       setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
       setPendingLeaseImport(null);
       setPendingLeaseImportCompareOpen(false);
+      addModeLeaseTemplateIdRef.current = null;
       return;
     }
+    addModeLeaseTemplateIdRef.current = makePropertyLeaseTemplateId();
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
     setKind("long-term");
     setDocumentMode("proplane_long_term");
@@ -511,6 +521,11 @@ export function PropertyLeaseFormModal({
             leaseTemplateDocUrl: leaseFields.leaseTemplateDocUrl,
             leaseTemplateDocName: leaseFields.leaseTemplateDocName,
           }),
+          // F007: reuse the SAME id the Setup step's Default toggle already
+          // read/wrote against before this commit — otherwise a manager who
+          // set the default during "add" would have it point at an id no
+          // template ever ends up with.
+          id: addModeLeaseTemplateIdRef.current ?? makePropertyLeaseTemplateId(),
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
           leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
           linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
@@ -1057,23 +1072,33 @@ export function PropertyLeaseFormModal({
                   }
                 />
               </PanelSection>
-              {mode === "edit" && template ? (
-                <PanelSection title="Default">
-                  <ToggleRow
-                    label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
-                    checked={formSetup.leasingPipeline.defaultLeaseTemplateId === template.id}
-                    dataAttr="lease-setup-default-toggle"
-                    onChange={(next) =>
-                      void formSetup.patch({
-                        leasingPipeline: {
-                          ...formSetup.leasingPipeline,
-                          defaultLeaseTemplateId: next ? template.id : null,
-                        },
-                      })
-                    }
-                  />
-                </PanelSection>
-              ) : null}
+              {(() => {
+                // F007: reachable in "add" mode too — the property's default
+                // lease should be settable before the first Save, not only
+                // once the lease already exists. `thisLeaseId` is the real
+                // saved id in edit mode, or the pending id "add" mode will
+                // create the lease WITH at commit (see the `mode === "add"`
+                // branch of `save` below).
+                const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateIdRef.current;
+                if (!thisLeaseId) return null;
+                return (
+                  <PanelSection title="Default">
+                    <ToggleRow
+                      label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
+                      checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
+                      dataAttr="lease-setup-default-toggle"
+                      onChange={(next) =>
+                        void formSetup.patch({
+                          leasingPipeline: {
+                            ...formSetup.leasingPipeline,
+                            defaultLeaseTemplateId: next ? thisLeaseId : null,
+                          },
+                        })
+                      }
+                    />
+                  </PanelSection>
+                );
+              })()}
             </div>
           )}
         </StepColumn>
