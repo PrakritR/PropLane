@@ -16,7 +16,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Exact original-main filter control
-        run: npx playwright test tests/e2e/manager-filter-dropdown-walkthrough.spec.ts --grep 'Applications filter panel|Leases: filter fields|Payments: filter fields' --global-timeout=900000
+        run: |
+          npx playwright test tests/e2e/manager-filter-dropdown-walkthrough.spec.ts --grep 'Applications filter panel|Leases: filter fields|Payments: filter fields' --global-timeout=900000
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
