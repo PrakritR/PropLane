@@ -1797,7 +1797,19 @@ export async function renderPortalSection(
       redirect(`${def.basePath}/financials/income`);
     }
     const finTab = tabParts[0]!;
-    if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
+    // "payouts" is a detail-only tab id: VD10/VD11 merged the visible Payouts
+    // door into Payments (`income`), so it never appears in `meta.tabs`, but a
+    // payout's own record page (`/financials/payouts/<id>[/<tab>]`, linked
+    // from the merged list and from a paid invoice with a matching
+    // `vendor_payouts` row) must still resolve rather than 404 on a tab the
+    // nav no longer shows.
+    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts"] as const;
+    if (
+      !meta.tabs.some((tab) => tab.id === finTab) &&
+      !(DETAIL_ONLY_FINANCIALS_TABS as readonly string[]).includes(finTab)
+    ) {
+      notFound();
+    }
 
     if (finTab === "invoices" || finTab === "payouts") {
       // A record under this tab: /financials/invoices|payouts/<id>/<tab>

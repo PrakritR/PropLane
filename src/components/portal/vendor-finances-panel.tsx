@@ -339,12 +339,17 @@ function VendorPaymentsTable({
   return (
     <PortalRecordListSurface isEmpty={false} dataAttr="vendor-payments-list">
       {rows.map((row) => {
-        const viewHref =
-          row.kind === "invoice"
+        // A row whose money arrived through vendor banking (a matching
+        // `vendor_payouts` row — invoice_id for an invoice row, work_order_id
+        // for an income row) opens that payment's banking detail page
+        // (breakdown, timeline, Receipt, Refund) instead of the plain
+        // invoice detail — otherwise the vendor never sees Receipt/Refund for
+        // the common invoice-paid case.
+        const viewHref = row.payoutId
+          ? vendorPayoutDetailHref(basePath, row.payoutId)
+          : row.kind === "invoice"
             ? vendorInvoiceDetailHref(basePath, row.invoice!.id)
-            : row.payoutId
-              ? vendorPayoutDetailHref(basePath, row.payoutId)
-              : null;
+            : null;
         const submittedInvoice = row.kind === "invoice" && row.invoice!.status === "submitted" ? row.invoice : null;
         const downloadable = row.statusId === "invoice:paid" || row.statusId === "invoice:approved" || row.statusId === "income:paid";
         const rowMenu = (

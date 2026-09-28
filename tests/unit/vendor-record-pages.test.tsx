@@ -164,6 +164,7 @@ describe("vendor invoice record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/financials/invoices/inv-1");
   });
 
+
   it("the rail has Overview, Lines, Payout, Communication, Documents and the header icons match the registry", async () => {
     render(
       <AppUiProvider>
