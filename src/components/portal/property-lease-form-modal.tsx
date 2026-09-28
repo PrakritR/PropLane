@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
-import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import {
+  FloatingLabelField,
+  MoneyInput,
+  PanelSection,
+  SegmentedControl,
+  StepColumn,
+  StepHeading,
+  ToggleRow,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
@@ -132,8 +140,13 @@ export function PropertyLeaseFormModal({
   const [error, setError] = useState<string | null>(null);
   /** Which applicant lease-term choices route to this lease ("Applies to"). */
   const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
+  // F-editor d/F015: another of this property's lease templates whose form is
+  // the co-signer/guarantor addendum — see `PropertyLeaseTemplate.linkedGuarantorLeaseTemplateId`.
+  const [linkedGuarantorTemplateId, setLinkedGuarantorTemplateId] = useState<string | null>(null);
   const [htmlOverride, setHtmlOverride] = useState("");
   const [templateUploading, setTemplateUploading] = useState(false);
+  /** F013/F002: the file name shown on the Sections step's dashed "Start from a file" card while reading. */
+  const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [parsingLease, setParsingLease] = useState(false);
   const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
   const [importSourceReviewed, setImportSourceReviewed] = useState(false);
@@ -153,6 +166,17 @@ export function PropertyLeaseFormModal({
   // signing fee (real charge path: `lease-signing-fee-checkout.server.ts`,
   // "each signer pays" per docs/agents/resident-payments.md), default lease.
   const formSetup = usePropertyFormSetupSettings(propertyId);
+
+  // F013: inline duplicate-name validation — another lease already saved on
+  // this property with the same (trimmed, case-insensitive) name.
+  const duplicateLeaseNameError = useMemo(() => {
+    const trimmed = label.trim().toLowerCase();
+    if (!trimmed || !templates) return null;
+    const clashes = templates.some(
+      (candidate) => candidate.id !== template?.id && candidate.label.trim().toLowerCase() === trimmed,
+    );
+    return clashes ? `A lease named "${label.trim()}" already exists on this property.` : null;
+  }, [label, templates, template?.id]);
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -232,6 +256,7 @@ export function PropertyLeaseFormModal({
       } : null);
       setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
       setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
+      setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
       return;
     }
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
@@ -243,6 +268,7 @@ export function PropertyLeaseFormModal({
     setImportSource(null);
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
+    setLinkedGuarantorTemplateId(null);
   }, [open, mode, template]);
 
   useEffect(() => {
@@ -332,6 +358,10 @@ export function PropertyLeaseFormModal({
   };
 
   const commitSave = async () => {
+    if (duplicateLeaseNameError) {
+      setError(duplicateLeaseNameError);
+      return;
+    }
     const validationError = validateLeaseDraft(draft, documentMode);
     if (validationError) {
       setError(validationError);
@@ -395,6 +425,7 @@ export function PropertyLeaseFormModal({
           }),
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
           leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
+          linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
         };
         const next = [...(templates ?? []), created];
         if (!(await Promise.resolve(onSave(next)))) return;
@@ -419,6 +450,7 @@ export function PropertyLeaseFormModal({
         label: trimmedLabel,
         kind,
         applicationLeaseTerms,
+        linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
         ...leaseFields,
       });
       if (!(await Promise.resolve(onSave(next)))) return;
@@ -488,7 +520,7 @@ export function PropertyLeaseFormModal({
   const workspaceSteps: AddWorkspaceStep[] = [
     {
       id: "name",
-      label: mode === "edit" ? "Name & applies to" : "Name",
+      label: "Sections",
       incomplete: !label.trim() || (mode === "edit" && applicationLeaseTerms.length === 0),
       summary: label.trim() || "Name this lease",
     },
@@ -545,12 +577,13 @@ export function PropertyLeaseFormModal({
       assistantScopeKey="Lease modal"
       sidePanel={htmlPreview}
       lastLabel="Save"
-      lastDisabled={templateUploading || parsingLease || saving}
+      lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError)}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
           setError("Enter a name for this lease.");
           return false;
         }
+        if (stepId === "name" && duplicateLeaseNameError) return false;
         if (stepId === "name" && mode === "edit" && applicationLeaseTerms.length === 0) {
           setError("A lease must apply to at least one lease type.");
           return false;
@@ -592,55 +625,47 @@ export function PropertyLeaseFormModal({
     >
       {stepId === "name" ? (
         <StepColumn>
-          <StepHeading title={mode === "edit" ? "Name & applies to" : "Name"} />
-          <label className={WIZARD_LABEL_CLASS} htmlFor="property-lease-name">
-            Lease document name
-          </label>
-          <Input
-            id="property-lease-name"
-            value={label}
-            onChange={(e) => {
-              setError(null);
-              setLabel(e.target.value);
-            }}
-            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-            data-attr="property-lease-name"
-          />
-          {/* P012 (captain 2026-09-27): "have upload application and lease in
-              first tab." A quick-pick lands the file straight from Name —
-              full document-mode choices still live on the Document step. */}
+          <StepHeading title="Sections" />
+          {/* F002/F013: the same dashed drop-zone card the listing wizard and
+              the application editor use for "Start from a file". A quick-pick
+              lands the file straight from this first step — full document-mode
+              choices still live on the Form (document) step. */}
           {mode === "add" || !draft.leaseTemplateDocUrl ? (
-            <div className="mt-3">
-              <input
-                id="property-lease-name-step-upload"
-                type="file"
-                accept="application/pdf"
-                className="sr-only"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  if (!file) return;
-                  if (documentMode !== "upload") handleDocumentModeChange("upload");
-                  if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
-                  onPickLeaseTemplateDoc(file);
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                disabled={templateUploading || parsingLease}
-                data-attr="property-lease-name-upload"
-                onClick={() => document.getElementById("property-lease-name-step-upload")?.click()}
-              >
-                {templateUploading || parsingLease ? "Reading…" : "Start from a file"}
-              </Button>
-            </div>
+            <ImportFileStrip
+              dataAttr="property-lease-name-upload"
+              chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
+              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              busy={templateUploading || parsingLease}
+              state={
+                templateUploading || parsingLease
+                  ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
+                  : { kind: "blank" }
+              }
+              onPickFile={(file) => {
+                setSectionsUploadFileName(file.name);
+                if (documentMode !== "upload") handleDocumentModeChange("upload");
+                if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+                onPickLeaseTemplateDoc(file);
+              }}
+              onReread={() => {}}
+            />
           ) : (
-            <p className="mt-2 text-xs text-muted" data-attr="property-lease-name-uploaded">
+            <p className="mb-3 text-xs text-muted" data-attr="property-lease-name-uploaded">
               Using {draft.leaseTemplateDocName || "your uploaded lease"}.
             </p>
           )}
+          <FloatingLabelField
+            id="property-lease-name"
+            label="Lease document name"
+            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+            value={label}
+            error={error && !label.trim() ? error : duplicateLeaseNameError}
+            dataAttr="property-lease-name"
+            onChange={(next) => {
+              setError(null);
+              setLabel(next);
+            }}
+          />
           {mode === "edit" ? (
             <fieldset className="mt-4 space-y-2">
               <legend className={WIZARD_LABEL_CLASS}>Applies to</legend>
@@ -818,10 +843,11 @@ export function PropertyLeaseFormModal({
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
-            <div className="space-y-5">
-              <div>
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Payment</p>
-                <CheckboxOption
+            <div>
+              {/* F014: ONE lease fee — toggle + amount, no separate segmented
+                  None/Custom control. */}
+              <PanelSection title="Lease fee">
+                <ToggleRow
                   label="Charge a lease fee"
                   checked={(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0}
                   dataAttr="lease-setup-fee-toggle"
@@ -851,36 +877,45 @@ export function PropertyLeaseFormModal({
                     />
                   </div>
                 ) : null}
-                <p className="mt-1.5 text-xs text-muted">
-                  Charged at signing — each signer pays. This is this property&apos;s one lease signing fee, shared by every
-                  lease type on it.
-                </p>
-              </div>
-              <div>
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
+              </PanelSection>
+              {/* F015: another of this property's OWN lease templates — never itself. */}
+              <PanelSection title="Linked co-signer / guarantor addendum">
                 <FieldSingleSelect
-                  label="Pipeline order"
+                  label="A co-signer or guarantor signs"
                   labelClassName={WIZARD_LABEL_CLASS}
-                  value={formSetup.leasingPipeline.pipelineOrder}
-                  dataAttr="lease-setup-pipeline-order"
+                  value={linkedGuarantorTemplateId ?? "__none__"}
+                  dataAttr="lease-setup-linked-guarantor"
                   options={[
-                    { value: "application_then_lease", label: "Application first → then lease" },
-                    { value: "lease_then_application", label: "Lease first → then application" },
+                    { value: "__none__", label: "None" },
+                    ...(templates ?? [])
+                      .filter((candidate) => candidate.id !== template?.id)
+                      .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                  ]}
+                  onChange={(next) => {
+                    setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
+                    setError(null);
+                  }}
+                />
+              </PanelSection>
+              <PanelSection title="Pipeline order">
+                <SegmentedControl
+                  ariaLabel="Pipeline order"
+                  value={formSetup.leasingPipeline.pipelineOrder}
+                  dataAttrPrefix="lease-setup-pipeline-order"
+                  options={[
+                    { value: "application_then_lease", label: "Application first" },
+                    { value: "lease_then_application", label: "Lease first" },
                   ]}
                   onChange={(next) =>
                     void formSetup.patch({
-                      leasingPipeline: {
-                        ...formSetup.leasingPipeline,
-                        pipelineOrder: next as "application_then_lease" | "lease_then_application",
-                      },
+                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
                     })
                   }
                 />
-              </div>
+              </PanelSection>
               {mode === "edit" && template ? (
-                <div>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
-                  <CheckboxOption
+                <PanelSection title="Default">
+                  <ToggleRow
                     label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
                     checked={formSetup.leasingPipeline.defaultLeaseTemplateId === template.id}
                     dataAttr="lease-setup-default-toggle"
@@ -893,7 +928,7 @@ export function PropertyLeaseFormModal({
                       })
                     }
                   />
-                </div>
+                </PanelSection>
               ) : null}
             </div>
           )}
