@@ -28,6 +28,7 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
+import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
 import { filterListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
@@ -165,11 +166,20 @@ function PriceCard({
 }) {
   const estimated = rich.estimatedMonthlyTotalLabel?.trim() ? formatMoneyInLabel(rich.estimatedMonthlyTotalLabel.trim()) : undefined;
   const from = listingFromPrice(rich);
+  const leaseFirst = property.signingOrder === "lease_first";
+  const breakdownLines = rich.pricingBreakdown ?? [];
+  // A listing that still charges an application fee up front keeps today's row
+  // even when lease-first (the manager collects both); only a lease-first
+  // listing with NO up-front application fee gets the due-at-signing line in
+  // its place — never client math, `leaseSigningFeeCents` is the server's
+  // resolved amount (`effectiveLeaseSigningFeeCents`).
+  const hasUpfrontApplicationFee = breakdownLines.some((line) => line.label === "Application fee");
+  const showDueAtSigning = leaseFirst && !hasUpfrontApplicationFee;
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
       <p className="text-xs font-semibold text-muted">Base rent from</p>
       <p className="mt-0.5 text-3xl font-bold tracking-tight text-foreground tabular-nums">{from}</p>
-      {estimated || (rich.pricingBreakdown?.length ?? 0) > 0 ? (
+      {estimated || breakdownLines.length > 0 || showDueAtSigning ? (
         <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
           {estimated ? (
             <div className="flex items-baseline justify-between gap-3 py-2">
@@ -177,12 +187,18 @@ function PriceCard({
               <dd className="font-bold tabular-nums text-foreground">{estimated}</dd>
             </div>
           ) : null}
-          {rich.pricingBreakdown?.map((line) => (
+          {breakdownLines.map((line) => (
             <div key={line.label} className="flex items-baseline justify-between gap-3 py-2">
               <dt className="text-muted">{line.label}</dt>
               <dd className="font-bold tabular-nums text-foreground">{formatMoneyInLabel(line.value)}</dd>
             </div>
           ))}
+          {showDueAtSigning ? (
+            <div className="flex items-baseline justify-between gap-3 py-2" data-attr="listing-price-due-at-signing">
+              <dt className="text-muted">Due at signing</dt>
+              <dd className="font-bold tabular-nums text-foreground">{formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0)}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : null}
       <div className="mt-4 space-y-2.5">
@@ -190,7 +206,7 @@ function PriceCard({
           Schedule tour
         </ProspectListingCta>
         <ProspectListingCta action="apply" propertyId={property.id} data-attr="listing-web-apply" className={secondaryCtaClass} newTab={newTab}>
-          Apply
+          {leaseFirst ? "Sign lease" : "Apply"}
         </ProspectListingCta>
         <ListingContactCard property={property} />
       </div>
@@ -223,6 +239,7 @@ function StickyBar({
   newTab: boolean;
 }) {
   const from = listingFromPrice(rich);
+  const leaseFirst = property.signingOrder === "lease_first";
   const doors = listingContactRows(property);
   const doorClass =
     "inline-flex min-h-[38px] min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
@@ -271,7 +288,7 @@ function StickyBar({
           className={`${secondaryCtaClass} !min-h-[44px] !py-2.5`}
           newTab={newTab}
         >
-          Apply
+          {leaseFirst ? "Sign lease" : "Apply"}
         </ProspectListingCta>
         <ProspectListingCta
           action="tour"
@@ -469,6 +486,7 @@ export function ListingDetailSections({
                       listingPropertyId={property.id}
                       propertyLabel={propertyLabel}
                       contactSmsPhone={property.contactSmsPhone}
+                      signingOrder={property.signingOrder}
                     />
                   </ListingDetailCollapsibleSection>
 
@@ -484,6 +502,7 @@ export function ListingDetailSections({
                         listingPropertyId={property.id}
                         propertyLabel={propertyLabel}
                         contactSmsPhone={property.contactSmsPhone}
+                        signingOrder={property.signingOrder}
                         showTermSections={Boolean(rich.shortTermRentalsAllowed)}
                       />
                     ) : (
@@ -530,6 +549,7 @@ export function ListingDetailSections({
                         listingPropertyId={property.id}
                         propertyLabel={propertyLabel}
                         contactSmsPhone={property.contactSmsPhone}
+                        signingOrder={property.signingOrder}
                       />
                     ) : null}
                     {rich.bundlesText?.trim() ? (
