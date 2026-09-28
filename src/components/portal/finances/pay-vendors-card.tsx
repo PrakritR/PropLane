@@ -38,11 +38,23 @@ function formatMoney(cents: number): string {
  * `vendor_invoices` row paid, so routing a shortfall there would desync the
  * two — the brief's "don't invent a payment rail" applies here instead).
  *
- * Rendered only by the caller once `WORKSPACE_CONNECT_ENABLED` AND the
- * PropLane balance itself are both on (the same `balanceEligible` gate the
- * rest of this closed-loop section already uses).
+ * Rendered by the caller once EITHER `WORKSPACE_CONNECT_ENABLED` + the
+ * PropLane balance are both on (`balanceEligible`) OR `VENDOR_BANKING_ENABLED`
+ * is on — the manager needs an in-app way to pay an approved vendor invoice
+ * under either feature. `balancePayEnabled` (default true, matching every
+ * existing caller) governs only the balance-funded actions — the per-row
+ * "Pay from balance" button, its shortfall message, and the bulk "Pay all
+ * approved" — so a vendor-banking-only manager (balance/connect flags off)
+ * still sees every approved invoice with its "Pay" (embedded Stripe
+ * checkout) action, never a balance action it cannot actually use.
  */
-export function PayVendorsCard({ availableCents }: { availableCents: number }) {
+export function PayVendorsCard({
+  availableCents,
+  balancePayEnabled = true,
+}: {
+  availableCents: number;
+  balancePayEnabled?: boolean;
+}) {
   const { showToast } = useAppUi();
   const [invoices, setInvoices] = useState<PayVendorsInvoiceRow[] | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -201,7 +213,7 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
-                    {shortfall > 0 ? (
+                    {!balancePayEnabled ? null : shortfall > 0 ? (
                       <span className="text-right text-[12px] font-medium text-[var(--status-overdue-fg)]" data-attr="finances-pay-vendors-shortfall">
                         Balance short {formatMoney(shortfall)}
                       </span>
@@ -240,7 +252,7 @@ export function PayVendorsCard({ availableCents }: { availableCents: number }) {
               );
             })}
           </ul>
-          {invoices.length > 1 ? (
+          {balancePayEnabled && invoices.length > 1 ? (
             <div className="px-4 py-3">
               <Button
                 type="button"

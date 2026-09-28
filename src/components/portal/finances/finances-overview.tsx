@@ -337,15 +337,30 @@ export function ManagerFinancesOverview({
   // which approved invoices a bulk pay can clear — read once here, alongside
   // the existing eligibility read, rather than a second fetch in that card.
   const [availableBalanceCents, setAvailableBalanceCents] = useState(0);
+  // VENDOR_BANKING_ENABLED (read server-side by the API route, never from
+  // `process.env` here) — gives the manager an in-app "Pay" action on an
+  // approved vendor invoice even when the balance/connect flags above are
+  // off. Independent of `balanceEligible`; see the "Pay vendors" card below.
+  const [vendorBankingOn, setVendorBankingOn] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/portal/proplane-balance", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { enabled?: boolean; workspaceConnectEnabled?: boolean; availableCents?: number } | null) => {
-        if (cancelled) return;
-        setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
-        setAvailableBalanceCents(data?.availableCents ?? 0);
-      })
+      .then(
+        (
+          data: {
+            enabled?: boolean;
+            workspaceConnectEnabled?: boolean;
+            availableCents?: number;
+            vendorBankingEnabled?: boolean;
+          } | null,
+        ) => {
+          if (cancelled) return;
+          setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
+          setAvailableBalanceCents(data?.availableCents ?? 0);
+          setVendorBankingOn(Boolean(data?.vendorBankingEnabled));
+        },
+      )
       .catch(() => undefined);
     return () => {
       cancelled = true;
@@ -568,7 +583,7 @@ export function ManagerFinancesOverview({
         />
       </div>
 
-      {balanceEligible ? (
+      {balanceEligible || vendorBankingOn ? (
         // C255: Pay vendors and Plan & credit are the two balance-SPENDING
         // actions the redesign wants to encourage; Withdraw is real (it opens
         // the same balance/withdraw modal used elsewhere) but deliberately
@@ -581,24 +596,33 @@ export function ManagerFinancesOverview({
         // (`PayVendorsCard`) — full width, since a list needs the room a
         // same-weight link card didn't; "Plan & credit" keeps its own smaller
         // card beside Withdraw below.
+        //
+        // VENDOR_BANKING_ENABLED alone (balance/connect flags off) still
+        // mounts this card — the manager otherwise has no in-app way to pay
+        // an approved vendor invoice — but `balancePayEnabled` keeps its
+        // balance-funded actions off, and "Plan & credit"/Withdraw stay
+        // balance-only, so a vendor-banking-only manager sees only what it
+        // can actually use.
         <div className="flex flex-col gap-3" data-attr="finances-balance-actions">
-          <PayVendorsCard availableCents={availableBalanceCents} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Link
-              href="/portal/profile?tab=billing"
-              className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
-              data-attr="finances-balance-action-plan-credit"
-            >
-              <span className="text-sm font-semibold text-foreground">Plan &amp; credit</span>
-              <ArrowRight className="size-4 text-muted" aria-hidden />
-            </Link>
-            <div
-              className="rounded-xl bg-accent/20 px-4 py-2.5"
-              data-attr="finances-balance-action-withdraw"
-            >
-              <ProplaneBalanceCard portal="manager" variant="subordinate" />
+          <PayVendorsCard availableCents={availableBalanceCents} balancePayEnabled={balanceEligible} />
+          {balanceEligible ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/portal/profile?tab=billing"
+                className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
+                data-attr="finances-balance-action-plan-credit"
+              >
+                <span className="text-sm font-semibold text-foreground">Plan &amp; credit</span>
+                <ArrowRight className="size-4 text-muted" aria-hidden />
+              </Link>
+              <div
+                className="rounded-xl bg-accent/20 px-4 py-2.5"
+                data-attr="finances-balance-action-withdraw"
+              >
+                <ProplaneBalanceCard portal="manager" variant="subordinate" />
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       ) : null}
 

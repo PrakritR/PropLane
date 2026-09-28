@@ -25,7 +25,7 @@ vi.mock("@/lib/manager-outgoing-payments", async (importOriginal) => ({
 
 import { ManagerFinancesOverview } from "@/components/portal/finances/finances-overview";
 
-function mockFetch(eligible: boolean) {
+function mockFetch(eligible: boolean, vendorBankingEnabled = false) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -37,6 +37,7 @@ function mockFetch(eligible: boolean) {
           availableCents: 12_300,
           pendingCents: 0,
           currency: "usd",
+          vendorBankingEnabled,
         });
       }
       if (url.startsWith("/api/manager/vendor-invoices")) {
@@ -101,5 +102,39 @@ describe("Finances overview — balance actions (C255)", () => {
     expect(document.querySelector('[data-attr="proplane-balance-card"]')).toBeNull();
     expect(withdrawWrap?.className).not.toContain("shadow-sm");
     expect(withdrawWrap?.className).not.toContain("border-border");
+  });
+
+  // Bug fix: with only VENDOR_BANKING_ENABLED on (balance/connect flags off),
+  // the manager had no in-app path to pay an approved vendor invoice —
+  // PayVendorsCard mounted only under `balanceEligible`. It must now mount
+  // for vendor banking alone, but without the balance-funded actions
+  // ("Pay from balance" / "Pay all approved") or the Plan & credit / Withdraw
+  // row, since those still depend on their own flags.
+  it("mounts Pay vendors on VENDOR_BANKING_ENABLED alone, without any balance-funded action or Plan & credit / Withdraw", async () => {
+    mockFetch(false, true);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
+    expect(document.querySelector('[data-attr="finances-pay-vendors-card"]')).toBeTruthy();
+    expect(screen.queryByText("Plan & credit")).toBeNull();
+    expect(document.querySelector('[data-attr="finances-balance-action-withdraw"]')).toBeNull();
+  });
+
+  it("still stays fully dark when neither the balance nor vendor banking flag is on", async () => {
+    mockFetch(false, false);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Net operating income")).toBeTruthy());
+    expect(screen.queryByText("Pay vendors")).toBeNull();
+    expect(document.querySelector('[data-attr="finances-balance-actions"]')).toBeNull();
+  });
+
+  it("keeps every balance-funded action when both the balance and vendor banking flags are on", async () => {
+    mockFetch(true, true);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
+    expect(screen.getByText("Plan & credit")).toBeTruthy();
+    expect(document.querySelector('[data-attr="finances-balance-action-withdraw"]')).toBeTruthy();
   });
 });

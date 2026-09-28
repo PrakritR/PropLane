@@ -147,4 +147,26 @@ describe("PayVendorsCard (C260 / C106)", () => {
     // never the too-big one, and never a batch call.
     expect(paidIds).toEqual(["fits"]);
   });
+
+  // Bug fix: VENDOR_BANKING_ENABLED alone (balance/connect flags off) still
+  // mounts this card so the manager can pay in-app, but the balance-funded
+  // actions must stay off — the manager cannot actually use them.
+  it("with balancePayEnabled=false, hides Pay from balance / its shortfall / Pay all approved, keeping only the in-app Pay action", async () => {
+    mockFetch(
+      [
+        { id: "inv-a", vendorName: "Vendor A", invoiceNumber: null, totalCents: 1_000 },
+        { id: "inv-b", vendorName: "Vendor B", invoiceNumber: null, totalCents: 999_999 },
+      ],
+      {},
+    );
+    render(<PayVendorsCard availableCents={0} balancePayEnabled={false} />);
+    await waitFor(() => expect(screen.getByText("Vendor A")).toBeTruthy());
+
+    expect(screen.queryByText("Pay from balance")).toBeNull();
+    expect(document.querySelector('[data-attr="finances-pay-vendors-shortfall"]')).toBeNull();
+    expect(document.querySelector('[data-attr="finances-pay-vendors-pay-all"]')).toBeNull();
+    // The in-app "Pay" action (VendorInvoiceManagerPaySheet) stays available
+    // for every row regardless.
+    expect(screen.getAllByText("Pay").length).toBe(2);
+  });
 });
