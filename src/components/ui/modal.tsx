@@ -1,12 +1,13 @@
 "use client";
 
 import type { ComponentType, CSSProperties, ReactNode, Ref } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Drawer } from "vaul";
 import { X } from "lucide-react";
 import { useIsClient } from "@/hooks/use-is-client";
 import { lockPortalScroll } from "@/lib/native/lock-portal-scroll";
+import { animateModalExitClone, useInertOutsideModalRef } from "@/components/ui/motion/inert-boundary";
 import {
   MODAL_FULL_PAGE_CENTER_CLASS,
   MODAL_FULL_PAGE_PANEL_CLASS,
@@ -148,6 +149,13 @@ export function ModalShell({
     return lockPortalScroll();
   }, [open, lockScroll]);
 
+  // M007 — real DOM `inert` on everything outside this modal/drawer while
+  // it's open, additive to Radix's own aria-hidden/focus-trap/scroll-lock.
+  // A ref (not an effect) so it tracks the content node's OWN mount timing,
+  // not `open`'s — see inert-boundary.ts's doc comment for why that matters
+  // (Radix's Portal mounts in two commits).
+  const inertRef = useInertOutsideModalRef<HTMLDivElement>(contentRef);
+
   if (!open || !isClient) return null;
 
   const handleOpenChange = (next: boolean) => {
@@ -205,7 +213,7 @@ export function ModalShell({
             />
           ) : null}
         <Drawer.Content
-          ref={contentRef}
+          ref={inertRef}
           data-slot="modal-vaul-drawer"
           style={panelStyle}
           className={cn(PORTAL_MOBILE_DRAWER_SHELL_CLASS, panelClassName, PORTAL_MOBILE_DRAWER_EDGE_CLASS)}
@@ -238,10 +246,15 @@ export function ModalShell({
           ) : null}
           <div className={centerClass}>
             <Dialog.Content
-              ref={contentRef}
+              ref={inertRef}
               data-slot="modal-radix-dialog"
               style={panelStyle}
-              className={panelClassName}
+              // M007 — the panel itself had no entrance animation at all
+              // (only the overlay did); the exit half is the detached-clone
+              // technique in `handleClose` (`Modal`, above `ModalShell`),
+              // since Dialog.Content unmounts before Radix's own
+              // `data-[state=closed]` exit classes ever get a chance to play.
+              className={cn(panelClassName, "motion-modal-panel-in")}
               onPointerDownOutside={blockDismissInteraction}
               onInteractOutside={blockDismissInteraction}
               onEscapeKeyDown={blockEscapeKeyDown}
@@ -546,6 +559,19 @@ export function Modal({
     panelClassName,
   );
 
+  // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment
+  // for why a plain `data-[state=closed]:animate-out` class never plays:
+  // `ModalShell` unmounts `<Dialog.Root>`/`<Drawer.Root>` in the SAME commit
+  // `open` flips false, before Radix's Presence can stage an exit). Scoped to
+  // the plain drawer/dialog branches below — the side-by-side assistant
+  // workspace panel has its own detach/close choreography already and is
+  // left untouched for this pass.
+  const contentNodeRef = useRef<HTMLDivElement | null>(null);
+  const handleClose = useCallback(() => {
+    animateModalExitClone(contentNodeRef.current, presentation === "drawer" ? "drawer" : "dialog");
+    onClose();
+  }, [onClose, presentation]);
+
   const panelInnerProps = {
     title,
     status,
@@ -657,7 +683,8 @@ export function Modal({
     return (
       <ModalShell
         open={open}
-        onClose={onClose}
+        onClose={handleClose}
+        contentRef={contentNodeRef}
         presentation="drawer"
         dismissBlocked={dismissBlocked}
         showDrawerHandle={!useFullViewport}
@@ -677,6 +704,7 @@ export function Modal({
       >
         <ModalPanelInner
           {...panelInnerProps}
+          onClose={handleClose}
           TitlePrimitive={Drawer.Title}
           DescriptionPrimitive={Drawer.Description}
           ClosePrimitive={Drawer.Close}
@@ -688,7 +716,8 @@ export function Modal({
   return (
     <ModalShell
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
+      contentRef={contentNodeRef}
       presentation="dialog"
       dismissBlocked={dismissBlocked}
       stackClassName={fullPage ? MODAL_FULL_PAGE_STACK_CLASS : stackClassName}
@@ -703,6 +732,7 @@ export function Modal({
     >
       <ModalPanelInner
         {...panelInnerProps}
+        onClose={handleClose}
         TitlePrimitive={Dialog.Title}
         DescriptionPrimitive={Dialog.Description}
         ClosePrimitive={Dialog.Close}

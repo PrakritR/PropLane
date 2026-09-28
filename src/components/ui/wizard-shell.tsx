@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export type WizardStep = {
   id: string;
@@ -19,6 +20,19 @@ export function WizardShell({
   footer?: ReactNode;
 }) {
   const progress = steps.length > 1 ? ((currentStepIndex + 1) / steps.length) * 100 : 100;
+  // M006 — "the same transition is never used for both directions"
+  // (interior.dev Wizard Steps). Derives forward/back from the change in
+  // `currentStepIndex` between renders using the recognized
+  // getDerivedStateFromProps-via-render pattern (an idempotent, bounded
+  // `setState` call during render, not an effect) so the very render that
+  // shows the new step already carries the right direction class — no extra
+  // frame, no flash of the wrong transition.
+  const [prevStepIndex, setPrevStepIndex] = useState(currentStepIndex);
+  const [stepDirection, setStepDirection] = useState<"fwd" | "back" | null>(null);
+  if (currentStepIndex !== prevStepIndex) {
+    setStepDirection(currentStepIndex > prevStepIndex ? "fwd" : "back");
+    setPrevStepIndex(currentStepIndex);
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row">
@@ -70,7 +84,16 @@ export function WizardShell({
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
+        <div
+          key={currentStepIndex}
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto p-4 sm:p-6",
+            stepDirection === "fwd" && "motion-wiz-dir-fwd",
+            stepDirection === "back" && "motion-wiz-dir-back",
+          )}
+        >
+          {children}
+        </div>
 
         {/* Footer dots + actions */}
         <div className="flex shrink-0 items-center justify-between border-t border-border px-4 py-3 sm:px-6">

@@ -1,0 +1,263 @@
+/*
+ * Shared motion tokens (M001) — durations/easings ported verbatim from
+ * interior.dev's own source (registry.json + component files), the same
+ * numbers documented in ~/proplane-mock-kit/review-0927/interior-dev-research.md
+ * §2/§4 and already proven in the approved studio drawing
+ * (~/proplane-mock-kit/proto/motion-0927.css). CSS cannot express a literal
+ * spring, so every "spring" token below is the cubic-bezier closest to it in
+ * feel; the two literal eases (EASE_IN/EASE_OUT) are interior.dev's own,
+ * unchanged.
+ *
+ * Every consumer reads these through Tailwind's CSS-variable arbitrary-value
+ * syntax, e.g. `duration-(--motion-base) ease-(--motion-crossfade)`, so no
+ * `@theme` registration is required. `prefers-reduced-motion: reduce`
+ * collapses every duration to 0 in one place — the policy from the research
+ * (skip the TRIP, never the state change) never needs re-deriving per file.
+ */
+
+:root {
+  --motion-ease-in: cubic-bezier(0.23, 1, 0.32, 1); /* interior.dev EASE_IN — decelerating arrive */
+  --motion-ease-out: cubic-bezier(0.4, 0, 1, 1); /* interior.dev EASE_OUT — accelerating leave */
+  --motion-cell: cubic-bezier(0.34, 1.4, 0.64, 1); /* SPRING_CELL 520/34/.45 — snappy per-glyph */
+  --motion-crossfade: cubic-bezier(0.22, 1, 0.36, 1); /* SPRING_CROSSFADE 260/34/.8 — content swap */
+  --motion-nudge: cubic-bezier(0.3, 1.6, 0.7, 1); /* SPRING_NUDGE 700/46/.5 — micro-nudge */
+  --motion-fill: cubic-bezier(0.16, 0.8, 0.3, 1); /* SPRING_FILL 210/34/.9 — value catch-up */
+  --motion-disclose: cubic-bezier(0.16, 1, 0.3, 1); /* DISCLOSE family — panels opening */
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --motion-panel: 300ms;
+  --motion-modal-in: 200ms; /* Modal: entrance/exit are asymmetric — 0.2s in / 0.15s out */
+  --motion-modal-out: 150ms;
+  --motion-wiz-in: 220ms;
+  --motion-wiz-out: 160ms;
+}
+
+/*
+ * The one collapse point: every duration above becomes 0 — the state change
+ * (save completed, panel opened, sort applied, value updated) still always
+ * happens, only the trip is skipped. Consumers should prefer reading
+ * `useReducedMotion()` in JS when they need a boolean (RAF loops, timeouts),
+ * and this class + media query for pure-CSS transitions/animations.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+    --motion-panel: 0ms;
+    --motion-modal-in: 0ms;
+    --motion-modal-out: 0ms;
+    --motion-wiz-in: 0ms;
+    --motion-wiz-out: 0ms;
+  }
+}
+
+/* ============== M006 — wizard step forward/back direction ============== */
+@keyframes motion-wiz-in-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes motion-wiz-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-wiz-dir-fwd {
+  animation: motion-wiz-in-fwd var(--motion-panel) var(--motion-crossfade);
+}
+.motion-wiz-dir-back {
+  animation: motion-wiz-in-back var(--motion-panel) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-wiz-dir-fwd,
+  .motion-wiz-dir-back {
+    animation: none;
+  }
+}
+
+/* ============== M004 — skeleton -> content crossfade ============== */
+@keyframes motion-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-just-loaded {
+  animation: motion-content-in var(--motion-slow) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-just-loaded {
+    animation: none;
+  }
+}
+
+/* ============== M014 — value flash on live count pills ============== */
+@keyframes motion-value-flash {
+  0% {
+    background: color-mix(in srgb, var(--pl-blue) 16%, transparent);
+    color: var(--pl-blue-deep, var(--pl-blue));
+    transform: scale(1.12);
+  }
+  40% {
+    background: color-mix(in srgb, var(--pl-blue) 16%, transparent);
+    color: var(--pl-blue-deep, var(--pl-blue));
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.motion-value-flash {
+  animation: motion-value-flash 0.9s var(--motion-fill);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-value-flash {
+    animation: none;
+  }
+}
+
+/* ============== M007 — modal exit clone (see inert-boundary.ts) ============== */
+@keyframes motion-modal-exit-panel {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}
+@keyframes motion-modal-exit-drawer {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0.4;
+    transform: translateX(24px);
+  }
+}
+.motion-modal-exit-panel-clone {
+  animation: motion-modal-exit-panel var(--motion-modal-out) var(--motion-ease-out) forwards;
+}
+.motion-modal-exit-drawer-clone {
+  animation: motion-modal-exit-drawer var(--motion-wiz-out) var(--motion-ease-out) forwards;
+}
+
+/* ============== M007 — modal panel entrance (Dialog.Content has none today) ============== */
+@keyframes motion-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-modal-panel-in {
+  animation: motion-modal-in var(--motion-modal-in) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-modal-panel-in {
+    animation: none;
+  }
+}
+
+/* ============== M003 — Button's pending/success face, fades in on mount ========== */
+@keyframes motion-face-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-face-in {
+  animation: motion-face-in var(--motion-fast) var(--motion-crossfade);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-face-in {
+    animation: none;
+  }
+}
+
+/* ============== M001 — CrossfadeSlot primitive (M004 companion, M009) ============ */
+/* Every face shares one grid cell, so swapping the visible one never changes
+ * the container's box — the "Button owns loading" guard never has to account
+ * for width/height shift. The inactive face is not just transparent, it is
+ * also unreachable (`pointer-events:none`, `aria-hidden` set by the caller)
+ * and vertically offset by 3px so the swap reads as a lift, not a snap. */
+.motion-crossfade-slot {
+  display: inline-grid;
+}
+.motion-crossfade-slot > .motion-crossfade-face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem; /* matches Button's own `gap-2` so the pending/success face reads identically */
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition:
+    opacity var(--motion-base) var(--motion-crossfade),
+    transform var(--motion-base) var(--motion-crossfade);
+}
+/* The active face (its `data-face` matches the slot's `data-active-face`) is
+ * the only one visible and reachable; every other face stays present in the
+ * DOM (so nothing needs a mid-swap remount) but inert. */
+.motion-crossfade-slot[data-active-face="idle"] > .motion-crossfade-face[data-face="idle"],
+.motion-crossfade-slot[data-active-face="pending"] > .motion-crossfade-face[data-face="pending"],
+.motion-crossfade-slot[data-active-face="success"] > .motion-crossfade-face[data-face="success"],
+.motion-crossfade-slot[data-active-face="copied"] > .motion-crossfade-face[data-face="copied"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-crossfade-face {
+    transition: none;
+  }
+}
+
+/* ============== M005 — animated underline (FLIP) on header-card tabs ============== */
+.motion-tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  opacity: 0;
+  background: var(--pl-blue, var(--primary));
+  border-radius: 2px 2px 0 0;
+  pointer-events: none;
+  transition:
+    left var(--motion-base) var(--motion-cell),
+    width var(--motion-base) var(--motion-cell),
+    opacity var(--motion-fast) linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-tab-indicator {
+    transition: none;
+  }
+}
