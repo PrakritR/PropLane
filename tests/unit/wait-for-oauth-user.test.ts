@@ -1,19 +1,11 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { withAuthTimeout } = vi.hoisted(() => ({
-  withAuthTimeout: vi.fn(<T,>(promise: PromiseLike<T>) => Promise.resolve(promise)),
-}));
-
-vi.mock("@/lib/auth/with-timeout", () => ({
-  AUTH_CALL_TIMEOUT_MS: 6000,
-  withAuthTimeout,
-}));
 
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 
 describe("waitForOAuthUser", () => {
   afterEach(() => {
-    withAuthTimeout.mockClear();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -57,16 +49,26 @@ describe("waitForOAuthUser", () => {
     expect(supabase.auth.getUser).toHaveBeenCalledTimes(2);
   });
 
-  it("clamps each auth call to the remaining wall-clock budget", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(1_000);
+  it("ends a hanging auth call at the remaining wall-clock deadline", async () => {
+    vi.useFakeTimers();
     const supabase = {
       auth: {
-        getUser: vi.fn().mockResolvedValue({ data: { user: null } }),
+        getUser: vi.fn().mockReturnValue(new Promise(() => undefined)),
       },
     };
 
-    await waitForOAuthUser(supabase as never, { attempts: 1, maxWaitMs: 100 });
-    expect(withAuthTimeout).toHaveBeenCalledWith(expect.any(Promise), 100);
+    const result = waitForOAuthUser(supabase as never, { attempts: 1, maxWaitMs: 100 });
+    await vi.advanceTimersByTimeAsync(99);
+    let settled = false;
+    void result.finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBeNull();
+    expect(supabase.auth.getUser).toHaveBeenCalledTimes(1);
   });
 
   it("does not begin another auth call after cancellation", async () => {

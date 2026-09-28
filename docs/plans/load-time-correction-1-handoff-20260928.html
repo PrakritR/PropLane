@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Load-time correction cycle 1 handoff - 28 September 2026</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 980px; margin: 40px auto; padding: 0 24px; color: #18212b; }
+  h1, h2 { line-height: 1.2; }
+  h2 { margin-top: 32px; }
+  code { background: #eef1f4; padding: 2px 5px; overflow-wrap: anywhere; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #d7dde3; padding: 9px; text-align: left; vertical-align: top; }
+  .status { background: #eef7ef; padding: 16px; }
+</style>
+<h1>PropLane load-time correction cycle 1 handoff</h1>
+<p>Execution date: 28 September 2026. Plan: <code>docs/plans/load-time-correction-1-20260928.html</code>. Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-load-times</code>. Branch: <code>codex/load-time-diagnosis</code>. Starting revision: <code>f2cb04ac19b37c2426c64178829f7e18a7c2a6ff</code>. The correction revision is the commit containing this handoff; its exact SHA is included in the coordination message to the root release owner.</p>
+<p class="status">All bounded correction work is implemented and the focused validation is green. A fresh independent focused reviewer reported no findings. Root still owns broad validation, browser/server work, exact-revision CI, fresh Astra review, and the release ladder. No database, schema, dependency, production, locked-listing, PR, or promotion action occurred.</p>
+
+<h2>Corrected behavior</h2>
+<ul>
+  <li><strong>Native marked OAuth:</strong> recovery now runs as soon as the effect attaches to an already-visible document and still responds to later visibility changes. Overlapping visibility events share one poll, and unmount aborts the poll and prevents a late redirect.</li>
+  <li><strong>Native cached sessions:</strong> the 400 ms local <code>getSession</code> probe no longer authorizes a redirect. A local user reveals the credential form, then receives a bounded 1.2 second background <code>getUser</code> validation. Only a validated user reaches <code>/auth/continue</code>; unavailable, rejected, timed-out, and stale sessions leave the form usable without a continue/sign-in loop.</li>
+  <li><strong>Tour invalidation:</strong> each viewer/email cache entry tracks its invalidation generation and newest request generation. A request started before a successful write discards its result and cannot restore TTL freshness. The next post-write reader starts or joins one request that began after invalidation, including when it returns before the stale request settles. Repeated invalidations and forced callers remain coalesced, failures remain retryable, and viewer/email cache keys remain isolated.</li>
+  <li><strong>Scheduling entry points:</strong> the resident tour panel already invalidated after modal scheduling and cancellation. The dedicated <code>/resident/tour/schedule</code> flow now performs the same invalidation on success. The public tours-contact flow does not consume the authenticated resident cache and remains outside this mechanism.</li>
+</ul>
+
+<h2>Changed files</h2>
+<ul>
+  <li><code>src/components/auth/native-auth-hub.tsx</code></li>
+  <li><code>src/lib/resident-tour-sync-client.ts</code></li>
+  <li><code>src/components/portal/resident-tour-schedule-client.tsx</code></li>
+  <li><code>tests/unit/native-auth-hub.test.tsx</code></li>
+  <li><code>tests/unit/wait-for-oauth-user.test.ts</code></li>
+  <li><code>tests/unit/resident-tour-sync-client.test.ts</code></li>
+  <li><code>tests/unit/resident-tour-schedule-client.test.tsx</code></li>
+  <li><code>docs/plans/load-time-correction-1-20260928.html</code> and this handoff</li>
+</ul>
+
+<h2>Focused validation</h2>
+<table>
+  <tr><th>Command</th><th>Result</th></tr>
+  <tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npm exec vitest run -- tests/unit/native-auth-hub.test.tsx tests/unit/wait-for-oauth-user.test.ts tests/unit/resident-tour-sync-client.test.ts --maxWorkers=1</code></td><td>Initial development run exited 1: three test-harness failures exposed that the form was still hidden during background validation and that the real timeout helper requires jsdom. Both issues were corrected. Rerun exited 0: 3 files, 21 tests.</td></tr>
+  <tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npm exec vitest run -- tests/unit/native-auth-hub.test.tsx tests/unit/wait-for-oauth-user.test.ts tests/unit/resident-tour-sync-client.test.ts tests/unit/resident-tour-schedule-client.test.tsx --maxWorkers=1</code></td><td>Exit 0: 4 files, 22 tests.</td></tr>
+  <tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npm exec vitest run -- tests/unit/native-auth-hub.test.tsx tests/unit/wait-for-oauth-user.test.ts tests/unit/resident-tour-sync-client.test.ts tests/unit/resident-tour-schedule-client.test.tsx tests/unit/resident-tour-panel.test.tsx tests/unit/resident-tour-panel-load-failure.test.tsx tests/unit/resident-dashboard-journey-banner.test.tsx --maxWorkers=1</code></td><td>Exit 0: 7 files, 33 tests.</td></tr>
+  <tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npm exec eslint -- src/components/auth/native-auth-hub.tsx src/lib/resident-tour-sync-client.ts src/components/portal/resident-tour-schedule-client.tsx tests/unit/native-auth-hub.test.tsx tests/unit/wait-for-oauth-user.test.ts tests/unit/resident-tour-sync-client.test.ts tests/unit/resident-tour-schedule-client.test.tsx</code></td><td>Initial run exited 1 for a new <code>prefer-const</code> error, which was fixed. Final run exited 0 with one existing <code>react-hooks/set-state-in-effect</code> warning at <code>native-auth-hub.tsx:162</code>.</td></tr>
+  <tr><td><code>git diff --check</code></td><td>Exit 0.</td></tr>
+  <tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npx graphify hook-rebuild</code></td><td>Exit 1: npm could not determine an executable. No graph artifacts were changed.</td></tr>
+</table>
+
+<h2>Independent focused review</h2>
+<p>A fresh read-only Luna reviewer examined the auth and tour correction diff and reported no correctness findings. Its independent command <code>npx vitest run tests/unit/native-auth-hub.test.tsx tests/unit/resident-tour-sync-client.test.ts tests/unit/wait-for-oauth-user.test.ts tests/unit/resident-tour-schedule-client.test.tsx --maxWorkers=2</code> exited 0 with 4 files and 22 tests. Its scoped ESLint exited 0 with the same existing React effect warning, and <code>git diff --check</code> exited 0.</p>
+
+<h2>Limits and next owner</h2>
+<ul>
+  <li>No browser, development server, broad suite, whole-project typecheck, build, CI, seed, or release command was run. Root retained the single heavy-validation slot and reported elevated memory pressure.</li>
+  <li>Native simulator tooling is absent, so this handoff makes no actual native-device claim. The native lifecycle is covered by jsdom behavior tests using recorded navigation, visibility events, abort signals, deferred promises, and the real timeout helper.</li>
+  <li>Reviewer-owned security/review HTML and release HTTP evidence remain untracked and unstaged for root. This correction commit includes only the correction plan, implementation, focused tests, and this handoff.</li>
+  <li>Root should launch the required fresh Astra review against the corrected exact SHA, then own broad exact-revision CI, any permitted seeded QA, and release decisions. The prior broad CI run was cancelled and was not dispatched or monitored here.</li>
+</ul>
+</html>
