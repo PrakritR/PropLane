@@ -7,7 +7,6 @@ type AnalyticsProperties = Record<string, unknown>;
 type BrowserAnalyticsEvent = {
   event?: string;
   properties?: AnalyticsProperties;
-  [key: string]: unknown;
 };
 
 export function isProductionAnalyticsHost(hostname: string): boolean {
@@ -56,10 +55,10 @@ export function nativeRuntimeMetadata(nativePlatform: string | null | undefined)
  * Keeps PostHog's built-in single web-vitals event, but attributes that event
  * to the navigation which created the metric rather than a later SPA route.
  */
-export function prepareBrowserAnalyticsEvent(
-  event: BrowserAnalyticsEvent | null,
+export function prepareBrowserAnalyticsEvent<T extends BrowserAnalyticsEvent>(
+  event: T | null,
   nativePlatform: string | null | undefined,
-): BrowserAnalyticsEvent | null {
+): T | null {
   if (!event) return null;
   const properties = sanitizeAnalyticsProperties(event.properties ?? {});
   const runtime = nativeRuntimeMetadata(nativePlatform);

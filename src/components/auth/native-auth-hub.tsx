@@ -1,5 +1,7 @@
 "use client";
 
+import type { Session } from "@supabase/supabase-js";
+
 import { AuthCard } from "@/components/auth/auth-card";
 import {
   AuthBrandHeader,
@@ -171,7 +173,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
         if (isNativeOAuthInProgress()) return;
         const supabase = createSupabaseBrowserClient();
         try {
-          const { data } = await withAuthTimeout(
+          const { data } = await withAuthTimeout<{ data: { session: Session | null } }>(
             supabase.auth.getSession(),
             PASSIVE_NATIVE_SESSION_TIMEOUT_MS,
           );

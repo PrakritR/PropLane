@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import type { BeforeSendFn, CaptureResult } from "posthog-js";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   analyticsRouteFromUrl,
@@ -8,6 +9,28 @@ import {
 } from "@/lib/analytics/browser-performance";
 
 describe("browser performance analytics", () => {
+  it("retains the PostHog capture contract including required uuid and optional metadata", () => {
+    const event: CaptureResult = {
+      uuid: "capture-uuid",
+      event: "$web_vitals",
+      properties: {
+        $current_url: "https://proplane.ai/portal?access_token=private",
+        $web_vitals_LCP_event: { navigationURL: "https://proplane.ai/portal" },
+      },
+      timestamp: new Date("2026-09-28T00:00:00Z"),
+      $set: { plan: "free" },
+    };
+    const beforeSend: BeforeSendFn = (capture) => prepareBrowserAnalyticsEvent(capture, "ios");
+    const result = prepareBrowserAnalyticsEvent(event, "ios");
+    expectTypeOf(result).toEqualTypeOf<CaptureResult | null>();
+    expect(result?.uuid).toBe("capture-uuid");
+    expect(result?.timestamp).toBe(event.timestamp);
+    expect(result?.$set).toEqual(event.$set);
+    expect(beforeSend(event)).toEqual(result);
+    expect(beforeSend(null)).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("private");
+  });
+
   it("only enables browser analytics for canonical production hosts", () => {
     expect(isProductionAnalyticsHost("proplane.ai")).toBe(true);
     expect(isProductionAnalyticsHost("www.proplane.ai")).toBe(true);
