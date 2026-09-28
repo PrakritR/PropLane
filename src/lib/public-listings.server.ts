@@ -26,6 +26,15 @@ import {
   normalizeWorkspaceApplicationFormTemplate,
   type WorkspaceApplicationFormTemplate,
 } from "@/lib/rental-application/workspace-application-form";
+import {
+  DEFAULT_LEASING_PIPELINE,
+  effectiveLeaseSigningFeeCents,
+  loadLeasingPipelineStatesByManagerId,
+  resolveLeasingPipelineForProperty,
+  signingOrderForPipeline,
+  type LeasingPipelineState,
+  type SigningOrder,
+} from "@/lib/leasing-pipeline-preferences";
 import { resolveListingCtaEmailsByManager } from "@/lib/listing-cta-email.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -469,6 +478,27 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
   } as ManagerListingSubmissionV1;
 }
 
+/** The two fields `publicListingProjection` derives from the manager's leasing-pipeline preference — never the preference row itself. */
+export type PublicSigningContext = {
+  signingOrder: SigningOrder;
+  leaseSigningFeeCents: number;
+};
+
+/** Resolve the property override (else workspace default) and collapse it to the public-safe pair. */
+export function resolvePublicSigningContext(
+  state: LeasingPipelineState | undefined,
+  propertyId: string,
+): PublicSigningContext {
+  const prefs = resolveLeasingPipelineForProperty(
+    state ?? { portfolio: DEFAULT_LEASING_PIPELINE, byPropertyId: {} },
+    propertyId,
+  );
+  return {
+    signingOrder: signingOrderForPipeline(prefs),
+    leaseSigningFeeCents: effectiveLeaseSigningFeeCents(prefs),
+  };
+}
+
 /**
  * Strip a stored listing down to what an anonymous prospect may see. Every
  * anonymous read of `manager_property_records.property_data` MUST run through
@@ -479,16 +509,24 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
  * unchanged; omitting it means "no workspace template known here", which
  * resolves to today's behaviour (the listing's own fields) exactly like a
  * workspace that has never saved a template.
+ *
+ * `signingContext` is likewise optional and, when passed, adds ONLY the two
+ * derived fields above (never the manager's `pipelineOrder`, workspace
+ * default, or per-property override map — those never reach this payload).
  */
 export function publicListingProjection(
   property: MockProperty,
   workspaceForm?: WorkspaceApplicationFormTemplate | null,
+  signingContext?: PublicSigningContext | null,
 ): MockProperty {
   const sub = property.listingSubmission;
   const resolvedSub = sub && sub.v === 1 ? applyEffectiveApplicationForm(sub, workspaceForm ?? null) : sub;
   return {
     ...pick(property, PUBLIC_PROPERTY_KEYS),
     ...(resolvedSub && resolvedSub.v === 1 ? { listingSubmission: publicSubmission(resolvedSub) } : {}),
+    ...(signingContext
+      ? { signingOrder: signingContext.signingOrder, leaseSigningFeeCents: signingContext.leaseSigningFeeCents }
+      : {}),
     // Says what this payload IS, so the browser cache it lands in can tell it
     // apart from the owner's authoritative copy of the same listing. See
     // `cachePublicExtraListings`.
@@ -620,7 +658,26 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
     db,
     visibleListings.map((l) => l.workspaceId ?? "").filter(Boolean),
   );
+  // Best-effort, same fail-open rule as the workspace-form lookup above: a
+  // Supabase hiccup on this table must never break the whole public catalog —
+  // every listing simply falls back to the application-first default.
+  let pipelineStatesByManagerId = new Map<string, LeasingPipelineState>();
+  try {
+    pipelineStatesByManagerId = await loadLeasingPipelineStatesByManagerId(
+      db,
+      visibleListings.map((l) => l.managerUserId ?? "").filter(Boolean),
+    );
+  } catch {
+    /* fall back to application-first / no lease fee for every listing */
+  }
   return visibleListings.map((listing) =>
-    publicListingProjection(listing, listing.workspaceId ? workspaceForms.get(listing.workspaceId) ?? null : null),
+    publicListingProjection(
+      listing,
+      listing.workspaceId ? workspaceForms.get(listing.workspaceId) ?? null : null,
+      resolvePublicSigningContext(
+        listing.managerUserId ? pipelineStatesByManagerId.get(listing.managerUserId) : undefined,
+        listing.id,
+      ),
+    ),
   );
 }

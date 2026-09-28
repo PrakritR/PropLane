@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
-import { publicListingProjection } from "@/lib/public-listings.server";
+import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
+import { loadLeasingPipelineState } from "@/lib/leasing-pipeline-preferences";
 import { normalizeWorkspaceApplicationFormTemplate } from "@/lib/rental-application/workspace-application-form";
 import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
 import { isSandboxPublicListing } from "@/lib/public-sandbox-listings";
@@ -114,13 +115,28 @@ export async function GET(req: Request) {
       workspaceForm = normalizeWorkspaceApplicationFormTemplate(raw);
     }
 
+    // Same leasing-pipeline resolution as the catalog (`getPublicListings`) —
+    // a share link for one property must not disagree with what Browse
+    // already showed for the same listing. Best-effort: a hiccup here must
+    // never 404 an otherwise-valid share link, so it falls back to the
+    // application-first default.
+    let signingContext = null as ReturnType<typeof resolvePublicSigningContext> | null;
+    if (data.manager_user_id) {
+      try {
+        const pipelineState = await loadLeasingPipelineState(db, data.manager_user_id);
+        signingContext = resolvePublicSigningContext(pipelineState, propertyId);
+      } catch {
+        signingContext = null;
+      }
+    }
+
     // Public per-property detail: CDN-cacheable, same for everyone. Same
     // allowlist as the catalog — this route reaches the SAME stored blob from
     // the SAME anonymous audience, so a projection on only one of the two is
     // trivially bypassed by asking for the property by id.
     return NextResponse.json(
       {
-        property: publicListingProjection(resolved, workspaceForm),
+        property: publicListingProjection(resolved, workspaceForm, signingContext),
         ...(scope.kind === "active" ? { testWorkspaceId: scope.workspaceId } : {}),
       },
       { headers: scope.kind === "active"
