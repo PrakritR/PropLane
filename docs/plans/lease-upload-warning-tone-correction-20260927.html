@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lease upload warning tone correction - September 27, 2026</title>
+  <style>
+    body { max-width: 850px; margin: 40px auto; padding: 0 24px; font: 16px/1.6 system-ui, sans-serif; color: #172033; background: #fff; }
+    h1 { font-size: 26px; line-height: 1.25; }
+    h2 { font-size: 19px; margin-top: 28px; }
+    code { font-size: 14px; overflow-wrap: anywhere; }
+    li { margin: 8px 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #d9dfeb; padding: 10px; text-align: left; vertical-align: top; }
+  </style>
+</head>
+<body>
+  <h1>Lease upload warning tone correction</h1>
+  <p>Execution handoff dated September 27, 2026. Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-lease-upload</code>. Branch: <code>agent/lease-upload-polish</code>. Base HEAD: <code>0563c4fddf4d3c4853371ce610283e924302c5b2</code>.</p>
+  <h2>Change</h2>
+  <p>Application and lease overview consumers already pass <code>warning</code>, but the shared stat tile and overview renderer accepted only <code>default</code> and <code>danger</code>. CI reported type errors at <code>pro-applications.tsx:2065</code> and <code>pro-leases-pipeline-panel.tsx:1370</code>.</p>
+  <ul>
+    <li><code>src/components/portal/portal-record-overview-kit.tsx</code>: export <code>RecordStatTone = "danger" | "default" | "warning"</code>, use it for <code>StatTile</code>, and render warning values with <code>text-[var(--status-warning-fg)]</code>.</li>
+    <li><code>src/components/portal/record-section-renderers.tsx</code>: reuse <code>RecordStatTone</code> for <code>OverviewStatTile</code>, keeping the renderer and component contracts aligned.</li>
+  </ul>
+  <p>The dedicated warning token exists in the release base: light <code>#a16207</code>, dark <code>#facc15</code>. The pending token is orange in light mode and does not meet the requested yellow treatment. Default and danger rendering retain their existing tokens. Code diff: two files, 10 insertions and 3 deletions. No consumer changes or new tests were needed for this small type/color correction.</p>
+  <h2>Focused validation</h2>
+  <p>Runtime: <code>Node v22.23.0</code>, matching repository <code>.nvmrc</code> and package engines. The parent agent owns heavy validation.</p>
+  <table>
+    <thead><tr><th>Check</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><code>npm exec eslint -- src/components/portal/portal-record-overview-kit.tsx src/components/portal/record-section-renderers.tsx</code></td><td>Final run exit 0; no lint output.</td></tr>
+      <tr><td><code>npm exec vitest -- run tests/unit/record-page-no-footer.test.ts tests/unit/record-sections-registry.test.ts --maxWorkers=1</code></td><td>Exit 0; 2 files passed; 119 tests passed; duration 536 ms.</td></tr>
+      <tr><td><code>git diff --check</code></td><td>Exit 0.</td></tr>
+      <tr><td><code>npx graphify hook-rebuild</code></td><td>Exit 1: <code>npm error could not determine executable to run</code>. No graph exists in this worktree and no graph artifacts were produced.</td></tr>
+    </tbody>
+  </table>
+  <h2>Remaining release gates</h2>
+  <p>CI recheck is pending. The focused checks do not establish whole-project typecheck or build success. Independent review is assigned to <code>final_astra_correction_review</code>. The correction remains uncommitted for the parent agent to review and integrate. No server, production data mutation, commit, or push was performed by this delegate.</p>
+</body>
+</html>

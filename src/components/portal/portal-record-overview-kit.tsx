@@ -19,6 +19,8 @@ export function RecordStatTiles({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{children}</div>;
 }
 
+export type RecordStatTone = "danger" | "default" | "warning";
+
 export function StatTile({
   label,
   value,
@@ -31,7 +33,7 @@ export function StatTile({
   value: string;
   detail?: string;
   href?: string;
-  tone?: "danger" | "default";
+  tone?: RecordStatTone;
   dataAttr: string;
 }) {
   const body = (
@@ -40,7 +42,11 @@ export function StatTile({
       <span
         className={cn(
           "block truncate text-[1.3rem] font-semibold leading-none tracking-[-0.02em] sm:text-[1.45rem]",
-          tone === "danger" ? "text-[var(--status-overdue-fg)]" : "text-foreground",
+          tone === "danger"
+            ? "text-[var(--status-overdue-fg)]"
+            : tone === "warning"
+              ? "text-[var(--status-warning-fg)]"
+              : "text-foreground",
         )}
       >
         {value}
