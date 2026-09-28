@@ -90,6 +90,12 @@ export type ListingFeeRow = ManagerCustomFeeRow & {
    * through {@link feeAppliesToResidentSlot}.
    */
   residentSlots?: number[];
+  /**
+   * Which arrangements this fee bills, as head count: 1 = Private room,
+   * 2 = Shared by 2. Each resident who takes that arrangement pays the fee.
+   * Absent or empty means every arrangement of the fee's rooms.
+   */
+  arrangementCounts?: number[];
 };
 
 /**
@@ -107,6 +113,22 @@ export function feeAppliesToResidentSlot(
   if (!Array.isArray(slots) || slots.length === 0) return true;
   if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 1) return true;
   return slots.includes(slot);
+}
+
+/**
+ * Whether this fee bills someone taking `count` residents in the room
+ * (1 = private, 2 = shared by 2). Absent or empty `arrangementCounts` is
+ * every arrangement. An unknown count also applies, so a fee is not dropped
+ * when the application has not named an arrangement yet.
+ */
+export function feeAppliesToArrangement(
+  fee: Pick<ListingFeeRow, "arrangementCounts">,
+  count: number | null | undefined,
+): boolean {
+  const counts = fee.arrangementCounts;
+  if (!Array.isArray(counts) || counts.length === 0) return true;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) return true;
+  return counts.includes(count);
 }
 
 /** Whole numbers 1..20, de-duplicated and sorted; an empty scope is stored as absent ("all"). */
@@ -337,6 +359,7 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
     leaseTypes: normalizeFeeScopeIds(row.leaseTypes),
     roomIds: normalizeFeeScopeIds(row.roomIds),
     residentSlots: normalizeFeeResidentSlots(row.residentSlots),
+    arrangementCounts: normalizeFeeResidentSlots(row.arrangementCounts),
     // The per-day figure for a "Set per day" partial month. Kept only when positive.
     dailyRate: typeof row.dailyRate === "number" && Number.isFinite(row.dailyRate) && row.dailyRate > 0 ? row.dailyRate : undefined,
   };

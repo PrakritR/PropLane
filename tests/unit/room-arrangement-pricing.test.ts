@@ -34,13 +34,17 @@ describe("room arrangement pricing", () => {
     expect(offeredResidentCountsFor({ occupancyCapacity: 3 })).toEqual([1, 2, 3]);
   });
 
+  it("keeps an explicit list that omits a private room", () => {
+    expect(offeredResidentCountsFor({ occupancyCapacity: 4, offeredResidentCounts: [2, 4] })).toEqual([2, 4]);
+  });
+
   it("hides counts already filled by people living there", () => {
     expect(roomSharingOptions(room, 1)).toEqual([2, 3]);
     expect(roomSharingOptions(room, 3)).toEqual([]);
   });
 
   it("summarizes each offered arrangement", () => {
-    expect(arrangementSummaryLine(room)).toContain("Private $1,000");
+    expect(arrangementSummaryLine(room)).toContain("Private $1,000 each");
     expect(arrangementSummaryLine(room)).toContain("Shared by 2 $900 each");
     expect(arrangementSummaryLine(room)).toContain("Shared by 3 $900 each");
   });

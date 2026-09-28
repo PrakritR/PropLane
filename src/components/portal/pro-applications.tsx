@@ -16,7 +16,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, Check, Download, Plus, Settings, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
+import { Bell, Check, Download, Plus, Settings, Share2, Shield, Ticket, Trash2, Undo2, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -43,6 +43,7 @@ import { ApplicationHoldingFeeToggle } from "@/components/portal/application-hol
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
+import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -650,6 +651,7 @@ export function ManagerApplications({
   }, []);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
+  const [feeWaiverCodesOpen, setFeeWaiverCodesOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
@@ -1484,20 +1486,28 @@ export function ManagerApplications({
           recordTitle={recordTitle}
         />
         {isApprovableApplicationRow(row) ? (
-          <PortalIconAction
-            icon={Check}
-            label="Approve"
+          <Button
+            type="button"
+            variant="primary"
+            className="h-9 min-h-0 px-3 text-xs"
             data-attr="application-approve"
             onClick={() => beginApprovalPreview(row)}
-          />
+          >
+            <Check className="size-4" aria-hidden />
+            Approve
+          </Button>
         ) : null}
         {row.bucket === "pending" ? (
-          <PortalIconAction
-            icon={X}
-            label="Reject"
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 min-h-0 px-3 text-xs"
             data-attr="application-reject"
             onClick={() => setRejectPreviewRows([row])}
-          />
+          >
+            <X className="size-4" aria-hidden />
+            Reject
+          </Button>
         ) : null}
         <ApplicationPdfDownloadButton row={row} label="Download" icon />
         {applicationRowCanMoveToPending(row) ? (
@@ -1711,9 +1721,19 @@ export function ManagerApplications({
     />
   );
 
+  const applicationsFeeWaiverButton = (
+    <PortalIconAction
+      icon={Ticket}
+      label="Fee waiver codes"
+      data-attr="applications-fee-waiver-codes"
+      onClick={() => setFeeWaiverCodesOpen(true)}
+    />
+  );
+
   const applicationsListActions = (
     <>
       {applicationsFilterSort}
+      {applicationsFeeWaiverButton}
       {applicationsSettingsButton}
       {applicationsAddButton}
       {applicationsManualAddButton}
@@ -2197,6 +2217,10 @@ export function ManagerApplications({
         }
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
+      <ManagerApplicationFeeWaiverCodesModal
+        open={feeWaiverCodesOpen}
+        onClose={() => setFeeWaiverCodesOpen(false)}
+      />
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
       <ManagerPortalSettingsModal
         open={applicationSettingsOpen}

@@ -300,14 +300,6 @@ const LEASE_TABS = [
   { id: "completed" as const, label: "Signed" },
 ];
 
-/** Same tone map `pro-leases.tsx` draws its pipeline progress segments in. */
-const LEASE_SEGMENT_TONE: Record<LeaseFixtureRow["bucket"], string> = {
-  manager: "bg-amber-400",
-  resident: "bg-sky-400",
-  signed: "bg-violet-400",
-  completed: "bg-emerald-500",
-};
-
 export function LeasesPanel() {
   const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>("signed");
   const [search, setSearch] = useState("");
@@ -320,7 +312,6 @@ export function LeasesPanel() {
     for (const r of LEASE_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
   }, []);
-  const total = LEASE_ROWS.length;
   const rows = useMemo(
     () => filterBySearch(LEASE_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
     [bucket, search],
@@ -331,22 +322,6 @@ export function LeasesPanel() {
       <PortalSidebarFixture active="leases" />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ManagerPortalPageShell title="Leases">
-          <div className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
-            <p className="text-[13px] font-medium text-foreground">{counts.completed} of {total} leases signed</p>
-            <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
-              {(["manager", "resident", "signed", "completed"] as const).map((id) =>
-                counts[id] > 0 ? (
-                  <span
-                    key={id}
-                    className={LEASE_SEGMENT_TONE[id]}
-                    style={{ width: `${(counts[id] / total) * 100}%` }}
-                    role="img"
-                    aria-label={`${LEASE_TABS.find((t) => t.id === id)?.label}: ${counts[id]}`}
-                  />
-                ) : null,
-              )}
-            </div>
-          </div>
           <PortalListControlStack
             variant="command"
             destinationRow={

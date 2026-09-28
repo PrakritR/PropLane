@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { FactRow, MoneyInput, MultiPick, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import {
@@ -21,9 +22,12 @@ function moneyText(n: number | undefined): string {
 export function ArrangementPriceEditor({
   room,
   onRoom,
+  renderFees,
 }: {
   room: ManagerRoomSubmission;
   onRoom: (next: ManagerRoomSubmission) => void;
+  /** Other fees for this arrangement. Each resident who takes it pays them. */
+  renderFees?: (count: number) => ReactNode;
 }) {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const offered = offeredResidentCountsFor(room);
@@ -33,14 +37,19 @@ export function ArrangementPriceEditor({
   const writeOffers = (labels: string[]) => {
     const counts = labels
       .map((label) => options.indexOf(label) + 1)
-      .filter((n) => n >= 1);
-    if (!counts.includes(1)) counts.unshift(1);
+      .filter((n) => n >= 1 && n <= capacity);
+    if (counts.length === 0) return;
     const nextCounts = [...new Set(counts)].sort((a, b) => a - b);
     const prices = (room.occupancyPrices ?? []).filter((row) => nextCounts.includes(row.count));
+    const primary = roomPriceForResidentCount(
+      { ...room, offeredResidentCounts: nextCounts, occupancyPrices: prices },
+      nextCounts[0],
+    );
     onRoom({
       ...room,
       offeredResidentCounts: nextCounts,
       occupancyPrices: prices,
+      monthlyRent: primary.monthlyRent || room.monthlyRent,
       residentPricing: undefined,
       residentPrices: undefined,
     });
@@ -52,15 +61,13 @@ export function ArrangementPriceEditor({
   const writeRow = (count: number, patch: Partial<RoomOccupancyPrice>) => {
     const current = offered.map((n) => ({ ...rowFor(n), count: n }));
     const next = current.map((row) => (row.count === count ? { ...row, ...patch, count } : row));
-    const resolved = roomPriceForResidentCount(
-      { ...room, occupancyPrices: next },
-      1,
-    );
+    const primaryCount = offered[0] ?? count;
+    const primary = roomPriceForResidentCount({ ...room, occupancyPrices: next }, primaryCount);
     onRoom({
       ...room,
       offeredResidentCounts: offered,
       occupancyPrices: next,
-      monthlyRent: count === 1 && patch.monthlyRent ? patch.monthlyRent : resolved.monthlyRent || room.monthlyRent,
+      monthlyRent: primary.monthlyRent || room.monthlyRent,
       residentPricing: undefined,
       residentPrices: undefined,
     });
@@ -127,6 +134,7 @@ export function ArrangementPriceEditor({
                 </FactRow>
               </>
             ) : null}
+            {renderFees?.(count)}
           </div>
         );
       })}

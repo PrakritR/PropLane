@@ -4,7 +4,7 @@
  * and the scope survives the row normalizer the way `roomIds` does.
  */
 import { describe, expect, it } from "vitest";
-import { feeAppliesToResidentSlot, normalizeListingFeeRow, type ListingFeeRow } from "@/lib/listing-fees";
+import { feeAppliesToArrangement, feeAppliesToResidentSlot, normalizeListingFeeRow, type ListingFeeRow } from "@/lib/listing-fees";
 
 function fee(over: Partial<ListingFeeRow> = {}): ListingFeeRow {
   return { id: "fee-parking", label: "Parking", amount: "50", frequency: "monthly", ...over };
@@ -27,6 +27,25 @@ describe("feeAppliesToResidentSlot", () => {
     expect(feeAppliesToResidentSlot(scoped, undefined)).toBe(true);
     expect(feeAppliesToResidentSlot(scoped, null)).toBe(true);
     expect(feeAppliesToResidentSlot(scoped, 0)).toBe(true);
+  });
+});
+
+describe("feeAppliesToArrangement", () => {
+  it("bills every arrangement when the fee names none", () => {
+    expect(feeAppliesToArrangement(fee(), 1)).toBe(true);
+    expect(feeAppliesToArrangement(fee(), 2)).toBe(true);
+  });
+
+  it("bills only residents who take the named arrangement", () => {
+    const shared = fee({ arrangementCounts: [2] });
+    expect(feeAppliesToArrangement(shared, 2)).toBe(true);
+    expect(feeAppliesToArrangement(shared, 1)).toBe(false);
+  });
+});
+
+describe("normalizeListingFeeRow keeps arrangementCounts", () => {
+  it("stores the head counts a fee bills", () => {
+    expect(normalizeListingFeeRow(fee({ arrangementCounts: [2, 2, 1] })).arrangementCounts).toEqual([1, 2]);
   });
 });
 

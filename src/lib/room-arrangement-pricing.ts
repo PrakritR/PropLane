@@ -37,20 +37,18 @@ export function arrangementLabel(count: number): string {
   return `Shared by ${count}`;
 }
 
-/** Absent offered list means every count from 1 through capacity. Never empty. */
+/** Absent offered list means every count from 1 through capacity. An explicit list is kept, including one that omits Private. */
 export function offeredResidentCountsFor(room: ArrangementRoomLike | null | undefined): number[] {
   const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
+  const every = Array.from({ length: capacity }, (_, i) => i + 1);
   const raw = room?.offeredResidentCounts;
-  if (!raw || raw.length === 0) {
-    return Array.from({ length: capacity }, (_, i) => i + 1);
-  }
+  if (!raw || raw.length === 0) return every;
   const set = new Set<number>();
   for (const n of raw) {
     if (Number.isInteger(n) && n >= 1 && n <= capacity) set.add(n);
   }
-  if (!set.has(1) && capacity >= 1) set.add(1);
   const out = [...set].sort((a, b) => a - b);
-  return out.length ? out : [1];
+  return out.length ? out : every;
 }
 
 function positiveRent(value: unknown): number | undefined {
@@ -162,7 +160,7 @@ export function arrangementSummaryLine(room: ArrangementRoomLike | null | undefi
     const price = roomPriceForResidentCount(room, count);
     const money = price.monthlyRent > 0 ? `$${price.monthlyRent.toLocaleString("en-US")}` : "—";
     const label = count === 1 ? "Private" : `Shared by ${count}`;
-    return `${label} ${money}${count > 1 ? " each" : ""}`;
+    return `${label} ${money} each`;
   });
   return parts.join(" · ");
 }

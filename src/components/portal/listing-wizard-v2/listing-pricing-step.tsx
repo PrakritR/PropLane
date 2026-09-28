@@ -123,11 +123,6 @@ const num = (raw: string) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const PRICING_MODE_OPTIONS = [
-  { value: "fixed", label: "Fixed" },
-  { value: "flexible", label: "Flexible" },
-] as const;
-
 const STAY_PER_RESIDENT_OPTIONS = [
   { value: "same", label: "Same for every resident" },
   { value: "per_resident", label: "Different per resident" },
@@ -397,12 +392,18 @@ function FeeRows({
   roomName,
   term,
   residentSlot,
+  arrangementCount,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   roomId: string | null;
   roomName?: string;
   term: string;
+  /**
+   * Head count this block prices (1 = private, 2 = shared by 2). A fee added
+   * here is paid by every resident who takes that arrangement.
+   */
+  arrangementCount?: number;
   /**
    * Scopes this card's OWN fees (added here) to one resident slot of a room
    * priced per resident (PLAN-0920-0631) — "Parking" added inside Resident 2's
@@ -420,11 +421,14 @@ function FeeRows({
   const single = (f: ListingFeeRow) => (f.roomIds ?? []).length === 1;
   const onThisCard = (f: ListingFeeRow) => (roomId ? single(f) && f.roomIds![0] === roomId : !single(f));
   const onThisSlot = (f: ListingFeeRow) => residentSlot === undefined || feeAppliesToResidentSlot(f, residentSlot);
+  const onThisArrangement = (f: ListingFeeRow) =>
+    arrangementCount === undefined ? !f.arrangementCounts?.length : (f.arrangementCounts ?? []).includes(arrangementCount);
   const priced = (f: ListingFeeRow) => !f.presetId || f.presetId === "custom" || isListingFeeAmountFilled(f.amount ?? "") || revealed.includes(f.id);
-  const mine = rows.filter((f) => onThisCard(f) && onThisSlot(f) && feeAppliesToLeaseType(f, term) && priced(f));
-  const shared = roomId
-    ? rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId))
-    : [];
+  const mine = rows.filter((f) => onThisCard(f) && onThisSlot(f) && onThisArrangement(f) && feeAppliesToLeaseType(f, term) && priced(f));
+  const shared =
+    roomId && arrangementCount === undefined
+      ? rows.filter((f) => !mine.includes(f) && !f.arrangementCounts?.length && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId))
+      : [];
   const writeRows = (next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) => writeCardFeeRows(sub, patch, next, extra);
   const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
   /** The rooms a house-wide fee still reaches once this room is taken out of it. */
@@ -460,6 +464,7 @@ function FeeRows({
       leaseTypes: feeScopeForTab(sub, term),
       roomIds: roomId ? [roomId] : undefined,
       residentSlots: residentSlot !== undefined ? [residentSlot] : undefined,
+      arrangementCounts: arrangementCount !== undefined ? [arrangementCount] : undefined,
     };
     writeRows([...rows, row]);
   };
@@ -766,7 +771,6 @@ function MonthlyCards({
       utilRate: room.dailyUtilitiesRate || 0,
     };
   };
-  const listed = (rent: number, util: number, mode: string) => (mode === "flexible" ? `from ${usd(rent)}` : usd(rent + util));
   return (
     <>
       {rooms.map((room, i) => {
@@ -774,7 +778,6 @@ function MonthlyCards({
         const rent = termValue(room, term, "rent");
         const util = termValue(room, term, "util");
         const dep = termValue(room, term, "deposit");
-        const mode = room.pricingMode || "fixed";
         const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") => {
           if (base) return;
           onRoom(room.id, writeTerm(room, term, field, ""));
@@ -804,7 +807,6 @@ function MonthlyCards({
           sharedLine ?? (rentN > 0 ? usd(rentN) : "Rent not set"),
           `+${usd(utilN)} utilities`,
           `${usd(depN)} deposit`,
-          `listed ${listed(rentN, utilN, mode)}`,
           ...(prorate ? [p.automatic ? "partial months automatic" : p.rate > 0 ? `partial months ${usd(p.rate)}/day` : "partial months per day"] : []),
         ].join(" · ");
         const isOpen = open === room.id;
@@ -825,7 +827,20 @@ function MonthlyCards({
             dataAttr="listing-v2-price-card"
           >
             {capacity >= 2 ? (
-              <ArrangementPriceEditor room={room} onRoom={(next) => onRoom(room.id, next)} />
+              <ArrangementPriceEditor
+                room={room}
+                onRoom={(next) => onRoom(room.id, next)}
+                renderFees={(count) => (
+                  <FeeRows
+                    sub={sub}
+                    patch={patch}
+                    roomId={room.id}
+                    roomName={`${name}, ${count === 1 ? "private" : `shared by ${count}`}`}
+                    term={feeScopeTerm}
+                    arrangementCount={count}
+                  />
+                )}
+              />
             ) : (
             <>
             <FactRow
@@ -874,19 +889,9 @@ function MonthlyCards({
             </FactRow>
             </>
             )}
-            <FactRow label="Listed rent">
-              {base ? (
-                <RowSelectCell
-                  ariaLabel={`Listed rent for ${name}`}
-                  value={mode}
-                  options={PRICING_MODE_OPTIONS}
-                  onChange={(v) => onRoom(room.id, { ...ensureSamePerResident(room), pricingMode: v as ManagerRoomSubmission["pricingMode"] })}
-                />
-              ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{listed(rentN, utilN, mode)}</span>
-              )}
-            </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={feeScopeTerm} />
+            {capacity >= 2 ? null : (
+              <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={feeScopeTerm} />
+            )}
             {prorate ? (
               <ProrateRows
                 sub={sub}

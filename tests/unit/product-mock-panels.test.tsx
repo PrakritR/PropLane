@@ -59,9 +59,10 @@ describe("product mock panels — tabs actually change the rows", () => {
     expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
-  it("Leases: the pipeline progress bar reads N of TOTAL signed", () => {
+  it("Leases: the list has no signed-progress bar", () => {
     render(<LeasesPanel />);
-    expect(screen.getByText(/of 7 leases signed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/leases signed/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Manager signature")).toBeInTheDocument();
   });
 
   it("Payments: Overdue shows September rent; Paid shows a different charge", () => {

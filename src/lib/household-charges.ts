@@ -13,7 +13,8 @@ import {
   selfBillingPresetFees,
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
-import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
+import { feeAppliesToArrangement, feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
+import { offeredResidentCountsFor, roomPriceForResidentCount } from "@/lib/room-arrangement-pricing";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -1767,6 +1768,14 @@ function selectedRoomRentAmount(row: DemoApplicantRow): number {
     if (entireHomeRent > 0) return Number((entireHomeRent + includedFees).toFixed(2));
   }
   if (roomPricingIsFlexible(room)) return 0;
+  const arranged = soleArrangementCount(room);
+  if (arranged) {
+    const perResident = roomPriceForResidentCount(room, arranged).monthlyRent;
+    if (perResident > 0) {
+      const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
+      return Number((perResident + surcharge + includedFees).toFixed(2));
+    }
+  }
   const slotRent = roomResidentPriceForSlot(
     room,
     row.application?.residentSlot ?? 0,
@@ -3589,14 +3598,27 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
  * every listing that does not price per resident. `lines` come from `monthlyFeesBilledSeparately`
  * (already flattened to `{ id, label, amount }`), so the original fee row is looked up by id.
  */
+/** The one arrangement a room is offered as. Several offers means the resident has not picked one yet. */
+function soleArrangementCount(room: ManagerRoomSubmission | null | undefined): number | undefined {
+  if (!room?.occupancyPrices?.length) return undefined;
+  const offered = offeredResidentCountsFor(room);
+  return offered.length === 1 ? offered[0] : undefined;
+}
+
 function filterFeesForResidentSlot(
   lines: MonthlyFeeLine[],
   sub: ManagerListingSubmissionV1 | null | undefined,
   residentSlot: number | null | undefined,
+  arrangementCount?: number | null,
 ): MonthlyFeeLine[] {
   if (!lines.length) return lines;
   const feeById = new Map((sub?.customFees ?? []).map((fee) => [fee.id, fee as ListingFeeRow]));
-  return lines.filter((line) => feeAppliesToResidentSlot(feeById.get(line.id) ?? {}, residentSlot));
+  return lines.filter((line) => {
+    const fee = feeById.get(line.id) ?? {};
+    if (!feeAppliesToResidentSlot(fee, residentSlot)) return false;
+    if (!fee.arrangementCounts?.length) return true;
+    return typeof arrangementCount === "number" && feeAppliesToArrangement(fee, arrangementCount);
+  });
 }
 
 function buildApprovedStandardChargeDrafts(
@@ -3703,6 +3725,7 @@ function buildApprovedStandardChargeDrafts(
       : [],
     sub,
     row.application?.residentSlot,
+    soleArrangementCount(room),
   );
   const feeDrafts = proratedFeeChargeDrafts(monthlyFeeSet, {
     leaseStart: opts.leaseStart,
@@ -4379,6 +4402,7 @@ export function recordApprovedApplicationCharges(
     }),
     sub,
     row.application?.residentSlot,
+    soleArrangementCount(room),
   );
   const feeDrafts = allowListingDefaults
     ? proratedFeeChargeDrafts(monthlyFeeSet, { leaseStart, leaseEnd, endsInsideFirstMonth, prorateMethod, moveInDue })
@@ -4482,14 +4506,17 @@ export function recordApprovedApplicationCharges(
   // through the recurring profile below, not here.
   if (allowListingDefaults) {
     const residentSlot = row.application?.residentSlot;
+    const arrangementCount = soleArrangementCount(room);
     for (const fee of oneTimeCustomFees(sub)) {
-      if (!feeAppliesToResidentSlot(fee as ListingFeeRow, residentSlot)) continue;
+      const scoped = fee as ListingFeeRow;
+      if (!feeAppliesToResidentSlot(scoped, residentSlot)) continue;
+      if (scoped.arrangementCounts?.length && !feeAppliesToArrangement(scoped, arrangementCount)) continue;
       const amt = parseMoneyAmount(fee.amount ?? "");
       if (amt > 0)
         pushCharge("other_cost", amt, fee.label?.trim() || chargeTitle("other_cost"), false, "Before move-in", fee.id);
     }
     // Parking / HOA / other fees a manager switched to one-time cadence. Same checkbox gate.
-    for (const fee of filterFeesForResidentSlot(selfBillingPresetFees(sub, "one-time"), sub, residentSlot)) {
+    for (const fee of filterFeesForResidentSlot(selfBillingPresetFees(sub, "one-time"), sub, residentSlot, arrangementCount)) {
       pushCharge("other_cost", fee.amount, fee.label, false, "Before move-in", fee.id);
     }
   }

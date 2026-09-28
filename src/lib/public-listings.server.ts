@@ -308,6 +308,8 @@ const PUBLIC_CUSTOM_FEE_KEYS = [
   "shortTermAmount",
   // A fee scoped to a resident slot is a scope like `roomIds`, not an identity.
   "residentSlots",
+  // Head count this fee bills: 1 private, 2 shared by 2. Each resident in that arrangement pays it.
+  "arrangementCounts",
 ] as const satisfies readonly (keyof ListingFeeRow)[];
 
 const PUBLIC_HOUSE_DEFAULT_PRICE_KEYS = [

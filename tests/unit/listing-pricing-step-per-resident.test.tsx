@@ -73,12 +73,13 @@ describe("Pricing card — shared room same price per resident", () => {
     expect(document.querySelector('[data-attr="listing-v2-rent-per-resident-help"]')).toBeNull();
   });
 
-  it("shows residents count and Rent /mo per resident with (i) on a shared room", () => {
+  it("shows each arrangement's rent per resident on a shared room", () => {
     render(<Harness />);
     openRoomCard("Room B");
-    expect(document.querySelector('[data-attr="listing-v2-price-residents"]')?.textContent).toMatch(/2/);
-    expect(screen.getByText(/Rent \/mo per resident/)).toBeTruthy();
-    expect(document.querySelector('[data-attr="listing-v2-rent-per-resident-help"]')).toBeTruthy();
+    expect(screen.getByText("Offered as")).toBeTruthy();
+    expect(screen.getAllByText(/Rent \/mo per resident/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Listed rent")).toBeNull();
+    expect(screen.getAllByText("Other fees").length).toBeGreaterThan(1);
     expect(document.querySelector('[data-attr="listing-v2-price-per-resident"]')).toBeNull();
     expect(document.querySelectorAll('[data-attr="listing-v2-price-resident-block"]').length).toBe(0);
   });
