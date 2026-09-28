@@ -42,8 +42,8 @@ vi.mock("@/components/ui/vaul-bottom-sheet", () => ({
     open ? <div data-testid="sheet">{children}</div> : null,
 }));
 vi.mock("@/components/portal/portal-feedback-submit-modal", () => ({
-  PortalFeedbackSubmitModal: ({ open, initialTitle }: { open: boolean; initialTitle?: string }) =>
-    open ? <div data-testid="feedback-modal">{initialTitle}</div> : null,
+  PortalFeedbackSubmitModal: ({ open, initialMessage }: { open: boolean; initialMessage?: string }) =>
+    open ? <div data-testid="feedback-modal">{initialMessage}</div> : null,
 }));
 
 import { RateAppPrompt } from "@/components/native/rate-app-prompt";
@@ -133,7 +133,7 @@ describe("RateAppPrompt", () => {
     expect(showToast).toHaveBeenCalledWith("Thanks!");
   });
 
-  it("1–3 stars → 'Tell us what to fix' → the feedback form pre-titled", async () => {
+  it("1–3 stars → 'Tell us what to fix' → the feedback form pre-filled", async () => {
     await mountNativeAndOffer();
     fireEvent.click(screen.getByRole("radio", { name: "2 stars" }));
     await act(async () => {
@@ -141,7 +141,7 @@ describe("RateAppPrompt", () => {
     });
     expect(review.markAppReviewAnswer).toHaveBeenCalledWith({ kind: "stars", stars: 2 });
     expect(review.requestNativeReview).not.toHaveBeenCalled();
-    expect(screen.getByTestId("feedback-modal").textContent).toBe("Rated 2/5 in the app");
+    expect(screen.getByTestId("feedback-modal").textContent).toBe("Rated 2/5 in the app — ");
     expect(screen.queryByTestId("sheet")).toBeNull();
   });
 
