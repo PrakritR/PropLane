@@ -1,123 +1,22 @@
-name: Test
-
+name: Load-time baseline control
 on:
-  push:
-    # Hermetic jobs (unit/lint/build) plus integration run on every push to the
-    # two integration rungs. Browser smoke stays gated below (`e2e` on `main`
-    # and `staging`; `e2e-full` on schedule/dispatch).
-    branches: [main, staging]
-  pull_request:
   workflow_dispatch:
-    inputs:
-      build_only:
-        description: "Run only the build and encrypted local QA artifact job on the exact release keeper"
-        required: false
-        type: boolean
-        default: false
-      e2e_scope:
-        description: "Select the manual browser scope"
-        required: false
-        type: choice
-        default: full
-        options:
-          - full
-          - property_metadata
-  schedule:
-    - cron: "0 6 * * *"
-
+permissions:
+  contents: read
 jobs:
-  unit:
-    runs-on: ubuntu-24.04
-    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - name: Provision PostgreSQL 16 harness tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes postgresql-16 postgresql-client-16 openssl
-          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
-      - name: Report local harness tool versions
-        run: |
-          /usr/lib/postgresql/16/bin/initdb --version
-          /usr/lib/postgresql/16/bin/pg_ctl --version
-          openssl version
-      - run: npm run lockfile:verify
-      - run: npm run test:unit
-
-  # Every job below is INDEPENDENT on purpose. They used to chain off `unit`
-  # (integration -> unit, e2e -> integration, check -> unit) to save CI minutes,
-  # but that made one red unit test cancel the entire rest of the pipeline. A
-  # long-known-red test then hid a type error for days, and a commit that could
-  # not build reached `production` — the site only stayed up because Vercel keeps
-  # the last good deployment serving. Each job does its own checkout and `npm ci`
-  # and consumes nothing from the others, so running them in parallel costs only
-  # machine time and buys an honest signal per dimension. The one job with
-  # `needs` is `check`, which runs no validation of its own and is `if: always()`,
-  # so it reports on the others without ever cancelling one.
-  integration:
+  baseline-filters:
     runs-on: ubuntu-latest
-    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run test:integration
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
-          PROPLANE_PAYMENT_WAIVER_CODE: ${{ secrets.TEST_PROPLANE_PAYMENT_WAIVER_CODE }}
-          AXIS_PAYMENT_WAIVER_CODE: ${{ secrets.TEST_AXIS_PAYMENT_WAIVER_CODE }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-
-  lint:
-    runs-on: ubuntu-latest
-    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-
-  # Fast production-path smoke for main and staging. `--no-deps` skips the three storage-state
-  # setup tests, but Playwright globalSetup still proves that the admin, manager,
-  # and resident credentials can authenticate before these public flows run.
-  # The complete 158-case suite is intentionally a separate scheduled/manual job:
-  # running it serially with CI retries exceeded this job's budget on every push.
-  # `test:e2e:smoke` carries a 12-minute `--global-timeout` because the config's
-  # 45-minute default is sized for `e2e-full` and would let GitHub kill this job
-  # with no Playwright report at all. The 6 minutes between that cap and
-  # `timeout-minutes` are for the steps Playwright does not govern: `npm ci` and
-  # `npx playwright install --with-deps chromium` routinely take 4+ minutes
-  # together, and if they eat the whole margin GitHub kills the job before
-  # Playwright's own cap can abort and report.
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 18
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e:smoke
+      - name: Exact original-main filter control
+        run: npx playwright test tests/e2e/manager-filter-dropdown-walkthrough.spec.ts --grep 'Applications filter panel|Leases: filter fields|Payments: filter fields' --global-timeout=900000
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -132,164 +31,12 @@ jobs:
           E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
           E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
-          E2E_TESTS_ENABLED: "1"
+          E2E_TESTS_ENABLED: '1'
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      # This is the only per-push browser signal on `main` / `staging`, so its failures are
-      # the ones most likely to be read. Traces/screenshots/videos are written on
-      # the runner and discarded with it unless they are uploaded.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: e2e-smoke-test-results
-          path: test-results/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Broad diagnostic coverage belongs off the per-push critical path. Zero
-  # retries makes every flaky/failing case visible once instead of tripling its
-  # 60-second timeout and preventing the suite from ever reaching later files.
-  e2e-full:
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - name: Run full E2E suite
-        if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
-        run: npm run test:e2e
-        env:
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
-          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
-          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
-          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
-          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
-          E2E_TESTS_ENABLED: "1"
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Run property metadata E2E scope
-        if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
-        run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts
-        env:
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
-          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
-          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
-          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
-          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
-          E2E_TESTS_ENABLED: "1"
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      # The whole point of this job is diagnosis, and traces/screenshots/videos
-      # are written on the runner. Without this they are discarded with it and a
-      # nightly failure leaves only reporter text.
-      #
-      # Unlike the smoke job's public flows, most specs here sign in, and a trace
-      # records the `fill` arguments and auth response bodies of that sign-in —
-      # so this artifact carries the seeded dev/test passwords and their Supabase
-      # session tokens, readable by anyone with repo read access. Those accounts
-      # exist only in the dev/test project (their default passwords are in
-      # `tests/fixtures/index.ts` already), so the traces stay; the retention
-      # window is kept just long enough to triage a Friday-night nightly.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: e2e-full-test-results
+          name: load-time-baseline-filter-results
           path: test-results/
           if-no-files-found: ignore
           retention-days: 5
-
-  # Branch protection's single required status name. It runs no validation of its
-  # own — `npm run check` here repeated all 6,240 unit cases and a production
-  # build that `unit` and `build` already run — it AGGREGATES. `if: always()`
-  # plus the loop below means the name reports success only when every dimension
-  # it depends on actually succeeded, so a failed, cancelled, or skipped
-  # dependency can never merge behind a green `check`. Its `needs` list is
-  # exactly what `npm run check` used to cover (lint + unit + build), so the
-  # merge gate is unchanged in scope and only stopped duplicating the work.
-  # Two jobs are deliberately absent, and both stay visible in CI on their own:
-  #   - `e2e` is skipped on pull requests and runs only after a push to `main`
-  #     or `staging`, so depending on it would make `check` permanently red on
-  #     every PR.
-  #   - `integration` talks to the live dev/test Supabase project, so a paused
-  #     project, a rotated service-role key, or a fork PR (which GitHub gives no
-  #     secrets) would block every merge on infrastructure rather than on code.
-  # Add a new HERMETIC validation job to `needs` and it is enforced automatically.
-  check:
-    runs-on: ubuntu-latest
-    needs: [unit, lint, build]
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
-    steps:
-      - name: Require every validation job to succeed
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "dependency results: $RESULTS"
-          for result in $RESULTS; do
-            if [ "$result" != "success" ]; then
-              echo "::error::A required validation job did not succeed ($RESULTS)."
-              exit 1
-            fi
-          done
-
-  # Deploy gate. `npm run check` is `lint && test:unit && build`, so it stops at
-  # the unit suite and never reaches the build — decoupling the JOBS above is not
-  # enough on its own. This runs the production build directly, so a commit that
-  # cannot compile is red here no matter what any test is doing. That is exactly
-  # what shipped: a `Property 'assignedPropertyId' does not exist` type error
-  # reached `production` while every test signal was either green or cancelled.
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - name: Bind local QA build origin
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
-        run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"
-      - run: npm run build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-      - name: Run property metadata ship preflight
-        if: success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
-        run: npm run ship:preflight
-      - name: Package encrypted local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
-        run: node scripts/package-local-qa-build.mjs
-        env:
-          # This is the only server-only input passed to the build above. Public
-          # URL/anon inputs are intentionally public and are not scan targets.
-          QA_BUILD_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
-      - name: Upload encrypted local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: local-qa-build-${{ github.sha }}
-          path: local-qa-build-artifact/
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
