@@ -1,0 +1,54 @@
+{
+  "queried_at_utc": "2026-09-28T03:29\u201303:32Z",
+  "branch": "codex/load-time-diagnosis",
+  "production_hosts": [
+    "proplane.ai",
+    "www.proplane.ai"
+  ],
+  "window": "rolling 7 days",
+  "corrected_navigation_path_device": {
+    "content": [
+      {
+        "type": "text",
+        "text": "measured_path|device|n|metric_ids|p75_ms|p50_ms\n/|Desktop|49|49|1828.0|1228.0\n/auth/sign-in|Mobile|33|33|9844.0|1343.0\n/portal/dashboard|Desktop|17|17|6480.0|5056.0\n/portal/dashboard|Mobile|9|9|3978.0|3517.0\n/auth/sign-in|Desktop|7|7|1392.0|288.0\n/portal/profile|Desktop|7|7|3559.5|2536.0\n/resident/applications/apply|Desktop|5|5|3292.0|3152.0\n/invite/[redacted]|Desktop|4|4|1775.0|1458.0\n/portal/properties/all|Desktop|3|3|2594.0|1936.0\n/rent/listings/mgr-listing-9ro7w0vhpkk9|Mobile|3|3|2876.0|2264.0000000000005\n/rent/browse|Mobile|2|2|592.25|535.5\n/|Mobile|2|2|20161.0|13654.0\n/rent/tours-contact|Mobile|2|2|3454.25|2801.5\n/portal/communication/active|Desktop|2|2|13813.0|12670.0\n/portal/calendar|Desktop|2|2|5471.0|4650.0\n/resident/applications/pending/PROPLANE-8965CAD2|Desktop|1|1|3048.0|3048.0\n/rent/listings/mgr-listing-9ro7w0vhpkk9|Desktop|1|1|448.0|448.0\n/rent/apply|Desktop|1|1|488.0|488.0\n/portal/properties/all/mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg/bookings|Desktop|1|1|2648.0|2648.0\n/why-proplane|Mobile|1|1|798.0|798.0\n/rent/listings/mgr-listing-1x3tiu0489ha|Mobile|1|1|1769.0000000000002|1769.0000000000002\n/rent/listings/mgr-kasliwal-home-4-rooms-dt36mx|Desktop|1|1|2920.0|2920.0\n/resident/dashboard|Desktop|1|1|8528.0|8528.0\n/admin/dashboard|Desktop|1|1|2724.0|2724.0\n/resident/dashboard|Mobile|1|1|3057.0|3057.0"
+      }
+    ]
+  },
+  "sign_in_browser": {
+    "content": [
+      {
+        "type": "text",
+        "text": "browser|os|device|n|p75_ms|above8s\nMobile Safari|iOS|Mobile|23|11309.5|14\nChrome iOS|iOS|Mobile|10|1064.25|0\nChrome|Mac OS X|Desktop|6|678.0|0\nChrome|Chrome OS|Desktop|1|2716.0|0"
+      }
+    ]
+  },
+  "normalized_attribution": {
+    "content": [
+      {
+        "type": "text",
+        "text": "n|missing|different_paths\n172|8|52"
+      }
+    ]
+  },
+  "timing_property_coverage": {
+    "content": [
+      {
+        "type": "text",
+        "text": "relevant_keys\n['$web_vitals_LCP_event', '$web_vitals_LCP_value', '$web_vitals_allowed_metrics', '$web_vitals_enabled_server_side', '$web_vitals_FCP_event', '$web_vitals_FCP_value', '$web_vitals_CLS_event', '$web_vitals_CLS_value', '$web_vitals_INP_event', '$web_vitals_INP_value']"
+      }
+    ]
+  },
+  "dashboard_daily": {
+    "content": [
+      {
+        "type": "text",
+        "text": "day|n|p75_ms\n2026-09-24|13|7376.0\n2026-09-25|4|2907.5\n2026-09-26|7|4812.0\n2026-09-27|2|4041.25"
+      }
+    ]
+  },
+  "scope_note": "All retained analytics results filter canonical production hosts only. Unfiltered discovery counts appear solely as a clearly labeled measurement-contamination finding in the HTML report.",
+  "queries": {
+    "corrected_lcp": "SELECT replaceRegexpOne(replaceRegexpOne(toString(properties.$web_vitals_LCP_event.navigationURL),'^https?://[^/]+',''),'[?#].*$','') AS measured_path, properties.$device_type AS device, count() AS n, uniq(properties.$web_vitals_LCP_event.id) AS metric_ids, quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)) AS p75_ms, quantile(0.5)(toFloat(properties.$web_vitals_LCP_value)) AS p50_ms FROM events WHERE timestamp >= now()-INTERVAL 7 DAY AND event='$web_vitals' AND properties.$host IN ('proplane.ai','www.proplane.ai') AND properties.$web_vitals_LCP_value IS NOT NULL AND properties.$web_vitals_LCP_event.navigationURL IS NOT NULL GROUP BY measured_path,device ORDER BY n DESC LIMIT 25",
+    "sign_in_browser": "SELECT properties.$browser AS browser, properties.$os AS os, properties.$device_type AS device, count() AS n, quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)) AS p75_ms, countIf(toFloat(properties.$web_vitals_LCP_value)>8000) AS above8s FROM events WHERE timestamp >= now()-INTERVAL 7 DAY AND event='$web_vitals' AND properties.$host='proplane.ai' AND properties.$web_vitals_LCP_value IS NOT NULL AND properties.$web_vitals_LCP_event.navigationURL LIKE 'https://proplane.ai/auth/sign-in%' GROUP BY browser,os,device ORDER BY n DESC"
+  }
+}
