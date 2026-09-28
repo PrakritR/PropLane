@@ -45,8 +45,10 @@ export const getProPortalRenderContext = cache(async () => {
   const effectiveUserId = await getEffectiveUserIdForPortal("manager");
   if (!effectiveUserId) redirect("/admin/dashboard");
 
-  const purchase = await getManagerPurchaseSku(effectiveUserId);
   const subscriptionTier = await getManagerPortalNavSubscriptionTier(effectiveUserId);
+  // Read the display snapshot after authoritative provider reconciliation. The
+  // request-scoped purchase cache must not be primed with a stale row first.
+  const purchase = await getManagerPurchaseSku(effectiveUserId);
   const portalTitle = paidWorkspacePortalTitle(purchase.tier, purchase.stripeSubscriptionId);
   const isFree = isManagerFreePlan(subscriptionTier);
 

@@ -46,6 +46,7 @@ type ApplicationRecord = {
   row_data: unknown;
   updated_at?: string | null;
   resident_email?: string | null;
+  manager_user_id?: string | null;
 };
 
 /**
@@ -70,6 +71,7 @@ type OwnedApplication = {
   stage: string | null;
   property: string | null;
   updatedAt: string;
+  managerUserId: string | null;
 };
 
 /**
@@ -115,6 +117,7 @@ function readOwnedApplications(
         stage: typeof row.stage === "string" ? row.stage.trim() || null : null,
         property: typeof row.property === "string" ? row.property.trim() || null : null,
         updatedAt: typeof record.updated_at === "string" ? record.updated_at : "",
+        managerUserId: typeof record.manager_user_id === "string" ? record.manager_user_id.trim() || null : null,
       },
     ];
   });
@@ -244,10 +247,15 @@ const loadResidentPortalAccessStateCached = cache(
 
     let applicationQuery = db
       .from("manager_application_records")
-      .select("row_data, updated_at, resident_email")
+      .select("row_data, updated_at, resident_email, manager_user_id")
       .eq("resident_email", email);
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
-    const { data: applicationRows } = await applicationQuery.order("updated_at", { ascending: false });
+    const [applicationResult, leaseSigned, hasTourLink] = await Promise.all([
+      applicationQuery.order("updated_at", { ascending: false }),
+      loadResidentLeaseSignedStatus(email, managerUserId ?? undefined),
+      userId ? residentHasTourLinks(db, userId, email) : Promise.resolve(false),
+    ]);
+    const applicationRows = applicationResult.data;
 
     const allRows = applicationRows ?? [];
     const isBookingResidency = allRows.some(isBookingResidencyRecord);
@@ -309,7 +317,6 @@ const loadResidentPortalAccessStateCached = cache(
       }
     }
 
-    const leaseSigned = await loadResidentLeaseSignedStatus(email, managerUserId ?? undefined);
     // A tenant onboarded from a paper lease has no signed document and is still
     // a tenant. `leaseSigned` stays honest about the document; access keys on
     // either (PRP-239).
@@ -317,10 +324,6 @@ const loadResidentPortalAccessStateCached = cache(
       ? false
       : await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined);
     const leaseAccessUnlocked = leaseSigned || attestedTenancy;
-    let hasTourLink = false;
-    if (userId) {
-      hasTourLink = await residentHasTourLinks(db, userId, email);
-    }
     // A brand-new lease-first signup (Part 3 hotfix, defect 4) has no
     // application and no tour, so without this lookup they would resolve to
     // no manager at all and stay locked out of the exact lease their invite
@@ -338,21 +341,8 @@ const loadResidentPortalAccessStateCached = cache(
     const pipelineManagerId =
       managerUserId ??
       leaseFirstDraft?.managerUserId ??
-      (await (async () => {
-        if (!userId) return null;
-        const { data: profile } = await db.from("profiles").select("manager_id").eq("id", userId).maybeSingle();
-        // Prefer a real owner id from an owned application row when available.
-        const { data: owned } = await db
-          .from("manager_application_records")
-          .select("manager_user_id")
-          .eq("resident_email", email)
-          .limit(1)
-          .maybeSingle();
-        const fromApp = typeof owned?.manager_user_id === "string" ? owned.manager_user_id.trim() : "";
-        if (fromApp) return fromApp;
-        void profile;
-        return null;
-      })());
+      ownedApplications.find((application) => application.managerUserId)?.managerUserId ??
+      null;
     if (pipelineManagerId) {
       try {
         const pipeline = await loadLeasingPipeline(db, pipelineManagerId);
