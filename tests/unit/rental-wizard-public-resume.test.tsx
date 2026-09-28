@@ -507,6 +507,8 @@ describe("Stripe return verification recovery", () => {
   }
 
   function expectNoDraftWrites() {
+    // A paused return must not schedule a write that teardown would later drain.
+    expect(queuedApplicationIds.size).toBe(0);
     expect(fetchCalls.filter((call) => call.url.includes("/api/manager-applications") && call.body)).toEqual([]);
     expect(loadRentalWizardDraft()).toBeNull();
     expect(searchParams.get("fee_checkout")).toBe("return");
