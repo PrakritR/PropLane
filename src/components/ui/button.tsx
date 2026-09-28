@@ -4,6 +4,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode, Ref } from "react";
 import { track } from "@/lib/analytics/track-client";
+import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "outline" | "metallic";
 
@@ -39,6 +40,21 @@ function ButtonSpinner() {
     >
       <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
       <path d="M14.5 8A6.5 6.5 0 0 0 8 1.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** M003 — the brief post-save check, drawn in (not crossfaded in) so it reads as a completion, not a re-label. */
+function ButtonSuccessCheck() {
+  return (
+    <svg
+      className="h-4 w-4 shrink-0"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      data-testid="button-success-check"
+    >
+      <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -118,6 +134,12 @@ export function Button({
   const Comp = asChild ? Slot : "button";
 
   const [pending, setPending] = useState(false);
+  // M003 — a brief post-save check, purely decorative: never read by the
+  // guard logic above or below. Kept as its OWN state (not derived from
+  // `pending`) so clearing it can never re-disable or re-block the button —
+  // `isDisabled` below intentionally does not consult this.
+  const [successFlash, setSuccessFlash] = useState(false);
+  const reducedMotion = useReducedMotion();
   // Guards the handler itself. State lands a render later, so a second click in
   // the same tick would slip past `pending` alone — this ref closes that window,
   // which is precisely the double-submit case that matters on the money paths.
@@ -161,12 +183,26 @@ export function Button({
       // uncaught error would be a louder regression than the one being fixed.
       // Call sites that need user-visible failure handling should catch and
       // surface it themselves, as the money paths already do.
-      void Promise.resolve(result).then(settle, (error: unknown) => {
-        settle();
-        console.error("Button action failed", error);
-      });
+      void Promise.resolve(result).then(
+        () => {
+          settle();
+          // Success only — a rejection never gets the check. Skipped entirely
+          // under reduced motion and for `asChild` (Slot demands exactly one
+          // child, so there's no face-stack to flash there).
+          if (mounted.current && !reducedMotion && !asChild) {
+            setSuccessFlash(true);
+            setTimeout(() => {
+              if (mounted.current) setSuccessFlash(false);
+            }, 900);
+          }
+        },
+        (error: unknown) => {
+          settle();
+          console.error("Button action failed", error);
+        },
+      );
     },
-    [disabled, event, eventProps, loading, onClick],
+    [asChild, disabled, event, eventProps, loading, onClick, reducedMotion],
   );
 
   return (
@@ -195,11 +231,25 @@ export function Button({
       */}
       {asChild ? (
         children
-      ) : (
-        <>
-          {isLoading ? <ButtonSpinner /> : null}
+      ) : isLoading ? (
+        // M003 — the pending face fades/rises in on mount (`motion-face-in`,
+        // tokens.css) rather than popping in, purely decorative on top of
+        // (never instead of) the double-submit guard above. Only one face is
+        // ever actually mounted at a time (never a `pending` + `success`
+        // pair coexisting off-screen) so `button-spinner` genuinely leaves
+        // the DOM the instant `isLoading` clears — the guard's own contract
+        // (`queryByTestId("button-spinner")` is `null` at rest) is unchanged.
+        <span className="motion-face-in inline-flex items-center gap-2">
+          <ButtonSpinner />
           {children}
-        </>
+        </span>
+      ) : successFlash ? (
+        <span className="motion-face-in inline-flex items-center gap-2">
+          <ButtonSuccessCheck />
+          {children}
+        </span>
+      ) : (
+        children
       )}
     </Comp>
   );

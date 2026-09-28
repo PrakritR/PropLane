@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "../components/ui/motion/tokens.css";
 
 /*
  * PropLane brand palette — four families only:
