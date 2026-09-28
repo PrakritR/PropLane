@@ -1,0 +1,199 @@
+{
+  "host": "staging-prop-lane.space",
+  "captured_at_utc": "2026-09-28T05:48:15.427562+00:00",
+  "kind": "synthetic staging HTTP auth/role/empty-state checks, not SPA/native timings",
+  "checks": [
+    {
+      "label": "unauthenticated manager guard",
+      "route": "/api/manager-documents/expiration-summary",
+      "status": 401,
+      "ttfb_seconds": 0.807,
+      "bytes": 25,
+      "top_level_keys": [
+        "error"
+      ],
+      "array_counts": {}
+    },
+    {
+      "label": "manager dashboard",
+      "route": "/portal/dashboard",
+      "status": 200,
+      "ttfb_seconds": 1.211,
+      "bytes": 146472
+    },
+    {
+      "label": "manager empty applications",
+      "route": "/api/manager-applications",
+      "status": 200,
+      "ttfb_seconds": 4.48,
+      "bytes": 11,
+      "top_level_keys": [
+        "rows"
+      ],
+      "array_counts": {
+        "rows": 0
+      }
+    },
+    {
+      "label": "manager to resident",
+      "route": "/api/auth/set-active-portal",
+      "status": 200,
+      "ttfb_seconds": 0.598,
+      "bytes": 11,
+      "active_portal_httponly": true,
+      "top_level_keys": [
+        "ok"
+      ],
+      "array_counts": {}
+    },
+    {
+      "label": "manager resident dashboard",
+      "route": "/resident/dashboard",
+      "status": 200,
+      "ttfb_seconds": 0.412,
+      "bytes": 120534
+    },
+    {
+      "label": "manager self applications",
+      "route": "/api/manager-applications?scope=self",
+      "status": 200,
+      "ttfb_seconds": 0.732,
+      "bytes": 11,
+      "top_level_keys": [
+        "rows"
+      ],
+      "array_counts": {
+        "rows": 0
+      }
+    },
+    {
+      "label": "manager resident tours",
+      "route": "/api/portal-resident-tours",
+      "status": 200,
+      "ttfb_seconds": 1.149,
+      "bytes": 12,
+      "top_level_keys": [
+        "tours"
+      ],
+      "array_counts": {
+        "tours": 0
+      }
+    },
+    {
+      "label": "manager services",
+      "route": "/api/portal-service-requests",
+      "status": 200,
+      "ttfb_seconds": 1.358,
+      "bytes": 11,
+      "top_level_keys": [
+        "rows"
+      ],
+      "array_counts": {
+        "rows": 0
+      }
+    },
+    {
+      "label": "resident to manager",
+      "route": "/api/auth/set-active-portal",
+      "status": 200,
+      "ttfb_seconds": 0.611,
+      "bytes": 11,
+      "active_portal_httponly": true,
+      "top_level_keys": [
+        "ok"
+      ],
+      "array_counts": {}
+    },
+    {
+      "label": "return manager dashboard",
+      "route": "/portal/dashboard",
+      "status": 200,
+      "ttfb_seconds": 0.284,
+      "bytes": 146472
+    },
+    {
+      "label": "resident resident dashboard",
+      "route": "/resident/dashboard",
+      "status": 200,
+      "ttfb_seconds": 0.433,
+      "bytes": 120537
+    },
+    {
+      "label": "resident self applications",
+      "route": "/api/manager-applications?scope=self",
+      "status": 200,
+      "ttfb_seconds": 0.755,
+      "bytes": 11,
+      "top_level_keys": [
+        "rows"
+      ],
+      "array_counts": {
+        "rows": 0
+      }
+    },
+    {
+      "label": "resident resident tours",
+      "route": "/api/portal-resident-tours",
+      "status": 200,
+      "ttfb_seconds": 2.005,
+      "bytes": 12,
+      "top_level_keys": [
+        "tours"
+      ],
+      "array_counts": {
+        "tours": 0
+      }
+    },
+    {
+      "label": "resident services",
+      "route": "/api/portal-service-requests",
+      "status": 200,
+      "ttfb_seconds": 1.271,
+      "bytes": 11,
+      "top_level_keys": [
+        "rows"
+      ],
+      "array_counts": {
+        "rows": 0
+      }
+    },
+    {
+      "label": "unsigned resident services guard",
+      "route": "/resident/services",
+      "status": 200,
+      "ttfb_seconds": 0.303,
+      "bytes": 106901
+    },
+    {
+      "label": "unsigned resident my-home guard",
+      "route": "/resident/move-in",
+      "status": 307,
+      "ttfb_seconds": 0.077,
+      "bytes": 15,
+      "redirect_path": "/resident/move-in/placement"
+    },
+    {
+      "label": "resident forbidden manager financials",
+      "route": "/api/manager-documents/expiration-summary",
+      "status": 403,
+      "ttfb_seconds": 0.667,
+      "bytes": 22,
+      "top_level_keys": [
+        "error"
+      ],
+      "array_counts": {}
+    },
+    {
+      "label": "resident forbidden manager role switch",
+      "route": "/api/auth/set-active-portal",
+      "status": 403,
+      "ttfb_seconds": 0.495,
+      "bytes": 50,
+      "active_portal_httponly": false,
+      "top_level_keys": [
+        "error"
+      ],
+      "array_counts": {}
+    }
+  ]
+}

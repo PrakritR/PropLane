@@ -1,0 +1,16 @@
+{
+  "checked_at_utc": "2026-09-28 05:55:24 UTC",
+  "project": 492655,
+  "hosts": [
+    "proplane.ai",
+    "www.proplane.ai"
+  ],
+  "deployment_ready_utc": "2026-09-28T05:53:06.321Z",
+  "since_utc": "2026-09-28 05:53:07",
+  "kind": "One-off post-release sample availability, not a saved metric or measured speedup; old open clients may still report older code",
+  "query": "SELECT count() AS canonical_lcp_events_since_release\nFROM events\nWHERE timestamp >= toDateTime('2026-09-28 05:53:07')\n  AND event = '$web_vitals'\n  AND properties.$host IN ('proplane.ai', 'www.proplane.ai')\n  AND properties.$web_vitals_LCP_value IS NOT NULL",
+  "result": [
+    "canonical_lcp_events_since_release\n0"
+  ],
+  "new_event_taxonomy_verification": "Connector lacks action:read scope; new event ingestion not verified through taxonomy endpoint"
+}

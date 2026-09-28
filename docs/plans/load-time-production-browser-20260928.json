@@ -1,0 +1,19 @@
+{
+  "host": "proplane.ai",
+  "route": "/auth/sign-in",
+  "captured_at_utc": "2026-09-28T05:57:18Z",
+  "browser": "headless Chrome, fresh task-owned session",
+  "kind": "one desktop production browser spot check; not controlled benchmarking or native timing",
+  "ttfb_ms": 95.3,
+  "fcp_ms": 524,
+  "dom_content_loaded_ms": 466.1,
+  "script_resource_entries_at_inspection": 42,
+  "snapshot_assertions": [
+    "Email textbox",
+    "Password textbox",
+    "Sign in button",
+    "Apple and Google buttons"
+  ],
+  "resource_limit": "Memory pressure rose from1to2 after open; only initial sample retained, session closed immediately, PID1572 exit verified",
+  "comparison_limit": "Earlier desktop baseline TTFB206ms/FCP640ms is not a controlled before/after experiment; no causal improvement claimed"
+}

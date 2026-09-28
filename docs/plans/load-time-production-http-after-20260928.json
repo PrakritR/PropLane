@@ -1,0 +1,292 @@
+{
+  "host": "proplane.ai",
+  "route": "/auth/sign-in",
+  "captured_at_utc": "2026-09-28T05:53:57.833564+00:00",
+  "kind": "HTTP inventory, not browser or native rendering timing",
+  "samples": [
+    {
+      "status": 200,
+      "ttfb_seconds": 1.220358,
+      "total_seconds": 1.233664,
+      "wire_bytes": 5615,
+      "decoded_bytes": 39770
+    },
+    {
+      "status": 200,
+      "ttfb_seconds": 2.013039,
+      "total_seconds": 2.014526,
+      "wire_bytes": 5615,
+      "decoded_bytes": 39770
+    },
+    {
+      "status": 200,
+      "ttfb_seconds": 0.22985,
+      "total_seconds": 0.232651,
+      "wire_bytes": 5615,
+      "decoded_bytes": 39770
+    },
+    {
+      "status": 200,
+      "ttfb_seconds": 0.196639,
+      "total_seconds": 0.198852,
+      "wire_bytes": 5615,
+      "decoded_bytes": 39770
+    },
+    {
+      "status": 200,
+      "ttfb_seconds": 0.165006,
+      "total_seconds": 0.167263,
+      "wire_bytes": 5615,
+      "decoded_bytes": 39770
+    }
+  ],
+  "script_inventory": {
+    "count": 27,
+    "wire_bytes": 1031739,
+    "decoded_bytes": 3266811,
+    "assets": [
+      {
+        "path": "/_next/static/immutable/chunks/1ezyzgky1ns0o.js",
+        "wire_bytes": 8431,
+        "decoded_bytes": 31423,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/2wuesy-xajv43.js",
+        "wire_bytes": 72523,
+        "decoded_bytes": 229089,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1_xz6gvi56rf9.js",
+        "wire_bytes": 43483,
+        "decoded_bytes": 156228,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1fir8eopwy87c.js",
+        "wire_bytes": 69071,
+        "decoded_bytes": 209797,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/turbopack-2201n6sfnaj39.js",
+        "wire_bytes": 4337,
+        "decoded_bytes": 11030,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/11fhhajahc7cf.js",
+        "wire_bytes": 4089,
+        "decoded_bytes": 15736,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/31rzrsafijs90.js",
+        "wire_bytes": 10567,
+        "decoded_bytes": 31492,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/3ndirvqoszqo1.js",
+        "wire_bytes": 4222,
+        "decoded_bytes": 17048,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1djawh9sna_kg.js",
+        "wire_bytes": 125454,
+        "decoded_bytes": 414851,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/23vro698i2fyq.js",
+        "wire_bytes": 8317,
+        "decoded_bytes": 24227,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/06s5gnkryw87r.js",
+        "wire_bytes": 12472,
+        "decoded_bytes": 36430,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0xz4n3uf-n0ny.js",
+        "wire_bytes": 8634,
+        "decoded_bytes": 27439,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1ic01tf77ata8.js",
+        "wire_bytes": 332345,
+        "decoded_bytes": 974943,
+        "pdf_symbols": true,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/43wbiiejm81xo.js",
+        "wire_bytes": 80602,
+        "decoded_bytes": 268446,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1u5r4s4kts7es.js",
+        "wire_bytes": 55411,
+        "decoded_bytes": 208593,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0i7tvay8hsm-g.js",
+        "wire_bytes": 9929,
+        "decoded_bytes": 31136,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/093cuq47k72h4.js",
+        "wire_bytes": 50763,
+        "decoded_bytes": 177746,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1vbuu466hnzlr.js",
+        "wire_bytes": 16673,
+        "decoded_bytes": 49498,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/31_xzr2_wq_6m.js",
+        "wire_bytes": 28857,
+        "decoded_bytes": 103833,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1i_8p1q-a9t1n.js",
+        "wire_bytes": 15060,
+        "decoded_bytes": 44706,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": true,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/2l-qzyhtl0a0c.js",
+        "wire_bytes": 995,
+        "decoded_bytes": 995,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1wkutue27emt0.js",
+        "wire_bytes": 6088,
+        "decoded_bytes": 18378,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0-u91_kj4y0wh.js",
+        "wire_bytes": 6701,
+        "decoded_bytes": 21830,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/1udgdi5usk0-3.js",
+        "wire_bytes": 10992,
+        "decoded_bytes": 30708,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/28cq_u1ndp1-_.js",
+        "wire_bytes": 1137,
+        "decoded_bytes": 2570,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/0c0hxoamwjsbw.js",
+        "wire_bytes": 39797,
+        "decoded_bytes": 112594,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": false
+      },
+      {
+        "path": "/_next/static/immutable/chunks/2oz2phqnvkfp1.js",
+        "wire_bytes": 4789,
+        "decoded_bytes": 16045,
+        "pdf_symbols": false,
+        "navigation_timing_symbol": false,
+        "runtime_dimension_symbol": true
+      }
+    ]
+  },
+  "subsequent_document_samples": {
+    "captured_at_utc": "2026-09-28T05:54:19.105205+00:00",
+    "label": "five additional document requests after initial post-deployment inventory; not native/browser timings",
+    "samples": [
+      {
+        "status": 200,
+        "ttfb_seconds": 0.816569
+      },
+      {
+        "status": 200,
+        "ttfb_seconds": 0.163231
+      },
+      {
+        "status": 200,
+        "ttfb_seconds": 0.162113
+      },
+      {
+        "status": 200,
+        "ttfb_seconds": 0.168619
+      },
+      {
+        "status": 200,
+        "ttfb_seconds": 0.182651
+      }
+    ]
+  }
+}
