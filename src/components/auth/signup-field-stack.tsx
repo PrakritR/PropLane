@@ -82,6 +82,7 @@ export function SignupFieldStack({
         onChange={(e) => onChange({ password: e.target.value })}
         disabled={disabled}
         onKeyDown={enterSubmits}
+        showStrength
       />
     </>
   );

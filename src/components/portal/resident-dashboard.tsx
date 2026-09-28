@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { SlidersHorizontal } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -43,7 +43,6 @@ import {
 import {
   MANAGER_APPLICATIONS_EVENT,
   readManagerApplicationRows,
-  syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { applicationsForResidentEmail } from "@/lib/rental-application/application-policy";
@@ -60,7 +59,6 @@ import {
 import {
   readServiceRequestsForResident,
   SERVICE_REQUESTS_EVENT,
-  syncServiceRequestsFromServer,
 } from "@/lib/service-requests-storage";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -79,10 +77,17 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 import {
+  loadResidentToursForViewer,
+  RESIDENT_TOURS_CHANGED_EVENT,
+  residentToursViewerKey,
+} from "@/lib/resident-tour-sync-client";
+import {
   residentJourneySteps,
   resolveResidentJourneyNextAction,
   type ResidentJourneyStep,
 } from "@/lib/resident-journey-timeline";
+
+import { refreshResidentDashboardApplications, refreshResidentDashboardServices } from "@/lib/resident-dashboard-sync-client";
 
 const BASE = "/resident";
 
@@ -515,9 +520,16 @@ export function ResidentDashboard({
   const [appRoom, setAppRoom] = useState<string | null>(null);
 
   const [tick, setTick] = useState(0);
-  const bump = () => setTick((n) => n + 1);
   const [clientReady, setClientReady] = useState(false);
-  const [tours, setTours] = useState<ResidentTourView[]>([]);
+  const [tourState, setTourState] = useState<{ viewerKey: string; tours: ResidentTourView[] }>({
+    viewerKey: "",
+    tours: [],
+  });
+  const tourViewerKey = residentToursViewerKey(userId ?? "", email ?? "");
+  const tours = useMemo(
+    () => (tourState.viewerKey === tourViewerKey ? tourState.tours : []),
+    [tourState, tourViewerKey],
+  );
   // The body below is almost entirely `condition ? <Card/> : null` — with no
   // loading gate at all it used to render a fully blank page (no skeleton,
   // no cards) until the client mount tick and the portal session both
@@ -529,35 +541,38 @@ export function ResidentDashboard({
   }, []);
 
   useEffect(() => {
-    if (!clientReady || !email) return;
+    if (!clientReady || !email || !userId) return;
     // `/demo`'s Tours row isn't part of the seeded Seattle Homes resident
     // story (Dana Reyes is already leased) — never fetch this auth-gated
     // route from the sandbox; `tours` already defaults to `[]`.
     if (isDemoModeActive()) return;
     let alive = true;
-    void (async () => {
-      try {
-        const res = await fetch("/api/portal-resident-tours", { credentials: "include" });
-        const data = (await res.json().catch(() => ({}))) as { tours?: ResidentTourView[] };
-        if (!res.ok || !alive) return;
-        setTours(sortResidentTourViews(Array.isArray(data.tours) ? data.tours : []));
-      } catch {
-        if (alive) setTours([]);
-      }
-    })();
+    const refresh = (force = false) => {
+      void loadResidentToursForViewer(userId, email, force).then((rows) => {
+        if (alive && rows) {
+          setTourState({ viewerKey: tourViewerKey, tours: sortResidentTourViews(rows) });
+        }
+      });
+    };
+    const refreshAfterWrite = () => refresh(true);
+    const refreshOnFocus = () => refresh();
+    refresh();
+    window.addEventListener(RESIDENT_TOURS_CHANGED_EVENT, refreshAfterWrite);
+    window.addEventListener("focus", refreshOnFocus);
     return () => {
       alive = false;
+      window.removeEventListener(RESIDENT_TOURS_CHANGED_EVENT, refreshAfterWrite);
+      window.removeEventListener("focus", refreshOnFocus);
     };
-  }, [clientReady, email, tick]);
+  }, [clientReady, email, tourViewerKey, userId]);
 
   useEffect(() => {
     if (!session.ready || !userId) return;
     const bump = () => setTick((n) => n + 1);
     void Promise.allSettled([
-      syncManagerApplicationsFromServer({ force: true, selfScope: true }),
       syncLeasePipelineFromServer(),
       syncManagerWorkOrdersFromServer(),
-      syncServiceRequestsFromServer({ force: true }),
+      refreshResidentDashboardServices(userId),
       syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY),
       syncHouseholdChargesFromServer(false, { skipReconcile: true }),
     ]).then(bump);
@@ -581,6 +596,7 @@ export function ResidentDashboard({
     };
   }, [session.ready, userId]);
 
+  const applicationMountRead = useRef("");
   useEffect(() => {
     let alive = true;
     const apply = () => {
@@ -626,7 +642,11 @@ export function ResidentDashboard({
         alive = false;
       };
     }
-    void syncManagerApplicationsFromServer({ force: true, selfScope: true }).then(() => { if (alive) apply(); });
+    const mountKey = JSON.stringify([userId, email]);
+    if (applicationMountRead.current !== mountKey) {
+      applicationMountRead.current = mountKey;
+      void refreshResidentDashboardApplications(userId).then(() => { if (alive) apply(); });
+    }
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, apply);
     window.addEventListener("storage", apply);
     return () => {

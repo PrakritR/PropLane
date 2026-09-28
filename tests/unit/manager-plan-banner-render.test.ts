@@ -42,6 +42,15 @@ describe("the free-plan banner actually reaches the screen", () => {
     expect(proNav).toContain("isFree &&");
   });
 
+  it("reconciles entitlement before caching the displayed purchase snapshot", () => {
+    const reconcileIndex = proNav.indexOf(
+      "await getManagerPortalNavSubscriptionTier(effectiveUserId)",
+    );
+    const purchaseIndex = proNav.indexOf("await getManagerPurchaseSku(effectiveUserId)");
+    expect(reconcileIndex).toBeGreaterThan(-1);
+    expect(purchaseIndex).toBeGreaterThan(reconcileIndex);
+  });
+
   it("routes to the place they can actually pay", () => {
     expect(banner).toContain("MANAGER_PLAN_PORTAL_URL");
     expect(banner).toContain("Upgrade to Pro or Business");

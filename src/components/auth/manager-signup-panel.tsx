@@ -286,6 +286,7 @@ export function ManagerSignupPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") void createManager();
             }}
+            showStrength
           />
           <PhoneNumberField
             placeholder="Phone number"

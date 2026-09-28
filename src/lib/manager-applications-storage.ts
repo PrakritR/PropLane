@@ -53,11 +53,15 @@ const publicPropertyRefreshRevisions = new Map<string, number>();
 
 let applicationsScopeGeneration = 0;
 let applicationsReadSucceeded = false;
+let applicationsReadScope: "manager" | "self" | null = null;
+let applicationsReadGeneration = 0;
 let applicationWriteGeneration = 0;
 
 function clearSensitiveApplicationCache() {
   const changed = memoryRows.length > 0;
   applicationsReadSucceeded = false;
+  applicationsReadScope = null;
+  applicationsReadGeneration++;
   memoryRows = [];
   applicationsScopeGeneration++;
   managerApplicationsLastSyncedAt = 0;
@@ -828,18 +832,30 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
     managerApplicationsSuccessfulServerSyncAt = 0;
     return { rows: [], ok: false };
   }
+  const readScope = opts?.selfScope ? "self" : "manager";
+  if (applicationsReadScope !== readScope) {
+    // One store remains; freshness and flights from a different authorized
+    // read slice are not interchangeable, even for the same viewer.
+    applicationsReadScope = readScope;
+    applicationsReadGeneration++;
+    applicationsReadSucceeded = false;
+    managerApplicationsSuccessfulServerSyncAt = 0;
+    managerApplicationsSyncPromise = null;
+  }
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
     return { rows: readManagerApplicationRows(), ok: true };
   }
   const generation = applicationsScopeGeneration;
+  const readGeneration = ++applicationsReadGeneration;
+  const isCurrentRead = () => generation === applicationsScopeGeneration && readGeneration === applicationsReadGeneration;
   let currentRequest: Promise<ManagerApplicationsSyncResult> | null = null;
   try {
     currentRequest = (async (): Promise<ManagerApplicationsSyncResult> => {
       const url = opts?.selfScope ? "/api/manager-applications?scope=self" : "/api/manager-applications";
       const res = await fetch(url, { credentials: "include" });
-      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+      if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       notePortalResponse(res.status);
       if (res.status === 401 || res.status === 403) {
         clearQueuedApplicationIdentity();
@@ -859,16 +875,16 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // once immediately (C200): a transient empty response must not fall
       // straight back to a possibly-stale cache with no further attempt.
       let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(res);
-      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+      if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         const retryRes = await fetch(url, { credentials: "include" }).catch(() => null);
-        if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+        if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
           if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(retryRes);
         }
       }
-      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+      if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         applicationsReadSucceeded = false;
         managerApplicationsSuccessfulServerSyncAt = 0;
@@ -887,7 +903,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       if (changed) emit();
       return { rows, ok: true };
     })().catch(() =>
-      generation === applicationsScopeGeneration
+      isCurrentRead()
         ? (applicationsReadSucceeded = false, managerApplicationsSuccessfulServerSyncAt = 0, { rows: readManagerApplicationRows(), ok: false })
         : { rows: [], ok: false, stale: true },
     );

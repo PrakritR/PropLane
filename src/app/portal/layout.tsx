@@ -14,7 +14,6 @@ import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
-import { PublicHomePrefetch } from "@/components/layout/public-home-prefetch";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { assertPropertyPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
@@ -54,7 +53,6 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
       <div className={PORTAL_SHELL_ROOT_CLASS}>
         <WorkspaceProvider>
         <SurfaceThemeDefault theme="light" />
-        <PublicHomePrefetch />
         <PortalDataPrefetch kind="pro" />
         <PortalSessionKeepalive />
         <PortalClientSessionGuard />

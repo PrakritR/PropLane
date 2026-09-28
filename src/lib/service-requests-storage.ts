@@ -1,3 +1,4 @@
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
 import type { WorkAssignee } from "@/lib/work-assignment";
@@ -18,6 +19,8 @@ const KEY = "axis_service_requests_v1";
 // network fetch, matching the other portal sync helpers.
 const SERVICE_REQUESTS_SYNC_TTL_MS = 15_000;
 let serviceRequestsLastSyncedAt = 0;
+let serviceRequestsReadScope = "";
+let serviceRequestsReadGeneration = 0;
 let serviceRequestsSyncPromise: Promise<ServiceRequest[]> | null = null;
 
 export type ServiceRequestStatus = "pending" | "approved" | "denied" | "returned";
@@ -222,29 +225,47 @@ function deleteServiceRequestFromServer(id: string): void {
 }
 
 /** Pull the authoritative server set into the local cache and notify listeners. */
+function serviceRequestsScopeKey(): string {
+  const portal = document.cookie.split(";").map((part) => part.trim())
+    .find((part) => part.startsWith("axis_active_portal=")) ?? "";
+  return JSON.stringify([portalSessionViewerId(), portal]);
+}
+
 export async function syncServiceRequestsFromServer(opts?: { force?: boolean }): Promise<ServiceRequest[]> {
   if (typeof window === "undefined") return [];
   if (isDemoModeActive()) return readAll();
+  const scope = serviceRequestsScopeKey();
+  if (scope !== serviceRequestsReadScope) {
+    serviceRequestsReadScope = scope;
+    serviceRequestsReadGeneration++;
+    serviceRequestsLastSyncedAt = 0;
+    serviceRequestsSyncPromise = null;
+  }
   const force = opts?.force === true;
   if (!force && serviceRequestsSyncPromise) return serviceRequestsSyncPromise;
   if (!force && serviceRequestsLastSyncedAt > 0 && Date.now() - serviceRequestsLastSyncedAt < SERVICE_REQUESTS_SYNC_TTL_MS) {
     return readAll();
   }
+  const generation = ++serviceRequestsReadGeneration;
+  const isCurrentRead = () => generation === serviceRequestsReadGeneration && scope === serviceRequestsScopeKey();
+  let currentRequest: Promise<ServiceRequest[]> | null = null;
   try {
-    serviceRequestsSyncPromise = (async () => {
+    currentRequest = (async () => {
       const res = await fetch("/api/portal-service-requests", { credentials: "include" });
-      if (!res.ok) return readAll();
+      if (!res.ok || !isCurrentRead()) return readAll();
       const body = (await res.json()) as { rows?: ServiceRequest[] };
+      if (!isCurrentRead()) return readAll();
       const rows = Array.isArray(body.rows) ? body.rows : [];
       writeAll(rows);
       serviceRequestsLastSyncedAt = Date.now();
       return rows;
     })().catch(() => readAll());
-    return await serviceRequestsSyncPromise;
+    serviceRequestsSyncPromise = currentRequest;
+    return await currentRequest;
   } catch {
     return readAll();
   } finally {
-    serviceRequestsSyncPromise = null;
+    if (serviceRequestsSyncPromise === currentRequest) serviceRequestsSyncPromise = null;
   }
 }
 

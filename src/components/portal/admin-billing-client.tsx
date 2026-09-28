@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CreditCard } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalSettingsGroup, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
+import { useFlipRows } from "@/components/ui/motion/flip-rows";
+import { SortableTh, SortLiveRegion, type SortDir } from "@/components/ui/motion/sortable-th";
 import type { CommsPlanCreditRule } from "@/lib/comms-billing/pool.server";
 
 const TIER_LABEL: Record<string, string> = { free: "Free", pro: "Pro", business: "Business" };
@@ -24,12 +26,53 @@ type RuleDraft = { includedDollars: string; sharedAcrossWorkspaces: boolean; rol
  * go through the same `/api/admin/comms-plan-credit-rules` route regardless
  * of which surface renders this component.
  */
+type SortKey = "tier" | "included" | "shared" | "rollover";
+
 export function PlanCreditRulesSection() {
   const [rules, setRules] = useState<CommsPlanCreditRule[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
   const [busyTier, setBusyTier] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // M016 — sortable table with row-travel (FLIP). Sorts on the last-SAVED
+  // values (not an in-progress, unsaved keystroke), so a row never jumps out
+  // from under a manager mid-edit.
+  const [sort, setSort] = useState<{ key: SortKey; dir: "ascending" | "descending" } | null>(null);
+
+  const sortedRules = useMemo(() => {
+    if (!rules || !sort) return rules ?? [];
+    const dirMul = sort.dir === "ascending" ? 1 : -1;
+    const value = (r: CommsPlanCreditRule): string | number => {
+      switch (sort.key) {
+        case "tier":
+          return TIER_LABEL[r.tier] ?? r.tier;
+        case "included":
+          return r.includedCents;
+        case "shared":
+          return r.sharedAcrossWorkspaces ? 1 : 0;
+        case "rollover":
+          return r.rollsOver ? 1 : 0;
+      }
+    };
+    return [...rules].sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return cmp * dirMul;
+    });
+  }, [rules, sort]);
+
+  const { registerRow } = useFlipRows(sortedRules.map((r) => r.tier));
+
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) =>
+      prev?.key === key ? { key, dir: prev.dir === "ascending" ? "descending" : "ascending" } : { key, dir: "ascending" },
+    );
+  };
+  const dirFor = (key: SortKey): SortDir => (sort?.key === key ? sort.dir : null);
+  const sortAnnouncement = sort
+    ? `Sorted by ${{ tier: "Plan", included: "Included per month", shared: "Shared across workspaces", rollover: "Unused rolls over" }[sort.key]}, ${sort.dir}`
+    : "";
 
   const load = async () => {
     try {
@@ -109,26 +152,35 @@ export function PlanCreditRulesSection() {
         <div className="h-32 animate-pulse rounded-2xl border border-border bg-accent/30" aria-hidden />
       ) : (
         <PortalSettingsGroup>
+          <SortLiveRegion text={sortAnnouncement} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-attr="admin-plan-credit-table">
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                  <th className="px-4 py-2.5 font-semibold">Plan</th>
-                  <th className="px-4 py-2.5 font-semibold">Included/mo</th>
-                  <th className="px-4 py-2.5 font-semibold">Shared across workspaces</th>
-                  <th className="px-4 py-2.5 font-semibold">Unused rolls over</th>
+                  <SortableTh dir={dirFor("tier")} onSort={() => toggleSort("tier")} className="px-4 py-2.5 font-semibold">
+                    Plan
+                  </SortableTh>
+                  <SortableTh dir={dirFor("included")} onSort={() => toggleSort("included")} className="px-4 py-2.5 font-semibold">
+                    Included/mo
+                  </SortableTh>
+                  <SortableTh dir={dirFor("shared")} onSort={() => toggleSort("shared")} className="px-4 py-2.5 font-semibold">
+                    Shared across workspaces
+                  </SortableTh>
+                  <SortableTh dir={dirFor("rollover")} onSort={() => toggleSort("rollover")} className="px-4 py-2.5 font-semibold">
+                    Unused rolls over
+                  </SortableTh>
                   <th className="px-4 py-2.5 font-semibold" aria-hidden />
                 </tr>
               </thead>
               <tbody>
-                {rules.map((rule) => {
+                {sortedRules.map((rule) => {
                   const draft = drafts[rule.tier] ?? {
                     includedDollars: String(rule.includedCents / 100),
                     sharedAcrossWorkspaces: rule.sharedAcrossWorkspaces,
                     rollsOver: rule.rollsOver,
                   };
                   return (
-                    <tr key={rule.tier} className="border-b border-border last:border-0">
+                    <tr key={rule.tier} ref={registerRow(rule.tier)} className="border-b border-border last:border-0">
                       <td className="px-4 py-3 font-medium text-foreground">{TIER_LABEL[rule.tier] ?? rule.tier}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 rounded-xl border border-border bg-background px-3 py-1.5">

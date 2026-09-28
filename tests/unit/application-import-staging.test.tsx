@@ -8,7 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
-import { createPropertyApplicationTemplate, type ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
+import {
+  createPropertyApplicationTemplate,
+  readPropertyApplicationTemplates,
+  type ApplicationTemplateQuestionConfig,
+} from "@/lib/property-application-templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -185,5 +189,74 @@ describe("F004: import stages a diff before applying", () => {
     const additionalToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
     if (additionalToggle) fireEvent.click(additionalToggle);
     expect(screen.queryByText("Pet policy acknowledgment")).toBeNull();
+  });
+});
+
+describe("F004: a brand-new (unsaved) application stages before persisting too", () => {
+  function renderAddModal(onPersistSubmission = vi.fn().mockResolvedValue(true)) {
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Add application"
+        sub={createDefaultListingSubmission()}
+        managerUserId="mgr-1"
+        applicationPreviewPropertyId="prop-1"
+        templateEditorMode="add"
+        applicationTemplate={null}
+        templates={[]}
+        onPersistSubmission={onPersistSubmission}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    return onPersistSubmission;
+  }
+
+  it("does not create or persist anything until the footer commit, and Discard leaves an empty new form", async () => {
+    const onPersistSubmission = renderAddModal();
+    await screen.findByRole("dialog", { name: "Add application" });
+
+    pickFile();
+
+    expect(await screen.findByText(/section.*found/)).toBeTruthy();
+    expect(document.querySelector('[data-attr="application-pending-import"]')).not.toBeNull();
+    // The parse call itself only ever POSTs — nothing is created/saved yet.
+    expect(onPersistSubmission).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(document.querySelector('[data-attr="application-pending-import"]')).toBeNull();
+    expect(onPersistSubmission).not.toHaveBeenCalled();
+
+    jumpRail("sections");
+    const additionalRow = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    if (additionalRow) fireEvent.click(additionalRow);
+    expect(screen.queryByText("Pet policy acknowledgment")).toBeNull();
+  });
+
+  it("Apply only fills the working copy — the footer commit is the first and only persist call", async () => {
+    const onPersistSubmission = renderAddModal();
+    await screen.findByRole("dialog", { name: "Add application" });
+
+    pickFile();
+    await waitFor(() => expect(document.querySelector('[data-attr="application-pending-import"]')).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes from the file" }));
+    expect(document.querySelector('[data-attr="application-pending-import"]')).toBeNull();
+    expect(onPersistSubmission).not.toHaveBeenCalled();
+
+    const nameInput = document.querySelector("#application-template-name") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Fall 2026 Application" } });
+
+    // The footer's commit button only renders on the LAST rail step.
+    jumpRail("setup");
+    const addButton = await screen.findByRole("button", { name: "Add application" });
+    await waitFor(() => expect(addButton).not.toBeDisabled());
+    fireEvent.click(addButton);
+
+    await waitFor(() => expect(onPersistSubmission).toHaveBeenCalledTimes(1));
+    const [merged] = onPersistSubmission.mock.calls[0]!;
+    const created = readPropertyApplicationTemplates(merged)[0];
+    expect(created?.draftQuestionConfig?.customApplicationFields.some((f) => f.key === "pet_policy")).toBe(true);
+    expect(created?.draftQuestionConfig?.importProvenance?.sourcePath).toBe(PARSED_DRAFT.importProvenance!.sourcePath);
   });
 });

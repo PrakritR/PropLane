@@ -22,6 +22,7 @@ import {
 } from "@/lib/rental-application/drafts";
 import type { MockProperty } from "@/data/types";
 import { settlePendingApplicationRowUpserts } from "@/lib/manager-applications-storage";
+import * as applicationStorage from "@/lib/manager-applications-storage";
 import {
   clearApplicationFeeCheckoutResume,
   clearApplicationFeeSubmitConfirm,
@@ -125,6 +126,8 @@ function serverRow(): DemoApplicantRow {
 }
 
 const fetchCalls: { url: string; body: string | null }[] = [];
+const queuedApplicationIds = new Set<string>();
+const cancelledApplicationIds = new Set<string>();
 
 function stubFetch(handlers: { verifyResponse?: () => Promise<Response>; resumeStatus?: number; resumeRow?: DemoApplicantRow | null; resumeRows?: Record<string, DemoApplicantRow>; selfRows?: DemoApplicantRow[]; selfResponse?: () => Promise<Response>; resumeResponse?: (id: string) => Promise<Response> }) {
   vi.stubGlobal(
@@ -174,6 +177,20 @@ async function mountWizard() {
 }
 
 beforeEach(() => {
+  queuedApplicationIds.clear();
+  cancelledApplicationIds.clear();
+  const queueUpsert = applicationStorage.upsertApplicationRowToServer;
+  vi.spyOn(applicationStorage, "upsertApplicationRowToServer").mockImplementation((row) => {
+    const id = applicationStorage.normalizeApplicationAxisId(row.id).toUpperCase();
+    queuedApplicationIds.add(id);
+    cancelledApplicationIds.delete(id);
+    queueUpsert(row);
+  });
+  const cancelUpsert = applicationStorage.cancelPendingApplicationRowUpsert;
+  vi.spyOn(applicationStorage, "cancelPendingApplicationRowUpsert").mockImplementation((id) => {
+    cancelledApplicationIds.add(applicationStorage.normalizeApplicationAxisId(id).toUpperCase());
+    cancelUpsert(id);
+  });
   // jsdom defaults to "/", which `isDemoModeActive()` treats as the public demo
   // surface — the real apply page lives at /rent/apply.
   window.history.replaceState(null, "", `/rent/apply?propertyId=${PID}`);
@@ -183,18 +200,33 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // Public resume and variant restoration can queue another microtask after
-  // unmount. Drain it before the next test installs a new global fetch spy.
-  await act(async () => {
-    cleanup();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  });
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  clearRentalWizardDraft();
-  clearApplicationFeeCheckoutResume();
-  clearApplicationFeeSubmitConfirm();
-  window.sessionStorage.clear();
+  // Unmount stops new autosaves, but existing 400ms module-level queues
+  // outlive the wizard. Drain every id this test actually queued while its
+  // fetch spy and setup tokens still belong to it, before restoring globals.
+  try {
+    await act(async () => {
+      cleanup();
+      await Promise.resolve();
+      for (const id of queuedApplicationIds) {
+        await settlePendingApplicationRowUpserts(id);
+        if (cancelledApplicationIds.has(id)) continue;
+        // Prove the real queue landed under this test's fetch spy, rather
+        // than silently cancelling writes or letting the next test observe it.
+        expect(fetchCalls.some((call) => {
+          if (call.url !== "/api/manager-applications" || !call.body) return false;
+          const body = JSON.parse(call.body) as { action?: string; row?: { id?: string } };
+          return body.action === "upsert" && applicationStorage.normalizeApplicationAxisId(body.row?.id).toUpperCase() === id;
+        })).toBe(true);
+      }
+    });
+  } finally {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    clearRentalWizardDraft();
+    clearApplicationFeeCheckoutResume();
+    clearApplicationFeeSubmitConfirm();
+    window.sessionStorage.clear();
+  }
 });
 
 describe("public apply — resume after reload", () => {
@@ -475,6 +507,8 @@ describe("Stripe return verification recovery", () => {
   }
 
   function expectNoDraftWrites() {
+    // A paused return must not schedule a write that teardown would later drain.
+    expect(queuedApplicationIds.size).toBe(0);
     expect(fetchCalls.filter((call) => call.url.includes("/api/manager-applications") && call.body)).toEqual([]);
     expect(loadRentalWizardDraft()).toBeNull();
     expect(searchParams.get("fee_checkout")).toBe("return");
