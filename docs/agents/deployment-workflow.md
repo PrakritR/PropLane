@@ -91,7 +91,9 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 2. **Before handoff:** `npm run sandbox:open -- </route>` (mandatory for all agents).
 3. **Captain** types **`/promote prakrit`** in the lane's pane (runs no-mistakes +
    security review, syncs the lane, merges to prakrit, fans back to all lanes,
-   opens prakrit on the review route).
+   opens prakrit on the review route). `npm run ship:to-prakrit -- --source
+   <lane>` is only a thin wrapper around that command's prepare step, kept for
+   muscle memory — it never lands prakrit on its own.
 4. **Captain** types **`/promote main`** to move prakrit → main (no-mistakes again).
 5. For Akhil only, after his explicit ship request, agents working for him may
    land his reviewed keeper directly on `main` without writing `prakrit`. They
