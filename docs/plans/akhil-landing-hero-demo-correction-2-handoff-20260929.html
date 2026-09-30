@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phone reply transition correction handoff</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#17233b}h1,h2{line-height:1.25}code{overflow-wrap:anywhere}li{margin:8px 0}</style></head><body>
+<h1>Phone reply transition correction handoff</h1>
+<p>29 September 2026. Branch: <code>agent/akhil-landing-hero-demo</code>. Review URL: <a href="http://localhost:3013/">http://localhost:3013/</a>. The task-owned server was stopped after validation; port 3013 is free.</p>
+<h2>Correction</h2>
+<p>Ordinary resident phone replies now commit to the local sample conversation even while a guide chapter is transitioning. The phone composer remains available during that interval and clears its draft only when the reply callback accepts it. Guide-advancing actions still use the synchronous busy guard, so the manager draft, signing preview, duplicate suppression and replay timer behavior from the first correction remain intact.</p>
+<h2>Browser evidence</h2>
+<p>A new focused Playwright test prepares the manager reply, writes a distinct resident phone reply, sends the manager reply, submits the phone reply during the busy transition, waits for the Tour chapter, and asserts exactly one matching outgoing phone message. Before the fix, this test failed with zero matching messages after the chapter change. After the fix, it passed. The existing guided path, manager draft, phone signing preview and replay tests also passed.</p>
+<h2>Checks</h2>
+<ul>
+<li>Node 22.23.0 focused regression before fix: exit 1, expected failure (reply count 0 instead of 1).</li>
+<li>Node 22.23.0 focused regression after fix: 1 passed, exit 0.</li>
+<li>Node 22.23.0 <code>tests/e2e/public-home.spec.ts --workers=1</code>: 8 passed, exit 0.</li>
+<li>Node 22.23.0 focused ESLint on the two edited components and browser test: exit 0.</li>
+<li><code>git diff --check</code>: exit 0. <code>npm run sandbox:open -- /</code>: exit 0 and printed the Review URL above.</li>
+<li><code>npx graphify hook-rebuild</code>: exit 1 because npm could not determine an executable. This worktree has no <code>.graphify/graph.json</code>.</li>
+</ul>
+<h2>Limits</h2>
+<p>Source identity and the inherited prototype fidelity and accessibility concerns remain in the independent final review. This correction does not validate live portal workflows. Whole-project typecheck and build were not run in this bounded correction because local disk headroom remained about 6 GiB. No deployment, push or branch promotion occurred. Fresh independent review is requested before any release decision.</p>
+</body></html>

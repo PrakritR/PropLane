@@ -118,6 +118,23 @@ test.describe("Public home", () => {
     await expect(section.locator(".rlp-bubble-manager", { hasText: prepared })).toHaveCount(0);
   });
 
+  test("a phone reply submitted during a chapter transition is kept", async ({ page }) => {
+    await page.goto("/");
+    const section = page.locator("#resident-lifecycle-walkthrough");
+    const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
+    const reply = "I can visit Thursday after work.";
+    const phoneComposer = section.locator(".rl-phone-composer");
+
+    await action("suggest").click();
+    await expect(action("send")).toHaveAttribute("data-guide-active", "true");
+    await phoneComposer.getByRole("textbox", { name: "Write a reply" }).fill(reply);
+    await action("send").click();
+    await expect(action("send")).toBeDisabled();
+    await phoneComposer.evaluate((form: HTMLFormElement) => form.requestSubmit());
+    await expect(action("accept-tour")).toHaveAttribute("data-guide-active", "true");
+    await expect(section.locator(".rl-phone-outgoing", { hasText: reply })).toHaveCount(1);
+  });
+
   test("nothing overflows sideways on a phone", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 320, height: 800 } });
     const page = await context.newPage();
