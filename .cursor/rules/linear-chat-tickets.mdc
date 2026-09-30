@@ -22,7 +22,7 @@ Linear", "ticket:", "create an issue". Then follow the protocol below.
 2. Parse: title, bug vs feature, portal, area, urgency.
 3. **Create** via `npm run linear:ticket -- --chat "<captain's words>"` (GraphQL API only).
 4. Reply with **PRP-###** and the **full Linear URL**.
-5. **Next:** the plan — `npm run workflow:plan -- --chat "…" --ticket PRP-###` (see `lavish-plan-gate.mdc`); the id is a label, no second Linear call.
+5. **Next:** the plan — `node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…" --ticket PRP-###` (see `lavish-plan-gate.mdc`); the id is a label, no second Linear call.
 
 **Do not use Linear MCP** — `LINEAR_API_KEY` in `.env.local` is required.
 

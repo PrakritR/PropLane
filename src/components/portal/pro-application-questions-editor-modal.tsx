@@ -308,7 +308,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // the created template's real id at commit, so a staged import's
   // `importProvenance.sourcePath` and a Setup "Default" pick both still
   // point at whatever template actually gets created.
-  const addModeTemplateIdRef = useRef<string | null>(null);
+  const [addModeTemplateId, setAddModeTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -356,7 +356,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setPendingImport(null);
     setPendingImportCompareOpen(false);
     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
-    addModeTemplateIdRef.current = templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null;
+    setAddModeTemplateId(templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null);
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -756,7 +756,7 @@ export function ManagerApplicationQuestionsEditorModal({
             // against (and a Setup "Default" pick already wrote to this
             // property's settings) — otherwise either would end up pointing
             // at an id no template ever ends up with.
-            id: addModeTemplateIdRef.current ?? makePropertyApplicationTemplateId(),
+            id: addModeTemplateId ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
             linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
@@ -887,11 +887,11 @@ export function ManagerApplicationQuestionsEditorModal({
   // no saved template row at all until the footer commit creates one).
   // `applyPendingImport` below is the only thing that writes it into the
   // template being edited. Works the same for a new template (staged against
-  // `addModeTemplateIdRef.current`, reused as the real id at commit) and an
+  // `addModeTemplateId`, reused as the real id at commit) and an
   // existing one (`applicationTemplate.id`) — picking a file on the Sections
   // card never distinguishes the two any more.
   const importPdf = async (file: File): Promise<StagedApplicationImport | null> => {
-    const templateIdForImport = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+    const templateIdForImport = applicationTemplate?.id ?? addModeTemplateId;
     if (!templateIdForImport || !applicationPreviewPropertyId || isBulkSave) return null;
     setImporting(true);
     try {
@@ -1243,7 +1243,7 @@ export function ManagerApplicationQuestionsEditorModal({
 
   // F001: inline duplicate-name validation — another application already
   // saved on this property with the same (trimmed, case-insensitive) name.
-  const duplicateTemplateNameError = useMemo(() => {
+  const duplicateTemplateNameError = ((): string | null => {
     if (!isTemplateEditor || !templates) return null;
     const trimmed = templateLabel.trim().toLowerCase();
     if (!trimmed) return null;
@@ -1251,7 +1251,7 @@ export function ManagerApplicationQuestionsEditorModal({
       (candidate) => candidate.id !== applicationTemplate?.id && candidate.label.trim().toLowerCase() === trimmed,
     );
     return clashes ? `An application named "${templateLabel.trim()}" already exists on this property.` : null;
-  }, [isTemplateEditor, templates, templateLabel, applicationTemplate?.id]);
+  })();
   const nameStepError = templateLabelError || duplicateTemplateNameError;
 
   const renderSection = (sectionId: RentalApplicationSectionId) => {
@@ -1867,9 +1867,9 @@ export function ManagerApplicationQuestionsEditorModal({
                   // template already exists — `applicationTemplateIdForDefault`
                   // is the real saved id in edit mode, or the pending id this
                   // new template WILL be created with at the footer commit
-                  // (see `addModeTemplateIdRef` / the `templateEditorMode ===
+                  // (see `addModeTemplateId` / the `templateEditorMode ===
                   // "add"` branch of `commitSave`).
-                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateIdRef.current;
+                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateId;
                   if (!applicationTemplateIdForDefault) return null;
                   return (
                     <PanelSection title="Default">

@@ -59,8 +59,10 @@ no-mistakes, or waive staging and production safety.
 ```bash
 bin/fm-proplane-open-localhost.sh --open-browser
 bin/fm-proplane-open-localhost.sh --open-browser --path /portal/tasks
-bin/fm-proplane-promote-to-prakrit.sh cursor-1 --path /portal/tasks
 ```
+
+`bin/fm-proplane-promote-to-prakrit.sh` is retired — landing on `prakrit` goes
+through the captain typing `/promote prakrit`, nothing else.
 
 ## Rule file
 

@@ -65,10 +65,12 @@ export function HoldToConfirmButton({
   const reducedMotion = useReducedMotion();
 
   const phaseRef = useRef(phase);
-  phaseRef.current = phase;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPos = useRef({ x: 0, y: 0 });
   const mounted = useRef(true);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
   useEffect(() => {
     mounted.current = true;
     return () => {

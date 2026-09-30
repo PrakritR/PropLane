@@ -9,7 +9,8 @@
  * default base ref: origin/prakrit (override with --base <ref>).
  *
  * Then runs, in order, ALWAYS ALL THREE even if an earlier one fails:
- *   1. `vitest related --run` for changed src/test files (skipped with a note
+ *   1. `vitest related --run --passWithNoTests` for changed src/test files
+ *      (skipped with a note
  *      when there are none) — restricted to the unit+integration test config's
  *      own `include` globs so `related` cannot invent test files outside it.
  *   2. `eslint` on changed .ts/.tsx/.js/.mjs files that still exist on disk
@@ -37,8 +38,14 @@ function parseArgs(argv) {
   const out = { base: "origin/prakrit", skipTsc: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--base") out.base = argv[++i];
-    else if (a === "--skip-tsc") out.skipTsc = true;
+    if (a === "--base") {
+      const value = argv[++i];
+      if (!value || value.startsWith("-")) {
+        console.error("gate:prompt: --base requires a ref (e.g. --base origin/main)");
+        process.exit(2);
+      }
+      out.base = value;
+    } else if (a === "--skip-tsc") out.skipTsc = true;
     else if (a === "--help" || a === "-h") out.help = true;
   }
   return out;
@@ -64,19 +71,37 @@ function gitLines(args) {
   return { ok: true, lines, stderr: "" };
 }
 
-function computeChangedFiles(base) {
-  const working = gitLines(["diff", "--name-only", "HEAD"]);
-  const untracked = gitLines(["ls-files", "--others", "--exclude-standard"]);
-  const branch = gitLines(["diff", "--name-only", `${base}...HEAD`]);
+function refExists(ref) {
+  return sh("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).status === 0;
+}
 
-  if (!branch.ok) {
+// A git command that fails for any reason other than "the base ref is not
+// fetched here" means the changed-file set is unknown, not empty - and an
+// empty set skips vitest AND eslint, so the gate would print PASSED without
+// having enumerated anything. Fail closed instead.
+function computeChangedFiles(base) {
+  const fatal = [];
+  const collect = (label, args) => {
+    const res = gitLines(args);
+    if (!res.ok) fatal.push(`git ${args.join(" ")} failed (${label}): ${res.stderr.trim() || "no stderr"}`);
+    return res;
+  };
+
+  const working = collect("working tree", ["diff", "--name-only", "HEAD"]);
+  const untracked = collect("untracked", ["ls-files", "--others", "--exclude-standard"]);
+
+  let branchLines = [];
+  if (!refExists(base)) {
     console.log(
-      `NOTE: could not diff against base "${base}" (is it fetched? try --base <ref>). Continuing with working-tree + untracked files only.`,
+      `NOTE: base ref "${base}" is not available here (fetch it, or pass --base <ref>). Continuing with working-tree + untracked files only.`,
     );
+  } else {
+    const branch = collect(`base diff vs ${base}`, ["diff", "--name-only", `${base}...HEAD`]);
+    branchLines = branch.lines;
   }
 
-  const union = new Set([...working.lines, ...untracked.lines, ...(branch.ok ? branch.lines : [])]);
-  return [...union].sort();
+  const union = new Set([...working.lines, ...untracked.lines, ...branchLines]);
+  return { files: [...union].sort(), fatal };
 }
 
 function isTestOrSrcFile(rel) {
@@ -108,7 +133,7 @@ function runVitestRelated(files) {
   // either (a separate Playwright config/runner, not in this `include` list).
   const res = sh(
     "npx",
-    ["vitest", "related", "--run", "--exclude", "tests/integration/**", ...candidates],
+    ["vitest", "related", "--run", "--passWithNoTests", "--exclude", "tests/integration/**", ...candidates],
     { stdio: "inherit" },
   );
   const code = res.status ?? 1;
@@ -153,7 +178,12 @@ function main() {
   }
 
   console.log(`gate:prompt — base=${args.base}`);
-  const changed = computeChangedFiles(args.base);
+  const { files: changed, fatal } = computeChangedFiles(args.base);
+  if (fatal.length > 0) {
+    for (const line of fatal) console.error(`ERROR ${line}`);
+    console.log("RESULT: FAILED (could not enumerate changed files — nothing was run)");
+    process.exit(1);
+  }
   console.log(`Changed files (${changed.length}): ${changed.length ? changed.join(", ") : "(none)"}`);
   console.log("");
 

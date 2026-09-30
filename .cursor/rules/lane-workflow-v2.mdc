@@ -5,8 +5,12 @@ alwaysApply: true
 
 # Lane workflow v2
 
-This applies to every agent working a PropLane lane (Cursor and Codex alike),
-for Prakrit's process. Full contract: `docs/agents/AGENTS-prakrit.md`.
+**Prakrit only. When the user is Akhil, skip this rule entirely** — his
+process never writes or consumes `prakrit`; follow
+[`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) instead.
+
+For Prakrit this applies to every agent working a PropLane lane (Cursor and
+Codex alike). Full contract: `docs/agents/AGENTS-prakrit.md`.
 
 1. **Sync first.** When the tree is clean: `git fetch origin && git merge
    --no-edit origin/prakrit` (and `origin/main` too if `prakrit` is behind it).
@@ -21,6 +25,8 @@ for Prakrit's process. Full contract: `docs/agents/AGENTS-prakrit.md`.
 4. **Run the test gate after building**: `npm run gate:prompt`.
 5. **Never push a protected branch** (`prakrit`, `main`, `staging`,
    `production`). Code reaches `prakrit` only when the captain types
-   `/promote prakrit` in the lane's own pane; local hooks enforce the
-   `prakrit` lock and refuse a push to any protected branch outside that flow.
+   `/promote prakrit` in the lane's own pane. Treat that as your own
+   discipline, not something the repo checks: the `prakrit` lock lives in the
+   captain's machine-local hooks, and this repo tracks no pre-push guard, so a
+   protected-branch push here would simply go through.
    Push only your own lane, fast-forward only.

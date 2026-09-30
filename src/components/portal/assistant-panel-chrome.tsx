@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import { useRef, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import {
@@ -231,16 +231,14 @@ export function AssistantMessageList({
 }) {
   // M012 — a one-shot mask-wipe reveal plays over an assistant reply that
   // arrives after this component's own first paint (never on a thread
-  // freshly loaded from history). `initialCountRef` snapshots the message
-  // count on mount; every index at or past it is "fresh" for this session.
+  // freshly loaded from history). `freshFrom` snapshots the message count on
+  // mount; every index at or past it is "fresh" for this session.
   // The reveal itself is a plain CSS class (`motion-stream-reveal`,
   // tokens.css) that autoplays once on the bubble's own DOM insertion and
   // never replays on a later re-render of the same node — see the class's
   // own note. The real text node is never retyped: assistive tech reads the
   // plain final string from the very first frame.
-  const initialCountRef = useRef<number | null>(null);
-  if (initialCountRef.current === null) initialCountRef.current = messages.length;
-  const freshFrom = initialCountRef.current;
+  const [freshFrom] = useState(messages.length);
 
   return (
     <div className="space-y-3 text-sm">

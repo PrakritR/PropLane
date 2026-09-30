@@ -45,7 +45,23 @@ if [ -z "$SOURCE" ]; then
   exit 2
 fi
 
-echo "ship:to-prakrit: use /promote prakrit — this wrapper only runs the prepare step for '$SOURCE'" >&2
-echo "  (checkout $SOURCE first: this wrapper does not switch branches for you)" >&2
+# promote.sh derives the lane from HEAD, not from an argument, so a --source
+# that names a different branch would silently prepare (and force-push) the
+# checked-out one instead. Fail closed rather than warn.
+CURRENT="$(git symbolic-ref --quiet --short HEAD || true)"
+if [ -z "$CURRENT" ]; then
+  echo "error: HEAD is detached — check out $SOURCE before running this" >&2
+  exit 2
+fi
+if [ "$SOURCE" != "$CURRENT" ]; then
+  echo "error: --source '$SOURCE' is not the checked-out branch ('$CURRENT')" >&2
+  echo "  /promote prakrit prepares whatever HEAD points at, so this would have prepared '$CURRENT'." >&2
+  echo "  check out $SOURCE (or run this from that lane's own worktree) and try again." >&2
+  exit 2
+fi
 
-exec "$PROMOTE" prakrit --prepare "${EXTRA[@]}"
+echo "ship:to-prakrit: use /promote prakrit — this wrapper only runs the prepare step for '$SOURCE'" >&2
+
+# bash 3.2 (/bin/bash on macOS) treats "${EXTRA[@]}" on an empty array as an
+# unbound variable under `set -u`, so guard the expansion.
+exec "$PROMOTE" prakrit --prepare ${EXTRA[@]+"${EXTRA[@]}"}

@@ -194,8 +194,9 @@ token saving actually comes from.
 
 ## Execute / review / status
 
-- Lane and port: see the table below. After building, run `npm run gate:prompt`
-  and leave the lane's port serving the review.
+- Lane and port: this pane's own local instructions, never hard-coded here.
+  After building, run `npm run gate:prompt` and leave the lane's port serving
+  the review.
 - Status moves apply **only** when he pointed the work at an existing PRP ticket;
   otherwise there is no ticket and nothing to move (see *Linear tickets are OFF*).
 - While coding that issue: Linear **In Progress**.
@@ -210,22 +211,22 @@ npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
 
 ## Standing branches, lanes, and the promote ladder
 
-Prakrit's standing instruction (2026-09-20): keep exactly these six agent lanes
-active. Each syncs with `prakrit` at the start of every prompt and serves its
-own port; `~/proplane-mock-kit/studio/branches.json` is the source of truth for
-worktree paths.
+Prakrit's standing instruction (2026-09-20): keep exactly six agent lanes
+active, plus the `prakrit` integration worktree. Each lane syncs with `prakrit`
+at the start of every prompt and serves its own port.
 
-| Lane | Worktree | Port |
-| --- | --- | --- |
-| `prakrit` | `proplane-prakrit` | 3000 |
-| `claude-1` | `proplane-claude` | 3001 |
-| `claude-2` | `proplane-claude-2` | 3002 |
-| `claude-3` | `proplane-claude-3` | 3003 |
-| `cursor-1` | `proplane-cursor-branch-1` | 3004 |
-| `cursor-2` | `proplane-cursor-2` | 3005 |
-| `codex-1` | `proplane-codex-1` | 3006 |
+**The lane roster itself is machine-local config and is deliberately not
+copied here** (root `AGENTS.md`: "Keeper names live in local instructions
+only") - a second copy in a shared repo only drifts, and a stale branch name
+read by someone else's agent sends their work to the wrong lane. The sources of
+truth are:
 
-There is no `codex-2` lane. Do not make a new branch for each prompt.
+- `~/proplane-mock-kit/studio/branches.json` - lane names, worktree paths, ports;
+  `node ~/proplane-mock-kit/tools/studio-plan.mjs list` prints the live view.
+- The pane's own local instructions - which lane *this* pane owns.
+
+Each pane owns one standing lane across prompts. Do not make a new branch for
+each prompt, and do not delete a standing lane after integration.
 
 `prakrit` is the integration rung, and it is **locked** unless the captain has
 typed `/prakrit` in that pane (a session-start hook re-locks it when the pane
