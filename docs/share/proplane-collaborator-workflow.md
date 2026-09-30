@@ -98,29 +98,31 @@ After promote, **all sandboxes reset** to match `prakrit`.
 
 ## Day-to-day commands
 
-### Start work from an idea (ticket + plan in one step)
+### Start work from an idea (ticket, then the lane plan)
 
 ```bash
-npm run workflow:plan -- --chat "Manager calendar bookings panel needs a revamp"
+npm run linear:ticket -- --chat "Manager calendar bookings panel needs a revamp"
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "..." --ticket PRP-###
 ```
 
 This will:
 
 1. Create **PRP-###** in Linear (auto project, labels, assignee, priority)
-2. Scaffold **Lavish** `plan.html` and open it
-3. Link the plan on the Linear ticket
+2. Scaffold the lane's studio `plan.html` and give you its URL
+3. Carry the ticket id on the plan
 4. **Stop** — waiting for your approval
 
-### Or: ticket only, then plan
+### While the plan is open
+
+The agent keeps a watcher on the lane so your chat and annotations reach it:
 
 ```bash
-npm run linear:ticket -- --chat "Residents tab crashes when I open Payments"
-npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..."
+node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait
 ```
 
 ### After you approve the plan
 
-Reply in chat or Linear: **`approved — build`**
+Approve it in the studio, or reply **`build`**.
 
 Agent then codes on the sandbox branch, tests on the sandbox port, and hands off for review.
 
@@ -164,9 +166,9 @@ Portal UI must follow the **Properties tab** pattern. Before editing UI:
 
 | You say | Agent does |
 | --- | --- |
-| Describe a bug or feature | ① Ticket → ② Lavish plan |
-| `approved — build` | ③ Implement |
+| Describe a bug or feature | ① Ticket → ② studio lane plan |
+| Approve in the studio, or `build` | ③ Implement |
 | `merge to prakrit` | ⑤ Promote to integration |
 | `no ticket` / `skip plan` | Skip that phase (hotfix) |
 
-Questions? Comment on the **PRP-###** ticket or annotate the Lavish plan.
+Questions? Comment on the **PRP-###** ticket or annotate the lane's studio plan.

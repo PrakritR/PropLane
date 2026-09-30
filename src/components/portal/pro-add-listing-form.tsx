@@ -1928,17 +1928,19 @@ export function ManagerAddListingForm({
   // from the form, so the manager has to be told even when the close that
   // dropped it went on to fail. Cleared only once a save actually reports it.
   const droppedAttachmentsRef = useRef(false);
-  // Snapshot of what the wizard opened with, captured on the first render and
-  // never recomputed. Closing only persists a draft when the manager actually
+  // Snapshot of what the wizard opened with, computed once on mount and never
+  // recomputed. Closing only persists a draft when the manager actually
   // changed something since then — an untouched wizard must not litter the
-  // Drafts stage with an "Untitled draft".
-  const baselineFingerprintRef = useRef<string | null>(null);
-  if (baselineFingerprintRef.current === null) {
-    baselineFingerprintRef.current = listingSubmissionFingerprint({
+  // Drafts stage with an "Untitled draft". A successful save moves the
+  // baseline forward through `baselineFingerprintRef`; until then the mount
+  // snapshot is the baseline.
+  const [baselineFingerprintAtOpen] = useState(() =>
+    listingSubmissionFingerprint({
       ...sub,
       serviceRequestOptions: serviceOffers,
-    });
-  }
+    }),
+  );
+  const baselineFingerprintRef = useRef<string | null>(null);
   /** Last submission fingerprint successfully written to the drafts bucket or server. */
   const lastPersistedFingerprintRef = useRef<string | null>(
     editDraftId?.trim() || editListingId?.trim() || editPendingId?.trim() || editRequestChangeId?.trim()
@@ -2446,7 +2448,7 @@ export function ManagerAddListingForm({
     setStepFieldErrors({});
     if (isEditMode) {
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
-      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
+      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)) {
         advanceFromCurrentStep();
         return;
       }
@@ -3513,7 +3515,7 @@ export function ManagerAddListingForm({
       }
 
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
-      const hasChanges = listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "");
+      const hasChanges = listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen);
       if (!hasChanges) {
         setDraftSaveError(null);
         if (opts?.advanceOnSuccess) advanceFromCurrentStep();
@@ -3646,6 +3648,7 @@ export function ManagerAddListingForm({
     [
       advanceFromCurrentStep,
       authReady,
+      baselineFingerprintAtOpen,
       buildSubmissionPayload,
       busy,
       closingDraft,
@@ -3678,7 +3681,7 @@ export function ManagerAddListingForm({
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
       if (
         isEditMode &&
-        listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")
+        listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)
       ) {
         void persistEditListingRef.current({ closeAfter: true });
         return;
@@ -3698,7 +3701,7 @@ export function ManagerAddListingForm({
   const retryCloseSave = useCallback(async () => {
     if (!draftAutoSaveEligible) {
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
-      if (isEditMode && listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
+      if (isEditMode && listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)) {
         await persistEditListingRef.current({ closeAfter: true });
       } else {
         setCloseSaveFailReason(null);
@@ -3707,7 +3710,7 @@ export function ManagerAddListingForm({
       return;
     }
     await persistDraftRef.current({ closeAfter: true });
-  }, [draftAutoSaveEligible, ensureSubmissionListingFees, isEditMode, onClose, serviceOffers, sub]);
+  }, [baselineFingerprintAtOpen, draftAutoSaveEligible, ensureSubmissionListingFees, isEditMode, onClose, serviceOffers, sub]);
 
   const persistListingDraft = useCallback(
     async (opts?: { silent?: boolean; closeAfter?: boolean }): Promise<boolean> => {
@@ -3720,10 +3723,10 @@ export function ManagerAddListingForm({
       const fingerprint = listingSubmissionFingerprint(current);
       const contentChangedSinceOpen = listingWizardHasUnsavedInput(
         current,
-        baselineFingerprintRef.current ?? "",
+        baselineFingerprintRef.current ?? baselineFingerprintAtOpen,
       );
       const contentChangedSincePersist =
-        fingerprint !== (lastPersistedFingerprintRef.current ?? baselineFingerprintRef.current ?? "");
+        fingerprint !== (lastPersistedFingerprintRef.current ?? baselineFingerprintRef.current ?? baselineFingerprintAtOpen);
       const positionChanged =
         stepIndex !== lastPersistedStepRef.current.stepIndex ||
         maxStepReached !== lastPersistedStepRef.current.maxStepReached;
@@ -3854,6 +3857,7 @@ export function ManagerAddListingForm({
     },
     [
       authReady,
+      baselineFingerprintAtOpen,
       busy,
       closingDraft,
       draftAutoSaveEligible,
@@ -3884,12 +3888,12 @@ export function ManagerAddListingForm({
   // typing-timer effect used to do (PRP-201 pill honesty).
   useEffect(() => {
     const current: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: serviceOffers };
-    if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) return;
+    if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)) return;
     if (listingSubmissionFingerprint(current) === lastPersistedFingerprintRef.current) return;
     setAutosaveStatus((status) =>
       status === "saved" || status === "saved-without-photos" ? "idle" : status,
     );
-  }, [sub, serviceOffers]);
+  }, [baselineFingerprintAtOpen, sub, serviceOffers]);
 
   // There is no typing-timer autosave any more: the listing is written on ✕
   // (and on step advance / Review Save). The timer was the source of the
@@ -3907,7 +3911,7 @@ export function ManagerAddListingForm({
       if (document.visibilityState !== "hidden") return;
       if (!authReady || !userId) return;
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
-      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) return;
+      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)) return;
       if (draftAutoSaveEligible) {
         void persistListingDraft({ silent: true });
       } else {
@@ -3918,6 +3922,7 @@ export function ManagerAddListingForm({
     return () => document.removeEventListener("visibilitychange", flushOnHide);
   }, [
     authReady,
+    baselineFingerprintAtOpen,
     draftAutoSaveEligible,
     editAutoSaveEligible,
     ensureSubmissionListingFees,
@@ -3934,7 +3939,7 @@ export function ManagerAddListingForm({
     if (!draftAutoSaveEligible && !editAutoSaveEligible) return;
     if (isNativeRuntimeSync()) return;
     const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
-    if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) return;
+    if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? baselineFingerprintAtOpen)) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -3942,7 +3947,7 @@ export function ManagerAddListingForm({
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [draftAutoSaveEligible, editAutoSaveEligible, ensureSubmissionListingFees, serviceOffers, sub]);
+  }, [baselineFingerprintAtOpen, draftAutoSaveEligible, editAutoSaveEligible, ensureSubmissionListingFees, serviceOffers, sub]);
 
   const submitListing = async () => {
     if (paymentWaiverGranted === null && !isDemoModeActive()) {

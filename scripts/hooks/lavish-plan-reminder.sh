@@ -28,9 +28,9 @@ kit="${PROPLANE_PLAN_ROOT:-$HOME/proplane-mock-kit}"
 lane="$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 
 if [ -n "$lane" ] && [ -f "$kit/studio/plans/$lane/active.json" ]; then
-  msg="STUDIO PLAN OPEN on lane \`$lane\`. Confirm \`node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane $lane --wait\` is running as a tracked background task BEFORE anything else this turn, apply the captain's feedback to the SAME plan.html, reply inside the studio, and write NO product code until \`node ~/proplane-mock-kit/tools/studio-plan.mjs status --lane $lane\` exits 0 (status approved / built / skipped)."
+  msg="STUDIO PLAN OPEN on lane \`$lane\`. Confirm \`node $kit/tools/studio-inbox.mjs --lane $lane --wait\` is running as a tracked background task BEFORE anything else this turn, apply the captain's feedback to the SAME plan.html, reply inside the studio, and write NO product code until \`node $kit/tools/studio-plan.mjs status --lane $lane\` exits 0 (status approved / built / skipped)."
 else
-  msg="PLAN FIRST: if this message describes work, write this lane's plan in the PropLane studio (\`node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title \\\"<title>\\\"\`), fill it — the UI tab must MOCK the screen, before/after + desktop/mobile — start \`node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait\` as a tracked background task, and stop until the plan is approved (or he types \`build\`). Do NOT file a Linear ticket for an issue unless he asks. Standard: docs/agents/lavish-plan-standard.md."
+  msg="PLAN FIRST: if this message describes work, write this lane's plan in the PropLane studio (\`node $kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title \\\"<title>\\\"\`), fill it — the UI tab must MOCK the screen, before/after + desktop/mobile — start \`node $kit/tools/studio-inbox.mjs --lane <lane> --wait\` as a tracked background task, and stop until the plan is approved (or he types \`build\`). Do NOT file a Linear ticket for an issue unless he asks. Standard: docs/agents/lavish-plan-standard.md."
 fi
 
 printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$msg"

@@ -177,6 +177,24 @@ function submissionForNewCustomApplication(sub: ManagerListingSubmissionV1): Man
 const RECOMMENDED_QUESTION_PACK = APPLICATION_QUESTION_PACKS.find((p) => p.recommended) ?? null;
 
 /** Shared application-question editor — one full-page workspace, property templates and bulk Applications edit. */
+/**
+ * F001: another application already saved on this property under the same
+ * (trimmed, case-insensitive) name. Pure, so it needs no memo.
+ */
+function duplicateApplicationNameError(
+  label: string,
+  templates: PropertyApplicationTemplate[] | undefined,
+  currentTemplateId: string | undefined,
+): string | null {
+  if (!templates) return null;
+  const trimmed = label.trim().toLowerCase();
+  if (!trimmed) return null;
+  const clashes = templates.some(
+    (candidate) => candidate.id !== currentTemplateId && candidate.label.trim().toLowerCase() === trimmed,
+  );
+  return clashes ? `An application named "${label.trim()}" already exists on this property.` : null;
+}
+
 export function ManagerApplicationQuestionsEditorModal({
   open,
   title = "Application",
@@ -1243,15 +1261,9 @@ export function ManagerApplicationQuestionsEditorModal({
 
   // F001: inline duplicate-name validation — another application already
   // saved on this property with the same (trimmed, case-insensitive) name.
-  const duplicateTemplateNameError = ((): string | null => {
-    if (!isTemplateEditor || !templates) return null;
-    const trimmed = templateLabel.trim().toLowerCase();
-    if (!trimmed) return null;
-    const clashes = templates.some(
-      (candidate) => candidate.id !== applicationTemplate?.id && candidate.label.trim().toLowerCase() === trimmed,
-    );
-    return clashes ? `An application named "${templateLabel.trim()}" already exists on this property.` : null;
-  })();
+  const duplicateTemplateNameError = isTemplateEditor
+    ? duplicateApplicationNameError(templateLabel, templates, applicationTemplate?.id)
+    : null;
   const nameStepError = templateLabelError || duplicateTemplateNameError;
 
   const renderSection = (sectionId: RentalApplicationSectionId) => {

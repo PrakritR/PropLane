@@ -11,6 +11,7 @@ import { HoldToConfirmButton } from "@/components/ui/motion/hold-to-confirm-butt
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -50,6 +51,26 @@ describe("HoldToConfirmButton", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
     fireEvent.pointerUp(btn);
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+  });
+
+  // Every reader of the gate's phase is a native addEventListener, so it can
+  // run before React has flushed anything it scheduled. This drives the arm
+  // timer and the release in ONE synchronous turn, with fake timers holding
+  // React's scheduler task back, so the phase the release sees is whatever the
+  // timer left behind rather than whatever an effect would have caught up to.
+  it("commits when the release lands in the same turn the gate armed", () => {
+    vi.useFakeTimers();
+    const onConfirm = vi.fn();
+    render(
+      <HoldToConfirmButton onConfirm={onConfirm} holdMs={10}>
+        Delete
+      </HoldToConfirmButton>,
+    );
+    const btn = screen.getByRole("button", { name: "Delete" });
+    btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 0, clientY: 0 }));
+    vi.advanceTimersByTime(20);
+    btn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
   it("cancels the hold — no commit — when the pointer releases early", async () => {

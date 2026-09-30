@@ -37,6 +37,7 @@ const MOVE_TOLERANCE_PX = 10;
 const REFUSED_FLASH_MS = 340;
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline" | "metallic";
+type HoldPhase = "idle" | "holding" | "armed";
 
 export function HoldToConfirmButton({
   onConfirm,
@@ -59,18 +60,23 @@ export function HoldToConfirmButton({
   holdMs?: number;
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
-  const [phase, setPhase] = useState<"idle" | "holding" | "armed">("idle");
+  const [phase, setPhase] = useState<HoldPhase>("idle");
   const [refused, setRefused] = useState(false);
   const [busy, setBusy] = useState(false);
   const reducedMotion = useReducedMotion();
 
-  const phaseRef = useRef(phase);
+  // Every reader of `phaseRef` below is a native `addEventListener` handler, so
+  // it can run between React committing `phase` and any effect flushing. The
+  // ref is therefore written in the same turn as `setPhase` — never from a
+  // later effect, which would let a pointerup land on a stale phase.
+  const phaseRef = useRef<HoldPhase>("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPos = useRef({ x: 0, y: 0 });
   const mounted = useRef(true);
-  useEffect(() => {
-    phaseRef.current = phase;
-  }, [phase]);
+  const applyPhase = useCallback((next: HoldPhase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -89,7 +95,7 @@ export function HoldToConfirmButton({
   const cancelHold = useCallback(
     (showRefused: boolean) => {
       clearTimer();
-      setPhase("idle");
+      applyPhase("idle");
       if (showRefused) {
         setRefused(true);
         setTimeout(() => {
@@ -97,11 +103,11 @@ export function HoldToConfirmButton({
         }, REFUSED_FLASH_MS);
       }
     },
-    [clearTimer],
+    [clearTimer, applyPhase],
   );
 
   const commit = useCallback(() => {
-    setPhase("idle");
+    applyPhase("idle");
     const result = onConfirm();
     if (result && typeof (result as Promise<unknown>).then === "function") {
       setBusy(true);
@@ -115,20 +121,20 @@ export function HoldToConfirmButton({
         },
       );
     }
-  }, [onConfirm]);
+  }, [onConfirm, applyPhase]);
 
   const startHold = useCallback(
     (x: number, y: number) => {
       if (disabled || loading || busy) return;
       startPos.current = { x, y };
       setRefused(false);
-      setPhase("holding");
+      applyPhase("holding");
       clearTimer();
       timerRef.current = setTimeout(() => {
-        if (mounted.current) setPhase("armed");
+        if (mounted.current) applyPhase("armed");
       }, holdMs);
     },
-    [disabled, loading, busy, holdMs, clearTimer],
+    [disabled, loading, busy, holdMs, clearTimer, applyPhase],
   );
 
   useEffect(() => {

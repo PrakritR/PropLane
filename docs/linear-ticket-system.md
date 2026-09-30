@@ -50,7 +50,10 @@ Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 **Full pipeline:** See **`docs/agents/captain-dev-workflow.md`** and
 **`docs/share/proplane-collaborator-workflow.md`** (share with collaborators).
 
-**One-shot (preferred):** `npm run workflow:plan -- --chat "…"` — ticket + Lavish plan.
+**Then the plan (the one plan pipeline):**
+`node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…" --ticket PRP-###`
+— the ticket id is a label on the lane's studio plan, not a second Linear call.
+`npm run workflow:plan` is retired; see `.cursor/rules/lavish-plan-gate.mdc`.
 
 **Export ticket for friends (phase ②):**
 

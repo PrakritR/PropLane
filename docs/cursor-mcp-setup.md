@@ -49,7 +49,12 @@ LINEAR_API_KEY=lin_api_…
 
 npm run linear:ticket -- --chat "…"
 npm run linear:triage
-npm run workflow:plan -- --chat "…"
+```
+
+The plan itself is not an npm script — it lives in the PropLane studio:
+
+```bash
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…"
 ```
 
 See `docs/share/proplane-collaborator-workflow.md`.
