@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Landing sample correction handoff</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#17233b}h1,h2{line-height:1.25}code{overflow-wrap:anywhere}li{margin:8px 0}</style></head><body>
+<h1>Landing sample correction handoff</h1>
+<p>29 September 2026. Branch: <code>agent/akhil-landing-hero-demo</code>. This correction follows the independent review of <code>69cbc7d2802790887e0917509b7df7ab5057639b</code>. Review URL: <a href="http://localhost:3013/">http://localhost:3013/</a> (the task server was stopped after active review).</p>
+<h2>Correction</h2>
+<p>Guided actions now return whether the parent accepted them. A synchronous busy guard rejects a second action during the transition, and the manager and phone controls are disabled while that guard is active. Form handlers also guard native submissions. The manager draft clears only after an accepted send; the resident signing preview closes only after an accepted signature. Replay clears pending timers and the busy guard. The homepage hero CTA test now scopes the hero and checks the signup and booking destinations.</p>
+<h2>Browser evidence</h2>
+<p>The focused browser regression clicked Prepare reply, attempted form submission while the transition was busy, verified the prepared text stayed in the field, then sent once and found exactly one matching manager bubble and phone message. It continued through tour, application, lease open, signing, countersigning, and service. It checked that rapid signing was disabled while the preview remained visible, then signed after the transition. Finally it restarted during a fresh transition, waited past both timers, and confirmed the initial step and conversation stayed reset.</p>
+<h2>Checks</h2>
+<ul><li>Node 22.23.0 focused ESLint, four changed TSX files: exit 0.</li><li>Node 22.23.0 Playwright <code>tests/e2e/public-home.spec.ts --workers=1</code>: 7 passed, exit 0.</li><li><code>git diff --check</code>: exit 0.</li><li><code>npm run sandbox:open -- /</code>: printed <code>http://localhost:3013/</code>. The verified task-owned server then stopped; port 3013 is free.</li></ul>
+<h2>Limits</h2>
+<p>Whole-project typecheck and build were deferred because this worktree had about 5.9 GiB of free disk space. <code>npx graphify hook-rebuild</code> exited 1 because npm could not determine an executable; this worktree has no <code>.graphify/graph.json</code>. No deployment or branch promotion occurred. The prototype fidelity and accessibility limitations in the independent review remain outside this bounded correction.</p>
+</body></html>

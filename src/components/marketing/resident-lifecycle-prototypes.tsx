@@ -40,6 +40,7 @@ export function ResidentLifecyclePrototypes() {
   const [guideEntered, setGuideEntered] = useState(false);
   const [viewVersion, setViewVersion] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const busyRef = useRef(false);
   const active = steps[phase];
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -52,12 +53,13 @@ export function ResidentLifecyclePrototypes() {
     }
   }, [phase, chapter, viewVersion, guideHidden, busy, active, guideEntered]);
 
-  const advance = (target: string, action: () => void) => {
-    if (busy) return;
+  const advance = (target: string, action: () => void): boolean => {
+    if (busyRef.current) return false;
     action();
-    if (!active || active.target !== target || busy) return;
+    if (!active || active.target !== target) return true;
     setGuideEntered(true);
     const next = steps[phase + 1];
+    busyRef.current = true;
     setBusy(true);
     setActivity((items) => [...items.slice(-2), active.activity[0]!]);
     timers.current.push(setTimeout(() => {
@@ -65,13 +67,16 @@ export function ResidentLifecyclePrototypes() {
       timers.current.push(setTimeout(() => {
         if (next) setChapter(next.chapter);
         setPhase((current) => current + 1);
+        busyRef.current = false;
         setBusy(false);
       }, 410));
     }, 520));
+    return true;
   };
   const replay = () => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    busyRef.current = false;
     setPhase(0);
     setChapter("message");
     setMessages(startingMessages);
@@ -135,6 +140,7 @@ export function ResidentLifecyclePrototypes() {
           key={`manager-${chapter}-${viewVersion}`}
           chapter={chapter} tourAccepted={tourAccepted} applicationApproved={applicationApproved}
           leaseStep={leaseStep} serviceRecord={serviceRecord} messages={messages}
+          busy={busy}
           guideTarget={guideTarget} guideInstruction={guideInstruction} suggestedReply={suggestedReply}
           onSuggest={() => advance("suggest", () => setSuggestedReply(true))}
           onReply={(text) => advance("send", () => setMessages((items) => [...items, { from: "manager", text, stage: chapter }]))}
@@ -148,6 +154,7 @@ export function ResidentLifecyclePrototypes() {
           key={`phone-${chapter}-${viewVersion}`}
           stage={chapter} tourAccepted={tourAccepted} applicationApproved={applicationApproved}
           leaseStep={leaseStep} serviceCreated={Boolean(serviceRecord)} messages={messages}
+          busy={busy}
           guideTarget={guideTarget} guideInstruction={guideInstruction}
           onAcceptTour={() => advance("accept-tour", () => {
             setTourAccepted(true);
@@ -159,7 +166,11 @@ export function ResidentLifecyclePrototypes() {
           onResidentSign={() => advance("resident-sign", () => setLeaseStep(2))}
           onOpenLease={() => advance("open-lease", () => {})}
           onCreateService={(title, details) => advance("service", () => setServiceRecord({ title, details }))}
-          onReply={(text) => setMessages((items) => [...items, { from: "resident", text, stage: chapter }])}
+          onReply={(text) => {
+            if (busyRef.current) return false;
+            setMessages((items) => [...items, { from: "resident", text, stage: chapter }]);
+            return true;
+          }}
         />
       </div>
       <div className="rlp-activity" aria-label="Sample activity" aria-live="polite">

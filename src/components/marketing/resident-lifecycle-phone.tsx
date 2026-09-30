@@ -27,11 +27,12 @@ type Props = {
   messages: { from: "manager" | "resident"; text: string; stage: Stage }[];
   guideTarget?: string;
   guideInstruction?: string;
-  onAcceptTour: () => void;
-  onOpenLease: () => void;
-  onResidentSign: () => void;
-  onCreateService: (title: string, details: string) => void;
-  onReply: (text: string) => void;
+  busy: boolean;
+  onAcceptTour: () => boolean;
+  onOpenLease: () => boolean;
+  onResidentSign: () => boolean;
+  onCreateService: (title: string, details: string) => boolean;
+  onReply: (text: string) => boolean;
 };
 
 const leaseStatus = [
@@ -52,6 +53,7 @@ export function ResidentLifecyclePhone({
   messages,
   guideTarget,
   guideInstruction,
+  busy,
   onAcceptTour,
   onOpenLease,
   onResidentSign,
@@ -78,9 +80,8 @@ export function ResidentLifecyclePhone({
   function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = reply.trim();
-    if (!text) return;
-    onReply(text);
-    setReply("");
+    if (busy || !text) return;
+    if (onReply(text)) setReply("");
   }
 
   return (
@@ -157,6 +158,7 @@ export function ResidentLifecyclePhone({
                     data-guide-target="accept-tour"
                     data-guide-active={guideTarget === "accept-tour" ? "true" : undefined}
                     data-guide-label={guideTarget === "accept-tour" ? guideInstruction : undefined}
+                    disabled={busy}
                     onClick={onAcceptTour}
                   >
                     Reply YES to accept <ChevronRight aria-hidden />
@@ -216,9 +218,9 @@ export function ResidentLifecyclePhone({
                   data-guide-target="open-lease"
                   data-guide-active={guideTarget === "open-lease" ? "true" : undefined}
                   data-guide-label={guideTarget === "open-lease" ? guideInstruction : undefined}
+                  disabled={busy}
                   onClick={() => {
-                    setSigningOpen(true);
-                    onOpenLease();
+                    if (onOpenLease()) setSigningOpen(true);
                   }}
                 >
                   <div className="rl-phone-rich-icon">
@@ -240,7 +242,8 @@ export function ResidentLifecyclePhone({
                       data-guide-target="resident-sign"
                       data-guide-active={guideTarget === "resident-sign" ? "true" : undefined}
                       data-guide-label={guideTarget === "resident-sign" ? guideInstruction : undefined}
-                      onClick={() => { setSigningOpen(false); onResidentSign(); }}>
+                      disabled={busy}
+                      onClick={() => { if (onResidentSign()) setSigningOpen(false); }}>
                       Sign sample lease <Check aria-hidden />
                     </button>
                   </div>
@@ -276,6 +279,7 @@ export function ResidentLifecyclePhone({
                     data-guide-target="service"
                     data-guide-active={guideTarget === "service" ? "true" : undefined}
                     data-guide-label={guideTarget === "service" ? guideInstruction : undefined}
+                    disabled={busy}
                     onClick={() =>
                       onCreateService("Kitchen faucet", serviceDetails)
                     }
@@ -313,7 +317,7 @@ export function ResidentLifecyclePhone({
               type="submit"
               className="rl-phone-send"
               aria-label="Send sample reply"
-              disabled={!reply.trim()}
+              disabled={busy || !reply.trim()}
             >
               <Send aria-hidden />
             </button>
