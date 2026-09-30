@@ -4,7 +4,7 @@ import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /from first question to feeling at home/i })).toBeVisible();
     await expect(page.getByRole("link", { name: /start free/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /book a demo/i }).first()).toBeVisible();
   });
@@ -58,26 +58,19 @@ test.describe("Public home", () => {
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
-  // Captain 2026-09-26: redesigned around static, fixture-fed real portal
-  // panels (no live /demo iframe, no perspective switch — see
-  // docs/agents/marketing-mocks.md). Each row's own in-panel TABS (Pending/
-  // Upcoming/Past, etc.) still switch which fixture rows render.
-  test("the lifecycle section shows every stage as a real, tabbed product panel", async ({ page }) => {
+  test("the homepage guides the local sample from reply through service and can replay", async ({ page }) => {
     await page.goto("/");
-    const section = page.locator("#lifecycle");
+    const section = page.locator("#resident-lifecycle-walkthrough");
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByRole("heading", { name: /the best way to run a rental/i })).toBeVisible();
-    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Services", "Communication"]) {
-      await expect(section.getByText(kicker, { exact: true }).first()).toBeVisible();
+    await expect(section.getByText("Sample demo")).toBeVisible();
+    for (const target of ["suggest", "send", "accept-tour", "approve", "send-lease", "open-lease", "resident-sign", "manager-sign", "service"]) {
+      const action = section.locator(`[data-guide-target="${target}"]`);
+      await expect(action).toHaveAttribute("data-guide-active", "true");
+      await action.click();
     }
-    await expect(section.locator("iframe")).toHaveCount(0);
-
-    // Leasing's own in-panel tabs swap which fixture rows render.
-    const leasingRow = page.locator('[data-lifecycle-row="leasing"]');
-    await expect(leasingRow.getByText("Dana Reyes")).toBeVisible();
-    await leasingRow.getByRole("button", { name: /signed/i }).click();
-    await expect(leasingRow.getByText("Liam Foster")).toBeVisible();
-    await expect(leasingRow.getByText("Dana Reyes")).toHaveCount(0);
+    await expect(section.getByText("Jordan’s request reached the manager")).toBeVisible();
+    await section.getByRole("button", { name: "Replay" }).click();
+    await expect(section.locator('[data-guide-target="suggest"]')).toHaveAttribute("data-guide-active", "true");
   });
 
   test("nothing overflows sideways on a phone", async ({ browser }) => {

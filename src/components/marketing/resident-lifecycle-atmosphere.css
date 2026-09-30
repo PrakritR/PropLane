@@ -1,0 +1,41 @@
+.rlp-atmosphere {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 53% 48% at 49% 29%, #fbfdff 7%, #f3f8fd 75%, transparent 100%),
+    radial-gradient(ellipse 44% 56% at -4% 65%, #bad3e9 0%, transparent 100%),
+    radial-gradient(ellipse 42% 64% at 103% 59%, #afcde5 0%, transparent 100%),
+    linear-gradient(180deg, #edf4fb 0%, #e5f0fa 52%, #d5e6f3 100%);
+}
+
+.rlp-atmosphere::before,
+.rlp-atmosphere::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.rlp-atmosphere::before {
+  background:
+    radial-gradient(ellipse 31% 25% at 14% 60%, #8fb9d65c, transparent 100%),
+    radial-gradient(ellipse 40% 35% at 91% 55%, #83aed05c, transparent 100%),
+    radial-gradient(ellipse 64% 22% at 50% 91%, #afcde449, transparent 100%);
+  filter: blur(36px);
+}
+
+.rlp-atmosphere::after {
+  background: linear-gradient(180deg, transparent 70%, #f5f9fdb3 100%);
+}
+
+.rlp-atmosphere canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.95;
+  pointer-events: none;
+}
