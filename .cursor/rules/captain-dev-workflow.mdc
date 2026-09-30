@@ -1,5 +1,5 @@
 ---
-description: Captain workflow — Lavish plan → iterate → execute → review → promote
+description: Captain workflow — studio lane plan → iterate → execute → review → promote
 alwaysApply: true
 ---
 
@@ -9,22 +9,21 @@ This is **Prakrit's** (captain) process. Full copy:
 [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
 
 When the user is **Akhil**, follow [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md)
-instead: do not open Lavish or file Linear tickets unless he asks.
+instead: do not open a studio plan or file Linear tickets unless he asks.
 
 Read **`docs/agents/captain-dev-workflow.md`**, **`docs/agents/agent-tooling-index.md`**, and
 **`docs/share/proplane-collaborator-workflow.md`** (for sharing with friends).
 
-**① Plan (Lavish) → ② Iterate until `approved — build` → ③ Execute → ④ Review → ⑤ Promote**
-
-Visual board: `npm run lavish:workflow`
+**① Plan (studio) → ② Iterate until `approved` → ③ Execute → ④ Review → ⑤ Promote**
 
 ## ① Plan, ② iterate (default)
 
-If the captain describes work, a bug, an idea, or pastes feedback — open a
-**Lavish plan** before anything else, even if he did not ask.
+If the captain describes work, a bug, an idea, or pastes feedback — write this
+lane's plan in the **PropLane studio** before anything else, even if he did not
+ask.
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "<title>"
 ```
 
 **Do not file a Linear ticket for it.** The plan is the artifact; file a ticket
@@ -35,22 +34,23 @@ PropLane tokens (before/after, desktop/mobile, empty + loading + error), and the
 plan stays editable and semi-interactive so he can rewrite it in place. Standard:
 **`docs/agents/lavish-plan-standard.md`**. Gate: **`lavish-plan-gate.mdc`**.
 
-Reply with the plan path + what it proposes. **Stop until `approved — build`.**
+Reply with the lane's studio URL + what the plan proposes. **Stop until the
+plan is buildable** — `studio-plan.mjs status --lane <lane>` exits 0 once its
+status is `approved`, `built`, or `skipped`.
 
 Skip only when he says **`skip plan`** (hotfix).
 
-### Share with a friend
-
-Optional public Lavish URL: `npx -y lavish-axi share <plan.html>`
-
-Poll: `npm run lavish:poll` (mandatory **first command** every turn while
-`.lavish/active-session.json` exists; answer him with `-- --reply "…"`)
+Watch: `node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait`
+as a tracked background task — the plan's chat and annotations reach you
+through it and nowhere else, so never end a turn with a plan open and no
+watcher running. Reply inside the studio, where he wrote the note.
 
 UI work: follow `docs/agents/ui-change-checklist.md`
 
 ## ③ Execute
 
-- Keeper branch + sandbox port: see **`local-agent-branch.mdc`** (this pane).
+- Lane branch + sandbox port: this pane's own local instructions
+  (gitignored `.cursor/rules/local-agent-branch.mdc`), never hard-coded in the repo.
 - Read `docs/portal-ui-system.md` before portal UI; `docs/agents/<area>.md` before features.
 - MCP: `.cursor/mcp.json` — see agent-tooling-index.
 - Build **what the plan shows**. A departure means updating `plan.html` and saying so.
@@ -64,10 +64,13 @@ Only touch Linear when he asked for a ticket: comment the SHA with
 
 ## ⑤ Promote (captain only)
 
+Type in the lane's pane (or prakrit pane for later rungs):
+
 ```bash
-npm run ship:to-prakrit -- --source <keeper>   # fold keeper → prakrit
-npm run ship:staging      # main → staging (QA)
-npm run ship:production   # staging → production (live + TestFlight)
+/promote prakrit                  # fold keeper → prakrit (no-mistakes)
+/promote main                     # prakrit → main
+/promote staging                  # main → staging (QA)
+/promote staging to production    # staging → production (live + TestFlight)
 ```
 
 ## Production data

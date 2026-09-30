@@ -5,32 +5,26 @@ Prakrit's process and standing authority are defined in
 
 ## Plan → approve → build → validate → integrate
 
-Start product and UI work with an editable Lavish prototype in PropLane's
-actual design system. Keep the same review session through revisions, verify
-its chat round trip, and keep an attached feedback poll running. Build only
-after explicit build approval. Follow [the plan standard](lavish-plan-standard.md).
+Start product and UI work with an editable lane plan in the PropLane studio,
+mocked in the app's actual design system. Keep the same `plan.html` through
+revisions and keep the lane's studio inbox watcher running. Build only once the
+plan is buildable. Follow [the plan standard](lavish-plan-standard.md).
 
-Linear tickets are off unless Prakrit explicitly asks for one. Create the
-Lavish artifact independently; do not use a combined helper that creates a
-ticket. Instruction maintenance and read-only investigation do not need a
-recursive product plan.
+Linear tickets are off unless Prakrit explicitly asks for one; when he does, the
+ticket id rides on the lane's plan as a label rather than a second call.
+Instruction maintenance and read-only investigation do not need a recursive
+product plan.
 
-## Six standing agent worktrees
+## Six standing agent lanes
 
-| Branch | Worktree directory | Port |
-| --- | --- | --- |
-| `claude-1` | `proplane-claude` | 3001 |
-| `claude-2` | `proplane-claude-2` | 3002 |
-| `claude-3` | `proplane-claude-3` | 3003 |
-| `cursor-1` | `proplane-cursor-branch-1` | 3004 |
-| `cursor-2` | `proplane-cursor-2` | 3005 |
-| `codex-1` | `proplane-codex-1` | 3006 |
-| `prakrit` | `proplane-prakrit` | 3000 |
-
-The installed path/port registry is Firstmate's
-`config/proplane-agent-branches`. Keep the six agents in the existing cockpit
-and `prakrit` in its own terminal window. Do not automatically create extra
-lanes, dated prompt branches, or delete a standing branch after integration.
+The roster itself — lane names, worktree paths, ports — is machine-local config
+and is deliberately not copied into this repo (root `AGENTS.md`: "Keeper names
+live in local instructions only"); see
+[AGENTS-prakrit.md](AGENTS-prakrit.md) § Standing branches, lanes, and the
+promote ladder for the sources of truth. Keep the six lanes in the existing
+cockpit and `prakrit` in its own terminal window. Do not automatically create
+extra lanes, dated prompt branches, or delete a standing lane after
+integration.
 
 Each agent works on its own keeper. Before new work, fetch and fast-forward
 from `origin/prakrit` when the working tree is clean and the update is a
@@ -48,18 +42,14 @@ Run security review and no-mistakes before integrating. Review UI changes for
 cache/rendering/performance and web/native parity as applicable. Open the
 agent's review route with `npm run sandbox:open -- </route>`.
 
-Commit and push the keeper without force. Open a PR only on request. Prakrit
-has authorized completed, validated keeper work to be integrated into
-`prakrit`; no repeated integration approval is needed for that bounded step:
-
-```bash
-npm run ship:to-prakrit -- --source <keeper>
-```
-
-Keep the source branch. Fast-forward clean keepers from the integrated tip,
-then verify each completed keeper is an ancestor of `origin/prakrit`.
-Report dirty or divergent keepers explicitly instead of claiming all are
-synchronized. Do not overwrite another agent's unfinished work.
+Commit and push the keeper without force. Open a PR only on request. When a
+keeper is completed and validated, the **captain** types **`/promote prakrit`**
+in that lane's pane to integrate it (runs no-mistakes + security review, merges
+to prakrit, fans back to all lanes). Keep the source branch afterward.
+Fast-forward clean keepers from the integrated tip, then verify each completed
+keeper is an ancestor of `origin/prakrit`. Report dirty or divergent keepers
+explicitly instead of claiming all are synchronized. Do not overwrite another
+agent's unfinished work.
 
 Before closing an obsolete branch/worktree, preserve its commits and working
 copy, distinguish equivalent patches from genuinely missing changes, and

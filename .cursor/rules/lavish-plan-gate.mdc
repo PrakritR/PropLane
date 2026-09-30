@@ -1,19 +1,23 @@
 ---
-description: Lavish plan gate — every captain prompt becomes an interactive plan; no code until approved
+description: Studio plan gate — every captain prompt becomes a lane plan in the PropLane studio; no code until approved
 alwaysApply: true
 ---
 
-# Lavish plan gate (Phase ①)
+# Studio plan gate (Phase ①)
 
 Prakrit only. When the user is **Akhil**, skip this gate unless he asks.
 See [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) /
 [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md).
 
 Full standard: [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
+This is the **one** plan pipeline — the older Lavish `workflow:plan` /
+`lavish:poll` flow it replaces is retired, and `lane-workflow-v2.mdc` states
+the same contract in short form.
 
-**Every prompt from the captain becomes a Lavish plan first.** A bug, an idea,
-a screenshot, one line in chat — plan it, open it, iterate on it. **No product
-code** until he says **`approved — build`**.
+**Every prompt from the captain becomes a lane plan in the PropLane studio
+first.** A bug, an idea, a screenshot, one line in chat — plan it, open it,
+iterate on it. **No product code** until the plan's status is `approved` (his
+Approve button in the studio, or him typing **`build`** in that lane's pane).
 
 **Do not file a Linear ticket for it.** The plan is the artifact. File a ticket
 only when he explicitly asks ("file a ticket", "log this in Linear").
@@ -21,15 +25,15 @@ only when he explicitly asks ("file a ticket", "log this in Linear").
 ## When the captain describes work
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "<title>"
 ```
 
-That scaffolds `.lavish/plans/<ID>-<slug>/plan.html`, opens Lavish, and starts
-the listener. Then **fill the scaffold** — it ships as a shell full of `slot`
-placeholders and is not reviewable until you replace them.
+That writes `~/proplane-mock-kit/studio/plans/<lane>/<id>/plan.json` and the
+sibling `plan.html`. Then **fill the scaffold** — it ships as a shell full of
+`slot` placeholders and is not reviewable until you replace them.
 
-Reply with: the plan path, one line on what it proposes, and **"waiting on your
-edits / approved — build"**. Do not implement yet.
+Reply with: the lane's studio URL, one line on what the plan proposes, and
+**"waiting on your edits"**. Do not implement yet.
 
 ## The plan quality bar
 
@@ -42,51 +46,46 @@ edits / approved — build"**. Do not implement yet.
 | Risks & tests | failure modes; real seeded data + edges, never `/demo` as proof |
 
 The plan is the spec: **what it shows is exactly what gets built**. If build
-forces a departure, update `plan.html`, re-open it, and say what moved.
+forces a departure, update `plan.html`, say what moved, and keep the same plan.
 
 It must stay **semi-interactive and editable** — tabs, before/after and
 desktop/mobile toggles, `contenteditable` sections with *Queue my edits*, and
-decision forms that submit once. All of it routes through
-`window.lavish.queuePrompt`, which `npm run lavish:poll` drains.
+decision forms that submit once. All of it reaches you through the lane's
+studio inbox and nowhere else.
 
-## Lavish chat (mandatory — non-negotiable)
+## Studio watch (mandatory — non-negotiable)
 
-Captain feedback lives in **Lavish**, not chat alone. Open a plan without
-polling and Lavish shows *"your agent is not listening"* — his annotations are lost.
+Captain feedback lives in the **studio**, not chat alone. A plan left open with
+no watcher running is a dead page: he types into it and nothing happens.
 
-**After opening a plan:**
+**After writing or updating a plan:**
 
-1. Start the long poll — in Claude Code as a **tracked background** Bash task
-   (`npm run lavish:poll -- --wait`); elsewhere `npm run lavish:listen`. One
-   poller only; two race for the same delivery.
-2. `npm run lavish:poll` before ending the turn — drains queued feedback.
-3. Apply what came back, then `npm run lavish:poll -- --reply "…"` so he sees
-   the answer where he wrote the note.
+1. Start the watch as a **tracked background** task:
+   `node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait`.
+   One watcher per lane; two race for the same delivery.
+2. Apply what came back by editing the **same** `plan.html`.
+3. Reply inside the studio, where he wrote the note, then keep the watch open.
 
-**Every later turn while `.lavish/active-session.json` exists:**
-
-1. **First shell command:** `npm run lavish:poll`.
-2. Apply his edits verbatim, re-open the same `plan.html` (never a second plan).
-3. On **`approved — build`** → `npm run lavish:poll -- --clear`, then build.
+**Every later turn while the lane's `active.json` names this plan:** check the
+watch is still live **before anything else**. If it was killed or timed out,
+re-run it — queued feedback is never lost.
 
 | Command | When |
 | --- | --- |
-| `npm run lavish:listen` | right after opening a plan |
-| `npm run lavish:poll` | first command of every turn |
-| `npm run lavish:poll -- --reply "…"` | answer him inside the plan |
-| `npm run lavish:poll -- --wait` | dedicated blocking wait |
-| `npm run lavish:poll -- --clear` | after approval only |
+| `studio-plan.mjs new --lane <lane> --id <id> --title "…"` | scaffold this lane's plan |
+| `studio-inbox.mjs --lane <lane> --wait` | right after writing the plan, and every later turn |
+| `studio-plan.mjs status --lane <lane>` | exits 0 once the plan is buildable |
 
-**Never** tell the captain to annotate without having polled at least once.
-**Never** end a plan-review turn without polling.
+**Never** tell the captain to annotate without a watcher running.
+**Never** end a turn with a plan open and no watcher running.
 
 ## Do not
 
-- Write feature code before approval
+- Write feature code before the plan is buildable
 - File a Linear ticket for the work (unless he asks)
 - Ship a plan whose UI tab describes the screen instead of drawing it
 - Leave `slot` placeholders in a plan you showed him
-- Open Lavish and end the turn without polling
-- Start a second plan for the same request
+- Open a plan and end the turn without a watcher
+- Start a second plan for the same lane while one is still active
 
 Skip the gate only on an explicit **`skip plan`** (hotfix).

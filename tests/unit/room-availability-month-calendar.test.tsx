@@ -3,10 +3,21 @@
 // The shared month grid: available days green, booked and occupied days red
 // (booked still wins the data-tone where both cover a day), today ringed, and
 // the prev arrow disabled on the first month.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RoomAvailabilityMonthCalendar, roomCalendarDayTone } from "@/components/room-availability-month-calendar";
 
+// The grid only renders the CURRENT month (the prev arrow is disabled on it),
+// so every `day(offset)` below has to land inside that same month or its cell
+// simply does not exist. Pinned mid-month: on the real clock these tests went
+// red for the last few days of every month.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-10T12:00:00.000Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 afterEach(() => cleanup());
 
 const day = (offset: number) => {

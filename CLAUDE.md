@@ -11,19 +11,19 @@ Developer-specific process:
 Claude-specific extras live here. Skills, plugins, and MCP servers are additive
 only - they never override `AGENTS.md` (see **Multi-agent collaboration** there).
 
-## Every prompt becomes a Lavish plan (mandatory for Prakrit)
+## Every prompt becomes a studio lane plan (mandatory for Prakrit)
 
-**Captain's standing order: plan first, in Lavish, every time.** When Prakrit
-describes work — a bug, an idea, a screenshot, one line in chat — scaffold a
-Lavish plan and open it **before** writing product code. No Linear ticket is
-filed for it; the plan is the artifact. He iterates on the plan, then says
-**`approved — build`**.
+**Captain's standing order: plan first, in the studio, every time.** When
+Prakrit describes work — a bug, an idea, a screenshot, one line in chat — sync
+the lane with `prakrit`, then write or update that lane's plan in the PropLane
+studio (`~/proplane-mock-kit`) **before** writing product code. No Linear
+ticket is filed for it; the plan is the artifact. He iterates on it there, then
+approves it in the studio or types **`build`** in the lane's own pane.
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"   # scaffold + open + listen
-npm run lavish:poll                                      # FIRST command of every later turn
-npm run lavish:poll -- --reply "Applied — reload the plan"
-npm run lavish:poll -- --clear                           # only after approval
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "<title>"  # scaffold
+node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait                            # FIRST thing every later turn
+node ~/proplane-mock-kit/tools/studio-plan.mjs status --lane <lane>                              # exits 0 once buildable
 ```
 
 The bar, in full: [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
@@ -32,22 +32,25 @@ Short version:
 - **Show the UI, do not describe it** — mock the screen in PropLane's own tokens,
   before/after, desktop/mobile, plus empty / loading / error states.
 - **Semi-interactive** — tabs, toggles, editable sections, and decision forms
-  that queue his answer back through `window.lavish.queuePrompt`.
+  that queue his answer back through the studio.
 - **Exact** — the Build tab's file list is what the implementation touches.
   Departing from the plan means updating the plan, not quietly building
   something else.
-- **Never end a turn with a plan open and no poll**, or Lavish tells him his
-  agent is not listening and his annotations are lost.
+- **Never end a turn with a plan open and no watcher running**, or his
+  annotations are lost.
 
 Skip only on an explicit **`skip plan`** (hotfix). For Akhil, skip unless he asks.
 
 For Prakrit this is the whole pipeline, not a formatting preference: the plan is
 the spec, it renders real semi-interactive UI in this app's design system, he
-iterates on it over several rounds in the browser, and code is written only after
-he says build. The poll must stay live the entire time or his chat and annotations
-never arrive. Full contract - including that Linear ticket filing is off by
-default - is [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md)
-§ Default pipeline and § Lavish poll.
+iterates on it over several rounds in the studio, and code is written only after
+it is approved or he says build. Once built, `npm run gate:prompt` runs and the
+lane's port stays up for review; code reaches `prakrit` only through the
+captain typing `/promote prakrit`. The watcher must stay live the entire time
+his plan is open or his chat and annotations never arrive. Full contract -
+including that Linear ticket filing is off by default - is
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) § Default
+pipeline and § Studio watch.
 
 ## Ship gate (mandatory)
 

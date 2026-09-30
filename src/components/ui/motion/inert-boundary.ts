@@ -65,12 +65,10 @@ function release() {
   }
 }
 
-function mergeRefs<T>(a: Ref<T> | undefined, b: RefCallback<T>): RefCallback<T> {
-  return (node) => {
-    if (typeof a === "function") a(node);
-    else if (a && "current" in a) (a as { current: T | null }).current = node;
-    b(node);
-  };
+/** Hands `node` to a caller-supplied ref, callback or object, at attach time. */
+function assignOuterRef<T>(ref: Ref<T> | undefined, node: T | null) {
+  if (typeof ref === "function") ref(node);
+  else if (ref) ref.current = node;
 }
 
 /**
@@ -94,8 +92,16 @@ export function useInertOutsideModalRef<T extends Element>(outerRef: Ref<T> | un
       release();
     }
   }, []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- outerRef identity churn is fine; mergeRefs re-reads it each call
-  return useCallback(mergeRefs(outerRef, innerRef), [outerRef, innerRef]);
+  // `outerRef` is merged INSIDE the returned callback, never during render:
+  // reading/writing a caller-supplied ref object is only legal once React
+  // actually attaches the node.
+  return useCallback(
+    (node: T | null) => {
+      assignOuterRef(outerRef, node);
+      innerRef(node);
+    },
+    [outerRef, innerRef],
+  );
 }
 
 /**

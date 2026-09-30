@@ -1,6 +1,6 @@
 # UI change checklist (agents)
 
-Use this **before** editing portal UI. On Prakrit work, that is after Lavish plan approval (no ticket unless requested). On Akhil work, start here when the change is UI.
+Use this **before** editing portal UI. On Prakrit work, that is after the lane's studio plan is approved (no ticket unless requested). On Akhil work, start here when the change is UI.
 
 ## The UI docs, in two tiers (PRP-183)
 
@@ -163,7 +163,7 @@ The in-workspace "Ask PropLane" chip is top-bar chrome, not dialog chrome —
 - Mobile width (~390px) for any portal chrome or list change
 - `npm run test:unit` for touched area
 
-## Lavish plan must include (for UI work)
+## The lane plan must include (for UI work)
 
 - [ ] Before / after sketch or screenshot reference
 - [ ] Which portal + route (`/portal/…`, `/resident/…`)

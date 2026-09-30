@@ -20,20 +20,20 @@ developer file before you do any work.** Do not apply both. Do not skip this.
 
 | If the user is… | Read next | Do not |
 | --- | --- | --- |
-| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets, open Lavish, or run no-mistakes unless he asks |
+| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets, open a studio plan, or run no-mistakes unless he asks |
 | **Prakrit** (captain) | [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) | Use Akhil's "skip ticket / skip no-mistakes" process |
 
 **How to tell:**
 
 - User says they are Akhil or Prakrit, or the message is clearly from one of them.
 - Home / workspace path contains `akhil` → Akhil. Path or host context that is
-  Prakrit's (captain integrate, `ship:to-prakrit`, Lavish/Linear as the default
-  pipeline) → Prakrit.
-- They talk like the captain (ticket, plan, promote, lavish) → Prakrit.
+  Prakrit's (lane worktree, captain integration through `/promote`, the studio
+  plan as the default pipeline) → Prakrit.
+- They talk like the captain (ticket, plan, promote, studio) → Prakrit.
 - Still unclear → ask "Akhil or Prakrit?" and wait. Do not guess a process.
 
-Captain default: **every message becomes a Lavish plan before code, and issues
-do not get Linear tickets unless he asks** —
+Captain default: **every message becomes a studio lane plan before code, and
+issues do not get Linear tickets unless he asks** —
 [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
 
 Shared safety in this file always wins (production lock, staging ladder, RLS,
@@ -62,10 +62,11 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   `npm run ship:production -- --skip-staging` under
   [the standing policy](docs/agents/temporary-direct-production-policy.json)
   (delete that file to revoke). Every other gate still applies. Prakrit's
-  agents never merge to protected branches. Agents working for Akhil may merge
-  only his keeper → `main` → `staging` → `production` (or keeper → `main` →
-  `production` under the policy), and only after his explicit ship request
-  under `docs/agents/AGENTS-akhil.md`.
+  agents merge to protected branches only through `/promote`, typed by the
+  captain himself, never on an agent's own initiative. Agents working for
+  Akhil may merge only his keeper → `main` → `staging` → `production` (or
+  keeper → `main` → `production` under the policy), and only after his
+  explicit ship request under `docs/agents/AGENTS-akhil.md`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
@@ -84,10 +85,10 @@ Commit and push the assigned keeper (fast-forward only, never force). Open a PR 
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
-Akhil's explicit release authority bypasses this integration rung only, never
-staging or fast-forward rules.
-Details: `docs/agents/sandbox-open-review.md`.
+**Prakrit captain integration:** the captain types `/promote prakrit` in the
+lane's own pane. Akhil's explicit release authority bypasses this integration
+rung only, never staging or fast-forward rules.
+Details: `docs/agents/AGENTS-prakrit.md`, `docs/agents/sandbox-open-review.md`.
 
 # Branching & deployment (Vercel)
 

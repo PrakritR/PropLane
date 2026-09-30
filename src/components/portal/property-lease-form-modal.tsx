@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
@@ -201,8 +201,8 @@ export function PropertyLeaseFormModal({
   // needs a stable id to compare/patch against the moment the step is
   // reachable — generated once per open and reused as the created
   // template's real id at commit, exactly like the application editor's
-  // `addModeTemplateIdRef`.
-  const addModeLeaseTemplateIdRef = useRef<string | null>(null);
+  // `addModeTemplateId`.
+  const [addModeLeaseTemplateId, setAddModeLeaseTemplateId] = useState<string | null>(null);
 
   // F013: inline duplicate-name validation — another lease already saved on
   // this property with the same (trimmed, case-insensitive) name.
@@ -296,10 +296,10 @@ export function PropertyLeaseFormModal({
       setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
       setPendingLeaseImport(null);
       setPendingLeaseImportCompareOpen(false);
-      addModeLeaseTemplateIdRef.current = null;
+      setAddModeLeaseTemplateId(null);
       return;
     }
-    addModeLeaseTemplateIdRef.current = makePropertyLeaseTemplateId();
+    setAddModeLeaseTemplateId(makePropertyLeaseTemplateId());
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
     setKind("long-term");
     setDocumentMode("proplane_long_term");
@@ -536,7 +536,7 @@ export function PropertyLeaseFormModal({
           // read/wrote against before this commit — otherwise a manager who
           // set the default during "add" would have it point at an id no
           // template ever ends up with.
-          id: addModeLeaseTemplateIdRef.current ?? makePropertyLeaseTemplateId(),
+          id: addModeLeaseTemplateId ?? makePropertyLeaseTemplateId(),
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
           leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
           linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
@@ -1095,7 +1095,7 @@ export function PropertyLeaseFormModal({
                 // saved id in edit mode, or the pending id "add" mode will
                 // create the lease WITH at commit (see the `mode === "add"`
                 // branch of `save` below).
-                const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateIdRef.current;
+                const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateId;
                 if (!thisLeaseId) return null;
                 return (
                   <PanelSection title="Default">

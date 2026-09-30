@@ -10,16 +10,16 @@ reviewed plan. This doc is for anyone joining the team (engineers, designers, QA
 ## The five phases (always in order)
 
 ```
-① TICKET  →  ② PLAN (Lavish)  →  ③ BUILD  →  ④ REVIEW  →  ⑤ PROMOTE
+① TICKET  →  ② PLAN (studio)  →  ③ BUILD  →  ④ REVIEW  →  ⑤ PROMOTE
 ```
 
 | Phase | What happens | Who approves |
 | --- | --- | --- |
 | **① Ticket** | Work is filed in Linear with project, milestone, labels, assignee, priority | Auto-routed (comms → Akhil; else → Prakrit) |
-| **② Plan** | Agent writes a **Lavish** HTML plan; you review in the browser | **You** — say `approved — build` |
+| **② Plan** | Agent writes the lane's **studio** HTML plan; you review in the browser | **You** — approve in the studio, or say `build` |
 | **③ Build** | Code on an agent sandbox branch (`cursor-1`, `cursor-2`, `claude-1`, …) | — |
 | **④ Review** | Happy path + edge cases on localhost sandbox port | **You** — request changes or approve promote |
-| **⑤ Promote** | Merge sandbox → `prakrit` (integration at localhost:3000) | **You** — explicit “merge to prakrit” |
+| **⑤ Promote** | Merge lane → `prakrit` (integration at localhost:3000) | **You** — type `/promote prakrit` in that lane's pane |
 
 **Hotfix only:** you may say `no ticket` or `skip plan` — otherwise agents must not skip ① or ②.
 
@@ -57,17 +57,18 @@ Full rules: `docs/linear-ticket-system.md` → **Priority & backlog sort**.
 LINEAR_API_KEY=lin_api_xxxxxxxx
 ```
 
-### 2. Lavish (plan review UI)
+### 2. PropLane studio (plan review UI)
 
 ```bash
-# Open any plan HTML in the browser (annotations + feedback)
-npx -y lavish-axi .lavish/plans/PRP-###-slug/plan.html
+# Scaffold this lane's plan, then author its plan.html
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…"
 
-# Poll for captain feedback while you work elsewhere
-npx -y lavish-axi poll .lavish/plans/PRP-###-slug/plan.html
+# Watch for the captain's chat and annotations while you work elsewhere
+node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait
 ```
 
-Plans live under `.lavish/plans/` (gitignored — may contain screenshots).
+Plans live under `~/proplane-mock-kit/studio/plans/<lane>/<id>/` — outside this
+repo, and they may contain screenshots.
 
 ### 3. Cursor MCP (execution & QA only)
 
@@ -98,35 +99,37 @@ After promote, **all sandboxes reset** to match `prakrit`.
 
 ## Day-to-day commands
 
-### Start work from an idea (ticket + plan in one step)
+### Start work from an idea (ticket, then the lane plan)
 
 ```bash
-npm run workflow:plan -- --chat "Manager calendar bookings panel needs a revamp"
+npm run linear:ticket -- --chat "Manager calendar bookings panel needs a revamp"
+node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "..." --ticket PRP-###
 ```
 
 This will:
 
 1. Create **PRP-###** in Linear (auto project, labels, assignee, priority)
-2. Scaffold **Lavish** `plan.html` and open it
-3. Link the plan on the Linear ticket
+2. Scaffold the lane's studio `plan.html` and give you its URL
+3. Carry the ticket id on the plan
 4. **Stop** — waiting for your approval
 
-### Or: ticket only, then plan
+### While the plan is open
+
+The agent keeps a watcher on the lane so your chat and annotations reach it:
 
 ```bash
-npm run linear:ticket -- --chat "Residents tab crashes when I open Payments"
-npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..."
+node ~/proplane-mock-kit/tools/studio-inbox.mjs --lane <lane> --wait
 ```
 
 ### After you approve the plan
 
-Reply in chat or Linear: **`approved — build`**
+Approve it in the studio, or reply **`build`**.
 
 Agent then codes on the sandbox branch, tests on the sandbox port, and hands off for review.
 
 ### When review looks good
 
-Say: **`merge to prakrit`**
+Type **`/promote prakrit`** in that lane's pane.
 
 ---
 
@@ -164,9 +167,9 @@ Portal UI must follow the **Properties tab** pattern. Before editing UI:
 
 | You say | Agent does |
 | --- | --- |
-| Describe a bug or feature | ① Ticket → ② Lavish plan |
-| `approved — build` | ③ Implement |
-| `merge to prakrit` | ⑤ Promote to integration |
+| Describe a bug or feature | ① Ticket → ② studio lane plan |
+| Approve in the studio, or `build` | ③ Implement |
+| `/promote prakrit` | ⑤ Promote to integration |
 | `no ticket` / `skip plan` | Skip that phase (hotfix) |
 
-Questions? Comment on the **PRP-###** ticket or annotate the Lavish plan.
+Questions? Comment on the **PRP-###** ticket or annotate the lane's studio plan.

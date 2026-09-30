@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Promote a sandbox keeper branch into prakrit with security review + no-mistakes.
+# Thin wrapper around the one /promote implementation (lane-workflow v2).
 #
-# Captain / firstmate only — agents land on their keeper branch and run
-# npm run sandbox:open before handoff. This script reads .proplane-review-path
-# from the agent worktree when --path is omitted.
+# This used to drive firstmate's fm-proplane-promote-to-prakrit.sh directly.
+# That two-step flow (validate on an integrate/* branch, then merge into
+# prakrit) is now promote.sh's own prakrit --prepare / --land split, with the
+# no-mistakes skill driven interactively in between — see
+# ~/.claude/skills/promote/SKILL.md. Prefer /promote prakrit directly; this
+# wrapper exists only for the npm run ship:to-prakrit muscle memory.
 #
 # Usage:
 #   npm run ship:to-prakrit -- --source cursor-1
-#   npm run ship:to-prakrit -- --source cursor-1 --path /portal/tasks
-#   npm run ship:to-prakrit -- --source cursor-1 --validate-only
+#   npm run ship:to-prakrit -- --source cursor-1 --dry-run
 set -euo pipefail
 
-FM_BIN="${FM_BIN:-$HOME/firstmate/bin}"
-PROMOTE="$FM_BIN/fm-proplane-promote-to-prakrit.sh"
+PROMOTE="$HOME/.claude/skills/promote/promote.sh"
 
 if [ ! -x "$PROMOTE" ]; then
   echo "ship:to-prakrit: missing $PROMOTE" >&2
-  echo "  Install firstmate bin or set FM_BIN to the directory containing fm-proplane-promote-to-prakrit.sh" >&2
   exit 1
 fi
 
@@ -29,7 +29,8 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --help|-h)
-      echo "usage: npm run ship:to-prakrit -- --source <cursor-1|cursor-2|…> [--path </route>] [--validate-only] [--no-browser]"
+      echo "usage: npm run ship:to-prakrit -- --source <lane> [--dry-run]" >&2
+      echo "  use /promote prakrit --prepare" >&2
       exit 0
       ;;
     *)
@@ -40,11 +41,27 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$SOURCE" ]; then
-  echo "error: --source <agent-branch> is required (e.g. cursor-1)" >&2
+  echo "error: --source <lane> is required (e.g. claude-1)" >&2
   exit 2
 fi
 
-if [ ${#EXTRA[@]} -gt 0 ]; then
-  exec "$PROMOTE" "$SOURCE" "${EXTRA[@]}"
+# promote.sh derives the lane from HEAD, not from an argument, so a --source
+# that names a different branch would silently prepare (and force-push) the
+# checked-out one instead. Fail closed rather than warn.
+CURRENT="$(git symbolic-ref --quiet --short HEAD || true)"
+if [ -z "$CURRENT" ]; then
+  echo "error: HEAD is detached — check out $SOURCE before running this" >&2
+  exit 2
 fi
-exec "$PROMOTE" "$SOURCE"
+if [ "$SOURCE" != "$CURRENT" ]; then
+  echo "error: --source '$SOURCE' is not the checked-out branch ('$CURRENT')" >&2
+  echo "  /promote prakrit prepares whatever HEAD points at, so this would have prepared '$CURRENT'." >&2
+  echo "  check out $SOURCE (or run this from that lane's own worktree) and try again." >&2
+  exit 2
+fi
+
+echo "ship:to-prakrit: use /promote prakrit — this wrapper only runs the prepare step for '$SOURCE'" >&2
+
+# bash 3.2 (/bin/bash on macOS) treats "${EXTRA[@]}" on an empty array as an
+# unbound variable under `set -u`, so guard the expansion.
+exec "$PROMOTE" prakrit --prepare ${EXTRA[@]+"${EXTRA[@]}"}

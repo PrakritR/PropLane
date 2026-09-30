@@ -62,6 +62,17 @@ type OverrideType = "open" | "block";
 
 let demoRuleCounter = 0;
 
+/**
+ * Unique id for a demo-only availability rule. The counter is owned by this
+ * module function rather than bumped from the component's own handlers —
+ * reassigning an outer binding from inside a component is a render-order side
+ * effect (`react-hooks/globals`), and these ids never reach the database.
+ */
+function nextDemoRuleId(prefix: string): string {
+  demoRuleCounter += 1;
+  return `${prefix}-${demoRuleCounter}`;
+}
+
 /** One day's non-flexible weekly windows, sorted. */
 function windowsForDay(rules: VendorAvailabilityRule[], weekday: number): WeeklyWindow[] {
   return rules
@@ -318,10 +329,9 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     const start = existing.length ? Math.min(22 * 60, existing[existing.length - 1]!.endMinute) : 9 * 60;
     const end = Math.min(24 * 60, start + 60) > start ? Math.min(24 * 60, start + 60) : 24 * 60;
     if (demo) {
-      demoRuleCounter += 1;
       applyDemoRules([
         ...rules,
-        { id: `demo-avail-${demoRuleCounter}`, kind: "weekly", weekday, startMinute: start, endMinute: end },
+        { id: nextDemoRuleId("demo-avail"), kind: "weekly", weekday, startMinute: start, endMinute: end },
       ]);
       return;
     }
@@ -384,10 +394,9 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       return;
     }
     if (demo) {
-      demoRuleCounter += 1;
       applyDemoRules([
         ...rules,
-        { id: `demo-avail-flex-${demoRuleCounter}`, kind: "weekly", weekday, startMinute: 0, endMinute: 1440, note: "Flexible" },
+        { id: nextDemoRuleId("demo-avail-flex"), kind: "weekly", weekday, startMinute: 0, endMinute: 1440, note: "Flexible" },
       ]);
       showToast("Marked flexible. Managers can schedule any time this day.");
       return;
@@ -411,10 +420,9 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       if (flex) await removeRule(flex.id);
       for (const w of sourceWindows) {
         if (demo) {
-          demoRuleCounter += 1;
           applyDemoRules([
             ...rules,
-            { id: `demo-avail-${demoRuleCounter}`, kind: "weekly", weekday, startMinute: w.startMinute, endMinute: w.endMinute },
+            { id: nextDemoRuleId("demo-avail"), kind: "weekly", weekday, startMinute: w.startMinute, endMinute: w.endMinute },
           ]);
         } else {
           await saveVendorWeeklyRule({ weekday, startMinute: w.startMinute, endMinute: w.endMinute });
@@ -443,11 +451,10 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       endMinute = e;
     }
     if (demo) {
-      demoRuleCounter += 1;
       applyDemoRules([
         ...rules,
         {
-          id: `demo-avail-override-${demoRuleCounter}`,
+          id: nextDemoRuleId("demo-avail-override"),
           kind: overrideDraft.type,
           specificDate: overrideDraft.date,
           startMinute: startMinute ?? 0,

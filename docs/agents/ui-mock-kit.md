@@ -6,7 +6,7 @@ settings page, with mock data, a scenario bar (who is looking, workspace, Before
 desktop/phone), fake Stripe test cards, and a review panel per page.
 
 - Location: `~/proplane-mock-kit/` (outside every worktree, so lane resets can't remove it).
-  `README.md` there explains how to load it into a Lavish plan. `proto/SPEC.md` is the
+  `README.md` there explains how to load it into a plan. `proto/SPEC.md` is the
   contract and holds the captain's accuracy rules.
 - Before = today's screen, copied from the real-app screenshots in `real/`. After = the
   proposal, with the **same features** and nothing invented; other ideas go in the review
