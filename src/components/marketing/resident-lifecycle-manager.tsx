@@ -56,11 +56,12 @@ type ManagerProps = {
   guideTarget?: string;
   guideInstruction?: string;
   suggestedReply: boolean;
-  onSuggest(): void;
-  onReply(text: string): void;
-  onApprove(): void;
-  onSendLease(): void;
-  onManagerSign(): void;
+  busy: boolean;
+  onSuggest(): boolean;
+  onReply(text: string): boolean;
+  onApprove(): boolean;
+  onSendLease(): boolean;
+  onManagerSign(): boolean;
   onChapter(chapter: Chapter): void;
   onExplore(): void;
 };
@@ -373,6 +374,7 @@ export function ResidentLifecycleManager({
   guideTarget,
   guideInstruction,
   suggestedReply,
+  busy,
   onSuggest,
   onReply,
   onApprove,
@@ -520,13 +522,14 @@ export function ResidentLifecycleManager({
   );
   const send = (event: FormEvent) => {
     event.preventDefault();
-    if (draft.trim()) {
-      if (thread === "Jordan Rivera") onReply(draft.trim());
-      else
-        setMinaMessages((current) => [
-          ...current,
-          { from: "manager", text: draft.trim(), stage: chapter },
-        ]);
+    if (busy || !draft.trim()) return;
+    if (thread === "Jordan Rivera") {
+      if (onReply(draft.trim())) setDraft("");
+    } else {
+      setMinaMessages((current) => [
+        ...current,
+        { from: "manager", text: draft.trim(), stage: chapter },
+      ]);
       setDraft("");
     }
   };
@@ -858,9 +861,9 @@ export function ResidentLifecycleManager({
                     data-guide-target="suggest"
                     data-guide-active={guideTarget === "suggest" ? "true" : undefined}
                     data-guide-label={guideTarget === "suggest" ? guideInstruction : undefined}
+                    disabled={busy}
                     onClick={() => {
-                      setDraft("Yes, Room 3 is available. Thursday at 5:30 PM Pacific is offered for a tour. Reply YES to confirm that time.");
-                      onSuggest();
+                      if (onSuggest()) setDraft("Yes, Room 3 is available. Thursday at 5:30 PM Pacific is offered for a tour. Reply YES to confirm that time.");
                     }}>
                     <Sparkles aria-hidden /> Prepare reply
                   </button>
@@ -890,7 +893,7 @@ export function ResidentLifecycleManager({
                     data-guide-target="send"
                     data-guide-active={guideTarget === "send" ? "true" : undefined}
                     data-guide-label={guideTarget === "send" ? guideInstruction : undefined}
-                    disabled={!draft.trim()}
+                    disabled={busy || !draft.trim()}
                   >
                     <Send aria-hidden />
                   </button>
@@ -1021,6 +1024,7 @@ export function ResidentLifecycleManager({
                   data-guide-target="approve"
                   data-guide-active={guideTarget === "approve" ? "true" : undefined}
                   data-guide-label={guideTarget === "approve" ? guideInstruction : undefined}
+                  disabled={busy}
                   onClick={() => {
                     if (chapter !== "application") onChapter("application");
                     onApprove();
@@ -1056,6 +1060,7 @@ export function ResidentLifecycleManager({
                   data-guide-target="send-lease"
                   data-guide-active={guideTarget === "send-lease" ? "true" : undefined}
                   data-guide-label={guideTarget === "send-lease" ? guideInstruction : undefined}
+                  disabled={busy}
                   onClick={() => {
                     if (chapter !== "lease") onChapter("lease");
                     onSendLease();
@@ -1071,6 +1076,7 @@ export function ResidentLifecycleManager({
                   data-guide-target="manager-sign"
                   data-guide-active={guideTarget === "manager-sign" ? "true" : undefined}
                   data-guide-label={guideTarget === "manager-sign" ? guideInstruction : undefined}
+                  disabled={busy}
                   onClick={() => {
                     if (chapter !== "lease") onChapter("lease");
                     onManagerSign();
