@@ -20,20 +20,20 @@ developer file before you do any work.** Do not apply both. Do not skip this.
 
 | If the user is… | Read next | Do not |
 | --- | --- | --- |
-| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets, open Lavish, or run no-mistakes unless he asks |
+| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets, open a studio plan, or run no-mistakes unless he asks |
 | **Prakrit** (captain) | [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) | Use Akhil's "skip ticket / skip no-mistakes" process |
 
 **How to tell:**
 
 - User says they are Akhil or Prakrit, or the message is clearly from one of them.
 - Home / workspace path contains `akhil` → Akhil. Path or host context that is
-  Prakrit's (captain integrate, `ship:to-prakrit`, Lavish/Linear as the default
-  pipeline) → Prakrit.
-- They talk like the captain (ticket, plan, promote, lavish) → Prakrit.
+  Prakrit's (lane worktree, captain integration through `/promote`, the studio
+  plan as the default pipeline) → Prakrit.
+- They talk like the captain (ticket, plan, promote, studio) → Prakrit.
 - Still unclear → ask "Akhil or Prakrit?" and wait. Do not guess a process.
 
-Captain default: **every message becomes a Lavish plan before code, and issues
-do not get Linear tickets unless he asks** —
+Captain default: **every message becomes a studio lane plan before code, and
+issues do not get Linear tickets unless he asks** —
 [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
 
 Shared safety in this file always wins (production lock, staging ladder, RLS,

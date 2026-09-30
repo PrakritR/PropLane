@@ -17,6 +17,11 @@
  *      (skipped with a note when there are none).
  *   3. `tsc --noEmit -p .` (whole project; skip with --skip-tsc).
  *
+ * Step 3 needs Next's generated route types (`.next/types`, in tsconfig's
+ * `include`). A worktree that has never run `next dev` / `next build` reports
+ * phantom `TS2304: Cannot find name 'RouteContext'` errors from typed route
+ * handlers - start the lane's dev server once, or pass --skip-tsc.
+ *
  * Prints one summary line per step with its real exit code, and exits
  * non-zero if any step failed. A skipped step is not a failure.
  *

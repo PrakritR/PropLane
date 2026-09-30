@@ -58,7 +58,7 @@ Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 **Export ticket for friends (phase ②):**
 
 ```bash
-npm run linear:export -- --ticket PRP-180 --out .lavish/plans/PRP-180-slug/ticket.md
+npm run linear:export -- --ticket PRP-180 --out ~/proplane-mock-kit/studio/plans/<lane>/<id>/ticket.md
 ```
 
 ---

@@ -14,8 +14,8 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
   all other gates: local/browser tests, independent review, migration backups,
   preflight, fast-forward only, and Vercel + TestFlight verification.
 
-- Do **not** file a Linear ticket, open Lavish, or run `workflow:plan` unless
-  Akhil asks. Ticket → plan → approve is Prakrit's pipeline.
+- Do **not** file a Linear ticket or open a studio lane plan unless Akhil asks.
+  Ticket → plan → approve is Prakrit's pipeline.
 - Do **not** invoke no-mistakes, including through a wrapper or at the end of
   a task. Use normal reviews, tests, lint, and staging QA. Only a new explicit
   request from Akhil to run that tool overrides this.

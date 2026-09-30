@@ -1,4 +1,4 @@
-# Agent tooling index (MCP, docs, Lavish)
+# Agent tooling index (MCP, docs, studio plans)
 
 One-page map for execution — what to connect, what to read, when to use
 which tool. Captain workflow phases: **`docs/agents/captain-dev-workflow.md`**.
@@ -32,13 +32,17 @@ app routes and agent tools, not ad-hoc SQL on production.
 | `npm run linear:ticket -- --chat "…"` | Explicit request only | Create the ticket Prakrit asked for |
 | `npm run linear:triage` | Explicit request only | Re-apply assignee + priority on open backlog |
 | `npm run linear:export -- --ticket PRP-###` | ② | Shareable `ticket.md` |
-| `npm run lavish:plan -- --ticket PRP-### …` | ② | Scaffold `plan.html` |
-| `npx -y lavish-axi <plan.html>` | ② | Open Lavish review |
-| `npx -y lavish-axi poll <plan.html>` | ② | Wait for captain feedback |
-| `npx -y lavish-axi share <plan.html>` | ② | Public URL for friend review |
+| `studio-plan.mjs new --lane <lane> --id <id> --title "…"` | ② | Scaffold the lane's `plan.html` |
+| `studio-inbox.mjs --lane <lane> --wait` | ② | Watch for captain feedback |
+| `studio-plan.mjs status --lane <lane>` | ② | Exits 0 once the plan is buildable |
 | `npm run test:unit` | ③④ | Unit tests |
+| `npm run gate:prompt` | ③④ | Per-prompt gate: vitest + eslint on the changed files, then `tsc` |
+| `npm run typecheck` | ③④ | `tsc --noEmit` on the whole project |
 | `npm run ship:preflight` | ⑤ | Pre-promote checks |
 | `graphify query "…"` | ③ | Codebase orientation before grep |
+
+The `studio-*.mjs` tools live in `~/proplane-mock-kit/tools/` (outside this
+repo); run them with `node`. Contract: [`lavish-plan-standard.md`](lavish-plan-standard.md).
 
 **Env:** `LINEAR_API_KEY` in `.env.local` for Linear scripts. `npm run seed:env` in
 new worktrees.
@@ -51,7 +55,7 @@ new worktrees.
 
 | Doc | When |
 | --- | --- |
-| `docs/agents/AGENTS-prakrit.md` | Prakrit: Lavish → approved build → validated keeper → integration |
+| `docs/agents/AGENTS-prakrit.md` | Prakrit: studio plan → approved → build + `gate:prompt` → `/promote` |
 | `docs/agents/AGENTS-akhil.md` | Akhil: working style; no ticket/plan unless asked |
 | `docs/agents/captain-dev-workflow.md` | Full Prakrit pipeline |
 | `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
@@ -81,18 +85,12 @@ Examples: `communication-inbox.md`, `resident-payments.md`, `lease-generation.md
 
 ---
 
-## Lavish playbooks (phase ②)
+## Writing the plan body (phase ②)
 
-Run before writing HTML:
-
-```bash
-npx -y lavish-axi playbook plan
-npx -y lavish-axi playbook comparison   # options / tradeoffs
-npx -y lavish-axi playbook diagram      # flows (use Mermaid)
-npx -y lavish-axi playbook input        # captain decisions in-page
-```
-
-Match PropLane visual language when mocking UI — copy from real components
+The plan bar — five tabs, before/after, semi-interactive, decision forms — is
+owned by [`lavish-plan-standard.md`](lavish-plan-standard.md), and the extra
+evidence sections by [`plan-evidence.md`](plan-evidence.md). Match PropLane
+visual language when mocking UI — copy from real components
 (`docs/agents/marketing-mocks.md`).
 
 ---
@@ -101,11 +99,12 @@ Match PropLane visual language when mocking UI — copy from real components
 
 Paste into security-review, bugbot, explore:
 
-> Lavish plan and explicit build approval required for product changes. No
+> An approved studio lane plan is required before product changes. No
 > Linear ticket unless Prakrit asks for one.
 > Dev/test data only. Read `docs/agents/<area>.md` + `docs/portal-ui-system.md`
-> for UI. Use the assigned standing keeper. Integrate completed, validated work
-> into `prakrit` under AGENTS-prakrit.md; retain the keeper after integration.
+> for UI. Use the assigned standing lane and never push a protected branch —
+> `prakrit` is reached only by the captain typing `/promote prakrit`, and the
+> lane is kept afterward (AGENTS-prakrit.md).
 
 ---
 

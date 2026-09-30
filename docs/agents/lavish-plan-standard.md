@@ -42,8 +42,10 @@ Rules that are not negotiable:
 
 ## What a plan must contain
 
-The scaffold `studio-plan.mjs new` writes is a **shell**. Every `slot` span is
-a hole you fill before he ever sees it. Five tabs:
+`studio-plan.mjs new` registers the plan and writes a title-only stub
+(*"Draft — plan body not written yet"*). The body is yours to author before he
+ever sees it — start from the studio's own `plan-parts.html` and the mock kit
+rather than a blank page. Five tabs:
 
 | Tab | Holds | Bar |
 | --- | --- | --- |
@@ -59,7 +61,7 @@ Start from the whole-product mock kit ([`ui-mock-kit.md`](ui-mock-kit.md)): load
 plan and change only the pages the plan touches, with Before matching today exactly.
 
 If the change touches anything visual, the UI tab must render the screen in
-PropLane's own look — the template ships `.pl-card`, `.pl-row`, `.pl-btn`,
+PropLane's own look — the mock kit ships `.pl-card`, `.pl-row`, `.pl-btn`,
 `.pl-pill` primitives on the real brand tokens (`--pl-blue #2863f0`, ink
 `#17181a`, cards on `--pl-line` borders).
 
@@ -75,8 +77,7 @@ PropLane's own look — the template ships `.pl-card`, `.pl-row`, `.pl-btn`,
 
 ## Semi-interactive means the plan responds
 
-The captain reviews faster by clicking than by typing. The template already
-wires:
+The captain reviews faster by clicking than by typing, so the plan body wires:
 
 - **Tabs** — Overview / UI / Build / Decide / Risks.
 - **Before ↔ After** and **Desktop ↔ Mobile** toggles on the mock.
@@ -84,7 +85,9 @@ wires:
   button sends his rewritten text back to you verbatim.
 - **Decision forms** — radios plus one *Queue this answer* submit. Never queue
   on a radio change; he must be able to change his mind.
-- **approved — build** / **Rework the plan** buttons in the footer.
+- The **verdict lives in the studio, not in the plan footer** — he approves
+  (or rejects/comments) there, or types `build` in the lane's pane, and that is
+  what moves the plan's status to `approved`.
 
 Everything routes through the studio's queued-prompt mechanism, which
 `studio-inbox.mjs --lane <lane> --wait` drains. Add more interactivity when it
@@ -97,10 +100,11 @@ Edit `~/proplane-mock-kit/studio/plans/<lane>/<id>/plan.html` directly. It is
 plain HTML with no build step and no CDN, so it renders identically in the
 studio and in a plain browser.
 
-- Keep the `data-plan-field` attributes — they are what his edits come back
-  labelled with.
-- Delete the Decide tab's placeholder question rather than shipping an empty
-  one; a fake open question wastes his review.
+- Label every section readably (`data-plan-field`, a heading, a stable id): a
+  comment arrives as his text plus the element's selector or label, and that is
+  how you find the section he meant.
+- Never ship the Decide tab with a placeholder or invented open question; a
+  fake open question wastes his review.
 - Remove an open question from the plan once he answers it. Fold the answer
   into the plan instead of leaving a resolved thread lying around.
 - Images go in the plan's `assets/` and are referenced relatively.

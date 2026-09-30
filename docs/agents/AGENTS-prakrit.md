@@ -180,8 +180,9 @@ token saving actually comes from.
 - **luna is not optional.** An unproven terra run is unfinished work, and sol
   reports it as unfinished. Green `tsc` is not proof; the feature driven in a
   browser on seeded data is.
-- **The plan is still the gate.** astra does not release sol before the captain
-  says **`approved — build`**. The hierarchy speeds ② → ③; it never skips ①.
+- **The plan is still the gate.** astra does not release sol before the plan's
+  status is `approved` (his Approve in the studio, or him typing **`build`**).
+  The hierarchy speeds ③ → ④; it never skips ②.
 - **Escalate, don't improvise.** A leaf that hits something the plan did not
   anticipate stops and returns the finding. sol decides if it is inside the
   contract; if not it goes to astra, and astra puts it to the captain.
@@ -283,7 +284,7 @@ triggers on itself mid-work.
 
 ## Do not
 
-- Write product code before **`approved — build`**
+- Write product code before the plan is buildable (`studio-plan.mjs status`)
 - Let a Sonnet leaf render a verdict — evidence up, judgement at `sol`
 - Run two orchestrators on one request
 - File a Linear ticket he did not ask for

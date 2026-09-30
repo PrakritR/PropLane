@@ -37,10 +37,10 @@ List every table and column the change touches, split into **Reads** and
 writes). For every column, confirm a migration under `supabase/migrations/`
 actually creates it; a column the code assumes but no migration created is
 flagged in the plan as **unverified** rather than silently listed as if it
-exists (this is the exact failure class in
-`proplane-phantom-column-kills-a-branch` and
-`proplane-production-schema-drift` in memory — catching it here is the whole
-point). Table format:
+exists. A phantom column the code assumes, and schema drift between dev and
+production, are the two failure classes this check exists to catch before a
+build starts; the environment model itself is
+[`database-environments.md`](../database-environments.md). Table format:
 
 | Table | Column | Read/Write | Migration |
 | --- | --- | --- | --- |
