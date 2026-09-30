@@ -113,7 +113,7 @@ For Stripe webhooks locally, use `node scripts/stripe-listen.mjs` (see `docs/str
 | `npm run dev` | Start Next.js dev server |
 | `npm run build` / `npm start` | Production build & serve |
 | `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` (needs Next's generated route types — run `npm run dev` or `build` once first) |
+| `npm run typecheck` | `next typegen` (generates the route types `tsc` needs) then `tsc --noEmit` |
 | `npm run check` | Lint + unit tests + build |
 | `npm run test:unit` | Vitest unit tests |
 | `npm run test:integration` | Vitest API integration tests |

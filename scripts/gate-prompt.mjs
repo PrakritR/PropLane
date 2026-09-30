@@ -15,12 +15,15 @@
  *      own `include` globs so `related` cannot invent test files outside it.
  *   2. `eslint` on changed .ts/.tsx/.js/.mjs files that still exist on disk
  *      (skipped with a note when there are none).
- *   3. `tsc --noEmit -p .` (whole project; skip with --skip-tsc).
+ *   3. `next typegen` then `tsc --noEmit -p .` (whole project; skip both with
+ *      --skip-tsc).
  *
- * Step 3 needs Next's generated route types (`.next/types`, in tsconfig's
- * `include`). A worktree that has never run `next dev` / `next build` reports
- * phantom `TS2304: Cannot find name 'RouteContext'` errors from typed route
- * handlers - start the lane's dev server once, or pass --skip-tsc.
+ * Step 3 typegens first because typed route handlers reference the global
+ * `RouteContext<"...">` that Next writes into `.next/types` (in tsconfig's
+ * `include`). A worktree that has never run `next dev` / `next build` would
+ * otherwise report phantom `TS2304: Cannot find name 'RouteContext'` errors.
+ * `next typegen` writes exactly those types without a full build, so the step
+ * passes out of the box - same as `npm run typecheck`.
  *
  * Prints one summary line per step with its real exit code, and exits
  * non-zero if any step failed. A skipped step is not a failure.
@@ -161,8 +164,19 @@ function runEslint(files) {
 
 function runTsc(skip) {
   if (skip) {
-    console.log("SKIP  tsc --noEmit -p . — --skip-tsc passed");
+    console.log("SKIP  next typegen + tsc --noEmit -p . — --skip-tsc passed");
     return null;
+  }
+  // Generate `.next/types` first: without it, typed route handlers fail on the
+  // global `RouteContext<"...">` in a worktree that has never built. A typegen
+  // failure is a real failure - do not fall through to tsc and report its
+  // phantom errors instead.
+  console.log("RUN   next typegen");
+  const typegen = sh("npx", ["next", "typegen"], { stdio: "inherit" });
+  const typegenCode = typegen.status ?? 1;
+  if (typegenCode !== 0) {
+    console.log(`STEP  next typegen — exit ${typegenCode} (tsc not run)`);
+    return typegenCode;
   }
   console.log("RUN   tsc --noEmit -p .");
   const res = sh("npx", ["tsc", "--noEmit", "-p", "."], { stdio: "inherit" });
@@ -177,7 +191,7 @@ function main() {
     console.log(`Usage: npm run gate:prompt -- [--base <ref>] [--skip-tsc]
 
   --base <ref>   base ref for "commits on this branch not on the base" (default: origin/prakrit)
-  --skip-tsc     skip the tsc --noEmit step
+  --skip-tsc     skip the next typegen + tsc --noEmit step
 `);
     process.exit(0);
   }

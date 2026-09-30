@@ -15,7 +15,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "next typegen && tsc --noEmit -p .",
     "gate:prompt": "node scripts/gate-prompt.mjs",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
