@@ -80,7 +80,7 @@ export function ResidentLifecyclePhone({
   function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = reply.trim();
-    if (busy || !text) return;
+    if (!text) return;
     if (onReply(text)) setReply("");
   }
 
@@ -317,7 +317,7 @@ export function ResidentLifecyclePhone({
               type="submit"
               className="rl-phone-send"
               aria-label="Send sample reply"
-              disabled={busy || !reply.trim()}
+              disabled={!reply.trim()}
             >
               <Send aria-hidden />
             </button>

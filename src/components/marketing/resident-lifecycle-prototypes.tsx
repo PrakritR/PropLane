@@ -167,7 +167,6 @@ export function ResidentLifecyclePrototypes() {
           onOpenLease={() => advance("open-lease", () => {})}
           onCreateService={(title, details) => advance("service", () => setServiceRecord({ title, details }))}
           onReply={(text) => {
-            if (busyRef.current) return false;
             setMessages((items) => [...items, { from: "resident", text, stage: chapter }]);
             return true;
           }}
