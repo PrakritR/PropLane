@@ -20,11 +20,15 @@ describe("Application / Lease Bookings chrome", () => {
       expect(file).not.toContain("SettingsModulePage");
       expect(file).not.toContain('initialPane="automation"');
       expect(file).not.toContain("ProPortalSettingsModal");
-      expect(file).toContain('router.push("/portal/profile?tab=forms")');
       expect(file).not.toContain("PropertyDetailFooterActions");
       expect(file).not.toMatch(/>\s*Settings\s*</);
     }
 
+    // e04eadde1: the application gear still jumps to Settings -> Forms; the lease gear
+    // opens the in-page catalog settings popup (offered toggles) instead.
+    expect(application).toContain('router.push("/portal/profile?tab=forms")');
+    expect(lease).toContain("PropertyLeaseCatalogSettingsModal");
+    expect(lease).toContain("setCatalogSettingsOpen(true)");
     expect(application).toContain('settingsDataAttr="property-application-settings-open"');
     expect(lease).toContain('settingsDataAttr="property-lease-settings-open"');
   });

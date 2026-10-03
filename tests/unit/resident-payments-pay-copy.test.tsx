@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 //
-// PLAN-0920-0853 (resident slice): the confirm-and-pay button inside the
-// resident charges modal reads "Pay {total}" — never "Continue to Stripe".
-// The embedded checkout step itself is unchanged; only the button copy that
-// gets the resident there loses the word "Stripe".
+// PLAN-0920-0853 (resident slice): the resident charges modal never says
+// "Continue to Stripe" / "Stripe". Reshaped by C2-RJ11 (see below).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -117,37 +115,30 @@ afterEach(() => {
   navigated.length = 0;
 });
 
-describe("resident charges modal — Pay button copy", () => {
-  it('reads "Pay $1,205.00", never "Continue to Stripe"', async () => {
+// C2-RJ11 (studio-redesign-0929): the amount sheet and the card sheet are ONE
+// sheet — charges, a Processing fee line, the card/bank picker and the embedded
+// checkout (which carries the single Pay button). There is no "Continue to
+// Stripe" step and no second Pay button of the panel's own.
+describe("resident charges modal — one checkout sheet", () => {
+  it('shows "$1,205.00" and a processing-fee line, never "Continue to Stripe" or the word Stripe', async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
 
     const dialog = await screen.findByRole("dialog");
-    const confirmButton = await waitFor(() => {
-      const button = dialog.querySelector('[data-attr="resident-payments-confirm-pay"]');
-      expect(button).toBeTruthy();
-      return button as HTMLElement;
-    });
-
-    expect(confirmButton.textContent?.trim()).toBe("Pay $1,205.00");
+    await waitFor(() => expect(dialog.textContent ?? "").toContain("$1,205.00"));
+    expect(dialog.textContent ?? "").toMatch(/Processing fee/);
+    expect(dialog.querySelector('[data-attr="resident-payments-confirm-pay"]')).toBeNull();
     expect(dialog.textContent ?? "").not.toContain("Continue to Stripe");
     expect(dialog.textContent ?? "").not.toMatch(/\bStripe\b/);
   });
 
-  it("still opens the same embedded checkout in the modal after confirming", async () => {
+  it("opens the embedded checkout straight away, without a confirm step", async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
 
-    const dialog = await screen.findByRole("dialog");
-    const confirmButton = await waitFor(() => {
-      const button = dialog.querySelector('[data-attr="resident-payments-confirm-pay"]');
-      expect(button).toBeTruthy();
-      return button as HTMLElement;
-    });
-    fireEvent.click(confirmButton);
-
+    await screen.findByRole("dialog");
     await waitFor(() => expect(screen.getByTestId("stripe-checkout")).toBeTruthy());
   });
 });

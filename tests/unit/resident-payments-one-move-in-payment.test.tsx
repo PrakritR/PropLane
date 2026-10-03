@@ -108,8 +108,12 @@ const checkoutBodies: Array<{ chargeIds: string[] }> = [];
 vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   if (url.includes("/api/portal/household-charge-checkout") || url.includes("checkout")) {
-    checkoutBodies.push(JSON.parse(String(init?.body ?? "{}")));
-    return new Response(JSON.stringify({ clientSecret: "cs_test", subtotalCents: 230000, totalCents: 230000 }), {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { chargeIds: string[] };
+    checkoutBodies.push(body);
+    // The sheet shows the server-priced total, so the stub prices the ids it was sent.
+    const cents: Record<string, number> = { rent1: 110000, dep: 80000, fee: 25000, clean: 15000, nov: 110000 };
+    const total = body.chargeIds.reduce((sum, id) => sum + (cents[id] ?? 0), 0);
+    return new Response(JSON.stringify({ clientSecret: "cs_test", subtotalCents: total, totalCents: total }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -180,7 +184,11 @@ describe("one move-in payment", () => {
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
     expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
-    expect(within(sheet).getByText(/Move-in total · 4 items/)).toBeTruthy();
+    // C2-RJ11: one sheet lists the charges in its preview (no "Move-in total · 4 items" subtext)
+    // and the one checkout is for exactly the four move-in lines.
+    const previewText = (sheet.querySelector("[data-popup-preview]") as HTMLElement).textContent ?? "";
+    for (const title of ["First month's rent", "Security deposit", "Move-in cost", "Cleaning"]) expect(previewText).toContain(title);
+    await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "rent1"]));
   });
 
   it("Pay all from the list still sends every payable line, the move-in ones included, in one checkout", async () => {
@@ -190,6 +198,6 @@ describe("one move-in payment", () => {
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
     expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
-    expect(within(sheet).getByText("5 charges")).toBeTruthy();
+    await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "nov", "rent1"]));
   });
 });

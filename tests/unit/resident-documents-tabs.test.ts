@@ -33,8 +33,9 @@ describe("residentDocumentTabForLease", () => {
 });
 
 describe("receipts and other documents", () => {
-  it("are always archived — neither carries a signature workflow", () => {
-    expect(residentDocumentTabForReceipt()).toBe("archived");
+  // 704129296 (resident Documents › Payments tab): a receipt lives on Payments; "Other" stays archived.
+  it("receipts are always on Payments and other documents archived — neither carries a signature workflow", () => {
+    expect(residentDocumentTabForReceipt()).toBe("payments");
     expect(residentDocumentTabForOther()).toBe("archived");
   });
 });

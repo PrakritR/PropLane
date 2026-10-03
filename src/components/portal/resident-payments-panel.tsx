@@ -6,7 +6,7 @@ import { recordDelightMoment } from "@/lib/native/app-review";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 import { Button } from "@/components/ui/button";
@@ -655,10 +655,12 @@ export function ResidentPaymentsPanel({
   );
 
   useEffect(() => {
-    if (bucketTouched || !email) return;
+    // An explicitly routed Paid tab is the resident asking for history — never
+    // bounce them onto Due just because something is owed.
+    if (bucketTouched || !email || resolvedBucketProp === "paid") return;
     if (overdueRows.length > 0) setBucket("overdue");
     else if (upcomingPendingRows.length > 0) setBucket("pending");
-  }, [bucketTouched, email, overdueRows.length, upcomingPendingRows.length]);
+  }, [bucketTouched, email, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
 
   const statusTabs = useMemo(
     () =>
@@ -779,10 +781,16 @@ export function ResidentPaymentsPanel({
     setPayConfirm({ chargeIds: ids, method });
   }, []);
 
+  // Each load creates a payment session, so it must fire only when the
+  // selection or method changes — never because a callback identity did.
+  const loadCheckoutRef = useRef(loadCheckout);
+  useEffect(() => {
+    loadCheckoutRef.current = loadCheckout;
+  }, [loadCheckout]);
   useEffect(() => {
     if (!payConfirm) return;
-    void loadCheckout(payConfirm.chargeIds, payConfirm.method);
-  }, [loadCheckout, payConfirm]);
+    void loadCheckoutRef.current(payConfirm.chargeIds, payConfirm.method);
+  }, [payConfirm]);
 
   const selectPayModalMethod = useCallback((method: ResidentAxisPaymentMethod) => {
     setPaymentMethod(method);
@@ -1422,7 +1430,7 @@ export function ResidentPaymentsPanel({
 
   const paymentModals = (
     <>
-    <Modal
+    <PortalDialog
       open={rentReportingConsentOpen}
       onClose={() => {
         if (rentReportingBusy) return;
@@ -1430,23 +1438,17 @@ export function ResidentPaymentsPanel({
         setRentReportingError(null);
       }}
       title="Turn on rent reporting"
-      description="PropLane will send your rent payment history for this lease to Experian, TransUnion and Equifax each month, starting with the payments already made under this lease. On-time payments can raise your score; a payment more than 30 days late is reported as late. You can turn this off at any time, and reporting stops the next cycle."
-      panelClassName="max-w-md"
-      footer={
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          
-          <Button
-            type="button"
-            variant="primary"
-            disabled={rentReportingBusy || !rentReportingLegalName.trim() || !rentReportingDob.trim()}
-            onClick={() => submitRentReportingConsent()}
-          >
-            I agree, turn it on
-          </Button>
-        </div>
-      }
+      primaryAction={{
+        label: "I agree, turn it on",
+        onClick: () => submitRentReportingConsent(),
+        disabled: rentReportingBusy || !rentReportingLegalName.trim() || !rentReportingDob.trim(),
+        dataAttr: "resident-rent-reporting-agree",
+      }}
     >
       <div className="space-y-4">
+        <p className="text-sm text-foreground">
+          PropLane will send your rent payment history for this lease to Experian, TransUnion and Equifax each month, starting with the payments already made under this lease. On-time payments can raise your score; a payment more than 30 days late is reported as late. You can turn this off at any time, and reporting stops the next cycle.
+        </p>
         {rentReportingError ? (
           <p role="alert" className="text-sm text-danger">
             {rentReportingError}
@@ -1471,7 +1473,7 @@ export function ResidentPaymentsPanel({
           />
         </label>
       </div>
-    </Modal>
+    </PortalDialog>
 
     <Modal
       open={payConfirm !== null}
