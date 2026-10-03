@@ -423,7 +423,7 @@ function ManagerPropertyInlineDetails({
     ownerManagerUserId: row?.managerUserId,
     viewerManagerUserId: managerUserId,
   });
-  // Lease-first workspaces print "Sign lease", not "Apply" — resolved by the same rule as the public page.
+  // The preview carries the same signing fields the public page does.
   const signingContext = useListingSigningContext({ listingId: row?.listingId });
   const previewProperty = useMemo(
     () =>

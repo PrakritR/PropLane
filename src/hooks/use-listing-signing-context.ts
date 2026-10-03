@@ -11,7 +11,7 @@ import {
 } from "@/lib/leasing-pipeline-preferences";
 
 /**
- * The manager's Preview must say "Sign lease" exactly when the public page will.
+ * The manager's Preview must show the same signing fields the public page does.
  * The public projection stamps `signingOrder` / `leaseSigningFeeCents` server-side
  * from the manager's leasing-pipeline preference; this reads the same preference
  * (the settings route already resolves it for the property) and collapses it with

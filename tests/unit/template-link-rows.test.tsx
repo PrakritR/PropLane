@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 function renderApplication(opts: {
-  signingOrder?: "application_then_lease" | "lease_then_application";
+  signingOrder?: "application_then_lease";
   mode?: "add" | "edit";
   template?: PropertyApplicationTemplate;
   applications?: PropertyApplicationTemplate[];
@@ -141,11 +141,7 @@ describe("application popup, first step", () => {
     expect(standard.usedForLeaseTemplateIds ?? []).toEqual([]);
   });
 
-  it("lease first (or order not loaded): no Lease row", async () => {
-    renderApplication({ signingOrder: "lease_then_application" });
-    await screen.findByRole("dialog");
-    expect(screen.queryByRole("button", { name: "Lease" })).toBeNull();
-    cleanup();
+  it("order not loaded: no Lease row", async () => {
     renderApplication({});
     await screen.findByRole("dialog");
     expect(screen.queryByRole("button", { name: "Lease" })).toBeNull();
@@ -157,7 +153,7 @@ describe("application popup, first step", () => {
     jumpRail("sections");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
-    expect("linkedLeaseTemplateId" in savedApplications(persist).find((t) => t.id === STANDARD.id)!).toBe(false);
+    expect(savedApplications(persist).find((t) => t.id === STANDARD.id)!.linkedLeaseTemplateId ?? null).toBeNull();
   });
 
   it("a new, unsaved application carries its Lease choice into its first save", async () => {
@@ -192,7 +188,6 @@ describe("application popup, first step", () => {
 });
 
 function renderLease(opts: {
-  signingOrder?: "application_then_lease" | "lease_then_application";
   mode?: "add" | "edit";
   template?: PropertyLeaseTemplate;
   applications?: PropertyApplicationTemplate[];
@@ -211,7 +206,6 @@ function renderLease(opts: {
       template={opts.mode === "add" ? null : { ...template, applicationLeaseTerms: ["Long-term"] }}
       templates={leases}
       propertyId="mgr-house-1"
-      signingOrder={opts.signingOrder}
       onClose={() => {}}
       onSave={onSave}
       showToast={() => {}}
@@ -225,59 +219,10 @@ function savedLeases(onSave: ReturnType<typeof vi.fn>): PropertyLeaseTemplate[] 
 }
 
 describe("lease popup, first step", () => {
-  it("lease first: shows an Application row (mappable applications only) and saves exactly one application on this lease", async () => {
-    const onSave = renderLease({ signingOrder: "lease_then_application" });
-    await screen.findByRole("dialog", { name: "Edit lease" });
-    fireEvent.click(screen.getByRole("button", { name: "Application" }));
-    expect(await screen.findByText("Quick application", { selector: '[role="option"] *, [role="option"]' })).toBeTruthy();
-    // A co-signer form is never offered as a lease's application.
-    expect(screen.queryByText("Co-signer application", { selector: '[role="option"] *, [role="option"]' })).toBeNull();
-    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
-
-    await pick("Application", "Quick application");
-    jumpRail("document");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const saved = savedLeases(onSave);
-    expect(saved.find((t) => t.id === LONG.id)!.linkedApplicationTemplateId).toBe(QUICK.id);
-    expect(saved.find((t) => t.id === SHORT.id)!.linkedApplicationTemplateId ?? null).toBeNull();
-  });
-
-  it("clearing the choice scrubs an application's legacy claim so it cannot come back", async () => {
-    const legacy = { ...QUICK, usedForLeaseTemplateIds: [LONG.id] };
-    const onSave = renderLease({ signingOrder: "lease_then_application", applications: [STANDARD, legacy, COSIGNER] });
-    await screen.findByRole("dialog", { name: "Edit lease" });
-    expect(screen.getByRole("button", { name: "Application" })).toHaveTextContent("Quick application");
-    await pick("Application", "Not mapped");
-    jumpRail("document");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(savedLeases(onSave).find((t) => t.id === LONG.id)!.linkedApplicationTemplateId ?? null).toBeNull();
-    const extra = onSave.mock.calls.at(-1)?.[1] as { applications?: PropertyApplicationTemplate[] } | undefined;
-    expect(extra?.applications?.find((t) => t.id === QUICK.id)?.usedForLeaseTemplateIds).toEqual([]);
-  });
-
-  it("application first (or order not loaded): no Application row", async () => {
-    renderLease({ signingOrder: "application_then_lease" });
-    await screen.findByRole("dialog", { name: "Edit lease" });
-    expect(screen.queryByRole("button", { name: "Application" })).toBeNull();
-    cleanup();
+  it("the lease popup has no Application row (one system: application first, then lease)", async () => {
     renderLease({});
     await screen.findByRole("dialog", { name: "Edit lease" });
     expect(screen.queryByRole("button", { name: "Application" })).toBeNull();
-  });
-
-  it("a new, unsaved lease carries its Application choice into its first save", async () => {
-    const onSave = renderLease({ signingOrder: "lease_then_application", mode: "add" });
-    await screen.findByRole("dialog");
-    fireEvent.change(document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement, { target: { value: "Brand new lease" } });
-    await pick("Application", "Standard application");
-    jumpRail("document");
-    fireEvent.click(document.querySelector('[data-attr="property-lease-add-save"]') as HTMLElement);
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const created = savedLeases(onSave).at(-1)!;
-    expect(created.id).not.toBe(LONG.id);
-    expect(created.linkedApplicationTemplateId).toBe(STANDARD.id);
   });
 
   it("shows Co-signer / guarantor addendum on a regular lease, saves the choice, and hides it on an addendum", async () => {
@@ -290,7 +235,7 @@ describe("lease popup, first step", () => {
     expect(savedLeases(onSave).find((t) => t.id === LONG.id)!.linkedGuarantorLeaseTemplateId).toBe(ADDENDUM.id);
     cleanup();
 
-    renderLease({ template: ADDENDUM, signingOrder: "lease_then_application" });
+    renderLease({ template: ADDENDUM });
     await screen.findByRole("dialog", { name: "Edit lease" });
     expect(screen.queryByRole("button", { name: "Co-signer / guarantor addendum" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Application" })).toBeNull();

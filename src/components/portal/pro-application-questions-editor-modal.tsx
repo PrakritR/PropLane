@@ -265,7 +265,7 @@ export function ManagerApplicationQuestionsEditorModal({
   templates?: PropertyApplicationTemplate[];
   /**
    * The workspace signing order (Settings -> Applications & leases). Application first puts a
-   * "Lease" row on the first step; lease first leaves the mapping to the lease popup. Absent
+   * "Lease" row on the first step (one application, one lease). Absent
    * (not loaded yet) = no mapping row.
    */
   signingOrder?: MappingSigningOrder;

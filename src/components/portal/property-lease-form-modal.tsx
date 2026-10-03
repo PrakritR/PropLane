@@ -21,15 +21,8 @@ import {
   type PropertyFormStartFrom,
 } from "@/components/portal/property-form-wizard-kit";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import {
-  applicationIdForLease,
-  applicationLinkForLease,
-  isAddendumLeaseTemplate,
-  mappableApplicationTemplates,
-  type MappingSigningOrder,
-} from "@/lib/application-lease-mapping";
+import { isAddendumLeaseTemplate } from "@/lib/application-lease-mapping";
 import { readPropertyApplicationTemplates, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
-import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
 import {
   LeaseConfigForm,
@@ -146,7 +139,6 @@ export function PropertyLeaseFormModal({
   templates,
   propertyHint,
   propertyId,
-  signingOrder,
   bulk = false,
   demoMode = false,
   canDelete = false,
@@ -163,18 +155,12 @@ export function PropertyLeaseFormModal({
   templates?: PropertyLeaseTemplate[];
   propertyHint?: PropertyLeasePreviewHint;
   propertyId?: string | null;
-  /**
-   * The workspace signing order (Settings -> Applications & leases). Lease first puts an
-   * "Application" row on the first step; application first leaves the mapping to the application
-   * popup. Absent (not loaded yet) = no mapping row.
-   */
-  signingOrder?: MappingSigningOrder;
   /** A bulk edit spans several properties, whose ids differ: no per-template link rows. */
   bulk?: boolean;
   demoMode?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  /** `extra.applications`: the property's applications after this save — the Used-for mapping's edits, or (lease first) a stale legacy claim on this lease removed. */
+  /** `extra.applications`: the property's applications after this save — the Used-for mapping's edits. */
   onSave: (
     nextTemplates: PropertyLeaseTemplate[],
     extra?: { applications?: PropertyApplicationTemplate[] },
@@ -198,8 +184,6 @@ export function PropertyLeaseFormModal({
   /** Which applicant lease-term choices route to this lease ("Applies to"). */
   const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
   const [linkedApplicationTemplateId, setLinkedApplicationTemplateId] = useState<string | null>(null);
-  /** The Application row was changed in this popup: only then does Save rewrite the lease's link. */
-  const [applicationLinkTouched, setApplicationLinkTouched] = useState(false);
   const [offered, setOffered] = useState(true);
   // F-editor d/F015: another of this property's lease templates whose form is
   // the co-signer/guarantor addendum — see `PropertyLeaseTemplate.linkedGuarantorLeaseTemplateId`.
@@ -345,7 +329,6 @@ export function PropertyLeaseFormModal({
       setKind(templateKind);
       setApplicationLeaseTerms([...(template.applicationLeaseTerms ?? [])]);
       setLinkedApplicationTemplateId(template.linkedApplicationTemplateId ?? null);
-      setApplicationLinkTouched(false);
       setOffered(template.offered !== false);
       setDocumentMode(documentModeFromLease(templateSource, templateKind));
       setDraft(templateDraftFields);
@@ -375,7 +358,6 @@ export function PropertyLeaseFormModal({
     setLeaseAddType("long-term");
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
     setLinkedApplicationTemplateId(null);
-    setApplicationLinkTouched(false);
     setOffered(true);
     setKind("long-term");
     setDocumentMode("proplane_long_term");
@@ -582,25 +564,9 @@ export function PropertyLeaseFormModal({
     return trimmed;
   };
 
-  // First-step link rows. An addendum maps to nothing and has no addendum of its own.
-  const applicationCatalog = useMemo(
-    () => readPropertyApplicationTemplates(sub.propertyApplicationTemplatesExplicit ? sub : syncPropertyApplicationTemplatesFromListing(sub)),
-    [sub],
-  );
-  const applicationRowOptions = mappableApplicationTemplates(applicationCatalog).map((application) => ({
-    value: application.id,
-    label: application.label,
-  }));
+  // First-step link row. An addendum maps to nothing and has no addendum of its own.
   const thisIsAddendum = Boolean(template && isAddendumLeaseTemplate(template));
   const linkRowsAvailable = !bulk && !thisIsAddendum;
-  const shownApplicationId = applicationLinkTouched
-    ? linkedApplicationTemplateId
-    : linkedApplicationTemplateId ??
-      (mode === "edit" && template ? applicationIdForLease({ applications: applicationCatalog, leases: templates ?? [] }, template.id) : null);
-  const showApplicationRow =
-    linkRowsAvailable &&
-    signingOrder === "lease_then_application" &&
-    (applicationRowOptions.length > 0 || shownApplicationId !== null);
   const addendumRowOptions = (templates ?? [])
     .filter((row) => row.id !== template?.id && (isAddendumLeaseTemplate(row) || row.id === linkedGuarantorTemplateId))
     .map((row) => ({ value: row.id, label: row.label }));
@@ -665,23 +631,10 @@ export function PropertyLeaseFormModal({
       leaseTemplateImportReview: resolvedHtml ? leaseTemplateImportReview : undefined,
     };
 
-    // The first step's Application row (lease first): the same `applicationLinkForLease`
-    // validation + legacy-claim scrub `setMappingTarget` uses, so a lease still carries ONE
-    // application. Untouched, the stored link rides through as it was.
     const savingLeaseId = mode === "add" ? (addModeLeaseTemplateId ?? makePropertyLeaseTemplateId()) : template?.id ?? "";
-    let nextApplicationLink = linkedApplicationTemplateId;
-    let nextApplications: PropertyApplicationTemplate[] | undefined;
-    if (showApplicationRow && applicationLinkTouched) {
-      const link = applicationLinkForLease({ applications: applicationCatalog, leases: templates ?? [] }, savingLeaseId, linkedApplicationTemplateId);
-      if (!link.ok) {
-        showToast(link.error);
-        return;
-      }
-      nextApplicationLink = link.linkedApplicationTemplateId;
-      nextApplications = link.applications ?? undefined;
-    }
-    // The Application-row link (lease first) wins; otherwise the Used-for mapping's applications ride along.
-    const saveExtra = { applications: nextApplications ?? routingApplicationTemplates };
+    const nextApplicationLink = linkedApplicationTemplateId;
+    // The Used-for mapping's applications (application first, then lease) ride along.
+    const saveExtra = { applications: routingApplicationTemplates };
 
     setSaving(true);
     try {
@@ -896,8 +849,8 @@ export function PropertyLeaseFormModal({
 
   const workspaceDraft = useWorkspaceDraft({
     scope: `property-lease:${propertyId ?? sub.address ?? "property"}:${mode}:${template?.id ?? "new"}`,
-    open, value: { label, kind, documentMode, draft, applicationLeaseTerms, linkedGuarantorTemplateId, linkedApplicationTemplateId, applicationLinkTouched, htmlOverride, sectionsUploadFileName, importSource, pendingLeaseImport, stepIdx, addModeLeaseTemplateId },
-    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setDocumentMode(saved.documentMode); setDraft(saved.draft); setApplicationLeaseTerms(saved.applicationLeaseTerms); setLinkedGuarantorTemplateId(saved.linkedGuarantorTemplateId); setLinkedApplicationTemplateId(saved.linkedApplicationTemplateId ?? null); setApplicationLinkTouched(Boolean(saved.applicationLinkTouched)); setHtmlOverride(saved.htmlOverride); setSectionsUploadFileName(saved.sectionsUploadFileName); setImportSource(saved.importSource); setPendingLeaseImport(saved.pendingLeaseImport); setStepIdx(saved.stepIdx); setAddModeLeaseTemplateId(saved.addModeLeaseTemplateId); },
+    open, value: { label, kind, documentMode, draft, applicationLeaseTerms, linkedGuarantorTemplateId, linkedApplicationTemplateId, htmlOverride, sectionsUploadFileName, importSource, pendingLeaseImport, stepIdx, addModeLeaseTemplateId },
+    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setDocumentMode(saved.documentMode); setDraft(saved.draft); setApplicationLeaseTerms(saved.applicationLeaseTerms); setLinkedGuarantorTemplateId(saved.linkedGuarantorTemplateId); setLinkedApplicationTemplateId(saved.linkedApplicationTemplateId ?? null); setHtmlOverride(saved.htmlOverride); setSectionsUploadFileName(saved.sectionsUploadFileName); setImportSource(saved.importSource); setPendingLeaseImport(saved.pendingLeaseImport); setStepIdx(saved.stepIdx); setAddModeLeaseTemplateId(saved.addModeLeaseTemplateId); },
   });
 
   if (!open) return null;
@@ -1040,24 +993,6 @@ export function PropertyLeaseFormModal({
                   options={copyLeaseOptions}
                   placeholder="Choose a lease"
                   onChange={(next) => setCopyFromLeaseId(next || null)}
-                />
-              </PropertyFormWizardRow>
-            ) : null}
-            {showApplicationRow ? (
-              <PropertyFormWizardRow label="Application">
-                <FieldSingleSelect
-                  hideLabel
-                  label="Application"
-                  labelClassName={WIZARD_LABEL_CLASS}
-                  variant="cell"
-                  className="min-w-[200px] max-w-[280px]"
-                  value={shownApplicationId ?? NO_LINK}
-                  dataAttr="property-lease-application-link"
-                  options={[{ value: NO_LINK, label: "Not mapped" }, ...applicationRowOptions]}
-                  onChange={(next) => {
-                    setLinkedApplicationTemplateId(next === NO_LINK ? null : next);
-                    setApplicationLinkTouched(true);
-                  }}
                 />
               </PropertyFormWizardRow>
             ) : null}

@@ -235,7 +235,7 @@ export function ManagerPropertyLeasePanel({
 
     if (!saveTarget) return false;
     const withLeases = { ...syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates), ...extra };
-    // Lease first: the lease popup's Application row also scrubs a stale legacy claim off the applications.
+    // `applications` is the Used-for mapping's edit (application first, then lease).
     const next = applications ? withPropertyApplicationTemplatesExplicit(withLeases, applications) : withLeases;
     return persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next);
   };
@@ -695,7 +695,6 @@ export function ManagerPropertyLeasePanel({
         templates={templates}
         propertyHint={propertyHint}
         propertyId={propertyId ?? bulkPropertyIds[0] ?? null}
-        signingOrder={formSetup.loaded ? formSetup.leasingPipeline.pipelineOrder : undefined}
         bulk={bulkPropertyIds.length > 0}
         demoMode={demoMode}
         canDelete={formMode === "edit"}

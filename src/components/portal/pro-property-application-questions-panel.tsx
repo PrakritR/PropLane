@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp, Signature } from "lucide-react";
+import { Check, CreditCard, FileUp } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
@@ -570,11 +570,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
                     ) : null}
                     <PortalRowFact icon={CreditCard} srLabel="Application fee">
                       {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} fee` : "No fee"}
-                    </PortalRowFact>
-                    <PortalRowFact icon={Signature} srLabel="Who signs first">
-                      {formSetup.leasingPipeline.pipelineOrder === "lease_then_application"
-                        ? "Lease signs first"
-                        : "Application signs first"}
                     </PortalRowFact>
                     {sourceName ? (
                       <PortalRowFact icon={FileUp} srLabel="Source">
