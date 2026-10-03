@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpFromLine, Download, FileText, Undo2, Wrench, DollarSign } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowUpFromLine, Download, FileText, Undo2, Settings, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -31,7 +31,7 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
-import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
+import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -148,7 +148,7 @@ function formatIncomeDate(dateIso: string): string {
  * uses — no new money route, no bypass of server-side amount/ownership
  * checks. Settings → Payouts is unchanged and still works on its own.
  */
-function VendorIncomeBalanceCard({ onAddBank }: { onAddBank?: () => void } = {}) {
+function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () => void; reloadKey?: number } = {}) {
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -176,7 +176,7 @@ function VendorIncomeBalanceCard({ onAddBank }: { onAddBank?: () => void } = {})
 
   useEffect(() => {
     void loadBalance();
-  }, [loadBalance]);
+  }, [loadBalance, reloadKey]);
 
   // Access-denied / not-yet-linked reads the same as "nothing to show yet" —
   // the empty Income list below already explains that state, so this card
@@ -255,8 +255,14 @@ function VendorIncomeBalanceCard({ onAddBank }: { onAddBank?: () => void } = {})
             icon={ArrowUpFromLine}
             label="Withdraw"
             data-attr="vendor-income-balance-withdraw"
-            disabled={!ready || withdrawableCents <= 0}
+            disabled={ready && withdrawableCents <= 0}
             onClick={() => {
+              // No bank yet: the one Add bank account flow is the fix, never a
+              // Withdraw sheet with nowhere to send the money.
+              if (!ready && onAddBank) {
+                onAddBank();
+                return;
+              }
               track("payout_withdraw_started", { portal: "vendor", source: "income_tab" });
               setWithdrawOpen(true);
             }}
@@ -363,11 +369,10 @@ function VendorPaymentsTable({
           />
         );
         return (
-          // A relative wrapper, not `trailing`, carries the ⋯: the row's own
-          // title button (`onOpen`) would otherwise nest a real `<button>`
-          // (the DropdownMenu trigger) inside a `<button>`, which is invalid
-          // markup. The menu sits as an absolutely-positioned sibling instead.
-          <div key={row.id} className="relative">
+          // The ⋯ rides the row's `actions` slot: a sibling of the row's own
+          // title button (`onOpen`), vertically centred beside the figure like
+          // the studio, and never nested inside that button.
+          <div key={row.id}>
             {(() => {
               // VD43 — a paid row shows Gross and Fee as glyph facts (never a
               // pill), with the bold figure switched to Net. Only ever true
@@ -392,15 +397,13 @@ function VendorPaymentsTable({
                       dateAndStatus
                     )
                   }
-                  trailing={breakdown ? formatMoney(breakdown.netCents, row.currency) : formatVendorPaymentMoney(row)}
+                  amount={breakdown ? formatMoney(breakdown.netCents, row.currency) : formatVendorPaymentMoney(row)}
+                  actions={rowMenu}
                   onOpen={viewHref ? () => navigate(viewHref) : undefined}
                   dataAttr={row.kind === "invoice" ? "vendor-invoice-row" : "vendor-income-row"}
                 />
               );
             })()}
-            <div className="pointer-events-none absolute right-2 top-2">
-              <div className="pointer-events-auto">{rowMenu}</div>
-            </div>
           </div>
         );
       })}
@@ -1170,7 +1173,8 @@ export function VendorFinancesPanel({
     [allRows, filters.from, filters.to, propertyIds, statusIds, listSearch],
   );
 
-  const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
+  const [addBankOpen, setAddBankOpen] = useState(false);
+  const [balanceReloadKey, setBalanceReloadKey] = useState(0);
   const defaults = defaultFilters();
   const filterTouchCount =
     propertyIds.length +
@@ -1305,12 +1309,12 @@ export function VendorFinancesPanel({
               window.location.assign(vendorExportUrl("invoices", filters.from, filters.to));
             }}
           />
-          <PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />
+          <PortalIconAction icon={Settings} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => setAddBankOpen(true)} />
         </>
       }
       primary={requestPayment}
     >
-      <VendorIncomeBalanceCard onAddBank={() => payoutsRef.current?.openPaymentMethods()} />
+      <VendorIncomeBalanceCard onAddBank={() => setAddBankOpen(true)} reloadKey={balanceReloadKey} />
       {invoicesLoading ? (
         <div data-attr="vendor-payments-loading">
           <ListSkeleton rows={4} showLeading={false} />
@@ -1320,11 +1324,7 @@ export function VendorFinancesPanel({
           title={filtersHideRows ? "No payments match these filters" : incomeEmpty.title}
           section={incomeEmpty.section}
           tone={filtersHideRows ? "muted" : "default"}
-          actions={
-            filtersHideRows
-              ? []
-              : [{ label: portalListAddPrimaryLabel("payment"), onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
-          }
+          actions={[]}
           clear={
             filtersHideRows
               ? {
@@ -1358,7 +1358,15 @@ export function VendorFinancesPanel({
         linkedManagers={linkedManagers}
         editingInvoice={editingInvoice}
       />
-      <VendorPaymentsPanel ref={payoutsRef} setupOnly />
+      <AddBankFlow
+        open={addBankOpen}
+        onClose={() => setAddBankOpen(false)}
+        portal="vendor"
+        onAdded={() => {
+          setAddBankOpen(false);
+          setBalanceReloadKey((n) => n + 1);
+        }}
+      />
     </VendorFinancesChrome>
   );
 }

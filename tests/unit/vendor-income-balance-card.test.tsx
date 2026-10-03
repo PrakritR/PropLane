@@ -90,7 +90,7 @@ describe("vendor Income balance card", () => {
     renderPanel();
     // The empty-income card (rows are mocked empty) is a reliable settle
     // marker independent of the balance card's own load outcome.
-    await waitFor(() => expect(document.querySelector('[data-attr="vendor-income-empty-add"]')).not.toBeNull());
+    await waitFor(() => expect(document.body.textContent).toContain("No payments yet"));
     expect(document.querySelector('[data-attr="vendor-income-balance-card"]')).toBeNull();
   });
 });

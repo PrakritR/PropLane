@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { MapPin, Settings } from "lucide-react";
+import { Check, CircleDot, Clock, MapPin, Settings, Sparkles } from "lucide-react";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -26,7 +26,7 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -76,6 +76,11 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 function vendorPlaceLine(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string {
   if (vendorCanSeeFullWorkOrderSite(row, bid)) return propertyLabel(row);
   return workOrderGeneralArea(row);
+}
+
+/** "$250" for whole dollars, "$130.65" otherwise — thousands separated, like the studio. */
+function formatBudget(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: cents % 100 === 0 ? 0 : 2 })}`;
 }
 
 function pad2(n: number) {
@@ -1268,7 +1273,6 @@ export function VendorWorkOrdersPanel({
           title: emptyCopy.title,
           section: emptyCopy.section,
           sibling: portalEmptySibling(tabs, tabId),
-          actions: [{ label: "Add quote", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-empty-add" }],
         }}
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedDoneable.length}
@@ -1295,16 +1299,19 @@ export function VendorWorkOrdersPanel({
         ) : null}
         {nearYouRows.map((row) => {
           const bid = bidsByWorkOrderId[row.id];
-          const phaseLabel = vendorWorkOrderPhaseLabel(row, bid);
-          const figure = bid ? "Quoted" : "New";
+          const budgetCents = row.marketplacePublish?.budgetCents ?? 0;
           return (
             <div key={row.id} id={`portal-work-order-${row.id}`}>
               <PortalServiceRecordRow
                 title={row.title}
-                subtitle={[vendorPlaceLine(row, bid), row.scheduled || "When flexible", phaseLabel]
-                  .filter(Boolean)
-                  .join(" · ")}
-                figure={figure}
+                subtitle={vendorPlaceLine(row, bid)}
+                facts={
+                  <>
+                    <PortalRowFact icon={Clock}>{row.scheduled || "Anytime"}</PortalRowFact>
+                    {bid ? <PortalRowFact icon={Check}>Quoted</PortalRowFact> : <PortalRowFact icon={Sparkles}>New</PortalRowFact>}
+                  </>
+                }
+                figure={budgetCents > 0 ? `${formatBudget(budgetCents)} budget` : undefined}
                 checked={selectedIds.has(row.id)}
                 onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
                 onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
@@ -1320,9 +1327,17 @@ export function VendorWorkOrdersPanel({
             <div key={row.id} id={`portal-work-order-${row.id}`}>
               <PortalServiceRecordRow
                 title={row.title}
-                subtitle={[row.reference, vendorPlaceLine(row, bid), row.scheduled || "Not yet scheduled", phaseLabel]
-                  .filter(Boolean)
-                  .join(" · ")}
+                subtitle={vendorPlaceLine(row, bid)}
+                facts={
+                  <>
+                    <PortalRowFact icon={Clock}>{row.scheduled || "Not yet scheduled"}</PortalRowFact>
+                    {phaseLabel ? (
+                      <PortalRowFact icon={phaseLabel === "Paid" || phaseLabel === "Awaiting approval" ? Check : CircleDot}>
+                        {phaseLabel}
+                      </PortalRowFact>
+                    ) : null}
+                  </>
+                }
                 checked={selectedIds.has(row.id)}
                 // Only a scheduled job can be marked done in bulk, so only those
                 // rows offer a checkbox. A checkbox that selects a row nothing

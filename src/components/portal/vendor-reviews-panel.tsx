@@ -268,9 +268,16 @@ export function VendorReviewsPanel({
       />
       <div className="space-y-3 px-3 pb-6 sm:px-4" data-attr="vendor-reviews-panel">
         <div className="rounded-xl border border-border bg-card px-3.5 py-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Overall</span>
-            <span className="text-sm text-muted">{state === "ready" ? formatVendorReviewAggregate(aggregate) : "—"}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">Overall</span>
+            {state === "ready" && aggregate.count > 0 && aggregate.average != null ? (
+              <span className="inline-flex items-center gap-2 text-sm text-foreground" data-attr="vendor-reviews-overall">
+                <VendorReviewStarDisplay stars={aggregate.average} size="sm" />
+                {`${aggregate.average.toFixed(1)} (${aggregate.count} ${aggregate.count === 1 ? "review" : "reviews"})`}
+              </span>
+            ) : (
+              <span className="text-sm text-muted">{state === "ready" ? formatVendorReviewAggregate(aggregate) : "—"}</span>
+            )}
           </div>
           {reviews ? <OverallDistribution reviews={reviews} /> : null}
         </div>

@@ -1,11 +1,18 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useState, type ReactNode } from "react";
 import { ChevronRight, Lock } from "lucide-react";
 import Link from "next/link";
 
 import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
+
+/**
+ * How a section's title is drawn. "label" is the small uppercase caption every
+ * settings page uses; "heading" is the vendor settings pane's sentence-case
+ * bold title (the studio draws the two portals differently).
+ */
+export const PortalSettingsTitleStyleContext = createContext<"label" | "heading">("label");
 
 export function PortalSettingsSections({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn("space-y-4 lg:space-y-6", className)}>{children}</div>;
@@ -26,12 +33,17 @@ export function PortalSettingsSection({
   action?: ReactNode;
   children: ReactNode;
 }) {
+  const titleStyle = useContext(PortalSettingsTitleStyleContext);
   return (
     <PortalTitleActionsProvider>
       <section data-slot="settings-section" className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{title}</h2>
+            {titleStyle === "heading" ? (
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+            ) : (
+              <h2 className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{title}</h2>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />

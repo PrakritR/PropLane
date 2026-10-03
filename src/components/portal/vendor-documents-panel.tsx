@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AlertTriangle, Check, Clock, FileText, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -509,7 +509,6 @@ export function VendorDocumentsPanel({
         primary={
           includesMine ? (
             <PortalPrimaryIconAction
-              icon={Upload}
               label={portalListAddPrimaryLabel("document")}
               data-attr="vendor-documents-add"
               onClick={() => setUploadOpen(true)}
@@ -533,9 +532,7 @@ export function VendorDocumentsPanel({
             title: listSearch.trim() ? "No documents match this search" : portalEmptyCopy("documents.other").title,
             section: portalEmptyCopy("documents.other").section,
             tone: listSearch.trim() ? "muted" : "default",
-            actions: listSearch.trim() || !includesMine
-              ? []
-              : [{ label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
+            actions: [],
             clear: listSearch.trim()
               ? {
                   label: "Clear search",
@@ -599,6 +596,10 @@ export function VendorDocumentsPanel({
                         )
                       }
                       omitActionView={!doc}
+                      // A selection handler is what draws the row's ⋯ (View ·
+                      // Download · Replace · Delete) — the studio's rows all have it.
+                      checked={false}
+                      onSelectedChange={() => undefined}
                       onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => fileRefs.current[kind]?.click()}
                       dataAttr="vendor-document-row"
                     />
