@@ -59,7 +59,15 @@ import {
   type HouseholdCharge,
 } from "@/lib/household-charges";
 import { residentVisibleCharges } from "@/lib/household-charge-visibility";
-import { syncManagerApplicationsFromServer, MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
+import { syncManagerApplicationsFromServer, MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
+import {
+  countByResidentTerm,
+  parseResidentTermParam,
+  residentHasShortTermRecords,
+  residentTermByApplicationId,
+  residentTermOfCharge,
+} from "@/lib/resident-term-split";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { findLeaseForResidentEmail, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import { residentPaymentsUnlocked } from "@/lib/resident-payments-unlock";
@@ -425,6 +433,31 @@ export function ResidentPaymentsPanel({
     return residentVisibleCharges(readChargesForResident(email, userId));
   }, [email, userId, tick]);
 
+  // The portal's two sections. A charge follows its application's term (a short stay's
+  // charges carry the short-term application's id); the tabs appear once the resident has
+  // a short-stay charge, so a long-term-only resident sees no change. Everything below -
+  // rows, counts, Pay - reads `termCharges`, so a tab never pays the other tab's charges.
+  const termByApplication = useMemo(() => {
+    void applicationTick;
+    return residentTermByApplicationId(readManagerApplicationRows());
+  }, [applicationTick]);
+  const chargeTermCounts = useMemo(
+    () => countByResidentTerm(charges, (charge) => residentTermOfCharge(charge, termByApplication)),
+    [charges, termByApplication],
+  );
+  const showPaymentTerms = residentHasShortTermRecords(chargeTermCounts);
+  const [paymentsTerm, setPaymentsTerm] = useResidentTermTab(
+    chargeTermCounts,
+    parseResidentTermParam(searchParams.get("term")),
+  );
+  const termCharges = useMemo(
+    () =>
+      showPaymentTerms
+        ? charges.filter((charge) => residentTermOfCharge(charge, termByApplication) === paymentsTerm)
+        : charges,
+    [charges, paymentsTerm, showPaymentTerms, termByApplication],
+  );
+
   // Payments the LEDGER recorded whose charge row no longer exists. Without
   // these, Paid reads 0 while Documents › Rent receipts lists the same
   // payments (F6). Read-only and always `status: "paid"`, so they can never
@@ -454,8 +487,8 @@ export function ResidentPaymentsPanel({
   );
 
   const unpaidPayableCharges = useMemo(
-    () => charges.filter((c) => isPayableHouseholdCharge(c)),
-    [charges],
+    () => termCharges.filter((c) => isPayableHouseholdCharge(c)),
+    [termCharges],
   );
 
   const managerStripeConnectBlocked = useMemo(
@@ -580,7 +613,9 @@ export function ResidentPaymentsPanel({
   }, [refresh, router, searchParams, showToast]);
 
   const rows = useMemo(() => {
-    return [...charges, ...recordedPayments].sort((a, b) => {
+    // Ledger-only payments carry no application, so they belong to the long-term section.
+    const ledgerOnly = showPaymentTerms && paymentsTerm === "short_term" ? [] : recordedPayments;
+    return [...termCharges, ...ledgerOnly].sort((a, b) => {
       if (a.status !== b.status) return a.status === "pending" ? -1 : 1;
       if (a.status === "pending") {
         const aOverdue = isHouseholdChargeOverdue(a);
@@ -592,7 +627,7 @@ export function ResidentPaymentsPanel({
       // Paid history: most recently due first.
       return compareChargesByDueDate(a, b, "desc");
     });
-  }, [charges, recordedPayments]);
+  }, [paymentsTerm, recordedPayments, showPaymentTerms, termCharges]);
 
   // `processing` (ACH clearing, 3–5 business days) shows alongside pending so
   // the charge doesn't vanish mid-payment — but it is never overdue or payable.
@@ -1719,7 +1754,16 @@ export function ResidentPaymentsPanel({
 
   return (
     <>
-      <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
+      <ManagerPortalPageShell
+        title="Payments"
+        hideTitleOnMobileNav
+        compactFilterRow
+        filterRow={
+          showPaymentTerms ? (
+            <ResidentTermTabs section="payments" term={paymentsTerm} counts={chargeTermCounts} onChange={setPaymentsTerm} />
+          ) : undefined
+        }
+      >
         <PortalListControlStack
           className={paymentsLockedEmpty ? "mb-0" : "mb-2 max-lg:mb-1.5"}
           variant="command"

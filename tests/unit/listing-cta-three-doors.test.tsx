@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The listing price card offers three separate, differently-labelled doors:
- * Schedule tour, Apply, and — only when the manager has a real work number — Text.
+ * Schedule tour, Apply long term, and — only when the manager has a real work number — Text.
  *
  * It used to SWAP instead of add: a work number replaced "Schedule a tour" with
  * "Text to tour" and "Apply online" with "Text to apply", so a prospect on a
@@ -79,7 +79,7 @@ describe("listing price card CTAs", () => {
   it("offers Schedule tour and Apply even when the manager can be texted", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
     expect(screen.getAllByText("Schedule tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Apply long term").length).toBeGreaterThan(0);
     expect(screen.queryByText("Text to tour")).toBeNull();
     expect(screen.queryByText("Text to apply")).toBeNull();
     expect(screen.queryByText(/No texting on this device/)).toBeNull();
@@ -98,7 +98,7 @@ describe("listing price card CTAs", () => {
     expect(screen.queryByText(/^Text\b/)).toBeNull();
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(screen.getAllByText("Schedule tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Apply long term").length).toBeGreaterThan(0);
   });
 });
 

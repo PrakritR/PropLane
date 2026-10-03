@@ -73,9 +73,15 @@ import {
   readExtraListingsPublic,
 } from "@/lib/demo-property-pipeline";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
+import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
+import {
+  countByResidentTerm,
+  parseResidentTermParam,
+  residentTermOfRecord,
+} from "@/lib/resident-term-split";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionPublicSite } from "@/lib/public-demo-access";
-import { getPropertyById } from "@/lib/rental-application/data";
+import { getPropertyById, propertyAllowsShortTermRental } from "@/lib/rental-application/data";
 import {
   publicApplyGateKey,
   publicApplyReturnPath,
@@ -272,6 +278,8 @@ function continueApplicationPath(row: DemoApplicantRow): string {
   const pid = row.propertyId?.trim() || row.application?.propertyId?.trim();
   if (!pid) return `${RESIDENT_PORTAL_BASE_PATH}/applications/apply`;
   const params = new URLSearchParams({ propertyId: pid });
+  // A short stay re-enters as a short stay: without it the wizard reads the link as long term.
+  if (residentTermOfRecord(row) === "short_term") params.set("rentalType", "short_term");
   // Carry the row's own room/bundle so re-entering the wizard resolves back to
   // THIS specific in-progress application, not a different draft on the same property.
   const bundleId = row.application?.bundleId?.trim();
@@ -435,6 +443,7 @@ export function ResidentApplicationsPanel({
       propertyId,
       listingRoomId: (searchParams.get("listingRoomId") ?? "").trim() || undefined,
       bundleId: (searchParams.get("bundle") ?? "").trim() || undefined,
+      rentalType: searchParams.get("rentalType")?.trim() === "short_term" ? ("short_term" as const) : ("standard" as const),
     };
   }, [searchParams]);
 
@@ -466,6 +475,15 @@ export function ResidentApplicationsPanel({
 
   const rentalTypeParam = searchParams.get("rentalType")?.trim();
   const rentalType = rentalTypeParam === "short_term" ? ("short_term" as const) : undefined;
+
+  // The portal's two sections: Long term (today's flow) and Short term. A short-term entry
+  // link (`?rentalType=short_term`) or `?term=short` opens on the short section.
+  const termCounts = useMemo(() => countByResidentTerm(rows, residentTermOfRecord), [rows]);
+  const [term, setTerm] = useResidentTermTab(
+    termCounts,
+    parseResidentTermParam(searchParams.get("term")) ?? (rentalType === "short_term" ? "short_term" : undefined),
+  );
+  const rowsForTerm = useMemo(() => rows.filter((row) => residentTermOfRecord(row) === term), [rows, term]);
 
   const applyGateKey = useMemo(
     () =>
@@ -603,6 +621,8 @@ export function ResidentApplicationsPanel({
     if (!pickerOpen) return [];
     return filterSandboxFromPublicCatalog(readExtraListingsPublic(), { production: isProductionPublicSite() })
       .filter(isPropertyActiveForLeads)
+      // Short term lists only the homes that offer short stays (the listing's own gate).
+      .filter((property) => term !== "short_term" || propertyAllowsShortTermRental(property.id))
       .map((property) => {
         const prop = getPropertyById(property.id);
         return {
@@ -616,7 +636,7 @@ export function ResidentApplicationsPanel({
         };
       })
       .sort((a, b) => a.title.localeCompare(b.title));
-  }, [pickerOpen, tick]);
+  }, [pickerOpen, term, tick]);
 
   const workspace = useMemo(
     () => buildResidentApplicationWorkspaceState(rows, applyTarget),
@@ -650,7 +670,10 @@ export function ResidentApplicationsPanel({
     setPickedPropertyId(null);
 
     const inProgressRows = rows.filter(isInProgressApplicationRow);
-    const existingForProperty = findInProgressRowForTarget(inProgressRows, { propertyId: pid });
+    const existingForProperty = findInProgressRowForTarget(
+      inProgressRows,
+      { propertyId: pid, rentalType: term === "short_term" ? "short_term" : "standard" },
+    );
     const draft = loadRentalWizardDraft();
     const previousPropertyId = draft?.propertyId?.trim() || "";
 
@@ -696,7 +719,11 @@ export function ResidentApplicationsPanel({
       setDemoApplyOpen(true);
       return;
     }
-    portalNavigate(`${RESIDENT_PORTAL_BASE_PATH}/applications/apply?propertyId=${encodeURIComponent(pid)}`);
+    portalNavigate(
+      `${RESIDENT_PORTAL_BASE_PATH}/applications/apply?propertyId=${encodeURIComponent(pid)}${
+        term === "short_term" ? "&rentalType=short_term" : ""
+      }`,
+    );
   };
 
   const openApplicationRow = useCallback(
@@ -876,7 +903,7 @@ export function ResidentApplicationsPanel({
   const propertyPickerModal = (
     <Modal
       open={pickerOpen}
-      title="Apply to a property"
+      title={term === "short_term" ? "Apply short term to a property" : "Apply to a property"}
       onClose={() => setPickerOpen(false)}
       panelClassName="max-w-lg"
       assistantContext="Apply to a property"
@@ -916,7 +943,11 @@ export function ResidentApplicationsPanel({
         onChange={setPickedPropertyId}
         placeholder="Search by address, neighborhood, or property name…"
         emptyMessage="No properties match your search."
-        listEmptyMessage="No properties are available to apply for right now."
+        listEmptyMessage={
+          term === "short_term"
+            ? "No properties are offering short stays right now."
+            : "No properties are available to apply for right now."
+        }
         ariaLabel="Search properties to apply for"
       />
     </Modal>
@@ -1154,7 +1185,9 @@ export function ResidentApplicationsPanel({
       <PortalListAddRow
         label="Apply"
         ariaLabel={
-          workspace.mode === "in_progress"
+          term === "short_term"
+            ? "Apply short term to a property"
+            : workspace.mode === "in_progress"
             ? "Apply to property"
             : workspace.mode === "submitted"
               ? "Apply to another property"
@@ -1254,7 +1287,7 @@ export function ResidentApplicationsPanel({
   if (embedded) return tableBody;
 
   const renderResidentApplicationList = () => {
-    const listRows = rowsForBucket;
+    const listRows = rowsForTerm;
 
     return (
       <>
@@ -1305,7 +1338,12 @@ export function ResidentApplicationsPanel({
   if (!applicationIdProp && !applyMode) {
     return (
       <>
-        <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav compactFilterRow>
+        <ManagerPortalPageShell
+          title="Applications"
+          hideTitleOnMobileNav
+          compactFilterRow
+          filterRow={<ResidentTermTabs section="applications" term={term} counts={termCounts} onChange={setTerm} />}
+        >
           <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{renderResidentApplicationList()}</PortalRecordListSurface>
         </ManagerPortalPageShell>
 
