@@ -21,6 +21,7 @@ const STATUS_BY_REASON: Record<string, number> = {
   invalid_contact: 400,
   missing_host: 400,
   slot_unavailable: 403,
+  application_required: 403,
   conflict: 409,
   write_failed: 500,
 };
@@ -67,7 +68,8 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const created = await createTourInquiry(db, { incoming });
+    // Only the session's own email counts toward "Application before a tour"; the body's does not.
+    const created = await createTourInquiry(db, { incoming, verifiedApplicantEmail: linkingEmail });
     if (!created.ok) {
       return NextResponse.json(
         { error: created.error },

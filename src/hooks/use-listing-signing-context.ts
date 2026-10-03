@@ -70,8 +70,17 @@ export function withListingSigningContext(
   context: PublicSigningContext | null | undefined,
 ): MockProperty {
   if (!context) return property;
-  if (property.signingOrder === context.signingOrder && property.leaseSigningFeeCents === context.leaseSigningFeeCents) {
+  if (
+    property.signingOrder === context.signingOrder &&
+    property.leaseSigningFeeCents === context.leaseSigningFeeCents &&
+    property.applicationBeforeTour === context.applicationBeforeTour
+  ) {
     return property;
   }
-  return { ...property, signingOrder: context.signingOrder, leaseSigningFeeCents: context.leaseSigningFeeCents };
+  return {
+    ...property,
+    signingOrder: context.signingOrder,
+    leaseSigningFeeCents: context.leaseSigningFeeCents,
+    applicationBeforeTour: context.applicationBeforeTour,
+  };
 }

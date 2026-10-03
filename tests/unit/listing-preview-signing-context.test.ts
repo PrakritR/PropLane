@@ -15,6 +15,13 @@ describe("signing context — one rule for the public page and the manager Previ
     expect(signingContextForPipeline(leaseFirst)).toEqual({ signingOrder: "application_first", leaseSigningFeeCents: 10000 });
   });
 
+  it("carries Application before a tour only when Required", () => {
+    expect(signingContextForPipeline(DEFAULT_LEASING_PIPELINE)).not.toHaveProperty("applicationBeforeTour");
+    expect(signingContextForPipeline({ ...DEFAULT_LEASING_PIPELINE, applicationBeforeTour: "required" })).toMatchObject({
+      applicationBeforeTour: true,
+    });
+  });
+
   it("is exactly what the public projection resolves for the same preference", () => {
     const state = { portfolio: leaseFirst, byPropertyId: {} };
     expect(resolvePublicSigningContext(state, "prop-1")).toEqual(signingContextForPipeline(leaseFirst));

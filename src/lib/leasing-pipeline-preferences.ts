@@ -201,6 +201,8 @@ export function signingOrderForPipeline(_prefs: LeasingPipelinePreferences): Sig
 export type PublicSigningContext = {
   signingOrder: SigningOrder;
   leaseSigningFeeCents: number;
+  /** Present (true) only when the workspace requires an application before a tour. */
+  applicationBeforeTour?: true;
 };
 
 /**
@@ -211,6 +213,7 @@ export function signingContextForPipeline(prefs: LeasingPipelinePreferences): Pu
   return {
     signingOrder: signingOrderForPipeline(prefs),
     leaseSigningFeeCents: effectiveLeaseSigningFeeCents(prefs),
+    ...(prefs.applicationBeforeTour === "required" ? { applicationBeforeTour: true as const } : {}),
   };
 }
 

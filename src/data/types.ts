@@ -72,6 +72,13 @@ export type MockProperty = {
    * preference row.
    */
   leaseSigningFeeCents?: number;
+  /**
+   * Set by `publicListingProjection` only when the workspace requires an application before a
+   * tour ("Application before a tour" = Required). Absent otherwise. A plain yes/no — never the
+   * settings row. The booking route re-checks this on the server; the page only uses it to send a
+   * prospect to apply first.
+   */
+  applicationBeforeTour?: true;
 };
 
 export type MockRow = Record<string, string>;

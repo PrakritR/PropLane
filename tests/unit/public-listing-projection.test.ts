@@ -401,6 +401,18 @@ describe("publicListingProjection", () => {
       expect(keys.has("requireLease")).toBe(false);
     });
 
+    it("stamps applicationBeforeTour: true only when the workspace requires it, never the settings row", () => {
+      const required = publicListingProjection(storedListing(), null, {
+        signingOrder: "application_first",
+        leaseSigningFeeCents: 0,
+        applicationBeforeTour: true,
+      });
+      expect(required.applicationBeforeTour).toBe(true);
+      expect(allKeys(required).has("leasingPipeline")).toBe(false);
+      const plain = publicListingProjection(storedListing(), null, { signingOrder: "application_first", leaseSigningFeeCents: 0 });
+      expect(plain).not.toHaveProperty("applicationBeforeTour");
+    });
+
     it("passes through application_first with a zero fee unchanged", () => {
       const projected = publicListingProjection(storedListing(), null, {
         signingOrder: "application_first",

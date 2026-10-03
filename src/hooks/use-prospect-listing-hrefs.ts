@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
+import { getPropertyById } from "@/lib/rental-application/data";
 import {
   buildProspectApplyHref,
   buildProspectMessageHref,
@@ -29,7 +30,10 @@ export function useProspectListingHrefs(
     const isResident = auth.ready && Boolean(auth.userId) && auth.hasResidentRole;
     return {
       applyHref: buildProspectApplyHref(params, auth),
-      tourHref: buildProspectTourHref(propertyId, auth),
+      tourHref: buildProspectTourHref(propertyId, auth, {
+        // Read after mount only (the cache is browser-side), so the server render and first paint agree.
+        applicationFirst: auth.ready && getPropertyById(propertyId)?.applicationBeforeTour === true,
+      }),
       messageHref: buildProspectMessageHref(propertyId, auth),
       isResident,
       stageMessageCompose: () => {

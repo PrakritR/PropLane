@@ -50,6 +50,8 @@ import {
   isRoomChoiceAvailable,
 } from "@/lib/rental-application/data";
 import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
+import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
+import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
 
 type TourStep = 1 | 2 | 3;
 
@@ -221,6 +223,7 @@ export function TourScheduleFlow({
     phone: string;
     inquiryId: string;
   } | null>(null);
+  const applicationGate = useTourApplicationGate(property);
   const contactAutofill = useProspectContactAutofill();
   const signedInUserId = contactAutofill.userId;
   const hasResidentRole = contactAutofill.hasResidentRole;
@@ -388,6 +391,17 @@ export function TourScheduleFlow({
     step3Footer,
     submitted,
   ]);
+
+  if (applicationGate.status === "checking") {
+    return <div className="px-2 py-6 text-sm text-muted">Checking this home…</div>;
+  }
+  if (applicationGate.status === "apply_first") {
+    return (
+      <div className={embedded ? "space-y-6" : PUBLIC_PROSPECT_CANVAS_CLASS}>
+        <TourApplicationFirstPanel propertyId={property.id} propertyTitle={property.title} />
+      </div>
+    );
+  }
 
   if (submitted) {
     const createAccountHref = submittedContact?.email
