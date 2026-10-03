@@ -10,7 +10,7 @@ import {
   managerServicePlaceLine,
   managerServiceStageFact,
 } from "@/lib/manager-service-list-row";
-import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
+import { managerServiceRequestRowMenuItems, managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
   fetchVendorInvoiceIdForWorkOrder,
   outgoingPayHref,
@@ -737,6 +737,8 @@ export function ManagerAllServicesPanel({
     const bidCount = row.kind === "maintenance" ? bidCountByWorkOrderId.get(row.id) ?? 0 : 0;
     const maintenanceRow =
       row.kind === "maintenance" ? filteredWorkOrders.find((w) => w.id === row.id) ?? null : null;
+    const addOnRequest =
+      row.kind === "add-on" ? filteredRequests.find((r) => r.id === row.id) ?? null : null;
     const assignee =
       maintenanceRow ? resolveWorkOrderAssignee(maintenanceRow) : row.kind === "add-on"
         ? filteredRequests.find((r) => r.id === row.id)?.assignee
@@ -760,12 +762,13 @@ export function ManagerAllServicesPanel({
     const listGlyphFact =
       maintenanceRow ? managerServiceListGlyphFact(assignee, stageFact) : stageFact.text ? stageFact : null;
     const costFigure = maintenanceRow ? managerServiceListCostFigure(maintenanceRow) : undefined;
-    const menuItems =
-      maintenanceRow
-        ? managerServiceRowMenuItems(maintenanceRow, {
-            bidCount,
-            communicationHref: buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "communication"),
-          })
+    const menuItems = maintenanceRow
+      ? managerServiceRowMenuItems(maintenanceRow, {
+          bidCount,
+          communicationHref: buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "communication"),
+        })
+      : addOnRequest
+        ? managerServiceRequestRowMenuItems(addOnRequest)
         : [];
     const openRow = () =>
       navigate(
@@ -774,6 +777,25 @@ export function ManagerAllServicesPanel({
           : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
       );
     const onMenuAction = (id: string) => {
+      if (addOnRequest) {
+        const bucket = managerServiceRequestBucket(addOnRequest.status);
+        const detailHref = (tab?: ServiceDetailTabId) =>
+          serviceRequestDetailHref(basePath, bucket, addOnRequest.id, tab);
+        if (id === "message") {
+          navigate(detailHref("communication"));
+          return;
+        }
+        if (id === "delete") {
+          setBulkDeleteRequest(addOnRequest);
+          return;
+        }
+        if (id === "approve" || id === "deny" || id === "edit") {
+          navigate(detailHref());
+          return;
+        }
+        openRow();
+        return;
+      }
       if (!maintenanceRow) return openRow();
       if (id === "message") {
         navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "communication"));
@@ -852,7 +874,7 @@ export function ManagerAllServicesPanel({
         }
         figure={costFigure || undefined}
         menu={
-          maintenanceRow ? (
+          menuItems.length > 0 ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
           ) : undefined
         }

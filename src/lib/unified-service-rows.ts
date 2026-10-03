@@ -217,6 +217,20 @@ export function countServiceRowsByState(
   return counts;
 }
 
+/** Open-tab count for the merged Services list (sidebar badge uses the same number). */
+export function countUnifiedServicesOpen(
+  addOns: readonly AddOnInput[],
+  maintenance: readonly MaintenanceInput[],
+  propertyLabelForRequest?: (propertyId: string) => string | undefined,
+): number {
+  const rows = buildUnifiedServiceRows({
+    addOns,
+    maintenance,
+    propertyLabelForRequest: propertyLabelForRequest ?? (() => undefined),
+  });
+  return countServiceRowsByState(rows).open;
+}
+
 function titleCase(value: string | undefined | null): string {
   const raw = value?.trim();
   if (!raw) return "";

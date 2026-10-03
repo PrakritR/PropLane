@@ -502,7 +502,7 @@ export function PortalServiceRecordRow({
         <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{figure}</span>
       ) : null}
       {actions ? <div className="shrink-0">{actions}</div> : null}
-      {menu}
+      {menu ? <div className="shrink-0 self-center">{menu}</div> : null}
     </div>
   );
 }
