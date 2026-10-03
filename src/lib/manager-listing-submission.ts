@@ -2328,10 +2328,6 @@ function normalizeManagerListingSubmissionV1Base(
       moveInResidentDetails: normalizeRoomResidentMoveInRows(
         (legacyRoom as ManagerRoomSubmission & { moveInResidentDetails?: unknown }).moveInResidentDetails,
       ),
-      sharedRoomLeaseKind: (() => {
-        const kind = (legacyRoom as ManagerRoomSubmission).sharedRoomLeaseKind;
-        return kind === "joint" || kind === "individual" || kind === "property_default" ? kind : undefined;
-      })(),
     };
   });
   const rooms: ManagerRoomSubmission[] = mappedRooms.map((room) =>
