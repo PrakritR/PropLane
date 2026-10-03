@@ -5,7 +5,7 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Mail } from "lucide-react";
+import { Bell, Link2, Mail } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -94,6 +94,18 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { importedActivity, parseResidentImportFile } from "@/lib/portfolio-import/activity";
+import { buildManagerResidentActivityEvents } from "@/lib/manager-resident-activity-events";
+import { uploadManagerDocumentForResident } from "@/lib/manager-resident-document-upload";
+import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
+import { ApplicationDocumentPreview, runApplicationPdfDownload } from "@/components/portal/pro-applications";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { MoreHorizontal } from "lucide-react";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
@@ -292,9 +304,7 @@ import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
-import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
-import { runApplicationPdfDownload } from "@/components/portal/pro-applications";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -304,12 +314,6 @@ import {
   managerServiceRequestBucket,
   managerServiceRequestPricingSummary,
 } from "@/components/portal/pro-service-request-detail";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -532,6 +536,9 @@ export function ManagerResidents({
   const [regenerateConfirmLeaseId, setRegenerateConfirmLeaseId] = useState<string | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [residentUploadOpen, setResidentUploadOpen] = useState(false);
+  const [residentUploadKindPreset, setResidentUploadKindPreset] = useState<ResidentUploadDocKind>("other");
+  const [residentDocsTick, setResidentDocsTick] = useState(0);
+  const [residentUploadedDocs, setResidentUploadedDocs] = useState<ManagerDocumentDTO[]>([]);
   const [messageBusy, setMessageBusy] = useState(false);
   const [messageScheduleLater, setMessageScheduleLater] = useState(false);
   const [messageScheduledRefresh, setMessageScheduledRefresh] = useState(0);
@@ -2906,10 +2913,10 @@ export function ManagerResidents({
       return residentBackgroundCheckTabFooterActions;
     }
     if (resolvedDetailTab === "application" && showResidentApplication) {
-      return residentApplicationTabFooterActions;
+      return null;
     }
     if (resolvedDetailTab === "lease" && showResidentLease) {
-      return residentLeaseTabFooterActions;
+      return null;
     }
     if (resolvedDetailTab === "payments") {
       if (paymentIdProp) return embeddedPaymentFooterActions;
@@ -3037,10 +3044,9 @@ export function ManagerResidents({
 
   const residentRecordHeaderActions = useMemo(() => {
     const sections = recordSections("manager", "resident", { basePath: portalBase, residentsTab });
-    const headerActions = sections.headerActions.filter((a) => a.id !== "delete" && a.id !== "edit");
     const withSetup = selectedHasPortalAccount
-      ? headerActions
-      : [...headerActions, { id: "setup", label: "Send setup", icon: Mail }];
+      ? sections.headerActions
+      : [...sections.headerActions, { id: "setup", label: "Send setup", icon: Mail }];
     return withSetup;
   }, [portalBase, residentsTab, selectedHasPortalAccount]);
 
@@ -3051,8 +3057,49 @@ export function ManagerResidents({
       { basePath: portalBase, residentsTab },
       resolvedDetailTab,
     );
-    return sections.headerActions.filter((a) => a.id !== "edit");
-  }, [portalBase, residentsTab, resolvedDetailTab]);
+    let actions = sections.headerActions;
+    if (resolvedDetailTab === "application") {
+      actions = actions.filter((a) => a.id !== "upload");
+      if (
+        selectedApplicationRow &&
+        shouldOfferApplicationCompletionReminder(selectedApplicationRow)
+      ) {
+        actions = [
+          { id: "remind-application", label: "Send reminder", icon: Bell },
+          ...actions,
+        ];
+      }
+    }
+    if (
+      resolvedDetailTab === "background-check" &&
+      selectedApplicationRow?.screening
+    ) {
+      actions = actions.filter((a) => a.id !== "run-check");
+    }
+    if (
+      resolvedDetailTab === "lease" &&
+      residentLease &&
+      residentLease.status !== "Resident Signature Pending" &&
+      residentLease.status !== "Manager Signature Pending"
+    ) {
+      actions = actions.filter((a) => a.id !== "remind-sign");
+    }
+    if (resolvedDetailTab === "payments") {
+      const hasUnpaid = residentLedgerRows.some((r) => r.bucket === "overdue" || r.bucket === "pending");
+      if (!hasUnpaid) {
+        actions = actions.filter((a) => a.id !== "remind-payment");
+      }
+    }
+    return actions;
+  }, [
+    portalBase,
+    residentsTab,
+    resolvedDetailTab,
+    selectedApplicationRow,
+    residentLease,
+    residentLedgerRows,
+    shouldOfferApplicationCompletionReminder,
+  ]);
 
   const residentSections = useMemo(() => {
     const sections = recordSections("manager", "resident", { basePath: portalBase, residentsTab });
@@ -3114,12 +3161,31 @@ export function ManagerResidents({
       case "message":
         setMessageOpen(true);
         return;
+      case "edit":
+        openEditResidentModal(selected.id);
+        return;
       case "share":
         void navigator.clipboard?.writeText(window.location.href);
         showToast("Link copied");
         return;
       case "archive":
         showToast("Archive is not available for this resident yet.");
+        return;
+      case "delete":
+        void (async () => {
+          const resident = residentDirectoryRows.find((row) => row.id === selected.id);
+          if (!resident) {
+            showToast("Resident record not found.");
+            return;
+          }
+          const label = resident.name || resident.email || "this resident";
+          if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
+          const result = await executeResidentDelete(resident);
+          if (!result.ok) return;
+          navigate(`${portalBase}/residents/${residentsTab}`);
+          const linked = describeResidentDeleteCounts(result.removed);
+          showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
+        })();
         return;
       case "setup":
         openResidentEmailSetup(selected);
@@ -3132,7 +3198,23 @@ export function ManagerResidents({
   const onResidentSectionHeaderAction = (actionId: string) => {
     if (!selected) return;
     switch (actionId) {
+      case "edit":
+        if (resolvedDetailTab === "application" && selectedApplicationRow?.application) {
+          setApplicationEditOpen(true);
+        } else {
+          openEditResidentModal(selected.id);
+        }
+        return;
       case "upload":
+        setResidentUploadKindPreset(
+          resolvedDetailTab === "documents"
+            ? "other"
+            : resolvedDetailTab === "lease"
+              ? "lease"
+              : resolvedDetailTab === "background-check"
+                ? "other"
+                : "other",
+        );
         setResidentUploadOpen(true);
         return;
       case "add-charge":
@@ -3154,7 +3236,13 @@ export function ManagerResidents({
         if (selectedApplicationRow) void setApplicationBucket(selectedApplicationRow.id, "rejected");
         return;
       case "download":
-        showToast("Download will be available from the document preview.");
+        if (resolvedDetailTab === "application" && selectedApplicationRow) {
+          runApplicationPdfDownload(selectedApplicationRow, showToast);
+        } else if (resolvedDetailTab === "lease" && residentLease) {
+          runLeaseDownload(residentLease, showToast);
+        } else {
+          showToast("Download will be available from the document preview.");
+        }
         return;
       case "run-check":
         if (selectedApplicationRow) {
@@ -3171,21 +3259,77 @@ export function ManagerResidents({
       case "remind-payment":
         setMessageOpen(true);
         return;
+      case "remind-application":
+        if (selectedApplicationRow) void openApplicationCompletionReminderPreview(selectedApplicationRow);
+        return;
       default:
         showToast("Coming soon");
     }
   };
 
   const handleResidentUploadComplete = useCallback(
-    (files: File[], kind: ResidentUploadDocKind) => {
+    async (files: File[], kinds: ResidentUploadDocKind[]) => {
       if (!selected) return;
+      const email = selected.email?.trim();
+      if (!email) {
+        showToast("This resident has no email — upload could not be saved.");
+        throw new Error("missing email");
+      }
+      let uploaded = 0;
+      for (let i = 0; i < files.length; i++) {
+        await uploadManagerDocumentForResident(files[i]!, kinds[i] ?? kinds[0] ?? "other", {
+          residentEmail: email,
+          propertyId: selected.propertyId,
+          leaseId: residentLease?.id,
+        });
+        uploaded += 1;
+      }
+      setResidentDocsTick((n) => n + 1);
+      const primaryKind = kinds[0] ?? "other";
       const review =
-        kind === "lease" || kind === "application" ? " Review details in Documents." : "";
-      showToast(`${files.length} file${files.length === 1 ? "" : "s"} added to Documents.${review}`);
+        primaryKind === "lease" || primaryKind === "application" ? " Review details in Documents." : "";
+      showToast(`${uploaded} file${uploaded === 1 ? "" : "s"} added to Documents.${review}`);
       navigate(residentDetailHref(portalBase, residentsTab, selected.id, "documents"));
     },
-    [navigate, portalBase, residentsTab, selected, showToast],
+    [navigate, portalBase, residentLease?.id, residentsTab, selected, showToast],
   );
+
+  useEffect(() => {
+    const email = selected?.email?.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setResidentUploadedDocs([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch("/api/manager-documents?scope=resident", { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        const rows = (data.documents ?? []) as ManagerDocumentDTO[];
+        setResidentUploadedDocs(
+          rows.filter((doc) => (doc.scope.residentEmail ?? "").trim().toLowerCase() === email),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setResidentUploadedDocs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.email, residentDocsTick]);
+
+  const residentActivityEvents = useMemo(() => {
+    if (!selected) return [];
+    return buildManagerResidentActivityEvents({
+      applicationRow: selectedApplicationRow,
+      leaseRows: residentLeaseRows,
+      ledgerRows: residentLedgerRows,
+      importEvents: importedActivity(
+        parseResidentImportFile(selected.detail),
+        selected.manualResidentDetails?.importedAt,
+      ),
+    });
+  }, [residentLeaseRows, residentLedgerRows, selected, selectedApplicationRow]);
 
   const residentDocumentSections = useMemo(() => {
     const sections: Partial<Record<ManagerResidentDocTabId, import("@/components/portal/manager-resident-documents-panel").ManagerResidentDocumentRow[]>> =
@@ -3220,8 +3364,28 @@ export function ManagerResidents({
         generated: false,
       }));
     if (receipts.length) sections.payments = receipts;
+
+    const pushDoc = (tab: ManagerResidentDocTabId, row: import("@/components/portal/manager-resident-documents-panel").ManagerResidentDocumentRow) => {
+      sections[tab] = [...(sections[tab] ?? []), row];
+    };
+    for (const doc of residentUploadedDocs) {
+      const tab: ManagerResidentDocTabId =
+        doc.category === "lease"
+          ? "lease"
+          : doc.category === "inspection"
+            ? "inspections"
+            : doc.category === "invoice"
+              ? "payments"
+              : "other";
+      pushDoc(tab, {
+        id: doc.id,
+        name: doc.displayName,
+        date: doc.createdAt?.slice(0, 10),
+        generated: false,
+      });
+    }
     return sections;
-  }, [residentLease, residentLedgerRows, selectedApplicationRow, selected]);
+  }, [residentLease, residentLedgerRows, residentUploadedDocs, selectedApplicationRow, selected]);
 
   const residentDetailPanel =
     selected ? (
@@ -3290,6 +3454,10 @@ export function ManagerResidents({
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "inspections" ? (
                               <ResidentDetailTabPanel fill>
+                                <ManagerResidentSectionToolbar
+                                  actions={residentSectionHeaderActions}
+                                  onAction={onResidentSectionHeaderAction}
+                                />
                                 <InspectionsPanel
                                   role="manager"
                                   applicationId={selectedApplicationRow?.id ?? selected.id}
@@ -3315,49 +3483,6 @@ export function ManagerResidents({
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
                               />
-                              <ResidentDetailSubsectionChrome
-                                bucketItems={RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((tab) => ({
-                                  id: tab.id,
-                                  label: tab.label,
-                                  shortLabel: tab.shortLabel,
-                                  count: residentLeasePipelineCounts[tab.id],
-                                  dataAttr: tab.dataAttr,
-                                }))}
-                                activeBucketId={residentLeasePipelineTab}
-                                onBucketChange={(id) => setResidentLeasePipelineTab(id as ManagerLeaseTab)}
-                                bucketAriaLabel="Lease pipeline stage"
-                                denseEqualRow
-                                onSettings={() => openResidentDetailSettings("lease")}
-                                settingsLabel={leasesSettingsEntry.label}
-                                settingsDataAttr={leasesSettingsEntry.dataAttr}
-                                onEdit={() => {
-                                  if (
-                                    residentLease &&
-                                    leaseAllowsManagerDocumentEdits(residentLease)
-                                  ) {
-                                    setEditResidentLeaseId(residentLease.id);
-                                  }
-                                }}
-                                editDisabled={
-                                  !residentLease || !leaseAllowsManagerDocumentEdits(residentLease)
-                                }
-                              />
-                              {residentLeaseRowsInPipelineTab.length > 1 ? (
-                                <div className="mb-3 shrink-0">
-                                  <LocalDestinationNav
-                                    items={residentLeaseRowsInPipelineTab.map((row) => ({
-                                      id: row.id,
-                                      label: row.status ?? row.stageLabel ?? "Lease",
-                                      dataAttr: `resident-lease-pick-${row.id}`,
-                                    }))}
-                                    activeId={residentLease?.id ?? residentLeaseRowsInPipelineTab[0]!.id}
-                                    onChange={setActiveResidentLeaseId}
-                                    ariaLabel="Leases in this stage"
-                                    size="toolbar"
-                                    itemLayout="equal"
-                                  />
-                                </div>
-                              ) : null}
                               {residentLease ? (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
                                   <ManagerResidentLeaseSigners row={residentLease} />
@@ -3412,34 +3537,34 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               <ManagerResidentSectionToolbar
-                                actions={residentSectionHeaderActions.filter((a) => a.id !== "upload")}
+                                actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
-                              />
-                              <ResidentDetailSubsectionChrome
-                                bucketItems={RESIDENT_DETAIL_APPLICATION_BUCKET_TABS.map((tab) => ({
-                                  id: tab.id,
-                                  label: tab.label,
-                                  count: residentApplicationBucketCounts[tab.id],
-                                  dataAttr: tab.dataAttr,
-                                }))}
-                                activeBucketId={residentApplicationBucket}
-                                onBucketChange={(id) =>
-                                  setResidentApplicationBucket(id as ResidentApplicationBucketId)
+                                overflowMenu={
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <span>
+                                        <PortalIconAction
+                                          icon={MoreHorizontal}
+                                          label="More"
+                                          data-attr="resident-application-more"
+                                        />
+                                      </span>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem
+                                        data-attr="resident-application-upload-completed"
+                                        onSelect={() => {
+                                          setResidentUploadKindPreset("application");
+                                          setResidentUploadOpen(true);
+                                        }}
+                                      >
+                                        Upload completed application
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 }
-                                bucketAriaLabel="Application status"
-                                onSettings={() => openResidentDetailSettings("applications")}
-                                settingsLabel={applicationsSettingsEntry.label}
-                                settingsDataAttr={applicationsSettingsEntry.dataAttr}
-                                onEdit={() => {
-                                  if (selectedApplicationRow?.application) {
-                                    setApplicationEditOpen(true);
-                                  }
-                                }}
-                                editDisabled={
-                                  !selectedApplicationRow?.application || !applicationMatchesActiveBucket
-                                }
                               />
-                              {selectedApplicationRow && applicationMatchesActiveBucket ? (
+                              {selectedApplicationRow?.application ? (
                                 activeCosignerSubmission ? (
                                   <ManagerCosignerReadonlyReview
                                     sub={activeCosignerSubmission}
@@ -3451,73 +3576,18 @@ export function ManagerResidents({
                                     }
                                   />
                                 ) : (
-                                <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                  <ApplicationDetailReviewBody
+                                  <ApplicationDocumentPreview
                                     row={selectedApplicationRow}
-                                    group={selectedApplicationGroup}
                                     bareCanvas
                                     stretch
+                                    flow
                                     showDownload={false}
-                                    onScreeningUpdated={handleScreeningUpdated}
-                                    onOpenScreeningModal={(opts) => {
-                                      setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
-                                      setCheckrScreeningRowId(selectedApplicationRow.id);
-                                    }}
-                                    cosignerSubmissions={selectedApplicationCosigners}
-                                    householdNav={{
-                                      onOpenCosigner: (index) => {
-                                        navigate(
-                                          `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
-                                        );
-                                      },
-                                      onOpenApplication: (applicationId) => {
-                                        const normalized = normalizeApplicationAxisId(applicationId).toUpperCase();
-                                        const targetId =
-                                          readManagerApplicationRows().find(
-                                            (appRow) =>
-                                              normalizeApplicationAxisId(appRow.id).toUpperCase() === normalized,
-                                          )?.id ?? applicationId;
-                                        navigate(
-                                          residentDetailHref(
-                                            portalBase,
-                                            residentsTab,
-                                            targetId,
-                                            "application",
-                                          ),
-                                        );
-                                      },
-                                    }}
+                                    variant="html"
                                     className="min-h-0 flex-1"
                                   />
-                                </div>
                                 )
-                              ) : residentApplicationsInActiveBucket.length > 0 ? (
-                                <PortalRecordListSurface isEmpty={false} className="mt-0">
-                                  {residentApplicationsInActiveBucket.map((row) => (
-                                    <PortalPersonRecordRow
-                                      key={row.id}
-                                      name={row.name?.trim() || "Applicant"}
-                                      subtitle={[row.property, row.bucket].filter(Boolean).join(" · ")}
-                                      onOpen={() =>
-                                        navigate(
-                                          residentDetailHref(
-                                            portalBase,
-                                            residentsTab,
-                                            row.id,
-                                            "application",
-                                          ),
-                                        )
-                                      }
-                                      dataAttr="resident-household-application-row"
-                                    />
-                                  ))}
-                                </PortalRecordListSurface>
                               ) : (
-                                <p className="text-sm text-muted">
-                                  {selectedApplicationRow
-                                    ? `No ${residentApplicationBucket} application for this resident.`
-                                    : "No application on file for this resident."}
-                                </p>
+                                <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}
                             </ResidentDetailTabPanel>
                             </div>
@@ -3531,7 +3601,12 @@ export function ManagerResidents({
                                 bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
-                                onSettings={() => openResidentDetailSettings("tours")}
+                                sectionToolbar={
+                                  <ManagerResidentSectionToolbar
+                                    actions={residentSectionHeaderActions}
+                                    onAction={onResidentSectionHeaderAction}
+                                  />
+                                }
                                 buildTourListHref={
                                   selected
                                     ? (targetBucket) =>
@@ -3665,6 +3740,10 @@ export function ManagerResidents({
                                 <PortalDataTableEmpty message="Service not found." icon="service" />
                               ) : (
                               <>
+                              <ManagerResidentSectionToolbar
+                                actions={residentSectionHeaderActions}
+                                onAction={onResidentSectionHeaderAction}
+                              />
                               <ResidentDetailSubsectionChrome
                                 bucketItems={(
                                   ["pending", "scheduled", "completed"] as const
@@ -3694,6 +3773,9 @@ export function ManagerResidents({
                                 }}
                                 editDisabled={!canAddResidentServiceItem}
                               />
+                              {!residentServicesHasRows ? (
+                                <p className="text-sm text-muted">No services for this resident.</p>
+                              ) : null}
                               {residentServicesHasRows ? (
                                 <PortalRecordListSurface isEmpty={false} className="mt-0">
                                   {residentFilteredServiceRequests.map((req) => {
@@ -3766,10 +3848,7 @@ export function ManagerResidents({
                                   kindLabel: "resident",
                                   recordId: selected.id,
                                   recordLabel: selected.name,
-                                  activity: importedActivity(
-                                    parseResidentImportFile(selected.detail),
-                                    selected.manualResidentDetails?.importedAt,
-                                  ),
+                                  activity: residentActivityEvents,
                                 })}
                               </ResidentDetailTabPanel>
                             ) : null}
@@ -4489,6 +4568,7 @@ export function ManagerResidents({
       <ManagerResidentUploadModal
         open={residentUploadOpen}
         residentName={selected?.name || "Resident"}
+        defaultKind={residentUploadKindPreset}
         onClose={() => setResidentUploadOpen(false)}
         onUploaded={handleResidentUploadComplete}
       />

@@ -277,11 +277,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       ] },
     ],
     headerActions: [
-      { id: "message", label: "Message", icon: Mail },
       { id: "edit", label: "Edit", icon: Pencil },
       { id: "share", label: "Share", icon: Share2 },
       { id: "archive", label: "Archive", icon: Archive },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+      { id: "message", label: "Message", icon: Mail, tone: "primary" },
     ],
     sectionActions: {
       application: [
@@ -289,7 +289,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
         { id: "edit", label: "Edit", icon: Pencil },
         { id: "download", label: "Download PDF", icon: Download },
-        { id: "upload", label: "Upload", icon: Upload },
       ],
       "background-check": [
         { id: "run-check", label: "Run check", icon: Shield, tone: "primary" },
