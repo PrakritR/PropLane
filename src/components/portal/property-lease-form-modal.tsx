@@ -39,6 +39,7 @@ import {
   createPropertyLeaseTemplate,
   makePropertyLeaseTemplateId,
   normalizeLeaseTemplateKind,
+  propertyLeaseTypeLabel,
   templateAppearsToBeExecutedLease,
   updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
@@ -814,7 +815,7 @@ export function PropertyLeaseFormModal({
             />
           ) : (
             <p className="mb-3 text-sm text-foreground" data-attr="property-lease-type-fact">
-              Type of lease · {kind === "short-term" ? "Short term" : "Long-term"}
+              Type of lease · {propertyLeaseTypeLabel(kind)}
             </p>
           )}
           {/* F002/F013: the same dashed drop-zone card the listing wizard and
