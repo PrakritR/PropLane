@@ -14,7 +14,8 @@ import {
   addDaysToDateKey,
   bookingEntryKey,
   bookingSourceLabel,
-  formatBookingStayRange,
+  bookingPlaceLine,
+  formatBookingStayRangeShort,
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
@@ -103,12 +104,7 @@ export function ManagerBookingsListView({
         entries.map((entry) => {
           const key = bookingEntryKey(entry);
           const name = guestName(entry);
-          const subtitle = [
-            entry.roomLabel,
-            entry.propertyLabel,
-          ]
-            .filter(Boolean)
-            .join(" · ");
+          const subtitle = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
           const href = bookingRecordHref(basePath, key);
           const status = bookingRowStatusFact(entry);
           // A signed lease's dates belong to the Lease record, and a channel
@@ -137,7 +133,7 @@ export function ManagerBookingsListView({
                 amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRangeShort(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                     {showStayDetails ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
                     {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}

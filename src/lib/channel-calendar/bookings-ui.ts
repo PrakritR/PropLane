@@ -300,3 +300,44 @@ export function bookingStatusTone(
   }
   return "confirmed";
 }
+
+/**
+ * A booking row's date fact, as the studio draws it: "Sep 28 → Oct 6", the year
+ * only when a date falls outside the current year, and "From Oct 15" for an
+ * open-ended stay. `end` is the checkout day (exclusive end + 1 already applied).
+ */
+export function formatBookingStayRangeShort(
+  start: string,
+  end: string,
+  openEnded?: boolean,
+  now: Date = new Date(),
+): string {
+  const thisYear = now.getFullYear();
+  const fmt = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return iso;
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(y !== thisYear ? { year: "numeric" } : {}),
+    });
+  };
+  if (openEnded) return `From ${fmt(start)}`;
+  if (start === end) return fmt(start);
+  return `${fmt(start)} → ${fmt(end)}`;
+}
+
+/**
+ * "Alder House · Room 2" — property first, then the room, and no segment that
+ * repeats one already said ("Alder Row — 3 rooms · 3 rooms" keeps one "3 rooms").
+ */
+export function bookingPlaceLine(propertyLabel?: string | null, roomLabel?: string | null): string {
+  const out: string[] = [];
+  for (const part of [...(propertyLabel ?? "").split(" · "), roomLabel ?? ""]) {
+    const p = part.trim();
+    if (!p) continue;
+    if (out.some((seen) => seen.toLowerCase().includes(p.toLowerCase()))) continue;
+    out.push(p);
+  }
+  return out.join(" · ");
+}
