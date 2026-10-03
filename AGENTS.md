@@ -266,6 +266,8 @@ Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
 
 # Portal UI system
 
+**Copy the reference screens:** lists match the property **Pricing** tab, pop-ups and create/edit
+flows match **Add property** — `docs/agents/ui-page-structure.md` § Reference implementations.
 **Start at [`docs/agents/ui-page-structure.md`](docs/agents/ui-page-structure.md)** (the generic
 anatomy every page follows), then [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).
 Every list tab copies Properties via `PortalRecordListSurface`: header card

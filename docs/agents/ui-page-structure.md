@@ -9,6 +9,39 @@ admin, public). It is the anatomy; the detailed rules live in the tier-1 docs it
 clearer and working. Anything new that wasn't asked for goes to the captain as a question
 with "Keep as today" as an option.
 
+## Reference implementations — copy these (captain, 2026-10-03)
+
+When you build or change any list or pop-up, start from these two working screens and match
+them; do not invent a variant.
+
+**Lists → the property Pricing tab** (`src/components/portal/property-pricing-panel.tsx`):
+- Header: `PortalListControlStack variant="command"` with `LocalDestinationNav
+  appearance="command"` — text tabs with count pills, active = blue text + underline. Never
+  `ManagerPortalStatusPills` or any pill/segmented switcher for list tabs.
+- Then the inline search, icon-only actions (funnel `Filter`, gear `Settings`), and the round
+  blue + right-most.
+- Rows: `PortalPropertyRecordRow` / `PortalRecordListSurface` — title, one fact line, the
+  figure on the right, then **exactly one ⋯ per row**. The ⋯ always offers **Edit** first,
+  other actions after, a red destructive action last. If the list surface already gives rows a
+  ⋯ (selection via `RowSelectCheckbox` + `bulkActions`), put the row actions there — never a
+  second hand-rolled ⋯ next to it.
+- Dates read as "Oct 2, 2026", never ISO; money as "$1,050/mo".
+
+**Pop-ups and create/edit flows → Add property** (`ListingEditorV2` / `AddWorkspace`):
+- One header: title, save state, "✦ Ask PropLane", ✕. Left step rail, centre step, right
+  preview pane, footer Back on the left and one primary on the right.
+- ✕ and Esc close and **keep a draft** ("Draft saved") — no dismiss-only Cancel/Close button
+  and no "Discard?" confirm.
+- Footer and dialog buttons sit **side by side on one row**; never stack them.
+- Raw `<select>`/`Select` is never used for a pick — `FieldSingleSelect` /
+  `CheckboxMultiSelect`.
+- A refusal that has a fix offers the fix in place (e.g. "Workspace is full" lists the drafts
+  with a delete on each), not only a link away.
+
+**Popovers and tooltips** (an (i) beside a label, a row menu) render through a portal to
+`document.body` with fixed positioning, so a rail or card with `overflow: hidden` never
+clips them (`portal-property-section-info.tsx` is the reference).
+
 ## 0. One UI for every portal
 
 **The manager portal is the reference design.** Resident, vendor and admin pages use the same

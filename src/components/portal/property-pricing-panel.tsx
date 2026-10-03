@@ -231,34 +231,19 @@ export function PropertyPricingPanel({
                   onOpen={() => openSubject({ kind: "room", roomId: room.id })}
                   dataAttr="property-pricing-room-row"
                   actions={
-                    canReset
-                      ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              type="button"
-                              className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
-                              aria-label={`Actions for ${room.name.trim() || "Room"}`}
-                            >
-                              <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  const next = resetRoomToWorkspaceDefault(sub, room.id, workspacePricingDefaults);
-                                  if (!next) {
-                                    showToast("No workspace default for this room.");
-                                    return;
-                                  }
-                                  persist(next);
-                                  showToast("Room reset to workspace default.");
-                                }}
-                              >
-                                Reset to default
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )
-                      : undefined
+                    <PricingRowMenu
+                      label={room.name.trim() || "Room"}
+                      onEdit={() => openSubject({ kind: "room", roomId: room.id })}
+                      onReset={canReset ? () => {
+                        const next = resetRoomToWorkspaceDefault(sub, room.id, workspacePricingDefaults);
+                        if (!next) {
+                          showToast("No workspace default for this room.");
+                          return;
+                        }
+                        persist(next);
+                        showToast("Room reset to workspace default.");
+                      } : undefined}
+                    />
                   }
                 />
               );
@@ -278,6 +263,7 @@ export function PropertyPricingPanel({
                 }
                 onOpen={() => openSubject({ kind: "bundle", bundleId: bundle.id })}
                 dataAttr="property-pricing-bundle-row"
+                actions={<PricingRowMenu label={bundle.label.trim() || "Bundle"} onEdit={() => openSubject({ kind: "bundle", bundleId: bundle.id })} />}
               />
             ))
           : null}
@@ -295,34 +281,19 @@ export function PropertyPricingPanel({
             onOpen={() => openSubject({ kind: "whole" })}
             dataAttr="property-pricing-whole-row"
             actions={
-              sub.entireHomePriceSource === "default" || sub.entireHomePriceSource === "own"
-                ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        type="button"
-                        className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
-                        aria-label="Actions for Whole house"
-                      >
-                        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            const next = resetWholeHouseToWorkspaceDefault(sub, workspacePricingDefaults);
-                            if (!next) {
-                              showToast("No workspace default for the whole house.");
-                              return;
-                            }
-                            persist(next);
-                            showToast("Whole house reset to workspace default.");
-                          }}
-                        >
-                          Reset to default
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )
-                : undefined
+              <PricingRowMenu
+                label="Whole house"
+                onEdit={() => openSubject({ kind: "whole" })}
+                onReset={sub.entireHomePriceSource === "default" || sub.entireHomePriceSource === "own" ? () => {
+                  const next = resetWholeHouseToWorkspaceDefault(sub, workspacePricingDefaults);
+                  if (!next) {
+                    showToast("No workspace default for the whole house.");
+                    return;
+                  }
+                  persist(next);
+                  showToast("Whole house reset to workspace default.");
+                } : undefined}
+              />
             }
           />
         ) : null}
@@ -358,5 +329,26 @@ export function PropertyPricingPanel({
         />
       ) : null}
     </div>
+  );
+}
+
+/** Every pricing row's ⋯: Edit pricing first, then Reset to default when the row can inherit. */
+function PricingRowMenu({ label, onEdit, onReset }: { label: string; onEdit: () => void; onReset?: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
+        aria-label={`Actions for ${label}`}
+        data-attr="property-pricing-row-menu"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem data-attr="property-pricing-row-edit" onSelect={onEdit}>Edit pricing</DropdownMenuItem>
+        {onReset ? <DropdownMenuItem data-attr="property-pricing-row-reset" onSelect={onReset}>Reset to default</DropdownMenuItem> : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

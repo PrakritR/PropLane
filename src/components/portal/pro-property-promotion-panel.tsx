@@ -1,4 +1,6 @@
 "use client";
+
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -11,7 +13,6 @@ import {
 } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { Settings } from "lucide-react";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
@@ -828,18 +829,20 @@ export function ManagerPropertyPromotionPanel({
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         stickyDestinations
+        activeDestinationId={promoTab}
         destinationAriaLabel="Promotion group"
         destinationRow={
-          <ManagerPortalStatusPills
-            activeId={promoTab}
-            mobileSelect={false}
-            onChange={(id) => setPromoTab(id as typeof promoTab)}
-            tabs={promoTabs.map((t) => ({
+          <LocalDestinationNav
+            items={promoTabs.map((t) => ({
               id: t.id,
               label: t.label,
               count: t.count,
               dataAttr: `property-promotion-tab-${t.id}`,
             }))}
+            activeId={promoTab}
+            onChange={(id) => setPromoTab(id as typeof promoTab)}
+            ariaLabel="Promotion group"
+            appearance="command"
           />
         }
         search={{

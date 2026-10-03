@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, FileUp, FileText, AlertTriangle, Plus, MoreHorizontal, Copy, Pencil, Eye, Trash2 } from "lucide-react";
+import { Check, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -47,8 +47,6 @@ import {
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
@@ -503,22 +501,6 @@ export function ManagerPropertyLeasePanel({
             ) : null}
           </div>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <span onClick={(event) => event.stopPropagation()}>
-              <PortalIconAction icon={MoreHorizontal} label={`Actions for ${template.label}`} data-attr="property-lease-row-menu" onClick={(event) => event.stopPropagation()} />
-            </span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" data-attr="property-lease-row-actions">
-            <DropdownMenuItem onSelect={() => openEdit(template.id)}><Pencil aria-hidden />Edit</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => openEdit(template.id)}><Eye aria-hidden />Preview</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void duplicateTemplate(template)}><Copy aria-hidden />Duplicate</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => {
-              void confirm({ description: `Delete ${template.label}?` }).then((ok) => { if (ok) handleDelete(template.id); });
-            }} className="text-red-600"><Trash2 aria-hidden />Delete</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     );
   };
@@ -714,9 +696,40 @@ export function ManagerPropertyLeasePanel({
               variant="outline"
               className={PORTAL_BULK_BAR_BTN}
               data-attr="property-lease-bulk-edit"
+              data-record-action-id="edit"
               onClick={() => openEdit(selectedTemplateId)}
             >
-              Edit lease
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-lease-bulk-preview"
+              data-record-action-id="preview"
+              onClick={() => openEdit(selectedTemplateId)}
+            >
+              Preview
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-lease-bulk-duplicate"
+              data-record-action-id="duplicate"
+              onClick={() => { const template = templates.find((t) => t.id === selectedTemplateId); if (template) void duplicateTemplate(template); }}
+            >
+              Duplicate
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-lease-bulk-delete"
+              data-record-action-id="delete"
+              onClick={() => { const template = templates.find((t) => t.id === selectedTemplateId); if (!template) return; void confirm({ title: "Delete lease", description: `Delete ${template.label}?`, confirmLabel: "Delete lease" }).then((ok) => { if (ok) handleDelete(template.id); }); }}
+            >
+              Delete
             </Button>
           </div>
         </>
