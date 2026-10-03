@@ -80,4 +80,17 @@ describe("createAxisConnectAccount — payout schedule default", () => {
       weekly_anchor: "friday",
     });
   });
+
+  it("C2-SX8 withdraw-only, MANUAL_PAYOUT_POLICY_ENABLED on: a manager account is manual too", async () => {
+    const prev = process.env.MANUAL_PAYOUT_POLICY_ENABLED;
+    process.env.MANUAL_PAYOUT_POLICY_ENABLED = "1";
+    try {
+      const { stripe, calls } = captureStripe();
+      await createAxisConnectAccount(stripe, { axisUserId: "u1", axisPortal: "portal" });
+      expect((calls[0]!.settings as { payouts: { schedule: unknown } }).payouts.schedule).toEqual({ interval: "manual" });
+    } finally {
+      if (prev === undefined) delete process.env.MANUAL_PAYOUT_POLICY_ENABLED;
+      else process.env.MANUAL_PAYOUT_POLICY_ENABLED = prev;
+    }
+  });
 });

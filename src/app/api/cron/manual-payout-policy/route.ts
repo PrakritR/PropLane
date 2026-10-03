@@ -3,12 +3,15 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { ensureManualPayoutPolicy } from "@/lib/manual-payout-policy.server";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { manualPayoutPolicyEnabled } from "@/lib/manual-payout-policy-flag";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 /** Bounded, resumable conversion of existing connected accounts. Never changes bank destinations. */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  // Converting live connected accounts is a captain-controlled rollout (C2-SX8), never automatic on deploy.
+  if (!manualPayoutPolicyEnabled()) return NextResponse.json({ skipped: "MANUAL_PAYOUT_POLICY_ENABLED is off" });
   const db = createSupabaseServiceRoleClient();
   const { data: rows, error } = await db.from("profiles").select("id, stripe_connect_account_id").not("stripe_connect_account_id", "is", null).is("manual_payout_policy_at", null).order("id").limit(100);
   if (error) return NextResponse.json({ error: "Could not read payout policy queue." }, { status: 500 });

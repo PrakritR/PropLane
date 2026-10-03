@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { manualPayoutPolicyEnabled } from "@/lib/manual-payout-policy-flag";
 
 /**
  * Controller config for NEW manager/vendor recipient accounts (destination
@@ -75,12 +76,12 @@ export async function createAxisConnectAccount(
       axis_user_id: opts.axisUserId,
       axis_portal: opts.axisPortal ?? "portal",
     },
-    // Vendor accounts under vendor banking default to manual payouts; managers
-    // (and vendors when the flag is off) keep weekly/Friday automatic deposits.
+    // Withdraw-only (C2-SX8) once MANUAL_PAYOUT_POLICY_ENABLED is on; until then vendor
+    // accounts under vendor banking are manual and managers keep weekly/Friday deposits.
     settings: {
       payouts: {
         schedule:
-          opts.axisPortal === "vendor" && vendorBankingEnabled()
+          manualPayoutPolicyEnabled() || (opts.axisPortal === "vendor" && vendorBankingEnabled())
             ? { interval: "manual" as const }
             : { interval: "weekly" as const, weekly_anchor: "friday" as const },
       },
