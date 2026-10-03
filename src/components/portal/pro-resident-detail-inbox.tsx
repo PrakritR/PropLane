@@ -589,7 +589,7 @@ export function ResidentDirectChatPane({
             channelEditable={item.editable}
             source={item.source}
             editable={item.editable}
-            busy={scheduledBusyId === item.id}
+            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
             recipient={email}
             sendAt={item.sendAt}
             onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
@@ -664,6 +664,10 @@ export function ResidentDirectChatPane({
     // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
     // so there is one send button and no second way to fire the message.
     if (scheduleLater) {
+      if (attachmentUrls.length > 0) {
+        showToast("Scheduled replies do not support attachments yet. Remove them or send now.");
+        return;
+      }
       const sendAt = new Date(scheduleSendAt);
       if (Number.isNaN(sendAt.getTime())) {
         showToast("Choose a valid send date and time.");
@@ -686,6 +690,7 @@ export function ResidentDirectChatPane({
             sendAt: sendAt.toISOString(),
             recipientEmail: email,
             recipientName: displayName,
+            deliverViaInbox: replyViaProplane,
             deliverViaEmail: replyViaEmail && emailAvailable,
             deliverViaSms: replyViaSms && smsAvailable,
           }),
