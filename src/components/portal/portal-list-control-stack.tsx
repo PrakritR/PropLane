@@ -293,7 +293,15 @@ export function PortalListControlStack({
       </div>
     ) : null;
     const searchNode = search ? (
-      <div className="relative min-w-[6rem] flex-1">
+      <div
+        className={cn(
+          "relative flex-1",
+          // An embedded band shares a narrow column (Communication's list pane):
+          // the search yields down to its glyph so the round + is never clipped,
+          // and opens back up while it has focus.
+          embedded ? "min-w-[2.5rem] transition-[min-width] focus-within:min-w-[10rem]" : "min-w-[6rem]",
+        )}
+      >
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
           strokeWidth={1.75}

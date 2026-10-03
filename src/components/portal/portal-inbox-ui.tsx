@@ -3071,8 +3071,8 @@ export function InboxTwoPane({
               // Column gap only. Below `lg` exactly one pane is display:none and
               // contributes nothing, but a row gap would silently subtract from
               // the pane height at every breakpoint.
-              ? "lg:grid-cols-[minmax(260px,32%)_1fr] lg:gap-x-4"
-              : "lg:grid-cols-[minmax(240px,28%)_1fr]"
+              ? "lg:grid-cols-[minmax(340px,40%)_1fr] 2xl:grid-cols-[480px_1fr] lg:gap-x-4"
+              : "lg:grid-cols-[minmax(320px,36%)_1fr] 2xl:grid-cols-[460px_1fr]"
         }`}
       >
         <section

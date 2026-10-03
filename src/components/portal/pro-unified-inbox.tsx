@@ -1394,7 +1394,7 @@ export function ManagerUnifiedInbox({
             search={{
               value: query,
               onChange: setQuery,
-              placeholder: "Search contacts or messages",
+              placeholder: "Search",
               ariaLabel: "Search contacts or messages",
               dataAttr: "unified-inbox-search",
             }}
