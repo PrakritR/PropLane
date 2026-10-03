@@ -61,11 +61,11 @@ describe("PayoutWithdrawSheet — amount step", () => {
   it("disables Continue below the $1 minimum and above the available balance", () => {
     render(<PayoutWithdrawSheet {...baseProps()} />);
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "0.50" } });
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "5000.00" } });
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "25.00" } });
-    expect(screen.getByRole("button", { name: "Continue" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).not.toBeDisabled();
   });
 
   it("disables Instant and states the reason when the amount exceeds the Instant cap", () => {
@@ -83,7 +83,7 @@ describe("PayoutWithdrawSheet — amount step", () => {
 });
 
 describe("PayoutWithdrawSheet — confirm step and submit", () => {
-  it("Continue moves to a review step with Amount/Fee/Arrives/To, then Confirm withdrawal submits amountCents+method", async () => {
+  it("shows Amount and destination in one sheet, then confirms amountCents+method", async () => {
     const onSuccess = vi.fn();
     vi.stubGlobal(
       "fetch",
@@ -95,10 +95,9 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       ),
     );
     render(<PayoutWithdrawSheet {...baseProps({ onSuccess })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByText("Amount")).toBeInTheDocument();
-    expect(document.querySelector('[data-attr="withdraw-c-amount"]')).toHaveTextContent("$4,280.00");
+    expect(screen.getByLabelText("Amount")).toHaveValue("4280.00");
     expect(screen.getByText("Chase ····4421")).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -114,11 +113,10 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
     expect(JSON.parse(init.body as string)).toEqual({ amountCents: 428_000, method: "standard" });
   });
 
-  it("computes the 1% Instant fee in the review step", () => {
+  it("computes the 1% Instant fee in the confirmation sheet", () => {
     render(<PayoutWithdrawSheet {...baseProps({ availableCents: 100_000, instantAvailableCents: 100_000 })} />);
     fireEvent.click(screen.getByRole("radio", { name: /Instant/ }));
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "100.00" } });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByText("$1.00")).toBeInTheDocument();
     expect(screen.getByText("Within 30 minutes")).toBeInTheDocument();
   });
@@ -130,11 +128,10 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
     );
     const onSuccess = vi.fn();
     render(<PayoutWithdrawSheet {...baseProps({ onSuccess })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
     await screen.findByText("Balance changed — try again.");
     expect(onSuccess).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeInTheDocument();
   });
 
   it("sends the picked destination's real id as destinationId, never the synthetic fallback id", async () => {
@@ -149,7 +146,6 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       ),
     );
     render(<PayoutWithdrawSheet {...baseProps({ accounts: [realAccount] })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
     await vi.waitFor(() =>
       expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1),

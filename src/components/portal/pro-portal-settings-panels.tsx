@@ -1483,10 +1483,6 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Payment setup">
-        <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
-      </PortalSettingsSection>
-
       <PortalSettingsSection
         title="Processing fee"
         action={<SettingsGroupSourceTag namespace="processing-fee-settings" />}
