@@ -10,8 +10,8 @@ function isManagerAgentNoticeThread(thread: InboxThreadForTurns & { id?: string 
   return Boolean(thread.id?.startsWith("agent_notice_"));
 }
 
-function isLegacyManagerAgentNoticeBody(body: string): boolean {
-  const text = body.trim();
+function isLegacyManagerAgentNoticeBody(body: string | null | undefined): boolean {
+  const text = String(body ?? "").trim();
   if (!text) return false;
   return (
     /\bWhen:\s*/i.test(text) ||
