@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   CASHFLOW_CHART_RANGE_MONTHS,
   type CashflowChartMetric,
@@ -147,9 +148,16 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
     <header className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-base font-semibold">{title}</h2>
       <div className="flex items-center gap-3">
-        <select aria-label="Chart time range" value={range} onChange={e => setRange(e.target.value)} className="rounded-lg border border-border bg-card p-2 text-sm">
-          <option value="6">6M</option><option value="12">12M</option><option value="ytd">YTD</option>
-        </select>
+        <FieldSingleSelect
+          label="Chart time range"
+          value={range}
+          onChange={setRange}
+          options={[
+            { value: "6", label: "6M" },
+            { value: "12", label: "12M" },
+            { value: "ytd", label: "YTD" },
+          ]}
+        />
         <button type="button" aria-label={table ? "Show chart" : "Show table"} title={table ? "Show chart" : "Show table"} onClick={() => setTable(!table)} className="p-2">{table ? "▥" : "☷"}</button>
       </div>
     </header>

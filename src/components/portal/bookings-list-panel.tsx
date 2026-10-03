@@ -7,7 +7,7 @@ import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/por
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
@@ -71,14 +71,15 @@ export function ManagerBookingsListPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       <PortalSectionActionRow variant="header">
-        <PortalSegmentedControl
-          options={LIST_TABS.map((tab) => ({
+        <LocalDestinationNav
+          appearance="command"
+          items={LIST_TABS.map((tab) => ({
             id: tab.id,
-            label: `${tab.label} (${tabCounts[tab.id]})`,
+            label: tab.label,
+            count: tabCounts[tab.id],
           }))}
-          value={listTab}
-          onChange={setListTab}
-          size="sm"
+          activeId={listTab}
+          onChange={(id) => setListTab(id as BookingsListTabId)}
           ariaLabel="Bookings list filter"
         />
       </PortalSectionActionRow>

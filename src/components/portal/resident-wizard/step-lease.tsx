@@ -6,6 +6,7 @@ import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/w
 import { Input } from "@/components/ui/input";
 import { RESIDENT_LEASE_TERM_CUSTOM, residentLeaseTermSelectValue } from "@/lib/resident-manual-lease-terms";
 import { shortTermNightlyRate, shortTermStayChargeTitle, shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import {
   FieldMark,
   WizardChip,
@@ -138,7 +139,7 @@ export function LeaseStep({
       {editStage === "signed" && signedAtIso ? (
         <WizardSection title="Signed" dataAttr="residents-wizard-lease-signed">
           <WizardLine
-            label={`Signed ${signedAtIso.slice(0, 10)}`}
+            label={`Signed ${formatPortalListDate(signedAtIso)}`}
             control={
               onRequestNewTerms ? (
                 <Button type="button" onClick={onRequestNewTerms} data-attr="residents-wizard-new-terms">

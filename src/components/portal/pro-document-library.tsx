@@ -16,9 +16,7 @@ import {
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
-import {
-  ManagerPortalStatusPills,
-} from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
@@ -163,12 +161,16 @@ function DocumentLibraryFilterFieldsBody({
 
   return (
     <div className="flex flex-col gap-3">
-      <ManagerPortalStatusPills
-        tabs={expiryPills}
+      <LocalDestinationNav
+        appearance="command"
+        items={expiryPills.map((pill) => ({
+          id: pill.id,
+          label: pill.label,
+          count: pill.count,
+        }))}
         activeId={draftExpiryFilter}
         onChange={setDraftExpiryFilter}
-        activeTone="primary"
-        compact
+        ariaLabel="Expiry window"
       />
       {onSearchChange ? (
         <Input

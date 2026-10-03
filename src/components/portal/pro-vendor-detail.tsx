@@ -19,9 +19,11 @@ import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { SaveStatus } from "@/components/ui/save-status";
@@ -750,7 +752,7 @@ export function ManagerVendorDetail({
                   <li key={review.id} className="space-y-1 px-3 py-2.5 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <VendorReviewStarDisplay stars={review.stars} />
-                      <span className="text-[13px] text-muted">{review.reviewerLabel} · {review.createdAt.slice(0, 10)}</span>
+                      <span className="text-[13px] text-muted">{review.reviewerLabel} · {formatPortalListDate(review.createdAt)}</span>
                     </div>
                     {review.isOwnWorkspace && canEditVendorReview(review.createdAt) ? <PortalIconAction label="Edit review" icon={Pencil} onClick={() => setReviewJob({ id: review.workOrderId, title: jobs.find(job => job.id === review.workOrderId)?.title ?? "Service", vendorName: row.name })} /> : null}
                     {review.body ? <p className="text-[13.5px]">{review.body}</p> : null}
@@ -779,13 +781,15 @@ export function ManagerVendorDetail({
       {tab === "communication" ? (
         <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
           <div className="px-2 pb-2 sm:px-3">
-            <ManagerPortalStatusPills
-              tabs={[
+            <LocalDestinationNav
+              appearance="command"
+              items={[
                 { id: "all", label: "Active", count: 0 },
                 { id: "trash", label: "Archived", count: 0 },
               ]}
               activeId={inboxTab}
               onChange={(id) => setInboxTab(id === "trash" ? "trash" : "all")}
+              ariaLabel="Message folders"
             />
           </div>
           <ManagerInbox
@@ -817,7 +821,18 @@ export function ManagerVendorDetail({
 
       {tab === "jobs" || tab === "services" ? <div data-attr="vendor-services-list">
         <PortalListControlStack variant="command" stickyDestinations={false}
-          destinationRow={<ManagerPortalStatusPills tabs={[{ id: "open", label: "Open", count: openJobs.length }, { id: "done", label: "Done", count: jobs.length - openJobs.length }]} activeId={serviceTab} onChange={setServiceTab} />}
+          destinationRow={
+            <LocalDestinationNav
+              appearance="command"
+              items={[
+                { id: "open", label: "Open", count: openJobs.length },
+                { id: "done", label: "Done", count: jobs.length - openJobs.length },
+              ]}
+              activeId={serviceTab}
+              onChange={setServiceTab}
+              ariaLabel="Service status"
+            />
+          }
           search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} primary={<PortalPrimaryIconAction label="Add service" icon={Plus} onClick={() => setRequestService(true)} />} />
         <PortalRecordListSurface loading={summaryState === "loading"} loadError={summaryState === "error" ? "Could not load services." : undefined} onRetry={() => void refreshSummary(true)}>
           {jobs.filter(job => (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") && [job.title, job.propertyName, job.unit].join(" ").toLowerCase().includes(serviceSearch.toLowerCase())).map(job =>
@@ -825,7 +840,7 @@ export function ManagerVendorDetail({
         </PortalRecordListSurface>
       </div> : null}
       {tab === "invoices" ? row.vendorUserId ? <ManagerOutgoingInvoicesPanel vendorUserId={row.vendorUserId} basePath={basePath} /> : <p className="p-4 text-sm">No linked vendor account.</p> : null}
-      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{reviewableJobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
+      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><FieldSingleSelect label="Completed service" value={reviewServiceId} onChange={setReviewServiceId} placeholder="Choose a service" options={[{ value: "", label: "Choose a service" }, ...reviewableJobs.map((job) => ({ value: job.id, label: job.title }))]} /><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
       <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} defaultVendor={{ id: row.id, name: row.name, vendorUserId: row.vendorUserId ?? null }} />
       <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />
 

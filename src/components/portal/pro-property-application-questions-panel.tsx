@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp, Signature, MoreHorizontal, Copy, Pencil, Eye, Trash2 } from "lucide-react";
+import { Check, CreditCard, FileUp, Signature } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -49,8 +49,6 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
@@ -529,22 +527,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
                   ) : null}
                 </div>
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <span onClick={(event) => event.stopPropagation()}>
-                    <PortalIconAction icon={MoreHorizontal} label={`Actions for ${template.label}`} data-attr="property-application-row-menu" onClick={(event) => event.stopPropagation()} />
-                  </span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" data-attr="property-application-row-actions">
-                  <DropdownMenuItem onSelect={() => openEditApplication(template)}><Pencil aria-hidden />Edit</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => openEditApplication(template)}><Eye aria-hidden />Preview</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => void duplicateTemplate(template)}><Copy aria-hidden />Duplicate</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => {
-                    void confirm({ description: `Delete ${template.label}?` }).then((ok) => { if (ok) void handleDeleteTemplate(template.id); });
-                  }} className="text-red-600"><Trash2 aria-hidden />Delete</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           );
         })}
@@ -659,20 +641,63 @@ export function ManagerPropertyApplicationQuestionsPanel({
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
-      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
+      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size}       bulkActions={!embedInModal && selectedTemplateId ? (
         <>
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2">
             <Button
               type="button"
               variant="outline"
               className={PORTAL_BULK_BAR_BTN}
               data-attr="property-application-bulk-edit"
+              data-record-action-id="edit"
               onClick={() => {
                 const template = templates.find((row) => row.id === selectedTemplateId);
                 if (template) openEditApplication(template);
               }}
             >
               Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-application-bulk-preview"
+              data-record-action-id="preview"
+              onClick={() => {
+                const template = templates.find((row) => row.id === selectedTemplateId);
+                if (template) openEditApplication(template);
+              }}
+            >
+              Preview
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-application-bulk-duplicate"
+              data-record-action-id="duplicate"
+              onClick={() => {
+                const template = templates.find((row) => row.id === selectedTemplateId);
+                if (template) void duplicateTemplate(template);
+              }}
+            >
+              Duplicate
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-application-bulk-delete"
+              data-record-action-id="delete"
+              onClick={() => {
+                const template = templates.find((row) => row.id === selectedTemplateId);
+                if (!template) return;
+                void confirm({ description: `Delete ${template.label}?` }).then((ok) => {
+                  if (ok) void handleDeleteTemplate(template.id);
+                });
+              }}
+            >
+              Delete
             </Button>
           </div>
         </>

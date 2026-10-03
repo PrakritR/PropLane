@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Clock, Filter, Plus, Wallet } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -103,7 +103,22 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
     {vendorUserId ? <dl className="mb-4 grid grid-cols-3 divide-x divide-border rounded-xl border border-border bg-card p-4"><div><dt>Paid this year</dt><dd className="text-xl font-semibold">{loading || error ? "—" : money(totals.paidThisYearCents)}</dd></div><div className="pl-4"><dt>Owed now</dt><dd className="text-xl font-semibold">{loading || error ? "—" : money(totals.owedCents)}</dd></div><div className="pl-4"><dt>Paid via</dt><dd>{destination ?? "—"}</dd></div></dl> : null}
     <PortalListControlStack variant="command" stickyDestinations={false}
       {...(vendorUserId
-        ? { destinationRow: <ManagerPortalStatusPills tabs={tabs} activeId={tab} onChange={setTab} /> }
+        ? {
+            destinationRow: (
+              <LocalDestinationNav
+                appearance="command"
+                items={tabs.map((t) => ({
+                  id: t.id,
+                  label: t.label,
+                  count: t.count,
+                  dataAttr: `outgoing-tab-${t.id}`,
+                }))}
+                activeId={tab}
+                onChange={setTab}
+                ariaLabel="Outgoing payments"
+              />
+            ),
+          }
         : { destinations: tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: `${basePath}/outgoing/${t.id}`, dataAttr: `outgoing-tab-${t.id}` })), activeDestinationId: tab, destinationAriaLabel: "Outgoing payments" })}
       search={{ value: search, onChange: setSearch, placeholder: "Search outgoing payments" }}
       actions={vendorUserId ? null : <PortalIconAction label="Filter" icon={Filter} active={Boolean(vendorFilter)} onClick={() => setFilterOpen(true)} data-attr="outgoing-filter" />}

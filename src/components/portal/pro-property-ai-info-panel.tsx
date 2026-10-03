@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Sparkles } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyAiInfoEditorModal, type AiInfoEditorTarget } from "@/components/portal/property-ai-info-editor-modal";
@@ -273,11 +273,12 @@ export function ManagerPropertyAiInfoPanel({
         className="mb-3"
         variant="command"
         destinationRow={
-          <ManagerPortalStatusPills
+          <LocalDestinationNav
+            appearance="command"
             activeId={activeTab}
-            mobileSelect={false}
             onChange={(id) => setActiveTab(id as AiInfoTabId)}
-            tabs={tabs.map((t) => ({
+            ariaLabel="Assistant knowledge sections"
+            items={tabs.map((t) => ({
               id: t.id,
               label: t.label,
               count: t.count,

@@ -12,7 +12,8 @@ import {
   PortalInboxSelectionToolbar,
   useInboxRowSelection,
 } from "@/components/portal/portal-inbox-selection";
-import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_FILTER_ACTIONS_MOBILE, PORTAL_HEADER_ACTION_BTN, PORTAL_PAGE_ACTIONS_DESKTOP } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, ManagerPortalFilterRow, PORTAL_FILTER_ACTIONS_MOBILE, PORTAL_HEADER_ACTION_BTN, PORTAL_PAGE_ACTIONS_DESKTOP } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { buildInboxThreadAssistantContext, InboxThreadAssistantStrip } from "@/components/portal/inbox-thread-assistant-strip";
@@ -1227,11 +1228,16 @@ export const VendorInboxPanel = forwardRef<
       }
       filterRow={
         <ManagerPortalFilterRow>
-          <ManagerPortalStatusPills
-            activeTone="primary"
-            tabs={tabs}
+          <LocalDestinationNav
+            appearance="command"
+            items={tabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count: tab.count,
+            }))}
             activeId={tabId}
-            onChange={(id) => navigate(`/vendor/communication/email/`)}
+            onChange={() => navigate(`/vendor/communication/email/`)}
+            ariaLabel="Inbox folders"
           />
           <div className={PORTAL_FILTER_ACTIONS_MOBILE}>
             <Button type="button" variant="primary" className={PORTAL_HEADER_ACTION_BTN} onClick={() => setComposeOpen(true)}>

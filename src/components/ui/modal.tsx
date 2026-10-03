@@ -47,7 +47,7 @@ export const MODAL_HEADER_CLOSE_CLASS =
 
 /** Sticky footer action row: primary and secondary *actions* only (Save, Delete, Send). */
 export const MODAL_FOOTER_ROW_CLASS =
-  "flex flex-wrap items-center justify-end gap-x-2 gap-y-3";
+  "flex flex-nowrap items-center justify-end gap-x-2 overflow-x-auto whitespace-nowrap";
 
 /**
  * Sticky footer action row: primary and secondary *actions* only (Save, Delete, Send).
