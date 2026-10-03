@@ -85,6 +85,9 @@ import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } fro
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 
+/** Stable empty list so a missing workspace never changes a memo dependency each render. */
+const NO_WORKSPACE_PROPERTY_IDS: string[] = [];
+
 const vendorsSettingsEntry = getSettingsEntryPoint("vendors");
 
 export type ManagerVendorsPanelHandle = {
@@ -142,7 +145,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const basePath = listBasePath ?? portalBase;
   const { userId, ready: authReady } = useManagerUserId();
   const workspaces = useWorkspaces();
-  const workspacePropertyIds = workspaces?.active?.propertyIds ?? [];
+  const workspacePropertyIds = workspaces?.active?.propertyIds ?? NO_WORKSPACE_PROPERTY_IDS;
   const [tick, setTick] = useState(0);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection();
   const [showDefaults, setShowDefaults] = useState(false);
@@ -281,7 +284,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   useEffect(() => {
     const vendorUserIds = [...new Set(vendors.map((v) => v.vendorUserId).filter((id): id is string => Boolean(id)))];
     if (vendorUserIds.length === 0) {
-      setReviewAggregatesByVendorUserId({});
+      // Keep the same object when already empty — a fresh {} each run re-renders forever.
+      setReviewAggregatesByVendorUserId((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     let cancelled = false;
