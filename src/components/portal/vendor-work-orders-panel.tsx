@@ -671,7 +671,7 @@ export function VendorWorkOrdersPanel({
     const mode = bid?.quoteMode ?? modeById[row.id] ?? "upfront";
     const consultationScheduled = Boolean(bid?.consultationVisitAt);
     const simplifiedBidForm = Boolean(row.biddingOpen && !bid);
-    const showModeToggle = canEditBid && !bid && row.biddingOpen && !simplifiedBidForm;
+    const showModeToggle = canEditBid && !bid && row.biddingOpen === false && !simplifiedBidForm;
     const showScheduleConsultation =
       canEditBid && !bid && mode === "after_consultation" && row.biddingOpen && !simplifiedBidForm;
     const showPricingFields =

@@ -101,6 +101,18 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
     finally { setLoading(false); }
   }, [vendorUserId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payInvoiceId = params.get("payInvoice")?.trim();
+    if (!payInvoiceId || rows.length === 0) return;
+    const match = rows.find((row) => row.id === payInvoiceId);
+    if (!match) return;
+    setTab("to-pay");
+    setPay(match);
+    params.delete("payInvoice");
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+    window.history.replaceState(null, "", next);
+  }, [rows]);
   const bucket = (row: OutgoingInvoice) => row.status === "paid" ? "paid" : row.status === "scheduled" && Boolean(row.scheduledFor && row.scheduledFor > pacificCalendarDateYmd()) && !vendorUserId ? "scheduled" : "to-pay";
   const tabs = (vendorUserId ? ["to-pay", "paid"] : ["to-pay", "scheduled", "paid"]).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: rows.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.length : 0) }));
   const shown = rows.filter(row => bucket(row) === tab && (!vendorFilter || row.vendorUserId === vendorFilter) && [row.vendorName, row.invoiceNumber, row.serviceTitle, row.propertyName, row.memo].join(" ").toLowerCase().includes(search.trim().toLowerCase()));

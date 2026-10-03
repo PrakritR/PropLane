@@ -10,6 +10,11 @@ import {
   managerServiceStageFact,
 } from "@/lib/manager-service-list-row";
 import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
+import {
+  fetchVendorInvoiceIdForWorkOrder,
+  outgoingPayHref,
+} from "@/lib/manager-service-invoice-nav";
+import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildUnifiedServiceRows,
@@ -788,8 +793,41 @@ export function ManagerAllServicesPanel({
         navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendor-schedule"));
         return;
       }
-      if (id === "approve-invoice" || id === "pay") {
-        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "payments"));
+      if (id === "approve-invoice") {
+        void (async () => {
+          const submitted = await fetchVendorInvoiceIdForWorkOrder(maintenanceRow.id, "submitted");
+          if (submitted) {
+            const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(submitted)}/decision`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ status: "approved" }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              showToast(data.error ?? "Could not approve invoice.");
+              return;
+            }
+            showToast("Invoice approved.");
+            window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
+            navigate(outgoingPayHref(basePath, submitted));
+            return;
+          }
+          navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id));
+        })();
+        return;
+      }
+      if (id === "pay") {
+        void (async () => {
+          const approved =
+            (await fetchVendorInvoiceIdForWorkOrder(maintenanceRow.id, "approved")) ??
+            (await fetchVendorInvoiceIdForWorkOrder(maintenanceRow.id, "submitted"));
+          if (approved) {
+            navigate(outgoingPayHref(basePath, approved));
+            return;
+          }
+          navigate(`${basePath}/outgoing/to-pay`);
+        })();
         return;
       }
       if (id === "mark-done") {
@@ -808,7 +846,9 @@ export function ManagerAllServicesPanel({
         title={row.title}
         subtitle={placeLine || undefined}
         facts={
-          !maintenanceRow && stageFact.text ? (
+          maintenanceRow && stageFact.text ? (
+            <PortalRowFact icon={stageFact.icon} srLabel="Stage">{stageFact.text}</PortalRowFact>
+          ) : !maintenanceRow && stageFact.text ? (
             <PortalRowFact icon={stageFact.icon} srLabel="Stage">{stageFact.text}</PortalRowFact>
           ) : undefined
         }
