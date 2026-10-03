@@ -57,7 +57,7 @@ function BookingBar({ entry, today, children, className, style, onEdit }: { entr
   const checkout = bookingCheckout(entry);
   return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${entry.summary}, ${status}`}>
     <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : ""}{entry.residentName || entry.summary}</span>{children}
-  </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]" backdrop={false}>
+  </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
     <div className="grid gap-2 p-3 text-sm"><strong>{entry.residentName || entry.summary}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
     {onEdit && entry.source !== "airbnb" && entry.source !== "booking_com" ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
     <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>

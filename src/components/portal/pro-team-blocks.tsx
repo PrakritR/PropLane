@@ -94,7 +94,7 @@ export function TeamRowValues({ row }: { row: TeamMemberRow }) {
   const [all, setAll] = useState(row.houses?.all ?? false);
   return <div className="flex flex-col items-end text-sm">
     {row.onRoleChange ? <DropdownMenu modal={false}><DropdownMenuTrigger disabled={busy} className="inline-flex min-h-8 items-center gap-1" aria-label={`Role for ${row.name}`}>{row.roleLabel ?? "Co-manager"}<ChevronDown className="size-3" /></DropdownMenuTrigger>
-      <DropdownMenuContent backdrop={false}>{TEAM_ROLE_INVITE_OPTIONS.map((option) => <DropdownMenuItem key={option.value} onSelect={() => { if (option.value === "custom") { row.onEdit?.(); return; } setBusy(true); void row.onRoleChange!(option.value as TeamRoleId).finally(() => setBusy(false)); }}>{option.value === "custom" ? "Custom…" : option.label}</DropdownMenuItem>)}</DropdownMenuContent>
+      <DropdownMenuContent>{TEAM_ROLE_INVITE_OPTIONS.map((option) => <DropdownMenuItem key={option.value} onSelect={() => { if (option.value === "custom") { row.onEdit?.(); return; } setBusy(true); void row.onRoleChange!(option.value as TeamRoleId).finally(() => setBusy(false)); }}>{option.value === "custom" ? "Custom…" : option.label}</DropdownMenuItem>)}</DropdownMenuContent>
     </DropdownMenu> : <span>{row.role === "owner" ? "Owner" : row.roleLabel ?? "Co-manager"}</span>}
     {row.houses ? <button type="button" className="inline-flex min-h-8 items-center gap-1 text-xs text-muted" onClick={() => { setSelected(row.houses!.selected); setAll(row.houses!.all); setOpen(true); }}>{row.propertiesLabel}<ChevronDown className="size-3" /></button> : <span className="text-xs text-muted">{row.propertiesLabel}</span>}
     {row.houses ? <Modal title={`Houses · ${row.name}`} open={open} onClose={() => setOpen(false)}>

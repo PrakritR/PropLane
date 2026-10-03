@@ -20,6 +20,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   deleteChannelCalendarConnection: () => Promise.resolve(),
 }));
 
+import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
@@ -75,7 +76,10 @@ function optionLabels(trigger: HTMLElement): string[] {
 
 describe("BookingsBlockDatesModal — resident", () => {
   // The dialog portals into document.body; without this the next test finds the previous sheet.
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    clearAllWorkspaceDrafts();
+  });
 
   it("does not leave Property or Room as orphan <label>s", () => {
     const { view } = open();
