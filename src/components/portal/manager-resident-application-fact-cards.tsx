@@ -109,7 +109,7 @@ export function ManagerResidentApplicationFactCards({
         />
       </ReviewSection>
       <ReviewSection title="Additional details" onEdit={() => onEditStep(8)} data-attr="resident-app-card-additional">
-        <ReviewRow k="Occupants" v={displayOrDash(String(form.occupancyCount || form.occupants || 1))} />
+        <ReviewRow k="Occupants" v={displayOrDash(String(form.occupancyCount || 1))} />
       </ReviewSection>
     </>
   );

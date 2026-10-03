@@ -40,7 +40,7 @@ export function ManagerResidentBackgroundCheckPanel({ row }: { row: DemoApplican
     if (check?.status === "complete") {
       return check.result === "clear" ? clear : "Review";
     }
-    if (hasOrder && check?.status !== "complete") return pending;
+    if (check?.status === "pending" || check?.status === "canceled") return pending;
     if (screening?.status === "complete") return screening.recommendation === "strong_yes" ? clear : "Review";
     if (hasOrder) return pending;
     return notRun;
