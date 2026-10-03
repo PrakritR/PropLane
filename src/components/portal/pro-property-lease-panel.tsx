@@ -13,6 +13,7 @@ import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { PropertyLeaseCatalogSettingsModal } from "@/components/portal/property-lease-catalog-settings-modal";
 import { PropertyLeaseTemplateInlinePreview } from "@/components/portal/property-lease-template-inline-preview";
 import {
   openPropertyFormTemplateInNewTab,
@@ -123,6 +124,7 @@ export function ManagerPropertyLeasePanel({
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
+  const [catalogSettingsOpen, setCatalogSettingsOpen] = useState(false);
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [leaseSearch, setLeaseSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -739,8 +741,8 @@ export function ManagerPropertyLeasePanel({
         dataAttr: "property-lease-search",
       }}
       filter={formFilterSheet}
-      onSettings={() => router.push("/portal/profile?tab=forms")}
-      settingsLabel="Lease automation"
+      onSettings={() => setCatalogSettingsOpen(true)}
+      settingsLabel="Lease settings"
       settingsDataAttr="property-lease-settings-open"
       onAdd={openAdd}
       addLabel="Add lease"
@@ -821,6 +823,14 @@ export function ManagerPropertyLeasePanel({
       ) : null}
 
       {formModals}
+
+      <PropertyLeaseCatalogSettingsModal
+        open={catalogSettingsOpen}
+        onClose={() => setCatalogSettingsOpen(false)}
+        templates={templates}
+        propertyId={rowFactPropertyId}
+        onSaveTemplates={persistTemplates}
+      />
     </>
   );
 }

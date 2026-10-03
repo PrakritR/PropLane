@@ -1569,7 +1569,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 a brand-new ("add") application and an existing one. Either
                 way, picking a file only STAGES the parse (`importPdf`); it
                 is never persisted until the footer commit. */}
-            {isTemplateEditor && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
+            {isTemplateEditor && templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
               chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
               accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addApplicationTemplateFromSeed } from "@/lib/property-application-template-sync";
@@ -21,6 +21,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/properties/all/mgr-house-1",
   useSearchParams: () => new URLSearchParams(),
 }));
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
   it("property tab shows per-template action menus and Application automation", () => {
@@ -80,9 +84,11 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
         showToast={() => {}}
       />,
     );
-    const row = document.querySelector('[data-attr^="property-application-row-"]') as HTMLElement | null;
-    expect(row).not.toBeNull();
-    fireEvent.click(row!);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Actions for Long-term application" })).toBeTruthy();
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
     await waitFor(() => expect(screen.getByTestId("application-editor-modal")).toBeTruthy());
     expect(persistSubmission).not.toHaveBeenCalled();
   });

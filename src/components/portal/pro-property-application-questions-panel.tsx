@@ -13,6 +13,7 @@ import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { PropertyApplicationTemplateInlinePreview } from "@/components/portal/property-application-template-inline-preview";
 import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
@@ -145,6 +146,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
+  const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -490,12 +492,13 @@ export function ManagerPropertyApplicationQuestionsPanel({
             null;
           const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
           const rowLabel = normalizePropertyApplicationTemplateLabel(template.label);
+          const openPreview = () => setInlinePreviewTemplateId(template.id);
           const openEditor = () => openEditApplication(template);
           const rowMenu = (
             <RowActionsMenu
               label={rowLabel}
               items={[
-                { id: "preview", label: "Preview", onSelect: openEditor },
+                { id: "preview", label: "Preview", onSelect: openPreview },
                 { id: "edit", label: "Edit", onSelect: openEditor },
                 {
                   id: "open-in-new-tab",
@@ -521,13 +524,13 @@ export function ManagerPropertyApplicationQuestionsPanel({
               key={template.id}
               className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}
               data-attr={`property-application-row-${template.id}`}
-              onClick={openEditor}
+              onClick={openPreview}
               role="button"
               tabIndex={0}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  openEditor();
+                  openPreview();
                 }
               }}
             >
@@ -683,10 +686,22 @@ export function ManagerPropertyApplicationQuestionsPanel({
     />
   ) : null;
 
+  const inlinePreviewTemplate = inlinePreviewTemplateId
+    ? templates.find((t) => t.id === inlinePreviewTemplateId) ?? null
+    : null;
+
   return (
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
+        inlinePreviewTemplate ? (
+          <PropertyApplicationTemplateInlinePreview
+            template={inlinePreviewTemplate}
+            sub={syncedSub}
+            propertyId={applicationPreviewPropertyId}
+            onBack={() => setInlinePreviewTemplateId(null)}
+          />
+        ) : (
         <PortalRecordListSurface
           className="mt-0 pb-0 max-lg:pb-0"
           onBulkClear={embedInModal ? clearSelection : undefined}
@@ -710,6 +725,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         >
           {catalogBody}
         </PortalRecordListSurface>
+        )
       ) : null}
 
       {editorModals}

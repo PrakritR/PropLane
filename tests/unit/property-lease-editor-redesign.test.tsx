@@ -134,7 +134,30 @@ describe("F013: lease Sections step duplicate-name validation", () => {
 });
 
 describe("F-editor c: footer-only commit", () => {
-  it("never renders an in-body upload button — only the dashed Start-from-a-file card and the footer Save", async () => {
+  it("shows the upload strip only after Start from → Upload PDF", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="add"
+        sub={createDefaultListingSubmission()}
+        templates={[]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "New lease" });
+    expect(screen.getByRole("button", { name: "Start from" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start from" }));
+    const uploadOption = await screen.findByRole("option", { name: "Upload PDF" });
+    fireEvent.pointerDown(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
+  });
+
+  it("never renders an in-body upload button on the PropLane path — footer Save only", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -149,18 +172,12 @@ describe("F-editor c: footer-only commit", () => {
     );
     await screen.findByRole("dialog", { name: "New lease" });
     expect(screen.getByRole("button", { name: "Type of lease" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start from a file" })).toBeTruthy();
-    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
-    // Fill the required name so Continue is reachable, then confirm the
-    // footer's commit label is "Add lease" on the last step — never a
-    // second in-body commit button anywhere along the way.
+    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).toBeNull();
     fireEvent.change(document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement, {
       target: { value: "New lease" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Document" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Settings" }));
-    expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy();
+    jumpRail("setup");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
   });
 });
