@@ -51,9 +51,10 @@ const CASES = [
 ];
 
 describe("portal nav groups cover the registry exactly", () => {
-  it("registers incoming and outgoing as payments sidebar tabs", () => {
+  it("registers incoming and outgoing as separate sidebar destinations", () => {
     const payments = proPortal.sections.find((section) => section.section === "payments");
-    expect(payments?.tabs.map((tab) => tab.id)).toEqual(["incoming", "outgoing"]);
+    expect(payments).toMatchObject({ label: "Incoming payments", tabs: [] });
+    expect(proPortal.sections.find((section) => section.section === "outgoing")).toMatchObject({ label: "Outgoing payments", tabs: [] });
   });
 
   for (const { kind, sections, sidebarShowsProfile, sidebarShowsFeedback } of CASES) {
@@ -124,7 +125,7 @@ describe("groupNavItems", () => {
     expect(leasing?.label).toBe("Leasing");
     expect(leasing?.items.map((i) => i.section)).toEqual(["tours", "applications", "leases"]);
     const operations = result.find((g) => g.id === "operations");
-    expect(operations?.items.map((i) => i.section)).toEqual(["vendors", "tasks", "calendar", "bookings", "communication"]);
+    expect(operations?.items.map((i) => i.section)).toEqual(["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"]);
     const tenancy = result.find((g) => g.id === "tenancy");
     expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "inspections", "payments", "services"]);
     const finances = result.find((g) => g.id === "finances");
