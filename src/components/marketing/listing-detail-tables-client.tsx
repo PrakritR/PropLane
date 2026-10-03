@@ -80,6 +80,28 @@ function AvailabilityPill({ text, variant = "default" }: { text: string; variant
 }
 
 
+/**
+ * A rooms-table availability cell: a dot and plain text on one line — never a pill (rows carry
+ * facts, not badges). A dated tail ("until August 30, 2027") drops to a muted second line so the
+ * cell stays narrow enough to leave the Details button on screen.
+ */
+function RoomAvailabilityCell({ text }: { text: string }) {
+  const tone = roomAvailabilityTone(text);
+  const { dot } = roomAvailabilityPillClasses(tone);
+  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\))$/i.exec(text.trim());
+  const head = match ? match[1] : text;
+  const tail = match ? match[2] : null;
+  return (
+    <span className="block whitespace-nowrap" data-attr="listing-room-availability">
+      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${roomAvailabilityTextClasses(tone)}`}>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        {head}
+      </span>
+      {tail ? <span className="block pl-3 text-[11px] text-muted">{tail}</span> : null}
+    </span>
+  );
+}
+
 function DetailsButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
   return (
     <button
@@ -852,7 +874,7 @@ export function ListingDetailModal({
                         toPhone: contactSmsPhone,
                       })
                     : textApplyHref,
-                  label: textEnabled ? "Text for bundle" : "Apply online",
+                  label: textEnabled ? "Text for bundle" : applyLabel,
                   dataAttr: "listing-text-bundle",
                 }}
                 secondary={{
@@ -1287,11 +1309,13 @@ export function ListingThumb({
   );
 }
 
-const SPACE_TABLE_WRAP = "hidden overflow-hidden rounded-xl border border-border bg-card listing-detail-surface md:block";
+const SPACE_TABLE_WRAP = "hidden overflow-x-auto rounded-xl border border-border bg-card listing-detail-surface @min-[680px]:block";
 const SPACE_TABLE = "w-full text-sm";
 const SPACE_TH = `${LISTING_TABLE_HEAD} bg-[var(--pl-surface-muted)] px-3 py-2 text-left font-semibold`;
 const SPACE_TD = "border-t border-border px-3 py-2.5 align-middle";
-const SPACE_ROWS_MOBILE = "md:hidden";
+// Decided by the page column, not the viewport: the manager Preview sits beside a sidebar and a price card,
+// so a desktop window can still hand the tables a phone-width column (the Details button used to be cut off).
+const SPACE_ROWS_MOBILE = "@min-[680px]:hidden";
 const SPACE_ROW_MOBILE =
   "flex min-h-[64px] w-full items-center gap-3 py-2.5 text-left transition [&+&]:border-t [&+&]:border-border";
 const SPACE_SUBHEAD = "mb-3 mt-7 flex items-center gap-2 text-base font-bold tracking-tight text-foreground";
@@ -1360,7 +1384,14 @@ export function SpacesInteractive({
     },
     [listingPropertyId, occupancyRows],
   );
-  const rooms = floorPlans.flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })));
+  // Natural order by name (Room 1, 2, 3 … 9, 10), whatever floor each one sits on.
+  const rooms = useMemo(
+    () =>
+      floorPlans
+        .flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })))
+        .sort((a, b) => a.room.name.localeCompare(b.room.name, undefined, { numeric: true, sensitivity: "base" })),
+    [floorPlans],
+  );
   const filteredRooms = useMemo(() => {
     return rooms.filter(({ room }) => {
       const capacity = roomOccupancyCapacity(room);
@@ -1430,7 +1461,7 @@ export function SpacesInteractive({
                     <td className={SPACE_TD}>
                       <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
-                    <td className={`${SPACE_TD} font-bold text-foreground`}>
+                    <td className={`${SPACE_TD} whitespace-nowrap font-bold text-foreground`}>
                       {room.name}
                       {sharedHeadline ? (
                         <span data-attr="listing-room-occupancy" className="block text-xs font-semibold text-muted">
@@ -1444,7 +1475,7 @@ export function SpacesInteractive({
                     <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{floorLabel}</td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{roomBathLabel(room)}</td>
                     <td className={SPACE_TD}>
-                      <AvailabilityPill text={room.availability} variant="room" />
+                      <RoomAvailabilityCell text={room.availability} />
                     </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-right font-bold tabular-nums text-foreground`}>
                       {capacity >= 2

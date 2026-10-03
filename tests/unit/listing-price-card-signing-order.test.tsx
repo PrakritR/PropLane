@@ -6,7 +6,8 @@
  * application fee is charged up front, the price card's "Application fee"
  * row becomes a "Lease fee" row for the resolved lease-signing fee
  * (never client math — `leaseSigningFeeCents` is the server's own resolved
- * amount).
+ * amount). Studio spec: the swap happens even when a listing also charges an
+ * application fee — one fee concept in that row.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -119,7 +120,7 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(card.textContent).toContain("Security deposit");
   });
 
-  it("keeps today's Application fee row when a lease-first listing still charges one up front", () => {
+  it("replaces the Application fee row with the Lease fee row for a lease-first listing (studio spec)", () => {
     render(
       <ListingDetailSections
         property={property({ signingOrder: "lease_first", leaseSigningFeeCents: 10000 })}
@@ -127,13 +128,12 @@ describe("public listing price card and sticky bar — signingOrder", () => {
       />,
     );
     const card = priceCard();
-    expect(card.textContent).toContain("Application fee");
-    expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')).toBeNull();
-    // The CTA still says Sign lease — the row swap is independent of the label.
+    expect(card.textContent).not.toContain("Application fee");
+    expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')!.textContent).toContain("$100");
     expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease");
   });
 
-  it("shows a free due-at-signing line when the lease-signing fee is unset (0)", () => {
+  it("reads None on the Lease fee row when the lease-signing fee is unset (0)", () => {
     render(
       <ListingDetailSections
         property={property({ signingOrder: "lease_first" })}
@@ -142,6 +142,6 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     );
     const dueAtSigning = priceCard().querySelector('[data-attr="listing-price-due-at-signing"]');
     expect(dueAtSigning).not.toBeNull();
-    expect(dueAtSigning!.textContent).toContain("$0");
+    expect(dueAtSigning!.textContent).toContain("None");
   });
 });

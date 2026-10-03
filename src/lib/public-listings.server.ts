@@ -26,12 +26,11 @@ import {
 } from "@/lib/rental-application/workspace-application-form";
 import {
   DEFAULT_LEASING_PIPELINE,
-  effectiveLeaseSigningFeeCents,
   loadLeasingPipelineStatesByManagerId,
   resolveLeasingPipelineForProperty,
-  signingOrderForPipeline,
+  signingContextForPipeline,
   type LeasingPipelineState,
-  type SigningOrder,
+  type PublicSigningContext,
 } from "@/lib/leasing-pipeline-preferences";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -475,11 +474,8 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
   } as ManagerListingSubmissionV1;
 }
 
-/** The two fields `publicListingProjection` derives from the manager's leasing-pipeline preference — never the preference row itself. */
-export type PublicSigningContext = {
-  signingOrder: SigningOrder;
-  leaseSigningFeeCents: number;
-};
+/** Re-exported: the pair lives next to the rule that derives it (`signingContextForPipeline`). */
+export type { PublicSigningContext };
 
 /** Resolve the property override (else workspace default) and collapse it to the public-safe pair. */
 export function resolvePublicSigningContext(
@@ -490,10 +486,7 @@ export function resolvePublicSigningContext(
     state ?? { portfolio: DEFAULT_LEASING_PIPELINE, byPropertyId: {} },
     propertyId,
   );
-  return {
-    signingOrder: signingOrderForPipeline(prefs),
-    leaseSigningFeeCents: effectiveLeaseSigningFeeCents(prefs),
-  };
+  return signingContextForPipeline(prefs);
 }
 
 /**

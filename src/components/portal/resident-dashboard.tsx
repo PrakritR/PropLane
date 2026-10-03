@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { SlidersHorizontal } from "lucide-react";
+import { Filter } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import { DashboardSkeleton } from "@/components/portal/dashboard-skeleton";
@@ -10,7 +10,6 @@ import {
   ManagerPortalPageShell,
   PORTAL_DASHBOARD_STACK,
   PortalDashboardKpiRow,
-  PortalDashboardKpiTile,
 } from "@/components/portal/portal-metrics";
 import {
   PortalTableExpandChevron,
@@ -27,6 +26,7 @@ import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
   isHouseholdChargeOverdue,
+  isPendingUpfrontMoveInCharge,
   chargesImplyTenancy,
   readChargesForResident,
   syncHouseholdChargesFromServer,
@@ -87,13 +87,11 @@ import {
 import { ResidentLifecycleCompactTracker } from "@/components/portal/resident-lifecycle-compact-tracker";
 import { sumDueNowCents } from "@/lib/resident-due-now-balance";
 import { aggregateApplicationFeeStatus } from "@/lib/resident-application-fee-status";
+import { formatResidentRentLabel } from "@/lib/resident-rent-label";
 
 import { refreshResidentDashboardApplications, refreshResidentDashboardServices } from "@/lib/resident-dashboard-sync-client";
 
 const BASE = "/resident";
-
-/** Semantic status foreground tokens for the leading issue-row dots. */
-const DOT_CONFIRMED = "var(--status-confirmed-fg)";
 
 type AppStatus = "pending" | "approved" | "rejected";
 
@@ -131,11 +129,51 @@ function AttentionCountBadge({
               color: "color-mix(in srgb, var(--muted) 72%, transparent)",
               background: "color-mix(in srgb, var(--muted) 14%, var(--card))",
             }
-          : { background: accent.bg, color: accent.fg }
+          : { background: accent.fg, color: "#fff" }
       }
     >
       {count}
     </span>
+  );
+}
+
+/**
+ * The studio's stat tile: a toned dot beside a bold label and a figure in the
+ * same tone (amber when something waits on the resident, red when overdue, ink
+ * when there is nothing to do).
+ */
+function ResidentKpiTile({
+  label,
+  value,
+  href,
+  tone = "neutral",
+  dataAttr,
+}: {
+  label: string;
+  value: string | number;
+  href: string;
+  tone?: "neutral" | "warning" | "danger";
+  dataAttr?: string;
+}) {
+  const color =
+    tone === "danger" ? "var(--status-overdue-fg)" : tone === "warning" ? "var(--status-pending-fg)" : "var(--foreground)";
+  return (
+    <Link
+      href={href}
+      data-attr={dataAttr}
+      className="flex min-h-[5.25rem] min-w-0 w-full flex-col justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-primary/35 hover:shadow-[0_4px_14px_rgba(15,23,42,0.07)] [html[data-native]_&]:min-h-[4.75rem] [html[data-native]_&]:rounded-xl [html[data-native]_&]:px-3 [html[data-native]_&]:py-2.5"
+    >
+      <span className="flex items-center gap-1.5 text-[12.5px] font-bold leading-tight text-foreground">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: color }} />
+        <span className="line-clamp-2">{label}</span>
+      </span>
+      <span
+        className="block whitespace-nowrap text-[1.6rem] font-extrabold leading-none tracking-[-0.02em] [html[data-native]_&]:text-[1.35rem]"
+        style={{ color }}
+      >
+        {value}
+      </span>
+    </Link>
   );
 }
 
@@ -335,7 +373,8 @@ function formatUsd(amount: number): string {
   return amount.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -367,6 +406,14 @@ function pillToneForBadgeTone(tone: string): PillTone {
     case "slate": return "neutral";
     default: return "pending";
   }
+}
+
+/** The home an application is for, as a short place line. */
+function applicationRowProperty(row: DemoApplicantRow): string | null {
+  const id = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+  const fromCatalog = id ? getPropertyById(id) : undefined;
+  const label = fromCatalog?.buildingName?.trim() || fromCatalog?.title?.trim() || row.property?.split("·")[0]?.trim() || "";
+  return label || null;
 }
 
 function applicationStatusBadge(row: DemoApplicantRow): { label: string; tone: "emerald" | "amber" | "rose" | "slate" } {
@@ -414,7 +461,7 @@ export function ResidentJourneyBanner({
       href={action.href}
       data-jr-banner
       data-attr="resident-dashboard-journey"
-      className="mb-1 flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+      className="flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
       style={{
         borderColor: action.urgent ? "var(--status-overdue-border, var(--status-overdue-fg))" : "var(--border)",
         background: action.urgent ? "var(--status-overdue-bg)" : "var(--card)",
@@ -432,7 +479,7 @@ export function ResidentJourneyBanner({
             {action.title}
           </span>
           {action.detail ? (
-            <span className="mt-0.5 block truncate text-xs font-semibold text-muted [html[data-native]_&]:text-[11px]">
+            <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
               {action.detail}
             </span>
           ) : null}
@@ -743,10 +790,6 @@ export function ResidentDashboard({
   const leaseDateRange = leaseRow?.application?.leaseStart
     ? `${leaseRow.application.leaseStart}${leaseRow.application.leaseEnd ? ` → ${leaseRow.application.leaseEnd}` : ""}`
     : null;
-  const leaseSubtitle =
-    leaseDateRange ||
-    leaseRow?.unit ||
-    (appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined);
   const leaseEmptyMessage = !leaseUnlocked
     ? "Available after your application is approved."
     : appProperty
@@ -763,26 +806,32 @@ export function ResidentDashboard({
     const order = pid ? getPropertyById(pid)?.signingOrder : undefined;
     return order === "lease_first" ? "lease_first" : "application_first";
   }, [applicationRows]);
+  // The resident has signed once the lease waits on the manager's countersignature
+  // (or is fully signed); move-in costs are payable from that moment.
+  const residentSigned = leaseSigned || leaseRow?.status === "Manager Signature Pending";
+  const moveInDue = sumDueNowCents(pendingCharges.filter(isPendingUpfrontMoveInCharge)) / 100;
   const lifecycleInput = useMemo(
     () => ({
       signingOrder,
       applicationFeePaid: feeStatus.paid || !feeStatus.needsPayment,
       applicationSubmitted: applicationRows.some((row) => !isInProgressApplicationRow(row)),
       applicationApproved,
-      residentSignedLease: leaseSigned,
+      residentSignedLease: residentSigned,
       managerCountersigned: leaseSigned,
-      moveInChargesPaid: totalBalanceDue <= 0 && leaseSigned,
-      movedIn: leaseSigned && showHouseDetails,
+      moveInChargesPaid: moveInDue <= 0 && residentSigned,
+      movedIn: leaseSigned && moveInDue <= 0 && showHouseDetails,
       applicationFeeDeclined: feeStatus.declined,
       basePath: BASE,
+      moveInTotalLabel: moveInDue > 0 ? formatUsd(moveInDue) : undefined,
     }),
     [
       signingOrder,
       feeStatus,
       applicationRows,
       applicationApproved,
+      residentSigned,
       leaseSigned,
-      totalBalanceDue,
+      moveInDue,
       showHouseDetails,
     ],
   );
@@ -818,7 +867,7 @@ export function ResidentDashboard({
           <Link
             href={houseDetailsHref}
             data-attr="resident-dashboard-move-in-hero"
-            className="mb-1 flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
           >
             <span className="min-w-0">
               <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
@@ -837,63 +886,57 @@ export function ResidentDashboard({
         <div className="[html[data-native]_&]:[&_.plp-stats]:flex-col [html[data-native]_&]:[&_.plp-stats]:gap-2">
         <PortalDashboardKpiRow>
             {showTourKpi ? (
-            <PortalDashboardKpiTile
+            <ResidentKpiTile
               label="Tour pending"
               value={pendingTourCount}
               tone={pendingTourCount > 0 ? "warning" : "neutral"}
-              emphasis={pendingTourCount > 0}
               href={residentTourListHref(BASE, "pending")}
               dataAttr="resident-dashboard-kpi-tour-pending"
             />
             ) : null}
             {showApplicationKpi ? (
-            <PortalDashboardKpiTile
+            <ResidentKpiTile
               label="Application pending"
               value={pendingApplicationCount}
-              tone={pendingApplicationCount > 0 ? "warning" : "brand"}
-              emphasis={pendingApplicationCount > 0}
+              tone={pendingApplicationCount > 0 ? "warning" : "neutral"}
               href={`${BASE}/applications`}
               dataAttr="resident-dashboard-kpi-application-pending"
             />
             ) : null}
             {showLeaseKpi ? (
-            <PortalDashboardKpiTile
+            <ResidentKpiTile
               label="Lease"
               value={lease.cta ? 1 : 0}
-              tone={lease.cta ? "warning" : "brand"}
-              emphasis={Boolean(lease.cta)}
+              tone={lease.cta ? "warning" : "neutral"}
               href={`${BASE}/lease`}
               dataAttr="resident-dashboard-kpi-lease"
             />
             ) : null}
             {showServicesKpi && canUseServices ? (
-            <PortalDashboardKpiTile
+            <ResidentKpiTile
               label="Services"
               value={openServiceCount}
               tone={openServiceCount > 0 ? "warning" : "neutral"}
-              emphasis={openServiceCount > 0}
               href={servicesHref}
               dataAttr="resident-dashboard-kpi-services"
             />
             ) : null}
             {showPaymentsKpi && canUsePayments ? (
             <div className="plp-stats">
-              <PortalDashboardKpiTile
+              <ResidentKpiTile
                 label="Balance due"
                 value={formatUsd(totalBalanceDue)}
-                tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
-                emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
+                tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "neutral"}
                 href={`${BASE}/payments`}
                 dataAttr="resident-dashboard-kpi-balance"
               />
             </div>
             ) : null}
             {showInboxKpi ? (
-            <PortalDashboardKpiTile
+            <ResidentKpiTile
               label="Unread messages"
               value={inbox}
-              tone={inbox > 0 ? "brand" : "neutral"}
-              emphasis={inbox > 0}
+              tone={inbox > 0 ? "warning" : "neutral"}
               href={communicationHref}
               dataAttr="resident-dashboard-kpi-inbox"
             />
@@ -903,25 +946,25 @@ export function ResidentDashboard({
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
         <div className="space-y-4 [html[data-native]_&]:space-y-3">
-          <div className="flex items-center gap-2.5">
-            <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
-              ✦
-            </span>
-            <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
-              Needs attention
-            </h2>
-            {openCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">
-                <span
-                  aria-hidden
-                  className="pl-attn-pulse size-1.5 rounded-full"
-                  style={{ background: DOT_CONFIRMED }}
-                />
-                {openCount} open
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
+                ✦
               </span>
-            ) : null}
+              <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
+                Needs attention
+              </h2>
+              {openCount > 0 ? (
+                <span
+                  className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+                  style={{ background: "var(--status-approved-bg)", color: "var(--status-approved-fg)" }}
+                >
+                  {openCount} open
+                </span>
+              ) : null}
+            </div>
             <PortalIconAction
-              icon={SlidersHorizontal}
+              icon={Filter}
               label="Customize"
               onClick={() => setCustomizeOpen(true)}
               data-attr="resident-dashboard-customize-open"
@@ -943,7 +986,7 @@ export function ResidentDashboard({
                 href={residentTourDetailHref(BASE, "pending", tour.inquiryId)}
                 dot={sectionAccentDot(sectionTone)}
                 title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
-                meta={tourWhenLabel(tour)}
+                subtitle={tourWhenLabel(tour)}
                 pill={<StatusPill tone="pending">Pending</StatusPill>}
                 dataAttr="resident-dashboard-attention-tour"
               />
@@ -967,8 +1010,9 @@ export function ResidentDashboard({
                 <IssueRow
                   href={`${BASE}/applications`}
                   dot={sectionAccentDot(sectionTone)}
-                  title={row.name?.trim() || "Application"}
-                pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
+                  title={applicationRowProperty(row) || row.name?.trim() || "Application"}
+                  subtitle={applicationRowProperty(row) ? row.name?.trim() || undefined : undefined}
+                  pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
                   dataAttr="resident-dashboard-attention-application"
                 />
               );
@@ -981,17 +1025,18 @@ export function ResidentDashboard({
             title="Lease"
             href={`${BASE}/lease`}
             sectionId="lease"
-            tone={lease.cta ? "info" : "pending"}
+            tone="info"
             order={2}
             items={leaseItems}
             emptyMessage={leaseEmptyMessage}
             keyForItem={(row) => row.id}
-            renderRow={(_row, sectionTone) => (
+            renderRow={() => (
               <IssueRow
                 href={`${BASE}/lease`}
-                dot={sectionAccentDot(sectionTone)}
+                dot={sectionAccentDot(lease.tone === "emerald" ? "success" : lease.cta ? "info" : "pending")}
                 title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
-                meta={leaseRow?.signedRentLabel || leaseSubtitle}
+                subtitle={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
+                meta={formatResidentRentLabel(leaseRow?.signedRentLabel) || leaseDateRange || leaseRow?.unit || undefined}
                 pill={<StatusPill tone={pillToneForBadgeTone(lease.tone)}>{lease.label}</StatusPill>}
                 dataAttr="resident-dashboard-attention-lease"
               />
@@ -1014,7 +1059,7 @@ export function ResidentDashboard({
                 href={`${BASE}/move-in`}
                 dot={sectionAccentDot("info")}
                 title="House details"
-                meta={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
+                subtitle={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
                 pill={<StatusPill tone="success">Ready</StatusPill>}
                 dataAttr="resident-dashboard-attention-house-details"
               />
@@ -1040,7 +1085,7 @@ export function ResidentDashboard({
                     href={servicesHref}
                     dot={sectionAccentDot(sectionTone)}
                     title={item.row.offerName?.trim() || "Add-on service"}
-                    meta={propertyName || undefined}
+                    subtitle={propertyName || undefined}
                     pill={<StatusPill tone="pending">Pending</StatusPill>}
                     dataAttr="resident-dashboard-attention-service"
                   />
@@ -1051,7 +1096,7 @@ export function ResidentDashboard({
                   href={`${BASE}/services`}
                   dot={sectionAccentDot(sectionTone)}
                   title={item.row.title?.trim() || "Service"}
-                  meta={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || undefined}
+                  subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || undefined}
                   pill={<StatusPill tone="pending">Open</StatusPill>}
                   dataAttr="resident-dashboard-attention-service"
                 />
@@ -1089,7 +1134,8 @@ export function ResidentDashboard({
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   dot={sectionAccentDot(sectionTone)}
                   title={charge.title || "Charge"}
-                  meta={`${charge.balanceLabel} · ${chargeDueLabel(charge)}`}
+                  subtitle={overdue ? "Overdue" : chargeDueLabel(charge)}
+                  meta={charge.balanceLabel}
                   pill={
                     <StatusPill tone={overdue ? "danger" : "pending"}>
                       {overdue ? "Overdue" : "Pending"}
@@ -1117,8 +1163,8 @@ export function ResidentDashboard({
               <IssueRow
                 href={communicationHref}
                 dot={sectionAccentDot(sectionTone)}
-                title={thread.from || "Unknown sender"}
-                meta={thread.subject || thread.preview || undefined}
+                title={thread.subject || thread.from || "Unknown sender"}
+                subtitle={thread.preview || (thread.subject ? thread.from : undefined) || undefined}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
                 dataAttr="resident-dashboard-attention-inbox"
               />

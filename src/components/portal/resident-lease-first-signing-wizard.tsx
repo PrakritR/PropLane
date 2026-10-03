@@ -321,6 +321,8 @@ export function ResidentLeaseFirstSigningWizard({
   const [invited, setInvited] = useState<Set<string>>(new Set());
   const [inviteErrors, setInviteErrors] = useState<Record<string, string>>({});
 
+  // The lease details form comes first: signing begins once it has been saved (it carries the room, move-in and term).
+  const detailsSaved = Boolean(row.leaseIntake);
   const notYetBegun = row.leaseFirst === true && row.bucket === "manager" && row.status === "Draft";
   const inProgress =
     row.leaseFirst === true &&
@@ -344,14 +346,11 @@ export function ResidentLeaseFirstSigningWizard({
     return (
       <div className="mb-4 rounded-2xl border border-border bg-card p-4" data-attr="lease-first-begin-signing">
         <p className="text-sm font-semibold text-foreground">Sign your License agreement</p>
-        <p className="mt-1 text-sm text-muted">
-          Your manager has the license agreement ready. Sign it first — the intake form comes next.
-        </p>
         <div className="mt-3">
           <Button
             type="button"
             data-attr="lease-first-begin-signing-button"
-            disabled={beginning}
+            disabled={beginning || !detailsSaved}
             onClick={async () => {
               setBeginning(true);
               const result = await beginLeaseFirstSigning(row.id);

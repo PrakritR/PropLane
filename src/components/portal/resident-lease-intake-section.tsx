@@ -54,8 +54,11 @@ export function ResidentLeaseIntakeSection({
   onSaved?: () => void;
 }) {
   const { showToast } = useAppUi();
+  // The row itself says it is lease-first (`createLeaseFirstDraft` marks it). Reading the workspace
+  // preference alone is wrong on a resident's browser: the lease sync never sends residents the
+  // manager's preference, so the cache stays at its application-first default and this form never showed.
   const prefs = readCachedLeasingPipelinePreferences();
-  const leaseFirst = leaseUnlocksWithoutApplicationApproval(prefs);
+  const leaseFirst = row.leaseFirst === true || leaseUnlocksWithoutApplicationApproval(prefs);
   const isDraft = row.status === "Draft" || row.bucket === "manager";
   const propertyId = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
 

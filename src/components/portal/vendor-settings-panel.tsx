@@ -5,15 +5,14 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Bell,
-  Briefcase,
   Building2,
-  CalendarClock,
+  CalendarDays,
   Landmark,
   Lock,
-  MessageSquareText,
+  Mail,
+  Phone,
   Settings,
-  SlidersHorizontal,
-  Smartphone,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import {
@@ -37,6 +36,7 @@ import {
   PortalSettingsProfileHeader,
   PortalSettingsSection,
   PortalSettingsSections,
+  PortalSettingsTitleStyleContext,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
@@ -369,14 +369,14 @@ export function VendorSettingsPanel() {
         id: "work",
         label: "Work number & email",
         description: "Your business phone/email, plus a free PropLane-provided work number and email.",
-        icon: Smartphone,
+        icon: Phone,
         group: "Business",
       },
       {
         id: "profile",
         label: "Directory listing",
         description: "Language, texting consent, and payment methods on your manager directory entry.",
-        icon: Briefcase,
+        icon: UserRound,
         group: "Business",
       },
       {
@@ -390,7 +390,7 @@ export function VendorSettingsPanel() {
         id: "availability",
         label: "Availability",
         description: "Weekly hours, one-off open dates, and blocked dates.",
-        icon: CalendarClock,
+        icon: CalendarDays,
         group: "Business",
       },
       {
@@ -412,14 +412,14 @@ export function VendorSettingsPanel() {
         id: "messaging",
         label: "Messaging",
         description: "Verify your phone for job texts.",
-        icon: Smartphone,
+        icon: Phone,
         group: "Account",
       },
       {
         id: "preferences",
         label: "Preferences",
         description: "Assistant and device options.",
-        icon: SlidersHorizontal,
+        icon: Settings,
         group: "Account",
       },
       {
@@ -433,7 +433,7 @@ export function VendorSettingsPanel() {
         id: "feedback",
         label: "Feedback",
         description: "Report issues or share product feedback.",
-        icon: MessageSquareText,
+        icon: Mail,
         group: "Account",
       },
       {
@@ -800,9 +800,11 @@ export function VendorSettingsPanel() {
               />
             </div>
           )}
-          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-            {renderPane(paneGroup.id)}
-          </PortalSettingsSections>
+          <PortalSettingsTitleStyleContext.Provider value="heading">
+            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+              {renderPane(paneGroup.id)}
+            </PortalSettingsSections>
+          </PortalSettingsTitleStyleContext.Provider>
         </div>
       </div>
     </ManagerPortalPageShell>

@@ -169,14 +169,11 @@ function PriceCard({
   const estimated = rich.estimatedMonthlyTotalLabel?.trim() ? formatMoneyInLabel(rich.estimatedMonthlyTotalLabel.trim()) : undefined;
   const from = listingFromPrice(rich);
   const leaseFirst = property.signingOrder === "lease_first";
-  const breakdownLines = rich.pricingBreakdown ?? [];
-  // A listing that still charges an application fee up front keeps today's row
-  // even when lease-first (the manager collects both); only a lease-first
-  // listing with NO up-front application fee gets the due-at-signing line in
-  // its place — never client math, `leaseSigningFeeCents` is the server's
-  // resolved amount (`effectiveLeaseSigningFeeCents`).
-  const hasUpfrontApplicationFee = breakdownLines.some((line) => line.label === "Application fee");
-  const showDueAtSigning = leaseFirst && !hasUpfrontApplicationFee;
+  // Lease-first (studio, captain Sep 27): the price card's "Application fee" row IS the
+  // lease fee — one fee concept in the row, never both. `leaseSigningFeeCents` is the
+  // server's resolved amount (`effectiveLeaseSigningFeeCents`), not client math.
+  const breakdownLines = (rich.pricingBreakdown ?? []).filter((line) => !(leaseFirst && line.label === "Application fee"));
+  const showDueAtSigning = leaseFirst;
   const shortStay = propertyAllowsShortTermRental(property.id);
   const nightly = shortStay
     ? shortTermNightlyRate(property.listingSubmission?.shortTermDailyCost)
@@ -202,7 +199,7 @@ function PriceCard({
           {showDueAtSigning ? (
             <div className="flex items-baseline justify-between gap-3 py-2" data-attr="listing-price-due-at-signing">
               <dt className="text-muted">Lease fee</dt>
-              <dd className="font-bold tabular-nums text-foreground">{formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0)}</dd>
+              <dd className="font-bold tabular-nums text-foreground">{(property.leaseSigningFeeCents ?? 0) > 0 ? formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0) : "None"}</dd>
             </div>
           ) : null}
         </dl>

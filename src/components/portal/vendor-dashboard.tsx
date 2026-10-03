@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { PortalHomeLayout } from "@/components/portal/portal-home-layout";
@@ -17,14 +16,16 @@ import { VendorDashboardBalanceCard } from "@/components/portal/vendor-dashboard
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { CalendarDays, ListChecks, Wrench, FileText, Mail } from "lucide-react";
+import { CalendarDays, Clock, LayoutGrid, Wrench, FileText, Mail } from "lucide-react";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   MANAGER_WORK_ORDERS_EVENT,
   readVendorWorkOrderRows,
   syncManagerWorkOrdersFromServer,
 } from "@/lib/manager-work-orders-storage";
-import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
+import { vendorJobDetailHref, vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
 import {
   loadPersistedInbox,
   PORTAL_INBOX_CHANGED_EVENT,
@@ -214,7 +215,7 @@ export function VendorDashboard({}: { displayName: string }) {
                   onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`)}
                 />
                 <PortalIconAction
-                  icon={ListChecks}
+                  icon={LayoutGrid}
                   label="Manage services"
                   data-attr="vendor-dashboard-manage-jobs"
                   onClick={() => router.push(vendorWorkOrderListHref(BASE, "pending"))}
@@ -230,26 +231,26 @@ export function VendorDashboard({}: { displayName: string }) {
                 section="work-orders"
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <PortalRecordListSurface isEmpty={false} dataAttr="vendor-dashboard-services">
                 {jobCards.map((row) => (
-                  <Link
+                  <PortalServiceRecordRow
                     key={row.id}
-                    href={vendorWorkOrderListHref(BASE, "pending")}
-                    className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:border-primary/35"
-                    data-attr="vendor-dashboard-job-card"
-                  >
-                    <div className="relative aspect-[16/10] bg-accent">
-                      <span className="absolute left-3 top-3 rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">
-                        {row.bucket === "completed" ? "Done" : row.biddingOpen ? "Quote" : "Scheduled"}
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-0.5 px-4 py-3">
-                      <p className="truncate text-[15px] font-semibold text-foreground">{row.title}</p>
-                      <p className="truncate text-sm text-muted">{propertyLabel(row)}</p>
-                    </div>
-                  </Link>
+                    title={row.title}
+                    subtitle={propertyLabel(row)}
+                    facts={
+                      row.biddingOpen && row.bucket !== "completed" ? (
+                        <PortalRowFact icon={Clock}>Quote needed</PortalRowFact>
+                      ) : (
+                        <PortalRowFact icon={CalendarDays}>
+                          {row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled"}
+                        </PortalRowFact>
+                      )
+                    }
+                    onOpen={() => router.push(vendorJobDetailHref(BASE, row.id))}
+                    dataAttr="vendor-dashboard-job-card"
+                  />
                 ))}
-              </div>
+              </PortalRecordListSurface>
             )}
             </section>
           </>

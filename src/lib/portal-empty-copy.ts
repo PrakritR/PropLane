@@ -70,7 +70,7 @@ export const PORTAL_EMPTY_COPY = {
   "calendar.tours": T("No tours this week", "calendar"),
   "calendar.services": T("No services this week", "calendar"),
   "calendar.tasks": T("No tasks due this week", "calendar"),
-  "finances.income": T("No income yet", "financials"),
+  "finances.income": T("No payments yet", "financials"),
   "finances.expenses": T("No expenses yet", "financials"),
   "finances.invoices": T("No invoices yet", "financials"),
   "finances.payouts": T("No payouts yet", "financials"),

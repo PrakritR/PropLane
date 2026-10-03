@@ -178,6 +178,24 @@ export function signingOrderForPipeline(prefs: LeasingPipelinePreferences): Sign
   return prefs.pipelineOrder === "lease_then_application" ? "lease_first" : "application_first";
 }
 
+/** The two fields a prospect-facing surface derives from the pipeline preference — never the preference row itself. */
+export type PublicSigningContext = {
+  signingOrder: SigningOrder;
+  leaseSigningFeeCents: number;
+};
+
+/**
+ * The one place the pair is derived. The public projection
+ * (`resolvePublicSigningContext`) and the manager's own Preview both call this,
+ * so "Sign lease or Apply" can never be decided by two copies of the rule.
+ */
+export function signingContextForPipeline(prefs: LeasingPipelinePreferences): PublicSigningContext {
+  return {
+    signingOrder: signingOrderForPipeline(prefs),
+    leaseSigningFeeCents: effectiveLeaseSigningFeeCents(prefs),
+  };
+}
+
 /**
  * Whether the resident lease section unlocks without an approved application.
  * Lease-first workspaces unlock lease when a lease is required; application-first

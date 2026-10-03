@@ -43,7 +43,7 @@ function formatUsd(cents: number): string {
 }
 
 function monthOptions(): { value: string; label: string }[] {
-  const options: { value: string; label: string }[] = [{ value: "", label: "All time" }];
+  const options: { value: string; label: string }[] = [{ value: "", label: "All months" }];
   const now = new Date();
   for (let i = 0; i < 12; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
