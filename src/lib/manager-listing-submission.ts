@@ -1483,6 +1483,11 @@ export type ManagerCustomApplicationField = {
   required: boolean;
   /** Choices for `select` / `multi_select` fields; ignored for other types. Array order is display order. */
   options: string[];
+  /**
+   * Parallel to `options`: when set, picking this dropdown answer routes the
+   * applicant to that property lease template (C1-PIPE1 pipeline).
+   */
+  optionLeaseTemplateIds?: (string | null)[];
   /** Application section this question belongs to (RentalApplicationSectionId). Absent = Additional details. */
   section?: string;
   /** When set, this row customizes a built-in Axis application question. */
@@ -1602,6 +1607,11 @@ export function normalizeCustomApplicationFields(
         : undefined;
     const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     const flagged = o.flagged === true ? true : undefined;
+    const rawLeaseIds = o.optionLeaseTemplateIds;
+    const optionLeaseTemplateIds =
+      hasOptions && Array.isArray(rawLeaseIds)
+        ? rawLeaseIds.map((v) => (typeof v === "string" && v.trim() ? v.trim() : null))
+        : undefined;
     out.push({
       id,
       key,
@@ -1609,6 +1619,7 @@ export function normalizeCustomApplicationFields(
       type,
       required: o.required === true,
       options,
+      ...(optionLeaseTemplateIds?.length ? { optionLeaseTemplateIds } : {}),
       section,
       standardKey,
       description,
@@ -2307,6 +2318,10 @@ function normalizeManagerListingSubmissionV1Base(
       moveInResidentDetails: normalizeRoomResidentMoveInRows(
         (legacyRoom as ManagerRoomSubmission & { moveInResidentDetails?: unknown }).moveInResidentDetails,
       ),
+      sharedRoomLeaseKind: (() => {
+        const kind = (legacyRoom as ManagerRoomSubmission).sharedRoomLeaseKind;
+        return kind === "joint" || kind === "individual" || kind === "property_default" ? kind : undefined;
+      })(),
     };
   });
   const rooms: ManagerRoomSubmission[] = mappedRooms.map((room) =>

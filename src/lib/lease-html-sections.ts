@@ -71,6 +71,53 @@ function escapeLeaseHeadingText(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Remove one `<h2>` section (and its body) by parsed section id. */
+export function removeLeaseHtmlSection(html: string, sectionId: string): string {
+  const sections = parseLeaseHtmlSections(html);
+  if (!sections.length) return html;
+  const next = sections.filter((s) => s.id !== sectionId);
+  if (next.length === sections.length) return html;
+  return rebuildLeaseHtmlFromSections(html, next);
+}
+
+/** Insert a new section immediately after `afterSectionId` (append when id is null or missing). */
+export function insertLeaseHtmlSectionAfter(
+  html: string,
+  afterSectionId: string | null,
+  { title, bodyHtml }: { title: string; bodyHtml: string },
+): string {
+  const trimmedTitle = title.trim();
+  if (!html.trim() || !trimmedTitle) return html;
+  const sections = parseLeaseHtmlSections(html);
+  if (!sections.length) {
+    return prependLeaseHtmlSection(html, { title: trimmedTitle, bodyHtml });
+  }
+  const headingHtml = `<h2>${escapeLeaseHeadingText(trimmedTitle)}</h2>`;
+  const block = `${headingHtml}${bodyHtml}`;
+  const idx =
+    afterSectionId != null
+      ? sections.findIndex((s) => s.id === afterSectionId)
+      : sections.length - 1;
+  if (idx < 0) return `${html}${block}`;
+  const next = sections[idx + 1];
+  if (next?.headingHtml) {
+    const at = html.indexOf(next.headingHtml);
+    if (at >= 0) return `${html.slice(0, at)}${block}${html.slice(at)}`;
+  }
+  return `${html}${block}`;
+}
+
+/** Replace the visible title in a section's `<h2>` while keeping body html. */
+export function renameLeaseHtmlSectionTitle(html: string, sectionId: string, nextTitle: string): string {
+  const sections = parseLeaseHtmlSections(html);
+  const target = sections.find((s) => s.id === sectionId);
+  if (!target || target.id === LEASE_DOCUMENT_HEADER_ID) return html;
+  const title = nextTitle.trim();
+  if (!title) return html;
+  const nextHeading = `<h2>${escapeLeaseHeadingText(title)}</h2>`;
+  return html.replace(target.headingHtml, nextHeading);
+}
+
 /** Insert a new `<h2>` section immediately before the first existing heading. */
 export function prependLeaseHtmlSection(
   html: string,
