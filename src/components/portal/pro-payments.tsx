@@ -739,9 +739,9 @@ export function ManagerPayments({
   const paymentsSettingsMenu = (
     <PortalIconAction
       icon={Settings}
-      label={paymentsSettingsEntry.label}
+      label={direction === "incoming" ? "Defaults for properties" : paymentsSettingsEntry.label}
       data-attr={paymentsSettingsEntry.dataAttr}
-      onClick={() => setPaymentSettingsOpen(true)}
+      onClick={() => direction === "incoming" ? window.location.assign(`${basePath}/profile?tab=defaults`) : setPaymentSettingsOpen(true)}
     />
   );
 
@@ -953,7 +953,7 @@ export function ManagerPayments({
 
   return (
     <ManagerPortalPageShell
-      title="Payments"
+      title="Incoming payments"
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow

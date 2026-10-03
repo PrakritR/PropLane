@@ -66,11 +66,11 @@ export function VendorReviewDialog({
   const readOnly = Boolean(existing) && !canEditVendorReview(existing?.createdAt ?? "");
 
   const submit = async () => {
-    if (!row || stars < 1 || existing) return;
+    if (!row || stars < 1 || readOnly) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/portal/vendor-reviews", {
-        method: "POST",
+      const res = await fetch(existing ? `/api/portal/vendor-reviews/${encodeURIComponent(existing.id)}` : "/api/portal/vendor-reviews", {
+        method: existing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workOrderId: row.id, stars, body: notes }),
       });
@@ -97,7 +97,7 @@ export function VendorReviewDialog({
         readOnly
           ? null
           : {
-              label: "Leave review",
+              label: existing ? "Save review" : "Leave review",
               onClick: submit,
               disabled: loading || saving || stars < 1,
               loading: saving,
@@ -108,7 +108,7 @@ export function VendorReviewDialog({
       <div className="space-y-4">
         {row.vendorName ? <p className="text-sm text-muted">{row.vendorName} · {row.title}</p> : null}
         {readOnly ? (
-          <p className="text-sm text-muted">Reviews cannot be edited once posted.</p>
+          <p className="text-sm text-muted">The fourteen-day editing window has ended.</p>
         ) : null}
         <div className="space-y-1.5">
           <span className="text-sm font-medium text-foreground">Rating</span>

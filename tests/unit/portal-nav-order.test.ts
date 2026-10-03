@@ -23,6 +23,15 @@ function expectContiguousBlock(sections: string[], block: string[], anchorAfter:
 }
 
 describe("portal nav order contracts", () => {
+  it("separates resident collections from outgoing operations on every shared nav", () => {
+    const incoming = proPortal.sections.find((section) => section.section === "payments");
+    const outgoing = proPortal.sections.find((section) => section.section === "outgoing");
+    expect(incoming).toMatchObject({ label: "Incoming payments", tabs: [] });
+    expect(outgoing).toMatchObject({ label: "Outgoing payments", tabs: [] });
+    const ids = sectionIds(proPortal.sections);
+    expect(ids.indexOf("outgoing")).toBe(ids.indexOf("vendors") + 1);
+  });
+
   it("pro native order matches web registry with settings last", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
@@ -79,7 +88,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   // (docs/agents/record-page.md) — no separate "background-checks" nav row.
   const leasingBlock = ["properties", "tours", "applications", "leases"];
   const tenancyBlock = ["residents", "inspections", "payments", "services"];
-  const operationsBlock = ["vendors", "tasks", "calendar", "bookings", "communication"];
+  const operationsBlock = ["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"];
   const financesBlock = ["financials", "documents"];
 
   it("places leasing workflow contiguously after dashboard", () => {
@@ -108,7 +117,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 15)).toEqual([
+    expect(sections.slice(0, 16)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -119,6 +128,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "payments",
       "services",
       "vendors",
+      "outgoing",
       "tasks",
       "calendar",
       "bookings",
@@ -169,10 +179,10 @@ describe("pro portal documents section", () => {
     expect(documents?.tabs.map((t) => t.id)).toEqual(["applications", "leases", "other"]);
   });
 
-  it("finances tabs are income and expenses only in nav", () => {
+  it("finances tabs are overview, activity and reports in nav", () => {
     const financials = proPortal.sections.find((s) => s.section === "financials");
     expect(financials?.label).toBe("Finances");
-    expect(financials?.tabs.map((t) => t.id)).toEqual(["income", "expenses"]);
+    expect(financials?.tabs.map((t) => t.id)).toEqual(["overview", "activity", "reports"]);
   });
 
   it("services is one list, with vendors its own section right after it", () => {

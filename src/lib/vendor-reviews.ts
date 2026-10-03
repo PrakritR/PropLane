@@ -103,15 +103,10 @@ export function normalizeVendorReviewBody(raw: unknown): string {
   return String(raw ?? "").trim().slice(0, VENDOR_REVIEW_BODY_MAX_LENGTH);
 }
 
-/**
- * C158: a posted review can never be edited, regardless of age. Kept as a
- * function (rather than deleted outright) so every call site — the API route
- * and the dialog — keeps one single source of truth to refuse from, instead
- * of each hand-rolling its own "never" check.
- */
-export function canEditVendorReview(_createdAt: string, _now?: Date): boolean {
-  void _now;
-  return false;
+/** A reviewer may edit their own review for fourteen days after creation. */
+export function canEditVendorReview(createdAt: string, now = new Date()): boolean {
+  const age = now.getTime() - new Date(createdAt).getTime();
+  return Number.isFinite(age) && age >= 0 && age < 14 * 24 * 60 * 60 * 1000;
 }
 
 export type VendorReviewEligibilityInput = {

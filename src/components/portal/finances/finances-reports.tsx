@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
-  ArrowRight,
+  MoreHorizontal,
   BookOpen,
   Building2,
   ClipboardList,
@@ -33,6 +34,11 @@ type ReportCard = {
 };
 
 const REPORT_GROUPS: Array<{ label: string; reports: ReportCard[] }> = [
+  { label: "Reports", reports: [
+    { id: "income-statement", label: "Profit and loss", description: "", icon: TrendingUp },
+    { id: "profitability", label: "By property", description: "", icon: Building2 },
+    { id: "financial-activity", label: "Ledger (CSV)", description: "", icon: BookOpen },
+  ] },
   {
     label: "Statements",
     reports: [
@@ -72,37 +78,20 @@ const REPORT_GROUPS: Array<{ label: string; reports: ReportCard[] }> = [
 export const FINANCES_REPORT_TAB_IDS = new Set(REPORT_GROUPS.flatMap((g) => g.reports.map((r) => r.id)));
 
 export function ManagerFinancesReports({ basePath }: { basePath: string }) {
-  return (
-    <div className="flex flex-col gap-6 pb-6" data-attr="finances-reports">
-      {REPORT_GROUPS.map((group) => (
-        <section key={group.label} className="flex flex-col gap-2.5">
-          <h2 className="px-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted/80">{group.label}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {group.reports.map((report) => {
-              const Icon = report.icon;
-              return (
-                <Link
-                  key={report.id}
-                  href={`${basePath}/financials/${report.id}`}
-                  data-attr={`finances-report-${report.id}`}
-                  className="group flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                    <Icon className="size-4" strokeWidth={1.75} aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1 text-[14px] font-semibold text-foreground">
-                      {report.label}
-                      <ArrowRight className="size-3.5 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
-                    </span>
-                    <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">{report.description}</span>
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
+  const specialPanels = new Set(["bills", "security-deposits", "owner-distributions", "bank-reconciliation"]);
+  const reportIds: Record<string, string> = { "income-statement": "monthly-profit-loss", "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
+  return <div className="divide-y divide-border pb-6" data-attr="finances-reports">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
+    const Icon = report.icon;
+    const href = report.id === "financial-activity" ? `${basePath}/financials/activity` : report.id === "security-deposits" ? `${basePath}/financials/activity?category=deposits` : `${basePath}/financials/${report.id}`;
+    const exportId = reportIds[report.id] ?? report.id;
+    const download = (format: string) => report.id === "profitability" ? `/api/reports/property-worksheet?format=${format}` : specialPanels.has(report.id) ? `/api/reports/operational-export?kind=${report.id}&format=${format}` : `/api/reports/${exportId}/export?format=${format}`;
+    return <div key={report.id} className="flex items-center gap-3 py-4" data-attr={`finances-report-${report.id}`}>
+      <Icon className="size-5 text-primary" aria-hidden />
+      <Link href={href} className="min-w-0 flex-1 font-medium">{report.label}</Link>
+      <DropdownMenu modal={false}><DropdownMenuTrigger aria-label={`${report.label} actions`} className="p-3"><MoreHorizontal className="size-5" /></DropdownMenuTrigger><DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => window.location.assign(href)}>View</DropdownMenuItem>
+        {["csv", "pdf"].map(format => <DropdownMenuItem key={format} onSelect={() => window.location.assign(download(format))}>Download {format.toUpperCase()}</DropdownMenuItem>)}
+      </DropdownMenuContent></DropdownMenu>
+    </div>;
+  })}</div>;
 }

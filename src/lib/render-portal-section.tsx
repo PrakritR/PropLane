@@ -107,7 +107,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["overview", "reports", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "activity", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -150,6 +150,9 @@ async function renderManagerFinancesSection(
     notFound();
   }
   const finTab = tabParts[0]!;
+  if (finTab === "income" || finTab === "expenses") {
+    redirect(`${basePath}/financials/activity?direction=${finTab === "income" ? "in" : "out"}`);
+  }
   if (!FINANCIALS_TABS.includes(finTab as (typeof FINANCIALS_TABS)[number])) {
     const docsRedirect = legacyTabMapLookup(LEGACY_FINANCIALS_TO_DOCUMENTS, finTab);
     if (docsRedirect) redirect(`${basePath}/documents/${docsRedirect}`);
@@ -984,6 +987,17 @@ export async function renderPortalSection(
       );
     }
 
+    if (section === "outgoing") {
+      if (!tabParts?.length) redirect(`${def.basePath}/outgoing/to-pay`);
+      const outgoingTab = tabParts[0]!;
+      if (tabParts.length !== 1 || !["to-pay", "scheduled", "paid"].includes(outgoingTab)) notFound();
+      const { ManagerOutgoingInvoicesPanel } = await import("@/components/portal/manager-outgoing-invoices-panel");
+      return subscriptionGated(
+        <ManagerOutgoingInvoicesPanel tabId={outgoingTab} basePath={def.basePath} />,
+        kind, "outgoing", managerOwnerSubscriptionTier,
+      );
+    }
+
     if (section === "payments") {
       // Payouts is one page now, mounted at Profile → Payouts
       // (`portal-payouts-settings-page.tsx`) — this legacy path is a door to
@@ -999,6 +1013,11 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/payments/incoming/pending`);
       }
 
+      // Old list bookmarks open the new Operations destination. Historical
+      // payout record URLs remain readable by the existing record renderer.
+      if (tabParts[0] === "outgoing" && tabParts.length <= 2) {
+        redirect(`${def.basePath}/outgoing/${tabParts[1] === "paid" ? "paid" : "to-pay"}`);
+      }
       const directionRaw = tabParts[0];
       if (!PAYMENT_DIRECTIONS.includes(directionRaw as typeof PAYMENT_DIRECTIONS[number])) {
         redirect(`${def.basePath}/payments/incoming/pending`);

@@ -30,6 +30,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: validated.error }, { status: 422 });
     }
 
+    if (validated.schedule.interval !== "manual") return NextResponse.json({ error: "Payouts are withdrawal-only." }, { status: 422 });
+
     const service = createSupabaseServiceRoleClient();
     const payout = await resolveStripePayoutContext(service, user.id);
     if (!payout.payoutOwnerUserId) {

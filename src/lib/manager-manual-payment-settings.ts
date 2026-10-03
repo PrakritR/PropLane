@@ -13,6 +13,7 @@ import {
  * who bears the service fee.
  */
 export type ManagerManualPaymentSettings = {
+  defaultPaymentSource?: "balance" | "bank";
   /** Allow residents/applicants to pay via Stripe (bank + card). Defaults on. */
   axisPaymentsEnabled: boolean;
   /**
@@ -107,6 +108,7 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   return {
     axisPaymentsEnabled: row.axisPaymentsEnabled !== false,
+    ...(row.defaultPaymentSource === "bank" || row.defaultPaymentSource === "balance" ? { defaultPaymentSource: row.defaultPaymentSource } : {}),
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
     /*
      * The stored code is carried through as-is. Judging it needs the coverage

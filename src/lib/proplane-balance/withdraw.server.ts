@@ -94,7 +94,7 @@ export async function withdrawFromBalance(
 
   try {
     const payout = await stripe.payouts.create(
-      { amount: opts.amountCents, currency: "usd", method: "standard" },
+      { amount: opts.amountCents, currency: "usd", method: "standard", metadata: { proplane_balance_withdrawal: claim.idempotencyKey, proplane_balance_transfer_id: transfer.id } },
       { stripeAccount: connectAccountId, idempotencyKey: `balance-withdrawal-payout:${claim.idempotencyKey}` },
     );
     return { ok: true, transferId: transfer.id, payoutId: payout.id, payoutPending: false };

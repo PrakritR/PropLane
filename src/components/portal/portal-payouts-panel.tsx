@@ -55,6 +55,7 @@ export type PortalPayoutBank = {
 };
 
 export type PortalPayoutBalance = {
+  heldDepositCents?: number;
   currency: string;
   availableCents: number;
   instantAvailableCents: number;

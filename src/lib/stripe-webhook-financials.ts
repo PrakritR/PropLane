@@ -1,4 +1,6 @@
 import type Stripe from "stripe";
+import { getStripe } from "@/lib/stripe";
+import { ensureManualPayoutPolicy } from "@/lib/manual-payout-policy.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountReadyForAchPayouts, connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
@@ -52,6 +54,7 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
   const claimedId = account.metadata?.axis_user_id?.trim();
   if (claimedId && claimedId !== targetId) throw new Error("Stripe account ownership mismatch.");
   if (await refuseClassifiedFinancialMutation(db, targetId, "connect_account_updated")) return;
+  if (account.settings?.payouts?.schedule?.interval && account.settings.payouts.schedule.interval !== "manual") await ensureManualPayoutPolicy(getStripe(), account.id);
 
   await db
     .from("profiles")
@@ -234,7 +237,7 @@ export async function upsertStripePayoutRecord(
     fee_cents: feeCents,
     arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
     failure_message: payout.failure_message ?? null,
-    row_data: { id: payout.id, status: payout.status, method: payout.method, type: payout.type },
+    row_data: { id: payout.id, status: payout.status, method: payout.method, type: payout.type, proplaneBalanceWithdrawal: payout.metadata?.proplane_balance_withdrawal ?? null, proplaneBalanceTransferId: payout.metadata?.proplane_balance_transfer_id ?? null },
     updated_at: new Date().toISOString(),
   };
   if (destinationLast4) patch.destination_last4 = destinationLast4;
@@ -283,6 +286,7 @@ export async function handleExternalAccountEvent(
 async function ledgerPaymentForStripeCharge(
   db: SupabaseClient,
   stripeChargeId: string,
+  sourceChargeId?: string,
 ): Promise<{
   id: string;
   manager_user_id: string;
@@ -292,12 +296,13 @@ async function ledgerPaymentForStripeCharge(
   property_id: string | null;
   resident_user_id: string | null;
 } | null> {
-  const { data, error } = await db
+  let query = db
     .from("ledger_entries")
     .select("id, manager_user_id, source_charge_id, category_code, amount_cents, property_id, resident_user_id")
     .eq("stripe_charge_id", stripeChargeId)
-    .eq("entry_type", "payment")
-    .maybeSingle();
+    .eq("entry_type", "payment");
+  if (sourceChargeId) query = query.eq("source_charge_id", sourceChargeId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
   return data as typeof data | null;
 }
@@ -310,7 +315,7 @@ export async function handleStripeRefund(
   await refundPlatformHoldByChargeId(db, stripeChargeId).catch((e) => {
     console.error("[stripe webhook] refund platform hold", e);
   });
-  const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId);
+  const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId, refund.metadata?.proplane_charge_id);
   if (!payment?.source_charge_id || !payment.manager_user_id) return;
   if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "refund")) return;
 

@@ -1,140 +1,38 @@
 // @vitest-environment jsdom
-/**
- * C255: "Withdraw" must never sit visually equal to "Pay vendors" /
- * "Plan & credit" — the two balance-SPENDING cards get equal-weight cards,
- * Withdraw sits below them in a lighter, unbordered row (the
- * `ProplaneBalanceCard variant="subordinate"` case). The whole section stays
- * dark until BOTH the PropLane balance and WORKSPACE_CONNECT_ENABLED are on.
- */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-
-vi.mock("@/components/providers/app-ui-provider", () => ({
-  useAppUi: () => ({ showToast: vi.fn() }),
-}));
-vi.mock("@/lib/household-charges", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/household-charges")>()),
-  syncHouseholdChargesFromServer: vi.fn(async () => undefined),
-  readChargesForManager: vi.fn(() => []),
-}));
-vi.mock("@/lib/manager-outgoing-payments", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/manager-outgoing-payments")>()),
-  syncManagerOutgoingExpensesFromServer: vi.fn(async () => undefined),
-  readManagerOutgoingExpenses: vi.fn(() => []),
-}));
-
+import { cleanup, render, screen } from "@testing-library/react";
+import { invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { ManagerFinancesOverview } from "@/components/portal/finances/finances-overview";
-
-function mockFetch(eligible: boolean, vendorBankingEnabled = false) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/portal/proplane-balance") {
-        return Response.json({
-          enabled: eligible,
-          workspaceConnectEnabled: eligible,
-          availableCents: 12_300,
-          pendingCents: 0,
-          currency: "usd",
-          vendorBankingEnabled,
-        });
-      }
-      if (url.startsWith("/api/manager/vendor-invoices")) {
-        return Response.json({ invoices: [] });
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    }),
-  );
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+function setup(enabled: boolean, fail = false) {
+  invalidateFinancialActivity(new Event("test-mutation"));
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.startsWith("/api/reports/")) return Response.json(fail ? { error: "Ledger unavailable" } : { meta: { summary: JSON.stringify({ heldDepositsCents: 4500, months: {} }) } }, { status: fail ? 500 : 200 });
+    if (input.includes("vendor-invoices")) return Response.json({ totals: { owedCents: 900, billCount: 2 } });
+    return Response.json({ enabled, availableCents: 12300, pendingCents: 400 });
+  }));
+  return render(<ManagerFinancesOverview userId="manager" ready propertyId="" period="month" basePath="/portal" propertyOptions={[]} />);
 }
-
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
-function renderPage() {
-  return render(
-    <ManagerFinancesOverview userId="mgr-1" ready propertyId="" period="month" basePath="/portal" propertyOptions={[]} />,
-  );
-}
-
-describe("Finances overview — balance actions (C255)", () => {
-  it("stays dark (no Pay vendors / Plan & credit / Withdraw section) until eligible", async () => {
-    mockFetch(false);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Net operating income")).toBeTruthy());
-    expect(screen.queryByText("Pay vendors")).toBeNull();
-    expect(screen.queryByText("Plan & credit")).toBeNull();
-    expect(document.querySelector('[data-attr="finances-balance-actions"]')).toBeNull();
+describe("Finances simplified overview", () => {
+  it("shows the four balances from server responses", async () => {
+    setup(true); expect(await screen.findByText("Held deposits")).toBeTruthy();
+    expect(screen.getByText("$45.00")).toBeTruthy(); expect(screen.getByText("$9.00")).toBeTruthy();
+    expect(screen.getByText("$123.00")).toBeTruthy(); expect(screen.getByText("$4.00")).toBeTruthy(); expect(screen.getByText("2 bills")).toBeTruthy();
   });
-
-  // C260: "Pay vendors" is now the real bulk-pay card (PayVendorsCard) —
-  // its own approved-invoice list plus a bulk action — so it renders full
-  // width instead of sharing an equal-weight link card with Plan & credit;
-  // Plan & credit keeps its own bordered card either way.
-  it("shows Pay vendors as a real card and Plan & credit as its own bordered card once eligible", async () => {
-    mockFetch(true);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
-    const payVendors = document.querySelector('[data-attr="finances-pay-vendors-card"]');
-    const planCredit = document.querySelector('[data-attr="finances-balance-action-plan-credit"]');
-    expect(payVendors).toBeTruthy();
-    expect(planCredit?.className).toContain("border");
-    expect(planCredit?.className).toContain("shadow-sm");
+  it("routes unpaid bills to the one Outgoing list", async () => {
+    setup(true); expect((await screen.findByRole("link", { name: /To pay/ })).getAttribute("href")).toBe("/portal/outgoing/to-pay");
   });
-
-  it("renders Withdraw in the lighter, unbordered subordinate form — never a third same-weight card", async () => {
-    mockFetch(true);
-    renderPage();
-
-    await waitFor(() => expect(document.querySelector('[data-attr="finances-balance-action-withdraw"]')).toBeTruthy());
-    const withdrawWrap = document.querySelector('[data-attr="finances-balance-action-withdraw"]');
-    expect(withdrawWrap).toBeTruthy();
-    // The subordinate row, not the full bordered/shadowed card — the nested
-    // ProplaneBalanceCard has its own independent balance read to resolve first.
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="proplane-balance-card-subordinate"]')).toBeTruthy(),
-    );
-    expect(document.querySelector('[data-attr="proplane-balance-card"]')).toBeNull();
-    expect(withdrawWrap?.className).not.toContain("shadow-sm");
-    expect(withdrawWrap?.className).not.toContain("border-border");
+  it("routes deposits to filtered Activity", async () => {
+    setup(true); expect((await screen.findByRole("link", { name: /Held deposits/ })).getAttribute("href")).toBe("/portal/financials/activity?category=deposits");
   });
-
-  // Bug fix: with only VENDOR_BANKING_ENABLED on (balance/connect flags off),
-  // the manager had no in-app path to pay an approved vendor invoice —
-  // PayVendorsCard mounted only under `balanceEligible`. It must now mount
-  // for vendor banking alone, but without the balance-funded actions
-  // ("Pay from balance" / "Pay all approved") or the Plan & credit / Withdraw
-  // row, since those still depend on their own flags.
-  it("mounts Pay vendors on VENDOR_BANKING_ENABLED alone, without any balance-funded action or Plan & credit / Withdraw", async () => {
-    mockFetch(false, true);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
-    expect(document.querySelector('[data-attr="finances-pay-vendors-card"]')).toBeTruthy();
-    expect(screen.queryByText("Plan & credit")).toBeNull();
-    expect(document.querySelector('[data-attr="finances-balance-action-withdraw"]')).toBeNull();
+  it("removes pay cards, plan credit and secondary overview cards", async () => {
+    setup(true); await screen.findByText("Held deposits");
+    for (const name of ["Pay vendors", "Plan & credit", "Recent activity", "Coming up", "Expenses by category", "By property"]) expect(screen.queryByText(name)).toBeNull();
   });
-
-  it("still stays fully dark when neither the balance nor vendor banking flag is on", async () => {
-    mockFetch(false, false);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Net operating income")).toBeTruthy());
-    expect(screen.queryByText("Pay vendors")).toBeNull();
-    expect(document.querySelector('[data-attr="finances-balance-actions"]')).toBeNull();
+  it("does not invent an available balance when the balance ledger is disabled", async () => {
+    setup(false); await screen.findByText("Held deposits"); expect(screen.queryByText("$123.00")).toBeNull();
   });
-
-  it("keeps every balance-funded action when both the balance and vendor banking flags are on", async () => {
-    mockFetch(true, true);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Pay vendors")).toBeTruthy());
-    expect(screen.getByText("Plan & credit")).toBeTruthy();
-    expect(document.querySelector('[data-attr="finances-balance-action-withdraw"]')).toBeTruthy();
+  it("shows failed ledger reads as errors, never zero totals", async () => {
+    setup(true, true); expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Ledger unavailable");
   });
 });

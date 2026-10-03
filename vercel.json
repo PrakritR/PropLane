@@ -100,6 +100,10 @@
     {
       "path": "/api/cron/vendor-banking-reconcile",
       "schedule": "45 8 * * *"
+    },
+    {
+      "path": "/api/cron/manual-payout-policy",
+      "schedule": "15 * * * *"
     }
   ]
 }

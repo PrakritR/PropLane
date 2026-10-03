@@ -20,11 +20,8 @@ export const proPortal: PortalDefinition = {
     { section: "inspections", label: "Inspections", tabs: [{ id: "move-in", label: "Move-in" }, { id: "move-out", label: "Move-out" }] },
     {
       section: "payments",
-      label: "Payments",
-      tabs: [
-        { id: "incoming", label: "Incoming" },
-        { id: "outgoing", label: "Outgoing" },
-      ],
+      label: "Incoming payments",
+      tabs: [],
     },
     {
       section: "services",
@@ -42,6 +39,7 @@ export const proPortal: PortalDefinition = {
       label: "Vendors",
       tabs: [],
     },
+    { section: "outgoing", label: "Outgoing payments", tabs: [] },
     {
       section: "tasks",
       label: "Tasks",
@@ -77,8 +75,9 @@ export const proPortal: PortalDefinition = {
       section: "financials",
       label: "Finances",
       tabs: [
-        { id: "income", label: "Income" },
-        { id: "expenses", label: "Expenses" },
+        { id: "overview", label: "Overview" },
+        { id: "activity", label: "Activity" },
+        { id: "reports", label: "Reports" },
       ],
     },
     {
@@ -105,8 +104,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Inspections", path: "/portal/inspections/move-in" },
-  { label: "Payments (incoming)", path: "/portal/payments/incoming/pending" },
-  { label: "Payments (outgoing)", path: "/portal/payments/outgoing/pending" },
+  { label: "Incoming payments", path: "/portal/payments/incoming/pending" },
+  { label: "Outgoing payments", path: "/portal/outgoing/to-pay" },
   { label: "Services", path: "/portal/services/requests" },
   { label: "Vendors", path: "/portal/vendors" },
   { label: "Tasks", path: "/portal/tasks" },

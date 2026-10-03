@@ -1,59 +1,34 @@
 // @vitest-environment jsdom
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
-import type { MonthlyCashflowPoint } from "@/lib/portal-monthly-profit";
-
-afterEach(() => cleanup());
-
-const points: MonthlyCashflowPoint[] = [
+afterEach(cleanup);
+const points = [
   { key: "2026-04", label: "Apr", revenue: 600, expense: 100, profit: 500 },
   { key: "2026-05", label: "May", revenue: 800, expense: 120, profit: 680 },
   { key: "2026-06", label: "Jun", revenue: 1150, expense: 90, profit: 1060 },
 ];
-
-describe("MonthlyProfitChart", () => {
-  it("draws a scrubbable line with underline ranges and no month chips", () => {
-    const { container } = render(<MonthlyProfitChart points={points} />);
-    expect(screen.getByText("$1,150")).toBeTruthy();
-    expect(screen.getByText(/Jun/)).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Monthly revenue trend" })).toBeTruthy();
-    expect(container.querySelectorAll("circle")).toHaveLength(1);
-    expect(screen.getByRole("tab", { name: "3M" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "6M" })).toBeTruthy();
-    expect(container.querySelector("[data-attr^='monthly-profit-month-']")).toBeNull();
+describe("Cash flow comparison", () => {
+  it("shows revenue, expenses, profit and margin together", () => {
+    render(<MonthlyProfitChart points={points} />);
+    expect(screen.getByText("$1,150")).toBeTruthy(); expect(screen.getByText("$90.00")).toBeTruthy();
+    expect(screen.getByText("$1,060")).toBeTruthy(); expect(screen.getByText("92.2%")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Revenue" })).toBeNull();
   });
-
-  it("hides the $0 hero when the visible window is all zeros", () => {
-    render(
-      <MonthlyProfitChart
-        points={[{ key: "2026-09", label: "Sep", revenue: 0, expense: 0, profit: 0 }]}
-      />,
-    );
-    expect(screen.getByText(/No cash flow data yet/)).toBeTruthy();
-    expect(screen.queryByText("$0.00")).toBeNull();
-    expect(screen.queryByRole("img", { name: /trend/ })).toBeNull();
+  it("uses the same values in the table and routes selected months", () => {
+    const select = vi.fn(); render(<MonthlyProfitChart points={points} onMonthSelect={select} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show table" }));
+    fireEvent.click(screen.getByRole("button", { name: "2026-04" }));
+    expect(select).toHaveBeenCalledWith("2026-04"); expect(screen.getByRole("table")).toBeTruthy();
   });
-
-  it("keeps window color while the hero follows a scrub", () => {
-    const { container } = render(<MonthlyProfitChart points={points} />);
-    const svg = screen.getByRole("img", { name: "Monthly revenue trend" });
-    Object.defineProperty(svg, "getBoundingClientRect", {
-      value: () => ({ left: 0, width: 300, top: 0, height: 140, right: 300, bottom: 140, x: 0, y: 0, toJSON: () => {} }),
-    });
-    fireEvent.pointerMove(svg, { clientX: 0, pointerType: "mouse" });
+  it("updates the readout on keyboard focus and hides duplicate summary on overview", () => {
+    const { rerender } = render(<MonthlyProfitChart points={points} />);
+    fireEvent.focus(screen.getByRole("button", { name: "2026-04, open activity" }));
     expect(screen.getByText("$600.00")).toBeTruthy();
-    expect(container.querySelector("[data-attr='cashflow-hero'] p")?.className).toContain("status-confirmed-fg");
+    rerender(<MonthlyProfitChart points={points} hideSummary />);
+    expect(document.querySelector('[data-attr="cashflow-hero"]')).toBeNull();
   });
-});
-
-it("can expand an empty period to reach older cash flow", () => {
-  render(<MonthlyProfitChart defaultRangeMonths={3} points={[
-    points[0],
-    ...["May", "Jun", "Jul"].map((label, i) => ({ key: `2026-0${i + 5}`, label, revenue: 0, expense: 0, profit: 0 })),
-  ]} />);
-  expect(screen.getByText(/No cash flow data yet/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "6M" }));
-  expect(screen.getByRole("img", { name: "Monthly revenue trend" })).toBeTruthy();
+  it("shows an empty state only when no monthly data exists", () => {
+    render(<MonthlyProfitChart points={[]} />); expect(screen.getByText("No cash flow data yet.")).toBeTruthy();
+  });
 });

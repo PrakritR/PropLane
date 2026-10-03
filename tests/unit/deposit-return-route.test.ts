@@ -55,9 +55,9 @@ beforeEach(() => {
     id: "chg-1",
     manager_user_id: "mgr-1",
     status: "paid",
-    row_data: { kind: "security_deposit", paidCents: 75_000, residentEmail: "R@example.com" },
+    row_data: { kind: "security_deposit", amountLabel: "$750.00", residentEmail: "R@example.com" },
   };
-  rows.payment = { stripe_charge_id: "ch_1" };
+  rows.payment = { stripe_charge_id: "ch_1", amount_cents: 75_000 };
 });
 
 describe("who may return it", () => {
@@ -104,7 +104,7 @@ describe("how the money moves", () => {
       id: "chg-1",
       manager_user_id: "mgr-1",
       status: "paid",
-      row_data: { kind: "security_deposit", paidCents: 75_000, depositReturnedCents: 50_000 },
+      row_data: { kind: "security_deposit", amountLabel: "$750.00", depositReturnedCents: 50_000 },
     };
     await post({ chargeId: "chg-1" });
     expect(refundsCreate).toHaveBeenCalledWith(
@@ -134,7 +134,7 @@ describe("what it refuses to send", () => {
       id: "chg-1",
       manager_user_id: "mgr-1",
       status: "paid",
-      row_data: { kind: "rent", paidCents: 75_000 },
+      row_data: { kind: "rent", amountLabel: "$750.00" },
     };
     expect((await post({ chargeId: "chg-1" })).status).toBe(422);
     expect(refundsCreate).not.toHaveBeenCalled();
@@ -145,7 +145,7 @@ describe("what it refuses to send", () => {
       id: "chg-1",
       manager_user_id: "mgr-1",
       status: "paid",
-      row_data: { kind: "security_deposit", paidCents: 75_000, stripePaymentStatus: "processing" },
+      row_data: { kind: "security_deposit", amountLabel: "$750.00", stripePaymentStatus: "processing" },
     };
     expect((await post({ chargeId: "chg-1" })).status).toBe(422);
     expect(refundsCreate).not.toHaveBeenCalled();

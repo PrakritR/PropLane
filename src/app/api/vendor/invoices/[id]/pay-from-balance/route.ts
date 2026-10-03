@@ -1,9 +1,9 @@
+import { claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
 import { canTransitionVendorInvoice, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
-import { findBlockingVendorPayout } from "@/lib/work-order-approve-pay.server";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!existing) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
     const currentStatus = existing.status as VendorInvoiceStatus;
-    if (!canTransitionVendorInvoice(currentStatus, "paid")) {
+    if (!canTransitionVendorInvoice(currentStatus, "paid") && currentStatus !== "paid") {
       return NextResponse.json({ error: `Invoice is ${currentStatus}; it cannot be paid.` }, { status: 409 });
     }
     const totalCents = Number(existing.total_cents ?? 0);
@@ -49,17 +49,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const vendorUserId = String(existing.vendor_user_id ?? "").trim();
     if (!vendorUserId) return NextResponse.json({ error: "Invoice has no vendor." }, { status: 400 });
 
-    const workOrderId = (existing.work_order_id as string | null)?.trim();
-    if (workOrderId) {
-      const blocking = await findBlockingVendorPayout(auth.db, workOrderId);
-      if (!blocking.ok) return NextResponse.json({ error: blocking.error }, { status: 500 });
-      if (blocking.payout) {
-        return NextResponse.json(
-          { error: "This job already has a PropLane payout on record — reload and check its status." },
-          { status: 409 },
-        );
-      }
-    }
+    await claimInvoicePayment(auth.db, auth.userId, id, "balance");
 
     const move = await payVendorFromBalance(auth.db, {
       managerUserId: auth.userId,
@@ -83,31 +73,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: move.error }, { status: 500 });
     }
 
-    const now = new Date().toISOString();
-    // Same compare-and-swap the decision route uses: only a caller that still
-    // sees the pre-move status can land the write, so a race loses cleanly
-    // rather than double-marking paid (the ledger move itself is already
-    // idempotent on the invoice id, so a genuine retry after this point is
-    // harmless — but a second DIFFERENT request racing the first is not).
-    const { data, error } = await auth.db
-      .from("vendor_invoices")
-      .update({ status: "paid", paid_at: now, paid_from: "balance", decided_at: now, decided_by: auth.userId, updated_at: now })
-      .eq("id", id)
-      .eq("manager_user_id", auth.userId)
-      .eq("status", currentStatus)
-      .select(VENDOR_INVOICE_SELECT)
-      .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!data) {
-      // The ledger move already landed (idempotent on `vendor-invoice:<id>`),
-      // so this is a lost race on the invoice row, not a lost payment —
-      // reload and let the caller see the row another request already paid.
-      return NextResponse.json(
-        { error: "Invoice status changed while paying — reload and check its status." },
-        { status: 409 },
-      );
-    }
-
+    await settleInvoicePayment(auth.db, auth.userId, id, "balance");
+    const { data, error } = await auth.db.from("vendor_invoices").select(VENDOR_INVOICE_SELECT).eq("id", id).eq("manager_user_id", auth.userId).single();
+    if (error) throw new Error(error.message);
     track("vendor_invoice_paid_from_balance", vendorUserId, { invoice_id: id, total_cents: totalCents });
     return NextResponse.json({ invoice: mapVendorInvoiceRow(data) });
   } catch (e) {

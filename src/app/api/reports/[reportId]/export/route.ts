@@ -68,6 +68,7 @@ export async function GET(
         await activeWorkspacePropertyScope(auth.db, auth.userId),
         grantedPropertyIds,
       );
+      managerFilters.includeAccountMovements = managerUserId === auth.userId && grantedPropertyIds === null;
       report = await runManagerReport(auth.db, managerUserId, reportId, managerFilters);
     }
 

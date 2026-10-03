@@ -34,6 +34,15 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**Offline receipts** use `POST /api/portal-household-charges` with
+`action: "recordOfflinePayment"`, charge id, receipt date, method and note only.
+The server re-reads the charge, checks owner/co-manager and active workspace,
+preserves its stored amount, and compares status + `updated_at` before marking
+paid. It awaits `syncLedgerPaymentEntry` before returning success; the same
+receipt can retry an interrupted ledger write. Processing and partially paid
+charges are refused by this full-receipt path. The client applies the returned
+charge only after success, without sending a replacement snapshot.
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
@@ -445,3 +454,26 @@ a rate card, and a category that cannot be sourced is 0 with the reason in
 PostHog: `profitability_report_viewed` `{ months, propertyCount }` fires on the
 server next to the successful read. Coverage:
 `tests/unit/reports/profitability.test.ts`.
+
+## Studio redesign 0929: collections, outgoing and activity
+
+Manager navigation separates **Incoming payments** (`/portal/payments`) from
+**Outgoing payments** (`/portal/outgoing/{to-pay|scheduled|paid}`). The latter
+uses the manager invoice endpoint with `outgoing=1`: paginated, active-workspace
+scoped invoices and payout history, server-calculated integer-cent totals, and
+unpaid eligibility requiring an approved/scheduled invoice linked to a service
+assigned to its vendor. Historical paid rows remain readable. New payment
+execution stays unavailable until checkout concurrency and AP settlement are
+safe; a display status must never stand in for money movement.
+
+Finances has Overview, Activity and Reports. `financial-activity` reads recorded
+payment/refund ledger rows and expense entries, with chart-of-accounts types
+controlling operating totals and the deposit subledger controlling held funds.
+It does **not** yet reconcile every Stripe/platform movement or supply a running
+PropLane balance; never invent an opening balance to hide those missing sources.
+
+The offline receipt sheet posts `recordOfflinePayment` to
+`/api/portal-household-charges`, passing only charge id, date, method and note.
+The server re-reads the amount, checks ownership/workspace and current status,
+compares status and `updated_at` before writing, and awaits payment ledger sync.
+An identical persisted receipt can retry ledger repair after a failure.

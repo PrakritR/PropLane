@@ -11,10 +11,8 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalSettingsGroup, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import {
   bankToWithdrawAccounts,
-  formatDate,
   formatMoney,
   HistorySection,
-  ScheduleCard,
   type PortalPayoutBalance,
   type PortalPayoutHistoryRow,
   type PortalPayoutsPortalKind,
@@ -277,11 +275,9 @@ export function PortalPayoutsSettingsPage({
   const bankDone = balance.setup.bank === "done";
   const ready = balance.setup.ready;
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
-  const pendingDate = formatDate(balance.schedule.nextPayoutAt);
-  const pendingFact =
-    balance.onTheWayCents > 0
-      ? `${formatMoney(balance.onTheWayCents, balance.currency)} pending${pendingDate ? ` · arrives ${pendingDate}` : ""}`
-      : null;
+  const pendingFact = balance.onTheWayCents > 0
+    ? `${formatMoney(balance.onTheWayCents, balance.currency)} pending`
+    : null;
 
   const verifySheet = renderVerifySheet ? (
     renderVerifySheet({ open: verifyOpen, onClose: closeVerify })
@@ -460,31 +456,6 @@ export function PortalPayoutsSettingsPage({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      {/* Schedule */}
-      <ScheduleCard
-        schedule={balance.schedule}
-        availableCents={balance.availableCents}
-        currency={balance.currency}
-        portal={portal}
-        onChange={(interval) => {
-          setBalance((current) => (current ? { ...current, schedule: { ...current.schedule, interval } } : current));
-          void fetch(`${apiBase}/payouts/schedule`, {
-            method: "PUT",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ interval }),
-          })
-            .then((res) => res.json().catch(() => ({})))
-            .then((body: Partial<PortalPayoutBalance["schedule"]>) => {
-              setBalance((current) => (current ? { ...current, schedule: { ...current.schedule, ...body } } : current));
-            })
-            .catch(() => {
-              showToast("Could not update the schedule.");
-              void loadBalance();
-            });
-        }}
-      />
-
       {/* History */}
       <HistorySection
         rows={balance.history}
@@ -508,6 +479,7 @@ export function PortalPayoutsSettingsPage({
       />
 
       <PayoutWithdrawSheet
+        heldDepositCents={balance.heldDepositCents}
         open={withdrawOpen}
         onClose={closeWithdraw}
         apiBase={apiBase}

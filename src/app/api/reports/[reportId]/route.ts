@@ -72,6 +72,7 @@ export async function GET(
       await activeWorkspacePropertyScope(auth.db, auth.userId),
       grantedPropertyIds,
     );
+    filters.includeAccountMovements = managerUserId === auth.userId && grantedPropertyIds === null;
     const report = await runManagerReport(auth.db, managerUserId, reportId, filters);
     if (!report) return NextResponse.json({ error: "Unknown report." }, { status: 404 });
     return NextResponse.json(report);

@@ -14,7 +14,7 @@
 export const IN_APP_PATH_PREFIXES = [
   "/auth/",
   "/resident/",
-  "/portal/", // Includes inspections and /portal/bookings/{stays|occupancy}.
+  "/portal/", // Includes inspections, /portal/bookings/{stays|occupancy} and /portal/outgoing/{to-pay|scheduled|paid}.
   "/admin/",
   "/pro/",
   "/rent/",

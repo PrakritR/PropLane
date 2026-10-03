@@ -145,8 +145,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("$4,280.00");
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Withdraw \$/ }));
     await waitFor(() => {
       const createCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([input]) =>
         String(input).endsWith("/payouts/create"),
@@ -161,7 +160,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("$4,280.00");
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
-    expect(await screen.findByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Withdraw \$/ })).toBeInTheDocument();
   });
 });
 

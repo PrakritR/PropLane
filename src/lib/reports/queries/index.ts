@@ -1,3 +1,4 @@
+import { queryFinancialActivity, queryMonthlyProfitLoss } from "./financial-activity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
 import {
@@ -965,6 +966,10 @@ export async function runManagerReport(
   filters: ManagerReportFilters,
 ): Promise<ReportResult | null> {
   switch (reportId) {
+    case "monthly-profit-loss":
+      return queryMonthlyProfitLoss(db, managerUserId, filters);
+    case "financial-activity":
+      return queryFinancialActivity(db, managerUserId, filters);
     case "tax-summary":
       return queryTaxSummary(db, managerUserId, filters);
     case "rent-receipts":

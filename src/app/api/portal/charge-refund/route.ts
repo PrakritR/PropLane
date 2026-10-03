@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 
     // Same workspace-scope narrowing as deposit-return: a manager's own charge outside the
     // active workspace is refused exactly as if it were absent.
-    const workspaceScope = await resolveManagerWorkspaceRowScope(db, ownerUserId || user.id);
+    const workspaceScope = await resolveManagerWorkspaceRowScope(db, user.id);
     if (!rowInWorkspaceScope(row.property_id ? String(row.property_id) : null, workspaceScope)) {
       return notFound();
     }
@@ -86,17 +86,19 @@ export async function POST(req: Request) {
 
     // The Stripe charge the money arrived on, taken from the ledger's payment entry — the same
     // record the refund webhook keys on — rather than from the charge row itself.
-    const { data: payment } = await db
+    const { data: payment, error: paymentError } = await db
       .from("ledger_entries")
-      .select("stripe_charge_id")
+      .select("stripe_charge_id, amount_cents")
       .eq("source_charge_id", chargeId)
       .eq("entry_type", "payment")
       .maybeSingle();
 
+    if (paymentError) return NextResponse.json({ error: "Could not verify the payment ledger." }, { status: 500 });
+
     const ctx: ChargeRefundContext = {
       kind: String(charge.kind ?? ""),
       status: String(row.status ?? charge.status ?? ""),
-      paidCents: Number(charge.paidCents ?? charge.amountCents ?? 0),
+      paidCents: Number(payment?.amount_cents ?? 0),
       alreadyRefundedCents: Number(charge.refundedCents ?? 0),
       stripeChargeId: (payment?.stripe_charge_id as string | null) ?? null,
       // An ACH debit can bounce after it looks paid; only a settled payment may be refunded.

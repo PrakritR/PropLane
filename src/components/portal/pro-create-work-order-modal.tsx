@@ -164,6 +164,7 @@ export function ManagerCreateWorkOrderModal({
   defaultResident,
   defaultTitle,
   defaultDescription,
+  defaultVendor,
 }: {
   open: boolean;
   onClose: () => void;
@@ -182,6 +183,7 @@ export function ManagerCreateWorkOrderModal({
   defaultResident?: (ManagerServiceResidentOption & { assignedRoomChoice?: string }) | null;
   defaultTitle?: string;
   defaultDescription?: string;
+  defaultVendor?: { id: string; name: string; vendorUserId: string | null };
 }) {
   const { showToast } = useAppUi();
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -352,6 +354,13 @@ export function ManagerCreateWorkOrderModal({
         residentEmail: selectedResident.residentEmail,
         photoDataUrls: photos.length > 0 ? photos : undefined,
         managerInitiated: true,
+        ...(defaultVendor ? {
+          vendorId: defaultVendor.id,
+          vendorName: defaultVendor.name,
+          vendorUserId: defaultVendor.vendorUserId,
+          vendorAssignedAt: new Date().toISOString(),
+          assignee: { type: "vendor" as const, id: defaultVendor.id, name: defaultVendor.name },
+        } : {}),
       };
 
       writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
@@ -449,6 +458,13 @@ export function ManagerCreateWorkOrderModal({
         residentEmail: selectedResident.residentEmail,
         category: logCategory,
         managerInitiated: true,
+        ...(defaultVendor ? {
+          vendorId: defaultVendor.id,
+          vendorName: defaultVendor.name,
+          vendorUserId: defaultVendor.vendorUserId,
+          vendorAssignedAt: new Date().toISOString(),
+          assignee: { type: "vendor" as const, id: defaultVendor.id, name: defaultVendor.name },
+        } : {}),
         completedAt: now.toISOString(),
         workDoneSummary: title.trim(),
       };

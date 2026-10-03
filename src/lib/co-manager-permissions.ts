@@ -386,6 +386,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   inspections: "residents",
   leases: "leases",
   payments: "payments",
+  outgoing: "financials",
   documents: "documents",
   financials: "financials",
   communication: "inbox",

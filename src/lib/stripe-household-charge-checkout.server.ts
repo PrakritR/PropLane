@@ -153,8 +153,8 @@ export async function loadHouseholdChargesForCheckout(
 
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge?.id) return { ok: false, status: 500, error: "Invalid charge record." };
-    if (row.status === "paid" || charge.status === "paid") {
-      return { ok: false, status: 409, error: "One or more selected charges are already paid." };
+    if (!["pending", "failed"].includes(row.status ?? charge.status)) {
+      return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
       return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
@@ -268,6 +268,8 @@ export async function createHouseholdChargeCheckout(
     expectedManagerUserId?: string;
     /** Origin used to build the success/cancel/return URLs. */
     appOrigin: string;
+    /** Server-owned manager collection return path. Never accept a client URL here. */
+    returnPath?: "/portal/payments/incoming/pending";
   },
 ): Promise<HouseholdChargeCheckoutResult> {
   try {
@@ -334,9 +336,10 @@ export async function createHouseholdChargeCheckout(
       managerTier,
       feePayer,
       fundingModel: useLedgerFunding ? "platform_ledger" : "connect_destination",
-      returnUrl: `${input.appOrigin}/resident/payments?ach_checkout=return&session_id={CHECKOUT_SESSION_ID}`,
-      successUrl: `${input.appOrigin}/resident/payments?ach_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${input.appOrigin}/resident/payments?ach_checkout=cancel`,
+      ...(input.returnPath ? { redirectOnCompletion: "if_required" as const } : {}),
+      returnUrl: `${input.appOrigin}${input.returnPath ?? "/resident/payments"}?ach_checkout=return&session_id={CHECKOUT_SESSION_ID}`,
+      successUrl: `${input.appOrigin}${input.returnPath ?? "/resident/payments"}?ach_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${input.appOrigin}${input.returnPath ?? "/resident/payments"}?ach_checkout=cancel`,
     });
 
     const shared: CheckoutSharedFields = {
