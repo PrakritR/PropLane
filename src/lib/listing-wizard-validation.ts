@@ -54,7 +54,7 @@ export function listingRoomWeeklyRentKey(roomId: string): string {
  * that passes step validation is not rejected later by a monthly-only check.
  */
 export function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
-  const nightly = parseMoneyAmount(room.shortTermRent);
+  const nightly = parseMoneyAmount(room.shortTermRent ?? "");
   const weekly = room.weeklyRentPrice ?? 0;
   return (
     room.monthlyRent > 0 ||
@@ -79,7 +79,7 @@ function listingHasRentForAllowedTerm(sub: ManagerListingSubmissionV1, term: str
   if (term === AIRBNB_LEASE_TERM) {
     if (isEntireHomeListing(sub)) return entireHomeMonthlyRentAmount(sub) > 0;
     return sub.rooms.some((room) => {
-      const nightly = parseMoneyAmount(room.shortTermRent);
+      const nightly = parseMoneyAmount(room.shortTermRent ?? "");
       return nightly != null && nightly > 0;
     });
   }
