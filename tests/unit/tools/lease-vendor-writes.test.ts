@@ -483,7 +483,16 @@ describe("send_lease_for_signature", () => {
         }),
         review:
           reviewStatus === "confirmed"
-            ? { status: reviewStatus, confirmedDocumentSha256: IMPORT_SHA }
+            ? {
+                status: reviewStatus,
+                confirmedDocumentSha256: IMPORT_SHA,
+                overrides: {
+                  tenantName: "Casey Doe",
+                  leaseStart: "January 1, 2026",
+                  leaseEnd: "June 30, 2026",
+                  monthlyRent: "$2,150.00",
+                },
+              }
             : { status: reviewStatus },
       },
     });
@@ -496,7 +505,7 @@ describe("send_lease_for_signature", () => {
 
     const preview = await previewWrite(sendLeaseForSignatureTool, ctx, { leaseId: "lease_import" });
     expect(preview.ok).toBe(false);
-    if (!preview.ok) expect(preview.error).toContain("confirm it before sending");
+    if (!preview.ok) expect(preview.error).toContain("Save the imported lease");
 
     const executed = await executeWrite(sendLeaseForSignatureTool, ctx, { leaseId: "lease_import" });
     expect(executed.ok).toBe(false);
@@ -510,13 +519,17 @@ describe("send_lease_for_signature", () => {
 
   it("refuses a confirmation that is not bound to the document on the row", async () => {
     const forged = importedLease("lease_forged", "confirmed");
-    (forged.uploadedLeaseParse as Row).review = { status: "confirmed", confirmedByName: "Forged" };
+    (forged.uploadedLeaseParse as Row).review = {
+      status: "confirmed",
+      confirmedByName: "Forged",
+      overrides: { tenantName: "X", leaseStart: "a", leaseEnd: "b", monthlyRent: "$1" },
+    };
     const { ctx } = makeCtx({ portal_lease_pipeline_records: [leaseRecord("manager_a", forged)] });
 
     const preview = await previewWrite(sendLeaseForSignatureTool, ctx, { leaseId: "lease_forged" });
 
     expect(preview.ok).toBe(false);
-    if (!preview.ok) expect(preview.error).toContain("confirm it before sending");
+    if (!preview.ok) expect(preview.error).toContain("Save the imported lease");
   });
 
   it("sends an imported lease once a manager has confirmed the reading", async () => {
