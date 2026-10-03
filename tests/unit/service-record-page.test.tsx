@@ -87,7 +87,7 @@ describe("service record page (work order)", () => {
     expect(document.querySelector('[data-attr="record-header-action-close"]')).toBeNull();
   });
 
-  it("an open work order with a vendor assigned shows Schedule (C247)", () => {
+  it("an open work order with a vendor assigned shows Schedule as the one primary header action (C247)", () => {
     render(
       <AppUiProvider>
         <ManagerWorkOrdersPanel
@@ -98,7 +98,8 @@ describe("service record page (work order)", () => {
         />
       </AppUiProvider>,
     );
-    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="manager-service-primary"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).toBeNull();
   });
 
   it("a scheduled work order shows Close (mark complete) in the header", () => {

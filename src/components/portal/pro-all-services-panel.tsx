@@ -30,14 +30,12 @@ const SERVICE_STATE_TABS: { id: ServiceRowState | "vendors"; label: string }[] =
   { id: "done", label: "Done" },
   { id: "vendors", label: "Vendors" },
 ];
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import {
-  PortalListGroupFilterFields,
-  PortalListResidentField,
-} from "@/components/portal/portal-list-group-filter-fields";
+import { PortalListResidentField } from "@/components/portal/portal-list-group-filter-fields";
+import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import {
   FilterCollapsibleSection,
+  FilterFieldsAccordion,
   FilterSingleSelectList,
   filterSingleSelectSummary,
   useFilterAccordionClose,
@@ -46,12 +44,6 @@ import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
 } from "@/components/portal/portal-adaptive-action-row";
-import {
-  clusterPortalListRows,
-  isPropertyClusterList,
-  DEFAULT_PORTAL_LIST_GROUP_MODE,
-  type PortalListGroupMode,
-} from "@/lib/portal-list-grouping";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   serviceRequestDetailHref,
@@ -68,9 +60,9 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Clock, Settings } from "lucide-react";
+import { Clock } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -110,8 +102,6 @@ import {
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
-import { ServiceEscalationSettingsModal } from "@/components/portal/service-escalation-settings-modal";
-import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
@@ -132,8 +122,6 @@ type FilterType = "requests" | "work-orders";
 type RequestBucket = ManagerServiceRequestBucket;
 
 const SERVICES_TAB_IDS = ["requests", "work-orders"] as const;
-
-const servicesSettingsEntry = getSettingsEntryPoint("services");
 
 function unifiedServiceRowKey(row: { kind: string; id: string }): string {
   return `${row.kind}::${row.id}`;
@@ -204,7 +192,6 @@ export function ManagerAllServicesPanel({
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
   if (workOrderBucketProp !== prevWoBucketProp) {
@@ -220,7 +207,6 @@ export function ManagerAllServicesPanel({
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [serviceState, setServiceState] = useState<ServiceRowState | "vendors">("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
-  const [servicesSettingsOpen, setServicesSettingsOpen] = useState(false);
   const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
   const [bulkDeleteRequest, setBulkDeleteRequest] = useState<ServiceRequest | null>(null);
   const [scheduleVisitRow, setScheduleVisitRow] = useState<DemoManagerWorkOrderRow | null>(null);
@@ -436,7 +422,6 @@ export function ManagerAllServicesPanel({
     setPropertyFilters([]);
     setResidentFilters([]);
     setAssigneeFilter("");
-    setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
   };
 
   const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : []]);
@@ -450,27 +435,28 @@ export function ManagerAllServicesPanel({
         activeCount={servicesFilterActiveCount}
         compactPanel
         commandStripTrigger
-        filterFieldCount={4}
+        filterFieldCount={3}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={resetServicesFilters}
         dataAttr="services-filter-sheet-open"
       >
-        <PortalListGroupFilterFields
-          groupMode={groupMode}
-          onGroupModeChange={setGroupMode}
-          propertyOptions={filterPropertyOptions}
-          propertyFilters={propertyFilters}
-          onPropertyFiltersChange={setPropertyFilters}
-          propertyDataAttr="services-filter-property"
-          groupModeDataAttr="services-filter-group-mode"
-          minPropertyOptions={1}
-          residentOptions={filterResidentOptions}
-          residentFilters={residentFilters}
-          onResidentFiltersChange={setResidentFilters}
-          residentDataAttr="services-filter-resident"
-        />
+        <FilterFieldsAccordion>
+          <ApplicationFilterSortFields
+            propertyOptions={filterPropertyOptions}
+            propertyFilters={propertyFilters}
+            onPropertyFiltersChange={setPropertyFilters}
+            dataAttr="services-filter-property"
+            selectionMode="single"
+          />
+          <PortalListResidentField
+            residentOptions={filterResidentOptions}
+            residentFilters={residentFilters}
+            onResidentFiltersChange={setResidentFilters}
+            dataAttr="services-filter-resident"
+          />
+        </FilterFieldsAccordion>
         <ServicesAssigneeFilterField
           assigneeFilter={assigneeFilter}
           onAssigneeFilterChange={setAssigneeFilter}
@@ -568,9 +554,7 @@ export function ManagerAllServicesPanel({
 
   const servicesSearchExcludesAll =
     Boolean(searchQuery.trim()) && tabUnifiedRows.length > 0 && visibleUnifiedRows.length === 0;
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
-    `${serviceState}:${groupMode}`,
-  );
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(serviceState);
   const selectedSingleRow = useMemo(() => {
     if (selectedIds.size !== 1) return null;
     const rowKey = [...selectedIds][0];
@@ -584,11 +568,6 @@ export function ManagerAllServicesPanel({
     if (!selectedSingleRow || selectedSingleRow.kind !== "add-on") return null;
     return filteredRequests.find((request) => request.id === selectedSingleRow.id) ?? null;
   }, [selectedSingleRow, filteredRequests]);
-  const serviceClusters = useMemo(
-    () => clusterPortalListRows(visibleUnifiedRows, groupMode, (row) => row.propertyLabel),
-    [visibleUnifiedRows, groupMode],
-  );
-
   const workOrderDetailHref = (workOrderId: string, bucket = woBucket) =>
     `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
 
@@ -872,7 +851,7 @@ export function ManagerAllServicesPanel({
           ) : undefined
         }
         figure={costFigure || undefined}
-        actions={
+        menu={
           maintenanceRow ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
           ) : undefined
@@ -1115,17 +1094,7 @@ export function ManagerAllServicesPanel({
           dataAttr: "services-list-search",
           ariaLabel: serviceState === "vendors" ? "Search vendors" : "Search services",
         }}
-        actions={
-          <>
-            {servicesFilterSheet}
-            <PortalIconAction
-              icon={Settings}
-              label={servicesSettingsEntry.label}
-              data-attr={servicesSettingsEntry.dataAttr}
-              onClick={() => setServicesSettingsOpen(true)}
-            />
-          </>
-        }
+        actions={servicesFilterSheet}
         primary={
           <PortalPrimaryIconAction
             label="Add service"
@@ -1140,56 +1109,16 @@ export function ManagerAllServicesPanel({
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
       ) : null}>
-          {/*
-            One list over both stores, grouped by resident the way Payments and Tours are. Each row
-            opens its OWN record — an add-on goes to the request detail, maintenance to the work
-            order detail — so the merge stays presentational and the stores never mix.
-          */}
-          <div className="space-y-3" data-attr="services-resident-groups">
+          <div data-attr="services-flat-list">
             {serviceState === "vendors" ? (
               <ManagerServicesVendorsTab
                 workOrders={filteredWorkOrders}
                 basePath={basePath}
                 onOpenVendor={(vendorId) => navigate(vendorDetailHref(basePath, vendorId))}
               />
-            ) : isPropertyClusterList(groupMode, serviceClusters)
-              ? serviceClusters.map((cluster) => (
-                  <ApplicationHouseholdCluster
-                    key={cluster.key}
-                    header={
-                      <>
-                        <span className="truncate text-xs font-semibold text-foreground">
-                          {cluster.propertyLabel}
-                        </span>
-                        <span className="sr-only">{cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}</span>
-                      </>
-                    }
-                  >
-                    {cluster.rows.map((row) => renderServiceRow(row, true))}
-                  </ApplicationHouseholdCluster>
-                ))
-              : serviceClusters.map((cluster) => (
-                  <ApplicationHouseholdCluster
-                    key={cluster.key}
-                    header={
-                      <>
-                        <span className="truncate text-xs font-semibold text-foreground">
-                          {cluster.residentLabel}
-                        </span>
-                        {cluster.residentEmail &&
-                        cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                          <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-                        ) : null}
-                        {cluster.propertyLabel ? (
-                          <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-                        ) : null}
-                        <span className="sr-only">{cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}</span>
-                      </>
-                    }
-                  >
-                    {cluster.rows.map((row) => renderServiceRow(row, true))}
-                  </ApplicationHouseholdCluster>
-                ))}
+            ) : (
+              visibleUnifiedRows.map((row) => renderServiceRow(row, false))
+            )}
           </div>
       </PortalRecordListSurface>
       </div>
@@ -1212,15 +1141,6 @@ export function ManagerAllServicesPanel({
         managerUserId={userId}
         onSaved={() => setPropertyTick((t) => t + 1)}
         showToast={showToast}
-      />
-
-      <ServiceEscalationSettingsModal
-        open={servicesSettingsOpen}
-        onClose={() => setServicesSettingsOpen(false)}
-        onEditCatalog={() => {
-          setServicesSettingsOpen(false);
-          setEditServiceRequestsOpen(true);
-        }}
       />
 
       <ScheduleServiceVisitModal

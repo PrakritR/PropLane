@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { DoorOpen, UserRound, Wrench, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { RecordActionContext } from "@/components/ui/record-action-context";
 import { usePortalListGroupFlushRow } from "@/components/portal/portal-list-group";
 
 /**
@@ -471,12 +472,14 @@ export function PortalServiceRecordRow({
       }`}
     >
       {selectable ? (
-        <RowSelectCheckbox
-          onOpenRecord={onOpen}
-          checked={checked}
-          onChange={(e) => onSelectedChange?.(e.target.checked)}
-          aria-label={`Select ${title}`}
-        />
+        <RecordActionContext.Provider value={null}>
+          <RowSelectCheckbox
+            onOpenRecord={onOpen}
+            checked={checked}
+            onChange={(e) => onSelectedChange?.(e.target.checked)}
+            aria-label={`Select ${title}`}
+          />
+        </RecordActionContext.Provider>
       ) : null}
       <button
         type="button"
@@ -489,7 +492,7 @@ export function PortalServiceRecordRow({
           <p className="truncate text-sm font-medium text-foreground">{title}</p>
           {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
           {facts ? (
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5" data-attr="service-row-facts">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="service-row-facts">
               {facts}
             </div>
           ) : null}
