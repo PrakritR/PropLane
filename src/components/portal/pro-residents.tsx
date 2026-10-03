@@ -118,7 +118,17 @@ import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
-import { emptyAddPersonForm, type AddPersonForm } from "@/components/portal/resident-wizard/state";
+import {
+  ALSO_CREATE_IDS,
+  emptyAddPersonForm,
+  type AddPersonForm,
+} from "@/components/portal/resident-wizard/state";
+import {
+  resolveResidentEditStage,
+  snapshotResidentEditBaseline,
+  type ResidentEditBaseline,
+  type ResidentEditStage,
+} from "@/lib/resident-edit-stage";
 import { mergeParsedFields } from "@/lib/resident-document-import/onboard-draft";
 import { mapParsedFieldsToAddResidentForm } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
 import {
@@ -391,16 +401,17 @@ type ActiveResident = {
  * dialog lists them, and "Services" covers both maintenance and add-on requests —
  * the product never says "work order".
  */
-const RESIDENT_DELETE_COUNT_LABELS = [
-  ["leases", "Bookings", "booking"],
-  ["charges", "Charges", "charge"],
-  ["services", "Services", "service"],
-  ["inspections", "Inspections", "inspection"],
-  ["documents", "Documents", "document"],
-  ["conversations", "Conversations", "conversation"],
-] as const;
-
-type ResidentDeleteCounts = Record<(typeof RESIDENT_DELETE_COUNT_LABELS)[number][0], number>;
+type ResidentDeleteCounts = {
+  applications: number;
+  leases: number;
+  charges: number;
+  services: number;
+  inspections: number;
+  documents: number;
+  conversations: number;
+  paidCount: number;
+  paidCents: number;
+};
 
 type ResidentDeletePreviewState = {
   loading: boolean;
@@ -416,13 +427,23 @@ const EMPTY_RESIDENT_DELETE_PREVIEW: ResidentDeletePreviewState = {
 };
 
 function emptyResidentDeleteCounts(): ResidentDeleteCounts {
-  return { leases: 0, charges: 0, services: 0, inspections: 0, documents: 0, conversations: 0 };
+  return {
+    applications: 0,
+    leases: 0,
+    charges: 0,
+    services: 0,
+    inspections: 0,
+    documents: 0,
+    conversations: 0,
+    paidCount: 0,
+    paidCents: 0,
+  };
 }
 
 function readResidentDeleteCounts(value: unknown): ResidentDeleteCounts {
   const source = (value ?? {}) as Record<string, unknown>;
   const counts = emptyResidentDeleteCounts();
-  for (const [key] of RESIDENT_DELETE_COUNT_LABELS) {
+  for (const key of Object.keys(counts) as (keyof ResidentDeleteCounts)[]) {
     const raw = source[key];
     counts[key] = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
   }
@@ -431,15 +452,41 @@ function readResidentDeleteCounts(value: unknown): ResidentDeleteCounts {
 
 function addResidentDeleteCounts(into: ResidentDeleteCounts, from: ResidentDeleteCounts): ResidentDeleteCounts {
   const total = { ...into };
-  for (const [key] of RESIDENT_DELETE_COUNT_LABELS) total[key] += from[key];
+  for (const key of Object.keys(total) as (keyof ResidentDeleteCounts)[]) total[key] += from[key];
   return total;
+}
+
+function formatUsdFromCents(cents: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
 /** "1 booking, 9 charges, 2 services" — only the buckets that actually had rows. */
 function describeResidentDeleteCounts(counts: ResidentDeleteCounts): string {
-  return RESIDENT_DELETE_COUNT_LABELS.filter(([key]) => counts[key] > 0)
-    .map(([key, plural, singular]) => `${counts[key]} ${counts[key] === 1 ? singular : plural.toLowerCase()}`)
-    .join(", ");
+  const parts: string[] = [];
+  if (counts.leases) parts.push(`${counts.leases} booking${counts.leases === 1 ? "" : "s"}`);
+  if (counts.charges) parts.push(`${counts.charges} charge${counts.charges === 1 ? "" : "s"}`);
+  if (counts.services) parts.push(`${counts.services} service${counts.services === 1 ? "" : "s"}`);
+  return parts.join(", ");
+}
+
+function residentDeletePreviewRows(counts: ResidentDeleteCounts): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [
+    {
+      label: "Application · lease · charges",
+      value: `${counts.applications} · ${counts.leases} · ${counts.charges}`,
+    },
+    { label: "Bookings", value: String(counts.leases) },
+    { label: "Messages and texts", value: String(counts.conversations) },
+    {
+      label: "Services · inspections · documents",
+      value: `${counts.services} · ${counts.inspections} · ${counts.documents}`,
+    },
+    {
+      label: "Paid payments",
+      value: counts.paidCount ? `${counts.paidCount} · ${formatUsdFromCents(counts.paidCents)}` : "None",
+    },
+  ];
+  return rows;
 }
 
 export function ManagerResidents({
@@ -589,6 +636,12 @@ export function ManagerResidents({
   const [editResidentOpen, setEditResidentOpen] = useState(false);
   const [editResidentTargetId, setEditResidentTargetId] = useState<string | null>(null);
   const [editResidentForm, setEditResidentForm] = useState<AddPersonForm | null>(null);
+  const [editResidentContext, setEditResidentContext] = useState<{
+    stage: ResidentEditStage;
+    baseline: ResidentEditBaseline;
+    signedAtIso?: string | null;
+    leaseId?: string | null;
+  } | null>(null);
   const [erSaving, setErSaving] = useState(false);
   const [erName, setErName] = useState("");
   const [erEmail, setErEmail] = useState("");
@@ -2167,7 +2220,13 @@ export function ManagerResidents({
     setErNotes(row.manualResidentDetails?.notes || "");
     erSkipPricingFillRef.current = true;
     setEditResidentTargetId(targetId);
-    setEditResidentForm({
+    const directoryStage = residentDirectoryRows.find((r) => r.id === targetId)?.stage ?? "current";
+    const stageInfo = resolveResidentEditStage({
+      row,
+      leaseRows: readLeasePipeline(userId),
+      directoryStage,
+    });
+    const editForm: AddPersonForm = {
       ...emptyAddPersonForm("resident"),
       name: row.name || app?.fullLegalName?.trim() || "",
       email: row.email?.trim() || app?.email?.trim() || "",
@@ -2187,11 +2246,23 @@ export function ManagerResidents({
       moveInFee: savedFee || app?.managerMoveInFeeOverride?.trim() || "",
       securityDeposit: savedDeposit || app?.managerSecurityDepositOverride?.trim() || "",
       notes: row.manualResidentDetails?.notes || "",
+      alsoCreate: [...ALSO_CREATE_IDS],
+      application: app ? { ...app } : {},
+    };
+    setEditResidentForm(editForm);
+    setEditResidentContext({
+      stage: stageInfo.stage,
+      baseline: snapshotResidentEditBaseline({
+        ...editForm,
+        application: editForm.application as Record<string, unknown>,
+      }),
+      signedAtIso: stageInfo.signedAtIso,
+      leaseId: stageInfo.lease?.id ?? null,
     });
     setEditResidentOpen(true);
   }
 
-  function saveEditedResident(from?: AddPersonForm) {
+  function saveEditedResident(from?: AddPersonForm, options?: { voidSentLeases?: boolean }) {
     const targetId = editResidentTargetId ?? selected?.id;
     if (!targetId || erSaving) return Promise.resolve();
     const name = (from?.name ?? erName).trim();
@@ -2316,7 +2387,12 @@ export function ManagerResidents({
     const next = [...rows];
     next[idx] = nextRow;
     setErSaving(true);
-    return persistResidentProfileEdit({ rows: next, nextRow, managerUserId: userId ?? null })
+    return persistResidentProfileEdit({
+      rows: next,
+      nextRow,
+      managerUserId: userId ?? null,
+      voidSentLeases: options?.voidSentLeases,
+    })
       .then((result) => {
         if (!result.ok) {
           showToast(result.error ?? "Could not save resident.");
@@ -2325,6 +2401,7 @@ export function ManagerResidents({
         setEditResidentOpen(false);
         setEditResidentTargetId(null);
         setEditResidentForm(null);
+        setEditResidentContext(null);
         setHcTick((n) => n + 1);
         setLeaseTick((n) => n + 1);
         // Say what actually propagated. Charges and leases each decline for legitimate reasons
@@ -4017,10 +4094,10 @@ export function ManagerResidents({
               <span className="mt-3 block text-xs text-muted">Counting what is linked to them…</span>
             ) : (
               <span className="mt-3 block space-y-0.5" data-attr="residents-delete-linked-counts">
-                {RESIDENT_DELETE_COUNT_LABELS.map(([key, label]) => (
-                  <span key={key} className="flex items-center justify-between text-xs">
-                    <span className="text-muted">{label}</span>
-                    <span className="font-medium tabular-nums">{bulkDeletePreview.counts![key]}</span>
+                {residentDeletePreviewRows(bulkDeletePreview.counts!).map((row) => (
+                  <span key={row.label} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-muted">{row.label}</span>
+                    <span className="font-medium tabular-nums">{row.value}</span>
                   </span>
                 ))}
               </span>
@@ -4059,14 +4136,27 @@ export function ManagerResidents({
             setEditResidentOpen(false);
             setEditResidentTargetId(null);
             setEditResidentForm(null);
+        setEditResidentContext(null);
           }}
           onAdded={() => {
             setChargeBucket("pending");
             setHcTick((n) => n + 1);
             setLeaseTick((n) => n + 1);
           }}
-          onSaveEdit={async (form) => {
-            await saveEditedResident(form);
+          editContext={
+            editResidentContext
+              ? {
+                  stage: editResidentContext.stage,
+                  baseline: editResidentContext.baseline,
+                  signedAtIso: editResidentContext.signedAtIso,
+                  onRequestNewTerms: editResidentContext.leaseId
+                    ? () => setEditResidentLeaseId(editResidentContext.leaseId!)
+                    : undefined,
+                }
+              : undefined
+          }
+          onSaveEdit={async (form, opts) => {
+            await saveEditedResident(form, opts);
           }}
           managerUserId={userId ?? null}
           propertyOptions={propertyOptions}

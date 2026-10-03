@@ -102,7 +102,40 @@ export async function previewResidentApplicationRemoval(
     residentUserId: target.residentUserId,
     applicationId: target.applicationId,
   });
-  return { ok: true as const, mode: "preview" as const, email: target.email, counts: preview.counts, total: preview.total };
+  const paid = await summarizePaidResidentCharges(db as ServiceDb, target.managerUserId, target.email);
+  const counts = { ...preview.counts, paidCount: paid.count, paidCents: paid.totalCents };
+  return { ok: true as const, mode: "preview" as const, email: target.email, counts, total: preview.total };
+}
+
+async function summarizePaidResidentCharges(
+  db: ServiceDb,
+  managerUserId: string,
+  email: string,
+): Promise<{ count: number; totalCents: number }> {
+  if (!email.trim()) return { count: 0, totalCents: 0 };
+  const { data, error } = await db
+    .from("portal_household_charge_records")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .ilike("resident_email", literalEmail(email));
+  if (error) return { count: 0, totalCents: 0 };
+  let count = 0;
+  let totalCents = 0;
+  for (const row of data ?? []) {
+    const rd = (row as { row_data?: Record<string, unknown> }).row_data ?? {};
+    if (String(rd.status ?? "").toLowerCase() !== "paid") continue;
+    const cents =
+      typeof rd.paidAmountCents === "number"
+        ? rd.paidAmountCents
+        : typeof rd.amountCents === "number"
+          ? rd.amountCents
+          : 0;
+    if (cents > 0) {
+      count += 1;
+      totalCents += cents;
+    }
+  }
+  return { count, totalCents };
 }
 
 /**
