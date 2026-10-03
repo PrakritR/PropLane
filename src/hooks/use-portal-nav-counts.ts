@@ -166,6 +166,24 @@ export function usePortalNavCounts(
     };
   }, [kind, bump, userId]);
 
+  // Payments start the moment the last signature lands: a manager session that did not take that
+  // signature itself (the resident signed last) creates the deposit and rent schedule as soon as the
+  // lease pipeline shows the lease executed, on whatever page the manager is on. Idempotent.
+  useEffect(() => {
+    if ((kind !== "manager" && kind !== "pro") || !ready || !userId) return;
+    let cancelled = false;
+    let stop: (() => void) | null = null;
+    void import("@/lib/lease-signing-charges.client")
+      .then((mod) => {
+        if (!cancelled) stop = mod.watchExecutedLeaseCharges(userId);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [kind, ready, userId]);
+
   // The Communication badge needs every SMS conversation (not just its own
   // localStorage-backed read state) to match Active exactly once a person
   // reaches the manager on both channels. Loaded into real state — unlike

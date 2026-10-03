@@ -94,7 +94,7 @@ describe("an application is a Properties-style card", () => {
     expect(applicationStageFact(row({ bucket: "rejected", stage: "Rejected" }))).toBeUndefined();
     expect(applicationStageFact(row({}))).toBeUndefined();
     expect(applicationStageFact(row({ withdrawnAt: "2026-09-12T00:00:00Z" }))).toBe("Withdrawn");
-    expect(applicationStageFact(row({ bucket: "pending", stage: "In progress", detail: "Started 2026-09-12", application: { submittedAt: "" } as never }))).toBeUndefined();
+    expect(applicationStageFact(row({ bucket: "pending", stage: "In progress", detail: "Started 2026-09-12", application: { submittedAt: "" } as never }))).toBe("Incomplete");
     // The date is the calendar day the row states — never shifted by a timezone.
     expect(applicationSubmittedShort(row({}), new Date(2026, 8, 14))).toBe("Sep 11");
     expect(applicationSubmittedShort(row({ detail: "Submitted 2025-12-30" }), new Date(2026, 8, 14))).toBe("Dec 30, 2025");

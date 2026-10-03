@@ -14,10 +14,14 @@ import { Modal } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { applyDevResetEpoch } from "@/lib/dev/reset-epoch";
 
-type Toast = { id: number; message: string; undo?: () => void | Promise<void> };
+type Toast = { id: number; message: string; undo?: () => void | Promise<void>; actionLabel?: string };
 
 /** Passed to {@link AppUiContextValue.showToast} for a reversible action's one Undo button — never a second button (AGENTS.md § The pop-up). */
-export type ToastOptions = { undo?: () => void | Promise<void> };
+export type ToastOptions = {
+  undo?: () => void | Promise<void>;
+  /** The one button's word when it is not a reversal ("Send lease" after Approve). Defaults to "Undo". */
+  actionLabel?: string;
+};
 
 /** What {@link AppUiContextValue.confirm} asks the person. */
 export type ConfirmRequest = {
@@ -62,7 +66,7 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
 
   const showToast = useCallback((message: string, options?: ToastOptions) => {
     const id = Date.now() * 1000 + (toastSeq.current++ % 1000);
-    setToasts((t) => [...t, { id, message, undo: options?.undo }]);
+    setToasts((t) => [...t, { id, message, undo: options?.undo, actionLabel: options?.actionLabel }]);
     // A reversible toast stays up longer — it is the only chance to catch the
     // action before it is gone for good, where a plain confirmation just needs
     // to be seen.
@@ -142,7 +146,7 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
                   void t.undo?.();
                 }}
               >
-                Undo
+                {t.actionLabel ?? "Undo"}
               </button>
             ) : null}
           </div>

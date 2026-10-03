@@ -5,6 +5,14 @@
  */
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
+import { parseMoneyAmount } from "@/lib/parse-money";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import {
+  sharedRoomLeaseTerms,
+  type SharedRoomLeaseTerms,
+  type SharedRoomResident,
+} from "@/lib/lease-shared-room-terms";
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
@@ -67,7 +75,7 @@ import {
   leaseIntakeFromApplication,
   type LeaseIntakeAnswers,
 } from "@/lib/leasing/lease-application-field-map";
-import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
+import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { submissionWithLeaseTemplateById } from "@/lib/property-lease-template-sync";
@@ -995,6 +1003,13 @@ export type LeasePipelineRow = {
   jointLeaseMembers?: JointLeaseMember[];
   primaryApplicationId?: string | null;
   bundleGroupKey?: string | null;
+  /**
+   * Roommates in a shared room on ONE joint lease (`sharedRoomLeaseKind: "joint"`): every
+   * roommate keeps their own lease row — their own account, signature, rent and charges — and
+   * the rows of one joint lease share this id. Absent on an ordinary lease. The manager
+   * countersigns once everyone has signed (`lease-joint-room.ts`).
+   */
+  jointRoomGroupId?: string | null;
   /** Property lease template used for the last generation. */
   leaseGenerationTemplateId?: string | null;
   /**
@@ -1374,6 +1389,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     jointLeaseMembers: Array.isArray(r.jointLeaseMembers) ? r.jointLeaseMembers : undefined,
     primaryApplicationId: typeof r.primaryApplicationId === "string" ? r.primaryApplicationId : null,
     bundleGroupKey: typeof r.bundleGroupKey === "string" ? r.bundleGroupKey : null,
+    jointRoomGroupId: typeof r.jointRoomGroupId === "string" && r.jointRoomGroupId.trim() ? r.jointRoomGroupId.trim() : null,
     leaseGenerationTemplateId:
       typeof r.leaseGenerationTemplateId === "string" ? r.leaseGenerationTemplateId : null,
     leaseTemplateId: typeof r.leaseTemplateId === "string" ? r.leaseTemplateId : null,
@@ -1569,6 +1585,27 @@ export function leaseRowMatchesManagerTab(row: LeasePipelineRow, tab: ManagerLea
   if (tab === "completed") return row.status === "Fully Signed";
   if (tab === "signed") return row.bucket === "signed" && row.status !== "Fully Signed";
   return row.bucket === tab;
+}
+
+/**
+ * The Leases list has three stages — Draft, Sent, Signed — not four. "Sent" is
+ * every lease out for signature: waiting on the resident (`resident`) and
+ * waiting on the manager's countersignature (`signed`, not yet Fully Signed).
+ * The route ids stay `manager` / `resident` / `completed`; a legacy
+ * `/leases/signed` link lands on Sent.
+ */
+export type LeaseListTabId = "manager" | "resident" | "completed";
+
+export function leaseRowMatchesListTab(row: LeasePipelineRow, tab: ManagerLeaseTab): boolean {
+  if (tab === "resident" || tab === "signed") {
+    return leaseRowMatchesManagerTab(row, "resident") || leaseRowMatchesManagerTab(row, "signed");
+  }
+  return leaseRowMatchesManagerTab(row, tab);
+}
+
+export function countLeaseListTabs(rows: LeasePipelineRow[]): Record<LeaseListTabId, number> {
+  const counts = countManagerLeaseTabs(rows);
+  return { manager: counts.manager, resident: counts.resident + counts.signed, completed: counts.completed };
 }
 
 export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerLeaseTab, number> {
@@ -3065,6 +3102,64 @@ export function resolveManagerLeaseGenerationRow(
   return joint ?? row;
 }
 
+/**
+ * The shared-room terms for this lease — its bed and rent, and on a joint lease every roommate on it.
+ * Roommates are the leases already linked by `jointRoomGroupId`, else the approved applications that
+ * share the resident's Group ID and room.
+ */
+function sharedRoomTermsForLeaseRow(
+  row: LeasePipelineRow,
+  ctx: LeaseGenerationContext,
+  managerUserId?: string | null,
+): SharedRoomLeaseTerms | null {
+  const room = resolveSubmissionRoom(ctx.submission, {
+    roomChoices: [ctx.application.roomChoice1],
+    unitLabel: ctx.leasedRoom?.unitLabel,
+  });
+  if (!room || normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) return null;
+  const residentFrom = (
+    name: string | undefined,
+    app: Partial<RentalWizardFormState> | undefined,
+  ): SharedRoomResident => {
+    const slot = Number(app?.residentSlot);
+    const rent = parseMoneyAmount(app?.managerRentOverride ?? "");
+    return {
+      name: (name ?? "").trim(),
+      slot: Number.isInteger(slot) && slot >= 1 ? slot : null,
+      rentOverride: rent > 0 ? rent : null,
+    };
+  };
+  const residents: SharedRoomResident[] = [residentFrom(ctx.application.fullLegalName || row.residentName, ctx.application)];
+  if (room.sharedRoomLeaseKind === "joint") {
+    const groupId = row.jointRoomGroupId?.trim();
+    if (groupId) {
+      for (const sibling of readLeasePipeline(managerUserId ?? row.managerUserId)) {
+        if (sibling.id === row.id || sibling.jointRoomGroupId?.trim() !== groupId || sibling.status === "Voided") continue;
+        residents.push(residentFrom(sibling.residentName, sibling.application));
+      }
+    } else {
+      const myGroup = ctx.application.groupId?.trim().toUpperCase();
+      const myRoom = parseRoomChoiceValue(ctx.application.roomChoice1 ?? "").listingRoomId;
+      if (myGroup && myRoom) {
+        for (const app of readManagerApplicationRows()) {
+          if (app.bucket !== "approved" || app.withdrawnAt) continue;
+          if (normalizeApplicationAxisId(app.id) === normalizeApplicationAxisId(row.axisId ?? "")) continue;
+          if (app.application?.groupId?.trim().toUpperCase() !== myGroup) continue;
+          const choice = app.assignedRoomChoice?.trim() || app.application?.roomChoice1?.trim() || "";
+          if (parseRoomChoiceValue(choice).listingRoomId !== myRoom) continue;
+          residents.push(residentFrom(app.name, app.application));
+        }
+      }
+    }
+  }
+  return sharedRoomLeaseTerms({
+    room,
+    propertyAddress: ctx.listingProperty?.address ?? ctx.submission?.address ?? "",
+    term: ctx.application.leaseTerm,
+    residents,
+  });
+}
+
 function leaseGenerationContextForRow(
   row: LeasePipelineRow,
   managerUserId?: string | null,
@@ -3108,6 +3203,8 @@ function leaseGenerationContextForRow(
       ),
     };
   }
+  const sharedRoom = sharedRoomTermsForLeaseRow(row, ctx, managerUserId);
+  if (sharedRoom) ctx = { ...ctx, sharedRoom };
   const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
   const jurisdictionInput: LeaseJurisdictionInput = billed;
   // Close-save / unfinished listings often have no address. Add-resident still

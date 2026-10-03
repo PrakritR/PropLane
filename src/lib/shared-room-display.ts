@@ -74,3 +74,8 @@ export function leaseSharedRoomOccupancySentence(capacity: number, monthlyRentSt
   if (capacity < 2) return null;
   return `This room may be occupied by up to ${capacity} residents. Rent of ${monthlyRentStr} is the amount each resident pays — it is not split between residents.`;
 }
+
+/** "Bed A" for slot 1, "Bed B" for slot 2 — the letter every manager surface and the lease use. */
+export function bedLabelForSlot(slot: number): string {
+  return Number.isInteger(slot) && slot >= 1 ? `Bed ${String.fromCharCode(64 + slot)}` : "Bed";
+}

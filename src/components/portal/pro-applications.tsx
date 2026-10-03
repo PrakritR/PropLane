@@ -3,12 +3,11 @@
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
+
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { Button } from "@/components/ui/button";
-import { PortalDialog } from "@/components/portal/portal-dialog";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -18,13 +17,12 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, Check, Download, Plus, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
+import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Share2, Shield, Trash2, Undo2, Wallet, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -52,21 +50,23 @@ import {
   deleteManagerApplicationFromServer,
   isBookingResidencyRow,
   normalizeApplicationAxisId,
-  openResidentSlotsForApplicationRow,
   readManagerApplicationRows,
   residentSlotOverrideFields,
   syncManagerApplicationsFromServer,
   syncManagerApplicationsFromServerWithStatus,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
-import {
-  ApplicationResidentSlotPicker,
-  defaultOpenResidentSlot,
-} from "@/components/portal/application-resident-slot-picker";
-import type { OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { roomResidentPriceForSlot } from "@/lib/room-pricing";
+
+import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
+import { SharedRoomCard } from "@/components/portal/shared-room-card";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { sharedRoomCardFor } from "@/lib/shared-room-card";
+import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
+import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
+import { defaultOpenResidentSlot } from "@/components/portal/application-resident-slot-picker";
+import { residentSlotsForApplicationRow } from "@/lib/application-approval-slots";
+
+
 import {
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
   applicationVisibleToPortalUser,
@@ -75,7 +75,7 @@ import {
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { syncPropertyPipelineFromServer, hasCachedPropertyPipeline } from "@/lib/demo-property-pipeline";
-import { transitionApplicationBucket } from "@/lib/application-review";
+import { declineApplicationWithUndo, transitionApplicationBucket } from "@/lib/application-review";
 import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { selectAutoApprovals } from "@/lib/auto-approve-trigger";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
@@ -94,10 +94,7 @@ import {
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import {
   getBundleChoiceLabel,
-  getPropertyById,
-  getRoomChoiceLabel,
-  parseRoomChoiceValue,
-} from "@/lib/rental-application/data";
+  getRoomChoiceLabel,} from "@/lib/rental-application/data";
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   inProgressApplicationResumeUrl,
@@ -147,14 +144,11 @@ import {
 import {
   deleteLeasePipelineRowsForResident,
 } from "@/lib/lease-pipeline-storage";
-import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
+import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
 import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
-import {
-  RESIDENT_WELCOME_EMAIL_SUBJECT,
-  buildResidentWelcomeEmailBody,
-  residentAccountCreationUrl,
-} from "@/lib/resident-welcome-email";
+
+
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -184,86 +178,63 @@ function applicationRowPropertyId(row: DemoApplicantRow): string {
   return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
 }
 
-/**
- * The listing room this application is placed in — the manager's final
- * `assignedRoomChoice`, else the applicant's own first choice — for the
- * per-resident approval pick (PLAN-0920-0631). Undefined for a whole-property
- * placement or a row that names no room.
- */
-function roomForApplicationRow(row: DemoApplicantRow) {
-  const choice = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
-  if (!choice) return undefined;
-  const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
-  if (!listingRoomId) return undefined;
-  const property = getPropertyById(propertyId);
-  if (!property?.listingSubmission || property.listingSubmission.v !== 1) return undefined;
-  const sub = normalizeManagerListingSubmissionV1(property.listingSubmission);
-  return sub.rooms.find((r) => r.id === listingRoomId);
-}
-
-/** Open resident slots for this application's room, or `[]` when it does not price per resident. */
-function residentSlotsForApplicationRow(row: DemoApplicantRow): OpenResidentSlot[] {
-  const room = roomForApplicationRow(row);
-  return room ? openResidentSlotsForApplicationRow(row, room) : [];
-}
-
 function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFilters: string[]): DemoApplicantRow[] {
   if (propertyFilters.length === 0) return rows;
   return rows.filter((r) => propertyFilters.includes(applicationRowPropertyId(r)));
 }
 
-/**
- * Same "withdrawn leaves Pending" reclassification as {@link tabForRow} (see
- * below), so the tab COUNT badges never disagree with the LIST each tab
- * actually renders — a withdrawn application used to inflate "Pending" both
- * ways, cluttering the count and the list with a row the resident closed out
- * and the manager can take no action on.
- */
+/** Tab COUNTS follow the same buckets as the list: Pending · Approved · Declined. */
 function countByBucket(rows: DemoApplicantRow[]) {
   const c = { pending: 0, approved: 0, rejected: 0 };
-  for (const r of rows) {
-    if (r.bucket === "pending" && isWithdrawnApplicationRow(r)) {
-      c.rejected += 1;
-      continue;
-    }
-    c[r.bucket] += 1;
-  }
+  for (const r of rows) c[r.bucket] += 1;
   return c;
 }
 
 /**
- * UI-only tab id. The stored data model only ever has three buckets
- * (`ManagerApplicationBucket`) — "Incomplete" is not one of them, it is the
- * subset of the "pending" bucket whose `stage` is still "In progress"
- * (`isInProgressApplicationRow`). Splitting it into its own TAB (rather than
- * leaving it mixed into Pending with just an annotated label) is a display
- * concern only; every row keeps `bucket: "pending"` in storage, so Approve /
- * Reject / delete and the underlying query are unaffected.
+ * The list tab id. The stored data model only ever has three buckets
+ * (`ManagerApplicationBucket`); Incomplete (a draft still in progress) and
+ * Withdrawn are plain facts on a Pending row, never tabs.
  */
 type ManagerApplicationTabId = ApplicationListTabId;
 
 /**
- * Which tab a row belongs to for DISPLAY — never confuse with `row.bucket`.
- * A withdrawn row keeps `bucket: "pending"` in storage (the resident's own
- * closeout, not a manager decision), but showing it in the manager's Pending
- * queue implied it still needed review, and it can never be approved
- * (`isApprovableApplicationRow` already excludes it). It reads under
- * Rejected instead — the closest existing "no action needed" tab — where
- * `applicationDecisionStatusLabel` already renders "Withdrawn" rather than
- * "Rejected" so it stays distinguishable from a real manager rejection.
+ * Which tab a row belongs to — its stored bucket. A resident-withdrawn row keeps
+ * `bucket: "pending"` and reads in Pending with a "Withdrawn" fact on it:
+ * Approve is simply not offered on it (`isApprovableApplicationRow`), and an
+ * Incomplete draft is the same, with a Remind icon instead.
  */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   if (row.bucket === "rejected") return "rejected";
   if (row.bucket === "approved") return "approved";
-  if (row.bucket === "pending" && isWithdrawnApplicationRow(row)) return "rejected";
   return "pending";
 }
 
-function ApplicationFact({ label, value }: { label: string; value: string }) {
+/** One line of plain glyph facts at the top of an application: status, income, home, move-in. */
+function ApplicationFactsLine({ row }: { row: DemoApplicantRow }) {
+  const placement = resolvePlacementValuesForRow(row);
+  const income = Number(String(row.application?.monthlyIncome ?? "").replace(/[^0-9.]/g, ""));
+  const status = applicationDecisionStatusLabel(row);
+  const StatusIcon = row.bucket === "approved" ? Check : Clock;
   return (
-    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
-      <span className="text-[13px] font-medium">{label}</span>
-      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[13px] text-muted" data-attr="application-facts">
+      <PortalRowFact icon={StatusIcon} srLabel="Status">
+        {status}
+      </PortalRowFact>
+      {income > 0 ? (
+        <PortalRowFact icon={Wallet} srLabel="Income">
+          {`$${income.toLocaleString("en-US")}/mo`}
+        </PortalRowFact>
+      ) : null}
+      {placement.propertyLabel || row.property ? (
+        <PortalRowFact icon={Home} srLabel="Home">
+          {placement.propertyLabel || row.property}
+        </PortalRowFact>
+      ) : null}
+      {placement.leaseStart ? (
+        <PortalRowFact icon={CalendarDays} srLabel="Move-in">
+          {`Move-in ${formatLeaseDateLabel(placement.leaseStart)}`}
+        </PortalRowFact>
+      ) : null}
     </div>
   );
 }
@@ -272,7 +243,7 @@ function ApplicationFact({ label, value }: { label: string; value: string }) {
 function applicationDecisionStatusLabel(row: DemoApplicantRow): string {
   if (isWithdrawnApplicationRow(row)) return "Withdrawn";
   if (row.bucket === "approved") return "Approved";
-  if (row.bucket === "rejected") return "Rejected";
+  if (row.bucket === "rejected") return "Declined";
   if (isInProgressApplicationRow(row)) return "Incomplete";
   return "Pending review";
 }
@@ -287,58 +258,6 @@ function applicationRoomLabel(row: DemoApplicantRow): string {
   const bundleId = row.application?.bundleId?.trim() || "";
   const propertyId = row.application?.propertyId?.trim() || row.propertyId?.trim() || "";
   return bundleId && propertyId ? getBundleChoiceLabel(propertyId, bundleId) : "";
-}
-
-function applicationRoomChoice(row: DemoApplicantRow): string {
-  return row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
-}
-
-function sharedRoomOverviewRows(row: DemoApplicantRow, allRows: DemoApplicantRow[]) {
-  const choice = applicationRoomChoice(row);
-  if (!choice) return null;
-  const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
-  const property = getPropertyById(propertyId);
-  if (!property?.listingSubmission || property.listingSubmission.v !== 1) return null;
-  const submission = normalizeManagerListingSubmissionV1(property.listingSubmission);
-  const room = submission.rooms.find((candidate) => candidate.id === listingRoomId);
-  const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
-  if (!room || capacity < 2) return null;
-
-  const residents = allRows.filter((candidate) => {
-    if (candidate.bucket === "rejected" || candidate.withdrawnAt) return false;
-    const candidateChoice = applicationRoomChoice(candidate);
-    if (!candidateChoice) return false;
-    const parsed = parseRoomChoiceValue(candidateChoice);
-    return parsed.propertyId === propertyId && parsed.listingRoomId === listingRoomId;
-  });
-  const slot = Number(row.application?.residentSlot);
-  const price = roomResidentPriceForSlot(room, Number.isInteger(slot) && slot > 0 ? slot : 1, row.application?.leaseTerm);
-  const residentRows = residents.map((resident, index) => {
-    const residentSlot = Number(resident.application?.residentSlot);
-    const residentPrice = Number.isInteger(residentSlot) && residentSlot > 0
-      ? roomResidentPriceForSlot(room, residentSlot, resident.application?.leaseTerm)
-      : null;
-    const status = resident.bucket === "approved"
-      ? "Approved"
-      : isInProgressApplicationRow(resident)
-        ? "Invited · not applied yet"
-        : "Submitted";
-    const rent = residentPrice?.monthlyRent ?? Number(resident.application?.managerRentOverride?.replace(/[^\d.]/g, ""));
-    return {
-      label: `Roommate ${index + 1}`,
-      residentId: resident.id,
-      value: `${resident.name || resident.email || "Applicant"} · ${status}${residentSlot ? ` · Bed ${String.fromCharCode(64 + residentSlot)}` : ""}${typeof rent === "number" && rent > 0 ? ` · $${rent.toLocaleString()}/mo` : ""}`,
-    };
-  });
-
-  return [
-    { label: "Room", value: room.name || applicationRoomLabel(row) },
-    { label: "Bed", value: slot > 0 ? `Bed ${String.fromCharCode(64 + slot)}` : "Not assigned" },
-    { label: "Rent", value: price?.monthlyRent ? `$${price.monthlyRent.toLocaleString()}/mo` : "Not set" },
-    { label: "Lease type", value: row.application?.leaseTerm || "Not set" },
-    { label: "Approved applications", value: `${residents.filter((resident) => resident.bucket === "approved").length} of ${capacity}` },
-    ...residentRows,
-  ];
 }
 
 /** Server PDF endpoint for an application, with the client-resolved room label as a display hint. */
@@ -678,18 +597,10 @@ export function ManagerApplications({
   const [portfolioTick, setPortfolioTick] = useState(() =>
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
-  const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
-  const [approveError, setApproveError] = useState<string | null>(null);
-  // The "Rent for this resident" step (PLAN-0920-0631): shown BEFORE the notify
-  // preview only when the room prices per resident. `slotPickOptions` is the
-  // browser-side preview; the server re-derives it inside the write that takes
-  // the bed, so a stale picker can never write a taken rent.
-  const [slotPickRow, setSlotPickRow] = useState<DemoApplicantRow | null>(null);
-  const [slotPickOptions, setSlotPickOptions] = useState<OpenResidentSlot[]>([]);
-  const [selectedResidentSlot, setSelectedResidentSlot] = useState<number | null>(null);
-  const [rejectPreviewRows, setRejectPreviewRows] = useState<DemoApplicantRow[] | null>(null);
+  // The one Approve popup (resident · room · bed · rent · message). Its bed pick is a preview the
+  // server re-derives inside the write that takes the bed, so a stale picker can never land a taken one.
+  const [approveRow, setApproveRow] = useState<DemoApplicantRow | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
-  const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [reminderBusyId, setReminderBusyId] = useState<string | null>(null);
   const [reminderPreviewBusyId, setReminderPreviewBusyId] = useState<string | null>(null);
   const [reminderPreview, setReminderPreview] = useState<
@@ -969,7 +880,7 @@ export function ManagerApplications({
     [selectedListRows],
   );
   const canBulkApprove = selectedApprovableRows.length === 1;
-  const canBulkReject = selectedRejectableRows.length > 0;
+  const canBulkReject = selectedRejectableRows.length === 1;
   const canBulkDelete = listSelectedCount > 0;
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
@@ -978,42 +889,20 @@ export function ManagerApplications({
     setCheckrScreeningCosignerId(opts?.cosignerSubmissionId?.trim() || null);
   }, []);
 
-  const onIncompleteApplicationsRoute = /\/applications\/incomplete(?:\/|$)/.test(pathname);
-  const viewingIncompleteApplicationDetail =
-    Boolean(applicationIdProp) && (onIncompleteApplicationsRoute || bucketProp === "incomplete");
-
-  const showCompletionReminderForRow = useCallback(
-    (row: DemoApplicantRow) => {
-      if (
-        (viewingIncompleteApplicationDetail || bucket === "incomplete") &&
-        row.bucket === "pending"
-      ) {
-        return true;
-      }
-      if (row.bucket !== "pending" || isWithdrawnApplicationRow(row)) return false;
-      const canApprove = !isInProgressApplicationRow(row);
-      if (!canApprove) return true;
-      return (
-        isInProgressApplicationRow(row) ||
-        applicationStageDisplayLabel(row) === INCOMPLETE_APPLICATION_LABEL ||
-        shouldOfferApplicationCompletionReminder(row)
-      );
-    },
-    [viewingIncompleteApplicationDetail, bucket],
-  );
+  const showCompletionReminderForRow = useCallback((row: DemoApplicantRow) => {
+    if (row.bucket !== "pending" || isWithdrawnApplicationRow(row)) return false;
+    return (
+      isInProgressApplicationRow(row) ||
+      applicationStageDisplayLabel(row) === INCOMPLETE_APPLICATION_LABEL ||
+      shouldOfferApplicationCompletionReminder(row)
+    );
+  }, []);
 
   const canBulkSendReminder =
     singleListSelectedRow != null && showCompletionReminderForRow(singleListSelectedRow);
-  const canBulkShare = singleListSelectedRow != null;
-  const canBulkRunBackgroundCheck =
-    singleListSelectedRow != null && applicationShowsBackgroundCheck(singleListSelectedRow);
   const canBulkDownload = singleListSelectedRow != null;
   const canBulkMoveToPending =
     singleListSelectedRow != null && applicationRowCanMoveToPending(singleListSelectedRow);
-  const bulkShareRecordTitle =
-    singleListSelectedRow?.name?.trim() ||
-    singleListSelectedRow?.application?.fullLegalName?.trim() ||
-    singleListSelectedRow?.property?.trim();
 
   // The detail view renders full applicant PII — name, contact, income, screening
   // results — so it resolves out of `scopedRows`, the SAME already-scoped list the
@@ -1184,13 +1073,20 @@ export function ManagerApplications({
   const setRowBucket = async (
     id: string,
     nextBucket: ManagerApplicationBucket,
-    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean; approvalNotification?: { viaEmail: boolean; viaSms: boolean } },
+    opts?: {
+      skipWelcomeEmail?: boolean;
+      skipNavigate?: boolean;
+      quiet?: boolean;
+      approvalNotification?: { viaEmail: boolean; viaSms: boolean };
+      applicationPatch?: Parameters<typeof transitionApplicationBucket>[2]["applicationPatch"];
+    },
   ) => {
     const row = rows.find((candidate) => candidate.id === id);
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
       approvalNotification: opts?.approvalNotification,
+      applicationPatch: opts?.applicationPatch,
       automation: applicationAutomation.forProperty(row ? applicationRowPropertyId(row) : ""),
     });
     if (!result) return null;
@@ -1220,68 +1116,25 @@ export function ManagerApplications({
     return result;
   };
 
-  // A single decline is immediately reversible from its toast. Keep the
-  // existing confirmation for bulk declines, where several records move.
+  // Decline is one click: no confirm dialog, and the toast's Undo restores the application.
   const declineApplication = async (row: DemoApplicantRow) => {
     setRejectBusy(true);
-    const result = await setRowBucket(row.id, "rejected", { skipNavigate: true, quiet: true });
-    setRejectBusy(false);
-    if (!result || result.blocked) {
-      showToast(result?.message ?? "Application could not be declined.");
-      return;
+    try {
+      await declineApplicationWithUndo({
+        row,
+        showToast,
+        run: (id, next) => setRowBucket(id, next, { skipNavigate: true, quiet: true }),
+        onChanged: (event) => {
+          if (event === "declined" && applicationIdProp) router.push(applicationsListHref("pending"));
+        },
+      });
+    } finally {
+      setRejectBusy(false);
     }
-    showToast("Application declined.", {
-      undo: async () => {
-        const restored = await setRowBucket(row.id, "pending", { skipNavigate: true, quiet: true });
-        if (!restored || restored.blocked) showToast(restored?.message ?? "Application could not be restored.");
-        else showToast("Application restored.");
-      },
-    });
-    if (applicationIdProp) router.push(applicationsListHref("pending"));
   };
 
-  /**
-   * Writes a resident-slot pick onto the application's own overrides — the
-   * SAME fields `managerRentOverride`/`managerUtilitiesOverride`/
-   * `managerSecurityDepositOverride` a negotiated rent already uses, plus
-   * `residentSlot` for display — BEFORE the approval write, so the upsert
-   * `setRowBucket` sends already carries them. `serverConfirmed` skips an
-   * extra background mirror here; the very next `setRowBucket` call is the
-   * authoritative server write, and the server re-reads the slot's price
-   * itself rather than trusting this local one.
-   */
-  const persistResidentSlotPick = (rowId: string, price: OpenResidentSlot["price"]) => {
-    const patch = residentSlotOverrideFields(price);
-    const next = readManagerApplicationRows().map((r) =>
-      r.id === rowId && r.application ? { ...r, application: { ...r.application, ...patch } } : r,
-    );
-    writeManagerApplicationRows(next, { serverConfirmed: true, skipLeaseSeed: true });
-    setRows(readManagerApplicationRows());
-  };
-
-  const closeSlotPick = () => {
-    setSlotPickRow(null);
-    setSlotPickOptions([]);
-    setSelectedResidentSlot(null);
-  };
-
-  /**
-   * Approve's real entry point (the icon action and the single-selection bulk
-   * button both call this instead of opening the notify preview directly).
-   * A room priced per resident stops here for the "Rent for this resident"
-   * pick; every other room opens the notify preview exactly as before.
-   */
-  const beginApprovalPreview = (row: DemoApplicantRow) => {
-    setApproveError(null);
-    const slots = residentSlotsForApplicationRow(row);
-    if (slots.length > 0) {
-      setSlotPickRow(row);
-      setSlotPickOptions(slots);
-      setSelectedResidentSlot(defaultOpenResidentSlot(slots));
-      return;
-    }
-    setApprovePreviewRow(row);
-  };
+  /** Approve's one entry point — the row ⋯, the record header and the bulk bar all open the same popup. */
+  const beginApprovalPreview = (row: DemoApplicantRow) => setApproveRow(row);
 
   // Declared AFTER `setRowBucket`, which it calls. It used to sit above the
   // definition and relied on hoisting, which stops the compiler tracking the
@@ -1312,15 +1165,16 @@ export function ManagerApplications({
         // picker itself opens on. The server still re-derives and can still
         // refuse it if two candidates raced for the same slot.
         const candidateRow = rows.find((r) => r.id === candidate.id);
+        let applicationPatch: ReturnType<typeof residentSlotOverrideFields> | undefined;
         if (candidateRow) {
           const slots = residentSlotsForApplicationRow(candidateRow);
           const defaultSlot = defaultOpenResidentSlot(slots);
           const chosen = defaultSlot != null ? slots.find((s) => s.slot === defaultSlot) : undefined;
-          if (chosen) persistResidentSlotPick(candidateRow.id, chosen.price);
+          if (chosen) applicationPatch = residentSlotOverrideFields(chosen.price);
         }
         // Sequential on purpose: each approval writes charges and provisions an account, and the
         // shared transition is not built to run concurrently against the same local store.
-        await setRowBucket(candidate.id, "approved");
+        await setRowBucket(candidate.id, "approved", { applicationPatch });
       }
       showToast(
         picked.length === 1
@@ -1332,28 +1186,6 @@ export function ManagerApplications({
     // every render and would retrigger the pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicationAutomation, rows, userId]);
-
-  const rejectApplications = async (rowsToReject: DemoApplicantRow[]) => {
-    if (rowsToReject.length === 0) return;
-    setRejectBusy(true);
-    try {
-      for (const row of rowsToReject) {
-        await setRowBucket(row.id, "rejected", { skipNavigate: true, quiet: true });
-      }
-      clearSelection();
-      setRejectPreviewRows(null);
-      if (applicationIdProp && rowsToReject.some((row) => row.id === detailRow?.id)) {
-        navigate(applicationsListHref("rejected"));
-      }
-      showToast(
-        rowsToReject.length === 1
-          ? "Application rejected."
-          : `${rowsToReject.length} applications rejected.`,
-      );
-    } finally {
-      setRejectBusy(false);
-    }
-  };
 
   const purgeApplicationLocalData = (applicationId: string) => {
     removeAllApplicationCharges(applicationId, userId ?? null);
@@ -1538,18 +1370,29 @@ export function ManagerApplications({
     const showCompletionReminder = showCompletionReminderForRow(row);
     const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
 
+    // Approve · Remind · Download · Decline are the record's four; Share, Move to pending and Delete
+    // follow in the overflow, the red ones last.
     const actions = [];
-    if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder", icon: Bell,
+    if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
+    // An approved application in an application-first workspace goes on to the lease: the one Send lease screen
+    // (a lease-first workspace never gates a lease on approval, so it has no use for this).
+    if (
+      row.bucket === "approved" &&
+      !isWithdrawnApplicationRow(row) &&
+      leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences())
+    ) {
+      actions.push(portalIconActionSpec({ id: "send-lease", label: "Send lease", icon: Send, tone: "primary", dataAttr: "application-send-lease", onClick: () => setGenerateLeaseApplicationId(row.id) }));
+    }
+    if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Remind", icon: Bell,
       dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
+    actions.push(portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "application-pdf-download", onClick: () => runApplicationPdfDownload(row, showToast) }));
     actions.push({ id: "share",
       node: <PortalRecordShareLinkButton kind="application" recordId={row.id} icon dataAttr="application-share" recordTitle={recordTitle} />,
       menuItem: <PortalRecordShareLinkButton kind="application" recordId={row.id} menuItem dataAttr="application-share" recordTitle={recordTitle} />,
     });
-    actions.push(portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "application-pdf-download", onClick: () => runApplicationPdfDownload(row, showToast) }));
     if (applicationRowCanMoveToPending(row)) actions.push(portalIconActionSpec({ id: "pending", label: "Move to pending", icon: Undo2, dataAttr: "application-move-pending", onClick: () => setRowBucket(row.id, "pending") }));
-    if (row.bucket === "pending") actions.push(portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "application-decline", onClick: () => void declineApplication(row) }));
+    if (row.bucket !== "rejected") actions.push(portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "application-decline", onClick: () => void declineApplication(row) }));
     actions.push(portalIconActionSpec({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "application-delete", onClick: () => deleteApplication(row.id) }));
-    if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
     return <div className="flex min-w-0 flex-1" data-attr="application-header-icons" onClick={(event) => event.stopPropagation()}>
       <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />
     </div>;
@@ -1706,7 +1549,7 @@ export function ManagerApplications({
 
   /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
-  /** Generate lease (C050/C065): the approved-application id pre-filling the Leases wizard, or null when closed. */
+  /** Send lease: the application id the one Send lease screen opens for, or null when closed. */
   const [generateLeaseApplicationId, setGenerateLeaseApplicationId] = useState<string | null>(null);
   const applicationsManualAddButton = (
     <PortalPrimaryIconAction
@@ -1726,25 +1569,18 @@ export function ManagerApplications({
 
   const applicationModals = (
     <>
-      {/* C050/C065: the same "Generate lease" wizard the Leases tab's own + opens,
-          pre-filled with this applicant via initialApplicationId. Mounted only
-          while an application requested it, same lazy-mount reasoning as
-          Add application below. */}
-      {generateLeaseApplicationId ? (
-        <ManagerAddLeaseModal
-          open
-          onClose={() => setGenerateLeaseApplicationId(null)}
-          managerUserId={userId ?? null}
-          initialApplicationId={generateLeaseApplicationId}
-          onSubmitted={() => {
-            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
-          }}
-          onOpenLease={(leaseId) => {
-            setGenerateLeaseApplicationId(null);
-            navigate(leaseDetailHref(basePath, "manager", leaseId));
-          }}
-        />
-      ) : null}
+      {/* Send lease for this applicant — the same one screen the Leases list, the lease record and the
+          toast after Approve open. Mounted only while an application requested it. */}
+      <LeaseSendSheet
+        open={generateLeaseApplicationId !== null}
+        applicationId={generateLeaseApplicationId}
+        managerUserId={userId ?? null}
+        onClose={() => setGenerateLeaseApplicationId(null)}
+        onSent={(leaseId) => {
+          void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
+          navigate(leaseDetailHref(basePath, "resident", leaseId));
+        }}
+      />
       {/* Mounted only while open: the modal reads the portfolio on render, and
           the list page must not pay for that (or its imports) until asked. */}
       {addApplicationOpen ? (
@@ -1760,128 +1596,16 @@ export function ManagerApplications({
           }}
         />
       ) : null}
-      <PortalDialog
-        open={slotPickRow !== null}
-        title="Rent for this resident"
-        onClose={closeSlotPick}
-        dataAttr="application-resident-slot-modal"
-        primaryAction={{
-          label: "Continue",
-          disabled: selectedResidentSlot == null,
-          onClick: () => {
-            const chosen = slotPickOptions.find((s) => s.slot === selectedResidentSlot);
-            if (!slotPickRow || !chosen || chosen.holder) return;
-            persistResidentSlotPick(slotPickRow.id, chosen.price);
-            setApprovePreviewRow(slotPickRow);
-            closeSlotPick();
-          },
+      <ApproveApplicationDialog
+        row={approveRow}
+        userId={userId ?? null}
+        automation={approveRow ? applicationAutomation.forProperty(applicationRowPropertyId(approveRow)) : undefined}
+        onClose={() => setApproveRow(null)}
+        onApproved={() => {
+          setRows(readManagerApplicationRows());
+          router.push(applicationsListHref("approved"));
         }}
-      >
-        {slotPickRow ? (
-          <p className="mb-3 text-sm text-muted">
-            {applicantDisplayName(slotPickRow)} · {applicationRoomLabel(slotPickRow)} · {slotPickOptions.length} residents per room
-          </p>
-        ) : null}
-        <ApplicationResidentSlotPicker
-          slots={slotPickOptions}
-          value={selectedResidentSlot}
-          onChange={setSelectedResidentSlot}
-        />
-      </PortalDialog>
-      <PortalNotificationPreviewModal
-        open={approvePreviewRow !== null}
-        title="Approve application"
-        onClose={() => {
-          if (approveBusyId) return;
-          setApprovePreviewRow(null);
-          setApproveError(null);
-        }}
-        recipient={approvePreviewRow?.email ?? ""}
-        subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
-        body={
-          approvePreviewRow
-            ? buildResidentWelcomeEmailBody({
-                residentName: approvePreviewRow.name || undefined,
-                axisId: approvePreviewRow.id,
-                signupUrl: residentAccountCreationUrl("", approvePreviewRow.id),
-              })
-            : ""
-        }
-        warning={approveError ?? undefined}
-        warningLead={approveError ? "Could not approve." : null}
-        hideSendViaFooterNote
-        confirmLabel="Approve & notify"
-        confirmLabelWithoutMessage="Approve only"
-        deliverViaKind="applications"
-        smsAvailable
-        confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
-        confirmBusyLabel="Approving…"
-        onConfirm={(skipMessage, channels) => {
-          if (!approvePreviewRow) return;
-          const row = approvePreviewRow;
-          setApproveError(null);
-          setApproveBusyId(row.id);
-          // Keep the dialog open until the server confirms (PRP-381). Closing
-          // first made a 500 look identical to success.
-          const selectedChannels = skipMessage
-            ? { viaEmail: false, viaSms: false }
-            : channels ?? { viaEmail: true, viaSms: false };
-          void setRowBucket(row.id, "approved", {
-            skipWelcomeEmail: skipMessage || !selectedChannels.viaEmail,
-            skipNavigate: true,
-            approvalNotification: selectedChannels,
-          }).then((result) => {
-            setApproveBusyId(null);
-            if (!result || result.blocked) {
-              setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
-              return;
-            }
-            setApprovePreviewRow(null);
-            setApproveError(null);
-            if (result.approvalSms && result.approvalSms.sms !== "submitted") {
-              const smsOutcome = result.approvalSms.sms === "queued"
-                ? "queued"
-                : result.approvalSms.sms === "unknown"
-                  ? "outcome is not yet known"
-                  : "failed";
-              showToast(`Application approved. Text message ${smsOutcome}${result.approvalSms.error ? `: ${result.approvalSms.error}` : "."}`);
-            }
-            router.push(applicationsListHref("approved"));
-          });
-        }}
-      />
-      <ConfirmDeleteModal
-        open={rejectPreviewRows !== null}
-        title="Reject application"
-        description={
-          rejectPreviewRows?.length === 1 ? (
-            <>
-              Moves <span className="font-semibold text-foreground">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
-              to the Rejected tab. No email is sent.
-            </>
-          ) : rejectPreviewRows && rejectPreviewRows.length > 1 ? (
-            <>
-              Moves <span className="font-semibold text-foreground">{rejectPreviewRows.length} applications</span> to
-              the Rejected tab. No email is sent.
-            </>
-          ) : (
-            ""
-          )
-        }
-        confirmLabel="Reject"
-        busyLabel="Rejecting…"
-        // A rejected row moves tabs; it is not destroyed, so the delete warning
-        // would overstate what this does.
-        note={null}
-        busy={rejectBusy}
-        dataAttr="application-reject-confirm"
-        onClose={() => {
-          if (!rejectBusy) setRejectPreviewRows(null);
-        }}
-        onConfirm={() => {
-          if (!rejectPreviewRows?.length) return;
-          void rejectApplications(rejectPreviewRows);
-        }}
+        onSendLease={(applicationId) => setGenerateLeaseApplicationId(applicationId)}
       />
       <PortalNotificationPreviewModal
         open={reminderPreview !== null}
@@ -1987,7 +1711,7 @@ export function ManagerApplications({
     // (docs/agents/record-page.md § Known gap).
     const headerActions = sections.headerActions.filter((action) => {
       if (action.id === "approve") return isApprovableApplicationRow(detailRow);
-      if (action.id === "decline") return detailRow.bucket === "pending";
+      if (action.id === "decline") return detailRow.bucket !== "rejected";
       return false;
     });
     const onHeaderAction = (actionId: string) => {
@@ -2000,8 +1724,31 @@ export function ManagerApplications({
       }
     };
     const ownContent =
-      activeTab === "application-form" ? (
-        renderApplicationDetail(detailRow)
+      activeTab === "overview" ? (
+        <div className="space-y-4" data-attr="application-section-application">
+          <ApplicationFactsLine row={detailRow} />
+          {(() => {
+            const model = sharedRoomCardFor(
+              detailRow,
+              scopedRows,
+              groupForRow(applicationGroups, { groupId: groupIdForRow(detailRow) }),
+            );
+            return model ? (
+              <SharedRoomCard
+                model={model}
+                onApprove={(applicationId) => {
+                  const target = scopedRows.find((r) => r.id === applicationId);
+                  if (target) beginApprovalPreview(target);
+                }}
+                onRemind={(applicationId) => {
+                  const target = scopedRows.find((r) => r.id === applicationId);
+                  if (target) void openReminderPreview(target);
+                }}
+              />
+            ) : null;
+          })()}
+          {renderApplicationDetail(detailRow)}
+        </div>
       ) : activeTab === "screening" ? (
         applicationShowsBackgroundCheck(detailRow) ? (
           <ApplicationScreeningPanel
@@ -2040,93 +1787,7 @@ export function ManagerApplications({
           propertyId: detailRow.propertyId,
           contactIds: detailRow.email ? [detailRow.email] : undefined,
         })
-      ) : (
-        renderRecordSection("overview", {
-          role: "manager",
-          kind: "application",
-          kindLabel: "application",
-          recordId: detailRow.id,
-          recordLabel: applicantDisplayName(detailRow),
-          overviewTiles: [
-            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "warning" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
-            { id: "income", label: "Income", value: detailRow.application?.monthlyIncome ? `$${detailRow.application.monthlyIncome}` : "—", detail: "per month" },
-            { id: "property", label: "Property", value: detailRow.property ?? "—" },
-            { id: "phone", label: "Phone", value: detailRow.application?.phone ?? "—" },
-          ],
-          overviewNeeds: [
-            ...(detailRow.bucket === "pending" ? [{ id: "decision", title: "Decision pending", detail: "Awaiting your review" }] : []),
-          ],
-          overviewCards: [
-            {
-              id: "application-form",
-              title: "Application form",
-              action: { label: "Read the application", href: applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id, "application-form") },
-              rows: [
-                { label: "Applicant", value: applicantDisplayName(detailRow) },
-                { label: "Email", value: detailRow.email ?? "—" },
-                { label: "Phone", value: detailRow.application?.phone ?? "—" },
-                ...(detailRow.application?.hasCosigner === "yes" ? [{ label: "Co-signer", value: detailCosignerSubmissions[0]?.fullName || "Invited, not yet submitted" }] : []),
-              ],
-            },
-            {
-              id: "housing",
-              title: "Housing",
-              rows: [
-                { label: "Property", value: detailRow.property ?? "—" },
-                { label: "Status", value: applicationDecisionStatusLabel(detailRow) },
-              ],
-            },
-            ...(sharedRoomOverviewRows(detailRow, rows)
-              ? [{
-                  id: "shared-room",
-                  title: "Shared room",
-                  rows: sharedRoomOverviewRows(detailRow, rows)!.map((fact) => {
-                    const residentId = "residentId" in fact ? fact.residentId : undefined;
-                    const roommate = residentId ? rows.find((candidate) => candidate.id === residentId) : null;
-                    const action = roommate && isInProgressApplicationRow(roommate)
-                      ? <PortalIconAction icon={Bell} label="Send reminder" data-attr="shared-room-send-reminder" onClick={() => void openReminderPreview(roommate)} />
-                      : roommate && isApprovableApplicationRow(roommate)
-                        ? <PortalIconAction icon={Check} label="Approve" data-attr="shared-room-approve" onClick={() => beginApprovalPreview(roommate)} />
-                        : null;
-                    return {
-                      label: fact.label,
-                      value: residentId ? (
-                        <span className="flex min-w-0 items-center justify-end gap-2">
-                          <span className="min-w-0">{fact.value}</span>
-                          {action}
-                        </span>
-                      ) : fact.value,
-                    };
-                  }),
-                }]
-              : []),
-            // C050/C065: one primary action directly under Overview on an
-            // APPROVED application in an application-first workspace opens the
-            // same lease wizard the Leases tab's own + uses, pre-filled with
-            // this applicant — never a separate page. A lease-first workspace
-            // never gates a lease on application approval at all, so this is
-            // scoped to that one pipeline order (the same predicate the Leases
-            // tab reads for its own send-lease affordance).
-            ...(detailRow.bucket === "approved" &&
-            !isWithdrawnApplicationRow(detailRow) &&
-            leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences())
-              ? [
-                  {
-                    kind: "rows" as const,
-                    id: "generate-lease",
-                    title: "Lease",
-                    rows: [],
-                    emptyLabel: "No lease started yet.",
-                    footer: {
-                      label: "Generate lease",
-                      onClick: () => setGenerateLeaseApplicationId(detailRow.id),
-                    },
-                  },
-                ]
-              : []),
-          ],
-        })
-      );
+      ) : null;
 
     return (
       <>
@@ -2267,7 +1928,7 @@ export function ManagerApplications({
                   // Incomplete and Pending: the pill matches the header + (add
                   // an applicant). Share-a-link stays on the header share glyph.
                   actions:
-                    bucket === "incomplete" || bucket === "pending"
+                    bucket === "pending"
                       ? [
                           {
                             label: "Add applicant",
@@ -2284,38 +1945,6 @@ export function ManagerApplications({
           bulkActions={
             selectedListRows.length > 0 ? (
               <>
-                {canBulkSendReminder && singleListSelectedRow ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="applications-bulk-send-reminder"
-                    disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-                    onClick={() => openReminderPreview(singleListSelectedRow)}
-                  >
-                    {reminderPreviewBusyId === singleListSelectedRow.id ? "Loading…" : "Send reminder"}
-                  </Button>
-                ) : null}
-                {canBulkShare && singleListSelectedRow ? (
-                  <PortalRecordShareLinkButton
-                    kind="application"
-                    recordId={singleListSelectedRow.id}
-                    className={PORTAL_BULK_BAR_BTN}
-                    dataAttr="applications-bulk-share"
-                    recordTitle={bulkShareRecordTitle}
-                  />
-                ) : null}
-                {canBulkRunBackgroundCheck && singleListSelectedRow ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="applications-bulk-run-background-check"
-                    onClick={() => openDetailScreeningModal(singleListSelectedRow)}
-                  >
-                    Run background check
-                  </Button>
-                ) : null}
                 {canBulkApprove ? (
                   <Button
                     type="button"
@@ -2329,15 +1958,16 @@ export function ManagerApplications({
                     Approve
                   </Button>
                 ) : null}
-                {canBulkReject ? (
+                {canBulkSendReminder && singleListSelectedRow ? (
                   <Button
                     type="button"
                     variant="outline"
                     className={PORTAL_BULK_BAR_BTN}
-                    data-attr="applications-bulk-reject"
-                    onClick={() => setRejectPreviewRows(selectedRejectableRows)}
+                    data-attr="applications-bulk-send-reminder"
+                    disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
+                    onClick={() => openReminderPreview(singleListSelectedRow)}
                   >
-                    Reject
+                    {reminderPreviewBusyId === singleListSelectedRow.id ? "Loading…" : "Remind"}
                   </Button>
                 ) : null}
                 {canBulkDownload && singleListSelectedRow ? (
@@ -2358,7 +1988,19 @@ export function ManagerApplications({
                     Move to pending
                   </Button>
                 ) : null}
-                {canBulkDelete ? (
+                {canBulkReject && singleListSelectedRow ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                    data-attr="applications-bulk-decline"
+                    disabled={rejectBusy}
+                    onClick={() => void declineApplication(singleListSelectedRow)}
+                  >
+                    Decline
+                  </Button>
+                ) : null}
+                {canBulkDelete && singleListSelectedRow?.bucket === "rejected" ? (
                   <Button
                     type="button"
                     variant="outline"

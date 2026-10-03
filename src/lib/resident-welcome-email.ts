@@ -30,18 +30,39 @@ export function residentAccountCreationUrl(_origin: string, axisId: string, setu
   return `${base}/auth/resident-setup?${params.toString()}`;
 }
 
+/** Longest personal note a manager can put above the standard welcome. */
+export const RESIDENT_WELCOME_NOTE_MAX_CHARS = 1000;
+
+/**
+ * The manager's own words from the Approve popup, made safe to print: control
+ * characters dropped, runs of blank lines collapsed, length capped. Empty when
+ * there is nothing to say, so callers can spread it unconditionally.
+ */
+export function cleanResidentWelcomeNote(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, RESIDENT_WELCOME_NOTE_MAX_CHARS);
+}
+
 /** Full invitation text (e.g. copy/paste); too long for reliable mailto URLs in most clients. */
 export function buildResidentWelcomeEmailBody(params: {
   residentName?: string;
   axisId: string;
   signupUrl: string;
   managerReachability?: ManagerReachabilityLines;
+  /** The manager's own message from the Approve popup; the setup link and ID stay below it. */
+  managerNote?: string;
 }): string {
   const greeting = params.residentName?.trim() ? `Hi ${params.residentName.trim()},` : "Hi,";
   const id = formatProplaneIdForDisplay(params.axisId);
+  const note = cleanResidentWelcomeNote(params.managerNote);
   const base = [
     greeting,
     "",
+    ...(note ? [note, ""] : []),
     "Welcome to PropLane. Your rental application has been approved.",
     "",
     `Your PropLane ID: ${id}`,
@@ -76,7 +97,12 @@ export function buildResidentWelcomeEmailHtml(params: {
   axisId: string;
   signupUrl: string;
   managerReachability?: ManagerReachabilityLines;
+  managerNote?: string;
 }): string {
+  const noteText = cleanResidentWelcomeNote(params.managerNote);
+  const noteBlock = noteText
+    ? `<p style="margin:0 0 16px 0;white-space:pre-wrap">${escapeHtmlText(noteText)}</p>`
+    : "";
   const greeting = params.residentName?.trim()
     ? `Hi ${escapeHtmlText(params.residentName.trim())},`
     : "Hi,";
@@ -98,7 +124,7 @@ export function buildResidentWelcomeEmailHtml(params: {
 <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;line-height:1.55;color:#0f172a;font-size:15px;background:#f8fafc">
 <div style="max-width:36rem;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px 28px 32px;border:1px solid #e2e8f0">
 <p style="margin:0 0 12px 0">${greeting}</p>
-<p style="margin:0 0 12px 0">Welcome to PropLane. Your rental application has been approved.</p>
+${noteBlock}<p style="margin:0 0 12px 0">Welcome to PropLane. Your rental application has been approved.</p>
 <p style="margin:0 0 8px 0"><strong>Your PropLane ID:</strong> ${id}</p>
 ${reachBlock}
 ${ctaButton}
@@ -116,12 +142,16 @@ function buildResidentWelcomeMailtoBody(params: {
   axisId: string;
   signupUrl: string;
   managerReachability?: ManagerReachabilityLines;
+  managerNote?: string;
 }): string {
   const greeting = params.residentName?.trim() ? `Hi ${params.residentName.trim()},` : "Hi,";
   const id = formatProplaneIdForDisplay(params.axisId);
+  // A mailto: URL has a hard length ceiling, so only a short note rides along.
+  const note = cleanResidentWelcomeNote(params.managerNote).slice(0, 280);
   const base = [
     greeting,
     "",
+    ...(note ? [note, ""] : []),
     "Your rental application was approved. Create your resident portal account using this link:",
     "",
     params.signupUrl,
@@ -142,6 +172,7 @@ export function buildResidentWelcomeMailtoHref(params: {
   origin: string;
   setupToken?: string;
   managerReachability?: ManagerReachabilityLines;
+  managerNote?: string;
 }): string {
   const signupUrl = residentAccountCreationUrl(params.origin, params.axisId, params.setupToken);
   const body = buildResidentWelcomeMailtoBody({
@@ -149,6 +180,7 @@ export function buildResidentWelcomeMailtoHref(params: {
     axisId: params.axisId,
     signupUrl,
     managerReachability: params.managerReachability,
+    managerNote: params.managerNote,
   });
   const subject = encodeURIComponent(RESIDENT_WELCOME_EMAIL_SUBJECT);
   const encBody = encodeURIComponent(body);

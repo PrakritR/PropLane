@@ -14,17 +14,31 @@ describe("applications list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).not.toContain('disabled={!canBulkReject}');
   });
 
-  it("exposes send reminder for incomplete and in-progress selections", () => {
+  // The row ⋯ is Approve · Remind · Download · (Move to pending) · Decline · (Delete). Incomplete and
+  // Withdrawn are facts on a Pending row, not tabs, so Remind is keyed on the row, not on a tab.
+  it("exposes Remind for incomplete and in-progress rows", () => {
     expect(PANEL).toContain('data-attr="applications-bulk-send-reminder"');
-    expect(PANEL).toContain('bucket === "incomplete"');
+    expect(PANEL).not.toContain('bucket === "incomplete"');
     expect(PANEL).toContain("canBulkSendReminder");
   });
 
-  it("exposes share, download, and move-to-pending for single-row selections", () => {
-    expect(PANEL).toContain('dataAttr="applications-bulk-share"');
+  it("exposes download, move-to-pending and Decline for single-row selections; sharing lives on the record", () => {
     expect(PANEL).toContain('data-attr="applications-bulk-move-pending"');
+    expect(PANEL).toContain('data-attr="applications-bulk-decline"');
     expect(PANEL).toContain("ApplicationPdfDownloadButton");
     expect(PANEL).toContain("applicationRowCanMoveToPending");
+    expect(PANEL).not.toContain('dataAttr="applications-bulk-share"');
+    expect(PANEL).toContain('dataAttr="application-share"');
+  });
+
+  it("declines in one click (no confirm dialog) with an Undo", () => {
+    expect(PANEL).toContain("declineApplicationWithUndo");
+    expect(PANEL).not.toContain("application-reject-confirm");
+  });
+
+  it("opens the one Approve popup from every entry point", () => {
+    expect(PANEL).toContain("ApproveApplicationDialog");
+    expect(PANEL).not.toContain("application-resident-slot-modal");
   });
 
   it("allows approve and move-to-pending on rejected applications", () => {

@@ -1,7 +1,8 @@
-// C066/C281 follow-up — "Audit trail" and "Answers" are now real tabs on the
-// manager lease record page (same shape as Applications' own
-// "application-form" tab), registered in the shared record-sections.ts
-// registry rather than folded into Overview cards or the document tab.
+// C066/C281 follow-up — "Audit trail" and "Answers" are real sections on the
+// manager lease record page, registered in the shared record-sections.ts
+// registry after the Lease section (who signed + the lease itself). The page
+// hides them (`hiddenSections`) until a lease carries execution evidence or a
+// lease-first answer set, so an ordinary draft shows Lease · Communication.
 import { describe, expect, it } from "vitest";
 import { recordSections } from "@/lib/portals/record-sections";
 import { leaseFirstAnswersSummaryLabel } from "@/lib/leasing/lease-first-signing-document";
@@ -9,17 +10,21 @@ import type { ApplicationTemplateQuestionConfig } from "@/lib/property-applicati
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 
 describe("manager lease record page — Audit trail and Answers tabs", () => {
-  it("lists both tabs, after Lease document, in the Lease group", () => {
+  it("lists the Lease section first, then Audit trail and Answers, in the Lease group", () => {
     const sections = recordSections("manager", "lease", { basePath: "/portal" });
     const leaseGroup = sections.groups.find((g) => g.label === "Lease")!;
     const ids = leaseGroup.items.map((item) => item.id);
-    expect(ids).toContain("audit-trail");
-    expect(ids).toContain("answers");
-    expect(ids.indexOf("lease-document")).toBeLessThan(ids.indexOf("audit-trail"));
-    expect(ids.indexOf("audit-trail")).toBeLessThan(ids.indexOf("answers"));
+    expect(ids).toEqual(["overview", "audit-trail", "answers"]);
+    expect(leaseGroup.items[0]!.label).toBe("Lease");
   });
 
-  it("both tabs' hrefs resolve under the lease detail route, distinct from lease-document", () => {
+  it("an ordinary draft shows only Lease · Communication", () => {
+    const sections = recordSections("manager", "lease", { basePath: "/portal", hiddenSections: ["audit-trail", "answers"] });
+    const ids = sections.groups.flatMap((g) => g.items.map((item) => item.id));
+    expect(ids).toEqual(["overview", "communication"]);
+  });
+
+  it("both tabs' hrefs resolve under the lease detail route, distinct from the Lease section", () => {
     const sections = recordSections("manager", "lease", { basePath: "/portal", leaseListTab: "completed" });
     const leaseGroup = sections.groups.find((g) => g.label === "Lease")!;
     const auditTrail = leaseGroup.items.find((item) => item.id === "audit-trail")!;

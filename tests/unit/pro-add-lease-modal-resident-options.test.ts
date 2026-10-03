@@ -5,7 +5,7 @@
  * already know who was approved to tell those rows apart from "New resident…".
  */
 import { describe, expect, it } from "vitest";
-import { approvedResidentOptionLabel } from "@/components/portal/pro-add-lease-modal";
+import { approvedResidentOptionLabel } from "@/lib/lease-send-terms";
 
 describe("approvedResidentOptionLabel (C271)", () => {
   it("flags an approved applicant with a room", () => {

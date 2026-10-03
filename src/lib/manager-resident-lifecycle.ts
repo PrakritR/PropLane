@@ -222,15 +222,23 @@ export function buildResidentLifecycle(
     return { id, label: STAGE_LABELS[id], state, date: state !== "next" ? date : undefined };
   });
 
+  // One blue button, and it does the next thing: Review application opens the Approve popup, Send
+  // lease opens the Send lease screen, Sign lease / Remind to sign act on the lease out for signature.
   let next: ResidentLifecycleAction | null = null;
   if (stage === "applicant" && app && app.bucket === "pending") {
-    next = { kind: "navigate", href: hrefs.application, label: "Review application" };
+    next = { kind: "callback", label: "Review application", actionId: "approve-application" };
   } else if (stage === "approved") {
-    next = { kind: "navigate", href: hrefs.lease, label: "Send lease" };
+    next = { kind: "callback", label: "Send lease", actionId: "send-lease" };
   } else if (stage === "lease_sent" && lease?.bucket === "manager") {
+    next = { kind: "callback", label: "Send lease", actionId: "send-lease" };
+  } else if (stage === "lease_sent" && lease) {
+    next = { kind: "callback", label: "Remind to sign", actionId: "remind-sign" };
+  } else if (lease && lease.bucket === "signed" && lease.status !== "Fully Signed" && !lease.managerSignature) {
     next = { kind: "callback", label: "Sign lease", actionId: "sign-lease" };
   } else if (stage === "current" && overdue.length > 0) {
     next = { kind: "navigate", href: hrefs.payments, label: "Collect balance" };
+  } else if ((stage === "signed" || stage === "current") && unpaid.length > 0) {
+    next = { kind: "navigate", href: hrefs.payments, label: "View payments" };
   } else if (stage === "past" && balanceCents > 0) {
     next = { kind: "navigate", href: hrefs.payments, label: "Collect balance" };
   }

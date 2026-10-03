@@ -785,9 +785,19 @@ export function teamMemberDetailHref(basePath: string, _linkId: string): string 
   return teamLinkHref(basePath);
 }
 
-/** Manager applications list buckets (Appendix D5). */
-export const APPLICATION_BUCKETS = ["incomplete", "pending", "approved", "rejected"] as const;
+/**
+ * Manager applications list buckets (Appendix D5): Pending · Approved · Declined.
+ * Incomplete and Withdrawn are facts on a Pending row, never tabs of their own.
+ */
+export const APPLICATION_BUCKETS = ["pending", "approved", "rejected"] as const;
 export type ApplicationBucketId = (typeof APPLICATION_BUCKETS)[number];
+
+/** Old and friendly spellings that land on a real bucket — `incomplete` rows live in Pending. */
+const APPLICATION_BUCKET_ALIASES: Record<string, ApplicationBucketId> = {
+  incomplete: "pending",
+  withdrawn: "pending",
+  declined: "rejected",
+};
 
 /** Application list tabs shown in the Applications hub. */
 export const APPLICATION_LIST_TABS = [...APPLICATION_BUCKETS] as const;
@@ -797,7 +807,7 @@ export function parseApplicationBucket(raw: string | undefined | null): Applicat
   if (raw && (APPLICATION_BUCKETS as readonly string[]).includes(raw)) {
     return raw as ApplicationBucketId;
   }
-  return "pending";
+  return (raw && APPLICATION_BUCKET_ALIASES[raw]) || "pending";
 }
 
 export function parseApplicationListTab(raw: string | undefined | null): ApplicationListTabId {
@@ -805,7 +815,7 @@ export function parseApplicationListTab(raw: string | undefined | null): Applica
   if (raw && (APPLICATION_LIST_TABS as readonly string[]).includes(raw)) {
     return raw as ApplicationListTabId;
   }
-  return "pending";
+  return (raw && APPLICATION_BUCKET_ALIASES[raw]) || "pending";
 }
 
 export function applicationListHref(basePath: string, tab: ApplicationListTabId): string {
@@ -826,24 +836,24 @@ export function applicationListHref(basePath: string, tab: ApplicationListTabId)
  */
 export const APPLICATION_DETAIL_TABS = [
   "overview",
-  "application-form",
   "screening",
   "communication",
 ] as const;
 export type ApplicationDetailTabId = (typeof APPLICATION_DETAIL_TABS)[number];
 export const DEFAULT_APPLICATION_DETAIL_TAB: ApplicationDetailTabId = "overview";
 
+/** Application · Background check · Communication — "overview" is the Application section's route id. */
 export const APPLICATION_DETAIL_TAB_LABELS: Record<ApplicationDetailTabId, string> = {
-  overview: "Overview",
-  "application-form": "Application form",
-  screening: "Screening",
+  overview: "Application",
+  screening: "Background check",
   communication: "Communication",
 };
 
 const APPLICATION_DETAIL_TAB_ALIASES: Record<string, ApplicationDetailTabId> = {
-  applicants: "application-form",
+  applicants: "overview",
   decision: "overview",
-  documents: "application-form",
+  documents: "overview",
+  "application-form": "overview",
 };
 
 export function parseApplicationDetailTab(raw: string | undefined | null): ApplicationDetailTabId {
@@ -1105,11 +1115,18 @@ export function residentMoveInHref(
 export const LEASE_PIPELINE_TABS = ["manager", "resident", "signed", "completed"] as const;
 export type LeasePipelineTabId = (typeof LEASE_PIPELINE_TABS)[number];
 
+/** The Leases list reads Draft · Sent · Signed; these words land on the route ids behind them. */
+const LEASE_PIPELINE_TAB_ALIASES: Record<string, LeasePipelineTabId> = {
+  draft: "manager",
+  sent: "resident",
+  executed: "completed",
+};
+
 export function parseLeasePipelineTab(raw: string | undefined | null): LeasePipelineTabId {
   if (raw && (LEASE_PIPELINE_TABS as readonly string[]).includes(raw)) {
     return raw as LeasePipelineTabId;
   }
-  return "manager";
+  return (raw && LEASE_PIPELINE_TAB_ALIASES[raw]) || "manager";
 }
 
 export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string {
@@ -1130,19 +1147,19 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
  */
 export const LEASE_DETAIL_TABS = [
   "overview",
-  "lease-document",
   "audit-trail",
   "answers",
-  "payments",
   "communication",
 ] as const;
 export type LeaseDetailTabId = (typeof LEASE_DETAIL_TABS)[number];
 
 const LEASE_DETAIL_TAB_ALIASES: Record<string, LeaseDetailTabId> = {
-  terms: "lease-document",
-  signatures: "lease-document",
-  amendments: "lease-document",
-  documents: "lease-document",
+  "lease-document": "overview",
+  terms: "overview",
+  signatures: "overview",
+  amendments: "overview",
+  documents: "overview",
+  payments: "overview",
 };
 
 export function parseLeaseDetailTab(raw: string | undefined | null): LeaseDetailTabId {

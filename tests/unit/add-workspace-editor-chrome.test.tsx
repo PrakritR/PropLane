@@ -43,7 +43,6 @@ describe("AddWorkspace editor shells (source)", () => {
       "src/components/portal/property-application-form-modal.tsx",
       "src/components/portal/pro-vendor-form-modal.tsx",
       "src/components/portal/pro-task-form-modal.tsx",
-      "src/components/portal/pro-add-lease-modal.tsx",
       "src/components/portal/pro-add-payment-modal.tsx",
       "src/components/portal/pro-add-outgoing-payment-modal.tsx",
       "src/components/portal/pro-add-service-modal.tsx",

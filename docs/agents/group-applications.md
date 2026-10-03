@@ -81,3 +81,5 @@ portal, and identity while the household reads as one unit.
   Rejected tab for DISPLAY only (`applicationDecisionStatusLabel` still shows
   "Withdrawn", never "Rejected") — it never clutters the manager's Pending
   queue implying a decision is still owed.
+
+Update (studio-redesign leasing): Applications buckets are Pending / Approved / Declined; withdrawn and incomplete applications stay in Pending. Approval is per resident from the one Approve popup; the Shared room card on an application lists each roommate with an Approve or Remind icon.

@@ -42,7 +42,8 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerShareablePropertyOptions: () => [],
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   PROPERTY_PIPELINE_EVENT: "property-pipeline-changed",
   syncPropertyPipelineFromServer: () => Promise.resolve(),
   hasCachedPropertyPipeline: () => true,
@@ -83,9 +84,9 @@ describe("manager Applications — incomplete detail reminder", () => {
         detail: "Started",
       },
     ];
-    render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-E2E86A70" />);
+    render(<ManagerApplications bucket="pending" applicationId="PROPLANE-E2E86A70" />);
 
-    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Remind" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Decline" }).length).toBeGreaterThan(0);
     // The download control is no longer on the detail body: 3c23cfc2 set
@@ -93,7 +94,7 @@ describe("manager Applications — incomplete detail reminder", () => {
     // download menu, which opens on click. This test is about Send reminder and
     // the absence of Approve, so it no longer asserts a download affordance.
 
-    const sendReminder = screen.getAllByRole("button", { name: "Send reminder" })[0]!;
+    const sendReminder = screen.getAllByRole("button", { name: "Remind" })[0]!;
     const reject = screen.getAllByRole("button", { name: "Decline" })[0]!;
     expect(
       sendReminder.compareDocumentPosition(reject) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -113,8 +114,8 @@ describe("manager Applications — incomplete detail reminder", () => {
         detail: "Started",
       },
     ];
-    render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-LEGACY" />);
-    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
+    render(<ManagerApplications bucket="pending" applicationId="PROPLANE-LEGACY" />);
+    expect(screen.getAllByRole("button", { name: "Remind" }).length).toBeGreaterThan(0);
   });
 
   it("does not offer Send reminder on the Incomplete tab list", () => {
@@ -130,7 +131,7 @@ describe("manager Applications — incomplete detail reminder", () => {
         detail: "Started",
       },
     ];
-    render(<ManagerApplications bucket="incomplete" />);
-    expect(screen.queryByRole("button", { name: "Send reminder" })).toBeNull();
+    render(<ManagerApplications bucket="pending" />);
+    expect(screen.queryByRole("button", { name: "Remind" })).toBeNull();
   });
 });

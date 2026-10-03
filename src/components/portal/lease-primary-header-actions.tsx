@@ -170,8 +170,9 @@ export function LeasePrimaryHeaderActions({
   const hasDocument = leaseRowHasDocument(row);
   const showExport = hasDocument && leaseClaimsExecution(row) && Boolean(onExport);
 
+  // A draft is sent from here whether or not its document exists yet: the Send lease screen
+  // makes the PropLane lease (or takes the uploaded PDF) and will not send without a document.
   const showSendToResident =
-    hasDocument &&
     (row.status === "Manager Review" || row.status === "Draft") &&
     Boolean(onSendToResident);
   const showSign = leaseAwaitingManagerCountersign(row) && Boolean(onSignManager);
@@ -232,7 +233,7 @@ export function LeasePrimaryHeaderActions({
         node: (
           <LeaseHeaderIcon
             icon={Send}
-            label={sendToResidentBusy ? "Sending…" : "Send"}
+            label={sendToResidentBusy ? "Sending…" : "Send lease"}
             dataAttr={sendToResidentDataAttr}
             disabled={sendToResidentBusy || sendToResidentDisabled}
             onClick={onSendToResident}
@@ -327,7 +328,7 @@ export function LeasePrimaryHeaderActions({
         node: (
           <LeaseHeaderIcon
             icon={Pencil}
-            label="Edit"
+            label="Edit lease"
             dataAttr={editLeaseDataAttr}
             onClick={onEditLease}
           />
@@ -413,7 +414,16 @@ export function LeasePrimaryHeaderActions({
       });
     }
 
-    return actions;
+    // Edit · Send · Remind/Sign · Download first, the rest after, Mark as signed / Share in the ⋯, Delete last.
+    const ORDER = ["edit", "send", "sign", "reminder", "download", "export", "new-terms", "review-import", "generate", "upload", "move-review", "mark-signed", "share", "delete"];
+    return actions
+      .map((action, index) => ({ action, index }))
+      .sort((a, b) => {
+        const ra = ORDER.indexOf(a.action.id);
+        const rb = ORDER.indexOf(b.action.id);
+        return (ra === -1 ? ORDER.length : ra) - (rb === -1 ? ORDER.length : rb) || a.index - b.index;
+      })
+      .map(({ action }) => action);
   }, [
     hasDocument,
     showExport,
