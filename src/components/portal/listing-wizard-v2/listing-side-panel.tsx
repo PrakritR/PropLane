@@ -17,10 +17,17 @@
  *   room override, through one shared helper.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { buildListingQuote } from "@/lib/listing-quote";
+import { buildListingQuote, type ListingQuoteStartKind } from "@/lib/listing-quote";
+import {
+  arrangementSummaryLine,
+  offeredResidentCountsFor,
+  roomPriceForResidentCount,
+} from "@/lib/room-arrangement-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { applyPaymentAtSigningCell, clearRoomPaymentAtSigning } from "@/lib/listing-fees";
 import { roomHasOwnPaymentAtSigning } from "@/lib/listing-fee-scope";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -279,6 +286,8 @@ export function PricingReceiptPanel({
   leaseTerms,
   lockLeaseTerm = false,
   plainReceipt = false,
+  allowMonthToMonthStart = false,
+  allowCustomStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -291,9 +300,29 @@ export function PricingReceiptPanel({
   lockLeaseTerm?: boolean;
   /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
   plainReceipt?: boolean;
+  allowMonthToMonthStart?: boolean;
+  allowCustomStart?: boolean;
 }) {
-  const quote = useMemo(() => buildListingQuote(sub, { roomId, leaseTerm }), [sub, roomId, leaseTerm]);
   const rooms = sub.rooms ?? [];
+  const room = roomId ? rooms.find((r) => r.id === roomId) ?? null : null;
+  const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
+  const offered = offeredResidentCountsFor(room);
+  const [arrangementPick, setArrangementPick] = useState(offered[0] ?? 1);
+  const [residentIndex, setResidentIndex] = useState(0);
+  const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
+  const arrangementCount = offered.includes(arrangementPick) ? arrangementPick : (offered[0] ?? 1);
+
+  const quote = useMemo(
+    () =>
+      buildListingQuote(sub, {
+        roomId,
+        leaseTerm,
+        arrangementCount: plainReceipt && room ? arrangementCount : undefined,
+        residentSlot: plainReceipt && residentIndex > 0 ? residentIndex + 1 : undefined,
+        startKind: plainReceipt ? startKind : "std",
+      }),
+    [sub, roomId, leaseTerm, plainReceipt, room, arrangementCount, residentIndex, startKind],
+  );
   const wholePlace = isEntireHomeListing(sub);
   const ownRoomSigning = roomHasOwnPaymentAtSigning(sub, roomId, leaseTerm);
 
@@ -325,9 +354,69 @@ export function PricingReceiptPanel({
     .filter(Boolean)
     .join(", ");
 
+  const arrangementSummary =
+    plainReceipt && room && capacity > 1
+      ? offered
+          .map((count) => {
+            const price = roomPriceForResidentCount(room, count);
+            const money =
+              price.monthlyRent > 0 ? `$${price.monthlyRent.toLocaleString("en-US")}` : "—";
+            const unit = quote.isStay ? "/night" : "/mo";
+            return `${count === 1 ? "Private" : `Shared by ${count}`} ${money}${count > 1 ? " each" : unit}`;
+          })
+          .join(" · ")
+      : arrangementSummaryLine(room);
+
+  const startOptions: { value: ListingQuoteStartKind; label: string }[] = [{ value: "std", label: "Standard start" }];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
+  if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
+
+  const residentOptions = Array.from({ length: arrangementCount }, (_, i) => ({
+    value: String(i),
+    label: `Resident ${i + 1}`,
+  }));
+
   return (
     <>
       <PanelSection title="What a resident pays">
+        {plainReceipt && room && capacity > 1 && offered.length > 1 ? (
+          <div className="rp-pv-sel mb-3 flex flex-wrap gap-2">
+            <RowSelectCell
+              ariaLabel="Arrangement to quote"
+              value={String(arrangementCount)}
+              options={offered.map((n) => ({ value: String(n), label: n === 1 ? "Private" : `Shared by ${n}` }))}
+              onChange={(v) => {
+                setArrangementPick(Number(v) || 1);
+                setResidentIndex(0);
+              }}
+            />
+            {arrangementCount > 1 && room.residentPricing === "per_resident" ? (
+              <RowSelectCell
+                ariaLabel="Resident to quote"
+                value={String(residentIndex)}
+                options={residentOptions}
+                onChange={(v) => setResidentIndex(Number(v) || 0)}
+              />
+            ) : null}
+            {leaseTerm === LONG_TERM_LEASE_TERM && startOptions.length > 1 ? (
+              <RowSelectCell
+                ariaLabel="Start type"
+                value={startKind}
+                options={startOptions}
+                onChange={(v) => setStartKind(v as ListingQuoteStartKind)}
+              />
+            ) : null}
+          </div>
+        ) : plainReceipt && leaseTerm === LONG_TERM_LEASE_TERM && startOptions.length > 1 ? (
+          <div className="rp-pv-sel mb-3 flex flex-wrap gap-2">
+            <RowSelectCell
+              ariaLabel="Start type"
+              value={startKind}
+              options={startOptions}
+              onChange={(v) => setStartKind(v as ListingQuoteStartKind)}
+            />
+          </div>
+        ) : null}
         <div className="mb-3 grid grid-cols-2 gap-2">
           {wholePlace ? (
             <span className="flex h-9 items-center text-[12.5px] font-semibold text-foreground">Whole place</span>
@@ -378,15 +467,19 @@ export function PricingReceiptPanel({
             label={line.label}
             note={line.note}
             amount={usd(line.amount)}
-            muted={!line.dueAtSigning}
+            muted={plainReceipt ? false : !line.dueAtSigning}
             control={
-              <input
-                type="checkbox"
-                checked={line.dueAtSigning}
-                onChange={(e) => toggle(line.key, e.target.checked)}
-                aria-label={`Collect ${line.label} at signing`}
-                className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
-              />
+              plainReceipt
+                ? undefined
+                : (
+                  <input
+                    type="checkbox"
+                    checked={line.dueAtSigning}
+                    onChange={(e) => toggle(line.key, e.target.checked)}
+                    aria-label={`Collect ${line.label} at signing`}
+                    className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
+                  />
+                )
             }
           />
         ))}
@@ -421,6 +514,11 @@ export function PricingReceiptPanel({
               <PanelLine key={fee.id} label={fee.label} amount={usd(fee.amount)} />
             ))}
           </>
+        ) : null}
+        {plainReceipt && arrangementSummary ? (
+          <p className="mt-3 text-[12.5px] font-semibold text-muted" data-rp-allarr>
+            {arrangementSummary}
+          </p>
         ) : null}
       </PanelSection>
     </>

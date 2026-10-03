@@ -12,7 +12,7 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
 import { FeeRows } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
@@ -21,7 +21,11 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import {
+  CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
+  SHORT_TERM_LEASE_TERM,
+} from "@/lib/rental-application/lease-terms";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import {
   pricingCopySourceBundles,
@@ -98,6 +102,15 @@ export function PropertyRoomPricingWorkspace({
   }, [open, sub, subject]);
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
+  const extraLeaseTerms = useMemo(
+    () =>
+      leaseTerms.filter(
+        (t) => t !== LONG_TERM_LEASE_TERM && t !== SHORT_TERM_LEASE_TERM && t !== "Airbnb",
+      ),
+    [leaseTerms],
+  );
+  const allowM2m = leaseTerms.includes("Month-to-Month");
+  const allowCustomStart = leaseTerms.includes(CUSTOM_LEASE_TERM);
   const steps: AddWorkspaceStep[] = useMemo(() => {
     const out: AddWorkspaceStep[] = [];
     if (subject.kind === "bundle") {
@@ -111,6 +124,9 @@ export function PropertyRoomPricingWorkspace({
     out.push({ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" });
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
       out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
+    }
+    for (const term of extraLeaseTerms) {
+      out.push({ id: term, label: term, summary: "" });
     }
     return out.map((s) => {
       if (s.id === "bundle") return s;
@@ -133,7 +149,7 @@ export function PropertyRoomPricingWorkspace({
             : "—";
       return { ...s, summary };
     });
-  }, [draft, leaseTerms, subject]);
+  }, [draft, extraLeaseTerms, leaseTerms, subject]);
 
   const activeStepId = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
   const activeTerm =
@@ -182,9 +198,15 @@ export function PropertyRoomPricingWorkspace({
           const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
           const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
           const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
+          const stepTitle =
+            activeStepId === SHORT_TERM_LEASE_TERM
+              ? "Short term"
+              : activeStepId === LONG_TERM_LEASE_TERM
+                ? "Long-term"
+                : String(activeStepId);
           return (
             <StepColumn>
-              <StepHeading title={activeStepId === SHORT_TERM_LEASE_TERM ? "Short term" : "Long-term"} />
+              <StepHeading title={stepTitle} />
               {priceSource ? (
                 <p className="text-[12px] font-semibold text-muted" data-rp-src>
                   {priceSource}
@@ -235,6 +257,18 @@ export function PropertyRoomPricingWorkspace({
                       term={quoteTerm}
                     />
                   </>
+                ) : cap > 1 ? (
+                  <ArrangementPriceEditor
+                    room={room}
+                    onRoom={(next) => updateRoom(room.id, next)}
+                    sub={draft}
+                    patch={patch}
+                    term={quoteTerm}
+                    prorate={activeStepId === LONG_TERM_LEASE_TERM}
+                    showResidentsCapacity
+                    showMonthToMonthSurcharge={allowM2m}
+                    showCustomStartSurcharge={allowCustomStart}
+                  />
                 ) : (
                   <>
                     <FactRow label="Rent /mo">
@@ -270,16 +304,6 @@ export function PropertyRoomPricingWorkspace({
                       roomName={room.name?.trim() || "Room"}
                       term={quoteTerm}
                     />
-                    {cap > 1 ? (
-                      <ArrangementPriceEditor
-                        room={room}
-                        onRoom={(next) => updateRoom(room.id, next)}
-                        sub={draft}
-                        patch={patch}
-                        term={quoteTerm}
-                        prorate={activeStepId === LONG_TERM_LEASE_TERM}
-                      />
-                    ) : null}
                   </>
                 )
               ) : (
@@ -356,11 +380,11 @@ export function PropertyRoomPricingWorkspace({
                   />
                 </FactRow>
                 <FactRow label="Rooms">
-                  <FieldSingleSelect
+                  <CheckboxMultiSelect
                     label="Rooms in bundle"
                     options={roomOptions}
-                    value={selected[0] ?? ""}
-                    onChange={(v) => patchBundle({ includedRoomIds: v ? [v] : [] })}
+                    selected={selected}
+                    onChange={(ids) => patchBundle({ includedRoomIds: ids })}
                     dataAttr="property-bundle-rooms"
                   />
                 </FactRow>
@@ -370,9 +394,19 @@ export function PropertyRoomPricingWorkspace({
           const copySources = pricingCopySourceBundles(draft, bundle.id, activeTerm);
           const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
           const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
+          const termOverride = !isBaseLong && !isStay ? bundle.termPricing?.[activeStepId] : undefined;
+          const stepTitle =
+            activeStepId === "bundle"
+              ? "Bundle"
+              : isStay
+                ? "Short term"
+                : isBaseLong
+                  ? "Long-term"
+                  : String(activeStepId);
           return (
             <StepColumn>
-              <StepHeading title={isStay ? "Short term" : "Long-term"} />
+              <StepHeading title={stepTitle} />
               {copySources.length > 0 ? (
                 <FactRow label="Pricing">
                   <FieldSingleSelect
@@ -410,15 +444,63 @@ export function PropertyRoomPricingWorkspace({
                     <FactRow label="Rent /mo">
                       <MoneyInput
                         label="Bundle rent"
-                        value={bundle.price ?? ""}
-                        onChange={(v) => patchBundle({ price: v })}
+                        value={
+                          termOverride?.monthlyRent != null && termOverride.monthlyRent > 0
+                            ? String(termOverride.monthlyRent)
+                            : bundle.price ?? ""
+                        }
+                        onChange={(v) => {
+                          const n = Number(v.replace(/[^0-9.]/g, "")) || 0;
+                          if (isBaseLong) patchBundle({ price: v });
+                          else
+                            patchBundle({
+                              termPricing: {
+                                ...(bundle.termPricing ?? {}),
+                                [activeStepId]: {
+                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
+                                  monthlyRent: n,
+                                },
+                              },
+                            });
+                        }}
+                      />
+                    </FactRow>
+                    <FactRow label="Utilities /mo">
+                      <MoneyInput
+                        label="Bundle utilities"
+                        value={termOverride?.utilitiesEstimate ?? bundle.utilitiesEstimate ?? ""}
+                        onChange={(v) => {
+                          if (isBaseLong) patchBundle({ utilitiesEstimate: v });
+                          else
+                            patchBundle({
+                              termPricing: {
+                                ...(bundle.termPricing ?? {}),
+                                [activeStepId]: {
+                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
+                                  utilitiesEstimate: v,
+                                },
+                              },
+                            });
+                        }}
                       />
                     </FactRow>
                     <FactRow label="Deposit">
                       <MoneyInput
                         label="Bundle deposit"
-                        value={bundle.securityDeposit ?? ""}
-                        onChange={(v) => patchBundle({ securityDeposit: v })}
+                        value={termOverride?.securityDeposit ?? bundle.securityDeposit ?? ""}
+                        onChange={(v) => {
+                          if (isBaseLong) patchBundle({ securityDeposit: v });
+                          else
+                            patchBundle({
+                              termPricing: {
+                                ...(bundle.termPricing ?? {}),
+                                [activeStepId]: {
+                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
+                                  securityDeposit: v,
+                                },
+                              },
+                            });
+                        }}
                       />
                     </FactRow>
                     <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
@@ -472,6 +554,8 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             lockLeaseTerm
             plainReceipt
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
           />
         ) : undefined
       }
