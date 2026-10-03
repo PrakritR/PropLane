@@ -22,19 +22,31 @@ export async function PATCH(req: Request) {
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  let body: { monthlyBudgetCents?: number | null; clearBillingPause?: boolean };
+  let body: { creditAlertRemainingCents?: number | null; monthlyBudgetCents?: number | null; clearBillingPause?: boolean };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["monthlyBudgetCents", "clearBillingPause"].includes(key))) return NextResponse.json({ error: "Invalid settings." }, { status: 400 });
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["monthlyBudgetCents", "clearBillingPause", "creditAlertRemainingCents"].includes(key))) return NextResponse.json({ error: "Invalid settings." }, { status: 400 });
   const db = createSupabaseServiceRoleClient();
   const now = new Date().toISOString();
 
   if (body.clearBillingPause) {
     return NextResponse.json({ error: "Contact PropLane to review a billing pause." }, { status: 403 });
+  }
+
+  if (body.creditAlertRemainingCents !== undefined) {
+    const threshold = body.creditAlertRemainingCents;
+    if (threshold !== null && (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 1_000_000)) {
+      return NextResponse.json({ error: "Enter an alert amount from $0 to $10,000." }, { status: 400 });
+    }
+    const { error } = await db.from("manager_comms_billing_accounts").upsert({
+      manager_user_id: auth.userId, credit_alert_remaining_cents: threshold,
+      credit_alert_notified_at: null, updated_at: now,
+    }, { onConflict: "manager_user_id" });
+    if (error) return NextResponse.json({ error: "Could not save credit alert." }, { status: 503 });
   }
 
   if (body.monthlyBudgetCents !== undefined) {

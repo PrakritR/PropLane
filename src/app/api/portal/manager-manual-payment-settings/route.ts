@@ -97,7 +97,7 @@ async function workspacePaymentSettingsPublic(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
 ): Promise<
-  Record<string, { serviceFeePayer: ServiceFeePayer | null; autopayEnabled: boolean; autopayRetryEnabled: boolean }>
+  Record<string, { serviceFeePayer: ServiceFeePayer | null; autopayEnabled: boolean; autopayRetryEnabled: boolean; defaultPaymentMethod: "balance" | "ach" }>
 > {
   const all = await loadWorkspacePaymentSettings(db, userId);
   return Object.fromEntries(
@@ -105,6 +105,7 @@ async function workspacePaymentSettingsPublic(
       id,
       {
         serviceFeePayer: value.serviceFeePayer,
+        defaultPaymentMethod: value.defaultPaymentMethod ?? "balance",
         autopayEnabled: workspaceAutopayEnabled(value),
         autopayRetryEnabled: workspaceAutopayRetryEnabled(value),
       },
@@ -190,11 +191,15 @@ export async function PATCH(req: Request) {
       propertyServiceFeePayers,
       workspaceId,
       workspaceServiceFeePayer,
+      workspaceDefaultPaymentMethod,
       workspaceServiceFeeWaiverCode,
       workspaceAutopayEnabled: workspaceAutopayEnabledPatch,
       workspaceAutopayRetryEnabled: workspaceAutopayRetryEnabledPatch,
       ...rest
     } = body;
+    if (workspaceDefaultPaymentMethod !== undefined && workspaceDefaultPaymentMethod !== "balance" && workspaceDefaultPaymentMethod !== "ach") {
+      return NextResponse.json({ error: "Choose a valid payment method." }, { status: 400 });
+    }
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
     const hasSettingsPatch = Object.keys(rest).length > 0;
     let settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
@@ -233,7 +238,7 @@ export async function PATCH(req: Request) {
     if (
       typeof workspaceId === "string" &&
       workspaceId.trim() &&
-      (feePayerProvided || autopayEnabledProvided || autopayRetryProvided)
+      (feePayerProvided || autopayEnabledProvided || autopayRetryProvided || workspaceDefaultPaymentMethod !== undefined)
     ) {
       // A workspace id in the body is scope, never a grant: the caller must own it.
       const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { workspaceId: workspaceId.trim() });
@@ -264,6 +269,7 @@ export async function PATCH(req: Request) {
          the same way a listing keeps its own. A `proplane` the staff override
          backs is stored codeless; the override answers first at checkout. */
       const result = await saveWorkspacePaymentSettings(ctx.db, ctx.userId, workspaceId.trim(), {
+        ...(workspaceDefaultPaymentMethod ? { defaultPaymentMethod: workspaceDefaultPaymentMethod as "balance" | "ach" } : {}),
         ...(feePayerProvided
           ? { serviceFeePayer: choice, ...(workspaceCodeMatches ? { serviceFeeWaiverCode: workspaceCode } : {}) }
           : {}),

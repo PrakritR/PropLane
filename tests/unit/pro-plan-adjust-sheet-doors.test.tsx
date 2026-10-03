@@ -11,6 +11,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ui/modal", () => ({
+  ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Modal: ({ open, children, title }: { open: boolean; children: ReactNode; title: string }) =>
     open ? (
       <div role="dialog" aria-label={title}>
@@ -39,8 +40,8 @@ describe("Adjust plan cards price this account's real residents", () => {
         residentCount={null}
       />,
     );
-    expect(screen.getByText("$49/mo · $490/yr")).toBeTruthy();
-    expect(screen.getByText("$249/mo · $2,490/yr")).toBeTruthy();
+    expect(screen.getByText("$49 / mo")).toBeTruthy();
+    expect(screen.getByText("$249 / mo")).toBeTruthy();
     expect(screen.queryByText("$20/mo · $192/yr")).toBeNull();
     expect(screen.queryByText("$200/mo · $1,920/yr")).toBeNull();
   });

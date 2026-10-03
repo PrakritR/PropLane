@@ -281,8 +281,8 @@ export function ManagerPaymentSetupPanel({
     // the "setup" half never needs the fee-payer read, and the "fee" half
     // never needs Stripe's status.
     if (section !== "fee") void loadStripeStatus();
+    void loadSettings();
     if (section !== "setup") {
-      void loadSettings();
       void loadTier();
     }
   }, [active, section, loadStripeStatus, loadSettings, loadTier, cancelProplanePending]);
@@ -645,6 +645,10 @@ export function ManagerPaymentSetupPanel({
             disabled={loading || (!settingsLoaded && !demo) || savingKey === "autopay-enabled"}
             dataAttr="manager-autopay-enabled-select"
           />
+          <FieldSingleSelect label="Retry declined autopay" value={savedWorkspaceAutopay.autopayRetryEnabled ? "on" : "off"}
+            options={[{ value: "on", label: "On" }, { value: "off", label: "Off" }]}
+            onChange={(next) => void persistSettings({ workspaceId: activeWorkspaceId, workspaceAutopayRetryEnabled: next === "on" }, "autopay-retry")}
+            disabled={loading || !settingsLoaded || savingKey === "autopay-retry"} dataAttr="manager-autopay-retry-select" />
         </section>
       ) : null}
     </div>

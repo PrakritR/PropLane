@@ -81,11 +81,6 @@ import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
-import {
-  PaymentListingLateFeeSettings,
-  type PaymentListingLateFeeHandle,
-} from "@/components/portal/payment-late-fee-settings";
-import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -1406,7 +1401,6 @@ export function PaymentsSettingsPanel({
   onFooterReady,
   formRef,
   mode = "incoming",
-  propertyOptions = [],
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
@@ -1416,52 +1410,8 @@ export function PaymentsSettingsPanel({
   propertyOptions?: { id: string; label: string }[];
   initialPropertyId?: string;
 }) {
-  const workspaces = useWorkspaces();
-  const scope = useSettingsPropertyScope();
-  const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
-
-  useImperativeHandle(
-    formRef,
-    () => ({
-      saveIfDirty: async () => {
-        if ((await lateFeeRef.current?.saveIfDirty()) === false) return false;
-        return true;
-      },
-    }),
-    [],
-  );
-
+  useImperativeHandle(formRef, () => ({ saveIfDirty: async () => true }), []);
   useReportSettingsPanelFooter(onFooterReady, null);
-
-  /* Only workspaces the signed-in manager owns can have their payment setup
-     changed here — same fallback `ManagerPaymentSetupPanel` already uses for
-     the processing-fee payer: the scope bar's own pick, else the active
-     workspace (if owned), else the first owned workspace. */
-  const ownedWorkspaces = useMemo(
-    () => (workspaces?.workspaces ?? []).filter((w) => w.owned),
-    [workspaces?.workspaces],
-  );
-  const effectiveWorkspace = useMemo(() => {
-    if (scope.workspaceId) return workspaces?.workspaces.find((w) => w.id === scope.workspaceId) ?? null;
-    if (workspaces?.active?.owned) return workspaces.active;
-    return ownedWorkspaces[0] ?? null;
-  }, [scope.workspaceId, workspaces, ownedWorkspaces]);
-
-  const houses = useMemo(() => {
-    if (!effectiveWorkspace) return propertyOptions;
-    const allowed = new Set(effectiveWorkspace.propertyIds.map((id) => id.trim()).filter(Boolean));
-    return unionLabeledPropertyOptions(
-      propertyOptionsFromWorkspacePayload(effectiveWorkspace),
-      propertyOptions.filter((house) => allowed.has(house.id)),
-    );
-  }, [effectiveWorkspace, propertyOptions]);
-
-  /* Late fees have no workspace/account rung — every listing carries its own
-     value — so the "all properties" bucket is every house in this resolved
-     workspace, not just the ones the global switcher currently shows. */
-  const workspaceProperties = houses;
-
-  const lateFeePropertyCount = scope.propertyIds.length > 0 ? scope.propertyIds.length : workspaceProperties.length;
 
   if (mode === "outgoing") {
     return (
@@ -1481,29 +1431,8 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Payment setup">
-        <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection
-        title="Processing fee"
-        action={<SettingsGroupSourceTag namespace="processing-fee-settings" />}
-      >
-        <ManagerPaymentSetupPanel active section="fee" propertyOptions={houses} />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection
-        title="Late fees"
-        action={<PortalSettingsScopeTag variant="muted">{scopeTagLabel("property", lateFeePropertyCount)}</PortalSettingsScopeTag>}
-      >
-        <PortalSettingsGroup>
-          <PaymentListingLateFeeSettings
-            ref={lateFeeRef}
-            propertyOptions={workspaceProperties}
-            workspaceName={effectiveWorkspace?.name}
-            workspaceId={effectiveWorkspace?.id}
-          />
-        </PortalSettingsGroup>
+      <PortalSettingsSection title="Receiving from residents">
+        <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href={managerSettingsProfilePath("account")} dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );

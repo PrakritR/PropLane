@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   type ManagerSkuTier,
 } from "@/lib/manager-access";
 import { includedAllowanceCents } from "@/lib/comms-billing/allowances";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
-import { RATE_CARD, priceForResidents, formatRateCardUsd, includedResidentsForTier } from "@/lib/billing/rate-card";
+import { annualDiscountPercent, RATE_CARD, priceForResidents, formatRateCardUsd, includedResidentsForTier } from "@/lib/billing/rate-card";
 
-export type AdjustablePaidTier = "pro" | "business";
+export type AdjustablePaidTier = "free" | "pro" | "business";
 export type BillingInterval = "monthly" | "annual";
 
 function tierLabel(t: ManagerSkuTier): string {
@@ -28,26 +28,6 @@ function tierRank(t: ManagerSkuTier): number {
 function wholeDollars(cents: number | null): string {
   if (!cents) return "$0";
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
-}
-
-/** "100 residents incl. · $3/resident after · 1 workspace · 1 work number ·
- * $25 credit/mo" — every number here is read live from the same sources the
- * product enforces. */
-function entitlementLine(tier: AdjustablePaidTier): string {
-  const card = RATE_CARD[tier];
-  const workspaces = WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces;
-  const residents = includedResidentsForTier(tier);
-  const workNumber = "1 work number per workspace";
-  const credit = wholeDollars(includedAllowanceCents(tier));
-  const residentLine = `${residents} residents incl. · ${formatRateCardUsd(card.perExtraDoorMonthlyCents ?? 0)}/resident after`;
-  return `${residentLine} · ${workspaces} workspace${workspaces === 1 ? "" : "s"} · ${workNumber} · ${credit} credit/mo`;
-}
-
-/** The tier's own floor, read from the rate card — never a hand-typed
- * dollar figure that can drift from what `priceForResidents` actually charges. */
-function tierFloorPriceLine(tier: AdjustablePaidTier): string {
-  const card = RATE_CARD[tier];
-  return `${formatRateCardUsd(card.floorMonthlyCents)}/mo · ${formatRateCardUsd(card.floorAnnualCents)}/yr`;
 }
 
 /** What THIS account would actually pay on `tier` at `billing`, priced
@@ -113,7 +93,7 @@ export function PlanAdjustSheet({
 }) {
   const [billing, setBilling] = useState<BillingInterval>(currentBilling);
   const [selected, setSelected] = useState<AdjustablePaidTier | null>(
-    currentTier === "free" ? null : (currentTier as AdjustablePaidTier),
+    currentTier,
   );
 
   const close = () => {
@@ -125,91 +105,35 @@ export function PlanAdjustSheet({
     selected != null ? planAdjustTransitionFact(currentTier, currentBilling, selected, billing, renewalLabel) : null;
 
   return (
-    <Modal open={open} title="Adjust plan" onClose={close}>
-      <div className="space-y-4">
-        <div className="surface-panel inline-flex items-center gap-1 rounded-full border border-border p-1">
-          <button
-            type="button"
-            onClick={() => setBilling("monthly")}
-            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-              billing === "monthly" ? "bg-primary text-white" : "text-muted hover:text-foreground"
-            }`}
-          >
-            Monthly
-          </button>
-          <button
-            type="button"
-            onClick={() => setBilling("annual")}
-            className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-              billing === "annual" ? "bg-primary text-white" : "text-muted hover:text-foreground"
-            }`}
-          >
-            Annual
-            <span
-              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                billing === "annual" ? "bg-card/20 text-white" : "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-              }`}
-            >
-              −20%
+    <Modal open={open} title="Change plan" onClose={close}>
+      <div className="space-y-3" role="radiogroup" aria-label="Plan">
+        <div className="flex rounded-lg bg-accent/40 p-1" role="group" aria-label="Billing period">
+          {(["monthly", "annual"] as const).map((interval) => <button key={interval} type="button" aria-pressed={billing === interval} onClick={() => setBilling(interval)} className={`flex-1 rounded-md py-2 text-sm ${billing === interval ? "bg-card shadow-sm" : "text-muted"}`}>
+            {interval === "monthly" ? "Monthly" : `Yearly · Save ${annualDiscountPercent("pro")}%`}
+          </button>)}
+        </div>
+        {(["free", "pro", "business"] as const).map((tier) => <button key={tier} type="button" role="radio" aria-checked={selected === tier} disabled={busy} onClick={() => setSelected(tier)} data-attr={`plan-adjust-row-${tier}`} className={`flex w-full gap-3 rounded-xl border p-3.5 text-left ${selected === tier ? "border-primary bg-primary/5" : "border-border"}`}>
+          <span className={`mt-1 size-5 shrink-0 rounded-full border ${selected === tier ? "border-[6px] border-primary" : "border-border"}`} />
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-baseline gap-2"><strong>{tierLabel(tier)}</strong>{currentTier === tier ? <span className="text-xs text-muted">✓ Current plan</span> : null}<span className="ml-auto text-sm">{formatRateCardUsd(billing === "annual" ? RATE_CARD[tier].floorAnnualCents : RATE_CARD[tier].floorMonthlyCents)} / {billing === "annual" ? "yr" : "mo"}</span></span>
+            <span className="mt-2 grid gap-1 text-sm">
+              <span>✓ {includedResidentsForTier(tier)} residents included{RATE_CARD[tier].perExtraDoorMonthlyCents ? ` · ${formatRateCardUsd(RATE_CARD[tier].perExtraDoorMonthlyCents!)} each after` : ""}</span>
+              <span>✓ {WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces} workspace{WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces === 1 ? "" : "s"}</span>
+              <span>✓ {wholeDollars(includedAllowanceCents(tier))} messaging credit / month</span>
             </span>
-          </button>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-border">
-          {(["pro", "business"] as const).map((tier) => {
-            const isCurrent = tier === currentTier;
-            const isSelected = selected === tier;
-            return (
-              <button
-                key={tier}
-                type="button"
-                onClick={() => setSelected(tier)}
-                disabled={busy}
-                data-attr={`plan-adjust-row-${tier}`}
-                className={`flex w-full flex-col items-start gap-1 border-b border-border px-4 py-3.5 text-left last:border-0 transition ${
-                  isSelected ? "bg-primary/5" : "hover:bg-accent/20"
-                }`}
-              >
-                <div className="flex w-full items-center justify-between gap-3">
-                  <span className="text-sm font-bold text-foreground">{tierLabel(tier)}</span>
-                  {isCurrent ? (
-                    <span className="text-sm text-muted">Current</span>
-                  ) : null}
-                </div>
-                <p className="text-sm tabular-nums text-muted">{tierFloorPriceLine(tier)}</p>
-                {tierAccountPriceLine(tier, billing, residentCount) ? (
-                  <p
-                    className="text-sm font-semibold tabular-nums text-foreground"
-                    data-attr={`plan-adjust-account-price-${tier}`}
-                  >
-                    {tierAccountPriceLine(tier, billing, residentCount)}
-                  </p>
-                ) : null}
-                <p className="text-xs text-muted">{entitlementLine(tier)}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {fact ? (
-          <p className="text-sm text-muted" data-attr="plan-adjust-fact">
-            {fact}
-          </p>
-        ) : null}
-
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            disabled={busy || !selected || (selected === currentTier && billing === currentBilling)}
-            onClick={() => selected && onConfirm(selected, billing)}
-            data-attr="plan-adjust-confirm"
-          >
-            {busy ? "Processing…" : "Confirm"}
-          </Button>
-        </div>
+            {tier !== "free" && tierAccountPriceLine(tier, billing, residentCount) ? <span className="mt-2 block text-sm" data-attr={`plan-adjust-account-price-${tier}`}>{tierAccountPriceLine(tier, billing, residentCount)}</span> : null}
+          </span>
+        </button>)}
       </div>
+      <details className="my-3"><summary className="cursor-pointer py-2 text-sm text-primary">Compare all features</summary>
+        <table className="w-full text-sm"><thead><tr><th className="text-left">Included</th><th>Free</th><th>Pro</th><th>Business</th></tr></thead><tbody>
+          <tr><td className="py-3">Residents</td>{(["free", "pro", "business"] as const).map(tier => <td key={tier} className="text-center">{includedResidentsForTier(tier)}</td>)}</tr>
+          <tr><td className="py-3">Workspaces</td>{(["free", "pro", "business"] as const).map(tier => <td key={tier} className="text-center">{WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces}</td>)}</tr>
+          <tr><td className="py-3">Messaging credit</td>{(["free", "pro", "business"] as const).map(tier => <td key={tier} className="text-center">{wholeDollars(includedAllowanceCents(tier))}</td>)}</tr>
+        </tbody></table>
+      </details>
+      {fact ? <p className="text-sm text-muted" data-attr="plan-adjust-fact">{fact}</p> : null}
+      <ModalFooter><Button disabled={busy || !selected || (selected === currentTier && (selected === "free" || billing === currentBilling))} onClick={() => selected && onConfirm(selected, billing)} data-attr="plan-adjust-confirm">{busy ? "Processing…" : selected === currentTier ? "Change billing period" : `Switch to ${selected ? tierLabel(selected) : "a plan"}`}</Button></ModalFooter>
     </Modal>
   );
 }

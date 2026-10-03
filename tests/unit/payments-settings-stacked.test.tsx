@@ -77,9 +77,9 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     expect(body).not.toMatch(/PaymentsSettingsArea/);
   });
 
-  it("renders Payment setup, Processing fee, Late fees in that order; Incoming/Outgoing reminders moved to the Reminders hub (C111)", () => {
+  it("renders setup and receiving links while account fees and property late fees live at their destinations", () => {
     const body = paymentsSettingsPanelSource();
-    const titles = ["Payment setup", "Processing fee", "Late fees"];
+    const titles = ["Receiving from residents"];
     const positions = titles.map((title) => {
       const idx = body.indexOf(`title="${title}"`);
       expect(idx, `missing section titled "${title}"`).toBeGreaterThan(-1);
@@ -95,29 +95,18 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     // everywhere now (see `WhatProplaneSends`, Settings → Communication), so
     // there is nothing left here to link out to. `mode="outgoing"` is a
     // separate, non-Settings-nav surface (out of scope) and keeps its link.
-    const incoming = body.slice(body.indexOf('title="Payment setup"'));
+    const incoming = body.slice(body.indexOf('title="Receiving from residents"'));
     expect(incoming).not.toContain("Edit reminder timing and automated messages");
     expect(incoming).not.toContain("payments-open-reminders-hub");
   });
 
-  it("gives Processing fee and Late fees a scope-bar-fed source tag; reminders keep theirs on the Reminders hub", () => {
+  it("links to the account processing-fee default and has no listing late-fee editor", () => {
     const body = paymentsSettingsPanelSource();
-    expect(body).toContain('<SettingsGroupSourceTag namespace="processing-fee-settings" />');
-    // Late fees has no workspace/account rung, so it carries its own always-"property"
-    // tag (computed from the module's resolved scope) rather than the generic
-    // by-namespace lookup — same vocabulary (`scopeTagLabel`), correct count.
-    expect(body).toContain('scopeTagLabel("property", lateFeePropertyCount)');
-    // "Payment setup" itself (Stripe payouts) has no scope rung to tag —
-    // account-only — so it alone carries none.
-    const setupSection = body.slice(body.indexOf('title="Payment setup"'), body.indexOf('title="Processing fee"'));
-    expect(setupSection).not.toContain("SettingsGroupSourceTag");
-
-    const hub = readFileSync(
-      `${process.cwd()}/src/components/portal/pro-portal-automation-settings-panel.tsx`,
-      "utf8",
-    );
-    expect(hub).toContain("IncomingPaymentRemindersSettingsBundle");
-    expect(hub).toContain("OutgoingPaymentRemindersSettingsBundle");
+    expect(body).toContain('managerSettingsProfilePath("account")');
+    expect(body).toContain('label="Processing fee paid by"');
+    expect(body).not.toContain('title="Processing fee"');
+    expect(body).not.toContain('title="Late fees"');
+    expect(body).not.toContain('PaymentListingLateFeeSettings');
   });
 });
 

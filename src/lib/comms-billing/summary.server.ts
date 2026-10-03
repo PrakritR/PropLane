@@ -25,6 +25,7 @@ export type ManagerCommsBillingSummary = {
   blockMessage: string | null;
   monthToDateCents: number;
   monthlyBudgetCents: number | null;
+  creditAlertRemainingCents?: number | null;
   hasPaymentMethod: boolean;
   billingPaused: boolean;
   ratesCents: Record<CommsBillingMeter, number>;
@@ -92,7 +93,7 @@ export async function loadManagerCommsBillingSummary(
     usageRows(db, managerUserId, wallet.periodStart, wallet.periodEnd),
     db
       .from("manager_comms_billing_accounts")
-      .select("monthly_budget_cents, has_default_payment_method")
+      .select("monthly_budget_cents, has_default_payment_method, credit_alert_remaining_cents")
       .eq("manager_user_id", managerUserId)
       .maybeSingle(),
     db
@@ -135,6 +136,7 @@ export async function loadManagerCommsBillingSummary(
     monthToDateCents,
     formattedMonthToDate: formatUsdFromCents(monthToDateCents),
     monthlyBudgetCents: accountResult.data?.monthly_budget_cents ?? null,
+    creditAlertRemainingCents: accountResult.data?.credit_alert_remaining_cents ?? null,
     hasPaymentMethod: accountResult.data?.has_default_payment_method === true,
     billingPaused: wallet.paused,
     ratesCents: COMMS_BILLING_RATES_CENTS,
