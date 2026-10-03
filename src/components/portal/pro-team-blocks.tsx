@@ -11,7 +11,7 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { MoreHorizontal, ChevronDown } from "lucide-react";
+import { Hourglass, MoreHorizontal } from "lucide-react";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
@@ -22,9 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { TEAM_ROLE_INVITE_OPTIONS, type TeamRoleId } from "@/lib/co-manager-team-roles";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
 export type TeamMemberRow = {
   id: string;
@@ -34,6 +32,8 @@ export type TeamMemberRow = {
   role: "owner" | "co_manager";
   /** Product role stamp on a co-manager (Viewer, Leasing, …). */
   roleLabel?: string;
+  /** The stored role id, so the role dropdown shows the current pick. */
+  roleId?: string | null;
   /** "All houses" or "3 of 10 houses" */
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
@@ -87,22 +87,86 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
   );
 }
 
+const ALL_HOUSES = "__all-houses";
+
+/**
+ * Role and houses for one manager, side by side as dropdowns when the viewer may
+ * change them, otherwise as plain text. The owner is one read-only line.
+ */
 export function TeamRowValues({ row }: { row: TeamMemberRow }) {
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(row.houses?.selected ?? []);
-  const [all, setAll] = useState(row.houses?.all ?? false);
-  return <div className="flex flex-col items-end text-sm">
-    {row.onRoleChange ? <DropdownMenu modal={false}><DropdownMenuTrigger disabled={busy} className="inline-flex min-h-8 items-center gap-1" aria-label={`Role for ${row.name}`}>{row.roleLabel ?? "Co-manager"}<ChevronDown className="size-3" /></DropdownMenuTrigger>
-      <DropdownMenuContent>{TEAM_ROLE_INVITE_OPTIONS.map((option) => <DropdownMenuItem key={option.value} onSelect={() => { if (option.value === "custom") { row.onEdit?.(); return; } setBusy(true); void row.onRoleChange!(option.value as TeamRoleId).finally(() => setBusy(false)); }}>{option.value === "custom" ? "Custom…" : option.label}</DropdownMenuItem>)}</DropdownMenuContent>
-    </DropdownMenu> : <span>{row.role === "owner" ? "Owner" : row.roleLabel ?? "Co-manager"}</span>}
-    {row.houses ? <button type="button" className="inline-flex min-h-8 items-center gap-1 text-xs text-muted" onClick={() => { setSelected(row.houses!.selected); setAll(row.houses!.all); setOpen(true); }}>{row.propertiesLabel}<ChevronDown className="size-3" /></button> : <span className="text-xs text-muted">{row.propertiesLabel}</span>}
-    {row.houses ? <Modal title={`Houses · ${row.name}`} open={open} onClose={() => setOpen(false)}>
-      <label className="mb-4 flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={all} onChange={(event) => setAll(event.target.checked)} />All houses</label>
-      {!all ? <CheckboxMultiSelect label="Selected houses" options={row.houses.options} selected={selected} onChange={setSelected} /> : null}
-      <ModalFooter><Button disabled={!all && selected.length === 0} onClick={async () => { await row.houses!.onSave(all ? row.houses!.options.map((option) => option.value) : selected, all); setOpen(false); }}>Save</Button></ModalFooter>
-    </Modal> : null}
-  </div>;
+  if (row.role === "owner") {
+    return <span className="whitespace-nowrap text-sm text-foreground" data-attr="team-owner-values">Owner · {row.propertiesLabel}</span>;
+  }
+  const roleId = row.roleId === "full" ? "admin" : row.roleId ?? "";
+  const houses = row.houses;
+  const houseIds = houses?.options.map((option) => option.value) ?? [];
+  const allSelected = houses?.all ?? false;
+  const houseSelection = houses ? (allSelected ? [ALL_HOUSES, ...houseIds] : houses.selected) : [];
+  const saveHouses = (next: string[]) => {
+    if (!houses) return;
+    const wantsAll = next.includes(ALL_HOUSES);
+    const picked = next.filter((id) => id !== ALL_HOUSES);
+    let ids: string[];
+    let all: boolean;
+    if (wantsAll && !allSelected) {
+      ids = houseIds;
+      all = true;
+    } else if (!wantsAll && allSelected) {
+      ids = houseIds;
+      all = false;
+    } else {
+      ids = picked;
+      all = false;
+    }
+    // A manager always keeps at least one house; clearing the last one is not a change.
+    if (ids.length === 0) return;
+    setBusy(true);
+    void houses.onSave(ids, all).finally(() => setBusy(false));
+  };
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 text-sm" data-attr="team-row-values">
+      {row.onRoleChange ? (
+        <FieldSingleSelect
+          label={`Role for ${row.name}`}
+          hideLabel
+          variant="cell"
+          wrapperClassName="min-w-[9.5rem]"
+          disabled={busy}
+          value={roleId}
+          placeholder={row.roleLabel ?? "Co-manager"}
+          options={TEAM_ROLE_INVITE_OPTIONS.map((option) => ({ value: option.value, label: option.value === "custom" ? "Custom…" : option.label, triggerLabel: option.label }))}
+          dataAttr="team-row-role"
+          onChange={(next) => {
+            if (next === "custom") {
+              row.onEdit?.();
+              return;
+            }
+            setBusy(true);
+            void row.onRoleChange!(next as TeamRoleId).finally(() => setBusy(false));
+          }}
+        />
+      ) : (
+        <span className="text-foreground">{row.roleLabel ?? "Co-manager"}</span>
+      )}
+      {houses ? (
+        <CheckboxMultiSelect
+          label={`Houses for ${row.name}`}
+          hideLabel
+          variant="cell"
+          className="min-w-[9.5rem]"
+          disabled={busy}
+          options={[{ value: ALL_HOUSES, label: "All houses" }, ...houses.options]}
+          selected={houseSelection}
+          selectionTriggerLabel={row.propertiesLabel}
+          onChange={saveHouses}
+          dataAttr="team-row-houses"
+        />
+      ) : (
+        <span className="text-muted">{row.propertiesLabel}</span>
+      )}
+    </div>
+  );
 }
 
 function BlockShell({
@@ -139,10 +203,10 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
       m.onTransfer ? { id: "transfer", label: "Transfer ownership", onSelect: m.onTransfer, dataAttr: "team-member-transfer" } : null,
       m.onDisconnect ? { id: "disconnect", label: "Remove", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
     ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
-    return <li key={m.id} className="grid grid-cols-[32px_minmax(0,1fr)_auto_32px] items-center gap-2 border-b border-border px-4 py-3 last:border-0" data-attr="team-member-row">
-      <InboxAvatar name={m.name} className="h-8 w-8 text-[11px]" />
-      <span className="min-w-0"><span className="block truncate text-[15px]">{m.name}</span><span className="block truncate text-xs text-muted">{m.detail}</span>{m.note ? <span className="text-xs text-muted" data-attr="team-member-note">{m.note}</span> : null}</span>
-      <TeamRowValues row={m} /><TeamRowMenu label={m.name} items={items} />
+    return <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-0" data-attr="team-member-row">
+      <InboxAvatar name={m.name} className="h-8 w-8 shrink-0 text-[11px]" />
+      <span className="min-w-[8rem] flex-1"><span className="block truncate text-[15px]">{m.name}</span><span className="block truncate text-xs text-muted">{m.detail}</span>{m.note ? <span className="text-xs text-muted" data-attr="team-member-note">{m.note}</span> : null}</span>
+      <TeamRowValues row={m} />{items.length > 0 ? <TeamRowMenu label={m.name} items={items} /> : <span className="hidden size-11 shrink-0 sm:block" aria-hidden />}
     </li>;
   })}</ul>;
   return embedded ? <div data-attr="team-members-block">{rows}</div> : <BlockShell title="Managers" dataAttr="team-members-block">{rows}</BlockShell>;
@@ -190,18 +254,19 @@ export function TeamPendingInvitesBlock({
                 { id: "decline", label: "Decline", onSelect: () => onDecline(inv), destructive: true, dataAttr: "team-pending-decline" },
               ];
           return (
-            <li key={inv.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/60 px-4 py-2.5" data-attr="team-pending-row">
-              <button type="button" onClick={() => onOpen(inv)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-                <InboxAvatar name={name} className="h-8 w-8 shrink-0 text-[11px]" />
+            <li key={inv.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border px-4 py-3" data-attr="team-pending-row">
+              <button type="button" onClick={() => onOpen(inv)} className="flex min-w-[8rem] flex-1 items-center gap-3 text-left">
+                <InboxAvatar name={name} className="h-8 w-8 shrink-0 border border-dashed border-border bg-transparent text-[11px]" />
                 <span className="min-w-0">
-                  <span className="block truncate text-[14px] font-semibold text-foreground">{name}</span>
-                  <span className="block truncate text-[12px] text-muted">
-                    {outgoing ? "Invited" : `Invited you`}
-                    {` · ${expiryLabel(inv.expiresAt)}`}
+                  <span className="block truncate text-[15px] text-foreground">{name}</span>
+                  <span className="flex items-center gap-1 truncate text-xs text-muted">
+                    <Hourglass className="size-3 shrink-0" aria-hidden />
+                    {outgoing ? "Invited" : "Invited you"}
+                    {expiryLabel(inv.expiresAt) ? ` · ${expiryLabel(inv.expiresAt)}` : ""}
                   </span>
                 </span>
               </button>
-              <TeamRowValues row={{ id: inv.id, name, detail: "", role: "co_manager", roleLabel: roleLabel?.(inv), propertiesLabel: propertiesLabel(inv), joinedAt: null, onEdit: () => onOpen(inv), ...controls?.(inv) }} />
+              <TeamRowValues row={{ id: inv.id, name, detail: "", role: "co_manager", roleLabel: roleLabel?.(inv), roleId: inv.teamRole, propertiesLabel: propertiesLabel(inv), joinedAt: null, onEdit: () => onOpen(inv), ...controls?.(inv) }} />
               <TeamRowMenu label={name} items={items} />
             </li>
           );

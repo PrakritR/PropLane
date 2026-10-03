@@ -7,7 +7,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Link2, MoreHorizontal } from "lucide-react";
+import { Copy, Link2, MoreHorizontal } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -203,16 +204,16 @@ export function WorkspaceInviteLinkStrip({
         return (
           <div
             key={link.id}
-            className="grid grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-3 border-t border-border px-4 py-3"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border px-4 py-3"
             data-attr="workspace-invite-link-row"
             data-link-id={link.id}
           >
-            <span className="flex min-w-0 items-center gap-2.5">
+            <span className="flex min-w-[8rem] flex-1 items-center gap-3">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
                 <Link2 className="size-3.5" aria-hidden />
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-[14px] font-semibold text-foreground">{link.label || "Invite link"}</span>
+                <span className="block truncate text-[15px] text-foreground">Anyone with the link</span>
                 <span
                   className="block truncate font-mono text-[12px] text-muted"
                   data-attr="workspace-invite-link-url"
@@ -221,40 +222,35 @@ export function WorkspaceInviteLinkStrip({
                 </span>
               </span>
             </span>
-            <TeamRowValues row={{ id: link.id, name: "Invite link", detail: "", role: "co_manager", roleLabel: teamRoleListLabel(link.teamRole), propertiesLabel: link.houseScope === "all" ? "All houses" : `${link.assignedPropertyIds.length} houses`, joinedAt: null,
+            <TeamRowValues row={{ id: link.id, name: "Invite link", detail: "", role: "co_manager", roleLabel: teamRoleListLabel(link.teamRole), roleId: link.teamRole, propertiesLabel: link.houseScope === "all" ? "All houses" : `${link.assignedPropertyIds.length} houses`, joinedAt: null,
               onEdit: () => openEditor(link, true),
               onRoleChange: async (role) => { await updateLink(link, { teamRole: role }); },
-              houses: workspace ? { options: workspace.propertyIds.map((id) => ({ value: id, label: workspace.propertyLabels?.[id] ?? id })), selected: link.assignedPropertyIds, all: link.houseScope === "all", onSave: async (ids, all) => { await updateLink(link, { assignedPropertyIds: ids, houseScope: all ? "all" : "selected" }); } } : undefined,
             }} />
-            <span className="ml-auto md:ml-0 md:justify-self-end">
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger
-                  type="button"
-                  aria-label="Invite link actions"
-                  disabled={busy}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                  data-portal-row-ignore
-                  data-attr="workspace-invite-link-actions"
+            <PortalIconAction icon={Copy} label="Copy invite link" disabled={busy} onClick={() => void copy(link)} data-attr="workspace-invite-link-copy" />
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger
+                type="button"
+                aria-label="Invite link actions"
+                disabled={busy}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                data-portal-row-ignore
+                data-attr="workspace-invite-link-actions"
+              >
+                <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
+                <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => workspace ? openEditor(link) : onEdit()}>
+                  Permissions
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-attr="workspace-invite-link-delete"
+                  className="text-[var(--status-overdue-fg)]"
+                  onSelect={() => void remove(link)}
                 >
-                  <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
-                  <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => workspace ? openEditor(link) : onEdit()}>
-                    Permissions
-                  </DropdownMenuItem>
-                  <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy(link)}>
-                    Copy link
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-attr="workspace-invite-link-delete"
-                    className="text-[var(--status-overdue-fg)]"
-                    onSelect={() => void remove(link)}
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </span>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       })}

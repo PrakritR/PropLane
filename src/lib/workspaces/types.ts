@@ -106,6 +106,8 @@ export type PortalWorkspace = {
   livePropertyCount?: number;
   /** Display names from the property record itself, so the pane never depends on a client cache. */
   propertyLabels?: Record<string, string>;
+  /** Street address per property, only where the record has a name AND an address (the label is the address otherwise). */
+  propertyAddresses?: Record<string, string>;
   propertyPermissions: PropertyCoManagerPermissions;
   /** This workspace's members. Present for the owner and for an admin of the workspace. */
   members?: WorkspaceMember[];

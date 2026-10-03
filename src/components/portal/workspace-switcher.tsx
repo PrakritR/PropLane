@@ -4,6 +4,7 @@ import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import {
@@ -77,6 +78,9 @@ export function WorkspaceSwitcher({
   variant?: "header" | "mobile";
 }) {
   const ctx = useWorkspaces();
+  const pathname = usePathname();
+  // Settings follows the workspace picked here, so switching while in Settings stays in Settings.
+  const inSettings = /\/profile(\/|$)/.test(pathname ?? "");
   const { showToast } = useAppUi();
   if (!ctx) return null;
   const name = ctx.loading ? "Loading…" : (ctx.active?.name ?? "My workspace");
@@ -186,7 +190,7 @@ export function WorkspaceSwitcher({
           <DropdownMenuItem
             key={workspace.id}
             onSelect={() => {
-              void ctx.select(workspace.id).catch((e) => showToast(e.message));
+              void ctx.select(workspace.id, inSettings ? { href: false } : undefined).catch((e) => showToast(e.message));
             }}
             data-attr="workspace-switcher-item"
           >

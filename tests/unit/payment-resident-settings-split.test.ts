@@ -45,10 +45,10 @@ describe("Payment settings owns setup; Residents drop rent reminders", () => {
     expect(payments).toContain("paymentsSettingsMenu");
   });
 
-  it("Workspace settings keep Communication, one Payments page, and Integrations", () => {
+  it("Workspace settings keep Communication, one Balance & payouts page, and Integrations", () => {
     const profile = src("portal-profile-client.tsx");
     expect(profile).toMatch(/id: "messaging"[\s\S]*?group: "Workspace"/);
-    const opsPush = profile.slice(profile.indexOf('id: "payments", label: "Payments"'));
+    const opsPush = profile.slice(profile.indexOf('id: "payments", label: "Balance & payouts"'));
     const ids = [...opsPush.matchAll(/id: "(payments|payouts|spreadsheets|services|tasks|bookings|inspections|reminders)"/g)].map(
       (m) => m[1],
     );

@@ -7,7 +7,7 @@ const src = readFileSync(resolve("src/components/portal/workspace-settings.tsx")
 describe("workspace settings delete", () => {
   it("offers a danger row on the active workspace, including the default", () => {
     expect(src).toContain('"workspace-delete" : "workspace-leave"');
-    expect(src).toContain('title="Danger zone"');
+    expect(src).not.toContain('title="Danger zone"');
     expect(src).not.toContain("!workspace.isDefault");
     expect(src).not.toContain("workspace-delete-empty");
     expect(src).not.toContain("Delete this workspace");

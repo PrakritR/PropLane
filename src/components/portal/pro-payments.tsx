@@ -739,9 +739,9 @@ export function ManagerPayments({
   const paymentsSettingsMenu = (
     <PortalIconAction
       icon={Settings}
-      label={direction === "incoming" ? "Defaults for properties" : paymentsSettingsEntry.label}
+      label={paymentsSettingsEntry.label}
       data-attr={paymentsSettingsEntry.dataAttr}
-      onClick={() => direction === "incoming" ? window.location.assign(`${basePath}/profile?tab=defaults`) : setPaymentSettingsOpen(true)}
+      onClick={() => setPaymentSettingsOpen(true)}
     />
   );
 

@@ -130,6 +130,12 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     const address = typeof data.address === "string" ? data.address.trim() : "";
     return name || address || "Untitled property";
   };
+  const addressFor = (row: { row_data?: unknown }) => {
+    const data = row.row_data && typeof row.row_data === "object" ? (row.row_data as Record<string, unknown>) : {};
+    const name = typeof data.buildingName === "string" ? data.buildingName.trim() : "";
+    const address = typeof data.address === "string" ? data.address.trim() : "";
+    return name && address ? address : "";
+  };
   const rows = new Map([...(owned.data ?? []), ...(shared.data ?? [])].map((w) => [w.id, w]));
 
   // Memberships of every workspace the viewer runs: their own, and any shared
@@ -229,6 +235,12 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       livePropertyCount,
       propertyLabels: Object.fromEntries(
         properties.filter((p) => p.workspace_id === w.id).map((p) => [p.id, labelFor(p as { id: string; row_data?: unknown })]),
+      ),
+      propertyAddresses: Object.fromEntries(
+        properties.filter((p) => p.workspace_id === w.id).flatMap((p) => {
+          const address = addressFor(p as { row_data?: unknown });
+          return address ? [[p.id, address]] : [];
+        }),
       ),
       propertyPermissions: Object.fromEntries(propertyIds.filter((id) => permissions[id]).map((id) => [id, permissions[id]])),
       members,

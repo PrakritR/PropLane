@@ -82,7 +82,6 @@ import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
-import { WorkspacePricingDefaultsPanel } from "@/components/portal/workspace-pricing-defaults-panel";
 import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
@@ -1404,10 +1403,8 @@ export function PaymentsSettingsPanel({
   onFooterReady,
   formRef,
   mode = "incoming",
-  defaultsForProperties = false,
   propertyOptions = [],
 }: {
-  defaultsForProperties?: boolean;
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
