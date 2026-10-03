@@ -2650,6 +2650,7 @@ export function InboxScheduledThreadList({
   nextSendLabel,
   children,
   footerAction,
+  placement = "summary",
 }: {
   count: number;
   nextSendLabel?: string;
@@ -2658,6 +2659,8 @@ export function InboxScheduledThreadList({
   children: ReactNode;
   /** Optional action below the subject list (e.g. Send message in compose). */
   footerAction?: ReactNode;
+  /** `bar` pins one row per send under the conversation name. `summary` is the chip that opens the list. */
+  placement?: "summary" | "bar";
 }) {
   const [listOpen, setListOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -2669,17 +2672,72 @@ export function InboxScheduledThreadList({
       presentation: "detail",
     }),
   );
-
-  if (count <= 0) return null;
-
-  const summary = count === 1 ? "1 scheduled message" : `${count} scheduled messages`;
-  const when = nextSendLabel ? ` · next sends ${nextSendLabel}` : "";
-
   const openDetail = (index: number) => {
     setDetailIdx(index);
     setListOpen(false);
     setDetailOpen(true);
   };
+
+  if (count <= 0) return null;
+
+  if (placement === "bar") {
+    return (
+      <>
+        <div className="border-b border-border bg-card" data-attr="inbox-scheduled-bar">
+          {childArray.map((child, index) => {
+            const props = (child as React.ReactElement<{
+              subject?: string;
+              sendLabel?: string;
+              source?: "manual" | "automation";
+              onSendNow?: () => void;
+              busy?: boolean;
+            }>).props;
+            const kind = props.source === "automation" ? "Reminder" : "Scheduled";
+            return (
+              <div key={child.key ?? index} className="flex items-center gap-1 border-t border-border first:border-t-0">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+                  data-attr="inbox-scheduled-bar-row"
+                  onClick={() => openDetail(index)}
+                >
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.25} aria-hidden />
+                  <span className="shrink-0 text-[12px] font-semibold text-primary">{kind}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+                    {props.subject?.trim() || "Scheduled message"}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
+                </button>
+                {props.onSendNow ? (
+                  <button
+                    type="button"
+                    className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
+                    aria-label="Send now"
+                    title="Send now"
+                    data-attr="inbox-scheduled-bar-send"
+                    disabled={props.busy}
+                    onClick={() => props.onSendNow?.()}
+                  >
+                    <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <ScheduledMessageDetailModal
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          dataAttr="inbox-scheduled-detail-modal"
+        >
+          {detailChildren[detailIdx] ?? null}
+        </ScheduledMessageDetailModal>
+      </>
+    );
+  }
+
+  const summary = count === 1 ? "1 scheduled message" : `${count} scheduled messages`;
+  const when = nextSendLabel ? ` · next sends ${nextSendLabel}` : "";
 
   return (
     <>
@@ -2794,6 +2852,7 @@ export function InboxThreadView({
   onBack,
   hideIdentityHeader = false,
   headerActions,
+  underHeader,
   composer,
   beforeMessages,
   afterMessages,
@@ -2816,6 +2875,8 @@ export function InboxThreadView({
   /** Hide avatar, title, and subtitle (e.g. resident profile Communication tab). */
   hideIdentityHeader?: boolean;
   headerActions?: ReactNode;
+  /** Pinned under the name, above the messages. Scheduled sends use this. */
+  underHeader?: ReactNode;
   /** Pass an <InboxComposer/>; omit for a read-only thread (e.g. Trash). */
   composer?: ReactNode;
   /** Continuation controls at the oldest edge of a paged transcript. */
@@ -2879,6 +2940,7 @@ export function InboxThreadView({
         {headerActions ? <div className="flex shrink-0 items-center gap-1.5">{headerActions}</div> : null}
       </header>
       ) : null}
+      {underHeader}
 
       <div
         ref={scrollRef}

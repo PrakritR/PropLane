@@ -6,7 +6,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleOff, Copy, Eye, FileText, Home, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
+import { CircleOff, Copy, FileText, Home, MoreHorizontal, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -28,7 +28,10 @@ import {
 import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -51,6 +54,7 @@ import {
 } from "@/lib/manager-listing-just-published";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
+import { PropertyPricingPanel } from "@/components/portal/property-pricing-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
@@ -771,8 +775,8 @@ function ManagerPropertyInlineDetails({
       bucket === 3 || bucket === 5
         ? ["preview", "activity"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info", "activity"]
-          : ["preview", "house-details", "move-in", "application", "lease", "activity"],
+          ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info", "activity"]
+          : ["preview", "house-details", "move-in", "application", "lease", "pricing", "activity"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
@@ -807,33 +811,15 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
-        actions.push({
-          id: "view-listing",
-          node: (
-            <PortalIconAction
-              ring
-              ringPrimary
-              icon={Eye}
-              label="View public"
-              data-attr="listing-view"
-              onClick={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
-            />
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="listing-view"
-              onSelect={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
-            >
-              View
-            </DropdownMenuItem>
-          ),
-        });
+        // C2-PR14: Edit, Share, Duplicate, then the red Unlist last; the
+        // adaptive row folds the tail into its own ⋯ only when width runs out.
         if (canEditAction) {
           actions.push({
             id: "edit-listing",
             node: (
               <PortalIconAction
                 ring
+                ringPrimary
                 icon={Pencil}
                 label="Edit"
                 data-attr="listing-edit-full"
@@ -855,6 +841,7 @@ function ManagerPropertyInlineDetails({
           node: (
             <PortalIconAction
               ring
+              ringPrimary={!canEditAction}
               icon={Share2}
               label="Share"
               data-attr="listing-send-listing"
@@ -877,8 +864,8 @@ function ManagerPropertyInlineDetails({
             <PortalIconAction
               ring
               tone="danger"
-              icon={Trash2}
-              label="Delete"
+              icon={CircleOff}
+              label="Unlist"
               data-attr="listing-unlist"
               onClick={() => setPendingDestructiveAction("unlist")}
             />
@@ -1311,6 +1298,9 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
+      {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 ? (
+        <PropertyPricingPanel submission={managerSubmission} />
+      ) : null}
       {activeDetailTab === "lease" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyLeasePanel
           sub={managerSubmission}

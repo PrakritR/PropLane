@@ -2466,10 +2466,10 @@ export const ManagerInbox = forwardRef<
 
   const scheduledCards =
     activeThread &&
-    !embeddedInCommunication &&
     activeThread.folder !== "trash" &&
     threadScheduledItems.length > 0 ? (
       <InboxScheduledThreadList
+        placement="bar"
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
       >
@@ -2514,19 +2514,12 @@ export const ManagerInbox = forwardRef<
       onBack={embeddedResidentChat ? undefined : () => setExpandedId(null)}
       hideIdentityHeader={embeddedResidentChat}
       headerActions={threadHeaderActions}
+      underHeader={scheduledCards}
       emptyLabel="No messages in this conversation."
       scrollMode={embeddedResidentChat ? "pane" : pageScroll ? "page" : "pane"}
       composer={
         activeThread.folder === "trash" ? undefined : (
           <>
-            {scheduledCards ? (
-              <div
-                className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
-                data-attr="inbox-thread-scheduled-pin"
-              >
-                {scheduledCards}
-              </div>
-            ) : null}
             {/* `folder` is already narrowed to "sent" | "inbox" by the trash guard above. */}
             {inboundWorkflowSuggestions.length > 0 && !activeIsSent ? (
               <InboundMessageWorkflowCard

@@ -128,8 +128,9 @@ describe("property calendar sub-tabs", () => {
     // is now a Bookings tab beside Tours — driven by the property record's own
     // section registry (the Leasing group), not a hand-written tab list.
     const propertySections = recordSections("manager", "property", { basePath: "/portal" });
-    const leasingIds = propertySections.groups.flatMap((group) => group.items.map((item) => item.id));
-    expect(leasingIds).toContain("bookings");
+    const leasingIds = propertySections.groups.find((group) => group.label === "Leasing")?.items.map((item) => item.id);
+    expect(leasingIds).toEqual(["application", "lease", "pricing"]);
+    expect(propertySections.groups.flatMap((group) => group.items.map((item) => item.id))).not.toContain("bookings");
 
     const panel = read("src/components/portal/pro-house-properties-panel.tsx");
     expect(panel).toContain("ManagerPropertyBookingsPanel");

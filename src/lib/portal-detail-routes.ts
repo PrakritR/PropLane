@@ -5,6 +5,7 @@ export const PROPERTY_DETAIL_TABS = [
   "move-in",
   "application",
   "lease",
+  "pricing",
   "tours",
   "bookings",
   "requests",
@@ -25,6 +26,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   "move-in": "Move-in",
   application: "Application",
   lease: "Lease",
+  pricing: "Pricing",
   tours: "Tours",
   bookings: "Bookings",
   requests: "Requests",
@@ -52,6 +54,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   bookings: "Bookings",
   application: "Application",
   lease: "Lease",
+  pricing: "Pricing",
   requests: "Services",
   promotion: "Promotion",
   "ai-info": "AI info",
@@ -86,6 +89,7 @@ export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId
   bookings: "Nightly and short stays",
   application: "Screen renters online",
   lease: "Draft, send and e-sign",
+  pricing: "What this home charges",
   requests: "Repairs and resident requests",
   promotion: "Share and syndicate the listing",
   "ai-info": "What the assistant says about this home",
@@ -111,6 +115,7 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "bookings") return "bookings";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
+  if (tab === "pricing") return "pricing";
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
   if (tab === "ai-info") return "ai-info";

@@ -231,7 +231,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     basePathDefault: "/portal",
     ownGroups: [
       { label: "Property", ids: ["preview", "house-details", "move-in"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
-      { label: "Leasing", ids: ["tours", "bookings", "application", "lease"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
+      { label: "Leasing", ids: [
+        { id: "application", label: "Applications" },
+        { id: "lease", label: "Lease" },
+        { id: "pricing", label: "Pricing" },
+      ] },
       // "requests" reads "Services" everywhere it is shown — the shared
       // rail matches the panel's own tab, not the schema/route id.
       { label: "Operations", ids: ["requests", "promotion", "ai-info"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },

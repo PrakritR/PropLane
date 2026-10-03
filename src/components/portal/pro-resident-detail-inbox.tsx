@@ -562,6 +562,7 @@ export function ResidentDirectChatPane({
   const scheduledCards =
     threadScheduledItems.length > 0 ? (
       <InboxScheduledThreadList
+        placement="bar"
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
       >
@@ -1045,6 +1046,7 @@ export function ResidentDirectChatPane({
       scrollMode="pane"
       onBack={onBack}
       headerActions={threadHeaderActions}
+      underHeader={scheduledCards}
       emptyLabel="No messages yet. Send the first message below."
       composer={
         <>
@@ -1063,14 +1065,6 @@ export function ResidentDirectChatPane({
                   return { value: resident.projectionId!, label: `${resident.counterpartyRole ?? "Text"} · ${line || `Line ${index + 1}`}${resident.sendDisabled ? " · history only" : ""}` };
                 })}
               />
-            </div>
-          ) : null}
-          {scheduledCards ? (
-            <div
-              className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
-              data-attr="resident-direct-scheduled-pin"
-            >
-              {scheduledCards}
             </div>
           ) : null}
           {/* Draft with PropLane, Ask PropLane and Schedule live in the composer

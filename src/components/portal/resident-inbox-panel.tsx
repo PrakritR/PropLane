@@ -1405,10 +1405,9 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const residentScheduledCards =
-    activeThread && activeThread.folder !== "trash" && !embeddedInCommunication ? (
-      <div className="space-y-2 pt-1">
-        {threadScheduledItems.length > 0 ? (
+    activeThread && activeThread.folder !== "trash" && threadScheduledItems.length > 0 ? (
           <InboxScheduledThreadList
+            placement="bar"
             count={threadScheduledItems.length}
             nextSendLabel={threadScheduledItems[0]?.sendLabel}
           >
@@ -1432,8 +1431,6 @@ export const ResidentInboxPanel = forwardRef<
               />
             ))}
           </InboxScheduledThreadList>
-        ) : null}
-      </div>
     ) : null;
 
   const openThread = useCallback(
@@ -1897,7 +1894,7 @@ export const ResidentInboxPanel = forwardRef<
               }
               messages={activeBubbles}
               alignAssistantStart={activeIsAssistantThread}
-              afterMessages={residentScheduledCards}
+              underHeader={residentScheduledCards}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
@@ -2013,7 +2010,7 @@ export const ResidentInboxPanel = forwardRef<
               }
                 messages={activeBubbles}
                 alignAssistantStart={activeIsAssistantThread}
-                afterMessages={residentScheduledCards}
+                underHeader={residentScheduledCards}
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}
                 headerActions={

@@ -223,11 +223,12 @@ conversations) plus the archive toggle. Invariants:
   so a retained component cannot carry them across an account change. Background
   refresh failures preserve an already usable list. Coverage:
   `tests/unit/inbox-initial-loading-readiness.test.tsx`.
-- **Scheduled messages render INLINE in the recipient's thread** as a COMPACT,
-  collapsible "Scheduled · sends <when> · <subject>" card (`InboxScheduledCard`)
-  that expands for the full body + Send now / Cancel send / Edit; Edit is an
-  INLINE textarea saved via `onSaveEdit` (no separate form). The standalone
-  Schedule table is gone from production. Matching is pure:
+- **Scheduled messages sit in a bar under the conversation name**, above the
+  messages (`InboxScheduledThreadList` `placement="bar"` on `InboxThreadView`'s
+  `underHeader`). Each row is clock · kind · subject · time, plus a send icon
+  that sends that row now. Tapping the row opens the detail card (body, Send now,
+  Cancel, Edit). Edit stays the card's inline textarea via `onSaveEdit`. The
+  standalone Schedule table is gone from production. Matching is pure:
   `scheduledItemsForRecipient(email, manual, automation)` in
   `src/lib/inbox-scheduled-thread.ts`. Edit permissions are unchanged —
   resident-originated / resident-side rows are cancel-only (the resident

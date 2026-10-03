@@ -393,10 +393,12 @@ export function ListingDetailSections({
                 </h1>
                 {addressLine ? <p className="mt-1 text-sm text-muted sm:text-[0.9375rem]">{addressLine}</p> : null}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <ShareButton property={property} />
-                <SaveButton property={property} newTab={embeddedPreview} />
-              </div>
+              {managerPreviewChrome ? null : (
+                <div className="flex shrink-0 items-center gap-2">
+                  <ShareButton property={property} />
+                  <SaveButton property={property} newTab={embeddedPreview} />
+                </div>
+              )}
             </div>
 
             {/* Photos, or the one-line band */}
