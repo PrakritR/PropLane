@@ -63,7 +63,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const db = createSupabaseServiceRoleClient();
   const [from, workNumber] = await Promise.all([managerOutboundFromHeader(db, user.id), resolveManagerWorkNumber(db, user.id)]);
-  return NextResponse.json({ from, name: fromHeaderDisplayName(from), email: fromHeaderAddress(from), workNumber });
+  return NextResponse.json({ from, name: fromHeaderDisplayName(from), email: fromHeaderAddress(from), workNumber, origin: appOrigin() });
 }
 
 export async function POST(req: Request) {
@@ -291,7 +291,7 @@ export async function POST(req: Request) {
       tourUrl: kind === "listing" && !isMultiListing ? tourUrl : undefined,
       listingSummary,
       listingShare: kind === "listing" ? {
-        intro: typeof body.listingIntro === "string" ? body.listingIntro.trim().slice(0, 4000) : renderListingSharedIntro(DEFAULT_LISTING_SHARED_INTRO, { count: authorized.length, property: propertyTitle, name: prospectName }),
+        intro: typeof body.listingIntro === "string" ? body.listingIntro.slice(0, 4000) : renderListingSharedIntro(DEFAULT_LISTING_SHARED_INTRO, { count: authorized.length, property: propertyTitle, name: prospectName }),
         listings: authorized.map((entry) => buildListingShareSummary(entry.listing)),
         signature: [fromHeaderDisplayName(from), ...(signatureNumber ? [signatureNumber] : []), fromHeaderAddress(from)],
       } : undefined,

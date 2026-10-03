@@ -101,6 +101,17 @@ function ShareLinkCopyRow({
 }
 
 
+function ListingIntroEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    // Keep the native selection while typing; React must not replace this text node.
+    if (ref.current && ref.current.textContent !== value) ref.current.textContent = value;
+  }, [value]);
+  return <p ref={ref} contentEditable suppressContentEditableWarning role="textbox" aria-label="Email intro"
+    onInput={(event) => onChange(event.currentTarget.textContent || "")}
+    className="min-w-0 flex-1 rounded-lg p-2 outline-none focus:ring-2 focus:ring-primary" />;
+}
+
 export function ShareLeadLinkModal({
   open,
   onClose,
@@ -136,12 +147,13 @@ export function ShareLeadLinkModal({
   const [smsAvailable, setSmsAvailable] = useState(false);
   const [listingTemplate, setListingTemplate] = useState(DEFAULT_LISTING_SHARED_INTRO);
   const [intro, setIntro] = useState<string | null>(null);
-  const [sender, setSender] = useState<{ from: string; name: string; email: string; workNumber?: string | null } | null>(null);
+  const [sender, setSender] = useState<{ from: string; name: string; email: string; origin: string; workNumber?: string | null } | null>(null);
   const [workNumber, setWorkNumber] = useState("");
   const [note, setNote] = useState("");
   const [step, setStep] = useState(0);
   const [sendBusy, setSendBusy] = useState(false);
   const wasOpenRef = useRef(false);
+  const linkOrigin = sender?.origin || (typeof window !== "undefined" ? window.location.origin : "");
 
   // Reset only when the modal opens — not when `properties` re-hydrates from a
   // background portfolio sync while the user is picking listings (that used to
@@ -241,12 +253,12 @@ export function ShareLeadLinkModal({
 
   const portfolioTourUrl = useMemo(() => {
     if (!isPortfolioTour || typeof window === "undefined") return "";
-    return buildManagerPortfolioTourUrl(window.location.origin, propertyIds);
-  }, [isPortfolioTour, propertyIds]);
+    return buildManagerPortfolioTourUrl(linkOrigin, propertyIds);
+  }, [isPortfolioTour, propertyIds, linkOrigin]);
 
   const individualTourLinks = useMemo(() => {
     if (kind !== "tour" || typeof window === "undefined") return [];
-    const origin = window.location.origin;
+    const origin = linkOrigin;
     const selected = new Set(propertyIds);
     return properties
       .filter((property) => selected.has(property.id))
@@ -255,7 +267,7 @@ export function ShareLeadLinkModal({
         label: property.label,
         url: buildManagerTourUrl(origin, property.id),
       }));
-  }, [kind, properties, propertyIds]);
+  }, [kind, properties, propertyIds, linkOrigin]);
 
   const roomOptions = useMemo(() => {
     if ((kind !== "apply" && kind !== "lease") || !singlePropertyId) return [];
@@ -294,7 +306,7 @@ export function ShareLeadLinkModal({
 
   const linkUrl = useMemo(() => {
     if (propertyIds.length === 0 || typeof window === "undefined") return "";
-    const origin = window.location.origin;
+    const origin = linkOrigin;
     if (kind === "lease") {
       if (!singlePropertyId) return "";
       return buildManagerLeaseSignUrl(origin, {
@@ -336,6 +348,7 @@ export function ShareLeadLinkModal({
     prospectEmail,
     prospectName,
     prospectPhone,
+    linkOrigin,
   ]);
 
 
@@ -382,18 +395,18 @@ export function ShareLeadLinkModal({
       kind,
       prospectName: prospectName.trim() || undefined,
       propertyTitle,
-      linkUrl: kind === "listing" ? buildManagerApplyUrl(typeof window !== "undefined" ? window.location.origin : "", {
+      linkUrl: kind === "listing" ? buildManagerApplyUrl(typeof window !== "undefined" ? linkOrigin : "", {
         propertyId: singlePropertyId,
       }) : linkUrl,
       listingPageUrl: kind === "listing" ? linkUrl : undefined,
       tourUrl:
         kind === "listing" && singlePropertyId && typeof window !== "undefined"
-          ? buildManagerTourUrl(window.location.origin, singlePropertyId)
+          ? buildManagerTourUrl(linkOrigin, singlePropertyId)
           : undefined,
       listingSummary: listingSummary ?? undefined,
       managerNote: note.trim() || undefined,
     });
-  }, [kind, prospectName, propertyTitle, linkUrl, singlePropertyId, isMultiProperty, isMultiListing, isPortfolioTour, isMultiApply, propertyIds.length, listingSummary, note, listingShare]);
+  }, [kind, prospectName, propertyTitle, linkUrl, singlePropertyId, isMultiProperty, isMultiListing, isPortfolioTour, isMultiApply, propertyIds.length, listingSummary, note, listingShare, linkOrigin]);
 
   const inviteSmsBody = useMemo(() => {
     if (!linkUrl) return "";
@@ -480,6 +493,7 @@ export function ShareLeadLinkModal({
     if (propertyIds.length === 0) return;
     if (deliverEmail && !prospectEmail.trim()) return;
     if (deliverSms && !prospectPhone.trim()) return;
+    if (kind === "listing" && listingIntro.length > 4000) { showToast("Keep the email intro under 4,000 characters."); return; }
     const { listingRoomId, roomName } = sendListingRoomParams;
     setSendBusy(true);
     try {
@@ -546,8 +560,8 @@ export function ShareLeadLinkModal({
   const rowClass = "grid gap-3 border-b border-border px-4 py-4 last:border-0 sm:grid-cols-[140px_1fr] sm:items-center";
   const individualLinks = properties.filter((property) => propertyIds.includes(property.id)).map((property) => ({
     id: property.id, label: property.label,
-    url: kind === "listing" ? buildManagerListingUrl(window.location.origin, property.id)
-      : kind === "apply" ? buildManagerApplyUrl(window.location.origin, { propertyId: property.id, rentalType: applyLinkRentalType(effectiveApplyRentalTypes) })
+    url: propertyIds.length === 1 ? linkUrl : kind === "listing" ? buildManagerListingUrl(linkOrigin, property.id)
+      : kind === "apply" ? buildManagerApplyUrl(linkOrigin, { propertyId: property.id, rentalType: applyLinkRentalType(effectiveApplyRentalTypes) })
       : kind === "tour" ? individualTourLinks.find((entry) => entry.id === property.id)?.url ?? "" : linkUrl,
   }));
   return (
@@ -598,7 +612,7 @@ export function ShareLeadLinkModal({
                   <div className="space-y-2 border-b border-border p-4 text-sm"><div>From: {sender?.from || "Loading…"}</div><div>To: {prospectName ? `${prospectName} · ` : ""}{prospectEmail}</div><div>Subject: {subject}</div></div>
                   {kind === "listing" ? <div className="bg-accent/20 p-4"><div className="rounded-xl border border-border bg-card p-6 text-sm leading-relaxed">
                     <p className="mb-3">{prospectName.trim() ? `Hi ${prospectName.trim()},` : "Hi there,"}</p>
-                    <div className="mb-4 flex items-start gap-2"><p contentEditable suppressContentEditableWarning role="textbox" aria-label="Email intro" onInput={(event) => setIntro(event.currentTarget.innerText)} className="min-w-0 flex-1 rounded-lg p-2 outline-none focus:ring-2 focus:ring-primary">{listingIntro}</p><PortalIconAction icon={RotateCcw} label="Reset to template" disabled={intro === null} onClick={() => setIntro(null)} /></div>
+                    <div className="mb-4 flex items-start gap-2"><ListingIntroEditor value={listingIntro} onChange={setIntro} /><PortalIconAction icon={RotateCcw} label="Reset to template" disabled={intro === null} onClick={() => setIntro(null)} /></div>
                     {listingShare.listings.map((listing, index) => <div key={index} className="mb-2 rounded-xl border border-border p-3"><strong>{listing.title}</strong>{listing.detailLines.map((line, lineIndex) => <div key={lineIndex} className="text-xs text-muted">{line}</div>)}</div>)}
                     <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="my-3 inline-block rounded-xl bg-primary px-6 py-3 font-semibold text-white">{listingShareButtonLabel(listingShare.listings.length)}</a>
                     <p className="break-all text-xs text-muted">{linkUrl}</p>
@@ -606,7 +620,7 @@ export function ShareLeadLinkModal({
                   </div></div> : <div className="whitespace-pre-wrap break-words bg-accent/20 p-6 text-sm leading-relaxed">{invitePreviewBody}</div>}
                 </section> : null}
                 {viaSms ? <section className="rounded-2xl border border-border p-4" aria-label="Text message preview"><div className="mb-4 text-sm">From: {workNumber}<br />To: {prospectPhone}</div><div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary p-4 text-sm text-white">{inviteSmsBody}</div></section> : null}
-                {kind !== "listing" ? <div><div className="flex items-center justify-between"><label htmlFor="share-lead-message">Message</label><PortalIconAction icon={RotateCcw} label="Reset message" disabled={kind === "listing" ? intro === null : !note} onClick={() => { setNote(""); setIntro(null); }} /></div><textarea id="share-lead-message" aria-label="Message" value={kind === "listing" ? listingIntro : note} onChange={(e) => kind === "listing" ? setIntro(e.target.value) : setNote(e.target.value)} className="w-full rounded-xl border border-border bg-card p-3 text-sm" rows={3} /></div> : null}
+                {kind !== "listing" ? <div><div className="flex items-center justify-between"><label htmlFor="share-lead-message">Message</label><PortalIconAction icon={RotateCcw} label="Reset message" disabled={!note} onClick={() => { setNote(""); setIntro(null); }} /></div><textarea id="share-lead-message" aria-label="Message" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-xl border border-border bg-card p-3 text-sm" rows={3} /></div> : null}
               </div>}
             </div>
             <aside className="hidden lg:block" aria-label="Inbox preview"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Inbox</h3><div className="rounded-2xl border border-border p-4"><div className="truncate font-semibold">{sender?.name || "Loading…"}</div><div className="my-1 text-sm font-medium">{subject}</div><p className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted">{previewBody}</p></div></aside>
