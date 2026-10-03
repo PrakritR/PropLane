@@ -20,10 +20,10 @@ const SITE_OPTIONS = [
 ];
 
 const SITE_STEPS: Record<Site, string[]> = {
-  airbnb: ["Copy a link above.", "In Airbnb, open the listing's Calendar and its availability settings.", "Choose Import calendar.", "Paste the link and save."],
-  booking_com: ["Copy a link above.", "In the Booking.com extranet, open Calendar and then Sync calendars.", "Choose Import calendar.", "Paste the link and save."],
-  vrbo: ["Copy a link above.", "In VRBO, open the listing's Calendar.", "Choose Import calendar.", "Paste the link and save."],
-  other: ["Copy a link above.", "Open the site's calendar sync or iCal import.", "Paste the link and save."],
+  airbnb: ["Copy a link below.", "In Airbnb, open the listing's Calendar and its availability settings.", "Choose Import calendar.", "Paste the link and save."],
+  booking_com: ["Copy a link below.", "In the Booking.com extranet, open Calendar and then Sync calendars.", "Choose Import calendar.", "Paste the link and save."],
+  vrbo: ["Copy a link below.", "In VRBO, open the listing's Calendar.", "Choose Import calendar.", "Paste the link and save."],
+  other: ["Copy a link below.", "Open the site's calendar sync or iCal import.", "Paste the link and save."],
 };
 
 type Props = {
