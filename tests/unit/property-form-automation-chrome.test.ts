@@ -24,13 +24,14 @@ describe("Application / Lease Bookings chrome", () => {
       expect(file).not.toMatch(/>\s*Settings\s*</);
     }
 
-    // e04eadde1: the application gear still jumps to Settings -> Forms; the lease gear
-    // opens the in-page catalog settings popup (offered toggles) instead.
-    expect(application).toContain('router.push("/portal/profile?tab=forms")');
-    expect(lease).toContain("PropertyLeaseCatalogSettingsModal");
-    expect(lease).toContain("setCatalogSettingsOpen(true)");
-    expect(application).toContain('settingsDataAttr="property-application-settings-open"');
-    expect(lease).toContain('settingsDataAttr="property-lease-settings-open"');
+    // Property Application / Lease tabs use routed Applications | Leases underline
+    // nav — no settings gear on the property record page (C228 automation lives
+    // on Settings -> Forms and on each form editor).
+    expect(application).toContain("propertyFormsSectionNav");
+    expect(lease).toContain("propertyFormsSectionNav");
+    expect(application).not.toContain('settingsDataAttr="property-application-settings-open"');
+    expect(lease).not.toContain('settingsDataAttr="property-lease-settings-open"');
+    expect(lease).not.toContain("PropertyLeaseCatalogSettingsModal");
   });
 
   it("Settings hub Applications and Leases jump to the listing Form instead of embedding the editor", () => {

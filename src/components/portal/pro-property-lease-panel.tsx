@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { Check, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
@@ -13,8 +13,8 @@ import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
-import { PropertyLeaseCatalogSettingsModal } from "@/components/portal/property-lease-catalog-settings-modal";
 import { PropertyLeaseTemplateInlinePreview } from "@/components/portal/property-lease-template-inline-preview";
+import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-form-template-preview-modal";
 import {
   openPropertyFormTemplateInNewTab,
   readSoloPropertyFormTemplateId,
@@ -121,11 +121,11 @@ export function ManagerPropertyLeasePanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
-  const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
-  const [catalogSettingsOpen, setCatalogSettingsOpen] = useState(false);
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [leaseSearch, setLeaseSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -148,6 +148,18 @@ export function ManagerPropertyLeasePanel({
     });
   }, [leaseKindFilter, leaseSearch, templates]);
   const embedInModal = Boolean(onBulkActionsChange);
+  const propertyFormsSectionNav = useMemo(() => {
+    if (embedInModal || !pathname) return undefined;
+    const match = pathname.match(/^(.*)\/(application|lease)$/);
+    if (!match) return undefined;
+    const base = match[1];
+    const tab = match[2];
+    return {
+      activeId: tab === "application" ? ("application" as const) : ("lease" as const),
+      applicationHref: `${base}/application`,
+      leaseHref: `${base}/lease`,
+    };
+  }, [embedInModal, pathname]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
@@ -498,7 +510,7 @@ export function ManagerPropertyLeasePanel({
           formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
       );
     const rowLabel = template.label?.trim() || "Lease";
-    const openPreview = () => setInlinePreviewTemplateId(template.id);
+    const openPreview = () => setPreviewTemplateId(template.id);
 
     const rowMenu = (
       <RowActionsMenu
@@ -562,11 +574,10 @@ export function ManagerPropertyLeasePanel({
           ) : null}
           <div className="min-w-0 flex-1">
             <p className={`text-sm font-semibold ${notOffered ? "text-muted" : "text-foreground"}`}>{rowLabel}</p>
-            {formSetup.loaded ? (
-              <p
-                className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
-                data-attr="property-lease-row-facts"
-              >
+            <p
+              className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
+              data-attr="property-lease-row-facts"
+            >
                 {typeLabel ? (
                   <PortalRowFact icon={FileText} srLabel="Lease type">
                     {typeLabel}
@@ -587,8 +598,7 @@ export function ManagerPropertyLeasePanel({
                     From {template.leaseTemplateDocName}
                   </PortalRowFact>
                 ) : null}
-              </p>
-            ) : null}
+            </p>
           </div>
         </div>
         <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
@@ -702,6 +712,7 @@ export function ManagerPropertyLeasePanel({
             showToast("Could not save lease.");
             return false;
           }
+          showToast("Lease saved.");
           onUpdated();
           return true;
         }}
@@ -743,6 +754,7 @@ export function ManagerPropertyLeasePanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
+      propertyFormsSectionNav={propertyFormsSectionNav}
       search={{
         value: leaseSearch,
         onChange: setLeaseSearch,
@@ -750,9 +762,6 @@ export function ManagerPropertyLeasePanel({
         dataAttr: "property-lease-search",
       }}
       filter={formFilterSheet}
-      onSettings={() => setCatalogSettingsOpen(true)}
-      settingsLabel="Lease settings"
-      settingsDataAttr="property-lease-settings-open"
       onAdd={openAdd}
       addLabel="Add lease"
       addDataAttr="property-lease-command-add"
@@ -792,22 +801,12 @@ export function ManagerPropertyLeasePanel({
     );
   }
 
-  const inlinePreviewTemplate = inlinePreviewTemplateId
-    ? templates.find((t) => t.id === inlinePreviewTemplateId) ?? null
-    : null;
+  const previewTemplate = previewTemplateId ? templates.find((t) => t.id === previewTemplateId) ?? null : null;
 
   return (
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
-        inlinePreviewTemplate ? (
-          <PropertyLeaseTemplateInlinePreview
-            template={inlinePreviewTemplate}
-            sub={syncedSub}
-            propertyHint={propertyHint}
-            onBack={() => setInlinePreviewTemplateId(null)}
-          />
-        ) : (
           <PortalRecordListSurface
             className="mt-0 pb-0 max-lg:pb-0"
             onBulkClear={embedInModal ? clearSelection : undefined}
@@ -826,21 +825,27 @@ export function ManagerPropertyLeasePanel({
               ) : null
             }
           >
-            {catalogBody}
-          </PortalRecordListSurface>
-        )
+          {catalogBody}
+        </PortalRecordListSurface>
       ) : null}
 
-      {formModals}
+      <PropertyFormTemplatePreviewModal
+        open={Boolean(previewTemplate)}
+        title={previewTemplate?.label?.trim() || "Lease preview"}
+        onClose={() => setPreviewTemplateId(null)}
+        dataAttr="property-lease-template-preview-modal"
+      >
+        {previewTemplate ? (
+          <PropertyLeaseTemplateInlinePreview
+            template={previewTemplate}
+            sub={syncedSub}
+            propertyHint={propertyHint}
+            solo
+          />
+        ) : null}
+      </PropertyFormTemplatePreviewModal>
 
-      <PropertyLeaseCatalogSettingsModal
-        open={catalogSettingsOpen}
-        onClose={() => setCatalogSettingsOpen(false)}
-        templates={templates}
-        propertyId={rowFactPropertyId}
-        onSaveTemplates={persistTemplates}
-        sub={bulkPropertyIds.length === 0 ? syncedSub : undefined}
-      />
+      {formModals}
     </>
   );
 }

@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, CheckCircle2, Pencil, Trash2, XCircle } from "lucide-react";
+import { Check, CheckCircle2, Mail, Pencil, Trash2, XCircle } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/input";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { PopupMessagePreview, PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  PortalTableDetailActions,
-} from "@/components/portal/portal-data-table";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import {
   PortalNotificationPreviewModal,
   type NotificationConfirmDraft,
@@ -70,6 +69,8 @@ export function ManagerServiceRequestDetail({
   onDenied,
   onCollapsed,
   allowDelete = true,
+  onMessage,
+  actionsOnly = false,
 }: {
   req: ServiceRequest;
   propertyLabel?: string;
@@ -78,6 +79,10 @@ export function ManagerServiceRequestDetail({
   onDenied?: () => void;
   onCollapsed?: () => void;
   allowDelete?: boolean;
+  /** Jump to the record's Communication tab (manager full-page record). */
+  onMessage?: () => void;
+  /** Publish header icons + modals only — no inline fact body (overview uses registry cards). */
+  actionsOnly?: boolean;
   /**
    * Publish the action row to a parent that renders a pinned footer, instead of
    * laying it out inline under the detail. Without a subscriber the inline row
@@ -259,52 +264,84 @@ export function ManagerServiceRequestDetail({
     req.residentEmail ||
     "Resident";
 
-  // A record page's header actions are icons only (docs/agents/record-page.md
-  // § Known gap) — this used to be a labelled-button toolbar footer.
+  const headerActionSpecs: PortalAdaptiveAction[] = [];
+  if (req.status === "pending") {
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "approve",
+        label: "Approve",
+        icon: CheckCircle2,
+        tone: "primary",
+        dataAttr: "service-request-approve",
+        onClick: openApprovePreview,
+      }),
+    );
+  }
+  if (onMessage) {
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "message",
+        label: "Message",
+        icon: Mail,
+        dataAttr: "record-header-action-message",
+        onClick: onMessage,
+      }),
+    );
+  }
+  if (req.status === "pending") {
+    if (editingCharges) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "save-charges",
+          label: "Save",
+          icon: Check,
+          tone: "primary",
+          onClick: saveCharges,
+        }),
+      );
+    } else {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "edit-charges",
+          label: "Edit",
+          icon: Pencil,
+          dataAttr: "service-request-edit-charges",
+          onClick: () => setEditingCharges(true),
+        }),
+      );
+    }
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "deny",
+        label: "Deny",
+        icon: XCircle,
+        tone: "danger",
+        dataAttr: "service-request-deny",
+        onClick: openDenyReasonStep,
+      }),
+    );
+  }
+  if (allowDelete) {
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "delete",
+        label: "Delete",
+        icon: Trash2,
+        tone: "danger",
+        dataAttr: "service-request-delete",
+        onClick: () => setDeleteOpen(true),
+      }),
+    );
+  }
   const detailActions = (
-    <>
-        {req.status === "pending" ? (
-          <>
-            <PortalIconAction
-              icon={CheckCircle2}
-              label="Approve"
-              tone="primary"
-              data-attr="service-request-approve"
-              onClick={openApprovePreview}
-            />
-            <PortalIconAction
-              icon={XCircle}
-              label="Deny"
-              tone="danger"
-              data-attr="service-request-deny"
-              onClick={openDenyReasonStep}
-            />
-            {editingCharges ? (
-              <PortalIconAction icon={Check} label="Save" tone="primary" onClick={saveCharges} />
-            ) : (
-              <PortalIconAction
-                icon={Pencil}
-                label="Edit"
-                data-attr="service-request-edit-charges"
-                onClick={() => setEditingCharges(true)}
-              />
-            )}
-          </>
-        ) : null}
-        {allowDelete ? (
-          <PortalIconAction
-            icon={Trash2}
-            label="Delete"
-            tone="danger"
-            onClick={() => setDeleteOpen(true)}
-          />
-        ) : null}
-    </>
+    <div className="flex min-w-0 flex-1" data-attr="service-request-header-icons">
+      <PortalAdaptiveActionRow actions={headerActionSpecs} align="end" gapPx={6} />
+    </div>
   );
 
   // Keyed on WHAT the row offers, not the node: the JSX is rebuilt every render,
   // so publishing on identity would loop the parent's state forever.
-  const detailActionsSignature = [req.status, allowDelete, editingCharges].join("|");
+  const detailActionsSignature = [req.status, allowDelete, editingCharges, Boolean(onMessage)].join("|");
   const onFooterActionsChangeRef = useRef(onFooterActionsChange);
   const detailActionsRef = useRef(detailActions);
   useLayoutEffect(() => {
@@ -320,6 +357,7 @@ export function ManagerServiceRequestDetail({
 
   return (
     <>
+      {actionsOnly ? null : (
       <div className="space-y-1 text-sm text-muted">
         {propertyLabel ? (
           <p>
@@ -400,8 +438,9 @@ export function ManagerServiceRequestDetail({
         ) : null}
         {req.notes ? <p className="italic">&ldquo;{req.notes}&rdquo;</p> : null}
       </div>
+      )}
 
-      {onFooterActionsChange ? null : <PortalTableDetailActions>{detailActions}</PortalTableDetailActions>}
+      {onFooterActionsChange ? null : detailActions}
 
       <PortalDialog
         open={denyReasonOpen}

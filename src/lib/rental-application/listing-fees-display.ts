@@ -99,13 +99,23 @@ export function paymentAtSigningIncludedLabels(sub: ListingSigningComputationInp
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]!}`;
 }
 
+/** USD with thousands separators — lease/application preview paper and fee lines. */
+export function formatUsdMoneyAmount(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
 /** Normalize fee lines for display (add $ when the listing stored a bare number). */
 export function formatListingFeeDisplay(raw: string): string {
   const t = raw.trim();
   if (!t) return "—";
   if (/^\$/.test(t)) return t;
   const n = parseMoneyAmount(t);
-  if (n > 0) return `$${n.toFixed(2)}`;
+  if (n > 0) return formatUsdMoneyAmount(n);
   return t;
 }
 

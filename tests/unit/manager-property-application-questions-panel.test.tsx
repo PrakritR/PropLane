@@ -15,10 +15,9 @@ vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
 }));
 // C228: the property page's own automation sheet is gone — the gear now
 // navigates to Settings -> Forms instead, which needs the app router mounted.
-const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: routerPush }),
-  usePathname: () => "/portal/properties/all/mgr-house-1",
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/portal/properties/all/mgr-house-1/application",
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -27,7 +26,7 @@ afterEach(() => {
 });
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows per-template action menus and Application automation", () => {
+  it("property tab shows per-template action menus and Applications | Leases nav", () => {
     const sub = addApplicationTemplateFromSeed(
       addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
       "short-term",
@@ -45,14 +44,12 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Application automation" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Application automation" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Applications" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Leases" })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
-
-    // C228: the gear no longer opens a local automation sheet — it jumps to
-    // Settings -> Forms, where this application form's Automation block now lives.
-    fireEvent.click(screen.getByRole("button", { name: "Application automation" }));
-    expect(routerPush).toHaveBeenCalledWith("/portal/profile?tab=forms");
+    expect(document.querySelector('[data-attr="property-application-row-facts"]')).toBeTruthy();
   });
 
   it("Edit application modal keeps checkbox selection", () => {

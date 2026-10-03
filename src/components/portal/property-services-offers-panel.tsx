@@ -1,16 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CircleSlash, CreditCard, Settings, Wrench } from "lucide-react";
+import { CircleSlash, CreditCard, Wrench } from "lucide-react";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { useConfirm } from "@/components/providers/app-ui-provider";
-import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
-import { PropertyServiceSettingsForm } from "@/components/portal/property-service-settings-form";
 import {
   createManagerListingServiceOption,
   type ManagerListingServiceOption,
@@ -44,17 +43,17 @@ type Props = {
   showToast: (m: string) => void;
 };
 
-/** Property Services catalog — one list (captain, Oct 3: requests and add-ons are the same thing). */
+/** Property Services catalog — one list (captain, Oct 3: requests and add-ons are the same thing); studio header: Services section tab + search + +. */
 export function PropertyServicesOffersPanel({
   sub,
   saveTarget,
   managerUserId,
-  propertyLabel,
+  propertyLabel: _propertyLabel,
   onUpdated,
   showToast,
 }: Props) {
+  void _propertyLabel;
   const [query, setQuery] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ManagerListingServiceOption | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -77,8 +76,6 @@ export function PropertyServicesOffersPanel({
     setIsNew(true);
     setEditOpen(true);
   };
-
-  const addLabel = "Add service";
 
   const openEdit = (offer: ManagerListingServiceOption) => {
     setEditing(offer);
@@ -105,23 +102,25 @@ export function PropertyServicesOffersPanel({
       <PortalListControlStack
         className="plp-header-card mb-2 max-lg:mb-1.5"
         variant="command"
+        destinationRow={
+          <LocalDestinationNav
+            items={[{ id: "services", label: "Services" }]}
+            activeId="services"
+            onChange={() => {}}
+            ariaLabel="Services"
+            appearance="command"
+          />
+        }
+        activeDestinationId="services"
         search={{
           value: query,
           onChange: setQuery,
           placeholder: "Search services",
           dataAttr: "property-services-search",
         }}
-        actions={
-          <PortalIconAction
-            icon={Settings}
-            label="Service settings"
-            data-attr="ps40-svcSettings"
-            onClick={() => setSettingsOpen(true)}
-          />
-        }
         primary={
           <PortalPrimaryIconAction
-            label={addLabel}
+            label="Add service"
             data-attr="property-services-add-top"
             onClick={openAdd}
           />
@@ -173,23 +172,6 @@ export function PropertyServicesOffersPanel({
           />
         ))}
       </PortalRecordListSurface>
-
-      <PortalPropertySectionSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        title="Service settings"
-        propertyLabel={propertyLabel}
-        dataAttr="property-services-settings"
-      >
-        <PropertyServiceSettingsForm
-          sub={sub}
-          saveTarget={saveTarget}
-          managerUserId={managerUserId}
-          onUpdated={onUpdated}
-          showToast={showToast}
-          onSave={() => setSettingsOpen(false)}
-        />
-      </PortalPropertySectionSettingsModal>
 
       <ServiceOfferingEditModal
         open={editOpen}

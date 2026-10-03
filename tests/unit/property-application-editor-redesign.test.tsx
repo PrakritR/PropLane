@@ -15,6 +15,18 @@ vi.mock("next/navigation", () => ({
 }));
 if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
 
+function submissionWithOfferedLeaseTypes() {
+  const sub = createDefaultListingSubmission();
+  sub.allowedLeaseTerms = ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay"];
+  return sub;
+}
+
+function footerStepCountHidden() {
+  const primary = screen.getByRole("button", { name: /^(Save|Create application|Next)$/ });
+  const footer = primary.parentElement;
+  expect(footer?.textContent ?? "").not.toMatch(/Step \d+ of \d+/);
+}
+
 function jumpRail(id: string) {
   const btn = document.querySelector(`[data-attr="listing-v2-rail-${id}"]`) as HTMLElement | null;
   expect(btn).not.toBeNull();
@@ -175,5 +187,31 @@ describe("C2-CP8: the application editor has no Settings step", () => {
     const saved = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
     expect(saved?.linkedCosignerApplicationTemplateId).toBe(OTHER_TEMPLATE.id);
     expect(saved?.linkedLeaseTemplateId).toBe("lease-tpl-mapped");
+  });
+
+  it("shows Used for mapping on property edit when a preview property id is set", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Application"
+        sub={submissionWithOfferedLeaseTypes()}
+        managerUserId="mgr-1"
+        applicationPreviewPropertyId="mgr-demo-cascade"
+        templateEditorMode="edit"
+        applicationTemplate={template}
+        templates={[template]}
+        onPersistSubmission={async () => true}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).not.toBeNull(),
+    );
+    jumpRail("sections");
+    footerStepCountHidden();
   });
 });

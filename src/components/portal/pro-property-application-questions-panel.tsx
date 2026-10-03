@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { Check, CreditCard, FileUp, Signature } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyApplicationTemplateInlinePreview } from "@/components/portal/property-application-template-inline-preview";
+import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-form-template-preview-modal";
 import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
@@ -138,7 +139,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
    */
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const router = useRouter();
+  const pathname = usePathname();
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
@@ -146,10 +147,22 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
-  const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
+  const propertyFormsSectionNav = useMemo(() => {
+    if (embedInModal || !pathname) return undefined;
+    const match = pathname.match(/^(.*)\/(application|lease)$/);
+    if (!match) return undefined;
+    const base = match[1];
+    const tab = match[2];
+    return {
+      activeId: tab === "application" ? ("application" as const) : ("lease" as const),
+      applicationHref: `${base}/application`,
+      leaseHref: `${base}/lease`,
+    };
+  }, [embedInModal, pathname]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -492,7 +505,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
             null;
           const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
           const rowLabel = normalizePropertyApplicationTemplateLabel(template.label);
-          const openPreview = () => setInlinePreviewTemplateId(template.id);
+          const openPreview = () => setPreviewTemplateId(template.id);
           const openEditor = () => openEditApplication(template);
           const rowMenu = (
             <RowActionsMenu
@@ -546,31 +559,29 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 ) : null}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-foreground">{rowLabel}</p>
-                  {formSetup.loaded ? (
-                    <p
-                      className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
-                      data-attr="property-application-row-facts"
-                    >
-                      {isDefault ? (
-                        <PortalRowFact icon={Check} srLabel="Default">
-                          Default
-                        </PortalRowFact>
-                      ) : null}
-                      <PortalRowFact icon={CreditCard} srLabel="Application fee">
-                        {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} fee` : "No fee"}
+                  <p
+                    className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
+                    data-attr="property-application-row-facts"
+                  >
+                    {isDefault ? (
+                      <PortalRowFact icon={Check} srLabel="Default">
+                        Default
                       </PortalRowFact>
-                      <PortalRowFact icon={Signature} srLabel="Who signs first">
-                        {formSetup.leasingPipeline.pipelineOrder === "lease_then_application"
-                          ? "Lease signs first"
-                          : "Application signs first"}
+                    ) : null}
+                    <PortalRowFact icon={CreditCard} srLabel="Application fee">
+                      {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} fee` : "No fee"}
+                    </PortalRowFact>
+                    <PortalRowFact icon={Signature} srLabel="Who signs first">
+                      {formSetup.leasingPipeline.pipelineOrder === "lease_then_application"
+                        ? "Lease signs first"
+                        : "Application signs first"}
+                    </PortalRowFact>
+                    {sourceName ? (
+                      <PortalRowFact icon={FileUp} srLabel="Source">
+                        From {sourceName}
                       </PortalRowFact>
-                      {sourceName ? (
-                        <PortalRowFact icon={FileUp} srLabel="Source">
-                          From {sourceName}
-                        </PortalRowFact>
-                      ) : null}
-                    </p>
-                  ) : null}
+                    ) : null}
+                  </p>
                 </div>
               </div>
               <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
@@ -653,6 +664,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
+      propertyFormsSectionNav={propertyFormsSectionNav}
       search={{
         value: applicationSearch,
         onChange: setApplicationSearch,
@@ -660,9 +672,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
         dataAttr: "property-application-search",
       }}
       filter={formFilterSheet}
-      onSettings={() => router.push("/portal/profile?tab=forms")}
-      settingsLabel="Application automation"
-      settingsDataAttr="property-application-settings-open"
       onAdd={openAdd}
       addLabel="Add application"
       addDataAttr="property-application-command-add"
@@ -687,22 +696,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
     />
   ) : null;
 
-  const inlinePreviewTemplate = inlinePreviewTemplateId
-    ? templates.find((t) => t.id === inlinePreviewTemplateId) ?? null
-    : null;
+  const previewTemplate = previewTemplateId ? templates.find((t) => t.id === previewTemplateId) ?? null : null;
 
   return (
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
-        inlinePreviewTemplate ? (
-          <PropertyApplicationTemplateInlinePreview
-            template={inlinePreviewTemplate}
-            sub={syncedSub}
-            propertyId={applicationPreviewPropertyId}
-            onBack={() => setInlinePreviewTemplateId(null)}
-          />
-        ) : (
         <PortalRecordListSurface
           className="mt-0 pb-0 max-lg:pb-0"
           onBulkClear={embedInModal ? clearSelection : undefined}
@@ -726,8 +725,23 @@ export function ManagerPropertyApplicationQuestionsPanel({
         >
           {catalogBody}
         </PortalRecordListSurface>
-        )
       ) : null}
+
+      <PropertyFormTemplatePreviewModal
+        open={Boolean(previewTemplate)}
+        title={previewTemplate?.label?.trim() || "Application preview"}
+        onClose={() => setPreviewTemplateId(null)}
+        dataAttr="property-application-template-preview-modal"
+      >
+        {previewTemplate ? (
+          <PropertyApplicationTemplateInlinePreview
+            template={previewTemplate}
+            sub={syncedSub}
+            propertyId={applicationPreviewPropertyId}
+            solo
+          />
+        ) : null}
+      </PropertyFormTemplatePreviewModal>
 
       {editorModals}
     </>

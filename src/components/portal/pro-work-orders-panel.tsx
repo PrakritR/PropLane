@@ -3,7 +3,19 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Mail, Wrench } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle2,
+  HandCoins,
+  Mail,
+  Pencil,
+  Scale,
+  Send,
+  Star,
+  Trash2,
+  UserPlus,
+  Wrench,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -12,11 +24,7 @@ import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  PortalDataTableEmpty,
-  PORTAL_DETAIL_BTN,
-  PortalTableDetailActions,
-} from "@/components/portal/portal-data-table";
+import { PortalDataTableEmpty, PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
 import {
   findWorkOrderCharge,
@@ -56,7 +64,9 @@ import { buildWorkOrderCompletedNotice } from "@/lib/resident-service-notices";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
 import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
 import { ServiceQuoteCompareSection } from "@/components/portal/service-quote-compare-section";
@@ -64,7 +74,7 @@ import { ServiceWorkOrderThreadEvents } from "@/components/portal/service-work-o
 import { ServiceInvoiceDocument } from "@/components/portal/service-invoice-document";
 import { vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
 import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
-import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
@@ -1046,116 +1056,6 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  /**
-   * The service's actions, rendered either inline under an expanded list row or
-   * docked at the bottom of the detail route. One definition, so the two places
-   * cannot drift into offering different things for the same service.
-   */
-  const workOrderDetailActions = (row: DemoManagerWorkOrderRow) => (
-    <>
-      {row.bucket === "open" ? (
-        <>
-          <Button
-            type="button"
-            variant="primary"
-            className={`${PORTAL_DETAIL_BTN} rounded-full`}
-            data-attr="work-order-schedule-visit"
-            onClick={() => setScheduleVisitRow(row)}
-          >
-            Schedule visit
-          </Button>
-          {row.proposedVisit ? (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
-              data-attr="work-order-confirm-time"
-              onClick={() => setScheduleVisitRow(row)}
-            >
-              Confirm time
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="work-order-edit"
-            onClick={() => setEditWorkOrderRow(row)}
-          >
-            Edit
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-            onClick={() => onDeleteWorkOrder(row)}
-          >
-            Delete
-          </Button>
-        </>
-      ) : row.bucket === "scheduled" ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="work-order-reschedule-visit"
-            onClick={() => setScheduleVisitRow(row)}
-          >
-            Reschedule visit
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="work-order-edit"
-            onClick={() => setEditWorkOrderRow(row)}
-          >
-            Edit
-          </Button>
-        </>
-      ) : null}
-      {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
-        <Button
-          type="button"
-          variant="outline"
-          data-attr="work-order-auto-schedule"
-          className={PORTAL_DETAIL_BTN}
-          disabled={autoSchedulingId === row.id}
-          onClick={() => autoScheduleVisit(row)}
-        >
-          {autoSchedulingId === row.id ? "Finding a slot…" : "Auto-schedule"}
-        </Button>
-      ) : null}
-      {row.bucket === "scheduled" && row.automationStatus === "vendor_marked_done" ? (
-        <Button
-          type="button"
-          variant="primary"
-          data-attr="work-order-approve-invoice"
-          className={`${PORTAL_DETAIL_BTN} rounded-full`}
-          disabled={approveInvoiceBusy || approvePayBusy}
-          onClick={() => void approveInvoiceForRow(row)}
-        >
-          {approveInvoiceBusy ? "Approving…" : "Approve invoice"}
-        </Button>
-      ) : row.bucket === "scheduled" ? (
-        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
-          Mark complete
-        </Button>
-      ) : null}
-      {row.bucket !== "open" ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-          onClick={() => onDeleteWorkOrder(row)}
-        >
-          Delete
-        </Button>
-      ) : null}
-    </>
-  );
-
   /** Overview — the record's core facts (docs/agents/record-page.md); vendor
    * assignment, schedule and billing move to their own sections below. */
   const renderOverviewFacts = (row: DemoManagerWorkOrderRow) => (
@@ -1469,57 +1369,138 @@ export function ManagerWorkOrdersPanel({
       }
       if (key === "pay") approvePay(routeWorkOrder);
     };
-    // "Close" only applies once a visit is scheduled (Mark complete / Approve & pay);
-    // "Schedule" has nothing left to do once the work is completed — dropped rather
-    // than shown as a dead "Coming soon" action (docs/agents/record-page.md § Known gap).
-    const headerActions = sections.headerActions.filter((action) => {
-      if (action.id === "assign-vendor" && serviceNext?.key === "assign") return false;
-      if (action.id === "schedule") {
-        if (routeWorkOrder.bucket === "completed") return false;
-        if (serviceNext?.key === "schedule") return false;
-        if (routeWorkOrder.bucket === "open") {
-          return Boolean(routeWorkOrder.vendorId || routeWorkOrder.vendorName);
-        }
-        return true;
-      }
-      if (action.id === "close") {
-        if (serviceNext?.key === "mark-done" || serviceNext?.key === "approve-pay" || serviceNext?.key === "pay") {
-          return false;
-        }
-        return routeWorkOrder.bucket === "scheduled";
-      }
-      if (action.id === "review") {
-        return routeWorkOrder.bucket === "completed" && Boolean(routeWorkOrder.vendorUserId);
-      }
-      return true;
-    });
-    const onHeaderAction = (actionId: string) => {
-      if (actionId === "assign-vendor") {
-        setAssignSheetRow(routeWorkOrder);
-        return;
-      }
-      if (actionId === "schedule") {
-        setScheduleVisitRow(routeWorkOrder);
-        return;
-      }
-      if (actionId === "close") {
-        if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
-        else markComplete(routeWorkOrder);
-        return;
-      }
-      if (actionId === "review") {
-        setReviewRow(routeWorkOrder);
-        return;
-      }
-      if (actionId === "invite-vendor") {
-        setInviteVendorRow(routeWorkOrder);
-        setInviteVendorSelectedIds([]);
-        return;
-      }
-      if (actionId === "delete") {
-        onDeleteWorkOrder(routeWorkOrder);
-      }
+    const assignee = resolveWorkOrderAssignee(routeWorkOrder);
+    const servicePrimaryIcon = (key: string) => {
+      if (key === "publish") return Send;
+      if (key === "compare-quotes") return Scale;
+      if (key === "schedule") return Calendar;
+      if (key === "pay") return HandCoins;
+      return CheckCircle2;
     };
+    const headerActionSpecs: PortalAdaptiveAction[] = [];
+    if (serviceNext) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: `primary-${serviceNext.key}`,
+          label: serviceNext.label,
+          icon: servicePrimaryIcon(serviceNext.key),
+          tone: "primary",
+          dataAttr: "manager-service-primary",
+          onClick: () => runServicePrimary(serviceNext.key),
+        }),
+      );
+    }
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "message",
+        label: "Message",
+        icon: Mail,
+        dataAttr: "record-header-action-message",
+        onClick: () =>
+          navigate(
+            workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"),
+          ),
+      }),
+    );
+    if (!assignee) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "assign-vendor",
+          label: "Assign vendor",
+          icon: UserPlus,
+          dataAttr: "record-header-action-assign-vendor",
+          onClick: () => setAssignSheetRow(routeWorkOrder),
+        }),
+      );
+    }
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "edit",
+        label: "Edit",
+        icon: Pencil,
+        dataAttr: "work-order-edit",
+        onClick: () => setEditWorkOrderRow(routeWorkOrder),
+      }),
+    );
+    if (
+      assignee &&
+      serviceNext?.key !== "schedule" &&
+      routeWorkOrder.bucket !== "completed" &&
+      !routeWorkOrder.scheduledAtIso
+    ) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "schedule",
+          label: "Schedule visit",
+          icon: Calendar,
+          dataAttr: "record-header-action-schedule",
+          onClick: () => setScheduleVisitRow(routeWorkOrder),
+        }),
+      );
+    }
+    if (routeWorkOrder.bucket === "scheduled" && routeWorkOrder.scheduledAtIso) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "reschedule",
+          label: "Reschedule visit",
+          icon: Calendar,
+          dataAttr: "work-order-reschedule-visit",
+          onClick: () => setScheduleVisitRow(routeWorkOrder),
+        }),
+      );
+    }
+    if (
+      routeWorkOrder.bucket === "scheduled" &&
+      serviceNext?.key !== "mark-done" &&
+      serviceNext?.key !== "approve-pay" &&
+      serviceNext?.key !== "pay"
+    ) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "close",
+          label: "Close",
+          icon: CheckCircle2,
+          dataAttr: "record-header-action-close",
+          onClick: () => {
+            if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
+            else markComplete(routeWorkOrder);
+          },
+        }),
+      );
+    }
+    if (routeWorkOrder.bucket === "completed" && routeWorkOrder.vendorUserId) {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "review",
+          label: "Leave a review",
+          icon: Star,
+          dataAttr: "record-header-action-review",
+          onClick: () => setReviewRow(routeWorkOrder),
+        }),
+      );
+    }
+    if (!routeWorkOrder.selfAssigned && routeWorkOrder.vendorId && routeWorkOrder.bucket !== "completed") {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "auto-schedule",
+          label: autoSchedulingId === routeWorkOrder.id ? "Finding a slot…" : "Auto-schedule",
+          icon: Calendar,
+          dataAttr: "work-order-auto-schedule",
+          disabled: autoSchedulingId === routeWorkOrder.id,
+          onClick: () => autoScheduleVisit(routeWorkOrder),
+        }),
+      );
+    }
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: "delete",
+        label: "Delete",
+        icon: Trash2,
+        tone: "danger",
+        dataAttr: "record-header-action-delete",
+        onClick: () => onDeleteWorkOrder(routeWorkOrder),
+      }),
+    );
     const ownContent =
       activeTab === "vendor-schedule" ? (
         <>
@@ -1637,7 +1618,6 @@ export function ManagerWorkOrdersPanel({
                 ) : null}
               </div>
             ) : null}
-            <PortalTableDetailActions>{workOrderDetailActions(routeWorkOrder)}</PortalTableDetailActions>
           </div>
         </>
       );
@@ -1654,32 +1634,9 @@ export function ManagerWorkOrdersPanel({
           dataAttrBack="work-order-detail-back"
           pinScrollBody
         >
-          <PortalRecordActions>
-            <div className="flex items-center justify-end gap-1">
-              {serviceNext ? (
-                <PortalPrimaryIconAction
-                  label={serviceNext.label}
-                  data-attr="manager-service-primary"
-                  onClick={() => runServicePrimary(serviceNext.key)}
-                />
-              ) : null}
-              <PortalIconAction
-                ring
-                icon={Mail}
-                label="Message"
-                data-attr="record-header-action-message"
-                onClick={() =>
-                  navigate(
-                    workOrderDetailHref(
-                      listBasePath ?? "/portal",
-                      routeWorkOrder.bucket,
-                      routeWorkOrder.id,
-                      "communication",
-                    ),
-                  )
-                }
-              />
-              <PortalRecordHeaderIconActions actions={headerActions} onAction={onHeaderAction} />
+          <PortalRecordActions omitSpacer>
+            <div className="flex min-w-0 flex-1" data-attr="service-record-header-icons">
+              <PortalAdaptiveActionRow actions={headerActionSpecs} align="end" gapPx={6} />
             </div>
           </PortalRecordActions>
           <PortalRecordSectionChrome

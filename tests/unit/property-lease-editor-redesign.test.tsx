@@ -13,6 +13,22 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
+vi.mock("@/components/portal/property-lease-document-notice", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/components/portal/property-lease-document-notice")>();
+  return { ...mod, propertyLeaseNeedsAssistantReview: () => false };
+});
+
+function submissionWithOfferedLeaseTypes() {
+  const sub = createDefaultListingSubmission();
+  sub.allowedLeaseTerms = ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay"];
+  return sub;
+}
+
+function footerStepCountHidden() {
+  const primary = screen.getByRole("button", { name: /^(Save|Create lease|Next)$/ });
+  const footer = primary.parentElement;
+  expect(footer?.textContent ?? "").not.toMatch(/Step \d+ of \d+/);
+}
 if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
 
 const TEMPLATE: PropertyLeaseTemplate = {
@@ -68,18 +84,19 @@ describe("C2-CP8: the lease editor has no Settings step", () => {
 
   it("keeps the application and addendum links the workspace settings made when the lease is saved", async () => {
     const onSave = vi.fn().mockResolvedValue(true);
+    const editedTemplate = {
+      ...TEMPLATE,
+      applicationLeaseTerms: ["Long-term"],
+      linkedApplicationTemplateId: "app-tpl-mapped",
+      linkedGuarantorLeaseTemplateId: OTHER_TEMPLATE.id,
+    };
     render(
       <PropertyLeaseFormModal
         open
         mode="edit"
-        sub={createDefaultListingSubmission()}
-        template={{
-          ...TEMPLATE,
-          applicationLeaseTerms: ["Long-term"],
-          linkedApplicationTemplateId: "app-tpl-mapped",
-          linkedGuarantorLeaseTemplateId: OTHER_TEMPLATE.id,
-        }}
-        templates={[TEMPLATE, OTHER_TEMPLATE]}
+        sub={submissionWithOfferedLeaseTypes()}
+        template={editedTemplate}
+        templates={[editedTemplate, OTHER_TEMPLATE]}
         propertyId="mgr-house-1"
         onClose={() => {}}
         onSave={onSave}
@@ -93,6 +110,45 @@ describe("C2-CP8: the lease editor has no Settings step", () => {
     const saved = (onSave.mock.calls.at(-1)?.[0] as PropertyLeaseTemplate[]).find((t) => t.id === TEMPLATE.id);
     expect(saved?.linkedApplicationTemplateId).toBe("app-tpl-mapped");
     expect(saved?.linkedGuarantorLeaseTemplateId).toBe(OTHER_TEMPLATE.id);
+  });
+
+  it("hides the footer step count on the property lease editor", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="edit"
+        sub={submissionWithOfferedLeaseTypes()}
+        template={{ ...TEMPLATE, applicationLeaseTerms: ["Long-term"] }}
+        templates={[TEMPLATE]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Edit lease" });
+    jumpRail("document");
+    footerStepCountHidden();
+  });
+
+  it("shows Used for mapping on edit when form setup is loaded", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="edit"
+        sub={submissionWithOfferedLeaseTypes()}
+        template={{ ...TEMPLATE, applicationLeaseTerms: ["Long-term"] }}
+        templates={[TEMPLATE]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Edit lease" });
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).not.toBeNull(),
+    );
   });
 });
 
@@ -194,6 +250,26 @@ describe("C2-R30-3 month-to-month and custom start as lease documents", () => {
     fireEvent.click(screen.getByRole("button", { name: "Type of lease" }));
     expect(await screen.findByRole("option", { name: "Month-to-month" })).toBeTruthy();
     expect(await screen.findByRole("option", { name: "Custom start" })).toBeTruthy();
+  });
+});
+
+describe("Edit lease header chrome", () => {
+  it("does not show Discard draft in the header when editing an existing lease", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="edit"
+        sub={submissionWithOfferedLeaseTypes()}
+        template={{ ...TEMPLATE, applicationLeaseTerms: ["Long-term"] }}
+        templates={[TEMPLATE, OTHER_TEMPLATE]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Edit lease" });
+    expect(screen.queryByRole("button", { name: "Discard draft" })).toBeNull();
   });
 });
 
