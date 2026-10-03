@@ -749,7 +749,7 @@ export function ManagerPropertyPromotionPanel({
               propertyTitle={propertyLabel ?? "This property"}
               sub={sub}
               listingStatus="live"
-              workEmail={managerEmail}
+              workEmail={workEmail}
               onToggle={(next) => persistZillowToggle(next)}
               onResend={() => {
                 if (!zillow?.enabled) return;

@@ -1417,6 +1417,7 @@ export function PaymentsSettingsPanel({
 }) {
   useImperativeHandle(formRef, () => ({ saveIfDirty: async () => true }), []);
   useReportSettingsPanelFooter(onFooterReady, null);
+  const activeWorkspaceId = useWorkspaces()?.active?.id ?? null;
 
   if (mode === "outgoing") {
     return (
@@ -1436,7 +1437,7 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <WorkspacePricingDefaultsPanel workspaceId={effectiveWorkspace?.id ?? null} />
+      <WorkspacePricingDefaultsPanel workspaceId={activeWorkspaceId} />
 
       <PortalSettingsSection title="Receiving from residents">
         <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href="/portal/profile?tab=account" dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
