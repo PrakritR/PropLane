@@ -22,7 +22,11 @@ export const WIZARD_LABEL_CLASS = "mb-1.5 block text-[12.5px] font-bold normal-c
 
 /** The settings-kit single-select, labelled like every other wizard field. */
 export function WizardSelect(props: Parameters<typeof FieldSingleSelect>[0]) {
-  return <FieldSingleSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+  return <FieldSingleSelect {...props}
+    labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1", props.labelClassName)}
+    wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:border-b max-sm:border-border/60 max-sm:py-2", props.wrapperClassName)}
+    triggerClassName={cn("max-sm:w-auto max-sm:max-w-[60%] max-sm:justify-end max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none", props.triggerClassName)}
+  />;
 }
 
 /** The settings-kit multi-select, labelled like every other wizard field. */

@@ -179,9 +179,15 @@ export function AddWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
-  const goNext = () => {
-    if (nextDisabled || busy) return;
-    const invalid = Array.from(workspaceRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("main input, main select, main textarea") ?? []).find((field) => field.willValidate && !field.checkValidity());
+  const validateFields = () => {
+    const invalid = Array.from(workspaceRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("main input, main select, main textarea") ?? []).find((field) => {
+      if (!field.willValidate || field.closest('[hidden], [aria-hidden="true"], .hidden')) return false;
+      for (let node: HTMLElement | null = field; node && node !== workspaceRef.current; node = node.parentElement) {
+        const style = window.getComputedStyle(node);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+      }
+      return !field.checkValidity();
+    });
     if (invalid) {
       const label = invalid.labels?.[0]?.textContent?.replace(/\s*\(required\)/g, "").trim() || invalid.getAttribute("aria-label") || "Required fields";
       setValidationError(invalid.validity.valueMissing ? `${label}: Required` : invalid.validationMessage);
@@ -189,11 +195,21 @@ export function AddWorkspace({
       invalid.scrollIntoView?.({ block: "center", behavior: "smooth" });
       invalid.focus();
       invalid.reportValidity();
-      return;
+      return false;
     }
     setValidationError(null);
+    return true;
+  };
+
+  const finish = () => {
+    if (busy || lastDisabled || !validateFields()) return;
+    onFinish();
+  };
+
+  const goNext = () => {
+    if (busy || !validateFields()) return;
     if (onBeforeNext && !onBeforeNext()) return;
-    if (nextPath == null) return;
+    if (nextDisabled || nextPath == null) return;
     onJump(nextPath);
   };
 
@@ -212,7 +228,7 @@ export function AddWorkspace({
         saveState={saveState}
         onClose={close}
         closeDisabled={busy}
-        onContinue={isLast ? undefined : goNext}
+        onContinue={isLast ? finish : goNext}
         headerAside={
           <>
             {headerActions}
@@ -251,7 +267,7 @@ export function AddWorkspace({
             {isLast ? (
               <button
                 type="button"
-                onClick={onFinish}
+                onClick={finish}
                 disabled={lastDisabled || busy}
                 data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
@@ -262,10 +278,11 @@ export function AddWorkspace({
               <button
                 type="button"
                 onClick={goNext}
-                disabled={nextDisabled || busy}
+                disabled={busy}
+                aria-disabled={nextDisabled || undefined}
                 data-attr={`${dataAttrPrefix}-next`}
                 aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:opacity-45"
               >
                 Continue
               </button>

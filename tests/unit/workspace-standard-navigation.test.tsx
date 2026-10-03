@@ -46,3 +46,30 @@ describe("workspace uploads", () => {
     expect(screen.getByLabelText("Take photo").getAttribute("capture")).toBe("environment");
   });
 });
+
+// The workspace owns attempted validation; each door still owns its domain gate.
+import { AddWorkspace } from "@/components/portal/add-workspace";
+
+describe("workspace required fields", () => {
+  it("an unavailable Continue can report Required without advancing; hidden steps do not block", () => {
+    const onJump = vi.fn();
+    const before = vi.fn(() => true);
+    const props = { title: "Test editor", steps: [{ id: "name", label: "Name" }, { id: "review", label: "Review" }], current: 0, onJump, onClose: vi.fn(), assistantContext: "Test editor", assistantScopeKey: "test", lastLabel: "Create", onFinish: vi.fn(), onBeforeNext: before };
+    const { rerender } = render(<AddWorkspace {...props} nextDisabled>
+      <label>Name<input required /></label>
+      <div hidden><input required aria-label="Other step" /></div>
+    </AddWorkspace>);
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    expect(screen.getByRole("alert").textContent).toContain("Required");
+    expect(onJump).not.toHaveBeenCalled();
+    expect(before).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Casey" } });
+    rerender(<AddWorkspace {...props}>
+      <label>Name<input required defaultValue="Casey" /></label>
+      <div hidden><input required aria-label="Other step" /></div>
+    </AddWorkspace>);
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(onJump).toHaveBeenCalledExactlyOnceWith(1);
+  });
+});
