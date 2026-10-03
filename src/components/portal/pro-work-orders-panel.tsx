@@ -1533,7 +1533,7 @@ export function ManagerWorkOrdersPanel({
             recordId: routeWorkOrder.id,
             recordLabel: routeWorkOrder.title,
             overviewTiles: [
-              { id: "status", label: "Status", value: routeWorkOrder.status || routeWorkOrder.bucket },
+              { id: "status", label: "Status", value: (() => { const raw = (routeWorkOrder.status || routeWorkOrder.bucket || "").trim(); return raw.charAt(0).toUpperCase() + raw.slice(1); })() },
               { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
               { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || "None", tone: routeWorkOrder.vendorName?.trim() ? "default" : "danger", detail: routeWorkOrder.vendorName?.trim() ? undefined : "Not assigned" },
               { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
