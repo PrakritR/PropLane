@@ -5,6 +5,7 @@
 // only commit, and the Sections step's duplicate-name validation.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { createPropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
@@ -30,11 +31,13 @@ function jumpRail(id: string) {
 }
 
 beforeEach(() => {
+  clearAllWorkspaceDrafts();
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }) as unknown as Response));
 });
 
 afterEach(() => {
   cleanup();
+  clearAllWorkspaceDrafts();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -179,5 +182,54 @@ describe("F-editor c: footer-only commit", () => {
     jumpRail("setup");
     await waitFor(() => expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
+  });
+});
+
+describe("C2-R30-3 month-to-month and custom start as lease documents", () => {
+  it("offers month-to-month and custom start in the add-lease type picker", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="add"
+        sub={createDefaultListingSubmission()}
+        templates={[]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "New lease" });
+    fireEvent.click(screen.getByRole("button", { name: "Type of lease" }));
+    expect(await screen.findByRole("option", { name: "Month-to-month" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Custom start" })).toBeTruthy();
+  });
+});
+
+describe("C2-LA4-5 clause paper on PropLane lease document step", () => {
+  const CLAUSE_TEMPLATE: PropertyLeaseTemplate = {
+    ...createPropertyLeaseTemplate({ kind: "long-term", label: "Clause lease", source: { kind: "proplane_default" } as never }),
+    leaseTemplateHtmlOverride: `<!doctype html><html><body><section id="lease-document-header"><h1>Lease</h1></section><section id="c1"><h2>1. Rent</h2><p>Pay rent.</p></section></body></html>`,
+  };
+
+  it("uses the clause paper editor when parsed sections exist", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="edit"
+        sub={createDefaultListingSubmission()}
+        template={CLAUSE_TEMPLATE}
+        templates={[CLAUSE_TEMPLATE]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Edit lease" });
+    jumpRail("document");
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="property-lease-clause-paper-editor"]')).not.toBeNull(),
+    );
   });
 });

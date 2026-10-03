@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { createPropertyApplicationTemplate, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
+import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -171,5 +172,18 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
     const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
     const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
     expect(savedTemplate?.linkedCosignerApplicationTemplateId).toBe(OTHER_TEMPLATE.id);
+  });
+});
+
+describe("C2-R30-11 intake ↔ licensing Used for leases link", () => {
+  it("writes linkedApplicationTemplateId on leases selected in Used for leases", () => {
+    const intake = createPropertyApplicationTemplate({ kind: "long-term", label: "Intake form" });
+    const licensing = createPropertyLeaseTemplate({ kind: "long-term", label: "Licensing agreement" });
+    const templateId = intake.id;
+    const selectedLeases = new Set([licensing.id]);
+    const propertyLeaseTemplates = [licensing].map((lease) =>
+      selectedLeases.has(lease.id) ? { ...lease, linkedApplicationTemplateId: templateId } : lease,
+    );
+    expect(propertyLeaseTemplates[0]?.linkedApplicationTemplateId).toBe(templateId);
   });
 });

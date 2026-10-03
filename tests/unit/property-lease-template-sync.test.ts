@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission, normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import {
   addLeaseTemplateFromSeed,
   buildLeaseTemplateSeeds,
@@ -8,7 +8,7 @@ import {
   resolvePropertyLeaseTemplateForApplication,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
-import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { createPropertyLeaseTemplate, readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
@@ -60,6 +60,31 @@ describe("property lease template sync", () => {
     expect(picked?.listingSeedKey).toBe("primary");
     const legacyLabel = resolvePropertyLeaseTemplateForApplication(synced, { leaseTerm: "12 months" });
     expect(legacyLabel?.listingSeedKey).toBe("primary");
+  });
+
+  it("prefers dropdown answer routing over lease-term routing", () => {
+    const primary = createPropertyLeaseTemplate({ kind: "long-term", label: "Term lease", listingSeedKey: "primary" });
+    const routed = createPropertyLeaseTemplate({ kind: "long-term", label: "Answer lease" });
+    const sub = {
+      ...createDefaultListingSubmission(),
+      propertyLeaseTemplates: [primary, routed],
+      customApplicationFields: normalizeCustomApplicationFields([
+        {
+          id: "pick",
+          key: "lease_route",
+          label: "Lease route",
+          type: "select",
+          required: true,
+          options: ["A", "B"],
+          optionLeaseTemplateIds: [primary.id, routed.id],
+        },
+      ]),
+    };
+    const picked = resolvePropertyLeaseTemplateForApplication(sub, {
+      leaseTerm: "12-Month",
+      customFieldAnswers: [{ key: "lease_route", label: "Lease route", type: "select", value: "B" }],
+    });
+    expect(picked?.id).toBe(routed.id);
   });
 
   it("resolves short-term template for short-term applicants", () => {

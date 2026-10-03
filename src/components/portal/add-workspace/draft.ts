@@ -8,6 +8,10 @@ import { usePortalSession } from "@/hooks/use-portal-session";
 const drafts = new Map<string, unknown>();
 export function hasWorkspaceDraft(scope: string): boolean { return drafts.has(scope); }
 export function clearWorkspaceDraft(scope: string): void { drafts.delete(scope); }
+/** Vitest helper — module-level draft map survives `cleanup()` across cases. */
+export function clearAllWorkspaceDrafts(): void {
+  drafts.clear();
+}
 
 /** Closing keeps the exact typed state; only a successful commit clears it. */
 export function useWorkspaceDraft<T>({ scope: formScope, actor, open = true, value, restore }: {
