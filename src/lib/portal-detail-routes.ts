@@ -1141,16 +1141,10 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
  * links to any of the three still resolve — they just land on Lease document
  * rather than 404 or silently falling back to Overview.
  *
- * "audit-trail" and "answers" (C066/C281) are real tabs, not folded content —
- * same shape as Applications' own "application-form" tab — added once the
- * shared shell registry was clear for this workstream to touch.
+ * CX-RC1: manager lease record is Lease · Communication only; audit trail and
+ * lease-first answers fold into the Lease section (studio After).
  */
-export const LEASE_DETAIL_TABS = [
-  "overview",
-  "audit-trail",
-  "answers",
-  "communication",
-] as const;
+export const LEASE_DETAIL_TABS = ["overview", "communication"] as const;
 export type LeaseDetailTabId = (typeof LEASE_DETAIL_TABS)[number];
 
 const LEASE_DETAIL_TAB_ALIASES: Record<string, LeaseDetailTabId> = {
@@ -1160,6 +1154,8 @@ const LEASE_DETAIL_TAB_ALIASES: Record<string, LeaseDetailTabId> = {
   amendments: "overview",
   documents: "overview",
   payments: "overview",
+  "audit-trail": "overview",
+  answers: "overview",
 };
 
 export function parseLeaseDetailTab(raw: string | undefined | null): LeaseDetailTabId {

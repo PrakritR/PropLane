@@ -397,31 +397,15 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   lease: {
     basePathDefault: "/portal",
-    // The Lease section (who has signed, the terms line, the lease itself) · Communication.
-    // "Audit trail" (C066) joins once the lease carries execution evidence and "Answers" (C281)
-    // for a lease-first lease — the page hides them via `hiddenSections` until they apply.
-    // `lease-document`, `terms`, `signatures`, `amendments` and `payments` links still resolve:
-    // they land on the Lease section (see `LEASE_DETAIL_TAB_ALIASES`).
-    ownGroups: [
-      { label: "Lease", ids: [
-        { id: "overview", label: "Lease" },
-        { id: "audit-trail", label: "Audit trail" },
-        { id: "answers", label: "Answers" },
-      ] },
-    ],
+    // CX-RC1: Lease (who signed, terms, document, audit trail, lease-first answers) · Communication.
+    // Legacy `audit-trail` / `answers` routes still resolve to the Lease section (aliases).
+    ownGroups: [{ label: "Lease", ids: [{ id: "overview", label: "Lease" }] }],
     headerActions: [
       { id: "send", label: "Send lease", icon: Send },
       { id: "edit", label: "Edit lease", icon: Pencil },
       { id: "download", label: "Download", icon: Download },
     ],
     sectionActions: {
-      "audit-trail": [
-        { id: "export", label: "Export", icon: Download },
-        { id: "share", label: "Share", icon: Share2 },
-      ],
-      answers: [
-        { id: "share", label: "Share", icon: Share2 },
-      ],
       communication: [
         { id: "compose", label: "New message", icon: Mail },
         { id: "archive-thread", label: "Archive thread", icon: Archive },

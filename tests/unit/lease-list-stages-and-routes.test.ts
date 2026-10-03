@@ -65,10 +65,17 @@ describe("route words", () => {
   });
 
   it("a lease record keeps its old section links working by landing on the Lease section", () => {
-    for (const old of ["lease-document", "terms", "signatures", "amendments", "payments", "documents"]) {
+    for (const old of [
+      "lease-document",
+      "terms",
+      "signatures",
+      "amendments",
+      "payments",
+      "documents",
+      "audit-trail",
+      "answers",
+    ]) {
       expect(parseLeaseDetailTab(old)).toBe("overview");
     }
-    expect(parseLeaseDetailTab("audit-trail")).toBe("audit-trail");
-    expect(parseLeaseDetailTab("answers")).toBe("answers");
   });
 });
