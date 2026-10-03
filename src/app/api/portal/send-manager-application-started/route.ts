@@ -21,6 +21,7 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { track } from "@/lib/analytics/posthog";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
@@ -139,7 +140,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Email delivery is not configured." }, { status: 503 });
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+    // Manager-initiated mail leaves as the workspace's work email once it has one (shared sender before).
+    const from = await managerOutboundFromHeader(svc, String(row.managerUserId ?? "").trim() || user.id);
     const res = await postResendEmail({
       apiKey,
       actorUserId: String(row.managerUserId ?? "").trim() || user.id,

@@ -223,7 +223,7 @@ export async function POST(req: Request) {
       wantSms: canSms,
       canEmailExternally,
       smsFromNumber,
-      from: await managerOutboundFromHeader(db, loaded.ownerUserId),
+      from: await managerOutboundFromHeader(db, loaded.ownerUserId, { propertyId: loaded.propertyId }),
     });
     if (delivery.conflict) {
       return NextResponse.json({ ok: false, code: "revision_conflict", error: "This reminder changed after sending started. Open a new draft to send again." }, { status: 409 });

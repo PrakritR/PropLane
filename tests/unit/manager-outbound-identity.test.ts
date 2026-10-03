@@ -17,25 +17,37 @@ import {
  */
 
 const state = vi.hoisted(() => ({
+  houseWorkspaceId: null as string | null,
+  workspaceArgs: [] as Array<string | null | undefined>,
   assistant: null as { address: string } | null,
   fullName: "" as string | null,
   throwOnLoad: false,
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
-  resolveWorkspaceWorkEmail: async () => {
+  resolveWorkspaceWorkEmail: async (_db: unknown, _id: string, workspaceId?: string | null) => {
+    state.workspaceArgs.push(workspaceId);
     if (state.throwOnLoad) throw new Error("mailbox table unreachable");
     return state.assistant ? { ownerUserId: "owner-1", ownerName: "Owner", address: state.assistant.address } : null;
   },
 }));
 
 const db = {
-  from: () => ({
-    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: state.fullName }, error: null }) }) }),
+  from: (table: string) => ({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({
+          data: table === "manager_property_records" ? { workspace_id: state.houseWorkspaceId } : { full_name: state.fullName },
+          error: null,
+        }),
+      }),
+    }),
   }),
 } as never;
 
 beforeEach(() => {
+  state.houseWorkspaceId = null;
+  state.workspaceArgs = [];
   state.assistant = { address: "assist-abc123@prop-lane.space" };
   state.fullName = "Prakrit Ramachandran";
   state.throwOnLoad = false;
@@ -73,6 +85,22 @@ describe("manager outbound identity", () => {
     state.throwOnLoad = true;
 
     expect(await resolveManagerOutboundFrom(db, "mgr-1")).toBeNull();
+  });
+
+  it("mail about a house leaves on the work email of the workspace that holds the house", async () => {
+    state.houseWorkspaceId = "ws-house";
+
+    await resolveManagerOutboundFrom(db, "mgr-1", { propertyId: "prop-1" });
+
+    expect(state.workspaceArgs).toEqual(["ws-house"]);
+  });
+
+  it("keeps the active workspace when the house is unknown or unplaced", async () => {
+    await resolveManagerOutboundFrom(db, "mgr-1", { propertyId: "prop-1" });
+    await resolveManagerOutboundFrom(db, "mgr-1");
+
+    // No workspace argument: the helper reads the request's active workspace itself.
+    expect(state.workspaceArgs).toEqual([undefined, undefined]);
   });
 
   it("returns null for a missing manager id", async () => {
@@ -120,6 +148,7 @@ describe("manager-originated product mail leaves on the work email", () => {
     "src/app/api/portal/send-application-completion-reminder/route.ts",
     "src/app/api/portal/send-lead-invite/route.ts",
     "src/app/api/portal/record-share-link/send/route.ts",
+    "src/app/api/portal/send-manager-application-started/route.ts",
   ];
 
   it("every manager-to-counterparty sender resolves the workspace From header", () => {

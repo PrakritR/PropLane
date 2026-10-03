@@ -160,11 +160,7 @@ function isMessagingNumberStatus(
   );
 }
 
-export function ManagerMessagingSettingsPanel({
-  personalPhoneRefreshKey = 0,
-}: {
-  personalPhoneRefreshKey?: number;
-}) {
+export function ManagerMessagingSettingsPanel() {
   const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
   const scope = useSettingsPropertyScope();
@@ -262,7 +258,7 @@ export function ManagerMessagingSettingsPanel({
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal, { refreshEligibility: true }));
     return () => controller.abort();
-  }, [load, personalPhoneRefreshKey]);
+  }, [load]);
 
   // Best-effort: a failed read simply leaves the announcement about the number,
   // exactly as it was before there was an email to name.
@@ -289,7 +285,7 @@ export function ManagerMessagingSettingsPanel({
       }
     })();
     return () => controller.abort();
-  }, [personalPhoneRefreshKey, scope.workspaceId]);
+  }, [scope.workspaceId]);
 
   const numberInProgress =
     status?.number?.state === "pending_registration" ||
