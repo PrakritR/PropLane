@@ -1491,7 +1491,12 @@ export const ManagerInbox = forwardRef<
       // inbound turn on our inbox copy renders inbound rather than as our reply.
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
-        m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
+        m.delivery ??
+        (pendingRoot && i === 0 && direction === "outbound"
+          ? ("sending" as const)
+          : direction === "outbound"
+            ? ("sent" as const)
+            : undefined);
       const fields = inboxEmailBubbleFields(
         {
           body: m.body,

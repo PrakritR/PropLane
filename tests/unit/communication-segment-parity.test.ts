@@ -23,7 +23,8 @@ describe("Communication status and action parity", () => {
     const commandStack = read("src/components/portal/portal-list-control-stack.tsx");
     expect(unified).toContain('data-attr="communication-list-header-card"');
     expect(unified).toContain("embedded");
-    expect(commandStack).toMatch(/embedded[\s\S]*flex-row flex-nowrap/);
+    expect(commandStack).toContain('data-attr="portal-list-command-embedded-row"');
+    expect(unified).toContain('listVariant="manager"');
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*address=\{row\.address\}/);
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
   });

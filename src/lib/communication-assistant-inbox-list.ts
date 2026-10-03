@@ -161,7 +161,7 @@ export function assistantUnifiedListItemFromThread(
     subtitle: propLaneAssistantListSubtitle(thread),
     preview: propLaneAssistantListPreview(thread, listSegment),
     previewPrefix: sentSemantics ? "You: " : undefined,
-    time: formatInboxListNarrowTime(thread.time),
+    time: formatInboxListNarrowTime(lastMsg?.at ?? thread.time),
     unread: thread.folder === "inbox" && thread.unread,
     sortMs: inboxThreadSortMs(thread.id, thread.time) || Date.now(),
   };

@@ -791,7 +791,7 @@ export function ManagerUnifiedInbox({
           ? propLaneAssistantListPreview(t, listSegment)
           : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: lastOutbound ? "You: " : undefined,
-        time: formatInboxListNarrowTime(t.time),
+        time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
         unreadCount: inboxThreadUnreadCount(t),
         // The house the server resolved the thread to be about — the same set
@@ -1448,6 +1448,7 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
+              listVariant="manager"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
               preview={row.preview}
