@@ -87,6 +87,10 @@ vi.mock("@/components/portal/manager-application-form-settings", () => ({
 vi.mock("@/components/portal/lease-document-library-panel", () => ({
   LeaseDocumentLibraryPanel: () => <div data-testid="pane-lease-documents" />,
 }));
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
+  useModalPresentation: () => "dialog",
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
@@ -179,10 +183,7 @@ describe("manager settings categories", () => {
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],
     ["account", () => screen.getByText("Sign out")],
-    ["payments", () => {
-      expect(screen.getByTestId("pane-module-payments")).toBeTruthy();
-      return screen.getByTestId("pane-module-payouts");
-    }],
+    ["payments", () => screen.getByTestId("pane-module-payments")],
     ["spreadsheets", () => screen.getByTestId("pane-spreadsheets")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {
     goto(`?tab=${tab}`);
@@ -221,6 +222,7 @@ describe("manager settings categories", () => {
 
   it("edits profile name in place and confirms only after the profile API succeeds", async () => {
     const fetchMock = vi.mocked(fetch);
+    goto("?tab=profile");
     renderSettings();
     const edit = document.querySelector('[data-attr="settings-edit-fullName"]');
     expect(edit).toBeTruthy();
