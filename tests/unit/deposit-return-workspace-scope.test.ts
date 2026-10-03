@@ -65,7 +65,7 @@ beforeEach(() => {
     status: "paid",
     row_data: { kind: "security_deposit", paidCents: 75_000, residentEmail: "r@example.com" },
   };
-  rows.payment = { stripe_charge_id: "ch_1" };
+  rows.payment = { stripe_charge_id: "ch_1", amount_cents: 75_000 };
 });
 
 describe("the active workspace narrows even the caller's own deposit", () => {

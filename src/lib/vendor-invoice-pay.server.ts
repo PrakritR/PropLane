@@ -1,6 +1,5 @@
 import "server-only";
 
-import { claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
@@ -25,21 +24,8 @@ export type StartInvoicePaySuccess = {
 
 /**
  * Manager pays an approved/scheduled vendor invoice in-app — "Request
- * payment" (VD48/49). No manager-facing pay screen for `vendor_invoices`
- * existed before this (the only real-money invoice path was the ledger-only
- * `pay-from-balance` route, gated behind a different flag). Mirrors
- * work-order-approve-pay.server.ts's startVendorPayCheckout: manager pays
- * Stripe's own processing cost, destination charge when the vendor's
- * Connect + bank is ready else a platform hold, and — when
- * VENDOR_BANKING_ENABLED — PropLane's 3% take on top as
- * application_fee_amount, coming out of the vendor's net rather than added
- * to what the manager pays.
- *
- * Uses Stripe's EMBEDDED Checkout (`ui_mode: "embedded_page"`) rather than a
- * hosted redirect — the manager never leaves PropLane. The form mounts
- * inside a PropLane modal (`vendor-invoice-manager-pay-sheet.tsx`); Stripe's
- * own `return_url` navigation lands back on `/portal/finances` once payment
- * completes (captain: "never leave the app").
+ * payment" (VD48/49). Standalone vendor invoices (no work order) use this
+ * path; work-order-linked settlement stays on `vendor-invoice-settlement.server.ts`.
  */
 export async function startVendorInvoicePayCheckout(
   db: SupabaseClient,
@@ -68,13 +54,7 @@ export async function startVendorInvoicePayCheckout(
   const invoiceCents = Math.round(Number(row.total_cents) || 0);
   if (invoiceCents < 100) return { ok: false, status: 400, error: "Invoice total must be at least $1.00." };
 
-  const claimed = await claimInvoicePayment(db, opts.managerUserId, row.id, "stripe");
   const stripe = getStripe();
-  if (claimed.checkout_session_id) {
-    const session = await stripe.checkout.sessions.retrieve(claimed.checkout_session_id);
-    if (session.status === "open" && session.client_secret) return { ok: true, clientSecret: session.client_secret, sessionId: session.id, invoiceCents, platformFeeCents: Number(session.metadata?.platform_fee_cents ?? 0) };
-    return { ok: false, status: 409, error: "This payment has already started. Its status will update after settlement." };
-  }
   const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, row.vendor_user_id);
   const platformFeeCents = vendorBankingEnabled() ? vendorPayFeeCents(invoiceCents) : 0;
   const origin = resolveShareableAppOrigin();
@@ -104,8 +84,6 @@ export async function startVendorInvoicePayCheckout(
   if (result.mode !== "embedded" || !result.clientSecret) {
     return { ok: false, status: 500, error: "Could not start invoice checkout." };
   }
-  const { error: sessionSaveError } = await db.from("vendor_invoices").update({ checkout_session_id: result.sessionId }).eq("id", row.id).eq("payment_claim", "stripe");
-  if (sessionSaveError) throw new Error(sessionSaveError.message);
   return {
     ok: true,
     clientSecret: result.clientSecret,
@@ -126,19 +104,29 @@ export async function completeVendorInvoicePaymentFromStripeSession(
   const vendorUserId = session.metadata.vendor_user_id?.trim();
   if (!invoiceId || !managerUserId || !vendorUserId) return;
 
+  if (session.payment_status !== "paid") return;
+
   const invoiceCents = Number(session.metadata.invoice_cents ?? 0);
   const isHold = session.metadata.platform_hold === "1";
-  const platformFeeCents = Number(session.metadata.platform_fee_cents ?? 0) || 0;
+  const platformFeeCents = vendorBankingEnabled() ? Number(session.metadata.platform_fee_cents ?? 0) || 0 : 0;
 
-  if (session.payment_status !== "paid") return;
-  const { data: existing, error: invoiceError } = await db.from("vendor_invoices").select("manager_user_id,vendor_user_id,total_cents,payment_claim,checkout_session_id").eq("id", invoiceId).single();
-  if (invoiceError || !existing || existing.manager_user_id !== managerUserId || existing.vendor_user_id !== vendorUserId || existing.total_cents !== invoiceCents || existing.payment_claim !== "stripe" || (existing.checkout_session_id && existing.checkout_session_id !== session.id)) throw new Error("Invoice checkout settlement mismatch.");
+  const { data: existing } = await db.from("vendor_invoices").select("status").eq("id", invoiceId).maybeSingle();
+  const alreadyPaid = (existing as { status?: string } | null)?.status === "paid";
+
+  if (!alreadyPaid) {
+    const nowIso = new Date().toISOString();
+    await db
+      .from("vendor_invoices")
+      .update({ status: "paid", paid_at: nowIso, paid_from: "stripe", updated_at: nowIso })
+      .eq("id", invoiceId);
+  }
+
   const stripeChargeId = vendorBankingEnabled()
     ? await resolveChargeIdFromCheckoutSession(getStripe(), session).catch(() => null)
     : null;
   await creditHoldFromPaidSession(db, session, stripeChargeId ?? undefined);
 
-  {
+  if (!alreadyPaid) {
     await upsertInvoiceVendorPayout(db, {
       invoiceId,
       managerUserId,
@@ -160,10 +148,9 @@ export async function completeVendorInvoicePaymentFromStripeSession(
         sourceId: invoiceId,
         description: "Payment for invoice",
         stripeObjectId: stripeChargeId ?? session.id,
-      });
+      }).catch((e) => console.error("[vendor-banking] ledger write failed for invoice pay", e));
     }
   }
-  await settleInvoicePayment(db, managerUserId, invoiceId, "stripe");
 }
 
 async function upsertInvoiceVendorPayout(

@@ -120,6 +120,7 @@ describe("completeVendorInvoicePaymentFromStripeSession", () => {
   function makeSession(overrides: Partial<Record<string, string>> = {}) {
     return {
       id: "cs_invoice_1",
+      payment_status: "paid",
       metadata: {
         purpose: "vendor_invoice_direct_pay",
         invoice_id: "inv_1",
