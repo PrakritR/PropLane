@@ -10,9 +10,9 @@ describe("outgoing invoice eligibility", () => {
     expect(invoiceBelongsInOutgoing({ ...invoice, status: "submitted" }, "vendor")).toBe(false);
     expect(invoiceBelongsInOutgoing({ ...invoice, status: "rejected" }, "vendor")).toBe(false);
   });
-  it("retains historical paid invoices and approved standalone bills", () => {
+  it("retains historical paid invoices but excludes unlinked unpaid bills", () => {
     expect(invoiceBelongsInOutgoing({ ...invoice, status: "paid" }, null)).toBe(true);
-    expect(invoiceBelongsInOutgoing({ ...invoice, workOrderId: null }, null)).toBe(true);
+    expect(invoiceBelongsInOutgoing({ ...invoice, workOrderId: null }, null)).toBe(false);
   });
   it("sums cents without counting unapproved invoices or other years", () => {
     const rows = [

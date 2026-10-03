@@ -5,7 +5,7 @@ export type OutgoingInvoice = VendorInvoice & { vendorUserId: string; vendorName
 export function invoiceBelongsInOutgoing(invoice: Pick<OutgoingInvoice, "status" | "workOrderId" | "vendorUserId">, assignedVendorUserId: string | null): boolean {
   if (invoice.status === "paid") return true;
   return (invoice.status === "approved" || invoice.status === "scheduled") &&
-    (!invoice.workOrderId || Boolean(assignedVendorUserId && assignedVendorUserId === invoice.vendorUserId));
+    Boolean(invoice.workOrderId && assignedVendorUserId && assignedVendorUserId === invoice.vendorUserId);
 }
 export function outgoingInvoiceTotals(invoices: OutgoingInvoice[], year: number) {
   return invoices.reduce((totals, invoice) => {
