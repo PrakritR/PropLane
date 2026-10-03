@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Copy, ExternalLink, Link2, MoreHorizontal } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, Link2, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { resolveZillowSyndicationStatus } from "@/lib/listing-syndication/zillow-syndication-status";
 import { ZillowFeedPreviewModal } from "@/components/portal/zillow-feed-preview-modal";
@@ -27,6 +29,7 @@ export function ZillowRentalNetworkRow({
   onEdit,
   toggleDisabled,
   dataAttrPrefix = "zillow-syndication",
+  variant = "toggle",
 }: {
   propertyTitle: string;
   sub: ManagerListingSubmissionV1;
@@ -40,6 +43,12 @@ export function ZillowRentalNetworkRow({
   onEdit?: () => void;
   toggleDisabled?: boolean;
   dataAttrPrefix?: string;
+  /**
+   * `toggle` (listing editor review step) keeps the on/off switch on the row.
+   * `row` (property Promotion tab, studio "Listing sites") is a normal list row:
+   * tile, one fact line, and one ⋯ — the on/off lives in Promotion settings.
+   */
+  variant?: "toggle" | "row";
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const status = useMemo(
@@ -47,6 +56,51 @@ export function ZillowRentalNetworkRow({
     [sub, listingStatus, syndicationSwitchOn],
   );
   const enabled = syndicationSwitchOn && sub.syndication?.zillow?.enabled === true;
+
+  if (variant === "row") {
+    return (
+      <>
+        <PortalPropertyRecordRow
+          title="Zillow Rental Network"
+          leading={<PortalRowIconTile icon={Link2} />}
+          leadingShape="square"
+          facts={
+            <>
+              <PortalRowFact icon={Link2} srLabel="Sites">
+                Zillow · Trulia · HotPads
+              </PortalRowFact>
+              <PortalRowFact icon={enabled ? Check : Clock} srLabel="Status">
+                {status.text}
+              </PortalRowFact>
+            </>
+          }
+          onOpen={() => setPreviewOpen(true)}
+          dataAttr={`${dataAttrPrefix}-row`}
+          actions={
+            <RowActionsMenu
+              label="Zillow Rental Network"
+              items={[
+                { id: "preview", label: "Preview feed", onSelect: () => setPreviewOpen(true) },
+                onEdit ? { id: "edit", label: "Edit", onSelect: onEdit } : null,
+                enabled && onResend ? { id: "resend", label: "Resend", onSelect: onResend } : null,
+                enabled && onStop ? { id: "stop", label: "Stop", onSelect: onStop } : null,
+                !enabled ? { id: "start", label: "Turn on", onSelect: () => onToggle(true) } : null,
+              ]}
+            />
+          }
+        />
+        <ZillowFeedPreviewModal
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          title={propertyTitle}
+          sub={sub}
+          listingStatus={listingStatus}
+          workPhone={workPhone}
+          workEmail={workEmail}
+        />
+      </>
+    );
+  }
 
   return (
     <>

@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import type { PropertyPromotionBuiltinDef } from "@/lib/property-promotion-builtin";
 
@@ -44,7 +44,7 @@ export function PropertyPromotionBuiltinRow({
   return (
     <PortalPropertyRecordRow
       title={def.name}
-      leading={<Icon className="size-5 text-primary" aria-hidden />}
+      leading={<PortalRowIconTile icon={Icon} />}
       leadingShape="square"
       facts={
         <>

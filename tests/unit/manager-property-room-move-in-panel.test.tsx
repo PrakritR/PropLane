@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -80,91 +80,78 @@ function renderPanel(sub = roomListing()) {
   );
 }
 
-// Shape since the studio redesign (C2-TAB2, C2-TABS2-2, ui-page-structure.md § Lists): Whole house /
-// Rooms tabs; every row has ONE ⋯ (Edit first); Edit opens the standard popup. There is no inline
-// <details> card and no per-resident tick: a capacity-2+ room lists one "Room · Resident N" row each.
-const goToRooms = () => fireEvent.click(screen.getByRole("button", { name: /^Rooms/ }));
-async function rowMenuItem(row: string, name: string) {
-  fireEvent.keyDown(screen.getAllByRole("button", { name: `Actions for ${row}` })[0]!, { key: "ArrowDown" });
-  return screen.findByRole("menuitem", { name });
-}
-async function openRowEditor(row: string) {
-  fireEvent.click(await rowMenuItem(row, "Edit"));
-}
-
 describe("ManagerPropertyRoomMoveInPanel", () => {
-  describe("room Copy/Share row actions", () => {
-    it("offers Edit first, then Copy and Share, in every room row's one ⋯ menu", async () => {
-      for (const room of ["Room A", "Room B"]) {
-        const { unmount } = renderPanel();
-        goToRooms();
-        fireEvent.keyDown(screen.getAllByRole("button", { name: `Actions for ${room}` })[0]!, { key: "ArrowDown" });
-        const names = (await screen.findAllByRole("menuitem")).map((el) => el.textContent?.trim());
-        expect(names[0]).toBe("Edit");
-        expect(names).toContain("Copy move-in info");
-        expect(names).toContain("Share move-in link");
-        unmount();
-        cleanup();
+  /**
+   * studio-redesign(property-tabs): Move-in is ONE header card (tabs with counts,
+   * search, icon actions, round +), then rows of tile · title · one glyph-fact
+   * line · exactly one ⋯ — not an empty card of its own plus a second tabs card.
+   */
+  describe("one header card", () => {
+    it("draws a single command bar holding the tabs, search, gear, copy, share and the round +", () => {
+      const onAddResident = vi.fn();
+      const { container } = render(
+        <ManagerPropertyRoomMoveInPanel
+          sub={roomListing()}
+          saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+          managerUserId="mgr-1"
+          canEdit
+          onUpdated={() => {}}
+          showToast={() => {}}
+          onAddResident={onAddResident}
+        />,
+      );
+      const stacks = container.querySelectorAll('[data-slot="portal-list-control-stack"]');
+      expect(stacks).toHaveLength(1);
+      const stack = stacks[0]!;
+      expect(within(stack as HTMLElement).getByRole("button", { name: /Whole house/ })).toBeTruthy();
+      expect(within(stack as HTMLElement).getByRole("button", { name: /Rooms/ })).toBeTruthy();
+      expect(within(stack as HTMLElement).getByPlaceholderText("Search move-in")).toBeTruthy();
+      for (const name of ["Move-in settings", "Copy house details to rooms", "Share house details"]) {
+        expect(within(stack as HTMLElement).getByRole("button", { name })).toBeTruthy();
       }
+      const add = within(stack as HTMLElement).getByRole("button", { name: "Add resident" });
+      fireEvent.click(add);
+      expect(onAddResident).toHaveBeenCalledTimes(1);
     });
 
-    it("disables Copy until the room has SAVED details", async () => {
+    it("has no round + when nothing can open it", () => {
       renderPanel();
-      goToRooms();
-      expect(await rowMenuItem("Room A", "Copy move-in info")).toBeDisabled();
-      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-      expect(await rowMenuItem("Room B", "Copy move-in info")).not.toBeDisabled();
-    });
-
-    it("Copy writes the saved room text, including a resident with content, and never a data URL", async () => {
-      renderPanel(roomListingWithResidentDetails());
-      goToRooms();
-      fireEvent.click(await rowMenuItem("Room B", "Copy move-in info"));
-      await Promise.resolve();
-      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
-      const text = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-      expect(text).toContain("Lockbox on porch");
-      expect(text).toContain("Resident 1");
-      expect(text).toContain("Your bed is by the window");
-      expect(text).not.toContain("Resident 2");
-      expect(text).not.toContain("data:");
-    });
-
-    it("Share writes a URL ending in /resident/move-in/info?room=<id>", async () => {
-      renderPanel();
-      goToRooms();
-      fireEvent.click(await rowMenuItem("Room B", "Share move-in link"));
-      await Promise.resolve();
-      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
-      const url = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-      expect(url).toContain("/resident/move-in/info?room=room-b");
+      expect(screen.queryByRole("button", { name: "Add resident" })).toBeNull();
     });
   });
 
-  describe("per-resident instructions", () => {
-    it("lists resident rows only for a capacity-2+ room", () => {
-      renderPanel(roomListingWithResidentDetails());
-      goToRooms();
-      expect(screen.getByText("Room B · Resident 1")).toBeTruthy();
-      expect(screen.getByText("Room B · Resident 2")).toBeTruthy();
-      expect(screen.queryByText("Room A · Resident 1")).toBeNull();
+  describe("rows", () => {
+    it("whole-house row: square tile, glyph facts (no 'Nothing added yet' sentence), one ⋯", () => {
+      const { container } = renderPanel();
+      const row = container.querySelector('[data-attr="property-move-in-house-row"]')!.closest(".portal-property-row")!;
+      expect(row.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
+      const facts = row.querySelector('[data-attr="record-row-facts"]')!;
+      expect(facts.textContent).toContain("No instructions yet");
+      expect(facts.textContent).toContain("0 photos");
+      expect(facts.textContent).toContain("No video");
+      expect(row.textContent).not.toContain("Nothing added yet");
+      expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
     });
 
-    it("editing a resident row and saving writes moveInResidentDetails", async () => {
-      const sub = roomListingWithResidentDetails();
-      // Start room-b without any resident details yet, so saving seeds a fresh entry.
-      sub.rooms[1]!.moveInResidentDetails = undefined;
-      renderPanel(sub);
-      goToRooms();
-      await openRowEditor("Room B · Resident 1");
-      fireEvent.change(screen.getByPlaceholderText(/Keys, parking/i), { target: { value: "Bed near the door" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    it("room rows on the Rooms tab: tile, facts that read the saved instructions, one ⋯ each", () => {
+      const { container } = renderPanel();
+      fireEvent.click(screen.getByRole("button", { name: /Rooms/ }));
+      const rowA = container.querySelector('[data-attr="property-move-in-room-row-room-a"]')!.closest(".portal-property-row")!;
+      const rowB = container.querySelector('[data-attr="property-move-in-room-row-room-b"]')!.closest(".portal-property-row")!;
+      expect(rowA.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
+      expect(rowA.textContent).toContain("No instructions yet");
+      expect(rowB.textContent).toContain("Instructions written");
+      expect(rowA.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
+      expect(rowB.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
+    });
 
-      expect(updateExtraListingFromSubmission).toHaveBeenCalledTimes(1);
-      const nextSub = updateExtraListingFromSubmission.mock.calls[0]![2] as ReturnType<typeof roomListing>;
-      const savedRoomB = nextSub.rooms.find((r) => r.id === "room-b")!;
-      expect(savedRoomB.moveInResidentDetails![0]!.moveInInstructions).toBe("Bed near the door");
-      expect(savedRoomB.moveInInstructions).toBe("Lockbox on porch");
+    it("a capacity-2 room also lists one row per resident slot, each with a single ⋯", () => {
+      const { container } = renderPanel(roomListingWithResidentDetails());
+      fireEvent.click(screen.getByRole("button", { name: /Rooms/ }));
+      const slot = container.querySelector('[data-attr="property-move-in-resident-row-room-b-0"]')!.closest(".portal-property-row")!;
+      expect(slot.textContent).toContain("Room B · Resident 1");
+      expect(slot.textContent).toContain("Instructions written");
+      expect(slot.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
     });
   });
 
@@ -186,60 +173,11 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     });
   });
 
-  it("opens a room's editor from its row without hiding the house details", async () => {
-    renderPanel();
-    // The list itself carries no inline fields; the house row is on the default tab.
-    expect(screen.getByText("The whole house")).toBeTruthy();
-    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
-    goToRooms();
-    await openRowEditor("Room B");
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-  });
-
-  it("closes a room's editor back to the section list", async () => {
-    renderPanel();
-    goToRooms();
-    await openRowEditor("Room B");
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
-    expect(screen.getByText("Room B")).toBeTruthy();
-  });
-
-  it("saves the edited room from its editor", async () => {
-    renderPanel();
-    goToRooms();
-    await openRowEditor("Room B");
-    fireEvent.change(screen.getByDisplayValue("Lockbox on porch"), { target: { value: "Use side gate" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(vi.mocked(updateExtraListingFromSubmission)).toHaveBeenCalledWith(
-      "mgr-test",
-      "mgr-1",
-      expect.objectContaining({
-        rooms: expect.arrayContaining([expect.objectContaining({ id: "room-b", moveInInstructions: "Use side gate" })]),
-      }),
-    );
-  });
-
-  it("opens the house editor from the house row without inline fields on the list", async () => {
-    renderPanel();
-    expect(screen.queryAllByPlaceholderText(/Keys, parking/i)).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Share house details" })).toBeTruthy();
-    await openRowEditor("The whole house");
-    expect(screen.getAllByPlaceholderText(/Keys, parking/i).length).toBeGreaterThan(0);
-  });
-
-  /**
-   * A whole-home listing has no room rows, but the house itself is still a
-   * selectable row — Edit and Share live in the bulk bar, so without the tick box
-   * those actions were unreachable on an entire-home property.
-   */
-  it("offers whole-house actions on an entire-home listing", async () => {
+  /** A whole-home listing has no Rooms tab: the house row is the only row. */
+  it("shows no tab row of its own on an entire-home listing", () => {
     const sub = createDefaultListingSubmission();
     sub.listingPlaceCategoryId = "entire_home";
-
-    render(
+    const { container } = render(
       <ManagerPropertyRoomMoveInPanel
         sub={sub}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
@@ -249,12 +187,10 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
         showToast={() => {}}
       />,
     );
-
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.getByRole("button", { name: "Share house details" })).toBeTruthy();
+    expect(container.querySelectorAll('[data-slot="portal-list-control-stack"]')).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Rooms/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy house details to rooms" })).toBeNull();
-    await openRowEditor("The whole house");
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
+    expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeTruthy();
   });
 
   it("omits whole-house edit actions when the manager cannot edit", () => {

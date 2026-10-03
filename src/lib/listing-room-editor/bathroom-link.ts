@@ -17,7 +17,7 @@ export type RoomBathroomState = {
   sharedWithRoomIds: string[];
 };
 
-function usersOfBath(sub: ManagerListingSubmissionV1, bath: ManagerBathroomSubmission): ManagerRoomSubmission[] {
+export function usersOfBath(sub: ManagerListingSubmissionV1, bath: ManagerBathroomSubmission): ManagerRoomSubmission[] {
   const ids = bath.assignedRoomIds ?? [];
   return (sub.rooms ?? []).filter((r) => ids.includes(r.id));
 }

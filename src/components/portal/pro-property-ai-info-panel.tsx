@@ -5,7 +5,8 @@ import { AlertCircle, Check, Sparkles } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyAiInfoEditorModal, type AiInfoEditorTarget } from "@/components/portal/property-ai-info-editor-modal";
 import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
@@ -268,9 +269,9 @@ export function ManagerPropertyAiInfoPanel({
   });
 
   return (
-    <div className="px-3 py-4 max-md:px-2.5" data-attr="property-ai-info">
+    <div data-attr="property-ai-info">
       <PortalListControlStack
-        className="mb-3"
+        className="plp-header-card mb-2 max-lg:mb-1.5"
         variant="command"
         destinationRow={
           <LocalDestinationNav
@@ -300,7 +301,10 @@ export function ManagerPropertyAiInfoPanel({
           />
         }
       />
-      <div className="space-y-3">
+      <PortalRecordListSurface
+        isEmpty={builtRows.length === 0 && customRows.length === 0}
+        emptyCard={{ title: q ? "No matches" : "Nothing here yet", section: "ai-info", tone: q ? "muted" : "default" }}
+      >
         {builtRows.map((row) => {
           const text = readBuiltinText(resolved.sub, row.key);
           const len = text.trim().length;
@@ -308,7 +312,7 @@ export function ManagerPropertyAiInfoPanel({
             <PortalPropertyRecordRow
               key={row.key}
               title={row.title}
-              leading={<Sparkles className="size-5 text-primary" aria-hidden />}
+              leading={<PortalRowIconTile icon={Sparkles} />}
               leadingShape="square"
               facts={
                 len ? (
@@ -322,7 +326,7 @@ export function ManagerPropertyAiInfoPanel({
               onOpen={() => openBuiltin(row.key)}
               dataAttr={`property-ai-info-row-${row.key}`}
               actions={
-                <RowActionsMenu label={`Actions for ${row.title}`} items={[
+                <RowActionsMenu label={row.title} items={[
                   { id: "edit", label: "Edit", onSelect: () => openBuiltin(row.key) },
                   len ? { id: "clear", label: "Clear", onSelect: () => void clearEditorForKey(row.key) } : null,
                 ]} />
@@ -336,7 +340,7 @@ export function ManagerPropertyAiInfoPanel({
             <PortalPropertyRecordRow
               key={item.id}
               title={item.title}
-              leading={<Sparkles className="size-5 text-primary" aria-hidden />}
+              leading={<PortalRowIconTile icon={Sparkles} />}
               leadingShape="square"
               facts={
                 len ? (
@@ -350,7 +354,7 @@ export function ManagerPropertyAiInfoPanel({
               onOpen={() => openCustom(item)}
               dataAttr={`property-ai-info-row-custom-${item.id}`}
               actions={
-                <RowActionsMenu label={`Actions for ${item.title}`} items={[
+                <RowActionsMenu label={item.title} items={[
                   { id: "edit", label: "Edit", onSelect: () => openCustom(item) },
                   { id: "delete", label: "Delete", danger: true, onSelect: () => void deleteCustomRow(item.id) },
                 ]} />
@@ -358,7 +362,7 @@ export function ManagerPropertyAiInfoPanel({
             />
           );
         })}
-      </div>
+      </PortalRecordListSurface>
 
       <PropertyAiInfoEditorModal
         open={editorOpen}

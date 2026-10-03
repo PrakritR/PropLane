@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Settings } from "lucide-react";
+import { CircleSlash, CreditCard, Settings, Wrench } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { PropertyServiceSettingsForm } from "@/components/portal/property-service-settings-form";
@@ -16,7 +18,7 @@ import {
   type ManagerListingSubmissionV1,
   type ServiceBillingCadence,
 } from "@/lib/manager-listing-submission";
-import type { ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
+import { persistManagerListingSubmission, type ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
 
 type ServiceTab = "requests" | "addons";
 
@@ -24,15 +26,15 @@ function offerCadence(offer: ManagerListingServiceOption): ServiceBillingCadence
   return offer.billingCadence ?? "per_request";
 }
 
-function offerSubtitle(offer: ManagerListingServiceOption): string {
+/** The row's price fact: "$40 · Per request"; "No price" when the manager set none. */
+export function offerPriceFact(offer: ManagerListingServiceOption): string {
   const cadence =
     offerCadence(offer) === "per_request"
       ? "Per request"
       : offerCadence(offer) === "monthly"
         ? "Monthly"
         : "One time";
-  const parts = [offer.price?.trim(), cadence, !offer.available ? "Off" : null].filter(Boolean);
-  return parts.join(" · ") || "No price";
+  return [offer.price?.trim(), cadence].filter(Boolean).join(" · ") || "No price";
 }
 
 type Props = {
@@ -59,6 +61,7 @@ export function PropertyServicesOffersPanel({
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ManagerListingServiceOption | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const confirm = useConfirm();
 
   const offers = sub.serviceRequestOptions ?? [];
   const q = query.trim().toLowerCase();
@@ -89,6 +92,26 @@ export function PropertyServicesOffersPanel({
   };
 
   const addLabel = tab === "requests" ? "request service" : "add-on";
+
+  const openEdit = (offer: ManagerListingServiceOption) => {
+    setEditing(offer);
+    setIsNew(false);
+    setEditOpen(true);
+  };
+
+  const removeOffer = async (offer: ManagerListingServiceOption) => {
+    if (!(await confirm({ description: `Delete ${offer.name.trim() || "this service"}?` }))) return;
+    const next: ManagerListingSubmissionV1 = {
+      ...sub,
+      serviceRequestOptions: (sub.serviceRequestOptions ?? []).filter((o) => o.id !== offer.id),
+    };
+    if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+      showToast("Could not delete service.");
+      return;
+    }
+    showToast("Service deleted.");
+    onUpdated();
+  };
 
   return (
     <div data-ps40-page="services" data-attr="property-services-catalog">
@@ -142,13 +165,37 @@ export function PropertyServicesOffersPanel({
           <PortalPropertyRecordRow
             key={offer.id}
             title={offer.name.trim() || "Service"}
-            summary={offerSubtitle(offer)}
-            onOpen={() => {
-              setEditing(offer);
-              setIsNew(false);
-              setEditOpen(true);
-            }}
+            address={offer.description?.trim() || undefined}
+            leading={<PortalRowIconTile icon={Wrench} />}
+            leadingShape="square"
+            facts={
+              <>
+                <PortalRowFact icon={CreditCard} srLabel="Price">
+                  {offerPriceFact(offer)}
+                </PortalRowFact>
+                {offer.deposit?.trim() ? (
+                  <PortalRowFact icon={CreditCard} srLabel="Deposit">
+                    {`${offer.deposit.trim()} deposit`}
+                  </PortalRowFact>
+                ) : null}
+                {!offer.available ? (
+                  <PortalRowFact icon={CircleSlash} srLabel="Availability">
+                    Turned off
+                  </PortalRowFact>
+                ) : null}
+              </>
+            }
+            onOpen={() => openEdit(offer)}
             dataAttr="property-service-offer-row"
+            actions={
+              <RowActionsMenu
+                label={offer.name.trim() || "Service"}
+                items={[
+                  { id: "edit", label: "Edit", onSelect: () => openEdit(offer) },
+                  { id: "delete", label: "Delete", danger: true, onSelect: () => void removeOffer(offer) },
+                ]}
+              />
+            }
           />
         ))}
       </PortalRecordListSurface>

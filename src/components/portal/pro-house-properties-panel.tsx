@@ -1323,6 +1323,7 @@ function ManagerPropertyInlineDetails({
           onUpdated={onUpdated}
           showToast={showToast}
           propertyLabel={propertyShareLabel}
+          onAddResident={sharePropertyId ? () => setResidentOnboardOpen(true) : undefined}
         />
       ) : null}
 

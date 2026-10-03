@@ -20,14 +20,18 @@ describe("House details Copy/Share are header icons", () => {
     expect(panel).toMatch(/actions=\{/);
   });
 
-  it("room rows keep Copy/Share, as items in the row's one ⋯ menu (C2-TAB2, ui-page-structure.md)", () => {
-    // Rows carry exactly one ⋯ (Edit first), so a room's Copy and Share live in it rather than as
-    // second per-row icon buttons.
-    expect(panel).toContain('label: "Copy move-in info"');
-    expect(panel).toContain('label: "Share move-in link"');
-    expect(panel).toContain("roomMoveInClipboardText");
-    expect(panel).toContain("roomMoveInShareUrl");
+  /**
+   * studio-redesign(property-tabs): the per-room-row Copy/Share pair went away
+   * with the inline room cards; Copy and Share are now header-card icons beside
+   * the Settings gear, in the same single command bar as the tabs and search.
+   */
+  it("Copy / Share / Settings sit in the one header card, never in a floating row", () => {
+    expect(panel).toContain('data-attr="property-move-in-copy"');
+    expect(panel).toContain('data-attr="property-move-in-share"');
+    expect(panel).toContain('data-attr="property-move-in-settings-open"');
     expect(panel).not.toMatch(/>\s*Copy\s*</);
-    expect(panel.indexOf('id: "edit"')).toBeLessThan(panel.indexOf('id: "preview"'));
+    expect(panel).not.toContain("<PortalPropertySectionToolbar");
+    expect(panel).not.toContain("justify-end gap-1 px-0.5");
+    expect(panel).toMatch(/<PortalListControlStack[\s\S]*?actions=\{[\s\S]*?icon=\{Copy\}[\s\S]*?icon=\{Share2\}[\s\S]*?icon=\{Settings\}/);
   });
 });

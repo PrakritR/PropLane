@@ -1020,8 +1020,9 @@ export function ManagerPropertyPromotionPanel({
       ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
         {promoTab === "sites" && sub && saveTarget ? (
-          <div className="mb-3 px-1">
+          <div>
             <ZillowRentalNetworkRow
+              variant="row"
               propertyTitle={propertyLabel ?? "This property"}
               sub={sub}
               listingStatus="live"
