@@ -59,6 +59,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     });
     if (!move.ok) {
       if (move.code === "insufficient_balance") {
+        // Nothing moved, so release the balance claim — the manager must still be able to pay
+        // this invoice from the bank (C2-MN3). Only an unpaid invoice still claimed by "balance".
+        await auth.db.from("vendor_payouts").delete().eq("invoice_id", id).eq("manager_user_id", auth.userId).eq("status", "pending");
+        await auth.db.from("vendor_invoices").update({ payment_claim: null, updated_at: new Date().toISOString() })
+          .eq("id", id).eq("manager_user_id", auth.userId).eq("payment_claim", "balance").neq("status", "paid");
         return NextResponse.json(
           {
             error: `The PropLane balance has ${(move.availableCents / 100).toFixed(2)} available; this invoice needs ${(move.requestedCents / 100).toFixed(2)}.`,
