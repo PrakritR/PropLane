@@ -9,10 +9,11 @@ import {
   resolveCommunicationScope,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
-import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
+import { buildClientPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
+  callerMayWriteInboxScope,
   MANAGER_INBOX_SCOPE,
   RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
@@ -407,9 +408,22 @@ export async function POST(req: Request) {
     const rows = body.action === "replace" ? body.rows ?? [] : body.row ? [body.row] : [];
     if (rows.length === 0) return NextResponse.json({ error: "row required" }, { status: 400 });
 
+    // A row's scope names whose inbox it lands in. Every row in the batch must
+    // carry the one scope this caller was resolved (and is allowed) to write -
+    // a second row naming another account's scope is how a thread got planted.
+    if (rows.some((row) => String(row?.scope ?? "").trim() !== scopeKey)) {
+      return NextResponse.json({ error: "Every row must use the same scope." }, { status: 400 });
+    }
+    if (!(await callerMayWriteInboxScope(ctx.db, ctx.user, scopeKey))) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
     for (const row of rows) {
       const normalized = normalizeInboxRow(row);
-      const record = buildPortalInboxThreadUpsert(normalized, ctx.user);
+      const record = buildClientPortalInboxThreadUpsert(normalized, ctx.user, {
+        scope: scopeKey,
+        isAdmin: ctx.user.role === "admin",
+      });
       if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
       const id = String(record.id);
 
@@ -457,10 +471,12 @@ export async function POST(req: Request) {
           participant_email?: string | null;
           scope?: string | null;
         };
+        // Ownership, recipient, scope and type are the stored row's, never the body's.
         record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
-        record.participant_email = record.participant_email ?? prior.participant_email ?? null;
+        record.participant_email = prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
-      } else if (isTeamThreadId(id)) {
+        record.thread_type = (existing[0] as { thread_type?: string | null }).thread_type ?? null;
+      } else if (isTeamThreadId(id) || (ctx.user.role !== "admin" && isServerReservedInboxThreadId(id))) {
         continue;
       } else if (ctx.user.role !== "admin") {
         record.owner_user_id = ctx.user.id;
