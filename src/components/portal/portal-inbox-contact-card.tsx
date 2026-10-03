@@ -110,6 +110,7 @@ export function PortalInboxContactCard({
   href,
   tone = "identity",
   disabled = false,
+  frame = "card",
 }: {
   /**
    * 36px slot, rendered exactly as given. The caller owns it because a phone
@@ -143,18 +144,22 @@ export function PortalInboxContactCard({
   /** `setup` is the empty slot that will hold the live identity. */
   tone?: "identity" | "setup";
   disabled?: boolean;
+  /** `inline` drops the per-row card chrome — stacked manager work identity uses one outer card. */
+  frame?: "card" | "inline";
 }) {
   const shell = (
     <div
       className={cn(
-        "rounded-2xl border",
-        tone === "setup"
-          ? "border-border bg-card"
-          : "border-border bg-card",
+        frame === "inline"
+          ? "min-w-0"
+          : cn(
+              "rounded-2xl border",
+              tone === "setup" ? "border-border bg-card" : "border-border bg-card",
+            ),
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
-      <div className="flex items-center gap-2 px-3 py-1">
+      <div className={cn("flex items-center gap-2", frame === "inline" ? "min-h-[34px] gap-2.5 py-0.5" : "px-3 py-1")}>
         <ContactIdentityRow
           leading={leading}
           value={value}

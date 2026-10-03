@@ -15,6 +15,7 @@ import {
 } from "@/lib/communication-manager-assistant-thread";
 import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
+  formatInboxListNarrowTime,
   inboxThreadMessages,
   inboxThreadSortMs,
   resolveCollapsedInboxThread,
@@ -160,7 +161,7 @@ export function assistantUnifiedListItemFromThread(
     subtitle: propLaneAssistantListSubtitle(thread),
     preview: propLaneAssistantListPreview(thread, listSegment),
     previewPrefix: sentSemantics ? "You: " : undefined,
-    time: thread.time,
+    time: formatInboxListNarrowTime(thread.time),
     unread: thread.folder === "inbox" && thread.unread,
     sortMs: inboxThreadSortMs(thread.id, thread.time) || Date.now(),
   };

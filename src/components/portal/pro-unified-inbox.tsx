@@ -1371,6 +1371,7 @@ export function ManagerUnifiedInbox({
         {listChrome === "internal" ? (
           <PortalListControlStack
             variant="command"
+            embedded
             className="border-0 bg-transparent px-2 pb-2 pt-0 shadow-none sm:px-2.5"
             destinationRow={
               <InboxListSegmentTabs
@@ -1449,7 +1450,6 @@ export function ManagerUnifiedInbox({
               key={row.key}
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
-              subtitle={row.personEmail || row.subtitle}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}

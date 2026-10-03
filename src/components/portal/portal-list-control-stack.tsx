@@ -141,6 +141,7 @@ export function PortalListControlStack({
   variant = "stacked",
   actions,
   primary,
+  embedded = false,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -174,6 +175,8 @@ export function PortalListControlStack({
    * command bar now but the app bar.
    */
   primary?: ReactNode;
+  /** When true, render inside a parent card (Communication list header) — no nested bordered surface. */
+  embedded?: boolean;
 }) {
   assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
@@ -331,16 +334,22 @@ export function PortalListControlStack({
           // Sticky the whole command chrome (tabs + Settings/actions), not only the
           // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
+            !embedded &&
             "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
+          embedded && "border-t border-border",
           className,
         )}
         data-slot="portal-list-control-stack"
         data-variant="command"
-        data-sticky={stickyDestinations ? "" : undefined}
+        data-embedded={embedded ? "" : undefined}
+        data-sticky={stickyDestinations && !embedded ? "" : undefined}
       >
         <div
           className={cn(
-            "flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
+            "flex min-w-0 flex-col lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
+            embedded
+              ? "bg-transparent shadow-none"
+              : "rounded-xl border border-border bg-card shadow-sm",
             // Phone rule (see `toolsJoinTabsOnPhone`): the utilities wrapper dissolves
             // and the tabs strip + icons share one row — the tools exist ONCE in the DOM.
             toolsJoinTabsOnPhone && "max-lg:flex-row max-lg:items-center max-lg:pr-1.5",

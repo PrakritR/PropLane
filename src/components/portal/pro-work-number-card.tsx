@@ -184,6 +184,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="inline"
           leading={<Phone className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-number-card"
           value={formatted}
@@ -253,6 +254,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="inline"
           leading={<Mail className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-email-card"
           value={workEmail}
@@ -298,7 +300,7 @@ export function ManagerWorkNumberCard() {
   })();
 
   return (
-    <div className="shrink-0 space-y-1 border-b border-border px-3 py-2" data-attr="manager-work-identity">
+    <div className="shrink-0 flex flex-col gap-0.5 px-3 pb-1.5 pt-2" data-attr="manager-work-identity">
       {numberBox}
       {emailBox}
     </div>
