@@ -55,7 +55,7 @@ describe("PortalListGroup", () => {
       const card = container.querySelector(`[data-attr="row-${title}"]`)!.closest(".portal-property-row");
       expect(card?.className).not.toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
       expect(card?.className).not.toMatch(/(?:^|\s)shadow-sm(?:\s|$)/);
-      expect(card?.className).not.toMatch(/(?:^|\s)mb-2(?:\s|$)/);
+      expect(card?.className).not.toMatch(/(?:^|\s)mb-\d+(?:\s|$)/);
     }
 
     // The rows sit inside a hairline-separated list, not floating apart.
@@ -101,11 +101,12 @@ describe("PortalListGroup", () => {
     expect(screen.queryByText("Security deposit")).toBeNull();
   });
 
-  it("a row rendered outside any group keeps its own card, unchanged", () => {
+  it("a row rendered outside any group keeps its own card and shared spacing", () => {
     const { container } = render(row("Standalone charge"));
     const card = container.querySelector('[data-attr="row-Standalone charge"]')!.closest(".portal-property-row");
     expect(card?.className).toContain("rounded-xl");
     expect(card?.className).toContain("shadow-sm");
-    expect(card?.className).toContain("mb-2");
+    expect(card?.className).toContain("mb-3");
+    expect(card?.className).toMatch(/(?:^|\s)border(?:\s|$)/);
   });
 });
