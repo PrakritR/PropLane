@@ -21,11 +21,17 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
       join(process.cwd(), "src/components/portal/pro-messaging-settings-panel.tsx"),
       "utf8",
     );
+    // The lock card itself lives in the one work-number setup popup (bcbe62040).
+    const setup = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-work-number-setup-modal.tsx"),
+      "utf8",
+    );
     expect(messaging).toContain("Available on Pro. Start Pro to set up a work number.");
     expect(messaging).toContain("Free accounts cannot use a work number.");
-    expect(messaging).toContain('data-attr="messaging-work-number-plan-lock"');
-    expect(messaging).toContain("Start Pro");
-    expect(messaging).toContain("/portal/profile?tab=billing&activatePaid=1");
+    expect(messaging).toContain("planMessage={planMessage}");
+    expect(setup).toContain('data-attr="messaging-work-number-plan-lock"');
+    expect(setup).toContain("Start Pro");
+    expect(setup).toContain("/portal/profile?tab=billing&activatePaid=1");
     expect(messaging).not.toContain('data-attr="messaging-number-status-refresh"');
     expect(messaging).not.toContain('data-attr="messaging-announce-residents-open"');
     expect(messaging).toContain("refreshEligibility: true");

@@ -96,10 +96,12 @@ function query() {
       const owners = new Set<string>();
       let participant: string | null = null;
       let adminScope = false;
-      for (const match of expression.matchAll(/owner_user_id\.eq\.([^,]+)|owner_user_id\.in\.\(([^)]*)\)|participant_email\.eq\.([^,]+)|scope\.eq\.admin/g)) {
-        if (match[1]) owners.add(match[1]);
-        if (match[2]) match[2].split(",").forEach((id) => owners.add(id));
-        if (match[3]) participant = match[3].toLowerCase();
+      // The route quotes every interpolated value (postgrestFilterValue); unquote to compare.
+      const unquote = (value: string) => value.trim().replace(/^"(.*)"$/, "$1");
+      for (const match of expression.matchAll(/owner_user_id\.eq\.([^,]+)|owner_user_id\.in\.\(([^)]*)\)|participant_email\.eq\.([^,)]+)|scope\.eq\.admin/g)) {
+        if (match[1]) owners.add(unquote(match[1]));
+        if (match[2]) match[2].split(",").forEach((id) => owners.add(unquote(id)));
+        if (match[3]) participant = unquote(match[3]).toLowerCase();
         if (match[0] === "scope.eq.admin") adminScope = true;
       }
       filters.orMatcher = (row) =>

@@ -5,7 +5,7 @@ import {
 } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
 
 describe("mapParsedFieldsToApplicationAnswers", () => {
-  it("maps applicant keys with a 'from file' mark, and 'check' for low confidence", () => {
+  it("maps applicant keys with a 'from file' mark, whatever the confidence (no per-field check; 306ec4d74)", () => {
     const fill = mapParsedFieldsToApplicationAnswers([
       { key: "employer", value: "Puget Sound Energy", confidence: "high" },
       { key: "dateOfBirth", value: "03/14/1996", confidence: "low" },
@@ -17,7 +17,7 @@ describe("mapParsedFieldsToApplicationAnswers", () => {
     expect(fill.answers.dateOfBirth).toBe("1996-03-14");
     expect(fill.answers.monthlyIncome).toBe("5400");
     expect(fill.answers.evictionHistory).toBe("No");
-    expect(fill.marks).toEqual({ employer: "fromFile", dateOfBirth: "check", monthlyIncome: "fromFile", evictionHistory: "fromFile" });
+    expect(fill.marks).toEqual({ employer: "fromFile", dateOfBirth: "fromFile", monthlyIncome: "fromFile", evictionHistory: "fromFile" });
     // Contact keys belong to the contact step, not the application block.
     expect("tenantName" in fill.answers).toBe(false);
   });

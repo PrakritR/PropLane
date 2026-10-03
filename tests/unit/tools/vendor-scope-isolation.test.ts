@@ -60,7 +60,10 @@ function orPredicate(expr: string): Predicate {
   const clauses = expr.split(",").map((clause) => {
     const idx = clause.indexOf(".eq.");
     if (idx < 0) return () => false;
-    return eqPredicate(clause.slice(0, idx), clause.slice(idx + 4));
+    // Scope filters quote every interpolated value (postgrestFilterValue): "value" with \" and \\ escaped.
+    const raw = clause.slice(idx + 4);
+    const value = /^".*"$/.test(raw) ? raw.slice(1, -1).replace(/\\(["\\])/g, "$1") : raw;
+    return eqPredicate(clause.slice(0, idx), value);
   });
   return (row) => clauses.some((match) => match(row));
 }

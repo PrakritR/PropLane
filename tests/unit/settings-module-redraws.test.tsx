@@ -387,7 +387,9 @@ describe("Communication — the duplicate Send via for editor is gone", () => {
   it("renders no Send via for control", async () => {
     stubFetch();
     render(<CommunicationSettingsPanel />);
-    await screen.findByText("Edit reminder timing and automated messages");
+    // Captain, Oct 3: the Reminders and messages row left Communication settings.
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(screen.queryByText("Edit reminder timing and automated messages")).toBeNull();
     expect(screen.queryByText("Send via for")).toBeNull();
     expect(screen.queryByText("Payment reminders")).toBeNull();
     expect(screen.queryByText("Tour reminders")).toBeNull();
