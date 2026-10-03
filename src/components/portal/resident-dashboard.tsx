@@ -11,7 +11,6 @@ import {
   PORTAL_DASHBOARD_STACK,
   PortalDashboardKpiRow,
   PortalDashboardKpiTile,
-  formatCompactChargeLine,
 } from "@/components/portal/portal-metrics";
 import {
   PortalTableExpandChevron,
@@ -973,7 +972,7 @@ export function ResidentDashboard({
                 href={residentTourDetailHref(BASE, "pending", tour.inquiryId)}
                 dot={sectionAccentDot(sectionTone)}
                 title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
-                subtitle={tourWhenLabel(tour)}
+                meta={tourWhenLabel(tour)}
                 pill={<StatusPill tone="pending">Pending</StatusPill>}
                 dataAttr="resident-dashboard-attention-tour"
               />
@@ -998,7 +997,7 @@ export function ResidentDashboard({
                   href={`${BASE}/applications`}
                   dot={sectionAccentDot(sectionTone)}
                   title={row.name?.trim() || "Application"}
-                  subtitle={applicationSubtitle(row)}
+                  meta={applicationSubtitle(row)}
                   pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
                   dataAttr="resident-dashboard-attention-application"
                 />
@@ -1022,8 +1021,7 @@ export function ResidentDashboard({
                 href={`${BASE}/lease`}
                 dot={sectionAccentDot(sectionTone)}
                 title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
-                subtitle={leaseSubtitle}
-                meta={leaseRow?.signedRentLabel}
+                meta={leaseRow?.signedRentLabel || leaseSubtitle}
                 pill={<StatusPill tone={pillToneForBadgeTone(lease.tone)}>{lease.label}</StatusPill>}
                 dataAttr="resident-dashboard-attention-lease"
               />
@@ -1046,11 +1044,7 @@ export function ResidentDashboard({
                 href={`${BASE}/move-in`}
                 dot={sectionAccentDot("info")}
                 title="House details"
-                subtitle={
-                  appProperty
-                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
-                    : "Move-in placement, keys, and house information"
-                }
+                meta={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
                 pill={<StatusPill tone="success">Ready</StatusPill>}
                 dataAttr="resident-dashboard-attention-house-details"
               />
@@ -1076,7 +1070,7 @@ export function ResidentDashboard({
                     href={servicesHref}
                     dot={sectionAccentDot(sectionTone)}
                     title={item.row.offerName?.trim() || "Add-on service"}
-                    subtitle={propertyName || "Add-on service"}
+                    meta={propertyName || undefined}
                     pill={<StatusPill tone="pending">Pending</StatusPill>}
                     dataAttr="resident-dashboard-attention-service"
                   />
@@ -1087,7 +1081,7 @@ export function ResidentDashboard({
                   href={`${BASE}/services`}
                   dot={sectionAccentDot(sectionTone)}
                   title={item.row.title?.trim() || "Service"}
-                  subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || "Service"}
+                  meta={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || undefined}
                   pill={<StatusPill tone="pending">Open</StatusPill>}
                   dataAttr="resident-dashboard-attention-service"
                 />
@@ -1125,13 +1119,7 @@ export function ResidentDashboard({
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   dot={sectionAccentDot(sectionTone)}
                   title={charge.title || "Charge"}
-                  subtitle={formatCompactChargeLine(
-                    charge.title || "Charge",
-                    charge.balanceLabel,
-                    chargeDueLabel(charge),
-                    { omitBalance: true },
-                  )}
-                  meta={charge.balanceLabel}
+                  meta={`${charge.balanceLabel} · ${chargeDueLabel(charge)}`}
                   pill={
                     <StatusPill tone={overdue ? "danger" : "pending"}>
                       {overdue ? "Overdue" : "Pending"}
@@ -1160,7 +1148,7 @@ export function ResidentDashboard({
                 href={communicationHref}
                 dot={sectionAccentDot(sectionTone)}
                 title={thread.from || "Unknown sender"}
-                subtitle={thread.subject || thread.preview || "—"}
+                meta={thread.subject || thread.preview || undefined}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
                 dataAttr="resident-dashboard-attention-inbox"
               />

@@ -1,3 +1,5 @@
+import type { HouseholdCharge } from "@/lib/household-charges";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import type { ReportRow } from "@/lib/reports/types";
 
 export type ReceiptRow = {
@@ -12,6 +14,8 @@ export type ReceiptRow = {
   date: string;
   description: string;
   amount: string;
+  processingFeeLabel?: string;
+  totalChargedLabel?: string;
 };
 
 /**
@@ -27,6 +31,19 @@ export type ReceiptRow = {
  * bug. A positional id keeps each row distinct, mirroring the stable `row.id`
  * the Other-documents table already selects on.
  */
+export function paidChargeToLedgerReportRow(charge: HouseholdCharge): ReportRow {
+  const faceCents = Math.round(parseMoneyAmount(charge.amountLabel) * 100);
+  const paidCents = charge.paidAmountCents;
+  const feeCents = paidCents && paidCents > faceCents ? paidCents - faceCents : 0;
+  return {
+    date: String(charge.paidAt ?? "").slice(0, 10),
+    description: `${charge.title} · ${charge.propertyLabel}`,
+    payment: charge.amountLabel,
+    ...(feeCents > 0 ? { processingFee: `$${(feeCents / 100).toFixed(2)}` } : {}),
+    ...(paidCents && paidCents > faceCents ? { totalCharged: `$${(paidCents / 100).toFixed(2)}` } : {}),
+  };
+}
+
 export function buildReceiptRows(rows: ReadonlyArray<ReportRow>): ReceiptRow[] {
   return rows
     .filter((row) => typeof row.payment === "string" && row.payment.trim() !== "")
@@ -38,6 +55,10 @@ export function buildReceiptRows(rows: ReadonlyArray<ReportRow>): ReceiptRow[] {
       // record (resident audit U9).
       description: String(row.description ?? "").trim() || "Payment",
       amount: String(row.payment),
+      processingFeeLabel:
+        typeof row.processingFee === "string" && row.processingFee.trim() ? String(row.processingFee) : undefined,
+      totalChargedLabel:
+        typeof row.totalCharged === "string" && row.totalCharged.trim() ? String(row.totalCharged) : undefined,
     }))
     .reverse();
 }

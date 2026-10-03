@@ -91,7 +91,11 @@ export async function markHouseholdChargeProcessingFromStripeSession(
     const managerUserId = charge.managerUserId?.trim() ?? "";
     if (!managerUserId || await householdChargeProviderRefused(db, managerUserId, "charge_processing")) continue;
     if (charge.status !== "pending" && charge.status !== "failed" && charge.status !== "partially_paid") continue;
-    const nextCharge: HouseholdCharge = { ...charge, status: "processing" };
+    const nextCharge: HouseholdCharge = {
+      ...charge,
+      status: "processing",
+      processingStartedAt: charge.processingStartedAt ?? now,
+    };
     const { error } = await db.from("portal_household_charge_records").upsert(
       {
         id: chargeId,
@@ -105,6 +109,7 @@ export async function markHouseholdChargeProcessingFromStripeSession(
           ...nextCharge,
           stripeCheckoutSessionId: session.id,
           stripePaymentStatus: session.payment_status,
+          processingStartedAt: nextCharge.processingStartedAt,
         },
         updated_at: now,
       },

@@ -166,6 +166,9 @@ export type HouseholdCharge = {
   balanceLabel: string;
   /** `processing` = ACH bank debit submitted, clearing (3–5 business days) — not payable, not overdue, no reminders/late fees. */
   status: "pending" | "processing" | "partially_paid" | "paid" | "cancelled" | "refunded" | "failed";
+  /** ISO timestamp when the charge entered `processing` (ACH clearing window). */
+  processingStartedAt?: string;
+  /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
   paidAt?: string;
   /** How a hand-recorded payment was received (check, cash, card…). */
@@ -484,6 +487,28 @@ function mirrorRentProfiles(rows: RecurringRentProfile[]) {
   postHouseholdPayload({ action: "replace", charges: readAll(), rentProfiles: rows });
 }
 
+const DEV_ACH_CLEAR_MS = 2 * 24 * 60 * 60 * 1000;
+
+/** Localhost QA: auto-settle ACH clearing charges after two days without waiting for Stripe async webhooks. */
+function advanceStaleProcessingChargesForDev(charges: HouseholdCharge[]): HouseholdCharge[] {
+  if (process.env.NODE_ENV !== "development" || !isBrowser()) return charges;
+  const now = Date.now();
+  let changed = false;
+  const next = charges.map((charge) => {
+    if (charge.status !== "processing") return charge;
+    const started = Date.parse(charge.processingStartedAt ?? charge.createdAt);
+    if (!Number.isFinite(started) || now - started < DEV_ACH_CLEAR_MS) return charge;
+    changed = true;
+    return {
+      ...charge,
+      status: "paid" as const,
+      paidAt: new Date().toISOString(),
+      balanceLabel: "$0.00",
+    };
+  });
+  return changed ? next : charges;
+}
+
 export async function syncHouseholdChargesFromServer(
   force = false,
   { skipReconcile = false }: { skipReconcile?: boolean } = {},
@@ -557,6 +582,7 @@ async function runHouseholdChargesSync({
         hasUpdatedCharges = result.hasUpdated;
         mergedProfiles = mergeServerAuthoritativeRentProfiles(serverProfiles, memoryRentProfiles);
       }
+      mergedCharges = advanceStaleProcessingChargesForDev(mergedCharges);
       const hasLocalOnlyCharges = mergedCharges.length > serverCharges.length;
       const hasLocalOnlyProfiles = mergedProfiles.length > serverProfiles.length;
       memoryCharges = mergedCharges;

@@ -24,7 +24,7 @@ export function ResidentSignAndPayClient() {
   const email = session.email?.trim().toLowerCase() ?? "";
   const [typedName, setTypedName] = useState("");
   const [consent, setConsent] = useState(false);
-  const [documentHash, setDocumentHash] = useState<string | null>(null);
+  const [signedDocument, setSignedDocument] = useState<{ key: string; hash: string } | null>(null);
   const [signing, setSigning] = useState(false);
   const [leaseHtml, setLeaseHtml] = useState<string | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(true);
@@ -63,13 +63,16 @@ export function ResidentSignAndPayClient() {
   }, [loadDocument]);
 
   const leaseBody = leaseHtml?.trim() || "Your lease document is loading…";
+  const documentFingerprint = `${typedName.trim()}::${leaseBody}`;
+  const documentHash =
+    signedDocument?.key === documentFingerprint ? signedDocument.hash : null;
 
   const onSign = async () => {
-    if (!email || !pipelineRow) return;
+    if (!email || !pipelineRow || !consent) return;
     setSigning(true);
     try {
       const hash = await sha256HexFromUtf8(leaseBody);
-      setDocumentHash(hash);
+      setSignedDocument({ key: documentFingerprint, hash });
       const result = await residentSignLease(email, typedName.trim(), "resident-sign-and-pay-v1");
       if (!result.ok) {
         showToast(result.error ?? "Could not sign the lease.");

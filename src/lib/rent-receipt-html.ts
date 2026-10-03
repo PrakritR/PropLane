@@ -15,6 +15,10 @@ export type RentReceiptHtmlInput = {
   description: string;
   amountLabel: string;
   dateLabel: string;
+  /** Card/ACH processing fee line when the resident paid it. */
+  processingFeeLabel?: string;
+  /** Total charged to the resident (charge + fees) when known. */
+  totalChargedLabel?: string;
   /** ISO generation timestamp; defaults to now. */
   generatedAt?: string;
 };
@@ -32,6 +36,8 @@ export function buildRentReceiptHtml(input: RentReceiptHtmlInput): string {
     ["Received from", (input.residentName ?? "").trim()],
     ["For", input.description.trim()],
     ["Amount paid", input.amountLabel.trim()],
+    ...(input.processingFeeLabel?.trim() ? [["Processing fee", input.processingFeeLabel.trim()] as [string, string]] : []),
+    ...(input.totalChargedLabel?.trim() ? [["Total charged", input.totalChargedLabel.trim()] as [string, string]] : []),
     ["Payment date", input.dateLabel.trim()],
   ];
   const rows = fields
