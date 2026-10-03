@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 //
 // Workspace settings rows, as the studio draws them (C2-CP6, captain 2026-10-03):
-// Managers rows are avatar · name · email · role dropdown · houses dropdown · one ⋯;
+// Managers rows are avatar · name · email · "Role · houses" plain text · one ⋯;
 // the owner is one read-only "Owner · All houses" line; a pending invite reads
 // "Invited · N days left"; Properties rows carry the house tile, name and address
 // line with no swap icon; the page ends with Plan, New workspace and Delete workspace.
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
@@ -16,18 +17,11 @@ import type { AccountLinkInviteDto } from "@/lib/account-links";
 
 afterEach(cleanup);
 
-const houses = {
-  options: [{ value: "h1", label: "Alder House" }, { value: "h2", label: "Maple Duplex" }, { value: "h3", label: "Fremont Studio" }],
-  selected: ["h1", "h2"],
-  all: false,
-  onSave: vi.fn().mockResolvedValue(undefined),
-};
-
 const rows: TeamMemberRow[] = [
   { id: "owner", name: "Alex Moreno", detail: "alex@seattlehomes.example", role: "owner", propertiesLabel: "All houses", joinedAt: null },
   {
-    id: "m1", name: "Priya Shah", detail: "priya@capitolhill.example", role: "co_manager", roleLabel: "Leasing", roleId: "leasing",
-    propertiesLabel: "2 of 3 houses", joinedAt: null, onRoleChange: vi.fn().mockResolvedValue(undefined), houses, onDisconnect: () => undefined,
+    id: "m1", name: "Priya Shah", detail: "priya@capitolhill.example", role: "co_manager", roleLabel: "Leasing",
+    propertiesLabel: "2 of 3 houses", joinedAt: null, onEdit: () => undefined, onDisconnect: () => undefined,
   },
 ];
 
@@ -40,25 +34,29 @@ describe("Managers rows", () => {
     expect(ownerRow.querySelector("button")).toBeNull();
   });
 
-  it("gives a manager a role dropdown, a houses dropdown and exactly one ⋯", () => {
+  it("shows role and houses as plain text with exactly one ⋯", () => {
     render(<TeamMembersBlock embedded members={rows} />);
     const row = document.querySelectorAll('[data-attr="team-member-row"]')[1];
     expect(row.textContent).toContain("Priya Shah");
     expect(row.textContent).toContain("priya@capitolhill.example");
-    expect(row.querySelector('[data-attr="team-row-role"]')?.textContent).toContain("Leasing");
-    expect(row.querySelector('[data-attr="team-row-houses"]')?.textContent).toContain("2 of 3 houses");
+    expect(row.querySelector('[data-attr="team-row-values"]')?.textContent).toBe("Leasing · 2 of 3 houses");
+    expect(row.querySelector('[data-attr="team-row-role"]')).toBeNull();
+    expect(row.querySelector('[data-attr="team-row-houses"]')).toBeNull();
     expect(row.querySelectorAll('[data-attr="team-member-actions"]')).toHaveLength(1);
   });
 
-  it("saves the houses a manager keeps", async () => {
-    houses.onSave.mockClear();
-    render(<TeamMembersBlock embedded members={rows} />);
-    fireEvent.click(document.querySelector('[data-attr="team-row-houses"]')!);
-    const option = await screen.findByRole("option", { name: /Fremont Studio/ });
-    const pointer = { button: 0, pointerType: "mouse", pointerId: 1, clientX: 10, clientY: 10 };
-    fireEvent.pointerDown(option, pointer);
-    fireEvent.pointerUp(option, pointer);
-    expect(houses.onSave).toHaveBeenCalledWith(["h1", "h2", "h3"], false);
+  it("opens Edit permissions from the row menu", async () => {
+    const onEdit = vi.fn();
+    render(
+      <TeamMembersBlock
+        embedded
+        members={[{ ...rows[1], onEdit }]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Actions for Priya Shah" }));
+    const menu = await screen.findByRole("menu", { name: "Actions for Priya Shah" });
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Edit permissions" }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 });
 

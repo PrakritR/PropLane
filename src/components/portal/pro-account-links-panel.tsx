@@ -2209,19 +2209,6 @@ export function ProAccountLinksPanel({
   );
   const publishedToTitle = usePublishTitleActions(titleControls, Boolean(bare) && !byWorkspace && !routeLinkId);
 
-  const workspaceRowControls = (inv: AccountLinkInviteDto, workspace: PortalWorkspace): Pick<TeamMemberRow, "onRoleChange" | "houses"> => {
-    if (!workspace.owned && !workspace.canManageMembers) return {};
-    return {
-      onRoleChange: async (role) => { await patchInvite(inv.id, { teamRole: role }, "Role saved."); },
-      houses: {
-        options: workspace.propertyIds.map((id) => ({ value: id, label: workspace.propertyLabels?.[id] ?? id })),
-        selected: inv.assignedPropertyIds,
-        all: inv.houseScope === "all",
-        onSave: async (ids, all) => { await patchInvite(inv.id, { assignedPropertyIds: ids, houseScope: all ? "all" : "selected" }, "Houses saved."); },
-      },
-    };
-  };
-
   // Settings → Workspaces: one "Managers & permissions" section per owned card.
   const workspaceTeamSection = (workspace: PortalWorkspace): ReactNode => {
     const belongs = (assigned: string[], grantWorkspaceId?: string | null) =>
@@ -2255,7 +2242,6 @@ export function ProAccountLinksPanel({
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
         roleLabel: entry.kind === "remote" ? teamRoleListLabel(entry.invite.teamRole) : "Co-manager",
-        roleId: entry.kind === "remote" ? entry.invite.teamRole : null,
         propertiesLabel:
           entry.kind === "remote"
             ? reachFor(entry.invite.assignedPropertyIds, entry.invite.houseScope)
@@ -2268,7 +2254,6 @@ export function ProAccountLinksPanel({
             ? "Had Add properties and Team before roles — review"
             : undefined,
         removeLabel: `Remove from ${workspace.name}`,
-        ...(entry.kind === "remote" ? workspaceRowControls(entry.invite, workspace) : {}),
         onEdit: workspace.owned || workspace.canManageMembers ? () => setPermissionsMember(entry) : undefined,
         onTransfer: (() => {
           const target = findWorkspaceMemberForEntry(entry);
@@ -2295,7 +2280,6 @@ export function ProAccountLinksPanel({
             <TeamMembersBlock embedded members={rows} />
             <TeamPendingInvitesBlock
               embedded
-              controls={(inv) => workspaceRowControls(inv, workspace)}
               invites={pending}
               roleLabel={(inv) => teamRoleListLabel(inv.teamRole)}
               propertiesLabel={(inv) => reachFor(inv.assignedPropertyIds, inv.houseScope)}
