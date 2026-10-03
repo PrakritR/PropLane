@@ -23,6 +23,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { conflictingChannelStays } from "@/lib/channel-calendar/channel-conflicts";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
 type Props = {
@@ -138,7 +139,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
         }) : step === 2 ? <section className="space-y-4"><h3 className="font-semibold">Review connections</h3>{rooms.map((r) => <div key={r.id} className="flex justify-between border-b border-border py-3"><span>{r.label}</span><span>{drafts[r.id!]?.trim() ? "Ready to connect" : connections.some((c) => c.roomId === r.id && c.provider === provider && c.hasImportUrl) ? "Connected · sync now" : "Not connected"}</span></div>)}<p className="text-sm">{pending.length} new or updated links. Export feeds must be added in {name}; its import schedule controls when blocks appear there.</p></section> : null}
       </div>
     </WizardShell>
-    <PortalDialog open={Boolean(preview)} onClose={() => setPreview(null)} title={`Feed preview · ${preview?.room ?? ""}`} primaryAction={{ label: "Done", onClick: () => setPreview(null) }} secondaryAction={null}><div className="space-y-3">{preview?.events.length === 0 ? <p>No PropLane blocks in this feed.</p> : preview?.events.map((event) => <div key={event.uid} className="rounded-xl border border-border p-3"><p>Blocked by PropLane</p><p>{event.startDate} – {event.endDate}</p><code className="text-xs">DTSTART {event.startDate.replaceAll("-", "")} · DTEND {new Date(Date.parse(`${event.endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10).replaceAll("-", "")}</code></div>)}</div></PortalDialog>
+    <PortalDialog open={Boolean(preview)} onClose={() => setPreview(null)} title={`Feed preview · ${preview?.room ?? ""}`} primaryAction={{ label: "Done", onClick: () => setPreview(null) }} secondaryAction={null}><div className="space-y-3">{preview?.events.length === 0 ? <p>No PropLane blocks in this feed.</p> : preview?.events.map((event) => <div key={event.uid} className="rounded-xl border border-border p-3"><p>Blocked by PropLane</p><p>{formatPortalListDate(event.startDate)} – {formatPortalListDate(event.endDate)}</p><code className="text-xs">DTSTART {event.startDate.replaceAll("-", "")} · DTEND {new Date(Date.parse(`${event.endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10).replaceAll("-", "")}</code></div>)}</div></PortalDialog>
     <PortalDialog open={Boolean(disconnect)} onClose={() => setDisconnect(null)} title="Disconnect calendar?" primaryAction={{ label: "Disconnect", onClick: () => run(async () => { await deleteChannelCalendarConnection(disconnect!.id); setDisconnect(null); await refresh(); }), disabled: busy }} secondaryAction={{ label: "Keep connected", onClick: () => setDisconnect(null) }}><p>{disconnect?.label ?? "This room"} · Imported blocks will be removed and this feed link may stop working.</p></PortalDialog>
   </>;
 }

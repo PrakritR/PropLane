@@ -60,6 +60,7 @@ import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { buildRentReceiptHtml } from "@/lib/rent-receipt-html";
 import { buildReceiptRows, type ReceiptRow } from "@/lib/rent-receipts";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -635,7 +636,7 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
     <PortalRecordDetailPage
       pageTitle="Documents"
       title={title}
-      subtitle={`${receipt.amount} · ${receipt.date}`}
+      subtitle={`${receipt.amount} · ${formatPortalListDate(receipt.date)}`}
       backHref={listHref}
       hideBackText
       bareHeader
@@ -655,12 +656,12 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
         <DocumentInlineViewer
           embedded
           hideActions
-          title={`${title} ${receipt.date}`}
+          title={`${title} ${formatPortalListDate(receipt.date)}`}
           srcDoc={buildRentReceiptHtml({
             residentName: demoMode ? DEMO_RESIDENT_NAME : sessionEmail || undefined,
             description: receipt.description,
             amountLabel: receipt.amount,
-            dateLabel: receipt.date,
+            dateLabel: formatPortalListDate(receipt.date),
           })}
           onDownload={() => downloadReceipt(receipt)}
           downloadLabel="Download receipt"
@@ -808,7 +809,7 @@ function RentReceiptsTab({
                 id: row.id,
                 data: row,
                 primary: receiptRowLabel(row.description),
-                meta: row.date,
+                meta: formatPortalListDate(row.date),
                 selected: selectedIds.has(row.id),
                 onSelectedChange: () => toggleSelected(row.id),
                 onClick: () => openReceipt(row),
