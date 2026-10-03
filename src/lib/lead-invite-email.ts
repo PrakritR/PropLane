@@ -1,5 +1,15 @@
 import type { ListingShareSummary } from "@/lib/listing-share-summary";
 
+export type ListingShareEmail = {
+  intro: string;
+  listings: ListingShareSummary[];
+  signature?: string[];
+};
+
+export function listingShareButtonLabel(count: number): string {
+  return count > 1 ? "View listings" : "View listing";
+}
+
 export type LeadInviteKind = "apply" | "tour" | "listing" | "lease";
 
 export function leadInviteSubject(kind: LeadInviteKind, propertyTitle: string, listingCount?: number): string {
@@ -36,12 +46,20 @@ export function buildLeadInviteEmailBody(params: {
   listingPageUrl?: string;
   tourUrl?: string;
   listingSummary?: ListingShareSummary;
+  listingShare?: ListingShareEmail;
   managerNote?: string;
   /** When sharing several listings at once, the count powers the multi-listing copy. */
   listingCount?: number;
   /** When sharing a portfolio tour link, the count powers the multi-property copy. */
   tourCount?: number;
 }): string {
+  if (params.kind === "listing" && params.listingShare) {
+    const share = params.listingShare;
+    return [params.prospectName?.trim() ? `Hi ${params.prospectName.trim()},` : "Hi there,", share.intro,
+      ...share.listings.map((listing) => [listing.title, ...listing.detailLines].join("\n")),
+      `${listingShareButtonLabel(share.listings.length)}: ${params.listingPageUrl || params.linkUrl}`,
+      ...(share.signature ?? ["PropLane"])].join("\n\n");
+  }
   const greeting = params.prospectName?.trim() ? `Hi ${params.prospectName.trim()},` : "Hi,";
   const propertyTitle = params.propertyTitle.trim() || "a property";
 
@@ -170,10 +188,18 @@ export function buildLeadInviteEmailHtml(params: {
   listingPageUrl?: string;
   tourUrl?: string;
   listingSummary?: ListingShareSummary;
+  listingShare?: ListingShareEmail;
   managerNote?: string;
   listingCount?: number;
   tourCount?: number;
 }): string {
+  if (params.kind === "listing" && params.listingShare) {
+    const share = params.listingShare;
+    const greeting = params.prospectName?.trim() ? `Hi ${params.prospectName.trim()},` : "Hi there,";
+    const cards = share.listings.map((listing) => `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin:8px 0"><strong>${escapeHtmlText(listing.title)}</strong>${listing.detailLines.map((line) => `<div style="font-size:13px;color:#64748b">${escapeHtmlText(line)}</div>`).join("")}</div>`).join("");
+    const url = params.listingPageUrl || params.linkUrl;
+    return `<!DOCTYPE html><html><body style="margin:0;background:#f8fafc;padding:24px;font-family:system-ui,sans-serif;color:#0f172a"><div style="max-width:36rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:12px;padding:28px;line-height:1.55"><p>${escapeHtmlText(greeting)}</p><p>${escapeHtmlText(share.intro)}</p>${cards}<p><a href="${escapeHtmlAttr(url)}" style="display:inline-block;background:#2563eb;color:white;padding:12px 24px;border-radius:10px;text-decoration:none">${listingShareButtonLabel(share.listings.length)}</a></p><p style="overflow-wrap:anywhere;font-size:13px">${escapeHtmlText(url)}</p><p>${(share.signature ?? ["PropLane"]).map(escapeHtmlText).join("<br>")}</p></div></body></html>`;
+  }
   const greeting = params.prospectName?.trim()
     ? `Hi ${escapeHtmlText(params.prospectName.trim())},`
     : "Hi,";
@@ -305,6 +331,7 @@ export function buildLeadInviteMailtoHref(params: {
   listingPageUrl?: string;
   tourUrl?: string;
   listingSummary?: ListingShareSummary;
+  listingShare?: ListingShareEmail;
   managerNote?: string;
   listingCount?: number;
 }): string {
@@ -318,6 +345,7 @@ export function buildLeadInviteMailtoHref(params: {
       listingPageUrl: params.listingPageUrl,
       tourUrl: params.tourUrl,
       listingSummary: params.listingSummary,
+      listingShare: params.listingShare,
       managerNote: params.managerNote,
       listingCount: params.listingCount,
     }),

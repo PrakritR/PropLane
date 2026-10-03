@@ -1,5 +1,6 @@
 import "server-only";
 
+import { LISTING_SHARED_TEMPLATE_KEY } from "@/lib/listing-shared-template";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   normalizeAutomatedMessageSettings,
@@ -8,17 +9,17 @@ import {
 
 const ROW_DATA_KEY = "automatedMessages";
 
-/**
- * Fixed reminders (captain, 2026-09-27): automated messages are no longer
- * customizable — every read answers with the built-in defaults ALWAYS,
- * regardless of any stored row. `saveAutomatedMessageSettings` below still
- * writes (nothing already saved is deleted), but nothing reads it back.
- */
+/** Automated notices stay fixed. The manually sent listing intro is editable. */
 export async function loadAutomatedMessageSettings(
-  _db: SupabaseClient,
-  _managerUserId: string,
+  db: SupabaseClient,
+  managerUserId: string,
 ): Promise<AutomatedMessageSettings> {
-  return normalizeAutomatedMessageSettings(undefined);
+  const { data, error } = await db.from("manager_automation_settings")
+    .select("row_data").eq("manager_user_id", managerUserId).maybeSingle();
+  if (error) throw error;
+  const settings = normalizeAutomatedMessageSettings(data?.row_data?.[ROW_DATA_KEY]);
+  const listing = settings[LISTING_SHARED_TEMPLATE_KEY];
+  return listing ? { [LISTING_SHARED_TEMPLATE_KEY]: listing } : {};
 }
 
 /** Merge one or more entries into the blob; sibling namespaces survive untouched. */

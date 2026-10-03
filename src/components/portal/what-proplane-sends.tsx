@@ -17,6 +17,7 @@
  * that area) for now — this page is the map of the defaults, not a second
  * copy of their controls.
  */
+import { ListingSharedTemplateSettings } from "@/components/portal/listing-shared-template-settings";
 import {
   AUTOMATED_MESSAGE_CATALOG,
   type AutomatedMessageAudience,
@@ -123,6 +124,7 @@ export function WhatProplaneSends() {
   const reminderKinds = REMINDER_SUBJECT_KINDS.filter((kind) => DEFAULT_REMINDER_RULES[kind].enabled);
   return (
     <div className="space-y-8">
+      <PortalSettingsSection title="Leasing"><PortalSettingsGroup><ListingSharedTemplateSettings /></PortalSettingsGroup></PortalSettingsSection>
       <PortalSettingsSection title="Timed reminders">
         <PortalSettingsGroup>
           {reminderKinds.map((kind) => (

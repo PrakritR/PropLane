@@ -41,7 +41,13 @@ Invite **methods** (link / message / PropLane code) are tabs on the step
 (`pro-vendor-form-modal.tsx`); they are not a second compose. The manager
 workspace invite has no such chooser — see the next section.
 
-## The manager workspace invite is the one deliberate exception
+## Listing, application and tour links
+
+The approved studio redesign uses the full-page Home → Recipient → Review
+wizard for `ShareLeadLinkModal`. It shares the existing authorized send API;
+see `send-listing-modal.md`. Other sends retain the compose chrome above.
+
+## The manager workspace invite
 
 `workspace-invite-sheet.tsx`'s Send row has no chooser and no New-message
 step: a phone or email recipient goes straight out through
