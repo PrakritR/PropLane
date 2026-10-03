@@ -105,7 +105,10 @@ async function resolveApprovedResidentSlot(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   row: DemoApplicantRow,
   previous: DemoApplicantRow | null,
-): Promise<{ ok: true; row: DemoApplicantRow } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; row: DemoApplicantRow }
+  | { ok: false; error: string; conflict?: { slot: number; holderName: string | null } }
+> {
   if (row.bucket !== "approved" || row.withdrawnAt) return { ok: true, row };
   const choice = (row.assignedRoomChoice || row.application?.roomChoice1 || "").trim();
   if (!choice) return { ok: true, row };
@@ -199,6 +202,8 @@ async function resolveApprovedResidentSlot(
     return {
       ok: false,
       error: `That rent is already held by ${chosen.holder.name} — refresh and pick another resident slot.`,
+      // Structured so the Approve popup can say which bed and who holds it, and offer another.
+      conflict: { slot: chosen.slot, holderName: chosen.holder.name || null },
     };
   }
   if (!row.application) return { ok: true, row };
@@ -1392,7 +1397,10 @@ export async function POST(req: Request) {
         (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
       );
       if (!slotCheck.ok) {
-        return NextResponse.json({ error: slotCheck.error, blocked: "capacity" }, { status: 409 });
+        return NextResponse.json(
+          { error: slotCheck.error, blocked: "capacity", ...(slotCheck.conflict ? { conflict: slotCheck.conflict } : {}) },
+          { status: 409 },
+        );
       }
       row = slotCheck.row;
     }

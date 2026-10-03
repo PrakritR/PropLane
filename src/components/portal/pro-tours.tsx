@@ -17,10 +17,9 @@ import { Button } from "@/components/ui/button";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
-import { Input } from "@/components/ui/input";
+
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { FinancesExportMenu, type FinancesExportItem } from "@/components/portal/finances/finances-export-menu";
 import { CalendarClock, CalendarPlus, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -568,21 +567,6 @@ export function ManagerTours({
       />
     </PortalFilterSortSheet>
   );
-
-  // C026/C032 — CSV + PDF export of the visible tab, respecting the same
-  // property filters and search the list itself is currently applying. The
-  // server route re-derives ownership/workspace scope; these query params are
-  // only "what to show", never "who may see it".
-  const toursExportItems: FinancesExportItem[] = useMemo(() => {
-    const params = new URLSearchParams({ bucket });
-    if (effectivePropertyFilters.length > 0) params.set("propertyIds", effectivePropertyFilters.join(","));
-    if (tourSearch.trim()) params.set("q", tourSearch.trim());
-    const base = `/api/portal/tours-export?${params.toString()}`;
-    return [
-      { id: "csv", label: "Export CSV", href: `${base}&format=csv`, dataAttr: "tours-export-csv" },
-      { id: "pdf", label: "Export PDF", href: `${base}&format=pdf`, dataAttr: "tours-export-pdf" },
-    ];
-  }, [bucket, effectivePropertyFilters, tourSearch]);
 
   const activeFilterChips =
     !scopedPropertyId && propertyFilters.length > 0 ? (
@@ -1793,7 +1777,6 @@ export function ManagerTours({
         actions={
           <>
             {filterSheet}
-            <FinancesExportMenu items={toursExportItems} />
             <PortalIconAction
               icon={CalendarPlus}
               label="Add availability"

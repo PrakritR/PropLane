@@ -2198,6 +2198,16 @@ function normalizeManagerListingSubmissionV1Base(
       occupancyCapacity: normalizeRoomOccupancyCapacity(
         (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
       ),
+      // How roommates in a shared room sign. Read by the shared-room lease (one joint lease or one
+      // per resident); only meaningful at capacity 2+, so a one-resident room drops it.
+      sharedRoomLeaseKind: (() => {
+        const v = (legacyRoom as ManagerRoomSubmission & { sharedRoomLeaseKind?: unknown }).sharedRoomLeaseKind;
+        const capacity = normalizeRoomOccupancyCapacity(
+          (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
+        );
+        if (capacity < 2) return undefined;
+        return v === "individual" || v === "joint" || v === "property_default" ? v : undefined;
+      })(),
       beds: normalizeRoomBeds((legacyRoom as ManagerRoomSubmission & { beds?: unknown }).beds),
       bedCount: (() => {
         const beds = normalizeRoomBeds((legacyRoom as ManagerRoomSubmission & { beds?: unknown }).beds);

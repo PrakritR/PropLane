@@ -342,7 +342,7 @@ describe("household and resident list shells", () => {
       leaseRow({ id: "lease-5", residentName: "Taylor Brooks", unit: `${HOUSE_5257} · Room C` }),
     ];
     const { container } = render(
-      <ManagerLeasesPipelinePanel rows={rows} tab="manager" refreshKey={0} residentAccountEmails={new Set()} />,
+      <ManagerLeasesPipelinePanel rows={rows} tab="manager" refreshKey={0} />,
     );
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
 
@@ -372,9 +372,11 @@ describe("household and resident list shells", () => {
     expect(container.querySelectorAll("[data-attr='record-actions-trigger']")).toHaveLength(5);
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Taylor Brooks" }), { key: "ArrowDown" });
     const menu = await screen.findByRole("menu", { name: "Actions for Taylor Brooks" });
+    // View · Send · Download · Mark as signed · Delete — the lease row's five (View comes from opening the row).
     expect(menu.textContent).toContain("View");
-    expect(menu.textContent).toContain("Edit");
+    expect(menu.textContent).toContain("Send");
     expect(menu.textContent).toContain("Delete");
+    expect(menu.textContent).not.toContain("Edit");
     dump("leases-list-cards", container.innerHTML);
   });
 });

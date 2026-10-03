@@ -1,4 +1,4 @@
-import type { ManagerLeaseTab } from "@/data/demo-portal";
+import type { LeaseListTabId } from "@/lib/lease-pipeline-storage";
 import {
   MANAGER_TOUR_BUCKET_LABELS,
   MANAGER_TOUR_BUCKETS,
@@ -6,7 +6,7 @@ import {
   type ResidentApplicationBucketId,
 } from "@/lib/portal-detail-routes";
 
-/** Resident detail Application tab — matches Applications hub buckets (no incomplete). */
+/** Resident detail Application tab — matches Applications hub buckets (Pending · Approved · Declined). */
 export const RESIDENT_DETAIL_APPLICATION_BUCKET_TABS: {
   id: ResidentApplicationBucketId;
   label: string;
@@ -14,19 +14,18 @@ export const RESIDENT_DETAIL_APPLICATION_BUCKET_TABS: {
 }[] = [
   { id: "pending", label: "Pending", dataAttr: "resident-application-bucket-pending" },
   { id: "approved", label: "Approved", dataAttr: "resident-application-bucket-approved" },
-  { id: "rejected", label: "Rejected", dataAttr: "resident-application-bucket-rejected" },
+  { id: "rejected", label: "Declined", dataAttr: "resident-application-bucket-rejected" },
 ];
 
-/** Resident detail Lease tab — same pipeline stages as the Leases hub. */
+/** Resident detail Lease tab — same three stages as the Leases hub: Draft · Sent · Signed. */
 export const RESIDENT_DETAIL_LEASE_PIPELINE_TABS: {
-  id: ManagerLeaseTab;
+  id: LeaseListTabId;
   label: string;
   shortLabel: string;
   dataAttr: string;
 }[] = [
-  { id: "manager", label: "Manager review", shortLabel: "Manager", dataAttr: "resident-lease-tab-manager" },
-  { id: "resident", label: "Resident signature", shortLabel: "Resident", dataAttr: "resident-lease-tab-resident" },
-  { id: "signed", label: "Manager signature", shortLabel: "Mgr sign", dataAttr: "resident-lease-tab-signed" },
+  { id: "manager", label: "Draft", shortLabel: "Draft", dataAttr: "resident-lease-tab-manager" },
+  { id: "resident", label: "Sent", shortLabel: "Sent", dataAttr: "resident-lease-tab-resident" },
   { id: "completed", label: "Signed", shortLabel: "Signed", dataAttr: "resident-lease-tab-completed" },
 ];
 

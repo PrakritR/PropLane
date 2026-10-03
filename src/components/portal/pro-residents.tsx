@@ -37,6 +37,9 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
+import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
+import { createChargesForExecutedLease } from "@/lib/lease-signing-charges.client";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
@@ -243,25 +246,21 @@ import {
   leasePipelineRowsForManagerResident,
   LEASE_PIPELINE_EVENT,
   confirmUploadedLeaseParseOnServer,
-  leaseNeedsUploadedLeaseReviewAction,
-  leaseLandlordNameWarning,
-  leaseSendGateBlocker,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
   ensureManagerReviewLeaseForApplication,
   executedLeaseIdentities,
   readLeasePipeline,
   residentCanViewLeaseRow,
   sendLeaseBackToManager,
-  sendLeaseToResident,
   syncLeasePipelineFromApplications,
   syncLeasePipelineFromServer,
   runLeaseDownload,
   hasBothLeaseSignatures,
   leaseAwaitingManagerCountersign,
-  countManagerLeaseTabs,
-  leaseRowMatchesManagerTab,
-  type LeasePipelineRow,
-} from "@/lib/lease-pipeline-storage";
+  countLeaseListTabs,
+  leaseRowMatchesListTab,
+  type LeaseListTabId,
+  type LeasePipelineRow,} from "@/lib/lease-pipeline-storage";
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
@@ -279,8 +278,8 @@ import {
   deleteServiceRequestsForResident,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
-import type { DemoApplicantRow, DemoManagerWorkOrderRow, ManagerApplicationBucket, ManagerLeaseTab } from "@/data/demo-portal";
-import { transitionApplicationBucket } from "@/lib/application-review";
+import type { DemoApplicantRow, DemoManagerWorkOrderRow, ManagerApplicationBucket } from "@/data/demo-portal";
+import { declineApplicationWithUndo, transitionApplicationBucket } from "@/lib/application-review";
 import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import {
@@ -604,25 +603,17 @@ export function ManagerResidents({
     subject: string;
     body: string;
   } | null>(null);
-  const [leaseSentPreview, setLeaseSentPreview] = useState<{
-    res: ActiveResident;
-    lease: LeasePipelineRow;
-    recipient: string;
-    subject: string;
-    body: string;
-  } | null>(null);
-  const [leaseSendBusy, setLeaseSendBusy] = useState(false);
+  /** The one Send lease screen: a lease row, or an application whose Draft lease it creates. */
+  const [sendLeaseTarget, setSendLeaseTarget] = useState<{ leaseId?: string; applicationId?: string } | null>(null);
   const [signingLease, setSigningLease] = useState<LeasePipelineRow | null>(null);
   const [signingLeaseError, setSigningLeaseError] = useState<string | null>(null);
   const [welcomeEmailBusyForResident, setWelcomeEmailBusyForResident] = useState<string | null>(null);
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
-  const [approveError, setApproveError] = useState<string | null>(null);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
-  const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [applicationReminderPreview, setApplicationReminderPreview] = useState<{
     row: DemoApplicantRow;
     to: string;
@@ -643,7 +634,7 @@ export function ManagerResidents({
   const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentApplicationBucketId>("pending");
-  const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<ManagerLeaseTab>("manager");
+  const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("manager");
   const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
   const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
     useState<ManagerPortalSettingsTab>("applications");
@@ -1184,6 +1175,16 @@ export function ManagerResidents({
     return !row?.residentUserId;
   }, [hcTick, singleListSelectedResident]);
 
+  // Approve is offered in the ⋯ of a potential resident whose application is awaiting a decision —
+  // the same popup as the Applications list and the record's Application tab.
+  const singleListSelectedApproveRow = useMemo(() => {
+    void hcTick;
+    if (!singleListSelectedId) return null;
+    const row = readManagerApplicationRows().find((app) => app.id === singleListSelectedId);
+    if (!row || row.bucket !== "pending") return null;
+    return isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row) ? null : row;
+  }, [singleListSelectedId, hcTick]);
+
   // The completion reminder is per-application (it carries that application's
   // own resume link), so it is offered on a single ticked row — the same shape
   // as Edit and Email setup beside it — rather than fanning out over a
@@ -1255,12 +1256,12 @@ export function ManagerResidents({
   }, [leaseTick, selected, userId]);
 
   const residentLeasePipelineCounts = useMemo(
-    () => countManagerLeaseTabs(residentLeaseRows),
+    () => countLeaseListTabs(residentLeaseRows),
     [residentLeaseRows],
   );
 
   const residentLeaseRowsInPipelineTab = useMemo(
-    () => residentLeaseRows.filter((row) => leaseRowMatchesManagerTab(row, residentLeasePipelineTab)),
+    () => residentLeaseRows.filter((row) => leaseRowMatchesListTab(row, residentLeasePipelineTab)),
     [residentLeaseRows, residentLeasePipelineTab],
   );
 
@@ -1915,92 +1916,17 @@ export function ManagerResidents({
     });
   }
 
-  function leaseSentToResidentBody(res: ActiveResident, lease: LeasePipelineRow): string {
-    const unit = lease.unit.trim() || "your unit";
-    return buildLeaseReadyForResidentMessage({
-      residentName: lease.residentName || res.name || "there",
-      residentEmail: res.email.trim(),
-      unit,
-      variant: "send",
-    });
+  /** Send lease opens the one screen for this resident's lease (terms, document, schedule, message). */
+  function openLeaseSendPreview(_res: ActiveResident, lease: LeasePipelineRow) {
+    setSendLeaseTarget({ leaseId: lease.id });
   }
 
-  function openLeaseSendPreview(res: ActiveResident, lease: LeasePipelineRow) {
-    if (!residentAccountEmails.has(res.email.trim().toLowerCase())) {
-      showToast("Resident must create their account before the lease can be sent.");
-      return;
-    }
-    if (!lease.generatedHtml && !lease.managerUploadedPdf?.dataUrl) {
-      showToast("Generate or upload a lease document first.");
-      return;
-    }
-    // Same refusals `sendLeaseToResident` makes, before the preview opens —
-    // being refused at "Send lease & notification" reads as a broken send.
-    const gateBlocker = leaseSendGateBlocker(lease);
-    if (gateBlocker) {
-      showToast(gateBlocker);
-      // Only for the blockers the review can actually clear — the same scoping
-      // as the "Review import" CTA. An unapproved applicant is fixed in
-      // Applications, and a Confirm flow that still ends in the same refusal is
-      // a dead end.
-      if (leaseNeedsUploadedLeaseReviewAction(lease)) setImportReviewLeaseId(lease.id);
-      return;
-    }
-    const recipient = res.email.trim();
-    const unit = lease.unit.trim() || "your unit";
-    setLeaseSentPreview({
-      res,
-      lease,
-      recipient,
-      subject: `Your lease for ${unit} is ready to sign`,
-      body: leaseSentToResidentBody(res, lease),
-    });
-  }
-
-  async function confirmSendLeaseToResident(
-    skipMessage: boolean,
-    channels?: { viaEmail?: boolean; viaSms?: boolean },
-    draft?: { subject: string; body: string },
-  ) {
-    if (!leaseSentPreview || leaseSendBusy) return;
-    const { res, lease, subject, body } = leaseSentPreview;
-    const messageSubject = draft?.subject ?? subject;
-    const messageBody = draft?.body ?? body;
-    setLeaseSendBusy(true);
-    try {
-      const sendResult = await sendLeaseToResident(lease.id, userId);
-      if (!sendResult.ok) {
-        showToast(sendResult.error ?? "Could not send lease.");
-        return;
-      }
-      setLeaseSentPreview(null);
-      appendLeaseThreadMessage(lease.id, "manager", "Sent lease to resident for review and signature.", userId);
-      if (skipMessage) {
-        showToast("Lease sent to resident portal (no notification sent).");
-      } else {
-        const notice = await deliverPortalInboxMessage({
-          eventCategory: "leases",
-          fromName: managerEmail ?? "Property Manager",
-          toEmails: [res.email],
-          subject: messageSubject,
-          text: messageBody,
-          deliverViaEmail: channels?.viaEmail !== false,
-          deliverViaSms: channels?.viaSms === true,
-        });
-        if (notice.ok) {
-          showToast(
-            notice.skipped
-              ? "Lease sent to resident portal (demo inbox only)."
-              : "Lease sent to resident portal with inbox and email notification.",
-          );
-        } else {
-          showToast("Lease sent to resident portal. Notification could not be delivered.");
-        }
-      }
-      setLeaseTick((n) => n + 1);
-    } finally {
-      setLeaseSendBusy(false);
-    }
+  function openSendLeaseForApplication(applicationId: string) {
+    const existing = readManagerApplicationRows().find((row) => row.id === applicationId);
+    const lease = existing?.email
+      ? leasePipelineRowsForManagerResident(userId, existing.email, applicationId)[0]
+      : undefined;
+    setSendLeaseTarget(lease ? { leaseId: lease.id } : { applicationId });
   }
 
   const setApplicationBucket = async (
@@ -2040,6 +1966,25 @@ export function ManagerResidents({
           : "Moved to pending.";
     showToast(msg);
     return result;
+  };
+
+  /** Decline is one click; the toast's Undo restores the application (shared with the Applications list). */
+  const declineApplicationRow = async (row: DemoApplicantRow) => {
+    const propertyId =
+      row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+    await declineApplicationWithUndo({
+      row,
+      showToast,
+      run: async (id, next) => {
+        const result = await transitionApplicationBucket(id, next, {
+          userId: userId ?? null,
+          automation: applicationAutomation.forProperty(propertyId),
+        });
+        setHcTick((n) => n + 1);
+        setLeaseTick((n) => n + 1);
+        return result;
+      },
+    });
   };
 
   const deleteApplicationForRow = async (row: DemoApplicantRow) => {
@@ -2753,12 +2698,25 @@ export function ManagerResidents({
     const result = await managerSignLease(signingLease.id, signatureName.trim(), userId, consentVersion);
     if (result.ok) {
       setLeaseTick((n) => n + 1);
+      const fullySigned = hasBothLeaseSignatures({
+        ...signingLease,
+        managerSignature: { role: "manager", name: signatureName.trim(), signedAtIso: new Date().toISOString() },
+      });
+      // The last signature just landed: payments are created now, from the signed terms.
+      let paymentsScheduled = false;
+      if (fullySigned && !signingLease.pendingRenewal) {
+        const executed = readLeasePipeline(userId).find((r) => r.id === signingLease.id);
+        if (executed) {
+          const made = await createChargesForExecutedLease(executed, userId ?? null).catch(() => null);
+          paymentsScheduled = Boolean(made && made.ok && made.created);
+          if (paymentsScheduled) setHcTick((n) => n + 1);
+        }
+      }
       showToast(
-        hasBothLeaseSignatures({
-          ...signingLease,
-          managerSignature: { role: "manager", name: signatureName.trim(), signedAtIso: new Date().toISOString() },
-        })
-          ? "Lease fully signed."
+        fullySigned
+          ? paymentsScheduled
+            ? "Lease fully signed. Payments are scheduled."
+            : "Lease fully signed."
           : "Manager signature saved.",
       );
       setSigningLease(null);
@@ -2795,7 +2753,7 @@ export function ManagerResidents({
       onClick: () => openApplicationCompletionReminderPreview(row),
     }));
     if (decidable) actions.push(
-      portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "resident-application-reject", onClick: () => setApplicationBucket(row.id, "rejected") }),
+      portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "resident-application-reject", onClick: () => void declineApplicationRow(row) }),
       portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "resident-application-approve", onClick: () => setApprovePreviewRow(row) }),
     );
     if (row.bucket === "approved" || row.bucket === "rejected") actions.push(portalIconActionSpec({
@@ -2854,7 +2812,6 @@ export function ManagerResidents({
         moveToManagerReviewDataAttr="resident-lease-move-manager-review"
         onSendToResident={() => openLeaseSendPreview(selected, residentLease)}
         shareRecordId={residentLease.id}
-        sendToResidentBusy={leaseSendBusy}
         // Deliberately never disabled for a blocked send: `openLeaseSendPreview`
         // states the reason and opens the review that clears it, and disabling
         // makes that unreachable. The gate is `sendLeaseToResident`, not the
@@ -3262,10 +3219,10 @@ export function ManagerResidents({
         navigate(residentDetailHref(portalBase, residentsTab, selected.id, "inspections"));
         return;
       case "approve":
-        if (selectedApplicationRow) void setApplicationBucket(selectedApplicationRow.id, "approved");
+        if (selectedApplicationRow) setApprovePreviewRow(selectedApplicationRow);
         return;
       case "decline":
-        if (selectedApplicationRow) void setApplicationBucket(selectedApplicationRow.id, "rejected");
+        if (selectedApplicationRow) void declineApplicationRow(selectedApplicationRow);
         return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {
@@ -3476,7 +3433,14 @@ export function ManagerResidents({
                                     }
                                   }}
                                   onNextAction={(actionId) => {
-                                    if (actionId === "sign-lease" && residentLease) {
+                                    if (actionId === "approve-application" && selectedApplicationRow) {
+                                      setApprovePreviewRow(selectedApplicationRow);
+                                    } else if (actionId === "send-lease") {
+                                      if (residentLease) openLeaseSendPreview(selected, residentLease);
+                                      else openSendLeaseForApplication(selectedApplicationRow?.id ?? selected.id);
+                                    } else if (actionId === "sign-lease" && residentLease) {
+                                      signLeaseAsManager(residentLease);
+                                    } else if (actionId === "remind-sign" && residentLease) {
                                       openLeaseSigningReminderPreview(selected, residentLease);
                                     }
                                   }}
@@ -3958,8 +3922,7 @@ export function ManagerResidents({
                   )
               : undefined
           }
-          sendToResidentBusy={leaseSendBusy}
-        />
+          />
       ) : null}
       {importReviewLease?.uploadedLeaseParse ? (
         <UploadedLeaseReviewModal
@@ -4139,6 +4102,17 @@ export function ManagerResidents({
           // accident went without ever being read back; the confirmation below
           // lists every resident it is about to destroy.
           <>
+            {singleListSelectedApproveRow ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="residents-bulk-approve"
+                onClick={() => setApprovePreviewRow(singleListSelectedApproveRow)}
+              >
+                Approve
+              </Button>
+            ) : null}
             {singleListSelectedNeedsSetup && singleListSelectedResident ? (
             <Button
               type="button"
@@ -4428,47 +4402,25 @@ export function ManagerResidents({
         onClose={() => setHoldingFeeRowId(null)}
       />
 
-      <PortalNotificationPreviewModal
-        open={approvePreviewRow !== null}
-        title="Approve application: account setup email"
-        onClose={() => {
-          if (approveBusyId) return;
-          setApprovePreviewRow(null);
-          setApproveError(null);
-        }}
-        recipient={approvePreviewRow?.email ?? ""}
-        subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
-        body={
+      <ApproveApplicationDialog
+        row={approvePreviewRow}
+        userId={userId ?? null}
+        automation={
           approvePreviewRow
-            ? buildResidentWelcomeEmailBody({
-                residentName: approvePreviewRow.name || undefined,
-                axisId: approvePreviewRow.id,
-                signupUrl: residentAccountCreationUrl("", approvePreviewRow.id),
-              })
-            : ""
+            ? applicationAutomation.forProperty(
+                approvePreviewRow.assignedPropertyId?.trim() ||
+                  approvePreviewRow.propertyId?.trim() ||
+                  approvePreviewRow.application?.propertyId?.trim() ||
+                  "",
+              )
+            : undefined
         }
-        warning={approveError ?? undefined}
-        warningLead={approveError ? "Could not approve." : null}
-        hideSendViaFooterNote
-        confirmLabel="Approve & send setup email"
-        confirmLabelWithoutMessage="Approve only"
-        confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
-        confirmBusyLabel="Approving…"
-        onConfirm={(skipMessage) => {
-          if (!approvePreviewRow) return;
-          const row = approvePreviewRow;
-          setApproveError(null);
-          setApproveBusyId(row.id);
-          void setApplicationBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).then((result) => {
-            setApproveBusyId(null);
-            if (!result || result.blocked) {
-              setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
-              return;
-            }
-            setApprovePreviewRow(null);
-            setApproveError(null);
-          });
+        onClose={() => setApprovePreviewRow(null)}
+        onApproved={() => {
+          setHcTick((n) => n + 1);
+          setLeaseTick((n) => n + 1);
         }}
+        onSendLease={(applicationId) => openSendLeaseForApplication(applicationId)}
       />
 
       <PortalNotificationPreviewModal
@@ -4512,23 +4464,16 @@ export function ManagerResidents({
         }}
       />
 
-      <PortalNotificationPreviewModal
-        open={leaseSentPreview !== null}
-        title="Send lease to resident · preview"
-        onClose={() => setLeaseSentPreview(null)}
-        recipient={leaseSentPreview?.recipient ?? ""}
-        subject={leaseSentPreview?.subject ?? ""}
-        body={leaseSentPreview?.body ?? ""}
-        warning={
-          leaseSentPreview ? leaseLandlordNameWarning(leaseSentPreview.lease) ?? undefined : undefined
-        }
-        warningLead={null}
-        hideSendViaFooterNote
-        confirmLabel="Send lease & notification"
-        confirmLabelWithoutMessage="Send lease only"
-        confirmBusy={leaseSendBusy}
-        confirmBusyLabel="Sending…"
-        onConfirm={(skipMessage, channels, draft) => void confirmSendLeaseToResident(skipMessage, channels, draft)}
+      <LeaseSendSheet
+        open={sendLeaseTarget !== null}
+        leaseId={sendLeaseTarget?.leaseId}
+        applicationId={sendLeaseTarget?.applicationId}
+        managerUserId={userId ?? null}
+        onClose={() => setSendLeaseTarget(null)}
+        onSent={() => {
+          setLeaseTick((n) => n + 1);
+          setHcTick((n) => n + 1);
+        }}
       />
 
       <PortalNotificationPreviewModal

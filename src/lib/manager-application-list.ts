@@ -131,17 +131,19 @@ export function sortApplicationClustersForBucket(
 
 /**
  * The one stage fact an application row may still carry, as plain text in
- * its facts line — or nothing. The tab already says the bucket (Incomplete,
- * Pending, Approved, Rejected), so this only returns what ADDS to it: a
- * withdrawn application, or the approved stage's own suffix — "Existing
- * resident", "Placed". "Active" is what every approved application is and
- * says nothing, so it is silent too.
+ * its facts line — or nothing. The tab already says the bucket (Pending,
+ * Approved, Declined), so this only returns what ADDS to it: a draft the
+ * applicant has not finished ("Incomplete"), a withdrawn application, or the
+ * approved stage's own suffix — "Existing resident", "Placed". Incomplete and
+ * Withdrawn are plain facts on a Pending row, never tabs of their own.
+ * "Active" is what every approved application is and says nothing, so it is
+ * silent too.
  */
 export function applicationStageFact(
   row: Pick<DemoApplicantRow, "bucket" | "stage" | "detail" | "application" | "withdrawnAt">,
 ): string | undefined {
-  if (isInProgressApplicationRow(row as DemoApplicantRow)) return undefined;
   if (isWithdrawnApplicationRow(row as DemoApplicantRow)) return "Withdrawn";
+  if (isInProgressApplicationRow(row as DemoApplicantRow)) return "Incomplete";
   if (row.bucket !== "approved") return undefined;
   const stage = (row.stage ?? "").trim();
   const suffix = stage.replace(/^approved\s*[-–·]?\s*/i, "").trim();

@@ -2,12 +2,11 @@
 //
 // Manager Applications UI guard: a resident-withdrawn application keeps
 // `bucket === "pending"` in storage (the resident's own closeout, not a
-// manager decision), but DISPLAYS under the Rejected tab (`tabForRow`,
-// pro-applications.tsx), labelled "Withdrawn" — it used to clutter the
-// Pending tab, implying it still needed review, even though the manager must
-// NOT be offered Approve on it (approving provisions a resident account +
+// manager decision) and reads in Pending with a plain "Withdrawn" fact on the
+// row — Incomplete and Withdrawn are facts, never tabs. The manager must NOT
+// be offered Approve on it (approving provisions a resident account +
 // rent/deposit charges for someone who withdrew). A normal pending row is
-// the control: it still offers Approve and stays on Pending.
+// the control: it still offers Approve.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -51,7 +50,8 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerShareablePropertyOptions: () => [],
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   PROPERTY_PIPELINE_EVENT: "property-pipeline-changed",
   syncPropertyPipelineFromServer: () => Promise.resolve(),
   hasCachedPropertyPipeline: () => true,
@@ -92,33 +92,25 @@ function row(over: Partial<DemoApplicantRow> & { id: string; name: string }): De
 }
 
 describe("manager Applications — no Approve on a withdrawn row", () => {
-  it("leaves the Pending tab (moves to Rejected), hides Approve, and keeps the row labelled Withdrawn", async () => {
+  it("stays in Pending with a Withdrawn fact, hides Approve and Remind, and is not a Declined row", async () => {
     ROWS = [
       row({ id: "AXIS-W1", name: "Withdrawn Wanda", withdrawnAt: "2026-07-22T00:00:00.000Z" }),
     ];
     const { rerender } = render(<ManagerApplications bucket="pending" />);
 
-    // No longer clutters Pending — a withdrawn row needs no manager review.
-    expect(screen.queryByText("Withdrawn Wanda")).toBeNull();
-
-    rerender(<ManagerApplications bucket="rejected" />);
-
-    // It reads under Rejected instead, still labelled Withdrawn (not Rejected).
+    // A fact on the row, in Pending.
     expect(screen.getAllByText("Withdrawn Wanda").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Withdrawn").length).toBeGreaterThan(0);
 
-    rerender(<ManagerApplications bucket="rejected" applicationId="AXIS-W1" />);
+    rerender(<ManagerApplications bucket="rejected" />);
+    expect(screen.queryByText("Withdrawn Wanda")).toBeNull();
 
-    // Detail route — no Approve button and no "Send reminder".
+    rerender(<ManagerApplications bucket="pending" applicationId="AXIS-W1" />);
+
+    // Detail route — no Approve button and no Remind.
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send reminder" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remind" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Decline" }).length).toBeGreaterThan(0);
-    // What this file guards is that a WITHDRAWN row cannot be approved or chased.
-    // Which destructive action the footer offers is a separate, moving decision —
-    // 5532486a ("contextual bulk bar with reject-tab undo actions") made Delete
-    // available on every row, and the captain has confirmed it belongs in both
-    // places, so asserting its absence here was testing that commit's
-    // predecessor rather than this rule.
   });
 
   it("still offers Approve on a normal (non-withdrawn) pending row — the control", async () => {

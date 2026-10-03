@@ -193,7 +193,7 @@ export type DeliverResidentWelcomeResult =
 export async function deliverResidentWelcome(
   db: SupabaseClient,
   actor: ResidentWelcomeActor,
-  input: { to: string; residentName?: string; axisId: string },
+  input: { to: string; residentName?: string; axisId: string; note?: string },
 ): Promise<DeliverResidentWelcomeResult> {
   const to = normalizeEmail(input.to);
   const residentName = input.residentName?.trim() ?? "";
@@ -223,17 +223,20 @@ export async function deliverResidentWelcome(
   const managerReachability = await resolveManagerReachabilityForResident(db, actor.userId);
 
   const signupUrl = residentAccountCreationUrl("", axisId, setupToken);
+  const managerNote = input.note?.trim() || undefined;
   const text = buildResidentWelcomeEmailBody({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
     managerReachability,
+    managerNote,
   });
   const html = buildResidentWelcomeEmailHtml({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
     managerReachability,
+    managerNote,
   });
   const mailtoHref = buildResidentWelcomeMailtoHref({
     residentEmail: to,
@@ -242,6 +245,7 @@ export async function deliverResidentWelcome(
     origin: "",
     setupToken,
     managerReachability,
+    managerNote,
   });
 
   let payloadId: string | null = null;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { AddWorkspace } from "@/components/portal/add-workspace";
 import { isoWindowFromSlotKey, slotKeyForInstant } from "@/lib/tour-slot-math";
+import { DateField } from "@/components/ui/date-field";
 import { Input, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
@@ -248,16 +249,15 @@ export function ScheduleTourSimpleModal({
       {current === 1 ? (
         <WizardSection title="Date & time" dataAttr="schedule-tour-simple-when">
           <WizardField label="Date" required>
-            <Input
-              type="date"
+            <DateField
               min={todayLocalDateStr()}
-              className="portal-modal-date-input"
               value={selectedDateStr}
-              onChange={(e) => {
-                setSelectedDateStr(e.target.value);
+              onChange={(iso) => {
+                setSelectedDateStr(iso);
                 setSlotKey(null);
                 patch({ tourDate: "", tourStart: "" });
               }}
+              aria-label="Tour date"
               data-attr="schedule-tour-simple-date"
             />
           </WizardField>

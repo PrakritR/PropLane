@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 //
-// C050/C065 — "Generate lease" appears inline on an approved application.
+// C050/C065 — "Send lease" appears on an approved application's header.
 //
-// One primary action under Overview on an APPROVED application, in an
-// application-first workspace, opens the same lease wizard the Leases tab
-// uses (ManagerAddLeaseModal), pre-filled with this applicant — never a
-// separate page. A lease-first workspace never gates a lease on application
+// One primary icon on an APPROVED application, in an application-first
+// workspace, opens the one Send lease screen (LeaseSendSheet), for this
+// applicant — never a separate page. A lease-first workspace never gates a lease on application
 // approval at all, so the card must not appear there; a pending/rejected/
 // withdrawn row must not show it either.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -85,11 +84,11 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 vi.mock("@/lib/leasing-pipeline-client-cache", () => ({
   readCachedLeasingPipelinePreferences: () => LEASING_PREFS,
 }));
-vi.mock("@/components/portal/pro-add-lease-modal", () => ({
-  ManagerAddLeaseModal: (props: Record<string, unknown>) => {
+vi.mock("@/components/portal/lease-send-sheet", () => ({
+  LeaseSendSheet: (props: Record<string, unknown>) => {
     lastAddLeaseModalProps = props;
     if (!props.open) return null;
-    return <div data-attr="stub-add-lease-modal">{String(props.initialApplicationId)}</div>;
+    return <div data-attr="stub-add-lease-modal">{String(props.applicationId)}</div>;
   },
 }));
 
@@ -120,22 +119,20 @@ afterEach(() => {
   lastAddLeaseModalProps = null;
 });
 
-describe("Generate lease — inline on an approved application (C050/C065)", () => {
+describe("Send lease — on an approved application (C050/C065)", () => {
   it("shows the primary action in an application-first workspace and opens the wizard pre-filled", () => {
     expect(leaseSendRequiresApprovedApplication(DEFAULT_LEASING_PIPELINE)).toBe(true);
     ROWS = [approvedRow()];
 
     render(<ManagerApplications bucket="approved" applicationId="AXIS-GENLEASE-1" />);
 
-    const card = document.querySelector('[data-attr="record-overview-card-generate-lease"]');
-    expect(card).not.toBeNull();
-    const button = card!.querySelector("button");
-    expect(button?.textContent).toContain("Generate lease");
+    const button = document.querySelector('[data-attr="application-send-lease"]');
+    expect(button).not.toBeNull();
 
     fireEvent.click(button!);
 
     expect(document.querySelector('[data-attr="stub-add-lease-modal"]')).not.toBeNull();
-    expect(lastAddLeaseModalProps?.initialApplicationId).toBe("AXIS-GENLEASE-1");
+    expect(lastAddLeaseModalProps?.applicationId).toBe("AXIS-GENLEASE-1");
   });
 
   it("is absent in a lease-first workspace", () => {
@@ -144,7 +141,7 @@ describe("Generate lease — inline on an approved application (C050/C065)", () 
 
     render(<ManagerApplications bucket="approved" applicationId="AXIS-GENLEASE-1" />);
 
-    expect(document.querySelector('[data-attr="record-overview-card-generate-lease"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-send-lease"]')).toBeNull();
   });
 
   it("is absent on a pending (not yet approved) application", () => {
@@ -152,7 +149,7 @@ describe("Generate lease — inline on an approved application (C050/C065)", () 
 
     render(<ManagerApplications bucket="pending" applicationId="AXIS-GENLEASE-2" />);
 
-    expect(document.querySelector('[data-attr="record-overview-card-generate-lease"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-send-lease"]')).toBeNull();
   });
 
   it("is absent on a withdrawn approved application", () => {
@@ -160,6 +157,6 @@ describe("Generate lease — inline on an approved application (C050/C065)", () 
 
     render(<ManagerApplications bucket="approved" applicationId="AXIS-GENLEASE-3" />);
 
-    expect(document.querySelector('[data-attr="record-overview-card-generate-lease"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-send-lease"]')).toBeNull();
   });
 });

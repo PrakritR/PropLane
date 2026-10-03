@@ -1078,15 +1078,14 @@ export async function renderPortalSection(
     if (documentsView) return documentsView;
 
     if (section === "leases") {
-      const LEASE_TABS = ["manager", "resident", "signed", "completed"] as const;
       if (!tabParts?.length) {
         redirect(`${def.basePath}/leases/manager`);
       }
       if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
-      const leaseTab = LEASE_TABS.includes(tabRaw as typeof LEASE_TABS[number])
-        ? (tabRaw as typeof LEASE_TABS[number])
-        : "manager";
+      // Draft · Sent · Signed are the words on the list; they resolve to the route ids behind them.
+      const { parseLeasePipelineTab } = await import("@/lib/portal-detail-routes");
+      const leaseTab = parseLeasePipelineTab(tabRaw);
       if (tabRaw !== leaseTab) {
         redirect(`${def.basePath}/leases/${leaseTab}`);
       }
@@ -1123,7 +1122,6 @@ export async function renderPortalSection(
     }
 
     if (section === "applications") {
-      const APPLICATION_TABS = ["incomplete", "pending", "approved", "rejected"] as const;
       if (!tabParts?.length) {
         redirect(`${def.basePath}/applications/pending`);
       }
@@ -1133,9 +1131,9 @@ export async function renderPortalSection(
         const legacyId = tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
         redirect(`${def.basePath}/applications/approved${legacyId}`);
       }
-      const applicationTab = APPLICATION_TABS.includes(tabRaw as typeof APPLICATION_TABS[number])
-        ? (tabRaw as typeof APPLICATION_TABS[number])
-        : "pending";
+      // Pending · Approved · Declined; an old /incomplete or /declined link lands on its real bucket.
+      const { parseApplicationListTab } = await import("@/lib/portal-detail-routes");
+      const applicationTab = parseApplicationListTab(tabRaw);
       if (tabRaw !== applicationTab) {
         redirect(`${def.basePath}/applications/${applicationTab}`);
       }

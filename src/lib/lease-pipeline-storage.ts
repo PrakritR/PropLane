@@ -995,6 +995,13 @@ export type LeasePipelineRow = {
   jointLeaseMembers?: JointLeaseMember[];
   primaryApplicationId?: string | null;
   bundleGroupKey?: string | null;
+  /**
+   * Roommates in a shared room on ONE joint lease (`sharedRoomLeaseKind: "joint"`): every
+   * roommate keeps their own lease row — their own account, signature, rent and charges — and
+   * the rows of one joint lease share this id. Absent on an ordinary lease. The manager
+   * countersigns once everyone has signed (`lease-joint-room.ts`).
+   */
+  jointRoomGroupId?: string | null;
   /** Property lease template used for the last generation. */
   leaseGenerationTemplateId?: string | null;
   /**
@@ -1374,6 +1381,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     jointLeaseMembers: Array.isArray(r.jointLeaseMembers) ? r.jointLeaseMembers : undefined,
     primaryApplicationId: typeof r.primaryApplicationId === "string" ? r.primaryApplicationId : null,
     bundleGroupKey: typeof r.bundleGroupKey === "string" ? r.bundleGroupKey : null,
+    jointRoomGroupId: typeof r.jointRoomGroupId === "string" && r.jointRoomGroupId.trim() ? r.jointRoomGroupId.trim() : null,
     leaseGenerationTemplateId:
       typeof r.leaseGenerationTemplateId === "string" ? r.leaseGenerationTemplateId : null,
     leaseTemplateId: typeof r.leaseTemplateId === "string" ? r.leaseTemplateId : null,
@@ -1569,6 +1577,27 @@ export function leaseRowMatchesManagerTab(row: LeasePipelineRow, tab: ManagerLea
   if (tab === "completed") return row.status === "Fully Signed";
   if (tab === "signed") return row.bucket === "signed" && row.status !== "Fully Signed";
   return row.bucket === tab;
+}
+
+/**
+ * The Leases list has three stages — Draft, Sent, Signed — not four. "Sent" is
+ * every lease out for signature: waiting on the resident (`resident`) and
+ * waiting on the manager's countersignature (`signed`, not yet Fully Signed).
+ * The route ids stay `manager` / `resident` / `completed`; a legacy
+ * `/leases/signed` link lands on Sent.
+ */
+export type LeaseListTabId = "manager" | "resident" | "completed";
+
+export function leaseRowMatchesListTab(row: LeasePipelineRow, tab: ManagerLeaseTab): boolean {
+  if (tab === "resident" || tab === "signed") {
+    return leaseRowMatchesManagerTab(row, "resident") || leaseRowMatchesManagerTab(row, "signed");
+  }
+  return leaseRowMatchesManagerTab(row, tab);
+}
+
+export function countLeaseListTabs(rows: LeasePipelineRow[]): Record<LeaseListTabId, number> {
+  const counts = countManagerLeaseTabs(rows);
+  return { manager: counts.manager, resident: counts.resident + counts.signed, completed: counts.completed };
 }
 
 export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerLeaseTab, number> {

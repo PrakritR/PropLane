@@ -25,9 +25,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    let body: { to?: unknown; residentName?: unknown; axisId?: unknown };
+    let body: { to?: unknown; residentName?: unknown; axisId?: unknown; note?: unknown };
     try {
-      body = (await req.json()) as { to?: unknown; residentName?: unknown; axisId?: unknown };
+      body = (await req.json()) as { to?: unknown; residentName?: unknown; axisId?: unknown; note?: unknown };
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     const to = normalizeEmail(body.to);
     const residentName = typeof body.residentName === "string" ? body.residentName.trim() : "";
     const axisId = typeof body.axisId === "string" ? body.axisId.trim() : "";
+    const note = typeof body.note === "string" ? body.note : "";
 
     if (!to || !RESIDENT_WELCOME_EMAIL_RE.test(to)) {
       return NextResponse.json({ error: "A valid recipient email is required." }, { status: 400 });
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
     const result = await deliverResidentWelcome(
       svc,
       { userId: user.id, email: user.email ?? null },
-      { to, residentName: residentName || undefined, axisId },
+      { to, residentName: residentName || undefined, axisId, note: note || undefined },
     );
 
     if (!result.ok) {

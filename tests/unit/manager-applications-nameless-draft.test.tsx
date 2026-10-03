@@ -114,8 +114,8 @@ describe("manager Applications — an applicant with no stored name", () => {
   it("identifies the list row by email instead of rendering a blank name", async () => {
     ROWS = [NAMELESS_DRAFT];
 
-    render(<ManagerApplications bucket="incomplete" />);
-    await screen.findByRole("link", { name: /Incomplete/i });
+    render(<ManagerApplications bucket="pending" />);
+    await screen.findByText("Incomplete");
 
     // Exactly once: the name line resolves to the email, so echoing it as the
     // row's preview would print the same identity twice.
@@ -126,8 +126,8 @@ describe("manager Applications — an applicant with no stored name", () => {
   it("still shows the email beside a real name", async () => {
     ROWS = [{ ...NAMELESS_DRAFT, name: "Maya Chen" }];
 
-    render(<ManagerApplications bucket="incomplete" />);
-    await screen.findByRole("link", { name: /Incomplete/i });
+    render(<ManagerApplications bucket="pending" />);
+    await screen.findByText("Incomplete");
 
     expect(screen.getAllByText("Maya Chen").length).toBeGreaterThan(0);
     expect(screen.getAllByText("nameless.draft@example.com").length).toBeGreaterThan(0);
@@ -136,8 +136,8 @@ describe("manager Applications — an applicant with no stored name", () => {
   it("prefers the email over a legacy stored 'Applicant' placeholder", async () => {
     ROWS = [LEGACY_PLACEHOLDER_DRAFT];
 
-    render(<ManagerApplications bucket="incomplete" />);
-    await screen.findByRole("link", { name: /Incomplete/i });
+    render(<ManagerApplications bucket="pending" />);
+    await screen.findByText("Incomplete");
 
     expect(screen.getAllByText("legacy.placeholder@example.com").length).toBeGreaterThan(0);
     expect(screen.queryByText("Applicant")).toBeNull();
@@ -146,7 +146,7 @@ describe("manager Applications — an applicant with no stored name", () => {
   it("titles the detail page with the email rather than an empty header", async () => {
     ROWS = [NAMELESS_DRAFT];
 
-    render(<ManagerApplications bucket="incomplete" applicationId={NAMELESS_DRAFT.id} />);
+    render(<ManagerApplications bucket="pending" applicationId={NAMELESS_DRAFT.id} />);
     const titled = await screen.findAllByText("nameless.draft@example.com");
 
     // The header's title line — a blank title is what this covers. The

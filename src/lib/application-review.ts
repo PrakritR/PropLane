@@ -52,7 +52,7 @@ async function syncResidentApprovalStatus(
 }
 
 /** POST welcome email; does not open mailto (used for auto-send on approve). */
-export async function requestResidentWelcomeEmail(row: DemoApplicantRow): Promise<{
+export async function requestResidentWelcomeEmail(row: DemoApplicantRow, note?: string): Promise<{
   status: "sent" | "failed" | "no_email";
   mailtoHref?: string;
   error?: string;
@@ -63,7 +63,9 @@ export async function requestResidentWelcomeEmail(row: DemoApplicantRow): Promis
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ to: email, residentName: row.name, axisId: row.id }),
+    // `note` is the manager's own words from the Approve popup; the account-setup link
+    // and ID stay in the email around it, so editing the message never loses the link.
+    body: JSON.stringify({ to: email, residentName: row.name, axisId: row.id, ...(note?.trim() ? { note: note.trim() } : {}) }),
   });
   const data = (await res.json()) as { ok?: boolean; error?: string; mailtoHref?: string };
   if (res.ok && data.ok) return { status: "sent" };
@@ -81,8 +83,14 @@ export type ApplicationBucketTransition = {
   row: DemoApplicantRow;
   welcomeSent: boolean;
   /** Set when the transition did NOT take effect; or its post-commit access setup needs retry. */
-  blocked?: "withdrawn" | "error";
+  blocked?: "withdrawn" | "error" | "capacity";
   message?: string;
+  /**
+   * With `blocked: "capacity"`: the server refused the bed because somebody else holds it (or the
+   * room is full). Nothing was written for the refused approval. `slot` and `holderName` are
+   * present when the refusal named them (a per-resident bed taken a moment ago).
+   */
+  conflict?: { slot?: number; holderName?: string | null };
   /** What the manager's enabled post-approval automation did, when any is on. */
   automation?: ApplicationAutomationResult;
   /** Approval already committed even when the selected SMS leg failed. */
@@ -125,6 +133,14 @@ export async function transitionApplicationBucket(
     skipWelcomeEmail?: boolean;
     approvalNotification?: { viaEmail: boolean; viaSms: boolean };
     /**
+     * Fields to merge into the application's own answers (the bed and its rent from the Approve
+     * popup). Applied to the write the server arbitrates and to the local copy only once that
+     * write is accepted — a refused approval leaves the stored application exactly as it was.
+     */
+    applicationPatch?: Partial<NonNullable<DemoApplicantRow["application"]>>;
+    /** The manager's own welcome note from the Approve popup, placed above the standard setup email. */
+    welcomeNote?: string;
+    /**
      * The manager's saved automation flags. Omitted (the default) means fully manual — the
      * approval behaves exactly as it did before automation existed.
      */
@@ -149,6 +165,9 @@ export async function transitionApplicationBucket(
           bucket: nextBucket,
           stage: stageLabelForApplicationBucket(nextBucket),
           managerUserId: r.managerUserId ?? (nextBucket === "approved" ? (opts.userId ?? undefined) : r.managerUserId),
+          ...(opts.applicationPatch && r.application
+            ? { application: { ...r.application, ...opts.applicationPatch } }
+            : {}),
         }
       : r,
   );
@@ -165,6 +184,17 @@ export async function transitionApplicationBucket(
         const confirmed = refusalConfirmsThisApplication(id, result);
         if (confirmed) writeManagerApplicationRows(readManagerApplicationRows().map(r => r.id === id ? { ...r, withdrawnAt: r.withdrawnAt || new Date().toISOString() } : r), { serverConfirmed: true });
         return { row, welcomeSent: false, blocked: confirmed ? "withdrawn" : "error", message: confirmed ? WITHDRAWN_APPROVAL_BLOCKED_MESSAGE : UNCONFIRMED_APPROVAL_MESSAGE };
+      }
+      if (response.status === 409 && result.blocked === "capacity") {
+        // The bed was taken (or the room filled) between the picker opening and this write.
+        // The server wrote nothing; the local row is untouched, so there is nothing to undo.
+        return {
+          row,
+          welcomeSent: false,
+          blocked: "capacity",
+          message: typeof result.error === "string" ? result.error : "That bed was just taken.",
+          conflict: result.conflict && typeof result.conflict === "object" ? result.conflict : {},
+        };
       }
       if (!response.ok || result.ok !== true) return { row, welcomeSent: false, blocked: "error", message: result.error || "Approval could not be saved. Refresh and retry." };
     } catch { return { row, welcomeSent: false, blocked: "error", message: UNREACHABLE_APPROVAL_MESSAGE }; }
@@ -199,7 +229,7 @@ export async function transitionApplicationBucket(
 
   let welcomeSent = false;
   if (nextBucket === "approved" && updatedRow.email?.trim() && !opts.skipWelcomeEmail && opts.approvalNotification?.viaEmail !== false) {
-    const welcome = await requestResidentWelcomeEmail(updatedRow);
+    const welcome = await requestResidentWelcomeEmail(updatedRow, opts.welcomeNote);
     welcomeSent = welcome.status === "sent";
   }
 
@@ -233,4 +263,43 @@ export async function transitionApplicationBucket(
   }
 
   return { row: updatedRow, welcomeSent, automation, ...(nextBucket === "approved" && approvalSms ? { approvalSms } : {}) };
+}
+
+/**
+ * Decline is one click. No confirm dialog: the toast reads "Declined · <name>" and
+ * its one button restores the application to the bucket it came from (Pending, or
+ * Approved when an approved application is declined). Shared by the Applications
+ * list and record and the Residents Application tab so every Decline behaves alike.
+ *
+ * `run` is the caller's own bucket writer — each surface refreshes its own state
+ * around `transitionApplicationBucket` — and returns the transition result.
+ */
+export async function declineApplicationWithUndo(args: {
+  row: Pick<DemoApplicantRow, "id" | "bucket" | "name" | "email">;
+  run: (id: string, next: ManagerApplicationBucket) => Promise<ApplicationBucketTransition | null>;
+  showToast: (message: string, options?: { undo?: () => void | Promise<void> }) => void;
+  /** Called after a decline (or its undo) was accepted, so the caller can refresh or navigate. */
+  onChanged?: (event: "declined" | "restored") => void;
+}): Promise<boolean> {
+  const { row, run, showToast, onChanged } = args;
+  const previous: ManagerApplicationBucket = row.bucket === "approved" ? "approved" : "pending";
+  const who = row.name?.trim() || row.email?.trim() || "Application";
+  const result = await run(row.id, "rejected");
+  if (!result || result.blocked) {
+    showToast(result?.message ?? "Application could not be declined.");
+    return false;
+  }
+  showToast(`Declined · ${who}`, {
+    undo: async () => {
+      const restored = await run(row.id, previous);
+      if (!restored || restored.blocked) {
+        showToast(restored?.message ?? "Application could not be restored.");
+        return;
+      }
+      showToast(`Restored · ${who}`);
+      onChanged?.("restored");
+    },
+  });
+  onChanged?.("declined");
+  return true;
 }

@@ -15,7 +15,6 @@ import {
   Mail,
   Pencil,
   Plus,
-  Printer,
   RefreshCw,
   Send,
   Share2,
@@ -25,8 +24,7 @@ import {
   UserMinus,
   UserPlus,
   Copy,
-  XCircle,
-} from "lucide-react";
+  XCircle,} from "lucide-react";
 import {
   applicationDetailHref,
   documentRecordHref,
@@ -196,6 +194,8 @@ export type RecordSectionContext = {
   leaseListTab?: LeasePipelineTabId;
   /** tour */
   tourBucket?: ManagerTourBucketId;
+  /** Section ids to leave out of this record's rail (e.g. a lease's Audit trail before it is executed). */
+  hiddenSections?: readonly string[];
   /** service — an add-on request or a maintenance work order share the one rail. */
   serviceKind?: "request" | "work-order";
   serviceBucket?: ServiceRequestBucketId | WorkOrderBucketId;
@@ -371,50 +371,30 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   lease: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Lease document · Payments ·
-    // Communication. "Terms", "Signatures" and "Amendments" fold into the
-    // Lease document view instead of staying separate tabs.
-    //
-    // C066/C281: "Audit trail" and "Answers" are real tabs, same shape as
-    // Applications' own "application-form" — who signed/when/the fingerprint,
-    // and (Ida Cares lease-first only) every clause's answer by section.
-    // Answers is listed for every lease the same way Applications always
-    // lists "Screening" regardless of whether a check exists — the panel
-    // shows an empty state for an ordinary application-driven lease that
-    // carries no `signingTemplateSnapshot`.
+    // The Lease section (who has signed, the terms line, the lease itself) · Communication.
+    // "Audit trail" (C066) joins once the lease carries execution evidence and "Answers" (C281)
+    // for a lease-first lease — the page hides them via `hiddenSections` until they apply.
+    // `lease-document`, `terms`, `signatures`, `amendments` and `payments` links still resolve:
+    // they land on the Lease section (see `LEASE_DETAIL_TAB_ALIASES`).
     ownGroups: [
       { label: "Lease", ids: [
-        { id: "overview", label: "Overview" },
-        { id: "lease-document", label: "Lease document" },
+        { id: "overview", label: "Lease" },
         { id: "audit-trail", label: "Audit trail" },
         { id: "answers", label: "Answers" },
       ] },
-      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
     ],
     headerActions: [
-      { id: "send", label: "Send for signature", icon: Send },
-      { id: "edit", label: "Edit", icon: Pencil },
-      { id: "share", label: "Share", icon: Share2 },
-      { id: "archive", label: "Archive", icon: Archive },
+      { id: "send", label: "Send lease", icon: Send },
+      { id: "edit", label: "Edit lease", icon: Pencil },
+      { id: "download", label: "Download", icon: Download },
     ],
     sectionActions: {
-      "lease-document": [
-        { id: "send", label: "Send for signature", icon: Send },
-        { id: "new-version", label: "Generate new version", icon: Plus },
-        { id: "upload", label: "Upload a PDF", icon: Upload },
-        { id: "download", label: "Download", icon: Download },
-      ],
       "audit-trail": [
         { id: "export", label: "Export", icon: Download },
         { id: "share", label: "Share", icon: Share2 },
       ],
       answers: [
         { id: "share", label: "Share", icon: Share2 },
-      ],
-      payments: [
-        { id: "add-charge", label: "Add charge", icon: Plus },
-        { id: "send-reminder", label: "Send reminder", icon: Bell },
-        { id: "export", label: "Export", icon: Download },
       ],
       communication: [
         { id: "compose", label: "New message", icon: Mail },
@@ -431,34 +411,19 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   application: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Application form · Screening ·
-    // Communication. "Applicants" folds into the Application form view;
-    // "Decision" folds into Overview's own fact cards.
+    // Application · Background check · Communication (CX-RC2). The Application section is the
+    // record's first, so its route id stays `overview`; the grouped answers, the shared-room
+    // card and the status facts all live in it rather than in a second "Overview".
     ownGroups: [{ label: "Application", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "application-form", label: "Application form" },
-      { id: "screening", label: "Screening" },
+      { id: "overview", label: "Application" },
+      { id: "screening", label: "Background check" },
     ] }],
     headerActions: [
       { id: "approve", label: "Approve", icon: CheckCircle2 },
       { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
-      { id: "share", label: "Share", icon: Share2 },
-      { id: "archive", label: "Archive", icon: Archive },
     ],
     sectionActions: {
-      // C049 (studio decision): "Request more info" had no real handler
-      // anywhere in the app — dropped rather than shipped as a dead action.
-      // (This whole `sectionActions` map is currently unread by
-      // PortalRecordSectionChrome — the application record's real header
-      // dock is `renderApplicationRowActions` in pro-applications.tsx — so
-      // this never rendered either way; removed for hygiene.)
-      "application-form": [
-        { id: "approve", label: "Approve", icon: CheckCircle2 },
-        { id: "download", label: "Download", icon: Download },
-        { id: "print", label: "Print", icon: Printer },
-      ],
       screening: [
-        { id: "approve", label: "Approve", icon: CheckCircle2 },
         { id: "rerun", label: "Re-run screening", icon: RefreshCw },
         { id: "download-report", label: "Download report", icon: Download },
       ],
@@ -925,10 +890,11 @@ export function recordSections(
     throw new Error(`recordSections: no registry entry for ${role}/${kind}`);
   }
   const hrefFor = def.href(ctx);
+  const hidden = new Set(ctx.hiddenSections ?? []);
   const groups: RecordSectionGroup[] = def.ownGroups
     .map((group) => ({
       label: group.label,
-      items: group.ids.map(({ id, label }) => ({
+      items: group.ids.filter(({ id }) => !hidden.has(id)).map(({ id, label }) => ({
         id,
         label,
         href: (recordId: string) => hrefFor(recordId, id),

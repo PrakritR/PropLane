@@ -43,7 +43,8 @@ describe("New terms on off-platform signed leases", () => {
   it("manager panel opens New terms for signed rows including off-platform", () => {
     expect(panel).toContain("onNewTerms");
     expect(panel).toContain('variant="new-terms"');
-    expect(panel).toContain("leases-bulk-new-terms");
+    // New terms is on the record header (the row ⋯ is View · Send · Download · Mark as signed · Delete).
+    expect(panel).toContain("onNewTerms={() => setAmendLeaseRow(row)}");
     expect(modal).toContain('variant === "new-terms"');
     expect(modal).toContain("Create and send");
     expect(modal).toContain('hideRentHint ? "Starts"');

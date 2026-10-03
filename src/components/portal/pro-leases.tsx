@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
+import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
@@ -15,10 +15,9 @@ import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type Port
 import { Share2 } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   LEASE_PIPELINE_EVENT,
-  countManagerLeaseTabs,
+  countLeaseListTabs,
   readLeasePipeline,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
@@ -36,10 +35,16 @@ import {
 } from "@/lib/leasing-pipeline-preferences";
 import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 
-const LEASE_LABELS: { id: ManagerLeaseTab; label: string; dataAttr: string }[] = [
-  { id: "manager", label: "Manager review", dataAttr: "leases-tab-manager" },
-  { id: "resident", label: "Resident signature", dataAttr: "leases-tab-resident" },
-  { id: "signed", label: "Manager signature", dataAttr: "leases-tab-signed" },
+/**
+ * Three stages, the replica's: Draft, Sent, Signed. "Sent" holds every lease out
+ * for signature — waiting on the resident and waiting on the manager's
+ * countersignature — so a lease never sits in a stage of its own just because
+ * of whose turn it is. The route ids are unchanged (`manager`, `resident`,
+ * `completed`); a legacy `/leases/signed` link lands on Sent.
+ */
+const LEASE_LABELS: { id: "manager" | "resident" | "completed"; label: string; dataAttr: string }[] = [
+  { id: "manager", label: "Draft", dataAttr: "leases-tab-manager" },
+  { id: "resident", label: "Sent", dataAttr: "leases-tab-resident" },
   { id: "completed", label: "Signed", dataAttr: "leases-tab-completed" },
 ];
 
@@ -57,17 +62,17 @@ export function ManagerLeases({
 }) {
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
-  const [tab, setTab] = useState<ManagerLeaseTab>(tabProp);
-  const [prevTabProp, setPrevTabProp] = useState(tabProp);
-  if (tabProp !== prevTabProp) {
-    setPrevTabProp(tabProp);
-    if (tab !== tabProp) setTab(tabProp);
+  const listTabProp: ManagerLeaseTab = tabProp === "signed" ? "resident" : tabProp;
+  const [tab, setTab] = useState<ManagerLeaseTab>(listTabProp);
+  const [prevTabProp, setPrevTabProp] = useState(listTabProp);
+  if (listTabProp !== prevTabProp) {
+    setPrevTabProp(listTabProp);
+    if (tab !== listTabProp) setTab(listTabProp);
   }
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
-  const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [clientReady, setClientReady] = useState(false);
   const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
@@ -133,40 +138,7 @@ export function ManagerLeases({
     return allRows.filter((row) => propertyFilters.includes(row.application?.propertyId?.trim() ?? ""));
   }, [clientReady, tick, propertyFilters, userId]);
 
-  useEffect(() => {
-    const emails = [...new Set(rows.map((row) => row.residentEmail.trim().toLowerCase()).filter(Boolean))];
-    let cancelled = false;
-    void Promise.resolve().then(() => {
-      if (cancelled) return;
-      if (emails.length === 0) {
-        setResidentAccountEmails(new Set());
-        return;
-      }
-      if (isDemoModeActive()) {
-        setResidentAccountEmails(new Set(emails));
-        return;
-      }
-      return fetch("/api/manager/resident-account-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails }),
-      })
-        .then(async (res) => {
-          const body = (await res.json()) as { emails?: string[] };
-          if (!cancelled && res.ok) {
-            setResidentAccountEmails(new Set((body.emails ?? []).map((email) => email.trim().toLowerCase()).filter(Boolean)));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setResidentAccountEmails(new Set());
-        });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [rows]);
-
-  const counts = useMemo(() => countManagerLeaseTabs(rows), [rows]);
+  const counts = useMemo(() => countLeaseListTabs(rows), [rows]);
   const tabs = useMemo(
     () => LEASE_LABELS.map(({ id, label, dataAttr }) => ({ id, label, count: counts[id], dataAttr })),
     [counts],
@@ -223,8 +195,8 @@ export function ManagerLeases({
     </>
   );
 
-  const openLeaseAfterAdd = (leaseId: string) => {
-    navigate(leaseDetailHref(basePath, "manager", leaseId));
+  const openLeaseAfterSend = (leaseId: string) => {
+    navigate(leaseDetailHref(basePath, "resident", leaseId));
   };
 
   const modals = (
@@ -235,12 +207,16 @@ export function ManagerLeases({
         kind="lease"
         properties={shareableProperties}
       />
-      <ManagerAddLeaseModal
+      {/* The + is Send lease: the one screen, with a resident picker on top (it replaced the Add lease wizard). */}
+      <LeaseSendSheet
         open={addLeaseOpen}
-        onClose={() => setAddLeaseOpen(false)}
+        pickResident
         managerUserId={userId}
-        onSubmitted={() => setTick((n) => n + 1)}
-        onOpenLease={openLeaseAfterAdd}
+        onClose={() => setAddLeaseOpen(false)}
+        onSent={(leaseId) => {
+          setTick((n) => n + 1);
+          openLeaseAfterSend(leaseId);
+        }}
       />
     </>
   );
@@ -253,7 +229,6 @@ export function ManagerLeases({
           tab={tab}
           refreshKey={tick}
           managerUserId={userId}
-          residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
           leaseDetailTab={leaseDetailTab}
           listBasePath={basePath}
@@ -278,14 +253,6 @@ export function ManagerLeases({
           destinations={tabs.map((t) => ({
             id: t.id,
             label: t.label,
-            shortLabel:
-              t.id === "manager"
-                ? "Mgr review"
-                : t.id === "resident"
-                  ? "Resident"
-                  : t.id === "signed"
-                    ? "Mgr sign"
-                    : undefined,
             href: leaseListHref(basePath, t.id),
             count: t.count,
             dataAttr: t.dataAttr,
@@ -301,7 +268,7 @@ export function ManagerLeases({
           actions={leasesListActions}
           primary={
             <PortalPrimaryIconAction
-              label="Add lease"
+              label="Send lease"
               data-attr="leases-add-top"
               onClick={() => setAddLeaseOpen(true)}
             />
@@ -325,7 +292,6 @@ export function ManagerLeases({
           tab={tab}
           refreshKey={tick}
           managerUserId={userId}
-          residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
           leaseDetailTab={leaseDetailTab}
           listBasePath={basePath}
@@ -352,7 +318,7 @@ export function ManagerLeases({
                   actions:
                     tab === "resident" || tab === "signed"
                       ? []
-                      : [{ label: "Add lease", onClick: () => setAddLeaseOpen(true), dataAttr: "leases-list-add" }],
+                      : [{ label: "Send lease", onClick: () => setAddLeaseOpen(true), dataAttr: "leases-list-add" }],
                 }
           }
         />

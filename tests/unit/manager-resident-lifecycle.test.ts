@@ -18,7 +18,9 @@ describe("manager-resident-lifecycle", () => {
     expect(formatResidentShortDate("2027-02-28")).toContain("2027");
   });
 
-  it("omits reminder-style next steps for lease_sent waiting on resident", () => {
+  // One blue button that does the next thing (Review application → Send lease → Remind to sign / Sign lease →
+  // View payments); the first two open the Approve popup and the Send lease screen directly.
+  it("offers Remind to sign while the lease waits on the resident", () => {
     const snap = buildResidentLifecycle(
       {
         directoryStage: "potential",
@@ -52,7 +54,36 @@ describe("manager-resident-lifecycle", () => {
       },
       hrefs,
     );
-    expect(snap.next).toBeNull();
+    expect(snap.next).toEqual({ kind: "callback", label: "Remind to sign", actionId: "remind-sign" });
     expect(snap.todo.some((t) => t.title.includes("waiting for the resident"))).toBe(true);
+  });
+
+  const app = (bucket: "pending" | "approved") => ({
+    id: "app-1",
+    name: "Casey",
+    email: "c@example.com",
+    property: "House",
+    bucket,
+    axisId: "AXIS-1",
+    application: { submittedAt: "2026-01-01" },
+  });
+  const input = (over: Record<string, unknown>) => ({
+    directoryStage: "potential" as const,
+    application: app("approved"),
+    leaseRows: [],
+    ledgerRows: [],
+    hasPortalAccount: true,
+    ...over,
+  });
+
+  it("Review application opens the Approve popup", () => {
+    const snap = buildResidentLifecycle(input({ application: app("pending") }) as never, hrefs);
+    expect(snap.next).toEqual({ kind: "callback", label: "Review application", actionId: "approve-application" });
+  });
+
+  it("Send lease opens the Send lease screen for an approved resident, with or without a draft", () => {
+    expect(buildResidentLifecycle(input({}) as never, hrefs).next).toEqual({ kind: "callback", label: "Send lease", actionId: "send-lease" });
+    const draft = { id: "l1", residentName: "Casey", residentEmail: "c@example.com", unit: "R1", stageLabel: "Draft", updated: "", bucket: "manager", pdfVersion: 1, notes: "", updatedAtIso: "", thread: [] };
+    expect(buildResidentLifecycle(input({ leaseRows: [draft] }) as never, hrefs).next).toEqual({ kind: "callback", label: "Send lease", actionId: "send-lease" });
   });
 });
