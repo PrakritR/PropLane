@@ -1,6 +1,6 @@
 "use client";
 
-import { PenSquare, Trash2 } from "lucide-react";
+import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
@@ -1361,8 +1361,9 @@ export function ManagerUnifiedInbox({
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
       if (canRetain) return cur;
-      // Filtering must not open and mark each unread result read in succession.
-      if (listSegment !== "unread" && inboxUsesDesktopSplit() && listRows[0]) return listRows[0].key;
+      // Studio (C2-CM1): a first visit opens no conversation. The thread side is the "Select a
+      // conversation" card until a row is clicked or the URL names a thread — nothing is opened
+      // (and marked read) on the manager's behalf.
       explicitlyOpened.current = null;
       return null;
     });
@@ -1446,7 +1447,7 @@ export function ManagerUnifiedInbox({
                 sibling={listSegment && listSegment !== "active" ? { label: "Active conversations", href: `${commBase}/active`, dataAttr: "unified-inbox-empty-active" } : null}
                 actions={
                   (listSegment ?? "active") === "active" && onAddConversation
-                    ? [{ label: "New message", icon: PenSquare, onClick: onAddConversation, dataAttr: "communication-add-conversation" }]
+                    ? [{ label: "New message", icon: MessageSquarePlus, onClick: onAddConversation, dataAttr: "communication-add-conversation" }]
                     : []
                 }
                 dataAttr="unified-inbox-empty"
@@ -1767,7 +1768,7 @@ export function ManagerUnifiedInbox({
     ) : (
       <InboxThreadEmpty
         title="Select a conversation"
-        hint="Choose a resident on the left to read and reply."
+        hint=""
       />
     );
 

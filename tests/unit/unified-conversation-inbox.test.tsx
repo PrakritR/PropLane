@@ -426,18 +426,23 @@ describe("desktop unread selection regression", () => {
     expect(await screen.findByTestId("embedded-email-thread")).toBeTruthy();
   });
 
-  it.each(["active", "read", "archived"] as const)("preserves %s first-row selection", async (status) => {
+  // Studio (C2-CM1): a first visit opens no conversation on any tab, so the right pane is the
+  // "Select a conversation" card until a row is clicked or the URL names a thread.
+  it.each(["active", "read", "archived"] as const)("opens no conversation on first load (%s)", async (status) => {
     desktop();
-    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment={status === "archived" ? "archived" : "active"} threadFilters={{ status: status === "active" ? "all" : status, propertyIds: [], roles: [], contactIds: [] }} />);
-    expect(await screen.findByTestId("embedded-email-thread")).toBeTruthy();
+    const selected = vi.fn();
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment={status === "archived" ? "archived" : "active"} threadFilters={{ status: status === "active" ? "all" : status, propertyIds: [], roles: [], contactIds: [] }} onThreadSelectedChange={selected} />);
+    expect(await screen.findByText("Select a conversation")).toBeTruthy();
+    expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+    expect(selected).not.toHaveBeenCalledWith(true);
   });
 
   it("clears the previous selection on entering Unread without opening its first result", async () => {
     desktop();
     const props = { tabId: "unopened", commBase: "/portal/communication" };
     const { rerender } = render(<ManagerUnifiedInbox {...props} listSegment="active" />);
+    fireEvent.click(await screen.findByText("Sam"));
     await screen.findByTestId("embedded-email-thread");
-    fireEvent.click(screen.getByText("Sam"));
     rerender(<ManagerUnifiedInbox {...props} listSegment="unread" />);
     await screen.findByText("Dana Ramirez");
     await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());

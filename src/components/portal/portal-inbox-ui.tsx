@@ -2764,7 +2764,7 @@ export function InboxThreadEmpty({
         <PortalEmptyIcon kind="inbox" className="h-6 w-6" />
       </div>
       <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
-      <p className="mt-1 max-w-xs text-xs text-muted">{hint}</p>
+      {hint ? <p className="mt-1 max-w-xs text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -3071,7 +3071,7 @@ export function InboxTwoPane({
               // Column gap only. Below `lg` exactly one pane is display:none and
               // contributes nothing, but a row gap would silently subtract from
               // the pane height at every breakpoint.
-              ? "lg:grid-cols-[minmax(340px,40%)_1fr] 2xl:grid-cols-[480px_1fr] lg:gap-x-4"
+              ? "lg:grid-cols-[minmax(340px,40%)_1fr] xl:grid-cols-[480px_1fr] lg:gap-x-4"
               : "lg:grid-cols-[minmax(320px,36%)_1fr] 2xl:grid-cols-[460px_1fr]"
         }`}
       >

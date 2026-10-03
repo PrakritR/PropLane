@@ -2,7 +2,7 @@
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
-import { PenSquare, Settings } from "lucide-react";
+import { MessageSquarePlus, Settings } from "lucide-react";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -344,7 +344,7 @@ export function ManagerCommunication({
 
   const communicationNewMessageButton = (
     <PortalPrimaryIconAction
-      icon={PenSquare}
+      icon={MessageSquarePlus}
       label="New message"
       data-attr="communication-new-message"
       onClick={() => openCompose("email")}
