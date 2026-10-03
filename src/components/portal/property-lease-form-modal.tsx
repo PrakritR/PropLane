@@ -1127,7 +1127,7 @@ export function PropertyLeaseFormModal({
               setLabel(next);
             }}
           />
-          {mode === "edit" && formSetup.loaded ? (
+          {mode === "edit" ? (
             <PropertyFormUsedForMapping
               sub={sub}
               pipelineOrder={formSetup.leasingPipeline.pipelineOrder}
@@ -1135,7 +1135,12 @@ export function PropertyLeaseFormModal({
               currentLeaseId={template?.id}
               leaseTemplates={routingLeaseTemplates}
               applicationTemplates={routingApplicationTemplates}
-              onLeaseTemplatesChange={setRoutingLeaseTemplates}
+              onLeaseTemplatesChange={(next) => {
+                setRoutingLeaseTemplates(next);
+                // The Used-for card is the one source of "Type of lease": keep this lease's own terms in step.
+                const mine = next.find((row) => row.id === template?.id);
+                if (mine) setApplicationLeaseTerms([...(mine.applicationLeaseTerms ?? [])]);
+              }}
               onApplicationTemplatesChange={setRoutingApplicationTemplates}
               onError={(message) => setError(message)}
             />

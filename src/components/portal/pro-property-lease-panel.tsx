@@ -1,4 +1,5 @@
 "use client";
+import { offeredStayTypeTerms, stayTypeLabelForLeaseKindDisplay } from "@/lib/property-form-stay-type-routing";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { Check, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
@@ -510,6 +511,11 @@ export function ManagerPropertyLeasePanel({
           formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
       );
     const rowLabel = template.label?.trim() || "Lease";
+    // One derivation with the Edit lease popup's "Type of lease": the stay types this lease is mapped to.
+    const mappedTypeLabel =
+      (template.applicationLeaseTerms ?? []).length > 0
+        ? stayTypeLabelForLeaseKindDisplay(template.applicationLeaseTerms ?? [], offeredStayTypeTerms(syncedSub), typeLabel)
+        : typeLabel;
     const openPreview = () => setPreviewTemplateId(template.id);
 
     const rowMenu = (
@@ -578,9 +584,9 @@ export function ManagerPropertyLeasePanel({
               className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
               data-attr="property-lease-row-facts"
             >
-                {typeLabel ? (
+                {mappedTypeLabel ? (
                   <PortalRowFact icon={FileText} srLabel="Lease type">
-                    {typeLabel}
+                    {mappedTypeLabel}
                   </PortalRowFact>
                 ) : null}
                 {notOffered ? (

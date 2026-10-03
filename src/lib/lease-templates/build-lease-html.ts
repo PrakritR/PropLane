@@ -255,6 +255,17 @@ function fmtUsd(n: number): string {
   return "$" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+/**
+ * Thousands separators for any dollar amount inside a free-text rent label
+ * ("$10502.00 / month" -> "$10,502.00 / month"). Display only: it changes how a
+ * newly rendered document prints money, never a stored signed body.
+ */
+function groupDollarAmounts(label: string): string {
+  return label.replace(/\$(\d{4,})(\.\d+)?/g, (_m, whole: string, frac?: string) => {
+    return "$" + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (frac ?? "");
+  });
+}
+
 function isMonthToMonthLease(application: Partial<RentalWizardFormState> | undefined | null): boolean {
   return application?.rentalType !== "short_term" && application?.leaseTerm?.trim() === "Month-to-Month";
 }
@@ -705,7 +716,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       ? Number((roomBareRent + rentShortLeaseSurcharge + foldedIntoRentTotal).toFixed(2))
       : undefined;
   const listingQuotedRentLabel =
-    listingQuotedRentNum !== undefined && listingQuotedRentNum > 0 ? `$${listingQuotedRentNum.toFixed(2)} / month` : "";
+    listingQuotedRentNum !== undefined && listingQuotedRentNum > 0 ? `${fmtUsd(listingQuotedRentNum)} / month` : "";
   // A signed-rent label on a lease that is still being prepared is DERIVED from the
   // application, and it has been seen carrying the bare room rent while the ledger already
   // billed the folded figure. When it says exactly the bare rent and this tenancy adds a
@@ -719,17 +730,18 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     signedRentLabelNum != null &&
     Math.abs(signedRentLabelNum - roomBareRent) < 0.005 &&
     rentShortLeaseSurcharge + foldedIntoRentTotal > 0;
-  const monthlyRentBaseStr =
+  const monthlyRentBaseStr = groupDollarAmounts(
     (isDailyBasis ? `${fmtUsd(dailyBasisRate!)} / day` : "") ||
       managerRentOverrideLabel ||
       (signedRentLabelIsStaleDerivation ? "" : signedRentLabel) ||
       bundleRentLabel ||
       listingQuotedRentLabel ||
-      (entireHomeRent > 0 ? `$${entireHomeRent.toFixed(2)} / month` : "") ||
+      (entireHomeRent > 0 ? `${fmtUsd(entireHomeRent)} / month` : "") ||
       submissionRoomRentLabel(specificRoom) ||
       room?.rentLabel ||
       list?.rentLabel ||
-      "As set forth in the Rent Schedule";
+      "As set forth in the Rent Schedule",
+  );
 
   // What the quoted rent is made of, when it is more than the room's base figure. The
   // resident is billed ONE rent line, so the document says why that line is higher than

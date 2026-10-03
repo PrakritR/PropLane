@@ -243,7 +243,7 @@ describe("stay pricing: document and ledger agree", () => {
 
     const html = leaseHtml(app);
     expect(html).toContain("RESIDENTIAL ROOM RENTAL AGREEMENT");
-    expect(html).toContain("$1200.00 / month");
+    expect(html).toContain("$1,200.00 / month");
     expect(html).not.toContain("SHORT-TERM ROOM STAY AGREEMENT");
   });
 
@@ -344,7 +344,7 @@ describe("stay pricing: document and ledger agree", () => {
     expect(html).toContain("Daily base rent");
     expect(html).not.toContain("Monthly base rent");
     expect(html).not.toContain("Total monthly payment");
-    expect(html).not.toContain("$1200.00 / month");
+    expect(html).not.toContain("$1,200.00 / month");
     // 30 is the display-only monthly estimate; it must never reach a lease.
     expect(html).not.toContain("$1,650.00");
     // Prorating a monthly rent is nonsense when every month bills by real days.

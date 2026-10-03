@@ -128,7 +128,7 @@ describe("property lease preview", () => {
 
     // Money now stated. A Seattle listing folds its $120 parking into the rent it quotes
     // (2400 + 120) and says so, rather than listing parking as a separate monthly fee.
-    expect(preview.html).toContain("$2520.00 / month");
+    expect(preview.html).toContain("$2,520.00 / month");
     expect(preview.html).toContain('data-rent-composition="true"');
     expect(preview.html).toContain("$120.00 parking");
     expect(preview.html).not.toMatch(/<th>Parking<\/th>/);
@@ -164,7 +164,7 @@ describe("property lease preview", () => {
     expect(preview.html).toContain("Filled at placement");
     expect(preview.html).not.toContain("The Pioneer");
     // The rent belongs in the lease; the marketing copy does not (PRP-124).
-    expect(preview.html).toContain("$2520.00 / month");
+    expect(preview.html).toContain("$2,520.00 / month");
     expect(preview.html).not.toContain("Light-filled Pioneer Square home");
     expect(preview.html).not.toContain("Please message with a short bio");
     expect(preview.html).not.toContain("preferred move in date");

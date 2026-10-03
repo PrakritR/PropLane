@@ -57,13 +57,30 @@ export function deriveLeaseKindFromStayTerms(terms: readonly string[]): Property
   return "long-term";
 }
 
+/**
+ * The ONE derivation of "what type of lease is this": group the stay types it is
+ * mapped to (the same `applicationLeaseTerms` the Used-for card edits) into
+ * Long-term / Short term / Airbnb. Long-term, Month-to-Month, Custom and the
+ * fixed lengths are all long-term leases; the Used-for card carries the finer
+ * per-stay-type detail. Both the lease list row and the Edit lease popup read
+ * this, so the two can never disagree. `fallback` covers a lease with no
+ * mapping yet (its seed / kind label).
+ */
 export function stayTypeLabelForLeaseKindDisplay(
   terms: readonly string[],
   offered: readonly string[],
+  fallback?: string | null,
 ): string {
   const active = offered.filter((term) => terms.includes(term));
-  if (active.length === 0) return "Not assigned";
-  return active.join(", ");
+  if (active.length === 0) return fallback?.trim() || "Not assigned";
+  const groups: string[] = [];
+  const push = (label: string) => {
+    if (!groups.includes(label)) groups.push(label);
+  };
+  if (active.some((term) => term !== SHORT_TERM_LEASE_TERM && term !== AIRBNB_LEASE_TERM)) push("Long-term");
+  if (active.includes(SHORT_TERM_LEASE_TERM)) push("Short term");
+  if (active.includes(AIRBNB_LEASE_TERM)) push("Airbnb");
+  return groups.join(", ");
 }
 
 export function applicationIdForStayTerm(

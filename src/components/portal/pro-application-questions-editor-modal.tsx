@@ -1884,7 +1884,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 }}
               />
             </div>
-            {templateEditorMode === "edit" && applicationPreviewPropertyId && !isBulkSave && formSetup.loaded ? (
+            {templateEditorMode === "edit" && applicationPreviewPropertyId && !isBulkSave ? (
               <PropertyFormUsedForMapping
                 sub={sub}
                 pipelineOrder={formSetup.leasingPipeline.pipelineOrder}

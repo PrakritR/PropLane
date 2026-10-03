@@ -496,6 +496,6 @@ describe("generated-lease", () => {
     } as unknown as NonNullable<typeof ctx.submission>;
     const html = generatedLeaseHtml({ ...ctx, leasedRoom: undefined, submission });
     expect(html).toContain("Entire home");
-    expect(html).toContain("$2800.00 / month");
+    expect(html).toContain("$2,800.00 / month");
   });
 });

@@ -4,6 +4,10 @@ import { useMemo } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import {
+  PropertyFormWizardCard,
+  PropertyFormWizardRow,
+} from "@/components/portal/property-form-wizard-kit";
+import {
   applicationIdForStayTerm,
   assignStayTermToLeaseTemplate,
   leaseTemplateIdForStayTerm,
@@ -84,10 +88,11 @@ export function PropertyFormUsedForMapping({
   if (stayTypes.length === 0) return null;
 
   return (
-    <fieldset className="mt-4 space-y-3" data-attr="property-form-used-for-mapping">
+    <fieldset className="mt-4 space-y-2" data-attr="property-form-used-for-mapping">
       <legend className={WIZARD_LABEL_CLASS}>Used for</legend>
-      <div className="space-y-2">
+      <PropertyFormWizardCard dataAttr="property-form-used-for-card">
         {stayTypes.map((term) => {
+          const slug = term.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
           const mappedLeaseId = leaseTemplateIdForStayTerm(leaseTemplates, term);
           const mappedApplicationId = applicationIdForStayTerm(catalog, order, leaseTemplates, term);
           const leaseValue =
@@ -106,7 +111,9 @@ export function PropertyFormUsedForMapping({
           const leaseSelectOptions = [
             { value: NONE, label: "No lease" },
             ...(mode === "lease" ? [{ value: THIS_DOCUMENT, label: "This lease" }] : []),
-            ...leaseOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+            ...leaseOptions
+              .filter((opt) => mode !== "lease" || opt.value !== currentLeaseId)
+              .map((opt) => ({ value: opt.value, label: opt.label })),
           ];
 
           const applicationSelectOptions = [
@@ -156,7 +163,7 @@ export function PropertyFormUsedForMapping({
               className="min-w-0 flex-1"
               value={leaseValue}
               options={leaseSelectOptions}
-              dataAttr={`property-form-used-for-lease-${term.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+              dataAttr={`property-form-used-for-lease-${slug}`}
               onChange={onLeasePick}
             />
           );
@@ -168,7 +175,7 @@ export function PropertyFormUsedForMapping({
               labelClassName={WIZARD_LABEL_CLASS}
               variant="cell"
               className="min-w-0 flex-1"
-              dataAttr={`property-form-used-for-application-${term.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+              dataAttr={`property-form-used-for-application-${slug}`}
               value={applicationValue}
               options={applicationSelectOptions}
               onChange={onApplicationPick}
@@ -176,27 +183,29 @@ export function PropertyFormUsedForMapping({
           );
 
           return (
-            <div
+            <PropertyFormWizardRow
               key={term}
-              className="grid gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:grid-cols-[minmax(0,7rem)_1fr_1fr]"
-              data-attr={`property-form-used-for-row-${term.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+              label={term}
+              dataAttr={`property-form-used-for-row-${slug}`}
+              className="flex-wrap sm:flex-nowrap"
             >
-              <span className="text-sm font-semibold text-foreground">{term}</span>
-              {leaseFirst ? (
-                <>
-                  {leaseCol}
-                  {applicationCol}
-                </>
-              ) : (
-                <>
-                  {applicationCol}
-                  {leaseCol}
-                </>
-              )}
-            </div>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:justify-end">
+                {leaseFirst ? (
+                  <>
+                    {leaseCol}
+                    {applicationCol}
+                  </>
+                ) : (
+                  <>
+                    {applicationCol}
+                    {leaseCol}
+                  </>
+                )}
+              </div>
+            </PropertyFormWizardRow>
           );
         })}
-      </div>
+      </PropertyFormWizardCard>
     </fieldset>
   );
 }
