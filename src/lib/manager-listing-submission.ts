@@ -246,6 +246,15 @@ export type ManagerRoomSubmission = {
    * no entry follows that term's listing column after same-as-long-term inherit.
    */
   paymentAtSigningByLeaseType?: Record<string, string[]>;
+  /**
+   * Stored lease-term labels this room is offered on ("Long-term", "Short-Term
+   * Stay", "Custom", "Month-to-Month"). Absent means every lease type the
+   * listing offers (`allowedLeaseTerms`) -- every room's behaviour before this
+   * field existed. Never an empty array: normalization drops an empty or
+   * all-unknown list so "offered nowhere" can't be stored. Pricing is
+   * untouched; `resolveStayPricing` still decides every price.
+   */
+  offeredLeaseTerms?: string[];
   detail: string;
   /** Furnishing level or what is included (shown on listing). */
   furnishing: string;
@@ -2033,6 +2042,61 @@ function normalizeSigningMatrix(
 }
 
 /** Per-room signing ticks: known terms only, de-duplicated. Empty rows stay — they mean "this room collects nothing". */
+/** Drops unknown labels and repeats, keeps the given order; none left reads as absent (offered on every lease type). */
+export function normalizeRoomOfferedLeaseTerms(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = [
+    ...new Set(
+      raw
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.trim())
+        .filter((v) => LISTING_LEASE_TERM_OPTION_SET.has(v)),
+    ),
+  ];
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * The lease types a room is offered on: the room's own list narrowed to what the
+ * listing offers, or every listing lease type when the room does not restrict.
+ * A room restricted to types the listing no longer offers is offered on none.
+ */
+export function roomOfferedLeaseTerms(
+  room: Pick<ManagerRoomSubmission, "offeredLeaseTerms"> | null | undefined,
+  listingTerms: readonly string[],
+): string[] {
+  const own = room?.offeredLeaseTerms;
+  if (!own || own.length === 0) return [...listingTerms];
+  return own.filter((t) => listingTerms.includes(t));
+}
+
+/**
+ * What the editor writes after a pick: the ticked lease types in canonical order,
+ * or `undefined` ("every lease type the listing offers") when all or none of the
+ * listing's types are ticked -- so a room never stores "offered nowhere" and a
+ * full tick set doesn't freeze the room to today's lease types.
+ */
+export function roomOfferedLeaseTermsFromPick(
+  picked: readonly string[],
+  listingTerms: readonly string[],
+): string[] | undefined {
+  const chosen = sortLeaseTermsCanonical(listingTerms.filter((t) => picked.includes(t)));
+  return chosen.length === 0 || chosen.length === listingTerms.length ? undefined : chosen;
+}
+
+/** True when the room may be taken on `term` (the room does not restrict, or lists it). */
+export function roomOffersLeaseTerm(
+  room: Pick<ManagerRoomSubmission, "offeredLeaseTerms"> | null | undefined,
+  term: string | null | undefined,
+): boolean {
+  const own = room?.offeredLeaseTerms;
+  if (!own || own.length === 0) return true;
+  const t = String(term ?? "").trim();
+  if (!t) return true;
+  // A retired fixed length reads as Long-term, like the applicant's dropdown does.
+  return own.includes(t) || (isLegacyFixedLeaseTerm(t) && own.includes(LONG_TERM_LEASE_TERM));
+}
+
 function normalizeRoomSigningMatrix(raw: unknown): Record<string, string[]> | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const out: Record<string, string[]> = {};
@@ -2335,6 +2399,9 @@ function normalizeManagerListingSubmissionV1Base(
       ),
       paymentAtSigningByLeaseType: normalizeRoomSigningMatrix(
         (legacyRoom as ManagerRoomSubmission & { paymentAtSigningByLeaseType?: unknown }).paymentAtSigningByLeaseType,
+      ),
+      offeredLeaseTerms: normalizeRoomOfferedLeaseTerms(
+        (legacyRoom as ManagerRoomSubmission & { offeredLeaseTerms?: unknown }).offeredLeaseTerms,
       ),
       // Raw-cleaned only here; the capacity clamp and rent fallback need the
       // normalized room, so `reconcileRoomResidentPricing` runs on it below.

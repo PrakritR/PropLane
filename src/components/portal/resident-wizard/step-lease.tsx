@@ -184,7 +184,7 @@ export function LeaseStep({
                     }
                     patch({ leaseTermCustomMode: false, leaseTerm: selected, marks: clearMark("leaseTerm") });
                   }}
-                  options={derived.leaseTermOptions.some((o) => o.value === RESIDENT_LEASE_TERM_CUSTOM) ? derived.leaseTermOptions : [...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom" }]}
+                  options={derived.leaseTermOptions.some((o) => o.value === RESIDENT_LEASE_TERM_CUSTOM) || derived.customLeaseTermHidden ? derived.leaseTermOptions : [...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom" }]}
                   placeholder="Select…"
                   dataAttr="residents-wizard-lease-term-select"
                 />

@@ -745,6 +745,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       // different question than the applicant was asking.
       leaseStart: form.leaseStart,
       leaseEnd: form.leaseEnd,
+      // A room limited to other lease types is not offered for this one.
+      leaseTerm: form.leaseTerm,
     }).filter((o) => o.value !== "");
     const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter(
       (o) => o.value !== "",
