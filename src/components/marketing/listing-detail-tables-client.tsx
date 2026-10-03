@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { roomAvailabilityTextClasses } from "@/lib/room-availability-style";
 import { isListingFallbackBathroom, isListingPlaceholderSharedSpace } from "@/components/marketing/listing-key-facts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 import type {
@@ -1347,6 +1347,8 @@ export function SpacesInteractive({
   signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
+  type RoomFilter = "all" | "private" | "shared";
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
   const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
   const openBedsForRoom = useCallback(
     (roomId: string, capacity: number) => {
@@ -1359,6 +1361,14 @@ export function SpacesInteractive({
     [listingPropertyId, occupancyRows],
   );
   const rooms = floorPlans.flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })));
+  const filteredRooms = useMemo(() => {
+    return rooms.filter(({ room }) => {
+      const capacity = roomOccupancyCapacity(room);
+      if (roomFilter === "private") return capacity < 2;
+      if (roomFilter === "shared") return capacity >= 2;
+      return true;
+    });
+  }, [roomFilter, rooms]);
   // The builder's placeholder rows are words, not records: no thumb, no Details.
   const realBathrooms = bathrooms.filter((b) => !isListingFallbackBathroom(b));
   const realShared = sharedSpaces.filter((r) => !isListingPlaceholderSharedSpace(r));
@@ -1369,6 +1379,29 @@ export function SpacesInteractive({
     <>
       {rooms.length > 0 ? (
         <div data-sr-rooms>
+          <div className="mb-3 flex flex-wrap gap-2 sr-filter" data-sr-filter>
+            {(
+              [
+                { id: "all" as const, label: "All rooms" },
+                { id: "private" as const, label: "Private rooms" },
+                { id: "shared" as const, label: "Shared rooms" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-attr={`listing-room-filter-${tab.id}`}
+                onClick={() => setRoomFilter(tab.id)}
+                className={`min-h-11 rounded-full border px-3.5 text-xs font-semibold transition ${
+                  roomFilter === tab.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-foreground hover:border-primary/30"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           <div className={SPACE_TABLE_WRAP}>
             <table className={SPACE_TABLE}>
               <thead>
@@ -1387,7 +1420,7 @@ export function SpacesInteractive({
                 </tr>
               </thead>
               <tbody>
-                {rooms.map(({ room, floorLabel }) => {
+                {filteredRooms.map(({ room, floorLabel }) => {
                   const capacity = roomOccupancyCapacity(room);
                   const openBeds = openBedsForRoom(room.id, capacity);
                   const sharedHeadline = sharedRoomListingHeadline(capacity, openBeds);
@@ -1437,7 +1470,7 @@ export function SpacesInteractive({
             </table>
           </div>
           <div className={SPACE_ROWS_MOBILE}>
-            {rooms.map(({ room, floorLabel }) => (
+            {filteredRooms.map(({ room, floorLabel }) => (
               <button
                 key={room.id}
                 type="button"
