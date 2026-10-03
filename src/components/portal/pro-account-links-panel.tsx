@@ -227,6 +227,16 @@ export function teamInvitePendingExpiryLabel(expiresAt: string | null | undefine
   return `Expires in ${days} days`;
 }
 
+/** "12 days left" — the Workspace settings Managers list's pending-invite line ("Invited · 12 days left"). */
+export function teamInviteDaysLeftLabel(expiresAt: string | null | undefined, now = Date.now()): string {
+  const at = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(at)) return "";
+  const msLeft = at - now;
+  if (msLeft <= 0) return "Expired";
+  const days = Math.ceil(msLeft / 86_400_000);
+  return days <= 1 ? "1 day left" : `${days} days left`;
+}
+
 function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
   if (inv.status === "pending") {
     const base = inv.direction === "incoming"
@@ -2025,6 +2035,7 @@ export function ProAccountLinksPanel({
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
         roleLabel: entry.kind === "remote" ? teamRoleListLabel(entry.invite.teamRole) : "Co-manager",
+        roleId: entry.kind === "remote" ? entry.invite.teamRole : null,
         propertiesLabel:
           entry.kind === "remote"
             ? reachFor(entry.invite.assignedPropertyIds, entry.invite.houseScope)
@@ -2068,7 +2079,7 @@ export function ProAccountLinksPanel({
               invites={pending}
               roleLabel={(inv) => teamRoleListLabel(inv.teamRole)}
               propertiesLabel={(inv) => reachFor(inv.assignedPropertyIds, inv.houseScope)}
-              expiryLabel={teamInvitePendingExpiryLabel}
+              expiryLabel={teamInviteDaysLeftLabel}
               onRevoke={(inv) => void cancelInvite(inv.id)}
               onAccept={(inv) => void respondInvite(inv.id, "accept")}
               onDecline={(inv) => void respondInvite(inv.id, "reject")}
