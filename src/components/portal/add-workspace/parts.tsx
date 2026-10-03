@@ -10,7 +10,7 @@
  */
 
 import { useRef, useState, type ReactNode } from "react";
-import { Upload, FileText, Image as ImageIcon, X } from "lucide-react";
+import { Lock, Upload, FileText, Image as ImageIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
@@ -82,6 +82,30 @@ export function WizardRow({ children, cols = 2 }: { children: ReactNode; cols?: 
       )}
     >
       {children}
+    </div>
+  );
+}
+
+/** Read-only value with lock glyph — signed lease or moved-out locks. */
+export function WizardLockedField({
+  label,
+  value,
+  lockTip = "Locked by the signed lease",
+}: {
+  label: string;
+  value: ReactNode;
+  lockTip?: string;
+}) {
+  return (
+    <div className="block" data-locked="1" title={lockTip}>
+      <span className={WIZARD_LABEL_CLASS}>{label}</span>
+      <div
+        className="flex min-h-10 items-center justify-between gap-2 rounded-xl border border-border bg-[var(--pl-canvas)] px-3 text-[13px] text-muted"
+        aria-label={`${label}: ${typeof value === "string" ? value : ""}. ${lockTip}`}
+      >
+        <span className="text-foreground">{value}</span>
+        <Lock className="h-4 w-4 shrink-0 text-[var(--pl-faint)]" aria-hidden />
+      </div>
     </div>
   );
 }
@@ -444,12 +468,14 @@ export function PreviewPanel({
   sub,
   facts,
   creates,
+  createsHeading = "This will create",
 }: {
   title: string;
   name: ReactNode;
   sub?: ReactNode;
   facts: { label: string; value: ReactNode; warn?: boolean }[];
   creates: CreatesItem[];
+  createsHeading?: string;
 }) {
   return (
     <section>
@@ -466,7 +492,7 @@ export function PreviewPanel({
           ))}
         </div>
         <div className="mt-3.5 border-t border-border/60 pt-3">
-          <h4 className="mb-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">This will create</h4>
+          <h4 className="mb-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{createsHeading}</h4>
           {creates.map((c, i) => (
             <div key={i} className="flex items-start gap-2 py-1 text-[13px] text-foreground">
               <span
