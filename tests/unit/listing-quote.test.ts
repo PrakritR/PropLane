@@ -197,6 +197,88 @@ describe("buildListingQuote", () => {
     expect(quote.monthlyUtilities).toBe(150);
   });
 
+  it("uses a term move-in fee instead of the house move-in fee (no duplicate lines)", () => {
+    const base = listing();
+    const sub = withCustomFees(
+      {
+        ...base,
+        moveInFee: "25",
+        rooms: (base.rooms ?? []).map((room) =>
+          room.id === "room-a"
+            ? {
+                ...room,
+                occupancyPrices: [{ count: 1, moveInFee: "2" }],
+                termPricing: { [SHORT_TERM_LEASE_TERM]: { moveInFee: "2" } },
+              }
+            : room,
+        ),
+        allowedLeaseTerms: [LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM],
+      } as ManagerListingSubmissionV1,
+      [],
+    );
+    // Drop manager cleaning fee for a clear move-in-only receipt.
+    const standardOnly = (sub.customFees ?? []).filter((f) => (f as { presetId?: string }).presetId !== "custom");
+    const lean = { ...sub, customFees: standardOnly };
+    const quote = buildListingQuote(lean, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
+    const moveInLines = quote.signingLines.filter((l) => l.label === "Move-in fee");
+    expect(moveInLines).toHaveLength(1);
+    expect(moveInLines[0]?.amount).toBe(2);
+    const signingSum = quote.signingLines.filter((l) => l.dueAtSigning).reduce((s, l) => s + l.amount, 0);
+    expect(quote.signingTotal).toBe(signingSum);
+  });
+
+  it("inherits the house move-in fee when the term leaves move-in blank", () => {
+    const base = listing();
+    const sub = {
+      ...base,
+      moveInFee: "25",
+      rooms: (base.rooms ?? []).map((room) =>
+        room.id === "room-a" ? { ...room, occupancyPrices: [{ count: 1 }] } : room,
+      ),
+    } as ManagerListingSubmissionV1;
+    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
+    const moveIn = quote.signingLines.find((l) => l.label === "Move-in fee" || l.key === "move_in_fee");
+    expect(moveIn?.amount).toBe(25);
+  });
+
+  it("quotes per-term application fee from term pricing", () => {
+    const sub = listing({
+      applicationFee: "50",
+      rooms: (listing().rooms ?? []).map((room) =>
+        room.id === "room-a"
+          ? {
+              ...room,
+              termPricing: { [MONTH_TO_MONTH]: { applicationFee: "12" } },
+            }
+          : room,
+      ),
+      allowedLeaseTerms: [LONG_TERM_LEASE_TERM, MONTH_TO_MONTH],
+    } as ManagerListingSubmissionV1);
+    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: MONTH_TO_MONTH });
+    expect(quote.applicationFees).toEqual([{ id: "application_fee", label: "Application fee", amount: 12 }]);
+    const longTerm = buildListingQuote(sub, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
+    expect(longTerm.applicationFees[0]?.amount).toBe(50);
+  });
+
+  it("includes term lease fee once on the signing receipt", () => {
+    const sub = listing({
+      rooms: (listing().rooms ?? []).map((room) =>
+        room.id === "room-a"
+          ? {
+              ...room,
+              occupancyPrices: [{ count: 1, leaseFee: "3241" }],
+              termPricing: { [SHORT_TERM_LEASE_TERM]: { leaseFee: "3241" } },
+            }
+          : room,
+      ),
+      allowedLeaseTerms: [LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM],
+    } as ManagerListingSubmissionV1);
+    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
+    const leaseLines = quote.signingLines.filter((l) => l.label === "Lease fee");
+    expect(leaseLines).toHaveLength(1);
+    expect(leaseLines[0]?.amount).toBe(3241);
+  });
+
   it("quotes the short-term application fee on a stay lease", () => {
     const sub = listing({
       applicationFee: "50",

@@ -1,3 +1,4 @@
+import { resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   type HouseholdCharge,
@@ -295,7 +296,13 @@ export function buildLeaseBillingSnapshot(
     applicant.application?.managerMoveInFeeOverride?.trim()
       ? parseMoneyLabel(applicant.application.managerMoveInFeeOverride)
       : applicant.manualResidentDetails?.moveInFee ?? (isShortTerm
-        ? parseMoneyLabel(selectedRoom?.shortTermMoveInFee?.trim() || sub?.shortTermMoveInFee || "0")
+        ? parseMoneyLabel(
+            resolvedMoveInFeeRaw(sub, {
+              leaseTerm: stayPlacementLeaseTerm(applicant.application?.leaseTerm),
+              room: selectedRoom,
+              isStay: true,
+            }) || "0",
+          )
         : placement.moveInFee));
   const holdingCharge = !isShortTerm
     ? placementCharges.find((c) => c.kind === "holding_deposit" && !chargeIsVoided(c))

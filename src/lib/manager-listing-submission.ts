@@ -91,6 +91,15 @@ export type ManagerRoomTermPrice = {
   residentPricing?: "same" | "per_resident";
   /** One row per resident slot for this term; same shape and rules as the room's. */
   residentPrices?: ManagerRoomResidentPrice[];
+  /** Per-lease-type lease / application / move-in fees (property Pricing popup). */
+  leaseFee?: string;
+  applicationFee?: string;
+  moveInFee?: string;
+  /**
+   * The same three fees for a shared arrangement of this term, keyed by resident count
+   * (`"2"`, `"3"`, ...). A private room (count 1) uses the fields above.
+   */
+  arrangementFees?: Record<string, { leaseFee?: string; applicationFee?: string; moveInFee?: string }>;
 };
 
 /**
@@ -3410,6 +3419,24 @@ export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRo
     if (residentPricing === "same" || residentPricing === "per_resident") entry.residentPricing = residentPricing;
     const residentPrices = normalizeRoomResidentPriceRows((v as { residentPrices?: unknown }).residentPrices);
     if (residentPrices) entry.residentPrices = residentPrices;
+    for (const key of ["leaseFee", "applicationFee", "moveInFee"] as const) {
+      const rawMoney = (v as ManagerRoomTermPrice)[key];
+      if (typeof rawMoney === "string" && rawMoney.trim()) entry[key] = rawMoney.trim();
+    }
+    const rawArrangements = (v as ManagerRoomTermPrice).arrangementFees;
+    if (rawArrangements && typeof rawArrangements === "object" && !Array.isArray(rawArrangements)) {
+      const arrangementFees: NonNullable<ManagerRoomTermPrice["arrangementFees"]> = {};
+      for (const [count, fees] of Object.entries(rawArrangements)) {
+        if (!/^[2-9]\d*$/.test(count) || !fees || typeof fees !== "object") continue;
+        const kept: { leaseFee?: string; applicationFee?: string; moveInFee?: string } = {};
+        for (const key of ["leaseFee", "applicationFee", "moveInFee"] as const) {
+          const rawMoney = (fees as Record<string, unknown>)[key];
+          if (typeof rawMoney === "string" && rawMoney.trim()) kept[key] = rawMoney.trim();
+        }
+        if (Object.keys(kept).length > 0) arrangementFees[count] = kept;
+      }
+      if (Object.keys(arrangementFees).length > 0) entry.arrangementFees = arrangementFees;
+    }
     if (Object.keys(entry).length > 0) out[term] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;

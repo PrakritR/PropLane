@@ -131,6 +131,13 @@ export function effectiveApplicationFeeCents(input: {
   /** This application's own fee, when it set one. Wins over the account default. */
   templateFeeCentsOverride?: number | null;
   /**
+   * The stay type's own application fee for the room and lease type the applicant picked
+   * (`placementApplicationFeeCents`, the resolver the listing quote also uses). `null` /
+   * absent when that stay type typed none. Below the application's own fee, above the
+   * account default; an explicit 0 makes that stay type free.
+   */
+  placementFeeCents?: number | null;
+  /**
    * @deprecated Listing fees are ignored (PLAN-0924-1254). Kept so existing
    * call sites keep compiling; do not pass a value expecting it to charge.
    */
@@ -139,6 +146,9 @@ export function effectiveApplicationFeeCents(input: {
   void input.listingFeeCents;
   if (input.templateFeeCentsOverride !== null && input.templateFeeCentsOverride !== undefined) {
     return input.templateFeeCentsOverride;
+  }
+  if (input.placementFeeCents !== null && input.placementFeeCents !== undefined) {
+    return input.placementFeeCents;
   }
   if (input.managerFeeCents !== null) return input.managerFeeCents;
   return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;

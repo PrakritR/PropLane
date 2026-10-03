@@ -18,6 +18,13 @@ import { ArrangementStandardFeeRows } from "@/components/portal/listing-wizard-v
 import { FeeRows, ProrateRows, perDay } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import type { ArrangementFeePatch } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
 import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
+import {
+  formatPlacementMoneyField,
+  longTermPrivateArrangementRow,
+  mergeLongTermPrivateArrangementRow,
+  mergeTermStandardFees,
+  termStandardFeeRow,
+} from "@/lib/listing-placement-standard-fees";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   isEntireHomeListing,
@@ -33,7 +40,7 @@ import {
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
-import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import { listingPricingTabToLeaseTerm, termEntryHasOwnPrice } from "@/lib/listing-fee-scope";
 import {
   termPriceFieldText,
   writeRoomTermPrice,
@@ -76,19 +83,42 @@ type Props = {
   workspacePricingDefaults?: WorkspacePricingDefaults;
 };
 
-function privateArrangementRow(room: ManagerRoomSubmission): RoomOccupancyPrice {
-  return room.occupancyPrices?.find((r) => r.count === 1) ?? { count: 1 };
+function standardFeesForTerm(
+  room: ManagerRoomSubmission,
+  term: string,
+  isBaseLong: boolean,
+): Pick<RoomOccupancyPrice, "leaseFee" | "applicationFee" | "moveInFee"> {
+  if (isBaseLong) return longTermPrivateArrangementRow(room);
+  const own = termStandardFeeRow(room, term);
+  return {
+    leaseFee: own.leaseFee,
+    applicationFee: own.applicationFee,
+    moveInFee: own.moveInFee,
+  };
 }
 
-function mergePrivateArrangementRow(room: ManagerRoomSubmission, patch: ArrangementFeePatch): ManagerRoomSubmission {
-  const row = { ...privateArrangementRow(room), ...patch, count: 1 as const };
-  const rest = (room.occupancyPrices ?? []).filter((r) => r.count !== 1);
-  return { ...room, occupancyPrices: [...rest, row] };
+function patchStandardFeesForTerm(
+  room: ManagerRoomSubmission,
+  term: string,
+  isBaseLong: boolean,
+  patch: ArrangementFeePatch,
+): ManagerRoomSubmission {
+  if (isBaseLong) return mergeLongTermPrivateArrangementRow(room, patch);
+  return mergeTermStandardFees(room, term, patch);
+}
+
+function displayFeeRow(
+  row: Pick<RoomOccupancyPrice, "leaseFee" | "applicationFee" | "moveInFee">,
+): Pick<RoomOccupancyPrice, "leaseFee" | "applicationFee" | "moveInFee"> {
+  return {
+    leaseFee: formatPlacementMoneyField(row.leaseFee ?? ""),
+    applicationFee: formatPlacementMoneyField(row.applicationFee ?? ""),
+    moveInFee: formatPlacementMoneyField(row.moveInFee ?? ""),
+  };
 }
 
 function roomHasOwnTermPricing(room: ManagerRoomSubmission, term: string): boolean {
-  const entry = room.termPricing?.[term];
-  return Boolean(entry && Object.keys(entry).length > 0);
+  return termEntryHasOwnPrice(room.termPricing?.[term]);
 }
 
 function clearRoomTermPricing(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
@@ -384,8 +414,13 @@ export function PropertyRoomPricingWorkspace({
                       />
                       <ArrangementStandardFeeRows
                         count={1}
-                        row={privateArrangementRow(room)}
-                        onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                        row={{
+                          count: 1,
+                          ...displayFeeRow(standardFeesForTerm(room, quoteTerm, isBaseLong)),
+                        }}
+                        onPatch={(feePatch) =>
+                          updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, isBaseLong, feePatch))
+                        }
                         showMonthToMonth={false}
                         showCustomStart={false}
                       />
@@ -472,8 +507,13 @@ export function PropertyRoomPricingWorkspace({
                         />
                         <ArrangementStandardFeeRows
                           count={1}
-                          row={privateArrangementRow(room)}
-                          onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                          row={{
+                            count: 1,
+                            ...displayFeeRow(standardFeesForTerm(room, quoteTerm, false)),
+                          }}
+                          onPatch={(feePatch) =>
+                            updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, false, feePatch))
+                          }
                           showMonthToMonth={allowM2m}
                           showCustomStart={allowCustomStart}
                         />
@@ -557,8 +597,13 @@ export function PropertyRoomPricingWorkspace({
                     ) : null}
                     <ArrangementStandardFeeRows
                       count={1}
-                      row={privateArrangementRow(room)}
-                      onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                      row={{
+                        count: 1,
+                        ...displayFeeRow(standardFeesForTerm(room, quoteTerm, isBaseLong)),
+                      }}
+                      onPatch={(feePatch) =>
+                        updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, isBaseLong, feePatch))
+                      }
                       showMonthToMonth={allowM2m}
                       showCustomStart={allowCustomStart}
                     />

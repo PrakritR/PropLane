@@ -2281,6 +2281,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               managerUserId={managerUserIdForPay}
               rentalType={applicationRentalTypeFor(form.rentalType)}
               leaseTerm={form.leaseTerm || undefined}
+              roomId={parseRoomChoiceValue(form.roomChoice1).listingRoomId}
               applicationTemplateId={form.applicationTemplateId}
               returnPath={applyReturnPath ?? "/rent/apply"}
             />

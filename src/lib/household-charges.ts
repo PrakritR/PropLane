@@ -27,6 +27,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
+import { placementApplicationFeeCents, resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import { formatRoomPriceAmount, resolveStayPricing, resolveRoomProrationForSlot, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
   roomPricingIsFlexible,
@@ -3475,6 +3476,19 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
   const propertyIdAliases = uniquePids.slice(1);
   if (!propertyId) return false;
   const beforeIds = new Set(readAll().map((charge) => charge.id));
+  // Without the server's own figure, the stay type's application fee (room + lease type,
+  // typed in Pricing) is what the quote showed and the checkout charges -- book that, not
+  // the house value.
+  const placement = resolveRowSubmissionRoom(row);
+  const isStayRow = row.application?.rentalType === "short_term";
+  const placementCents = placement.sub
+    ? placementApplicationFeeCents(placement.sub, {
+        leaseTerm: isStayRow ? stayPlacementLeaseTerm(row.application?.leaseTerm) : (row.application?.leaseTerm ?? ""),
+        room: placement.room,
+        entireHomeFees: !placement.room && isEntireHomeListing(placement.sub) ? placement.sub.entireHomeArrangementFees : undefined,
+        isStay: isStayRow,
+      })
+    : null;
   const charge = ensurePendingApplicationFeeCharge({
     residentEmail,
     residentName: row.name || row.application?.fullLegalName || "Applicant",
@@ -3483,6 +3497,7 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
     applicationId: row.id,
     managerUserId: managerUserId ?? row.managerUserId ?? null,
     propertyIdAliases,
+    ...(placementCents != null ? { feeAmountOverride: placementCents / 100 } : {}),
   });
   return Boolean(charge && !beforeIds.has(charge.id));
 }
@@ -3853,14 +3868,14 @@ function buildApprovedStandardChargeDrafts(
     );
   }
 
-  const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
+  // The stay type's own move-in replaces the house one (resolvedMoveInFeeRaw) -- the same
+  // answer the quote, the placement preview and the lease billing snapshot give.
   const moveInFee = savedAmount(
     row.application?.managerMoveInFeeOverride,
     row.manualResidentDetails?.moveInFee != null
       ? String(row.manualResidentDetails.moveInFee)
       : opts.allowListingDefaults
-        ? (roomMoveInFee ??
-          String(listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
+        ? resolvedMoveInFeeRaw(sub, { leaseTerm: row.application?.leaseTerm ?? "", room, isStay: false })
         : undefined,
   );
   pushDraft("move_in_fee", moveInFee, chargeTitle("move_in_fee"));
@@ -3943,10 +3958,11 @@ function syncPendingApprovedChargesFromListing(
             row.manualResidentDetails?.moveInFee != null
               ? String(row.manualResidentDetails.moveInFee)
               : allowListingDefaults
-                ? (stayRoom?.shortTermMoveInFee ?? "").trim() ||
-                  String(
-                    listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? ""),
-                  )
+                ? resolvedMoveInFeeRaw(sub, {
+                    leaseTerm: stayPlacementLeaseTerm(row.application?.leaseTerm),
+                    room: stayRoom,
+                    isStay: true,
+                  })
                 : undefined,
           );
           if (shortMoveIn > 0) {
@@ -4430,9 +4446,12 @@ export function recordApprovedApplicationCharges(
       row.manualResidentDetails?.moveInFee != null
         ? String(row.manualResidentDetails.moveInFee)
         : allowListingDefaults
-          ? // per-room short-term move-in wins; else the listing's short-term move-in
-            (room?.shortTermMoveInFee ?? "").trim() ||
-            (sub ? String(listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "")) : "")
+          ? // the stay type's own move-in, else the room's / listing's short-term move-in
+            resolvedMoveInFeeRaw(sub, {
+              leaseTerm: stayPlacementLeaseTerm(row.application?.leaseTerm),
+              room,
+              isStay: true,
+            })
           : undefined,
     );
     pushCharge("move_in_fee", shortMoveIn, chargeTitle("move_in_fee"), false, "Before check-in");
@@ -4628,15 +4647,13 @@ export function recordApprovedApplicationCharges(
   // Per-room move-in fee wins over the shared listing move-in fee (same room-first
   // precedence as the deposit), so a room with its own move-in and a property with a
   // shared one never both bill for the same move-in.
-  const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
   const moveInFee = savedAmount(
     row.application?.managerMoveInFeeOverride,
     row.manualResidentDetails?.moveInFee != null
       ? String(row.manualResidentDetails.moveInFee)
       : allowListingDefaults && sub
-        ? // per-room move-in wins; else the listing's move-in (unified fee row → legacy field)
-          (roomMoveInFee ??
-            String(listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
+        ? // the stay type's own move-in, else the room's, else the listing's (unified fee row → legacy field)
+          resolvedMoveInFeeRaw(sub, { leaseTerm: row.application?.leaseTerm ?? "", room, isStay: false })
         : undefined,
   );
   pushCharge("move_in_fee", moveInFee, chargeTitle("move_in_fee"), false, "Before move-in");

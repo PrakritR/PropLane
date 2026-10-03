@@ -345,6 +345,18 @@ export function paymentAtSigningMatrix(
   return out;
 }
 
+const TERM_ENTRY_FEE_KEYS = ["leaseFee", "applicationFee", "moveInFee", "arrangementFees"];
+
+/**
+ * True when a lease type's entry on a room carries its own PRICES (rent, utilities, deposit,
+ * resident rows ...). An entry holding only the stay type's fees does not make that lease
+ * type stop following long-term: "Same as long-term" and the signing column stay as they were.
+ */
+export function termEntryHasOwnPrice(entry: object | undefined | null): boolean {
+  if (!entry) return false;
+  return Object.keys(entry).some((key) => !TERM_ENTRY_FEE_KEYS.includes(key));
+}
+
 /**
  * True when this lease type still follows long-term prices — the same rule as
  * the Pricing tab's "Same as long-term" box: no room has its own `termPricing`
@@ -360,8 +372,8 @@ export function listingTermFollowsLongTerm(
   if (term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM) return false;
   if (sub.listingPlaceCategoryId === "entire_home") return false;
   return !(sub.rooms ?? []).some((room) => {
-    const own = room.termPricing?.[term];
-    return Boolean(own && Object.keys(own).length > 0);
+    // A stay type's own fees alone do not make it stop following long-term prices.
+    return termEntryHasOwnPrice(room.termPricing?.[term]);
   });
 }
 

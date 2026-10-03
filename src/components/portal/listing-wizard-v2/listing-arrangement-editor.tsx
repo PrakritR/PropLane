@@ -16,7 +16,8 @@ import {
   perDay,
   type Patch,
 } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { mergeTermStandardFees, termStandardFeeRow } from "@/lib/listing-placement-standard-fees";
 
 const PRICING_MODE_OPTIONS = [
   { value: "fixed", label: "Fixed" },
@@ -107,6 +108,20 @@ export function ArrangementPriceEditor({
     });
   };
 
+  // Long-term fees live on the arrangement row; every other stay type keeps its OWN fees
+  // (a stay type's value replaces the house one, empty inherits) on the room's term entry.
+  const feeTerm = term || (stayMode ? SHORT_TERM_LEASE_TERM : LONG_TERM_LEASE_TERM);
+  const feesOnTerm = stayMode || feeTerm !== LONG_TERM_LEASE_TERM;
+  const feeRowFor = (count: number, row: RoomOccupancyPrice): RoomOccupancyPrice =>
+    feesOnTerm ? { count, ...termStandardFeeRow(room, feeTerm, count) } : row;
+  const writeFees = (count: number, feePatch: Partial<RoomOccupancyPrice>) => {
+    if (!feesOnTerm) {
+      writeRow(count, feePatch);
+      return;
+    }
+    onRoom(mergeTermStandardFees(room, feeTerm, feePatch, count));
+  };
+
   const renderOwnBand = (count: number, row: RoomOccupancyPrice, resolved: ReturnType<typeof roomPriceForResidentCount>) => {
     const name = arrangementLabel(count);
     if (stayMode) {
@@ -141,8 +156,8 @@ export function ArrangementPriceEditor({
           />
           <ArrangementStandardFeeRows
             count={count}
-            row={row}
-            onPatch={(feePatch) => writeRow(count, feePatch)}
+            row={feeRowFor(count, row)}
+            onPatch={(feePatch) => writeFees(count, feePatch)}
             showMonthToMonth={false}
             showCustomStart={false}
           />
@@ -282,8 +297,8 @@ export function ArrangementPriceEditor({
         ) : null}
         <ArrangementStandardFeeRows
           count={count}
-          row={row}
-          onPatch={(feePatch) => writeRow(count, feePatch)}
+          row={feeRowFor(count, row)}
+          onPatch={(feePatch) => writeFees(count, feePatch)}
           showMonthToMonth={showMonthToMonthSurcharge && term === "Long-term"}
           showCustomStart={showCustomStartSurcharge && term === "Long-term"}
         />

@@ -44,7 +44,7 @@ import {
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
+import { resolvePlacementStandardFees } from "@/lib/listing-placement-standard-fees";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -223,6 +223,13 @@ export function buildListingQuote(
   const arrangementRow =
     room?.occupancyPrices?.find((row) => row.count === arrangementCount) ??
     (options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined);
+  const placementFees = resolvePlacementStandardFees(sub, {
+    leaseTerm,
+    room,
+    arrangementCount,
+    entireHomeFees: options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined,
+    isStay,
+  });
 
   const baseMonthlyRent = slotPrice
     ? slotPrice.monthlyRent
@@ -284,6 +291,8 @@ export function buildListingQuote(
     if (amount === 0 && !isListingFeeAmountFilled(fee.amount ?? "")) continue;
     // The deposit is its own line on the receipt, never a fee line as well.
     if (fee.presetId === "security_deposit") continue;
+    // The stay type's own move-in replaces the house move-in row (long-term or short-term), never a second line.
+    if (placementFees.moveInOverridesHouse && (fee.presetId === "move_in_fee" || fee.presetId === "short_term_move_in")) continue;
     if (fee.presetId === "holding_deposit") {
       applicationFees.push({ id: fee.id, label: feeLabel(fee), amount });
       continue;
@@ -298,13 +307,12 @@ export function buildListingQuote(
     oneTime.push(fee);
   }
 
-  const applicationFee = parseMoneyAmount(
-    arrangementRow?.applicationFee?.trim()
-      ? arrangementRow.applicationFee
-      : listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard", leaseTerm),
-  );
-  if (applicationFee > 0) {
-    applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });
+  if (placementFees.applicationFee > 0) {
+    applicationFees.unshift({
+      id: "application_fee",
+      label: "Application fee",
+      amount: placementFees.applicationFee,
+    });
   }
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
@@ -378,29 +386,31 @@ export function buildListingQuote(
       dueAtSigning: isPaymentDueAtSigning(sub, key, leaseTerm, roomId),
     });
   }
-  const leaseFeeAmt = parseMoneyAmount(arrangementRow?.leaseFee ?? "");
-  if (leaseFeeAmt > 0) {
+  if (placementFees.leaseFee > 0) {
     signingLines.push({
       key: "arrangement_lease_fee",
       label: "Lease fee",
-      amount: leaseFeeAmt,
+      amount: placementFees.leaseFee,
       dueAtSigning: true,
     });
   }
-  const moveInFromArr = parseMoneyAmount(arrangementRow?.moveInFee ?? "");
-  if (moveInFromArr > 0) {
+  if (placementFees.moveInOverridesHouse && placementFees.moveInFee > 0) {
     signingLines.push({
       key: "arrangement_move_in_fee",
       label: "Move-in fee",
-      amount: moveInFromArr,
-      dueAtSigning: true,
+      note: "Non-refundable",
+      amount: placementFees.moveInFee,
+      dueAtSigning: isPaymentDueAtSigning(sub, "move_in_fee", leaseTerm, roomId),
     });
   }
 
   const signingTotal = signingLines.filter((l) => l.dueAtSigning).reduce((sum, l) => sum + l.amount, 0);
-  const nonRefundableAtSigning = oneTime
-    .filter((fee) => !isRefundable(fee))
-    .reduce((sum, fee) => sum + amountForTerm(fee, isStay), 0);
+  // The stay type's move-in replaces the house one, which is non-refundable; the lease fee
+  // was never counted here and still is not.
+  const placementNonRefundable = placementFees.moveInOverridesHouse ? placementFees.moveInFee : 0;
+  const nonRefundableAtSigning =
+    oneTime.filter((fee) => !isRefundable(fee)).reduce((sum, fee) => sum + amountForTerm(fee, isStay), 0) +
+    placementNonRefundable;
 
   const nightly = staySlot
     ? parseMoneyAmount(staySlot.shortTermRent ?? "") || 0

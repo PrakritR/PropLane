@@ -254,8 +254,21 @@ waiver codes under Handling. Source-of-truth rule
 for EVERY listing (including an explicit `0` = free); listing
 `applicationFee` fields are ignored. Until the manager saves a value it is
 `null` and the resolver uses the legacy $50 default. Pricing no longer
-edits the fee. Coverage: `tests/unit/manager-application-settings.test.ts`
-and `tests/unit/application-fee-inline-checkout.test.ts`.
+edits the house fee. **One exception (captain, Oct 3, 2026): each stay type
+(Long-term, Month-to-month, Short term, Custom) carries its OWN lease fee,
+application fee and move-in fee in the room's Pricing popup.** A stay type's
+value REPLACES the house fee of the same kind (never a second line); empty
+inherits (Custom "Same as long-term" inherits long-term). One resolver decides:
+`src/lib/listing-placement-standard-fees.ts`. The quote / listing card, the
+application fee charged (`placementFeeCents` in `effectiveApplicationFeeCents`,
+order: the application's own fee, then the stay type's typed fee for the
+applicant's room + lease type, then the account fee, then $50; the applicant
+sends `roomId` as a selector, never an amount), the booked application-fee
+charge, and the move-in charged at signing / previewed / put on the lease
+(`resolvedMoveInFeeRaw`) all read it. The lease fee is shown on the quote but no
+charge kind bills it yet. Coverage: `tests/unit/manager-application-settings.test.ts`,
+`tests/unit/application-fee-inline-checkout.test.ts`,
+`tests/unit/term-fees-consumers.test.ts`, `tests/unit/term-fees-application-fee.test.ts`.
 
 **Pipeline order and lease signing fee** live on
 `manager_automation_settings.row_data.leasingPipeline`

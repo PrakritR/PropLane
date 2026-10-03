@@ -14,6 +14,7 @@ import {
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
+import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -166,6 +167,11 @@ export async function promoteIncompleteApplicationAfterFeePaid(
       propertyId,
       managerUserId: draft.record.manager_user_id?.trim() || "",
       applicationTemplateId: submittedApplicationTemplateId,
+      // The same placement context the fee was charged under, so the stay type's own fee is
+      // what the paid amount is measured against.
+      rentalType: previousApplication.rentalType === "short_term" ? "short_term" : "standard",
+      leaseTerm: previousApplication.leaseTerm || undefined,
+      roomId: parseRoomChoiceValue(previousApplication.roomChoice1 ?? "").listingRoomId || undefined,
     });
     if (
       !applicationFeePaymentSatisfiesTemplate({

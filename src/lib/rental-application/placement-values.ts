@@ -17,6 +17,8 @@ import {
   normalizeManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
+import { resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
+import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { monthlyRentFoldInTotal } from "@/lib/rent-fold-in";
@@ -144,15 +146,16 @@ export function resolvePlacementValuesForRow(
         ? listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")
         : 0;
 
-  const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
   const moveOverride = app?.managerMoveInFeeOverride?.trim();
   const moveInFee = moveOverride
     ? parseMoneyAmount(moveOverride)
-    : roomMoveInFee != null
-      ? parseMoneyAmount(roomMoveInFee)
-      : sub
-        ? listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")
-        : 0;
+    : parseMoneyAmount(
+        resolvedMoveInFeeRaw(sub, {
+          leaseTerm: rentalType === "short_term" ? stayPlacementLeaseTerm(app?.leaseTerm) : (app?.leaseTerm ?? ""),
+          room,
+          isStay: rentalType === "short_term",
+        }),
+      );
 
   const otherCostLabel = app?.managerOtherCostLabel?.trim() || "";
   const otherCostAmount = parseMoneyAmount(app?.managerOtherCostAmount ?? "");
@@ -317,10 +320,9 @@ export function resolveManualResidentPlacementValues(input: {
     const securityDeposit = parseMoneyAmount(
       resolvedShortTermPlacementDeposit(sub, room),
     );
-    const moveInFee =
-      room?.shortTermMoveInFee?.trim()
-        ? parseMoneyAmount(room.shortTermMoveInFee)
-        : listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "");
+    const moveInFee = parseMoneyAmount(
+      resolvedMoveInFeeRaw(sub, { leaseTerm: SHORT_TERM_LEASE_TERM, room, isStay: true }),
+    );
     return {
       rentalType,
       rent: manualResidentMoneyField(nightly),
@@ -342,11 +344,7 @@ export function resolveManualResidentPlacementValues(input: {
       ? parseMoneyAmount(roomSecurityDeposit)
       : listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "");
 
-  const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
-  const moveInFee =
-    roomMoveInFee != null
-      ? parseMoneyAmount(roomMoveInFee)
-      : listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "");
+  const moveInFee = parseMoneyAmount(resolvedMoveInFeeRaw(sub, { leaseTerm: input.leaseTerm, room, isStay: false }));
 
   return {
     rentalType,
