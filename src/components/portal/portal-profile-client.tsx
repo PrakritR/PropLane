@@ -619,7 +619,7 @@ export function PortalProfileClient({
       .filter(Boolean);
   }, [searchParams]);
   const [scopeWorkspaceId, setScopeWorkspaceIdState] = useState(urlWorkspaceId);
-  const [scopePropertyIds, setScopePropertyIdsState] = useState<string[]>(urlPropertyIds);
+  const [, setScopePropertyIdsState] = useState<string[]>(urlPropertyIds);
   useEffect(() => {
     setScopeWorkspaceIdState(urlWorkspaceId);
   }, [urlWorkspaceId]);

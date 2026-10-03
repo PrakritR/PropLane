@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { WorkIdentityRow } from "./work-identity-row";
-import { AlertCircle, CheckCircle2, Phone } from "lucide-react";
+import { AlertCircle, Phone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   PortalSettingsField,
@@ -168,11 +167,7 @@ export function ManagerMessagingSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
-  const workspaces = useWorkspaces();
   const scope = useSettingsPropertyScope();
-  const workspaceName = scope.workspaceId
-    ? workspaces?.workspaces.find((workspace) => workspace.id === scope.workspaceId)?.name
-    : undefined;
   const messagingUrl = scope.workspaceId
     ? `${ENDPOINT}?workspaceId=${encodeURIComponent(scope.workspaceId)}`
     : ENDPOINT;
