@@ -81,7 +81,7 @@ import {
   type ManagerTourBucketId,
   type PropertyDetailTabId,
 } from "@/lib/portal-detail-routes";
-import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
+import { PropertyServicesOffersPanel } from "@/components/portal/property-services-offers-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -1298,8 +1298,15 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 ? (
-        <PropertyPricingPanel submission={managerSubmission} />
+      {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 && houseSaveTarget && managerUserId ? (
+        <PropertyPricingPanel
+          submission={managerSubmission}
+          saveTarget={houseSaveTarget}
+          managerUserId={managerUserId}
+          propertyLabel={propertyShareLabel}
+          onUpdated={onUpdated}
+          showToast={showToast}
+        />
       ) : null}
       {activeDetailTab === "lease" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyLeasePanel
@@ -1366,16 +1373,14 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {activeDetailTab === "requests" && bucket === 2 && stablePropertyId ? (
-        <ManagerPropertyRequestsPanel
+      {activeDetailTab === "requests" && bucket === 2 && stablePropertyId && houseSaveTarget && managerUserId ? (
+        <PropertyServicesOffersPanel
           sub={managerSubmission}
           saveTarget={houseSaveTarget}
           managerUserId={managerUserId}
+          propertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
-          propertyId={stablePropertyId}
-          propertyLabel={propertyShareLabel}
-          propertiesBase={propertiesBase}
         />
       ) : null}
 

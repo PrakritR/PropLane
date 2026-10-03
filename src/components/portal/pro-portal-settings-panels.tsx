@@ -88,6 +88,7 @@ import {
   type PaymentListingLateFeeHandle,
 } from "@/components/portal/payment-late-fee-settings";
 import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
+import { WorkspacePricingDefaultsPanel } from "@/components/portal/workspace-pricing-defaults-panel";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -1483,6 +1484,8 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
+      <WorkspacePricingDefaultsPanel workspaceId={effectiveWorkspace?.id ?? null} />
+
       <PortalSettingsSection title="Payment setup">
         <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
       </PortalSettingsSection>
