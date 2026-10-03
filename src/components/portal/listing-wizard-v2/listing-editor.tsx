@@ -26,7 +26,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
+import { BlockedDatesSection } from "@/components/portal/listing-room-editor/blocked-dates-section";
+import { RoomBathroomFields } from "@/components/portal/listing-room-editor/room-bathroom-fields";
+import { SharedRoomConfigRows } from "@/components/portal/listing-room-editor/shared-room-config-rows";
+import { BathroomEditorMirrorFields } from "@/components/portal/listing-room-editor/bathroom-editor-mirror-fields";
+import { bathFactLabel, copyRoomBathroomLinkFrom, roomBathroomState } from "@/lib/listing-room-editor/bathroom-link";
 import { cn } from "@/lib/utils";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
@@ -1052,37 +1056,32 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  * a room's description starts from another room's, and it is a one-time copy
  * (see `copyRoomDescriptionFrom`), never a standing link.
  */
-function RoomCardBody({
+export function ListingRoomEditorBody({
+  sub,
   room,
   propertyId = null,
+  managerUserId = null,
   who,
   wholePlace,
-  bathrooms,
-  access,
-  onAccess,
+  onPatchBathrooms,
   onGoToBathrooms,
   onRoom,
-  onDone,
   storiesId,
   sameAsOptions,
   sameAsValue,
   onSameAs,
 }: {
+  sub: ManagerListingSubmissionV1;
   room: ManagerRoomSubmission;
-  /** The listing's record id, for the room's booked rows. */
   propertyId?: string | null;
+  managerUserId?: string | null;
   who: string;
   wholePlace: boolean;
-  bathrooms: number;
-  access: string;
-  onAccess: (kind: string) => void;
+  onPatchBathrooms: (bathrooms: ManagerBathroomSubmission[]) => void;
   onGoToBathrooms: () => void;
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
-  onDone?: () => void;
   storiesId: string | undefined;
-  /** "—" plus every other room's name; picking one copies its description onto this room once. */
   sameAsOptions: readonly { value: string; label: string }[];
-  /** The other room this room's description currently matches, or "" — derived, never stored. */
   sameAsValue: string;
   onSameAs: (roomId: string) => void;
 }) {
@@ -1118,17 +1117,16 @@ function RoomCardBody({
       <FactRow label="Beds">
         <CountStepper compact value={bedCount} min={1} max={OCCUPANCY_MAX} label={`Beds for ${who}`} onChange={(n) => writeBeds(beds.length ? beds.map((b, i) => (i === 0 ? { ...b, count: n } : b)) : [{ type: "Twin", count: n }])} />
       </FactRow>
-      {wholePlace ? null : bathrooms === 0 ? (
-        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
-          <button type="button" onClick={onGoToBathrooms} data-attr="listing-v2-add-bathroom-first" className="text-[13.5px] font-bold text-primary hover:underline">
-            + Add bathroom
-          </button>
-        </FactRow>
-      ) : (
-        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
-          <RowSelectCell ariaLabel={`Bathroom for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
-        </FactRow>
+      {wholePlace ? null : (
+        <RoomBathroomFields
+          sub={sub}
+          room={room}
+          who={who}
+          onGoToBathrooms={onGoToBathrooms}
+          onSubmission={(next) => onPatchBathrooms(next.bathrooms ?? [])}
+        />
       )}
+      <SharedRoomConfigRows room={room} who={who} onRoom={onRoom} />
       <FactRow label={help("Floor", ROOM_HELP.floor)}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floorOptions} placeholder="Floor…" onChange={(v) => onRoom({ floor: v })} />
       </FactRow>
@@ -1166,7 +1164,7 @@ function RoomCardBody({
             <Textarea rows={3} value={detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
           </Field>
         </CardFields>
-        <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} />
+        <BlockedDatesSection propertyId={propertyId} roomId={room.id} managerUserId={managerUserId} />
       </MoreRows>
     </>
   );
@@ -1291,20 +1289,20 @@ function StepRooms({
       Object.assign(roomPatch, { [key]: copied[key] });
     }
     writeRoom(room.id, roomPatch);
-    const sourceAccess = accessForRoom(otherId);
-    if (sourceAccess) setAccessForRoom(room.id, sourceAccess);
+    patch(copyRoomBathroomLinkFrom(sub, room.id, otherId));
   };
 
   const factsFor = (room: ManagerRoomSubmission, i: number) => {
     const residents = room.occupancyCapacity ?? 1;
     const floorShown = room.floor || groundFloor || "Floor not set";
-    const bath = accessLabel(accessForRoom(room.id));
+    const bst = roomBathroomState(sub, room.id);
+    const bath = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
     const furn = roomFurnishingLabel(roomFurnitureItems(room));
     return (
       <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
         {!wholePlace ? <span>{residents} residents</span> : null}
         <span>{floorShown}</span>
-        {bath ? <span>{bath} bath</span> : null}
+        {bath ? <span>{bath}</span> : null}
         <span>{furn}</span>
       </span>
     );
@@ -1321,7 +1319,11 @@ function StepRooms({
       : [
           `${residents} ${residents === 1 ? "resident" : "residents"}`,
           floorShown,
-          accessLabel(accessForRoom(room.id))?.toLowerCase() ? `${accessLabel(accessForRoom(room.id))!.toLowerCase()} bath` : "",
+          (() => {
+            const bst = roomBathroomState(sub, room.id);
+            const label = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
+            return label === "No bath" ? "" : label;
+          })(),
           furnishingSummary(furnishing),
           bedText,
         ];
@@ -1401,14 +1403,13 @@ function StepRooms({
             dataAttr="listing-v2-room-card"
           >
             <div data-attr="listing-v2-room-editor">
-              <RoomCardBody
+              <ListingRoomEditorBody
+                sub={sub}
                 room={room}
                 propertyId={propertyId}
                 who={label}
                 wholePlace={wholePlace}
-                bathrooms={baths.length}
-                access={accessForRoom(room.id)}
-                onAccess={(v) => setAccessForRoom(room.id, v)}
+                onPatchBathrooms={(bathrooms) => patch({ bathrooms })}
                 onGoToBathrooms={onGoToBathrooms}
                 onRoom={(p) => writeRoom(room.id, p)}
                 storiesId={sub.listingStoriesId}
@@ -1448,7 +1449,8 @@ const BATHROOM_HELP = {
  * its derived value is whichever other bathroom still matches
  * (`bathroomDescriptionMatches`). Who uses it is untouched by the copy.
  */
-function BathroomCardBody({
+export function ListingBathroomEditorBody({
+  sub,
   bath,
   who,
   rooms,
@@ -1458,7 +1460,9 @@ function BathroomCardBody({
   sameAsValue,
   onSameAs,
   onChange,
+  onPatchSubmission,
 }: {
+  sub: ManagerListingSubmissionV1;
   bath: ManagerBathroomSubmission;
   who: string;
   rooms: readonly ManagerRoomSubmission[];
@@ -1468,9 +1472,9 @@ function BathroomCardBody({
   sameAsValue: string;
   onSameAs: (bathId: string) => void;
   onChange: (patch: Partial<ManagerBathroomSubmission>) => void;
+  onPatchSubmission: (next: ManagerListingSubmissionV1) => void;
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
-  const assigned = bath.assignedRoomIds ?? [];
   // A card the bathroom count made carries no floor, so the control shows the
   // listing's ground floor as its default. Display only: nothing is written
   // until the manager picks, which is what keeps an untouched card removable
@@ -1481,12 +1485,13 @@ function BathroomCardBody({
       <FactRow first label="Same as">
         <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="Set for this bathroom" onChange={onSameAs} />
       </FactRow>
+      <BathroomEditorMirrorFields sub={sub} bath={bath} who={who} onSubmission={onPatchSubmission} />
       <FactRow label="Floor">
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floors} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
       </FactRow>
-      <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>}>
+      <FactRow label={<span className="inline-flex items-center gap-1.5">Layout <ColumnHelp title="Layout" text={BATHROOM_HELP.type} /></span>}>
         <RowSelectCell
-          ariaLabel={`Type of ${who}`}
+          ariaLabel={`Layout of ${who}`}
           value={bathroomTypeOf(bath)}
           options={BATHROOM_TYPE_OPTIONS}
           onChange={(v) => onChange(writeBathroomType(bath, v as BathroomType))}
@@ -1495,45 +1500,6 @@ function BathroomCardBody({
       <FactRow label="Finishes">
         <AmenityPick label={`Finishes for ${who}`} presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
       </FactRow>
-      {wholePlace || rooms.length === 0 ? null : (
-        <FactRow label="Who uses it">
-          <CheckboxMultiSelect
-            hideLabel
-            label={`Who uses ${who}`}
-            dataAttr="listing-v2-bath-who-uses"
-            variant="cell"
-            className="min-w-[150px] max-w-[220px]"
-            options={rooms.map((room, i) => ({
-              value: room.id,
-              label: room.name.trim() || `Room ${i + 1}`,
-            }))}
-            selected={bath.allResidents ? rooms.map((room) => room.id) : assigned}
-            selectionTriggerLabel={
-              bath.allResidents
-                ? "Every room"
-                : assigned.length === 0
-                  ? "No rooms yet"
-                  : assigned
-                      .map((id) => {
-                        const index = rooms.findIndex((room) => room.id === id);
-                        const room = index >= 0 ? rooms[index] : null;
-                        return room?.name.trim() || (index >= 0 ? `Room ${index + 1}` : id);
-                      })
-                      .join(", ")
-            }
-            emptyLabel="No rooms yet"
-            onChange={(next) => {
-              const kinds = { ...(bath.accessKindByRoomId ?? {}) };
-              for (const id of Object.keys(kinds)) if (!next.includes(id)) delete kinds[id];
-              onChange({
-                assignedRoomIds: next,
-                allResidents: next.length > 0 && next.length === rooms.length,
-                accessKindByRoomId: kinds,
-              });
-            }}
-          />
-        </FactRow>
-      )}
       <MoreRows dataAttr="listing-v2-bath-more">
         <CardFields>
           <Field label="Description">
@@ -1693,7 +1659,8 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             dataAttr="listing-v2-bath-card"
           >
             <div data-attr="listing-v2-bath-editor">
-              <BathroomCardBody
+              <ListingBathroomEditorBody
+                sub={sub}
                 bath={bath}
                 who={label}
                 rooms={rooms}
@@ -1703,6 +1670,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 sameAsValue={sameAsValue(bath)}
                 onSameAs={(id) => applySameAs(bath, id)}
                 onChange={(p) => patchBath(bath, p)}
+                onPatchSubmission={(next) => patch({ bathrooms: next.bathrooms, rooms: next.rooms })}
               />
             </div>
           </RecordCard>
@@ -1722,7 +1690,7 @@ const SPACE_HELP = {
  * A shared space is its own record: there is no Default card for shared spaces
  * and nothing for a space to follow or reset to. Rooms and Bathrooms keep theirs.
  */
-function SharedSpaceCardBody({
+export function ListingSharedSpaceEditorBody({
   space,
   who,
   rooms,
@@ -1863,7 +1831,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             dataAttr="listing-v2-space-card"
           >
             <div data-attr="listing-v2-space-editor">
-              <SharedSpaceCardBody
+              <ListingSharedSpaceEditorBody
                 space={space}
                 who={label}
                 rooms={rooms}

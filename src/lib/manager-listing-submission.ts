@@ -350,6 +350,12 @@ export type ManagerRoomSubmission = {
    */
   residentPricing?: "same" | "per_resident";
   /**
+   * When {@link occupancyCapacity} is 2+, whether roommates sign separate leases,
+   * one joint lease, or follow the property's lease settings. Stored on the room
+   * record only; absent means property default.
+   */
+  sharedRoomLeaseKind?: "property_default" | "individual" | "joint";
+  /**
    * One row per resident slot, index + 1 = slot number, present only when
    * {@link residentPricing} is `"per_resident"`. Normalization clamps its length to
    * {@link occupancyCapacity}: extras are truncated, missing rows are padded from

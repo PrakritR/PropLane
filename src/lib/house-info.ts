@@ -61,6 +61,9 @@ export type HouseInfoSectionSpec = {
   fields: readonly HouseInfoField[];
 };
 
+/** Shown on Move-in (whole house), not the House details resident list. */
+export const HOUSE_INFO_MOVE_IN_SECTION_IDS: readonly HouseInfoSectionId[] = ["access", "wifi"];
+
 export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
   {
     id: "access",
@@ -106,7 +109,6 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         options: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
       },
       { key: "binLocation", label: "Bin location", kind: "text", placeholder: "Side of the house, behind the gate" },
-      { key: "recycling", label: "Recycling & compost", kind: "text", placeholder: "Blue bin every other week" },
       {
         key: "cleaningCadence",
         label: "Professional cleaning",
