@@ -15,7 +15,8 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalApplicantRecordRow } from "@/components/portal/portal-record-row";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { VendorReviewDialog, type VendorReviewDialogRow } from "@/components/portal/vendor-review-dialog";
-import { Modal } from "@/components/ui/modal";
+import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work-order-modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
@@ -495,6 +496,7 @@ export function ManagerVendorDetail({
   onSendCheckInNow?: (checkIn: VendorCheckIn) => Promise<void>;
 }) {
   const tab = tabProp ?? "overview";
+  const [requestService, setRequestService] = useState(false);
   const [serviceTab, setServiceTab] = useState("open");
   const [serviceSearch, setServiceSearch] = useState("");
   const [reviewJob, setReviewJob] = useState<VendorReviewDialogRow | null>(null);
@@ -811,14 +813,15 @@ export function ManagerVendorDetail({
       {tab === "jobs" || tab === "services" ? <div data-attr="vendor-services-list">
         <PortalListControlStack variant="command" stickyDestinations={false}
           destinationRow={<ManagerPortalStatusPills tabs={[{ id: "open", label: "Open", count: openJobs.length }, { id: "done", label: "Done", count: jobs.length - openJobs.length }]} activeId={serviceTab} onChange={setServiceTab} />}
-          search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} />
+          search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} primary={<PortalPrimaryIconAction label="Add service" icon={Plus} onClick={() => setRequestService(true)} />} />
         <PortalRecordListSurface loading={summaryState === "loading"} loadError={summaryState === "error" ? "Could not load services." : undefined} onRetry={() => void refreshSummary(true)}>
           {jobs.filter(job => (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") && [job.title, job.propertyName, job.unit].join(" ").toLowerCase().includes(serviceSearch.toLowerCase())).map(job =>
             <PortalApplicantRecordRow key={job.id} name={job.title} address={[job.propertyName, job.unit].filter(Boolean).join(" · ")} facts={<span>{job.status}</span>} trailing={<span>{jobMoney(job.finalInvoiceCents)}</span>} onOpen={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} />)}
         </PortalRecordListSurface>
       </div> : null}
       {tab === "invoices" ? row.vendorUserId ? <ManagerOutgoingInvoicesPanel vendorUserId={row.vendorUserId} basePath={basePath} /> : <p className="p-4 text-sm">No linked vendor account.</p> : null}
-      <Modal open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{jobs.filter(job => job.status === "completed" || job.status === "paid").map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></Modal>
+      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{jobs.filter(job => job.status === "completed" || job.status === "paid").map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
+      <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} />
       <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />
 
     </div>

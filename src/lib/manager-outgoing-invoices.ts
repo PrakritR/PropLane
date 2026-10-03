@@ -9,8 +9,10 @@ export function invoiceBelongsInOutgoing(invoice: Pick<OutgoingInvoice, "status"
 }
 export function outgoingInvoiceTotals(invoices: OutgoingInvoice[], year: number) {
   return invoices.reduce((totals, invoice) => {
+    if (!Number.isSafeInteger(invoice.totalCents) || invoice.totalCents < 0) throw new Error("Invalid invoice amount.");
     if (invoice.status === "approved" || invoice.status === "scheduled") totals.owedCents += invoice.totalCents;
     if (invoice.status === "paid" && invoice.paidAt?.slice(0, 4) === String(year)) totals.paidThisYearCents += invoice.totalCents;
+    if (!Number.isSafeInteger(totals.owedCents) || !Number.isSafeInteger(totals.paidThisYearCents)) throw new Error("Invoice totals exceed the supported amount.");
     return totals;
   }, { owedCents: 0, paidThisYearCents: 0 });
 }

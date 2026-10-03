@@ -6,6 +6,17 @@ import { mapVendorInvoiceRow, VENDOR_INVOICE_STATUSES, type VendorInvoiceStatus 
 
 export const runtime = "nodejs";
 
+async function allRows<T>(query: { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }> }): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await query.range(offset, offset + 499);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < 500) return rows;
+  }
+}
+
+
 /** Extra columns beyond `VENDOR_INVOICE_SELECT` this manager-facing list needs to pay or attribute a row. */
 const MANAGER_VENDOR_INVOICE_SELECT =
   "id, vendor_id, vendor_user_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
@@ -42,17 +53,15 @@ export async function GET(req: Request) {
       .select(MANAGER_VENDOR_INVOICE_SELECT)
       .eq("manager_user_id", auth.userId)
       .in("status", statuses)
-      .order("submitted_at", { ascending: false });
+      .order("submitted_at", { ascending: false }).order("id", { ascending: true });
     if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
 
-    const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const rows = data ?? [];
+    const rows = await allRows(query);
 
     const vendorUserIds = [...new Set(rows.map((row) => String(row.vendor_user_id ?? "")).filter(Boolean))];
     const namesById = new Map<string, string>();
     if (vendorUserIds.length > 0) {
-      const { data: profiles } = await auth.db.from("profiles").select("id, full_name").in("id", vendorUserIds);
+      const profiles = await allRows(auth.db.from("profiles").select("id, full_name").in("id", vendorUserIds).order("id", { ascending: true }));
       for (const profile of profiles ?? []) {
         namesById.set(String(profile.id), String(profile.full_name ?? "").trim() || "Vendor");
       }
@@ -62,9 +71,8 @@ export async function GET(req: Request) {
     const workIds = [...new Set(rows.map((row) => row.work_order_id).filter(Boolean))];
     const services = new Map<string, { vendorUserId: string | null; title: string; propertyName: string; propertyId: string | null }>();
     if (workIds.length) {
-      const { data: workRows, error: workError } = await auth.db.from("portal_work_order_records")
-        .select("id, vendor_user_id, property_id, row_data").eq("manager_user_id", auth.userId).in("id", workIds);
-      if (workError) return NextResponse.json({ error: workError.message }, { status: 500 });
+      const workRows = await allRows(auth.db.from("portal_work_order_records")
+        .select("id, vendor_user_id, property_id, row_data").eq("manager_user_id", auth.userId).in("id", workIds).order("id", { ascending: true }));
       for (const work of workRows ?? []) {
         const detail = work.row_data as { title?: string; propertyName?: string } | null;
         services.set(String(work.id), { vendorUserId: work.vendor_user_id, propertyId: work.property_id, title: detail?.title ?? "Service", propertyName: detail?.propertyName ?? "" });
@@ -78,9 +86,39 @@ export async function GET(req: Request) {
       vendorName: namesById.get(String(row.vendor_user_id ?? "")) ?? "Vendor",
     }));
 
-    const outgoing = invoices.filter((invoice) => rowAllowedInWorkspaceScope(scope, services.get(invoice.workOrderId ?? "")?.propertyId) && invoiceBelongsInOutgoing(invoice, services.get(invoice.workOrderId ?? "")?.vendorUserId ?? null));
+    const outgoing = invoices.filter((invoice) => (!invoice.workOrderId || services.has(invoice.workOrderId)) && rowAllowedInWorkspaceScope(scope, services.get(invoice.workOrderId ?? "")?.propertyId) && invoiceBelongsInOutgoing(invoice, services.get(invoice.workOrderId ?? "")?.vendorUserId ?? null));
     const result = url.searchParams.get("outgoing") === "1" ? outgoing : invoices;
-    return NextResponse.json({ invoices: result, totals: outgoingInvoiceTotals(outgoing, new Date().getUTCFullYear()) }, { headers: { "Cache-Control": "private, no-store" } });
+    const totals = outgoingInvoiceTotals(outgoing, new Date().getUTCFullYear());
+    const payoutRows: Array<{ id: string; vendorUserId: string; vendorName: string; workOrderId: string | null; amountCents: number; createdAt: string }> = [];
+    if (url.searchParams.get("outgoing") === "1") {
+      let payoutQuery = auth.db.from("vendor_payouts").select("id, vendor_user_id, work_order_id, invoice_id, amount_cents, created_at, updated_at")
+        .eq("manager_user_id", auth.userId).eq("status", "paid").order("id", { ascending: true });
+      if (vendorUserId) payoutQuery = payoutQuery.eq("vendor_user_id", vendorUserId);
+      const payouts = await allRows(payoutQuery);
+      const invoiceIds = new Set(invoices.map(invoice => invoice.id));
+      const unmatched = (payouts ?? []).filter(payout => !invoiceIds.has(payout.invoice_id));
+      const payoutVendorIds = [...new Set(unmatched.map(payout => payout.vendor_user_id).filter(id => !namesById.has(id)))];
+      if (payoutVendorIds.length) {
+        const profiles = await allRows(auth.db.from("profiles").select("id, full_name").in("id", payoutVendorIds).order("id", { ascending: true }));
+        for (const profile of profiles) namesById.set(profile.id, profile.full_name?.trim() || "Vendor");
+      }
+      const missingWorkIds = [...new Set(unmatched.map(payout => payout.work_order_id).filter(Boolean))];
+      const payoutProperties = new Map<string, string | null>();
+      if (missingWorkIds.length) {
+        const work = await allRows(auth.db.from("portal_work_order_records").select("id, property_id").eq("manager_user_id", auth.userId).in("id", missingWorkIds).order("id", { ascending: true }));
+        for (const item of work ?? []) payoutProperties.set(item.id, item.property_id);
+      }
+      for (const payout of unmatched) {
+        if (payout.work_order_id && !payoutProperties.has(payout.work_order_id)) continue;
+        if (!rowAllowedInWorkspaceScope(scope, payoutProperties.get(payout.work_order_id))) continue;
+        payoutRows.push({ id: payout.id, vendorUserId: payout.vendor_user_id, vendorName: namesById.get(payout.vendor_user_id) ?? "Vendor", workOrderId: payout.work_order_id, amountCents: payout.amount_cents, createdAt: payout.updated_at ?? payout.created_at });
+        if (String(payout.updated_at ?? payout.created_at).slice(0, 4) === String(new Date().getUTCFullYear())) {
+          if (!Number.isSafeInteger(payout.amount_cents) || payout.amount_cents < 0 || !Number.isSafeInteger(totals.paidThisYearCents + payout.amount_cents)) throw new Error("Invalid payout amount.");
+          totals.paidThisYearCents += payout.amount_cents;
+        }
+      }
+    }
+    return NextResponse.json({ invoices: result, payouts: payoutRows, totals }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load vendor invoices.";
     return NextResponse.json({ error: message }, { status: 500 });

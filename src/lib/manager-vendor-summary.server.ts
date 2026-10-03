@@ -1,3 +1,4 @@
+import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
 import "server-only";
 
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -95,6 +96,7 @@ export async function loadManagerVendorSummary(
     financialPropertyIds = financialScope.propertyIdsByOwner.get(ownerId) ?? new Set<string>();
   }
 
+  const activeScope = await resolveActiveWorkspaceRowScope(db, viewerId);
   const workSelect = "id, property_id, assigned_property_id, vendor_user_id, row_data, updated_at";
   const propertyColumns = servicePropertyIds ? (["property_id", "assigned_property_id"] as const) : [null] as const;
   const fetchWorkRows = async (legacyAssignment: "vendorId" | "assignee" | null) => {
@@ -115,7 +117,7 @@ export async function loadManagerVendorSummary(
     : [...await fetchWorkRows("vendorId"), ...await fetchWorkRows("assignee")];
   const workRecords = [...new Map(queriedRows.map((record) => [String(record.id), record])).values()]
     .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")) || String(right.id).localeCompare(String(left.id)));
-  const permitted = workRecords.filter((record) => {
+  const permitted = workRecords.filter(record => rowAllowedInWorkspaceScope(activeScope, String(record.property_id || record.assigned_property_id || ""))).filter((record) => {
     if (!servicePropertyIds) return true;
     const propertyId = String(record.property_id ?? "").trim();
     const assignedPropertyId = String(record.assigned_property_id ?? "").trim();
