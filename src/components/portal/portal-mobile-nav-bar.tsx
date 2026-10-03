@@ -93,7 +93,10 @@ export function PortalMobileNavBar({
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, []);
+  }, [pathname]);
+
+  // Settings owns its pushed-screen bar on phone, including its origin-aware back action.
+  if ((definition.kind === "manager" || definition.kind === "pro") && pathname === `${definition.basePath}/profile`) return null;
 
   return (
     <div
@@ -153,7 +156,7 @@ export function PortalMobileNavBar({
                   data-attr="portal-mobile-profile"
                   onSelect={(event) => {
                     event.preventDefault();
-                    router.push(`${definition.basePath}/profile?tab=profile`);
+                    router.push(`${definition.basePath}/profile?tab=profile&profileHome=1`);
                   }}
                 >
                   <UserRound aria-hidden />

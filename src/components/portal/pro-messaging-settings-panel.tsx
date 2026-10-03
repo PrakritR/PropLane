@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { WorkIdentityRow } from "./work-identity-row";
 import { AlertCircle, CheckCircle2, Phone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -197,15 +198,12 @@ export function ManagerMessagingSettingsPanel({
 
   // Channels list: which owned workspace's rows are visible, the Add-number
   // sheet's target + busy state, and per-row remove busy keys.
-  const [channelFilter, setChannelFilter] = useState(scope.workspaceId || "all");
+  const channelFilter = scope.workspaceId || status?.workspace?.id || "";
   const [addNumberOpen, setAddNumberOpen] = useState(false);
   const [addNumberWorkspaceId, setAddNumberWorkspaceId] = useState("");
   const [addNumberBusy, setAddNumberBusy] = useState(false);
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    setChannelFilter(scope.workspaceId || "all");
-  }, [scope.workspaceId]);
 
   const load = useCallback(async (signal?: AbortSignal, opts?: { refreshEligibility?: boolean }) => {
     setLoading(true);
@@ -620,117 +618,27 @@ export function ManagerMessagingSettingsPanel({
   // manager with a second workspace sees at a glance which has a number and
   // whose it is — and never mistakes a neighbour's for this one's.
   const allWorkspaces = status.workspaces ?? [];
-  const allWorkspacesAction =
-    allWorkspaces.length > 1 ? (
-      <details className="relative" data-attr="messaging-number-all-workspaces">
-        <summary className="cursor-pointer list-none rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground">
-          All workspaces
-        </summary>
-        <div className="absolute right-0 z-20 mt-2 w-[min(92vw,24rem)] rounded-2xl border border-border bg-card p-1 shadow-lg">
-          {allWorkspaces.map((w) => (
-            <div key={w.workspaceId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <div className="truncate font-semibold text-foreground">{w.workspaceName}</div>
-                <div className="text-xs text-muted">
-                  {w.owned ? "Owned" : `Shared · ${w.ownerName?.trim() || "another manager"}`}
-                </div>
-              </div>
-              <div className="shrink-0 text-right text-xs">
-                {w.phoneNumber ? formatManagerMessagingPhone(w.phoneNumber) : w.owned ? "No number yet" : "Not set up"}
-              </div>
-            </div>
-          ))}
-        </div>
-      </details>
-    ) : undefined;
-  const unverifiedEntitlement = entitlementIsUnverified(status);
-  /**
-   * Whether it is safe to tell every resident "text me at this number".
-   *
-   * A stored number is not proof we own it. A record written while one Twilio
-   * account was configured keeps reading as an active, carrier-registered work
-   * number after the credentials move to a different account — that shipped,
-   * and the number in the record resolved to nothing we control. Broadcasting
-   * it would have pointed a whole portfolio of residents at a stranger's
-   * phone, and an email plus SMS blast is not recallable.
-   *
-   * `canSend` is the one signal that the number is genuinely operational here:
-   * it requires the plan, the send runtime, and a sendable provisioned number.
-   * Require it before offering the broadcast, so an unusable number — or one
-   * belonging to another account — is never advertised to residents.
-   */
-  const announceChannelsLive: WorkContactChannels = {
-    phone: phoneNumber && status.canSend ? phoneNumber : null,
-    email: workEmail,
-  };
-  const announceReady = hasAnyWorkContactChannel(announceChannelsLive);
-
   // One work number per workspace. A co-manager reads the owner's line here —
   // nothing to request, no plan upsell, no area code. A legacy line of their
   // own (bought before numbers were workspace-owned) is named so they know it
   // is being retired, but it is never the number this panel leads with.
   if (isCoManager) {
-    const workspace = status.workspaceNumber ?? null;
-    const workspacePhone = workspace?.phoneNumber?.trim() || "";
-    const owner = workspace?.ownerName?.trim() || "your workspace owner";
-    const legacyOwnPhone = statusPhoneNumber && statusPhoneNumber !== workspacePhone ? statusPhoneNumber : "";
-    return (
-      <PortalSettingsSection
-        title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
-        action={allWorkspacesAction}
-      >
-        <PortalSettingsGroup>
-          <PortalSettingsField
-            label="Workspace number"
-            value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up yet"}
-            action={
-              workspacePhone ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="min-h-10 px-3 text-xs"
-                  onClick={() => copyNumber(workspacePhone)}
-                  data-attr="messaging-number-copy"
-                >
-                  Copy
-                </Button>
-              ) : undefined
-            }
-          />
-          <PortalSettingsField label="Status" value={workspacePhone ? "Active" : "Waiting on setup"} />
-          <PortalSettingsField label="Managed by" value={owner} />
-          <div className="space-y-4 px-4 py-4">
-            {workspacePhone ? (
-              <div className="flex items-start gap-2 text-sm text-foreground">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-                <p>Ready. Replies you send in Communication go out from this number.</p>
-              </div>
-            ) : (
-              <div className="flex items-start gap-2 text-sm text-muted" data-attr="messaging-workspace-number-missing">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <p>
-                  {owner} hasn&apos;t set up a work number for this workspace. Once they do in Settings → Messaging, it
-                  appears here — there is nothing for you to request.
-                </p>
-              </div>
-            )}
-            {legacyOwnPhone ? (
-              <p className="text-xs text-muted" data-attr="messaging-legacy-own-number">
-                {formatManagerMessagingPhone(legacyOwnPhone)} was set up for you before numbers became shared per
-                workspace. Texts to it now reach this workspace&apos;s inbox, and it will be retired.
-              </p>
-            ) : null}
-          </div>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-    );
+    const workspacePhone = status.workspaceNumber?.phoneNumber?.trim() || "";
+    return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
+      <WorkIdentityRow label="Work number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.canSend ? "Ready" : "Not ready"}` : "Not set up"}>
+        <PortalSettingsField label="Number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
+        <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
+        {workspacePhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone)}>Copy number</Button> : null}
+      </WorkIdentityRow>
+      <ManagerAssistantEmailChannelRow filterWorkspaceId={channelFilter} />
+    </PortalSettingsGroup></PortalSettingsSection>;
   }
 
   // Every owned workspace — the ones the Channels list actually manages.
   // A co-manager never reaches this branch (handled above).
   const ownedWorkspaces: WorkspaceWithNumbers[] = allWorkspaces.filter((w) => w.owned);
   const visibleWorkspaces =
-    channelFilter === "all" ? ownedWorkspaces : ownedWorkspaces.filter((w) => w.workspaceId === channelFilter);
+    ownedWorkspaces.filter((w) => w.workspaceId === channelFilter);
   const canAddNumberTo = (workspace: WorkspaceWithNumbers) => {
     const numbers = workspace.numbers ?? [];
     return !numbers.some((n) => n.isPrimary) && numbers.length < WORKSPACE_NUMBER_LIMIT;
@@ -772,25 +680,7 @@ export function ManagerMessagingSettingsPanel({
 
   return (
     <>
-    <PortalSettingsSection
-      title="Channels"
-      action={
-        ownedWorkspaces.length > 1 ? (
-          <FieldSingleSelect
-            label="Workspace"
-            hideLabel
-            variant="pill"
-            value={channelFilter}
-            options={[
-              { value: "all", label: "All workspaces" },
-              ...ownedWorkspaces.map((w) => ({ value: w.workspaceId, label: w.workspaceName })),
-            ]}
-            onChange={setChannelFilter}
-            dataAttr="channels-workspace-filter"
-          />
-        ) : undefined
-      }
-    >
+    <PortalSettingsSection title="Work identity">
       <PortalSettingsGroup>
         {visibleWorkspaces.map((workspace) => {
           const numbers = workspace.numbers ?? [];
@@ -829,8 +719,7 @@ export function ManagerMessagingSettingsPanel({
                       },
                     ];
                 return (
-                  <ChannelRow
-                    key={entry.numberId}
+                  <WorkIdentityRow key={entry.numberId} label="Work number" value={`${entry.phoneNumber ? formatManagerMessagingPhone(entry.phoneNumber) : "Assigning"} · ${workNumberStatusWord(rowStatusInput(workspace, entry))}`}><ChannelRow
                     icon={Phone}
                     channel={
                       <>Work number · {entry.phoneNumber ? formatManagerMessagingPhone(entry.phoneNumber) : "assigning"}</>
@@ -849,32 +738,12 @@ export function ManagerMessagingSettingsPanel({
                       />
                     }
                     dataAttr="channel-row-number"
-                  />
+                  /></WorkIdentityRow>
                 );
               })}
               {/* One number per workspace: empty → placeholder row; Setup only in ⋯ (no header + / dashed Add). */}
               {canRequest ? (
-                <ChannelRow
-                  key={`${workspace.workspaceId}-request`}
-                  icon={Phone}
-                  channel={<>Work number</>}
-                  workspace={workspace.workspaceName}
-                  status="Not set up"
-                  menu={
-                    <ChannelRowMenu
-                      label={`Set up work number for ${workspace.workspaceName}`}
-                      items={[
-                        {
-                          key: "setup",
-                          label: "Setup",
-                          onClick: () => openAddNumberSheet(workspace.workspaceId),
-                        },
-                      ]}
-                      dataAttr="channel-number-request-menu"
-                    />
-                  }
-                  dataAttr="channel-row-number-empty"
-                />
+                <WorkIdentityRow label="Work number" value="Set up" onOpen={() => openAddNumberSheet(workspace.workspaceId)} dataAttr="channel-row-number-empty" />
               ) : null}
             </div>
           );

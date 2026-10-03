@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-
-function tapOption(target: Element | Node) {
-  fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
-}
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const showToast = vi.fn();
 
@@ -190,19 +185,12 @@ describe("work number resident announce recipients", () => {
 });
 
 describe("Channels renders one row per number per workspace and one email per workspace", () => {
-  it("shows a work number row for each owned workspace and one work email per owned workspace", async () => {
-    globalThis.fetch = stubFetch(twoWorkspaceStatus());
-    render(<ManagerMessagingSettingsPanel />);
-
-    await waitFor(() => expect(screen.getAllByText(/Work number ·/).length).toBe(1));
-    expect(screen.getByText(/\+1 \(206\) 555-0001/)).toBeTruthy();
-    // Empty workspace: placeholder row + Request in ⋯ (no dashed "Add number").
-    expect(screen.getByText("Not set up")).toBeTruthy();
-    expect(screen.queryByText("Add number")).toBeNull();
-    expect(await screen.findByText("my-workspace@proplane.ai")).toBeTruthy();
-    expect(screen.getByText("ballard-houses@proplane.ai")).toBeTruthy();
-    expect(screen.getAllByText("my-workspace@proplane.ai")).toHaveLength(1);
-    expect(screen.getAllByText("ballard-houses@proplane.ai")).toHaveLength(1);
+  it("shows only the active workspace work identity as compact value rows", async () => {
+    globalThis.fetch = stubFetch(twoWorkspaceStatus()); render(<ManagerMessagingSettingsPanel />);
+    expect(await screen.findByRole("button", { name: /Work number.*555-0001/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Work email.*my-workspace@proplane.ai/ })).toBeTruthy();
+    expect(screen.queryByText(/ballard-houses@proplane.ai/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
   });
 
   it("shows an 'assigning' placeholder and the coarse status for a number with no phone yet", async () => {
@@ -241,8 +229,7 @@ describe("Channels renders one row per number per workspace and one email per wo
     globalThis.fetch = stubFetch(status);
     render(<ManagerMessagingSettingsPanel />);
 
-    expect(await screen.findByText(/Work number · assigning/)).toBeTruthy();
-    expect(screen.getByText("Assigning")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Work number.*Assigning/ })).toBeTruthy();
   });
 
   it("shows the shared-with qualifier and a coarser status for a number shared from another workspace", async () => {
@@ -288,9 +275,11 @@ describe("Channels renders one row per number per workspace and one email per wo
         },
       ],
     });
+    status.workspace = { id: "ws-2", name: "Ballard houses", owned: true, isDefault: false };
     globalThis.fetch = stubFetch(status);
     render(<ManagerMessagingSettingsPanel />);
 
+    fireEvent.click(await screen.findByRole("button", { name: /Work number.*555-0001/ }));
     expect(await screen.findByText(/shared with My workspace/)).toBeTruthy();
     // The foreign row only has `provisionState`, never the richer carrier
     // detail, so it still reads the coarser "Setting up" phrase rather than
@@ -310,6 +299,7 @@ describe("Channels ⋯ actions call the existing routes", () => {
     globalThis.fetch = stubFetch(twoWorkspaceStatus());
     render(<ManagerMessagingSettingsPanel />);
 
+    fireEvent.click(await screen.findByRole("button", { name: /Work number.*555-0001/ }));
     await screen.findByLabelText(/\+1 \(206\) 555-0001 actions/);
     openChannelMenu(/\+1 \(206\) 555-0001 actions/);
     expect(await screen.findByRole("menuitem", { name: "Share with residents" })).toBeTruthy();
@@ -318,13 +308,11 @@ describe("Channels ⋯ actions call the existing routes", () => {
     expect(screen.queryByRole("menuitem", { name: "Use in another workspace" })).toBeNull();
   });
 
-  it("offers Setup on a workspace with no number", async () => {
-    globalThis.fetch = stubFetch(twoWorkspaceStatus());
-    render(<ManagerMessagingSettingsPanel />);
-
-    await screen.findByLabelText(/Set up work number for Ballard houses/);
-    openChannelMenu(/Set up work number for Ballard houses/);
-    expect(await screen.findByRole("menuitem", { name: "Setup" })).toBeTruthy();
+  it("opens real setup for the active workspace with no number", async () => {
+    const status = twoWorkspaceStatus(); status.workspace = { id: "ws-2", name: "Ballard houses", owned: true, isDefault: false };
+    globalThis.fetch = stubFetch(status); render(<ManagerMessagingSettingsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Work number Set up" }));
+    expect(await screen.findByRole("dialog", { name: "Set up a work number" })).toBeTruthy();
   });
 
   it("Remove on a legacy shared-in row PATCHes unassign", async () => {
@@ -370,6 +358,7 @@ describe("Channels ⋯ actions call the existing routes", () => {
         },
       ],
     });
+    status.workspace = { id: "ws-2", name: "Ballard houses", owned: true, isDefault: false };
     let patchBody: unknown = null;
     globalThis.fetch = stubFetch(status, readyEmail, {
       patch: (body) => {
@@ -379,9 +368,10 @@ describe("Channels ⋯ actions call the existing routes", () => {
     });
     render(<ManagerMessagingSettingsPanel />);
 
+    fireEvent.click(await screen.findByRole("button", { name: /Work number.*555-0001/ }));
     const menuTriggers = await screen.findAllByLabelText(/\+1 \(206\) 555-0001 actions/);
     // Shared-in row is the second phone menu (primary has Share, not Remove).
-    fireEvent.keyDown(menuTriggers[1]!, { key: "ArrowDown" });
+    fireEvent.keyDown(menuTriggers[0]!, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
     await waitFor(() => expect(patchBody).toEqual({ action: "unassign", numberId: "n-1", workspaceId: "ws-2" }));
@@ -393,6 +383,7 @@ describe("Channels ⋯ actions call the existing routes", () => {
     globalThis.fetch = stubFetch(twoWorkspaceStatus());
     render(<ManagerMessagingSettingsPanel />);
 
+    fireEvent.click(await screen.findByRole("button", { name: /Work email.*my-workspace@proplane.ai/ }));
     await screen.findByLabelText("my-workspace@proplane.ai work email actions");
     openChannelMenu("my-workspace@proplane.ai work email actions");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Copy address" }));
@@ -401,24 +392,12 @@ describe("Channels ⋯ actions call the existing routes", () => {
   });
 });
 
-describe("Channels workspace filter", () => {
-  it("hides rows belonging to other workspaces", async () => {
-    globalThis.fetch = stubFetch(twoWorkspaceStatus());
-    render(<ManagerMessagingSettingsPanel />);
-
-    await screen.findByText(/\+1 \(206\) 555-0001/);
-    expect(screen.getByText("Not set up")).toBeTruthy();
-    expect(screen.queryByText("Add number")).toBeNull();
-    expect(await screen.findByText("ballard-houses@proplane.ai")).toBeTruthy();
-
-    const filterTrigger = await screen.findByRole("button", { name: "Workspace" });
-    fireEvent.click(filterTrigger);
-    const listbox = screen.getByRole("listbox");
-    tapOption(within(listbox).getByText("My workspace"));
-
-    await waitFor(() => expect(screen.queryByText("Not set up")).toBeNull());
-    expect(screen.getByText(/\+1 \(206\) 555-0001/)).toBeTruthy();
-    expect(screen.getByText("my-workspace@proplane.ai")).toBeTruthy();
-    expect(screen.queryByText("ballard-houses@proplane.ai")).toBeNull();
+describe("Active workspace identity", () => {
+  it("does not expose another workspace through a second filter", async () => {
+    globalThis.fetch = stubFetch(twoWorkspaceStatus()); render(<ManagerMessagingSettingsPanel />);
+    expect(await screen.findByRole("button", { name: /Work number.*555-0001/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Work email.*my-workspace@proplane.ai/ })).toBeTruthy();
+    expect(screen.queryByText(/ballard-houses@proplane.ai/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
   });
 });

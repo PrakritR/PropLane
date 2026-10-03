@@ -23,6 +23,8 @@ export type AutomatedMessageAudience = "manager" | "resident" | "vendor" | "team
 
 export type AutomatedMessageSetting = {
   enabled: boolean;
+  channels?: { email: boolean; sms: boolean };
+  timing?: "immediately" | "hour" | "morning";
   template?: { subject: string; body: string };
 };
 
@@ -131,7 +133,12 @@ export function normalizeAutomatedMessageSettings(raw: unknown): AutomatedMessag
     if (!/^[a-z_]+:[a-z_]+:(manager|resident|vendor|team)$/.test(key)) continue;
     const entry = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
     const template = normalizeTemplate(entry.template);
-    out[key] = { enabled: typeof entry.enabled === "boolean" ? entry.enabled : true, ...(template ? { template } : {}) };
+    const channels = entry.channels && typeof entry.channels === "object" && !Array.isArray(entry.channels) ? entry.channels as Record<string, unknown> : null;
+    const timing = entry.timing === "hour" || entry.timing === "morning" || entry.timing === "immediately" ? entry.timing : undefined;
+    out[key] = { enabled: typeof entry.enabled === "boolean" ? entry.enabled : true,
+      ...(channels ? { channels: { email: channels.email !== false, sms: channels.sms !== false } } : {}),
+      ...(timing ? { timing } : {}), ...(template ? { template } : {}) };
+
   }
   return out;
 }

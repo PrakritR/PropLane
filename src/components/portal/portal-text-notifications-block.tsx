@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Modal } from "@/components/ui/modal";
+import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,9 +53,11 @@ export function PortalTextNotificationsBlock({
   title = "Text notifications",
   description = "Verify your mobile number to get maintenance and message updates by text.",
   onVerified,
+  compact = false,
 }: {
   /** Kebab prefix for data-attr hooks, e.g. "resident" / "vendor". */
   dataAttrPrefix: string;
+  compact?: boolean;
   /** Demo sandbox: simulate the flow instead of hitting the real API. */
   demo?: boolean;
   title?: string;
@@ -186,11 +190,7 @@ export function PortalTextNotificationsBlock({
   const verified = Boolean(settings?.phoneVerifiedAt) && !editingPhone;
   const smsConfigured = settings?.smsConfigured ?? false;
 
-  return (
-    <PortalSettingsSection
-      title={title}
-    >
-      <PortalSettingsGroup>
+  const form = (
         <PortalSettingsFormBody className="space-y-3">
       {settings === null ? (
         <div className="space-y-3 py-1" aria-label="Loading phone verification settings">
@@ -299,7 +299,12 @@ export function PortalTextNotificationsBlock({
         </div>
       )}
         </PortalSettingsFormBody>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
   );
+  if (compact) return <PortalSettingsSection title={title}><PortalSettingsGroup>
+    <button type="button" className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left text-[15px]" disabled={!settings} onClick={() => { setPhoneInput(coercePhoneInput(settings?.phone)); setError(null); setEditingPhone(true); }} data-attr={`${dataAttrPrefix}-text-notifications-change`}>
+      <span>Personal phone</span><span className="ml-auto min-w-0 truncate text-right text-muted">{settings ? settings.phone ? `${formatSmsPhoneLabel(settings.phone)}${settings.phoneVerifiedAt ? " · Verified" : " · Unverified"}` : "Add" : "Loading…"}</span><ChevronRight className="size-4 shrink-0 text-muted" />
+    </button>
+    <Modal open={editingPhone} onClose={() => setEditingPhone(false)} title="Personal phone">{form}</Modal>
+  </PortalSettingsGroup></PortalSettingsSection>;
+  return <PortalSettingsSection title={title}><PortalSettingsGroup>{form}</PortalSettingsGroup></PortalSettingsSection>;
 }

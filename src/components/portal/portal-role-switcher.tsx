@@ -1,5 +1,6 @@
 "use client";
 
+import { Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalDashboardPath, type AuthRole } from "@/components/auth/portal-switcher";
@@ -61,16 +62,14 @@ export function PortalRoleSwitcher({
       type="button"
       onClick={() => void switchPortal(target.role)}
       disabled={busyRole !== null}
-      className="flex w-full items-center gap-2 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-muted transition hover:bg-card hover:text-foreground disabled:opacity-50"
+      className="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-foreground transition hover:bg-accent/40 disabled:opacity-50"
     >
-      <span className="text-base leading-none" aria-hidden>
-        ⇄
-      </span>
+      <Users aria-hidden className="h-[18px] w-[18px] text-muted" />
       {busyRole === target.role ? "Switching…" : target.label}
     </button>
   ));
 
   if (!asSettingsRow) return <>{buttons}</>;
 
-  return <div className="border-b border-border px-4 py-3.5 last:border-0">{buttons}</div>;
+  return <div className="border-b border-border last:border-0">{buttons}</div>;
 }

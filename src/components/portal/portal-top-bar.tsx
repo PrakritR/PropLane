@@ -180,7 +180,7 @@ export function PortalTopBar({
                 data-attr="portal-top-bar-profile"
                 onSelect={(event) => {
                   event.preventDefault();
-                  router.push(`${basePath}/profile?tab=profile`);
+                  router.push(`${basePath}/profile?tab=profile&profileHome=1`);
                 }}
               >
                 <UserRound aria-hidden />

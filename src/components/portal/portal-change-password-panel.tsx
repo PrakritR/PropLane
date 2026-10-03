@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Pencil } from "lucide-react";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
-  PortalSettingsFormBody,
+  PortalSettingsRow,
   PortalSettingsGroup,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
@@ -20,6 +22,8 @@ const MIN_PASSWORD_LENGTH = 8;
 export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: string }) {
   const { showToast } = useAppUi();
   const email = accountEmail.trim();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -52,17 +56,18 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
   const settingFirstPassword = hasPassword === false;
 
   const changePassword = async () => {
+    setError(null);
     if (!email) {
-      showToast("Sign in to change your password.");
+      setError("Sign in to change your password.");
       return;
     }
     // Only an account that HAS a password can be asked to confirm it.
     if (!settingFirstPassword && !oldPassword.trim()) {
-      showToast("Enter your current password.");
+      setError("Enter your current password.");
       return;
     }
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      showToast(
+      setError(
         settingFirstPassword
           ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
           : `New password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
@@ -70,11 +75,11 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
       return;
     }
     if (newPassword !== confirmPassword) {
-      showToast(settingFirstPassword ? "Passwords do not match." : "New passwords do not match.");
+      setError(settingFirstPassword ? "Passwords do not match." : "New passwords do not match.");
       return;
     }
     if (!settingFirstPassword && oldPassword === newPassword) {
-      showToast("Choose a new password that is different from your current one.");
+      setError("Choose a new password that is different from your current one.");
       return;
     }
 
@@ -87,20 +92,21 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
           password: oldPassword,
         });
         if (verifyError) {
-          showToast("Current password is incorrect.");
+          setError("Current password is incorrect.");
           return;
         }
       }
 
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
-        showToast(error.message || "Could not update password.");
+        setError(error.message || "Could not update password.");
         return;
       }
 
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setOpen(false);
       if (settingFirstPassword) {
         // The account now has one, so this panel becomes the ordinary update flow —
         // including the current-password confirmation — without a reload.
@@ -110,7 +116,7 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
       }
       showToast("Password updated.");
     } catch {
-      showToast("Could not update password.");
+      setError("Could not update password.");
     } finally {
       setPasswordBusy(false);
     }
@@ -134,94 +140,48 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
     }
   };
 
-  return (
-    <PortalSettingsSection
-      title="Login & security"
-      action={
-        resolved ? (
-          <Button
-            type="button"
-            variant="primary"
-            className="px-4 text-[13px]"
-            data-attr={settingFirstPassword ? "set-password" : "update-password"}
-            disabled={passwordBusy || resetBusy}
-            onClick={() => changePassword()}
-          >
-            {passwordBusy
-              ? settingFirstPassword
-                ? "Setting…"
-                : "Updating…"
-              : settingFirstPassword
-                ? "Set password"
-                : "Update password"}
-          </Button>
-        ) : undefined
-      }
-    >
-      <PortalSettingsGroup>
-        <PortalSettingsFormBody>
-          {!resolved ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {settingFirstPassword ? null : (
-                  <div className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="portal-old-password">
-                      Current password
-                    </label>
-                    <PasswordInput
-                      id="portal-old-password"
-                      value={oldPassword}
-                      onChange={(e) => setOldPassword(e.target.value)}
-                      autoComplete="current-password"
-                      disabled={passwordBusy || resetBusy}
-                    />
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="portal-new-password">
-                    {settingFirstPassword ? "Password" : "New password"}
-                  </label>
-                  <PasswordInput
-                    id="portal-new-password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={passwordBusy || resetBusy}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="portal-confirm-password">
-                    {settingFirstPassword ? "Confirm password" : "Confirm new password"}
-                  </label>
-                  <PasswordInput
-                    id="portal-confirm-password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={passwordBusy || resetBusy}
-                  />
-                </div>
-              </div>
+  const close = () => {
+    if (passwordBusy || resetBusy) return;
+    setOpen(false);
+    setOldPassword(""); setNewPassword(""); setConfirmPassword(""); setError(null);
+  };
 
-              {settingFirstPassword ? null : (
-                <p className="text-sm leading-relaxed text-muted">
-                  Forgot your current password?{" "}
-                  <button
-                    type="button"
-                    className="font-medium text-foreground underline underline-offset-2 transition hover:opacity-80 disabled:opacity-60"
-                    disabled={resetBusy || passwordBusy || !email}
-                    onClick={() => void sendResetLink()}
-                  >
-                    {resetBusy ? "Sending…" : "Send a reset link to your email"}
-                  </button>
-                </p>
-              )}
-            </>
-          )}
-        </PortalSettingsFormBody>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+  return (
+    <>
+      <PortalSettingsSection title="Sign in">
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Email"><span className="break-all text-[15px] text-muted">{email}</span></PortalSettingsRow>
+          <PortalSettingsRow label="Password">
+            <div className="flex items-center gap-3">
+              <span className="text-[15px] text-muted">{!resolved ? "Loading…" : settingFirstPassword ? "Not set" : "••••••••"}</span>
+              <PortalIconAction icon={Pencil} label={settingFirstPassword ? "Set password" : "Change password"} disabled={!resolved}
+                onClick={() => { setError(null); setOpen(true); }} />
+            </div>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <PortalDialog open={open} onClose={close} title={settingFirstPassword ? "Set password" : "Change password"}
+        primaryAction={{ label: settingFirstPassword ? "Set password" : "Update password", onClick: changePassword,
+          disabled: passwordBusy || resetBusy, dataAttr: settingFirstPassword ? "set-password" : "update-password" }}>
+        <div className="space-y-4">
+          {!settingFirstPassword ? <div className="space-y-2">
+            <label htmlFor="portal-old-password" className="text-xs font-medium uppercase text-muted">Current password</label>
+            <PasswordInput id="portal-old-password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} autoComplete="current-password" disabled={passwordBusy || resetBusy} />
+          </div> : null}
+          <div className="space-y-2">
+            <label htmlFor="portal-new-password" className="text-xs font-medium uppercase text-muted">{settingFirstPassword ? "Password" : "New password"}</label>
+            <PasswordInput id="portal-new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" disabled={passwordBusy || resetBusy} />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="portal-confirm-password" className="text-xs font-medium uppercase text-muted">Confirm password</label>
+            <PasswordInput id="portal-confirm-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" disabled={passwordBusy || resetBusy} />
+          </div>
+          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+          {!settingFirstPassword ? <button type="button" className="text-sm text-primary" disabled={resetBusy || passwordBusy || !email} onClick={sendResetLink}>
+            {resetBusy ? "Sending…" : "Send a reset link to your email"}
+          </button> : null}
+        </div>
+      </PortalDialog>
+    </>
   );
 }

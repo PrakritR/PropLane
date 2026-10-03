@@ -28,10 +28,10 @@ export function PortalSettingsSection({
 }) {
   return (
     <PortalTitleActionsProvider>
-      <section className="space-y-3">
+      <section data-slot="settings-section" className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{title}</h2>
+            <h2 className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{title}</h2>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
@@ -46,7 +46,7 @@ export function PortalSettingsSection({
 
 export function PortalSettingsGroup({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-hidden rounded-2xl border border-border bg-card", className)}>{children}</div>
+    <div className={cn("overflow-hidden rounded-xl border border-border bg-card", className)}>{children}</div>
   );
 }
 
@@ -68,14 +68,14 @@ export function PortalSettingsRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-b border-border px-4 py-3.5 last:border-0",
+        "flex min-h-12 items-center justify-between gap-4 border-b border-border px-4 py-2 last:border-0",
         className,
       )}
     >
       <div className="min-w-0">
-        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="text-[15px] font-normal text-foreground">{label}</p>
       </div>
-      {children ? <div className="shrink-0">{children}</div> : null}
+      {children ? <div className="min-w-0 text-right">{children}</div> : null}
     </div>
   );
 }
@@ -172,7 +172,7 @@ export function PortalSettingsDisclosureRow({
         className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left"
       >
         <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">{label}</p>
+          <p className="text-[15px] font-normal text-foreground">{label}</p>
         </div>
         <ChevronRight
           className={cn("h-4 w-4 shrink-0 text-muted transition-transform", open ? "rotate-90" : undefined)}
@@ -245,13 +245,13 @@ export function PortalSettingsLockedRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-b border-border px-4 py-3.5 last:border-0",
+        "flex min-h-12 items-center justify-between gap-4 border-b border-border px-4 py-2 last:border-0",
         className,
       )}
     >
       <div className="min-w-0">
         <p
-          className="flex items-center gap-1.5 text-sm font-medium text-foreground/70"
+          className="flex items-center gap-1.5 text-[15px] font-normal text-foreground/70"
           title={typeof reason === "string" ? reason : undefined}
         >
           <Lock className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
@@ -378,14 +378,14 @@ export function PortalSettingsLinkRow({
     <>
       {icon ? (
         <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent/60 text-muted"
+          className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg bg-accent/60 text-muted"
           aria-hidden
         >
           {icon}
         </span>
       ) : null}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="text-[15px] font-normal text-foreground">{label}</p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 text-sm text-muted">
         {value ? <span className="max-w-[10rem] truncate">{value}</span> : null}
@@ -395,7 +395,7 @@ export function PortalSettingsLinkRow({
   );
 
   const className =
-    "flex w-full items-center justify-between gap-4 border-b border-border px-4 py-3.5 text-left transition-colors last:border-0 hover:bg-accent/40";
+    "flex min-h-[52px] w-full items-center justify-between gap-4 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40";
 
   if (href) {
     return (
@@ -495,7 +495,7 @@ export function PortalSettingsNav({
         // own <nav> — never a `sticky` block capped at 100dvh inside a shorter
         // scroll body, which clipped the last item ("Services") out of reach.
         // The right-hand content column scrolls independently (portal-profile-client).
-        "flex w-60 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/60 p-2.5 lg:h-full lg:min-h-0 lg:self-stretch",
+        "flex w-60 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card/60 p-2.5 lg:h-full lg:min-h-0 lg:self-stretch",
         className,
       )}
     >
