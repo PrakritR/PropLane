@@ -6,6 +6,7 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { householdChargeProplanePayability } from "@/lib/household-charge-payment-eligibility";
 import { enrichHouseholdChargesFromPropertyRecordsResult } from "@/lib/household-charge-payment-eligibility.server";
 import {
+  atSigningChargeGatesSignature,
   atSigningTotalCents,
   chargesForLeaseSigning,
   unpaidAtSigningCharges,
@@ -92,11 +93,12 @@ export async function loadAtSigningChargesForLease(
  * `ok: false`, which the signature route answers 503 and the resident retries - because reading it as
  * "collects offline" is what let every owed line drop out of `unpaid` after one failed property read.
  *
- * Only a line STAMPED with its payment snapshot when it was created gates the signature. A line created
- * before the gate existed carries no snapshot, and on the server its listing may be unresolvable for
- * good (`getPropertyById` reads a catalog that exists only in a manager's browser) - so gating on it
- * would be a permanent 503 inviting a retry that can never succeed. Those lines stay owed and payable
- * exactly as they were; they simply do not lock Sign.
+ * Only a line created at or after {@link AT_SIGNING_GATE_RELEASED_AT} gates the signature. A line
+ * created before the gate existed is owed and payable exactly as it was and simply does not lock Sign,
+ * because its listing may be unresolvable on the server for good (`getPropertyById` reads a catalog that
+ * exists only in a manager's browser) - gating on it would be a permanent 503 inviting a retry that can
+ * never succeed. The test is CREATION TIME, never the presence of the payment snapshot: a brand-new line
+ * can miss its stamp, and exempting it would reopen the hole this gate closes.
  */
 export async function checkResidentAtSigningGate(
   db: SupabaseClient,
@@ -111,7 +113,7 @@ export async function checkResidentAtSigningGate(
     return charge.residentEmail.trim().toLowerCase() === input.residentEmail.trim().toLowerCase();
   });
   const owed = unpaidAtSigningCharges(mine);
-  const gating = owed.filter((charge) => typeof charge.axisPaymentsEnabledSnapshot === "boolean");
+  const gating = owed.filter((charge) => atSigningChargeGatesSignature(charge));
   if (gating.length === 0) return { ok: true, unpaid: [], unpaidCents: 0 };
   const { charges: enriched, lookupFailed } = await enrichHouseholdChargesFromPropertyRecordsResult(db, gating);
   const payability = enriched.map((charge) => householdChargeProplanePayability(charge));

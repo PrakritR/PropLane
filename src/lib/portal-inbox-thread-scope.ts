@@ -14,7 +14,18 @@ export const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 export const VENDOR_INBOX_SCOPE = "axis_portal_inbox_vendor_v1";
 export const ADMIN_INBOX_SCOPE = "admin";
 
-export type InboxScopeUser = { id: string; email: string | null; role: string };
+export type InboxScopeUser = {
+  id: string;
+  email: string | null;
+  role: string;
+  /**
+   * The caller's own display name. A turn appended to a row the caller does NOT
+   * own is attributed from here, never from the body - `from` is what a human
+   * reads as the sender, so trusting the client let a co-manager write a turn
+   * that displays as the owner speaking.
+   */
+  name?: string | null;
+};
 
 export type PortalInboxThreadScopeOptions = {
   /**
@@ -81,11 +92,12 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(authUser.id, db)).kind === "denied") return null;
-  const { data: profile } = await db.from("profiles").select("email, role").eq("id", authUser.id).maybeSingle();
+  const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", authUser.id).maybeSingle();
   const admin = await isAdminUser(authUser.id);
 
   let actorId = authUser.id;
   let actorEmail = (profile?.email ?? authUser.email ?? "").trim().toLowerCase() || null;
+  let actorName = String(profile?.full_name ?? "").trim() || null;
   const role = admin ? "admin" : String(profile?.role ?? authUser.user_metadata?.role ?? "").toLowerCase();
 
   if (admin && scope !== ADMIN_INBOX_SCOPE) {
@@ -99,15 +111,20 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
           db,
         });
         actorId = effectiveId;
-        const { data: effectiveProfile } = await db.from("profiles").select("email").eq("id", effectiveId).maybeSingle();
+        const { data: effectiveProfile } = await db
+          .from("profiles")
+          .select("email, full_name")
+          .eq("id", effectiveId)
+          .maybeSingle();
         actorEmail = (effectiveProfile?.email ?? "").trim().toLowerCase() || null;
+        actorName = String(effectiveProfile?.full_name ?? "").trim() || null;
       }
     }
   }
 
   return {
     db,
-    user: { id: actorId, email: actorEmail, role },
+    user: { id: actorId, email: actorEmail, role, name: actorName },
   };
 }
 

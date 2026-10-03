@@ -17,7 +17,9 @@ import {
   mergeInboxThreadRowData,
   storedThreadMessageIds,
   type ThreadAppendRule,
+  type ThreadMergeRefusal,
 } from "@/lib/communication/shared-thread-merge";
+import { threadHouseIds } from "@/lib/communication/conversation-house-filter";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -26,6 +28,7 @@ import {
   RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
   VENDOR_INBOX_SCOPE,
+  type InboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
@@ -51,6 +54,77 @@ function normalizeInboxRow(row: Record<string, unknown>): PersistedInboxThread {
     id: String(stored.id ?? "").trim(),
     email: String(stored.email ?? stored.participantEmail ?? stored.participant_email ?? "").trim().toLowerCase(),
   } as PersistedInboxThread;
+}
+
+const APPEND_REFUSALS: Record<ThreadMergeRefusal, string> = {
+  inbound_turn_not_authorable: "Only the sender can add their own message to a shared conversation.",
+  owner_turn_not_authorable: "Only the sender can add their own message to a shared conversation.",
+  house_not_granted: "That message names a house you were not granted.",
+};
+
+/**
+ * What this caller may add to a row they are looking at.
+ *
+ * Append-only applies in EVERY scope. The manager scope reaches another owner's
+ * conversation through a Communication grant (a `delegate`); the resident and
+ * vendor scopes reach a manager-owned row because the caller IS the person it is
+ * with (a `participant`). Both are someone else's row, so the server attributes
+ * the turn; only a row the caller owns keeps the body's attribution.
+ */
+function appendRuleForCaller(input: {
+  user: InboxScopeUser;
+  priorOwnerUserId: string | null | undefined;
+  priorParticipantEmail: string | null | undefined;
+  priorRowData: unknown;
+  scope: CommunicationScope | null;
+}): ThreadAppendRule {
+  const priorOwner = String(input.priorOwnerUserId ?? "").trim();
+  if (!priorOwner || priorOwner === input.user.id) return { kind: "owner" };
+
+  const authorUserId = input.user.id;
+  const authorName = String(input.user.name ?? "").trim() || input.user.email || "A teammate";
+  if (input.scope) {
+    return {
+      kind: "delegate",
+      allowedHouses: grantedHouseIdsForOwner(input.scope, priorOwner),
+      conversationHouseIds: threadHouseIds(asRowData(input.priorRowData)),
+      authorUserId,
+      authorName,
+    };
+  }
+
+  const callerEmail = String(input.user.email ?? "").trim().toLowerCase();
+  const participant = String(input.priorParticipantEmail ?? "").trim().toLowerCase();
+  if (callerEmail && participant && callerEmail === participant) {
+    const rowData = asRowData(input.priorRowData);
+    return {
+      kind: "participant",
+      authorUserId,
+      authorName,
+      conversationHouseId:
+        String(rowData.propertyId ?? rowData.assignedPropertyId ?? rowData.rootHouseId ?? "").trim(),
+    };
+  }
+
+  // Neither the owner, a granted co-manager, nor the person it is with: nothing
+  // to add. The scope filter should not have returned this row at all.
+  return {
+    kind: "delegate",
+    allowedHouses: new Set<string>(),
+    conversationHouseIds: [],
+    authorUserId,
+    authorName,
+  };
+}
+
+function asRowData(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** How many turns a row is holding right now (not counting what an earlier clear tombstoned). */
+function turnCountOf(rowData: unknown): number {
+  const messages = asRowData(rowData).messages;
+  return Array.isArray(messages) ? messages.length : 0;
 }
 
 /** The PropLane Assistant conversation, the one thread whose turns may be cleared. */
@@ -429,7 +503,7 @@ export async function POST(req: Request) {
           tool_name: "inbox_thread_cleared",
           input_summary: { threadId: id, scope: scopeKey },
           result_summary: {
-            clearedMessages: storedThreadMessageIds((clearTarget as { row_data?: unknown }).row_data).length,
+            clearedMessages: turnCountOf((clearTarget as { row_data?: unknown }).row_data),
           },
           dedupe_key: null,
           created_at: new Date().toISOString(),
@@ -593,15 +667,13 @@ export async function POST(req: Request) {
         // Conversation history is append-only, for the owner as much as for a
         // co-manager: a body is a claim about history, and the only complete
         // copy is the stored one. Clearing or editing a turn has its own action.
-        const priorOwner = String(prior.owner_user_id ?? "").trim();
-        const rule: ThreadAppendRule =
-          priorOwner && priorOwner !== ctx.user.id && upsertScope
-            ? {
-                kind: "delegate",
-                allowedHouses: grantedHouseIdsForOwner(upsertScope, priorOwner),
-                authorUserId: ctx.user.id,
-              }
-            : { kind: "owner" };
+        const rule = appendRuleForCaller({
+          user: ctx.user,
+          priorOwnerUserId: prior.owner_user_id,
+          priorParticipantEmail: prior.participant_email,
+          priorRowData: prior.row_data,
+          scope: upsertScope,
+        });
         const merged = mergeInboxThreadRowData({
           stored: prior.row_data,
           requested: normalized as unknown as Record<string, unknown>,
@@ -609,15 +681,7 @@ export async function POST(req: Request) {
           knownElsewhere: await collapsedSiblingMessageIds(ctx.db, scopeKey, id, normalized),
         });
         if (!merged.ok) {
-          return NextResponse.json(
-            {
-              error:
-                merged.reason === "inbound_turn_not_authorable"
-                  ? "Only the sender can add their own message to a shared conversation."
-                  : "That message names a house you were not granted.",
-            },
-            { status: 403 },
-          );
+          return NextResponse.json({ error: APPEND_REFUSALS[merged.reason] }, { status: 403 });
         }
         record.row_data = merged.rowData;
       } else if (isTeamThreadId(id) || (ctx.user.role !== "admin" && isServerReservedInboxThreadId(id))) {

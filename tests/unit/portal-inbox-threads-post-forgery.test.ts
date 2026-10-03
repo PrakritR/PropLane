@@ -16,7 +16,7 @@ const VEN = "axis_portal_inbox_vendor_v1";
 const B = "acct-b";
 
 const state = vi.hoisted(() => ({
-  viewer: { id: "", email: "", role: "manager" },
+  viewer: { id: "", email: "", role: "manager", name: "" },
   db: null as unknown,
   /** Stand in for a Communication grant on another owner's conversation. */
   seesOtherOwners: false,
@@ -26,8 +26,19 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveInboxScopeUser: async () => ({ user: { ...state.viewer }, db: state.db }),
-  applyPortalInboxThreadScope: (query: { eq: (col: string, id: string) => unknown }, user: { id: string }) =>
-    state.seesOtherOwners ? query : query.eq("owner_user_id", user.id),
+  applyPortalInboxThreadScope: (
+    query: { eq: (col: string, id: string) => unknown },
+    user: { id: string },
+    _extraOwnerIds?: string[],
+    options?: { participantOnlyWhenUnowned?: boolean },
+  ) => {
+    if (state.seesOtherOwners) return query;
+    // Manager Communication matches the viewer's email only on owner-less rows;
+    // the resident / vendor scopes keep the plain participant match, so a row
+    // another account owns IS reachable there.
+    if (options?.participantOnlyWhenUnowned) return query.eq("owner_user_id", user.id);
+    return query;
+  },
 }));
 vi.mock("@/lib/communication/conversation-visibility.server", () => ({
   resolveCommunicationScope: async () => ({
@@ -103,7 +114,7 @@ const forged = (scope: string, extra: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
-  state.viewer = { id: B, email: "b@example.test", role: "manager" };
+  state.viewer = { id: B, email: "b@example.test", role: "manager", name: "Bea Co-Manager" };
   state.seesOtherOwners = false;
   state.grantedHouses = ["H1"];
   state.db = seed();
@@ -210,15 +221,20 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
         unread: false,
         messages: [
           { id: "m1", body: "about house 1", at: "Oct 2", houseId: "H1" },
-          { id: "m3", body: "my reply", at: "Oct 3", houseId: "H1", outbound: true },
+          { id: "m3", body: "my reply", at: "Oct 3", houseId: "H1", outbound: true, from: "The Owner" },
         ],
       },
     });
     expect(res.status).toBe(200);
-    const stored = rows()[0] as { owner_user_id: string; row_data: { unread: boolean; messages: { id: string }[] } };
+    const stored = rows()[0] as {
+      owner_user_id: string;
+      row_data: { unread: boolean; messages: { id: string; from?: string }[] };
+    };
     expect(stored.owner_user_id).toBe("owner-1");
     expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
     expect(stored.row_data.unread).toBe(false);
+    // The sender a human reads comes from the caller's own profile, not the body.
+    expect(stored.row_data.messages.at(-1)?.from).toBe("Bea Co-Manager");
   });
 
   it("refuses a co-manager inventing an INBOUND turn on another owner's conversation", async () => {
@@ -313,8 +329,75 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     expect((rows()[0] as { row_data: { messages: unknown[] } }).row_data.messages).toHaveLength(1);
   });
 
+  it("a resident on a manager-OWNED thread appends as themselves, never as the manager", async () => {
+    // The resident reaches this row because they are the person it is with, not
+    // because they own it, so the server attributes their turn.
+    state.viewer = { id: "res-1", email: "tenant@example.test", role: "resident", name: "Rae Resident" };
+    state.db = seed(["resident"]);
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "property_mgr_h1_res1",
+      scope: RES,
+      owner_user_id: "owner-1",
+      participant_email: "tenant@example.test",
+      thread_type: "portal_message",
+      row_data: {
+        id: "property_mgr_h1_res1",
+        folder: "inbox",
+        propertyId: "H1",
+        messages: [{ id: "m1", body: "welcome", at: "Oct 1", outbound: true, from: "Property manager" }],
+      },
+    });
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "property_mgr_h1_res1",
+        scope: RES,
+        folder: "inbox",
+        messages: [
+          { id: "m1", body: "welcome", at: "Oct 1", outbound: true, from: "Property manager" },
+          { id: "mine", body: "the sink leaks", at: "Oct 2", outbound: true, from: "Property manager" },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+    const stored = rows()[0] as { row_data: { messages: Record<string, unknown>[] } };
+    expect(stored.row_data.messages).toHaveLength(2);
+    expect(stored.row_data.messages.at(-1)).toMatchObject({
+      body: "the sink leaks",
+      from: "Rae Resident",
+      outbound: false,
+      authorUserId: "res-1",
+      houseId: "H1",
+    });
+  });
+
+  it("a resident cannot delete the manager's turns on that thread", async () => {
+    state.viewer = { id: "res-1", email: "tenant@example.test", role: "resident", name: "Rae Resident" };
+    state.db = seed(["resident"]);
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "property_mgr_h1_res1",
+      scope: RES,
+      owner_user_id: "owner-1",
+      participant_email: "tenant@example.test",
+      thread_type: "portal_message",
+      row_data: {
+        id: "property_mgr_h1_res1",
+        folder: "inbox",
+        messages: [{ id: "m1", body: "welcome", at: "Oct 1" }],
+      },
+    });
+    const res = await post({
+      action: "upsert",
+      row: { id: "property_mgr_h1_res1", scope: RES, folder: "trash", messages: [] },
+    });
+    expect(res.status).toBe(200);
+    const stored = rows()[0] as { row_data: { messages: { id: string }[]; folder: string } };
+    expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1"]);
+    expect(stored.row_data.folder).toBe("trash");
+  });
+
   it("lets an admin write the admin inbox", async () => {
-    state.viewer = { id: "adm", email: "adm@example.test", role: "admin" };
+    state.viewer = { id: "adm", email: "adm@example.test", role: "admin", name: "Admin" };
     const res = await post({ action: "upsert", row: { id: "admin_msg_1", scope: "admin", folder: "inbox", email: "x@example.test" } });
     expect(res.status).toBe(200);
     expect(rows()[0]).toMatchObject({ scope: "admin", owner_user_id: null });

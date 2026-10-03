@@ -1,10 +1,10 @@
 /**
  * Merging a BROWSER's copy of a stored conversation back into the row.
  *
- * Conversation history is APPEND-ONLY, for the owner as much as for a
- * co-manager. A save may add turns and change the per-viewer mailbox fields;
- * it can never remove, reorder or rewrite a turn the server already holds.
- * Editing or clearing history goes through its own explicit action.
+ * Conversation history is APPEND-ONLY, whoever is saving. A save may add turns
+ * and change the per-viewer mailbox fields; it can never remove, reorder or
+ * rewrite a turn the server already holds. Clearing history is its own
+ * explicit, audited action.
  *
  * Two things made that necessary:
  *
@@ -15,31 +15,56 @@
  *  - a body is a client's claim about history, so a wholesale write could edit
  *    a resident's inbound message or delete it, on the owner's own thread too.
  *
- * On another owner's thread the turns a delegate may ADD are narrowed further:
- * only their own OUTGOING turns, only about houses they hold. An inbound turn
- * is the counterparty speaking, which no co-manager may author.
+ * A turn added to a row the caller does NOT own is attributed by the SERVER,
+ * never by the body: `from`, `outbound` and the house come from who the caller
+ * is to that conversation. `from` is the field a human reads as the sender, so
+ * trusting it let a co-manager write a turn that displays as the owner speaking.
  */
 
 /** A synthetic root (`<threadId>-root`, or `merged:`) is derived at render time, never a stored turn. */
 const DERIVED_MESSAGE_ID = /(?:^merged:|-root$)/;
+
+/** How many cleared-turn tombstones a row keeps. Enough to outlive any stale tab. */
+const MAX_CLEARED_TOMBSTONES = 500;
 
 type Turn = Record<string, unknown>;
 
 /**
  * Who is saving, and what they may add.
  *
- *  - `owner`: the row is theirs (or an unowned admin row). Append-only, no
- *    further narrowing - the server writes into this thread too.
+ *  - `owner`: the row is theirs (or an unowned legacy / admin row). Append-only,
+ *    no further narrowing - the server writes into this thread too.
  *  - `delegate`: another owner's conversation, reached through a Communication
- *    grant. Only their own outgoing turns, only about `allowedHouses`.
+ *    grant. They speak for the management side, so only OUTGOING turns, only
+ *    about a house they hold.
+ *  - `participant`: the person the conversation is WITH, on a row the other
+ *    party owns (a resident or vendor on a manager-owned thread). They are the
+ *    counterparty, so their turn is inbound from the owner's point of view and
+ *    they may never author the owner's side.
  */
 export type ThreadAppendRule =
   | { kind: "owner" }
-  | { kind: "delegate"; allowedHouses: ReadonlySet<string>; authorUserId: string };
+  | {
+      kind: "delegate";
+      allowedHouses: ReadonlySet<string>;
+      /** The houses this conversation is already about, used to stamp an untagged turn. */
+      conversationHouseIds: readonly string[];
+      authorUserId: string;
+      authorName: string;
+    }
+  | {
+      kind: "participant";
+      authorUserId: string;
+      authorName: string;
+      /** The house the conversation is about, stamped on the appended turn when there is one. */
+      conversationHouseId: string;
+    };
+
+export type ThreadMergeRefusal = "inbound_turn_not_authorable" | "owner_turn_not_authorable" | "house_not_granted";
 
 export type ThreadMergeResult =
   | { ok: true; rowData: Record<string, unknown> }
-  | { ok: false; reason: "inbound_turn_not_authorable" | "house_not_granted" };
+  | { ok: false; reason: ThreadMergeRefusal };
 
 function turns(value: unknown): Turn[] {
   return Array.isArray(value) ? (value as Turn[]) : [];
@@ -53,7 +78,18 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-/** Every message id a row already accounts for, its derived root included. */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => str(item)).filter(Boolean) : [];
+}
+
+/**
+ * Every message id a row already accounts for: its turns, its derived root, and
+ * the turns an explicit Clear removed.
+ *
+ * The tombstones are what makes a Clear durable. Without them a cleared row
+ * knows nothing, so a second tab still holding the pre-clear copy re-appended
+ * every turn on its next ordinary save.
+ */
 export function storedThreadMessageIds(rowData: unknown): string[] {
   const row = asRecord(rowData);
   const out: string[] = [];
@@ -63,6 +99,7 @@ export function storedThreadMessageIds(rowData: unknown): string[] {
     const id = str(turn?.id);
     if (id) out.push(id);
   }
+  out.push(...stringList(row.clearedMessageIds));
   return out;
 }
 
@@ -89,15 +126,44 @@ function unseenTurns(
   });
 }
 
-/** A delegate's appended turn, checked and stamped — or the reason it is refused. */
-function authorDelegateTurn(
+/** The house a delegate's appended turn is about: the one they named, else the conversation's own. */
+function delegateHouseFor(turn: Turn, rule: Extract<ThreadAppendRule, { kind: "delegate" }>): string {
+  const named = str(turn.houseId);
+  if (named) return named;
+  const shared = [...rule.allowedHouses].filter((id) => rule.conversationHouseIds.includes(id));
+  if (shared.length === 1) return shared[0]!;
+  if (rule.conversationHouseIds.length === 0 && rule.allowedHouses.size === 1) {
+    return [...rule.allowedHouses][0]!;
+  }
+  return "";
+}
+
+/** A turn appended to someone else's row, attributed by the server — or the reason it is refused. */
+function authorForeignTurn(
   turn: Turn,
-  rule: Extract<ThreadAppendRule, { kind: "delegate" }>,
-): { ok: true; turn: Turn } | { ok: false; reason: "inbound_turn_not_authorable" | "house_not_granted" } {
+  rule: Exclude<ThreadAppendRule, { kind: "owner" }>,
+): { ok: true; turn: Turn } | { ok: false; reason: ThreadMergeRefusal } {
+  if (rule.kind === "participant") {
+    // They are the counterparty: from the owner's point of view this is inbound,
+    // and the owner's own side is never theirs to write.
+    return {
+      ok: true,
+      turn: {
+        ...turn,
+        from: rule.authorName,
+        outbound: false,
+        authorUserId: rule.authorUserId,
+        ...(rule.conversationHouseId ? { houseId: rule.conversationHouseId } : {}),
+      },
+    };
+  }
   if (turn.outbound !== true) return { ok: false, reason: "inbound_turn_not_authorable" };
-  const houseId = str(turn.houseId);
-  if (houseId && !rule.allowedHouses.has(houseId)) return { ok: false, reason: "house_not_granted" };
-  return { ok: true, turn: { ...turn, authorUserId: rule.authorUserId } };
+  const houseId = delegateHouseFor(turn, rule);
+  if (!houseId || !rule.allowedHouses.has(houseId)) return { ok: false, reason: "house_not_granted" };
+  return {
+    ok: true,
+    turn: { ...turn, from: rule.authorName, outbound: true, houseId, authorUserId: rule.authorUserId },
+  };
 }
 
 /**
@@ -121,7 +187,7 @@ export function mergeInboxThreadRowData(input: {
       appended.push(candidate);
       continue;
     }
-    const authored = authorDelegateTurn(candidate, input.rule);
+    const authored = authorForeignTurn(candidate, input.rule);
     if (!authored.ok) return { ok: false, reason: authored.reason };
     appended.push(authored.turn);
   }
@@ -148,12 +214,20 @@ export function mergeInboxThreadRowData(input: {
   };
 }
 
-/** The row an explicit Clear leaves behind: the conversation stays, its turns go. */
+/**
+ * The row an explicit Clear leaves behind: the conversation stays, its turns go.
+ *
+ * The ids it removed are kept as tombstones so the append-only merge still
+ * knows them - a tab that was holding the pre-clear copy would otherwise put
+ * every cleared turn straight back on its next save.
+ */
 export function clearedInboxThreadRowData(
   storedRowData: unknown,
   placeholder: { preview?: string; subject?: string; from?: string },
+  clearedAtIso = new Date().toISOString(),
 ): Record<string, unknown> {
   const stored = asRecord(storedRowData);
+  const tombstones = [...new Set(storedThreadMessageIds(stored))].slice(-MAX_CLEARED_TOMBSTONES);
   const next: Record<string, unknown> = {
     ...stored,
     messages: [],
@@ -163,6 +237,8 @@ export function clearedInboxThreadRowData(
     time: "",
     subject: str(placeholder.subject) || stored.subject,
     from: str(placeholder.from) || stored.from,
+    clearedAt: clearedAtIso,
+    ...(tombstones.length ? { clearedMessageIds: tombstones } : {}),
   };
   delete next.aiDraft;
   delete next.aiDraftQueue;

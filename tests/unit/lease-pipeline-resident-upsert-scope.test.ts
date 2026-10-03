@@ -996,6 +996,8 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
       id,
       kind,
       status,
+      // Created after the gate shipped: creation time is what makes a line gate.
+      createdAt: "2026-10-03T12:00:00.000Z",
       applicationId: APPLICATION_ID,
       residentEmail: RESIDENT_EMAIL,
       residentUserId: RESIDENT_ID,

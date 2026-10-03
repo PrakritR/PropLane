@@ -191,12 +191,13 @@ describe("the signing gate reads the server's charges", () => {
     expect(gate).toMatchObject({ ok: true, unpaidCents: 0 });
   });
 
-  it("a line created before the gate existed (no snapshot) never locks Sign", async () => {
+  it("a line created BEFORE the gate shipped never locks Sign", async () => {
     // Its listing is unresolvable on the server for good, so gating on it would
     // be a permanent 503 inviting a retry that can never succeed.
     for (const row of tables.portal_household_charge_records!) {
       const data = row.row_data as Record<string, unknown>;
       delete data.axisPaymentsEnabledSnapshot;
+      data.createdAt = "2026-09-30T00:00:00.000Z";
     }
     payable.on = null;
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
@@ -205,6 +206,39 @@ describe("the signing gate reads the server's charges", () => {
       residentEmail: EMAIL,
     });
     expect(gate).toMatchObject({ ok: true, unpaidCents: 0 });
+  });
+
+  it("a line created AFTER the gate shipped gates even with no snapshot - 503, never skipped", async () => {
+    // The stamp is written where the manager's listing catalog is in reach, so a
+    // brand-new line can miss it. Reading "unstamped" as "legacy" would let the
+    // signature through with every at-signing line still owed.
+    for (const row of tables.portal_household_charge_records!) {
+      const data = row.row_data as Record<string, unknown>;
+      delete data.axisPaymentsEnabledSnapshot;
+      data.createdAt = "2026-11-01T00:00:00.000Z";
+    }
+    payable.on = null;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok).toBe(false);
+  });
+
+  it("a new line the server CAN resolve is judged from that, not refused", async () => {
+    for (const row of tables.portal_household_charge_records!) {
+      const data = row.row_data as Record<string, unknown>;
+      delete data.axisPaymentsEnabledSnapshot;
+      data.createdAt = "2026-11-01T00:00:00.000Z";
+    }
+    payable.on = true;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok && gate.unpaidCents).toBe(80_000);
   });
 
   it("only the signer's own lines gate them, and only for this lease", async () => {

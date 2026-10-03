@@ -30,6 +30,31 @@ export const AT_SIGNING_UNPAID_CODE = "AT_SIGNING_UNPAID";
 
 const SETTLED_STATUSES: ReadonlySet<HouseholdCharge["status"]> = new Set(["paid", "cancelled", "refunded"]);
 
+/**
+ * When the at-signing gate shipped. A line created from here on is gated; a line
+ * created before it never locks Sign.
+ *
+ * Creation TIME is the test, not the presence of `axisPaymentsEnabledSnapshot`.
+ * The stamp is written where the manager's listing catalog is in reach, so it can
+ * legitimately be missing on a brand-new charge (a property record carrying no
+ * `v === 1` listing submission) - and reading "unstamped" as "legacy, do not
+ * gate" would have let the signature through with every at-signing line owed.
+ * An unstamped line created after the cutoff is resolved server-side instead,
+ * and answers 503 when that cannot be determined.
+ */
+export const AT_SIGNING_GATE_RELEASED_AT = "2026-10-03T00:00:00.000Z";
+
+/**
+ * Does this line lock Sign until it is paid? Only one created at or after
+ * {@link AT_SIGNING_GATE_RELEASED_AT}. A charge whose `createdAt` cannot be read
+ * is treated as predating the gate, which is how every charge behaved before it.
+ */
+export function atSigningChargeGatesSignature(charge: Pick<HouseholdCharge, "createdAt">): boolean {
+  const created = Date.parse(String(charge.createdAt ?? ""));
+  if (!Number.isFinite(created)) return false;
+  return created >= Date.parse(AT_SIGNING_GATE_RELEASED_AT);
+}
+
 /* ------------------------------ the lease fee itself ------------------------------ */
 
 /**

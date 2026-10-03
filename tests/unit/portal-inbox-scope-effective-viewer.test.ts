@@ -5,9 +5,9 @@ const state = vi.hoisted(() => ({
   admin: true,
   effectiveId: "manager-target",
   profiles: {
-    "admin-actor": { email: "admin@example.com", role: "admin" },
-    "manager-target": { email: "manager@example.com", role: "manager" },
-  } as Record<string, { email?: string; role?: string }>,
+    "admin-actor": { email: "admin@example.com", role: "admin", full_name: "Ada Admin" },
+    "manager-target": { email: "manager@example.com", role: "manager", full_name: "Mo Manager" },
+  } as Record<string, { email?: string; role?: string; full_name?: string }>,
   effective: vi.fn(),
 }));
 
@@ -65,7 +65,14 @@ describe("portal inbox effective viewer composition", () => {
   it("resolves an authenticated admin's manager scope to the effective manager identity", async () => {
     const resolved = await resolveInboxScopeUser("axis_portal_inbox_manager_v1");
 
-    expect(resolved?.user).toEqual({ id: "manager-target", email: "manager@example.com", role: "admin" });
+    // The NAME follows the effective identity too: a turn appended to someone
+    // else's row is attributed from it, so it must never stay the admin's.
+    expect(resolved?.user).toEqual({
+      id: "manager-target",
+      email: "manager@example.com",
+      role: "admin",
+      name: "Mo Manager",
+    });
     expect(state.effective).toHaveBeenCalledWith("manager");
     expect(db.from).toHaveBeenCalledWith("profiles");
   });
@@ -73,7 +80,12 @@ describe("portal inbox effective viewer composition", () => {
   it("keeps admin scope on the authenticated admin and does not compose a portal target", async () => {
     const resolved = await resolveInboxScopeUser("admin");
 
-    expect(resolved?.user).toEqual({ id: "admin-actor", email: "admin@example.com", role: "admin" });
+    expect(resolved?.user).toEqual({
+      id: "admin-actor",
+      email: "admin@example.com",
+      role: "admin",
+      name: "Ada Admin",
+    });
     expect(state.effective).not.toHaveBeenCalled();
   });
 

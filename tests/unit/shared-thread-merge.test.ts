@@ -8,9 +8,9 @@ import {
 
 /**
  * Conversation history is append-only. A body is a client's CLAIM about
- * history - it can add a turn, never remove, reorder or rewrite one - and on
- * another owner's conversation a delegate may only add their own outgoing turns
- * about houses they hold.
+ * history - it can add a turn, never remove, reorder or rewrite one - and a turn
+ * added to a row the caller does not own is attributed by the SERVER, from who
+ * the caller is to that conversation.
  */
 
 const stored = () => ({
@@ -23,6 +23,7 @@ const stored = () => ({
   body: "root",
   time: "Oct 1, 9:00 AM",
   preview: "root",
+  propertyId: "H1",
   messages: [
     { id: "m1", body: "about house 1", at: "Oct 2, 9:00 AM", houseId: "H1" },
     { id: "m2", body: "about house 2", at: "Oct 2, 10:00 AM", houseId: "H2" },
@@ -30,10 +31,18 @@ const stored = () => ({
 });
 
 const owner: ThreadAppendRule = { kind: "owner" };
-const delegate = (houses: string[]): ThreadAppendRule => ({
+const delegate = (houses: string[], conversationHouseIds = ["H1", "H2"]): ThreadAppendRule => ({
   kind: "delegate",
   allowedHouses: new Set(houses),
+  conversationHouseIds,
   authorUserId: "co-1",
+  authorName: "Dana Co-Manager",
+});
+const participant = (conversationHouseId = "H1"): ThreadAppendRule => ({
+  kind: "participant",
+  authorUserId: "res-1",
+  authorName: "Rae Resident",
+  conversationHouseId,
 });
 
 function merge(requested: Record<string, unknown>, rule: ThreadAppendRule = owner, knownElsewhere?: string[]) {
@@ -59,7 +68,7 @@ describe("append-only for every caller", () => {
     expect(result.ok && result.rowData.messages).toEqual(stored().messages);
   });
 
-  it("accepts a turn the viewer is adding, appended after the stored ones", () => {
+  it("accepts a turn the owner is adding, appended after the stored ones", () => {
     const withReply = {
       ...stored(),
       messages: [stored().messages[0]!, { id: "m3", body: "my reply", at: "Oct 3, 8:00 AM", outbound: true }],
@@ -79,8 +88,6 @@ describe("append-only for every caller", () => {
   });
 
   it("does not duplicate a sibling row's turns back into the canonical row", () => {
-    // The list GET folds several rows into one conversation, so the body
-    // legitimately carries the siblings' turns.
     const collapsed = {
       ...stored(),
       messages: [...stored().messages, { id: "s1", body: "from the archived row", at: "Sep 1" }],
@@ -110,7 +117,7 @@ describe("append-only for every caller", () => {
   });
 });
 
-describe("what a delegate may add to another owner's conversation", () => {
+describe("what a co-manager may add to another owner's conversation", () => {
   it("refuses an invented INBOUND turn - only the counterparty speaks for themselves", () => {
     const forged = {
       ...stored(),
@@ -133,24 +140,38 @@ describe("what a delegate may add to another owner's conversation", () => {
     expect(merge(wrongHouse, delegate(["H1"]))).toEqual({ ok: false, reason: "house_not_granted" });
   });
 
-  it("accepts their own outgoing turn about a house they hold, stamped with who typed it", () => {
-    const own = {
+  it("attributes the turn to the CALLER, whatever the body claims", () => {
+    const impersonating = {
       ...stored(),
-      messages: [...stored().messages, { id: "x", outbound: true, houseId: "H1", body: "on my way", at: "Oct 4" }],
+      messages: [
+        ...stored().messages,
+        { id: "x", outbound: true, houseId: "H1", from: "The Owner", body: "on my way", at: "Oct 4" },
+      ],
     };
-    const result = merge(own, delegate(["H1"]));
+    const result = merge(impersonating, delegate(["H1"]));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const added = (result.rowData.messages as { id: string; authorUserId?: string }[]).at(-1);
-    expect(added).toMatchObject({ id: "x", authorUserId: "co-1" });
+    const added = (result.rowData.messages as { from: string; authorUserId?: string }[]).at(-1);
+    expect(added).toMatchObject({ from: "Dana Co-Manager", authorUserId: "co-1", outbound: true });
   });
 
-  it("accepts an untagged outgoing reply - the thread's own house covers it", () => {
+  it("stamps the house when the conversation has exactly one they hold", () => {
     const untagged = {
       ...stored(),
       messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
     };
-    expect(merge(untagged, delegate(["H1"])).ok).toBe(true);
+    const result = merge(untagged, delegate(["H1"]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.rowData.messages as { houseId?: string }[]).at(-1)?.houseId).toBe("H1");
+  });
+
+  it("refuses an untagged turn when no single granted house can be named", () => {
+    const untagged = {
+      ...stored(),
+      messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
+    };
+    expect(merge(untagged, delegate(["H1", "H2"]))).toEqual({ ok: false, reason: "house_not_granted" });
   });
 
   it("a mailbox-only save with nothing new is always fine", () => {
@@ -158,11 +179,57 @@ describe("what a delegate may add to another owner's conversation", () => {
   });
 });
 
+describe("what the person a conversation is WITH may add to the owner's row", () => {
+  it("their reply is stored as the counterparty speaking, attributed to them", () => {
+    // The client stamps its own reply `outbound: true`; on the owner's row the
+    // owner's side is outbound, so a participant's turn can only be inbound.
+    const theirReply = {
+      ...stored(),
+      messages: [
+        ...stored().messages,
+        { id: "x", outbound: true, from: "Property manager", body: "when can you come?", at: "Oct 4" },
+      ],
+    };
+    const result = merge(theirReply, participant());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const added = (result.rowData.messages as Record<string, unknown>[]).at(-1);
+    expect(added).toMatchObject({
+      from: "Rae Resident",
+      outbound: false,
+      authorUserId: "res-1",
+      houseId: "H1",
+      body: "when can you come?",
+    });
+  });
+
+  it("still cannot delete the owner's turns", () => {
+    const result = merge({ ...stored(), messages: [] }, participant());
+    expect(result.ok && result.rowData.messages).toEqual(stored().messages);
+  });
+});
+
+describe("a caller who is neither the owner, a granted co-manager, nor the participant", () => {
+  it("can change mailbox state but can add nothing", () => {
+    const stranger: ThreadAppendRule = {
+      kind: "delegate",
+      allowedHouses: new Set<string>(),
+      conversationHouseIds: [],
+      authorUserId: "x-1",
+      authorName: "Nobody",
+    };
+    expect(merge({ ...stored(), unread: false }, stranger).ok).toBe(true);
+    const withTurn = { ...stored(), messages: [...stored().messages, { id: "x", outbound: true, body: "hi" }] };
+    expect(merge(withTurn, stranger)).toEqual({ ok: false, reason: "house_not_granted" });
+  });
+});
+
 describe("the explicit clear", () => {
-  it("empties the turns and keeps the conversation", () => {
+  it("empties the turns, keeps the conversation, and tombstones what it removed", () => {
     const cleared = clearedInboxThreadRowData(
       { ...stored(), aiDraft: { text: "draft" }, aiDraftQueue: ["x"] },
       { preview: "Ask me anything", subject: "PropLane Assistant", from: "PropLane Assistant" },
+      "2026-10-04T00:00:00.000Z",
     );
     expect(cleared.messages).toEqual([]);
     expect(cleared.body).toBe("");
@@ -173,10 +240,25 @@ describe("the explicit clear", () => {
     expect(cleared.aiDraftQueue).toBeUndefined();
     expect(cleared.rootMessageId).toBeUndefined();
     expect(cleared.conversationKey).toBe("acct:r1");
+    expect(cleared.clearedAt).toBe("2026-10-04T00:00:00.000Z");
+    expect(cleared.clearedMessageIds).toEqual(["m0", "m1", "m2"]);
   });
 
-  it("names every message a row accounts for, its derived root included", () => {
+  it("a stale tab cannot put the cleared turns back", () => {
+    const cleared = clearedInboxThreadRowData(stored(), { preview: "" });
+    // The second tab still holds the pre-clear copy and marks the row read.
+    const result = mergeInboxThreadRowData({
+      stored: cleared,
+      requested: { ...stored(), unread: false },
+      rule: owner,
+    });
+    expect(result.ok && result.rowData.messages).toEqual([]);
+    expect(result.ok && result.rowData.unread).toBe(false);
+  });
+
+  it("names every message a row accounts for, tombstones included", () => {
     expect(storedThreadMessageIds(stored())).toEqual(["m0", "m1", "m2"]);
+    expect(storedThreadMessageIds({ messages: [], clearedMessageIds: ["gone"] })).toEqual(["gone"]);
     expect(storedThreadMessageIds(null)).toEqual([]);
   });
 });
