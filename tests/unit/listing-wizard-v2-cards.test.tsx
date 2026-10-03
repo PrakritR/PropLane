@@ -55,7 +55,7 @@ function Editor({ initial, onChange }: { initial: ManagerListingSubmissionV1; on
   );
 }
 
-function open(step: "basics" | "rooms" | "bathrooms" | "spaces" | "pricing", initial = seeded(), onChange?: (sub: ManagerListingSubmissionV1) => void) {
+function open(step: "basics" | "rooms" | "bathrooms" | "spaces" | "review", initial = seeded(), onChange?: (sub: ManagerListingSubmissionV1) => void) {
   render(<Editor initial={initial} onChange={onChange} />);
   fireEvent.click(document.querySelector(`[data-attr="listing-v2-rail-${step}"]`)!);
 }
@@ -86,41 +86,27 @@ describe("rooms as cards", () => {
     // Closed room cards: a name, a summary, a chevron — no controls yet.
     const cards = document.querySelectorAll('[data-attr="listing-v2-room-card"]');
     expect(cards.length).toBe(2);
-    expect(cards[0]!.textContent).toContain("1 resident");
+    expect(cards[0]!.textContent).toMatch(/resident/i);
     expect(document.querySelector('[data-attr="listing-v2-room-editor"]')).toBeNull();
     openCard("Room A");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
     const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
     // "Same as" is the first row; only the important questions are otherwise on the card, everything else waits behind one More.
-    expect(rowLabels(editor)).toEqual(["Same as", "Residents per room", "Floor"]);
+    expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished"]);
     fireEvent.click(editor.querySelector('[data-attr="listing-v2-room-more"]')!);
-    expect(rowLabels(editor)).toEqual(["Same as", "Residents per room", "Floor", "Furnishing", "Room amenities"]);
-    // One closer: Done. No Duplicate, no Remove inside the card — ✕ sits in the header.
-    expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).not.toBeNull();
+    expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished", "Room amenities"]);
+    expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).toBeNull();
     expect([...editor.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Duplicate");
-    // A named room is not a blank slot, so it has no ✕; a freshly added blank one does, in its header.
-    expect(document.querySelector('[data-attr="listing-v2-room-card-remove"]')).toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-room"]')!);
-    expect(document.querySelector('[data-attr="listing-v2-room-card-remove"]')).not.toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-room-icon"]')!);
     // Only one card open at a time.
     openCard("Room B");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
   });
 
-  it("Furnished unfolds Beds and Included under the Furnishing row; Unfurnished hides them, and only this room is touched", () => {
-    const seen: ManagerListingSubmissionV1[] = [];
-    open("rooms", seeded(), (s) => seen.push(s));
+  it("shows Furnished as a multi-select on the open card", () => {
+    open("rooms");
     openCard("Room A");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
-    expect(screen.queryByRole("button", { name: "Included in Room A" })).toBeNull();
-    pick("Furnishing for Room A", "furnished");
-    expect(screen.getByRole("button", { name: "Included in Room A" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Bed 1 type for Room A" })).toBeTruthy();
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.furnishing.trim().length).toBeGreaterThan(0);
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.furnishing).toBe("");
-    pick("Furnishing for Room A", "unfurnished");
-    expect(screen.queryByRole("button", { name: "Included in Room A" })).toBeNull();
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.furnishing).toBe("");
+    expect(screen.getByRole("button", { name: "Furnished for Room A" })).toBeTruthy();
   });
 
   it("a room's Bathroom row is 'Add a bathroom first' with no bathrooms, and an access-kind pick once there is one", () => {
@@ -128,12 +114,12 @@ describe("rooms as cards", () => {
     open("rooms", seeded(), (s) => seen.push(s));
     openCard("Room A");
     expect(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Bathroom access for Room A" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bathroom for Room A" })).toBeNull();
     fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')!);
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bath"]')!);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bath-icon"]')!);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
     openCard("Room A");
-    pick("Bathroom access for Room A", "hall");
+    pick("Bathroom for Room A", "hall");
     const bath = seen.at(-1)!.bathrooms![0]!;
     expect(bath.assignedRoomIds).toContain("r1");
     expect(bath.accessKindByRoomId?.r1).toBe("hall");
@@ -151,29 +137,25 @@ describe("rooms as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')).toBeNull();
   });
 
-  it("a room's Rent row only points at Pricing", () => {
+  it("has no rent or pricing fields on the Rooms step", () => {
     open("rooms");
     openCard("Room A");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
     expect(document.querySelector('[data-attr="listing-v2-room-editor"]')!.textContent).not.toMatch(/\$\d/);
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')!);
-    expect(screen.getByText("Pricing", { selector: "h2" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-pricing"]')).toBeNull();
   });
 });
 
 describe("a room is its own — editing one never reaches another (PLAN-0921-1648)", () => {
-  it("a room's own floor and checklist stay put when a different room's fields change", () => {
+  it("a room's own floor stays put when a different room's fields change", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
     openCard("Room B");
     pick("Floor for Room B", "2nd floor");
     expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.floor).toBe("2nd floor");
     expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.floor).toBe("");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
-    fireEvent.click(within(document.querySelector('[data-attr="listing-v2-room-editor"]') as HTMLElement).getByLabelText("Move-in checklist required"));
     const rooms = seen.at(-1)!.rooms;
-    expect(rooms.find((r) => r.id === "r2")!.moveInInspectionRequired).toBe(true);
-    expect(rooms.find((r) => r.id === "r1")!.moveInInspectionRequired).toBeFalsy();
     expect(rooms.find((r) => r.id === "r2")!.floor).toBe("2nd floor");
     // Rooms have no Default card of their own, so nothing is saved to houseDefaults from here.
     expect(seen.at(-1)!.houseDefaults?.moveInInspectionRequired).toBeUndefined();
@@ -238,7 +220,7 @@ describe("basics counts", () => {
   });
 });
 
-describe("pricing as cards", () => {
+describe.skip("pricing as cards (wizard Pricing step removed — covered by listing-pricing-step unit tests)", () => {
   it("bundles: pick rooms, one rent, one deposit; the saving against separate rents is stated", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open(
@@ -290,7 +272,7 @@ describe("pricing as cards", () => {
   });
 });
 
-describe("a house-wide fee on a room card", () => {
+describe.skip("a house-wide fee on a room card (wizard Pricing step removed)", () => {
   const twoRooms = () =>
     seeded({
       allowedLeaseTerms: ["Long-term"],

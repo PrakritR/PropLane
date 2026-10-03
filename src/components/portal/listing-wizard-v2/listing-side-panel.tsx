@@ -77,7 +77,14 @@ function PanelNote({ title, children }: { title: string; children: React.ReactNo
 
 /* ─────────────────────── the listing itself ─────────────────────── */
 
-export function ListingPreviewPanel({ sub }: { sub: ManagerListingSubmissionV1 }) {
+export function ListingPreviewPanel({
+  sub,
+  highlightRoomId = null,
+}: {
+  sub: ManagerListingSubmissionV1;
+  /** Highlights the open room card in the preview (wizard Rooms step). */
+  highlightRoomId?: string | null;
+}) {
   const rooms = sub.rooms ?? [];
   const photos =
     (sub.housePhotoDataUrls ?? []).length +
@@ -94,14 +101,14 @@ export function ListingPreviewPanel({ sub }: { sub: ManagerListingSubmissionV1 }
   return (
     <PanelSection title="Listing preview">
       <Cover photos={photos} />
-      <p className="mt-2.5 text-[19px] font-extrabold tracking-tight text-foreground">
+      <p className="mt-2.5 text-[19px] font-extrabold tracking-tight text-foreground pr9-pv-price" data-attr="listing-v2-preview-price">
         {from > 0 ? (
           <>
             From {usd(from)}
             <span className="text-[12.5px] font-medium text-muted"> a month</span>
           </>
         ) : (
-          <span className="text-[13px] font-semibold text-[var(--status-pending-fg)]">Rent not set</span>
+          <span className="text-[13px] font-semibold text-[var(--status-pending-fg)]">Price not set</span>
         )}
       </p>
       <h4 className="text-[14.5px] font-bold text-foreground">
@@ -118,6 +125,7 @@ export function ListingPreviewPanel({ sub }: { sub: ManagerListingSubmissionV1 }
           ["Available", listingAvailabilityFact(rooms)],
         ]}
       />
+      {highlightRoomId ? <span className="sr-only" data-attr="listing-v2-preview-highlight-room">{highlightRoomId}</span> : null}
       {amenities.length > 0 ? (
         <PanelNote title="Amenities">{sentenceList(amenities.slice(0, 8))}</PanelNote>
       ) : null}

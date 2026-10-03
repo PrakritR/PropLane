@@ -1434,6 +1434,10 @@ export function RecordCard({
   duplicateLabel,
   onRemove,
   removeLabel,
+  /** Studio 0929 room/bathroom cards: glyph facts, icon chrome, `pr9-card` class. */
+  propertyEditor = false,
+  facts,
+  headerEnd,
 }: {
   /** A fixed title ("Default room"); use `name`/`onName` for a typed one instead. */
   title?: ReactNode;
@@ -1447,6 +1451,10 @@ export function RecordCard({
   /** The ✕ in the header that removes the record. */
   onRemove?: () => void;
   removeLabel?: string;
+  propertyEditor?: boolean;
+  facts?: ReactNode;
+  /** Icon actions before the chevron (⋯ menu); when set, the text Duplicate button is hidden. */
+  headerEnd?: ReactNode;
   name?: string;
   onName?: (next: string) => void;
   namePlaceholder?: string;
@@ -1469,6 +1477,8 @@ export function RecordCard({
       data-attr={dataAttr}
       className={cn(
         "mb-2.5 rounded-2xl border border-border bg-card",
+        propertyEditor && "pr9-card",
+        propertyEditor && open && "is-open",
         every && "border-b-2 border-b-primary/25 bg-primary/[0.04]",
         open && "shadow-[inset_3px_0_0_var(--pl-blue)]",
         dimmed && "pointer-events-none opacity-50",
@@ -1482,7 +1492,10 @@ export function RecordCard({
               value={name ?? ""}
               placeholder={namePlaceholder}
               onChange={(e) => onName(e.target.value)}
-              className="min-h-[38px] w-full min-w-0 rounded-xl border border-border bg-card px-3 text-[14px] font-bold text-foreground outline-none focus:border-primary"
+              className={cn(
+                "min-h-[38px] w-full min-w-0 px-1 text-[14px] font-bold text-foreground outline-none",
+                propertyEditor ? "border-0 bg-transparent focus:ring-2 focus:ring-primary/30 rounded-lg" : "rounded-xl border border-border bg-card px-3 focus:border-primary",
+              )}
             />
           ) : (
             <b className="flex min-w-0 items-center gap-1.5 text-[14px] font-bold text-foreground">
@@ -1492,7 +1505,7 @@ export function RecordCard({
           )}
           {same}
         </span>
-        {onDuplicate ? (
+        {onDuplicate && !headerEnd ? (
           <button
             type="button"
             onClick={onDuplicate}
@@ -1503,7 +1516,8 @@ export function RecordCard({
             Duplicate
           </button>
         ) : null}
-        {onRemove ? (
+        {headerEnd}
+        {onRemove && !propertyEditor ? (
           <button
             type="button"
             onClick={onRemove}
@@ -1527,7 +1541,11 @@ export function RecordCard({
           </button>
         ) : null}
       </div>
-      {summary != null && onToggle ? (
+      {propertyEditor && facts ? (
+        <button type="button" onClick={onToggle} className="pr9-facts block w-full px-3.5 pb-3 text-left text-[12.5px] leading-snug text-foreground/80">
+          {facts}
+        </button>
+      ) : summary != null && onToggle ? (
         <button type="button" onClick={onToggle} className="block w-full px-3.5 pb-3 text-left text-[13px] leading-snug text-foreground/70">
           {summary}
         </button>
