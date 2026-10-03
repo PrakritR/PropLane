@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * A resident account is required for every prospect action (PLAN-0924-1421), so
- * the only way past this gate is holding the resident role.
+ * Anonymous prospects need an account; signed-in tour prospects can use the
+ * public scheduler with their account contact details already filled in.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { renderHook } from "@testing-library/react";
@@ -45,11 +45,11 @@ describe("useProspectActionGate", () => {
     expect(result.current.gateView).toBe("account-prompt");
   });
 
-  it("sends a signed-in non-resident to add a resident account", () => {
+  it("lets a signed-in prospect schedule a tour without creating another account", () => {
     const { result } = renderHook(() =>
       useProspectActionGate("tour", "mgr-5259", true, makeAutofill({ userId: "mgr-1" })),
     );
-    expect(result.current.gateView).toBe("signed-in-create-resident");
+    expect(result.current.gateView).toBe("action");
   });
 
   it("routes residents into the portal surface", () => {
