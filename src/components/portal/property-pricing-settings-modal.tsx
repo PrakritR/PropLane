@@ -1,14 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { MoneyInput } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { ToggleRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { MoneyInput, ToggleRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import {
+  markPaymentFieldOwn,
+  paymentSettingsFieldScope,
+  paymentSettingsScopeLabel,
+  resetPaymentFieldToWorkspace,
+  type PaymentSettingsField,
+} from "@/lib/property-payment-settings-scope";
 import {
   SERVICE_FEE_PAYER_OPTION_LABELS,
   type ServiceFeePayer,
@@ -17,6 +23,9 @@ import {
   persistManagerListingSubmission,
   type ManagerPropertySaveTarget,
 } from "@/lib/manager-property-save-target";
+type WorkspacePaymentPublic = {
+  serviceFeePayer?: ServiceFeePayer | null;
+};
 
 const DUE_DAY_OPTIONS = [
   { value: "first_of_month", label: "1st of the month" },
@@ -37,11 +46,12 @@ type Props = {
   propertyLabel: string;
   onSaved: () => void;
   showToast: (message: string) => void;
+  workspacePayment?: WorkspacePaymentPublic | null;
 };
 
 /**
  * Property Pricing gear — collecting, rent & late fees, and processing fee rows
- * (C2-PRC8 / C2-PS11 / C2-PR9).
+ * (C2-PRC8 / C2-PS11 / C2-PR9 / C2-PS1).
  */
 export function PropertyPricingSettingsModal({
   open,
@@ -52,11 +62,20 @@ export function PropertyPricingSettingsModal({
   propertyLabel,
   onSaved,
   showToast,
+  workspacePayment = null,
 }: Props) {
   const [draft, setDraft] = useState(() => normalizeManagerListingSubmissionV1(sub));
 
-  const patch = (next: Partial<ManagerListingSubmissionV1>) => {
-    setDraft((prev) => ({ ...prev, ...next }));
+  useEffect(() => {
+    if (open) setDraft(normalizeManagerListingSubmissionV1(sub));
+  }, [open, sub]);
+
+  const patch = (next: Partial<ManagerListingSubmissionV1>, field?: PaymentSettingsField) => {
+    setDraft((prev) => {
+      let merged = { ...prev, ...next };
+      if (field) merged = markPaymentFieldOwn(merged, field);
+      return merged;
+    });
   };
 
   const save = () => {
@@ -72,23 +91,56 @@ export function PropertyPricingSettingsModal({
 
   const showCoverageCode = draft.serviceFeePayer === "proplane";
 
+  const scopeRow = (field: PaymentSettingsField, label: string, control: React.ReactNode) => {
+    const scope = paymentSettingsFieldScope(draft, field, workspacePayment);
+    const canReset = scope === "own";
+    return (
+      <div className="group flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <span className="text-[14px] font-semibold text-foreground">{label}</span>
+          <p className="text-[12px] font-semibold text-muted" data-rp-src>
+            {paymentSettingsScopeLabel(scope)}
+          </p>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 sm:max-w-[55%] sm:justify-end">
+          {control}
+          {canReset ? (
+            <button
+              type="button"
+              className="text-[12px] font-bold text-primary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-sm:opacity-100"
+              onClick={() =>
+                setDraft((prev) => resetPaymentFieldToWorkspace(prev, field, workspacePayment))
+              }
+              data-attr={`property-pricing-settings-reset-${field}`}
+            >
+              Reset
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   const groups = useMemo(
     () => [
       {
         title: "Collecting",
         rows: (
           <>
-            <SettingsRow label="Processing fee paid by">
+            {scopeRow(
+              "serviceFeePayer",
+              "Processing fee paid by",
               <FieldSingleSelect
                 label="Processing fee paid by"
                 options={PAYER_OPTIONS}
-                value={draft.serviceFeePayer ?? "resident"}
-                onChange={(v) => patch({ serviceFeePayer: v as ServiceFeePayer })}
+                value={draft.serviceFeePayer ?? workspacePayment?.serviceFeePayer ?? "resident"}
+                onChange={(v) => patch({ serviceFeePayer: v as ServiceFeePayer }, "serviceFeePayer")}
                 dataAttr="property-pricing-settings-fee-payer"
-              />
-            </SettingsRow>
+              />,
+            )}
             {showCoverageCode ? (
-              <SettingsRow label="Coverage code">
+              <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-[14px] font-semibold text-foreground">Coverage code</span>
                 <input
                   className="h-9 w-full max-w-[220px] rounded-lg border border-border bg-background px-2 text-[14px] font-semibold text-foreground"
                   value={draft.serviceFeeWaiverCode ?? ""}
@@ -96,7 +148,7 @@ export function PropertyPricingSettingsModal({
                   data-attr="property-pricing-settings-coverage-code"
                   aria-label="Coverage code"
                 />
-              </SettingsRow>
+              </div>
             ) : null}
           </>
         ),
@@ -105,50 +157,62 @@ export function PropertyPricingSettingsModal({
         title: "Rent & late fees",
         rows: (
           <>
-            <SettingsRow label="Rent due">
+            {scopeRow(
+              "rentDueDayMode",
+              "Rent due",
               <FieldSingleSelect
                 label="Rent due"
                 options={DUE_DAY_OPTIONS}
                 value={draft.rentDueDayMode ?? "first_of_month"}
-                onChange={(v) => patch({ rentDueDayMode: v as "first_of_month" | "last_of_month" })}
+                onChange={(v) =>
+                  patch({ rentDueDayMode: v as "first_of_month" | "last_of_month" }, "rentDueDayMode")
+                }
                 dataAttr="property-pricing-settings-due-day"
-              />
-            </SettingsRow>
-            <SettingsRow label="Automatic late fees">
+              />,
+            )}
+            {scopeRow(
+              "lateFeeEnabled",
+              "Automatic late fees",
               <ToggleRow
                 label="Automatic late fees"
                 checked={draft.lateFeeEnabled !== false}
-                onChange={(on) => patch({ lateFeeEnabled: on })}
+                onChange={(on) => patch({ lateFeeEnabled: on }, "lateFeeEnabled")}
                 dataAttr="property-pricing-settings-late-on"
-              />
-            </SettingsRow>
+              />,
+            )}
             {draft.lateFeeEnabled !== false ? (
               <>
-                <SettingsRow label="Late fee amount">
+                {scopeRow(
+                  "lateFeeAmount",
+                  "Late fee amount",
                   <MoneyInput
                     label="Late fee amount"
                     value={draft.lateFeeAmount ?? "50"}
-                    onChange={(v) => patch({ lateFeeAmount: v })}
-                  />
-                </SettingsRow>
-                <SettingsRow label="Grace days">
+                    onChange={(v) => patch({ lateFeeAmount: v }, "lateFeeAmount")}
+                  />,
+                )}
+                {scopeRow(
+                  "lateFeeGraceDays",
+                  "Grace days",
                   <input
                     type="number"
                     min={0}
                     max={30}
                     className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-[14px] font-semibold tabular-nums text-foreground"
                     value={draft.lateFeeGraceDays ?? 5}
-                    onChange={(e) => patch({ lateFeeGraceDays: Number(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      patch({ lateFeeGraceDays: Number(e.target.value) || 0 }, "lateFeeGraceDays")
+                    }
                     aria-label="Grace days"
-                  />
-                </SettingsRow>
+                  />,
+                )}
               </>
             ) : null}
           </>
         ),
       },
     ],
-    [draft, showCoverageCode],
+    [draft, showCoverageCode, workspacePayment],
   );
 
   return (
@@ -169,14 +233,5 @@ export function PropertyPricingSettingsModal({
         ))}
       </div>
     </PortalPropertySectionSettingsModal>
-  );
-}
-
-function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-[14px] font-semibold text-foreground">{label}</span>
-      <div className="min-w-0 sm:max-w-[55%] sm:text-right">{children}</div>
-    </div>
   );
 }

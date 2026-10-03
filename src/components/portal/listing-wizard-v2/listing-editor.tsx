@@ -135,6 +135,7 @@ import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { propertyPricingPublishBlocker } from "@/lib/property-pricing-publish";
+import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
@@ -2819,8 +2820,10 @@ export function ListingEditorV2({
   basicsLead,
   initialStep,
   contact,
+  workspacePricingDefaults,
 }: {
   submission: ManagerListingSubmissionV1;
+  workspacePricingDefaults?: WorkspacePricingDefaults;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
   propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
@@ -2895,6 +2898,8 @@ export function ListingEditorV2({
     if (!validateStateAbbrev(submission.state).ok) return focus("basics", '[data-wizard-field="state"]', "Add a valid two-letter state before publishing.");
     if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
     if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
+    const pricingBlock = propertyPricingPublishBlocker(submission, workspacePricingDefaults ?? {});
+    if (pricingBlock) return focus("rooms", '[data-attr="listing-v2-rooms"]', pricingBlock);
     if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) {
       return focus("basics", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");
     }

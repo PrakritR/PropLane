@@ -11,6 +11,7 @@ import {
   ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
+import { FeeRows } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   isEntireHomeListing,
@@ -23,9 +24,15 @@ import {
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import {
+  pricingCopySourceBundles,
+  setBundlePricingCopyFrom,
+} from "@/lib/property-pricing-bundle-copy";
+import {
   pricingCopySourceRooms,
   setRoomPricingCopyFrom,
 } from "@/lib/property-pricing-room-copy";
+import { roomPricingSourceLabel } from "@/lib/property-pricing-summary";
+import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { propertyPricingRoomSummary } from "@/lib/property-pricing-summary";
 import {
   persistManagerListingSubmission,
@@ -48,6 +55,7 @@ type Props = {
   propertyLabel: string;
   onSaved: () => void;
   showToast: (message: string) => void;
+  workspacePricingDefaults?: WorkspacePricingDefaults;
 };
 
 function subjectTitle(subject: PropertyPricingSubject, sub: ManagerListingSubmissionV1): string {
@@ -72,9 +80,11 @@ export function PropertyRoomPricingWorkspace({
   propertyLabel,
   onSaved,
   showToast,
+  workspacePricingDefaults: _workspacePricingDefaults,
 }: Props) {
   const [draft, setDraft] = useState(() => normalizeManagerListingSubmissionV1(sub));
   const [step, setStep] = useState(0);
+  const [slideDir, setSlideDir] = useState(0);
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(
     subject.kind === "room" ? subject.roomId : null,
   );
@@ -89,11 +99,29 @@ export function PropertyRoomPricingWorkspace({
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
   const steps: AddWorkspaceStep[] = useMemo(() => {
-    const out: AddWorkspaceStep[] = [{ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" }];
+    const out: AddWorkspaceStep[] = [];
+    if (subject.kind === "bundle") {
+      const bundle = draft.bundles.find((b) => b.id === subject.bundleId);
+      out.push({
+        id: "bundle",
+        label: "Bundle",
+        summary: bundle?.label?.trim() || "Name and rooms",
+      });
+    }
+    out.push({ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" });
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
       out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
     }
     return out.map((s) => {
+      if (s.id === "bundle") return s;
+      if (subject.kind === "bundle") {
+        const bundle = draft.bundles.find((b) => b.id === subject.bundleId);
+        const summary =
+          s.id === LONG_TERM_LEASE_TERM
+            ? bundle?.price?.trim() || "—"
+            : bundle?.shortTermNightlyRent?.trim() || "—";
+        return { ...s, summary };
+      }
       if (subject.kind !== "room") return s;
       const room = draft.rooms.find((r) => r.id === subject.roomId);
       if (!room) return s;
@@ -107,8 +135,15 @@ export function PropertyRoomPricingWorkspace({
     });
   }, [draft, leaseTerms, subject]);
 
-  const activeTerm = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
+  const activeStepId = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
+  const activeTerm =
+    activeStepId === "bundle" ? LONG_TERM_LEASE_TERM : activeStepId;
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
+
+  const jumpStep = (index: number) => {
+    setSlideDir(index > step ? 1 : index < step ? -1 : 0);
+    setStep(index);
+  };
 
   const patch: (next: Partial<ManagerListingSubmissionV1>) => void = (next) => {
     setDraft((prev) => normalizeManagerListingSubmissionV1({ ...prev, ...next }));
@@ -145,10 +180,16 @@ export function PropertyRoomPricingWorkspace({
           const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
           const copySources = pricingCopySourceRooms(draft, room.id, activeTerm);
           const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
-          const isStay = activeTerm === SHORT_TERM_LEASE_TERM;
+          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
           return (
             <StepColumn>
-              <StepHeading title={activeTerm === LONG_TERM_LEASE_TERM ? "Long-term" : "Short term"} />
+              <StepHeading title={activeStepId === SHORT_TERM_LEASE_TERM ? "Short term" : "Long-term"} />
+              {priceSource ? (
+                <p className="text-[12px] font-semibold text-muted" data-rp-src>
+                  {priceSource}
+                </p>
+              ) : null}
               {copySources.length > 0 ? (
                 <FactRow label="Pricing">
                   <FieldSingleSelect
@@ -186,6 +227,13 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => updateRoom(room.id, { ...room, shortTermDeposit: v })}
                       />
                     </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={room.id}
+                      roomName={room.name?.trim() || "Room"}
+                      term={quoteTerm}
+                    />
                   </>
                 ) : (
                   <>
@@ -215,6 +263,13 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => updateRoom(room.id, { ...room, securityDeposit: v })}
                       />
                     </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={room.id}
+                      roomName={room.name?.trim() || "Room"}
+                      term={quoteTerm}
+                    />
                     {cap > 1 ? (
                       <ArrangementPriceEditor
                         room={room}
@@ -222,7 +277,7 @@ export function PropertyRoomPricingWorkspace({
                         sub={draft}
                         patch={patch}
                         term={quoteTerm}
-                        prorate={activeTerm === LONG_TERM_LEASE_TERM}
+                        prorate={activeStepId === LONG_TERM_LEASE_TERM}
                       />
                     ) : null}
                   </>
@@ -281,29 +336,110 @@ export function PropertyRoomPricingWorkspace({
               bundles: draft.bundles.map((b) => (b.id === bundle.id ? { ...b, ...next } : b)),
             });
           };
+          if (activeStepId === "bundle") {
+            const roomOptions = draft.rooms.map((r, i) => ({
+              value: r.id,
+              label: r.name?.trim() || `Room ${i + 1}`,
+            }));
+            const selected = (bundle.includedRoomIds ?? []).filter((id) =>
+              draft.rooms.some((r) => r.id === id),
+            );
+            return (
+              <StepColumn>
+                <StepHeading title="Bundle" />
+                <FactRow label="Name">
+                  <input
+                    className="h-9 w-full max-w-[280px] rounded-lg border border-border bg-background px-2 text-[14px] font-semibold"
+                    value={bundle.label}
+                    onChange={(e) => patchBundle({ label: e.target.value })}
+                    aria-label="Bundle name"
+                  />
+                </FactRow>
+                <FactRow label="Rooms">
+                  <FieldSingleSelect
+                    label="Rooms in bundle"
+                    options={roomOptions}
+                    value={selected[0] ?? ""}
+                    onChange={(v) => patchBundle({ includedRoomIds: v ? [v] : [] })}
+                    dataAttr="property-bundle-rooms"
+                  />
+                </FactRow>
+              </StepColumn>
+            );
+          }
+          const copySources = pricingCopySourceBundles(draft, bundle.id, activeTerm);
+          const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
+          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
           return (
             <StepColumn>
-              <StepHeading title={bundle.label || "Bundle"} />
-              <FactRow label="Rent /mo">
-                <MoneyInput
-                  label="Bundle rent"
-                  value={bundle.price ?? ""}
-                  onChange={(v) => patchBundle({ price: v })}
-                />
-              </FactRow>
-              <FactRow label="Deposit">
-                <MoneyInput
-                  label="Bundle deposit"
-                  value={bundle.securityDeposit ?? ""}
-                  onChange={(v) => patchBundle({ securityDeposit: v })}
-                />
-              </FactRow>
+              <StepHeading title={isStay ? "Short term" : "Long-term"} />
+              {copySources.length > 0 ? (
+                <FactRow label="Pricing">
+                  <FieldSingleSelect
+                    label="Pricing"
+                    options={[
+                      { value: "", label: "Set for this bundle" },
+                      ...copySources.map((b) => ({
+                        value: b.id,
+                        label: `Same as ${b.label?.trim() || "Bundle"}`,
+                      })),
+                    ]}
+                    value={copyValue}
+                    onChange={(v) => {
+                      const next = setBundlePricingCopyFrom(draft, bundle.id, activeTerm, v || null);
+                      setDraft(normalizeManagerListingSubmissionV1(next));
+                    }}
+                    dataAttr="property-bundle-pricing-copy"
+                  />
+                </FactRow>
+              ) : null}
+              {!copyValue ? (
+                isStay ? (
+                  <>
+                    <FactRow label="Nightly rate">
+                      <MoneyInput
+                        label="Nightly rate"
+                        value={bundle.shortTermNightlyRent ?? ""}
+                        onChange={(v) => patchBundle({ shortTermNightlyRent: v })}
+                      />
+                    </FactRow>
+                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                  </>
+                ) : (
+                  <>
+                    <FactRow label="Rent /mo">
+                      <MoneyInput
+                        label="Bundle rent"
+                        value={bundle.price ?? ""}
+                        onChange={(v) => patchBundle({ price: v })}
+                      />
+                    </FactRow>
+                    <FactRow label="Deposit">
+                      <MoneyInput
+                        label="Bundle deposit"
+                        value={bundle.securityDeposit ?? ""}
+                        onChange={(v) => patchBundle({ securityDeposit: v })}
+                      />
+                    </FactRow>
+                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                  </>
+                )
+              ) : (
+                <p className="text-[13px] font-semibold text-muted">
+                  Mirroring another bundle — change Pricing to edit on its own.
+                </p>
+              )}
             </StepColumn>
           );
         })()
       : null;
 
-  const center = roomBody ?? bundleBody ?? wholeBody;
+  const center =
+    subject.kind === "bundle"
+      ? bundleBody
+      : subject.kind === "room" && activeStepId !== "bundle"
+        ? roomBody
+        : wholeBody;
 
   if (!open) return null;
 
@@ -313,7 +449,7 @@ export function PropertyRoomPricingWorkspace({
       subtitle={propertyLabel}
       steps={steps}
       current={step}
-      onJump={setStep}
+      onJump={jumpStep}
       onClose={onClose}
       dirty
       lastLabel="Save"
@@ -335,12 +471,24 @@ export function PropertyRoomPricingWorkspace({
             onLeaseTermChange={() => {}}
             leaseTerms={leaseTerms}
             lockLeaseTerm
+            plainReceipt
           />
         ) : undefined
       }
     >
-      <div className="plp-wizard-root" data-rp-form>
-        {center}
+      <div className="plp-wizard-root plp-ws-col" data-rp-form>
+        <div
+          key={activeStepId}
+          className={
+            slideDir === 0
+              ? ""
+              : slideDir > 0
+                ? "plp-step-enter-forward motion-reduce:transform-none"
+                : "plp-step-enter-back motion-reduce:transform-none"
+          }
+        >
+          {center}
+        </div>
       </div>
     </AddWorkspace>
   );

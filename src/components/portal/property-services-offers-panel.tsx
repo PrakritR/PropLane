@@ -9,7 +9,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
-import { ServiceRequestCatalogEditor } from "@/components/portal/service-request-catalog-editor";
+import { PropertyServiceSettingsForm } from "@/components/portal/property-service-settings-form";
 import {
   createManagerListingServiceOption,
   type ManagerListingServiceOption,
@@ -160,12 +160,13 @@ export function PropertyServicesOffersPanel({
         propertyLabel={propertyLabel}
         dataAttr="property-services-settings"
       >
-        <ServiceRequestCatalogEditor
+        <PropertyServiceSettingsForm
           sub={sub}
           saveTarget={saveTarget}
           managerUserId={managerUserId}
           onUpdated={onUpdated}
           showToast={showToast}
+          onSave={() => setSettingsOpen(false)}
         />
       </PortalPropertySectionSettingsModal>
 

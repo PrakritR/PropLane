@@ -576,6 +576,8 @@ export type ManagerBundleRow = {
   utilitiesPaymentModel?: UtilitiesPaymentModel;
   /** Estimated monthly utilities for this bundle when manager-billed (money string). */
   utilitiesEstimate?: string;
+  /** Lease term id → source bundle id for mirrored bundle pricing (no chains). */
+  copyFromBundleIdByTerm?: Partial<Record<string, string>>;
 };
 
 /** How a room uses a specific bathroom row (optional; improves listing copy). */
@@ -999,6 +1001,18 @@ export type ManagerListingSubmissionV1 = {
   lateFeeGraceDays?: number;
   /** Flat late fee amount (e.g. "50" or "$50"). Default $50. */
   lateFeeAmount?: string;
+  /** Property Pricing gear — which payment rows override workspace defaults. */
+  paymentSettingsScope?: Partial<
+    Record<
+      "serviceFeePayer" | "rentDueDayMode" | "lateFeeEnabled" | "lateFeeAmount" | "lateFeeGraceDays",
+      "workspace" | "own"
+    >
+  >;
+  /** Property Services gear — who may request and whether each request needs approval. */
+  propertyServiceSettings?: {
+    requestAudience?: "residents" | "residents_applicants";
+    approveEachRequest?: boolean;
+  };
   /** Optional fixed fee for an early termination of a long-term lease. */
   longTermBreakLeaseFee?: string;
   /** Optional percentage of one month's rent charged to lease up a replacement resident. */
