@@ -26,6 +26,7 @@ import {
   type ManagerBundleRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
+  type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
 import {
   CUSTOM_LEASE_TERM,
@@ -33,7 +34,12 @@ import {
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
-import { termPriceFieldText, writeRoomTermPrice } from "@/lib/listing-house-defaults";
+import {
+  termPriceFieldText,
+  writeRoomTermPrice,
+  writeTermPriceEntry,
+} from "@/lib/listing-house-defaults";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import {
   pricingCopySourceBundles,
@@ -107,6 +113,44 @@ function seedRoomTermFromLongTerm(room: ManagerRoomSubmission, term: string): Ma
       [term]: cleaned,
     },
   };
+}
+
+function bundleHasOwnTermPricing(bundle: ManagerBundleRow, term: string): boolean {
+  const entry = bundle.termPricing?.[term];
+  return Boolean(entry && Object.keys(entry).length > 0);
+}
+
+function clearBundleTermPricing(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
+  if (!bundle.termPricing?.[term]) return bundle;
+  const next = { ...bundle.termPricing };
+  delete next[term];
+  return { ...bundle, termPricing: Object.keys(next).length > 0 ? next : undefined };
+}
+
+function seedBundleTermFromLongTerm(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
+  const rent = parseMoneyAmount(bundle.price ?? "");
+  const seed: ManagerRoomTermPrice = {
+    monthlyRent: rent > 0 ? rent : undefined,
+    securityDeposit: bundle.securityDeposit,
+    utilitiesEstimate: bundle.utilitiesEstimate,
+  };
+  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
+  return {
+    ...bundle,
+    termPricing: {
+      ...(bundle.termPricing ?? {}),
+      [term]: cleaned,
+    },
+  };
+}
+
+function writeBundleTermPrice(
+  bundle: ManagerBundleRow,
+  term: string,
+  field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
+  value: string,
+): ManagerBundleRow {
+  return { ...bundle, termPricing: writeTermPriceEntry(bundle.termPricing, term, field, value) };
 }
 
 function subjectTitle(subject: PropertyPricingSubject, sub: ManagerListingSubmissionV1): string {
@@ -725,7 +769,10 @@ export function PropertyRoomPricingWorkspace({
           const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
           const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
           const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
-          const termOverride = !isBaseLong && !isStay ? bundle.termPricing?.[activeStepId] : undefined;
+          const isCustomMonthlyTerm = !isBaseLong && !isStay;
+          const customTerm = listingPricingTabToLeaseTerm(activeStepId) ?? activeStepId;
+          const bundleLabel = bundle.label?.trim() || "Bundle";
+          const bundleFeeScopeId = bundle.id;
           const stepTitle =
             activeStepId === "bundle"
               ? "Bundle"
@@ -734,6 +781,7 @@ export function PropertyRoomPricingWorkspace({
                 : isBaseLong
                   ? "Long-term"
                   : String(activeStepId);
+          const bundleRentMonthly = parseMoneyAmount(bundle.price ?? "");
           return (
             <StepColumn>
               <StepHeading title={stepTitle} />
@@ -767,73 +815,164 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => patchBundle({ shortTermNightlyRent: v })}
                       />
                     </FactRow>
-                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                    <FactRow label="Deposit">
+                      <MoneyInput
+                        label="Bundle short-term deposit"
+                        value={bundle.shortTermDeposit ?? bundle.securityDeposit ?? ""}
+                        onChange={(v) => patchBundle({ shortTermDeposit: v })}
+                      />
+                    </FactRow>
+                    <FactRow label="Move-in fee">
+                      <MoneyInput
+                        label="Bundle short-term move-in fee"
+                        value={bundle.shortTermMoveInFee ?? ""}
+                        onChange={(v) => patchBundle({ shortTermMoveInFee: v })}
+                      />
+                    </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={bundleFeeScopeId}
+                      roomName={bundleLabel}
+                      term={quoteTerm}
+                    />
+                  </>
+                ) : isCustomMonthlyTerm ? (
+                  <>
+                    <ToggleRow
+                      label="Same as long-term"
+                      checked={!bundleHasOwnTermPricing(bundle, customTerm)}
+                      onChange={(same) => {
+                        if (same) patchBundle(clearBundleTermPricing(bundle, customTerm));
+                        else patchBundle(seedBundleTermFromLongTerm(bundle, customTerm));
+                      }}
+                      dataAttr="property-bundle-pricing-same-as-long-term"
+                    />
+                    {bundleHasOwnTermPricing(bundle, customTerm) ? (
+                      <>
+                        <FactRow label="Rent /mo">
+                          <MoneyInput
+                            label="Bundle rent"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "monthlyRent") ||
+                              (bundleRentMonthly > 0 ? String(bundleRentMonthly) : "")
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "monthlyRent", v))
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Utilities /mo">
+                          <MoneyInput
+                            label="Bundle utilities"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "utilitiesEstimate") ||
+                              bundle.utilitiesEstimate ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "utilitiesEstimate", v))
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Deposit">
+                          <MoneyInput
+                            label="Bundle deposit"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "securityDeposit") ||
+                              bundle.securityDeposit ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "securityDeposit", v))
+                            }
+                          />
+                        </FactRow>
+                        <FeeRows
+                          sub={draft}
+                          patch={patch}
+                          roomId={bundleFeeScopeId}
+                          roomName={bundleLabel}
+                          term={quoteTerm}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-[13px] font-semibold text-muted">
+                        Uses this bundle&apos;s long-term rent, utilities, and deposit.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
                     <FactRow label="Rent /mo">
                       <MoneyInput
                         label="Bundle rent"
-                        value={
-                          termOverride?.monthlyRent != null && termOverride.monthlyRent > 0
-                            ? String(termOverride.monthlyRent)
-                            : bundle.price ?? ""
-                        }
-                        onChange={(v) => {
-                          const n = Number(v.replace(/[^0-9.]/g, "")) || 0;
-                          if (isBaseLong) patchBundle({ price: v });
-                          else
-                            patchBundle({
-                              termPricing: {
-                                ...(bundle.termPricing ?? {}),
-                                [activeStepId]: {
-                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
-                                  monthlyRent: n,
-                                },
-                              },
-                            });
-                        }}
+                        value={bundle.price ?? ""}
+                        onChange={(v) => patchBundle({ price: v })}
                       />
                     </FactRow>
                     <FactRow label="Utilities /mo">
                       <MoneyInput
                         label="Bundle utilities"
-                        value={termOverride?.utilitiesEstimate ?? bundle.utilitiesEstimate ?? ""}
-                        onChange={(v) => {
-                          if (isBaseLong) patchBundle({ utilitiesEstimate: v });
-                          else
-                            patchBundle({
-                              termPricing: {
-                                ...(bundle.termPricing ?? {}),
-                                [activeStepId]: {
-                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
-                                  utilitiesEstimate: v,
-                                },
-                              },
-                            });
-                        }}
+                        value={bundle.utilitiesEstimate ?? ""}
+                        onChange={(v) => patchBundle({ utilitiesEstimate: v })}
                       />
                     </FactRow>
                     <FactRow label="Deposit">
                       <MoneyInput
                         label="Bundle deposit"
-                        value={termOverride?.securityDeposit ?? bundle.securityDeposit ?? ""}
-                        onChange={(v) => {
-                          if (isBaseLong) patchBundle({ securityDeposit: v });
-                          else
-                            patchBundle({
-                              termPricing: {
-                                ...(bundle.termPricing ?? {}),
-                                [activeStepId]: {
-                                  ...(bundle.termPricing?.[activeStepId] ?? {}),
-                                  securityDeposit: v,
-                                },
-                              },
-                            });
-                        }}
+                        value={bundle.securityDeposit ?? ""}
+                        onChange={(v) => patchBundle({ securityDeposit: v })}
                       />
                     </FactRow>
-                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                    <FactRow label="Move-in fee">
+                      <MoneyInput
+                        label="Bundle move-in fee"
+                        value={bundle.moveInFee ?? ""}
+                        onChange={(v) => patchBundle({ moveInFee: v })}
+                      />
+                    </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={bundleFeeScopeId}
+                      roomName={bundleLabel}
+                      term={quoteTerm}
+                    />
+                    {allowCustomStart ? (
+                      <ProrateRows
+                        sub={draft}
+                        patch={patch}
+                        term={quoteTerm}
+                        roomId={bundleFeeScopeId}
+                        name={bundleLabel}
+                        automatic={(bundle.prorateMethod ?? "auto") !== "daily_rate"}
+                        onAutomatic={(next) => patchBundle({ prorateMethod: next ? "auto" : "daily_rate" })}
+                        rent={{
+                          text: bundle.dailyRentRate ? String(bundle.dailyRentRate) : "",
+                          placeholder: perDay(bundleRentMonthly) || "35",
+                          onChange: (v) =>
+                            patchBundle({
+                              dailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                            }),
+                        }}
+                        util={
+                          Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
+                            ? {
+                                text: bundle.dailyUtilitiesRate ? String(bundle.dailyUtilitiesRate) : "",
+                                placeholder: perDay(
+                                  Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")),
+                                ),
+                                onChange: (v) =>
+                                  patchBundle({
+                                    dailyUtilitiesRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                                  }),
+                              }
+                            : null
+                        }
+                        dataAttr="property-bundle-pricing-prorate"
+                      />
+                    ) : null}
                   </>
                 )
               ) : (
