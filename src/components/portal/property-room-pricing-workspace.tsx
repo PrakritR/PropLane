@@ -192,6 +192,10 @@ export function PropertyRoomPricingWorkspace({
     }
   }, [open, sub, subject]);
 
+  // Only a real edit asks before closing; opening and closing an untouched room is silent.
+  const baseline = useMemo(() => JSON.stringify(normalizeManagerListingSubmissionV1(sub)), [sub]);
+  const dirty = useMemo(() => JSON.stringify(draft) !== baseline, [draft, baseline]);
+
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
   const extraLeaseTerms = useMemo(
     () =>
@@ -1004,7 +1008,7 @@ export function PropertyRoomPricingWorkspace({
       current={step}
       onJump={jumpStep}
       onClose={onClose}
-      dirty
+      dirty={dirty}
       lastLabel="Save"
       onFinish={() => {
         if (save()) onClose();

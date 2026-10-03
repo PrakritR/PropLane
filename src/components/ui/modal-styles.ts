@@ -65,5 +65,9 @@ export const PORTAL_MOBILE_DRAWER_SHELL_CLASS =
   "modal-panel fixed inset-x-0 bottom-0 z-[91] flex max-h-[min(96dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] flex-col overflow-hidden rounded-t-2xl border-t border-border shadow-[var(--shadow-card)] outline-none motion-reduce:transition-none pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(1.25rem,var(--native-safe-bottom,0px))] !left-0 !right-0 !w-screen !max-w-none border-x-0";
 
 /** Studio popup frame: one desktop window, edge-to-edge phone sheet. */
+/** A short confirm: sized to its content (desktop card, phone bottom sheet), never a full window. */
+export const MODAL_COMPACT_PANEL_CLASS =
+  "!h-auto !max-h-[min(92dvh,40rem)] !w-full !max-w-lg !rounded-[20px] !p-0 max-lg:!max-w-none max-lg:!rounded-b-none";
+
 export const MODAL_STANDARD_PANEL_CLASS =
   "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]";

@@ -315,7 +315,7 @@ export function StepRail({
           hideLabel
           value={String(current)}
           onChange={(value) => onJump(Number(value))}
-          options={steps.map((step, index) => ({ value: String(index), disabled: step.disabled, label: `${index === current ? "◉ " : (step.attention ?? 0) > 0 ? "● " : visited?.has(step.id) ? "✓ " : ""}${step.label}${(step.attention ?? 0) > 0 ? " · needs attention" : ""}`, triggerLabel: step.label }))}
+          options={steps.map((step, index) => ({ value: String(index), disabled: step.disabled, label: step.label, attention: (step.attention ?? 0) > 0 }))}
           dataAttr="workspace-step-picker"
           triggerClassName="min-h-11 rounded-lg text-sm font-semibold"
         />

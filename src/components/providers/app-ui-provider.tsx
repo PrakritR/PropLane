@@ -34,6 +34,8 @@ export type ConfirmRequest = {
   note?: ReactNode;
   tone?: "danger" | "primary";
   dataAttr?: string;
+  /** `tap` when only unsaved input is lost (closing an editor); deletes keep the hold. */
+  guard?: "hold" | "tap";
 };
 
 type AppUiContextValue = {
@@ -167,6 +169,7 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
         note={confirmRequest?.note === undefined ? "This cannot be undone." : confirmRequest.note}
         tone={confirmRequest?.tone ?? "danger"}
         dataAttr={confirmRequest?.dataAttr}
+        guard={confirmRequest?.guard ?? "hold"}
         onClose={() => settleConfirm(false)}
         onConfirm={() => settleConfirm(true)}
       />

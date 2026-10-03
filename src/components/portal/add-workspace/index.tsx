@@ -165,6 +165,7 @@ export function AddWorkspace({
       confirmLabel: "Discard",
       note: null,
       tone: "danger",
+      guard: "tap",
       dataAttr: `${dataAttrPrefix}-discard`,
     }).then((ok) => {
       if (ok) onClose();

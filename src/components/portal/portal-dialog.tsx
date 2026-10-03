@@ -146,6 +146,8 @@ export function PortalDialog({
   contextPanel,
   preview,
   previewLabel,
+  /** False for a short confirm: a content-sized bottom sheet on phone, not a full-screen page. */
+  fullScreenMobile = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -166,6 +168,7 @@ export function PortalDialog({
   contextPanel?: ReactNode;
   preview?: ReactNode;
   previewLabel?: string;
+  fullScreenMobile?: boolean;
 }) {
   void size; // Legacy API: both sizes now use the same frame.
   const resolvedSecondary =
@@ -179,7 +182,7 @@ export function PortalDialog({
       dataAttr={dataAttr}
       // Editing popups use the authenticated role-scoped assistant.
       assistantStrip={tone !== "danger"}
-      fullScreenMobile
+      fullScreenMobile={fullScreenMobile}
       contextPanel={contextPanel}
       preview={preview}
       previewLabel={previewLabel}

@@ -29,6 +29,7 @@ export function ConfirmDeleteModal({
   onClose,
   onConfirm,
   dataAttr,
+  guard = "hold",
 }: {
   open: boolean;
   title?: string;
@@ -50,6 +51,11 @@ export function ConfirmDeleteModal({
   onClose: () => void;
   onConfirm: () => void;
   dataAttr?: string;
+  /**
+   * `hold` (default) for deleting saved records. `tap` for dropping unsaved
+   * input (closing an editor) — nothing stored is lost, so a plain tap.
+   */
+  guard?: "hold" | "tap";
 }) {
   return (
     <PortalDialog
@@ -58,8 +64,9 @@ export function ConfirmDeleteModal({
       title={title}
       tone={tone === "danger" ? "danger" : "default"}
       dismissBlocked={busy}
-      previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
-      preview={<div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>}
+      fullScreenMobile={false}
+      // A short confirm has no side preview — the question is the whole dialog.
+      preview={null}
       primaryAction={{
         label: busy ? busyLabel : confirmLabel,
         onClick: onConfirm,
@@ -68,7 +75,7 @@ export function ConfirmDeleteModal({
         dataAttr,
         // M008 — every destructive confirm through this shared modal is a
         // press-and-hold guard rail, not a plain tap.
-        confirmGuard: "hold",
+        confirmGuard: guard === "hold" ? "hold" : undefined,
       }}
     >
       <p className="text-sm text-muted">{description}</p>

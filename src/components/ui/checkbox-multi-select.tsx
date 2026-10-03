@@ -51,6 +51,8 @@ export type CheckboxMultiSelectOption = {
   disabled?: boolean;
   /** Shown under the label — why a disabled option cannot be picked yet. */
   hint?: string;
+  /** A red dot after the label (a wizard step that still needs something). */
+  attention?: boolean;
 };
 export type CheckboxMultiSelectGroup = { label: string; options: CheckboxMultiSelectOption[] };
 
@@ -497,6 +499,9 @@ export function FieldSingleSelect({
           token (an address with no spaces) inside too.
         */}
         <span className="min-w-0 break-words text-left leading-snug">{opt.label}</span>
+        {opt.attention ? (
+          <span className="ml-auto mt-1.5 size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" role="img" aria-label="Needs attention" />
+        ) : null}
       </button>
     );
   };

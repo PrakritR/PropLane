@@ -13,6 +13,7 @@ import {
   MODAL_FULL_PAGE_STACK_CLASS,
   MODAL_PANEL_CLASS,
   MODAL_STANDARD_PANEL_CLASS,
+  MODAL_COMPACT_PANEL_CLASS,
   MODAL_TALL_PANEL_CLASS,
   MODAL_OVERLAY_BACKDROP_CLASS,
   PORTAL_MOBILE_DRAWER_EDGE_CLASS,
@@ -587,7 +588,7 @@ export function Modal({
   const resolvedPanelClassName = cn(
     stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
     panelClassName,
-    MODAL_STANDARD_PANEL_CLASS,
+    fullScreenMobile || fullPage ? MODAL_STANDARD_PANEL_CLASS : MODAL_COMPACT_PANEL_CLASS,
   );
 
   // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment
@@ -711,7 +712,9 @@ export function Modal({
     );
   }
 
-  const useFullViewport = fullPage || fullScreenMobile || presentation === "drawer";
+  // Phone popups are full-page (popup standard) unless the caller opts out with
+  // `fullScreenMobile={false}` — a short confirm is a content-sized bottom sheet.
+  const useFullViewport = fullPage || fullScreenMobile;
 
   if (presentation === "drawer") {
     return (
