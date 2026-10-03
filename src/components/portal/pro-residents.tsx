@@ -3213,6 +3213,7 @@ export function ManagerResidents({
     switch (actionId) {
       case "edit":
         if (resolvedDetailTab === "application" && selectedApplicationRow?.application) {
+          setApplicationEditInitialStep(undefined);
           setApplicationEditOpen(true);
         } else {
           openEditResidentModal(selected.id);
