@@ -25,7 +25,7 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { CalendarClock, ChevronLeft, ChevronRight, Mail, Plus, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Clock, Mail, Plus, X } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ConfirmRows, PortalDialog, type PortalDialogAction } from "@/components/portal/portal-dialog";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -102,7 +102,6 @@ import {
   mondayOfDateStr,
   normalizeDraftStart,
   removeRun,
-  shiftDateStr as shiftDateString,
   storageKindsForChoices,
   weekdayOfDateStr,
   type AvailabilityDraft,
@@ -3836,6 +3835,9 @@ export function PortalCalendarPanels({
       { value: "agenda", label: "Agenda" },
     ];
     const navUnit = viewMode === "agenda" ? "week" : viewMode;
+    // Desktop: the controls ride in the page's header card. A phone's header card has no room for
+    // them beside the search and icons, so they sit in their own card right under it.
+    const hostedNav = Boolean(navControlsHost) && !phone;
     const navButtonClass =
       "inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground transition hover:bg-accent active:scale-95";
     const calendarNavControls = (
@@ -3896,7 +3898,7 @@ export function PortalCalendarPanels({
         <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
+              <PortalIconAction icon={Clock} label="Availability" data-attr="calendar-availability-menu" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
               {canEditWeekStudio ? (
@@ -4076,10 +4078,17 @@ export function PortalCalendarPanels({
               {saveStatus === "saving" ? "Saving…" : "Save failed"}
             </p>
           ) : null}
-          {navControlsHost ? null : calendarNavControls}
+          {hostedNav ? null : (
+            <div
+              className={cn(phone && "rounded-xl border border-border bg-card px-2 py-1.5")}
+              data-attr="calendar-nav-inline"
+            >
+              {calendarNavControls}
+            </div>
+          )}
           {body}
         </div>
-        {navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}
+        {hostedNav && navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}
         {weekActionsHost ? createPortal(availabilityMenu, weekActionsHost) : availabilityMenu}
         {weekPrimaryActionHost ? createPortal(addAction, weekPrimaryActionHost) : addAction}
         <CalendarAvailabilityDialog

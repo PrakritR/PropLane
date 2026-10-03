@@ -670,7 +670,7 @@ function PortalCalendarManager({
   const calendarCommandActions =
     portal === "manager" ? (
       <>
-        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center" data-slot="calendar-nav-host" />
+        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center max-sm:hidden" data-slot="calendar-nav-host" />
         {calendarFilterSheet}
         {calendarSettingsButton}
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
