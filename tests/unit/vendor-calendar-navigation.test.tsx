@@ -85,11 +85,11 @@ describe("vendor calendar navigation", () => {
     expect(screen.getByText("8/3–8/9")).toBeTruthy();
 
     const emptyVendorSlot = document.querySelector<HTMLButtonElement>(
-      '[data-availability-date="2099-08-03"][data-availability-slot="12"]',
+      '[data-availability-date="2099-08-03"][data-availability-slot="16"]',
     );
     expect(emptyVendorSlot).toHaveAttribute("data-availability-state", "empty");
     fireEvent.click(emptyVendorSlot!);
-    expect(editCanonicalAvailability).toHaveBeenCalledWith("2099-08-03", 12);
+    expect(editCanonicalAvailability).toHaveBeenCalledWith("2099-08-03", 16);
     expect(scheduleWrite).not.toHaveBeenCalled();
     expect(scheduleSync).not.toHaveBeenCalled();
   });
