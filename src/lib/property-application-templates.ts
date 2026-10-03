@@ -137,6 +137,9 @@ export function draftQuestionConfigForTemplate(
     ? copyQuestionConfig(template.draftQuestionConfig)
     : publishedQuestionConfigForTemplate(template);
   if (!base) return null;
+  // Co-signer forms never carry upload questions (the identity route rejects
+  // them), so the photo-ID / proof-of-income migration must not seed any.
+  if (applicationFormVariantForTemplate(template) === "cosigner") return base;
   return migrateApplicationTemplateDocumentQuestions(base);
 }
 
