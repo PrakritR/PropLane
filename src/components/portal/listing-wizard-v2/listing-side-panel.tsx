@@ -17,6 +17,8 @@
  *   room override, through one shared helper.
  */
 
+import { dedupeAddressSegments } from "@/lib/property-row-summary";
+import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -128,7 +130,13 @@ export function ListingPreviewPanel({
         {sub.buildingName?.trim() || sub.address?.trim() || "Untitled listing"}
       </h4>
       <p className="text-[11.5px] text-muted">
-        {[sub.address, sub.city, sub.state, sub.zip].filter(Boolean).join(", ")}
+        {/* The stored address often already carries city/state/ZIP — never print them twice. */}
+        {dedupeAddressSegments(
+          [listingSubmissionStreetLine(sub) || sub.address, sub.city, [sub.state, sub.zip].filter(Boolean).join(" ")]
+            .map((part) => (part ?? "").trim())
+            .filter(Boolean)
+            .join(", "),
+        )}
       </p>
       <Facts
         rows={[

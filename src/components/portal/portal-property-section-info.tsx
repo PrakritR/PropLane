@@ -55,8 +55,11 @@ export function PortalPropertySectionInfo({
 
   return (
     <span ref={rootRef} className={cn("relative inline-flex align-middle", className)}>
-      <button
-        type="button"
+      {/* Not a <button>: it sits inside the rail item's own button, and a nested
+          button is invalid HTML (hydration error). Same role, focus and keys. */}
+      <span
+        role="button"
+        tabIndex={0}
         aria-label={`About ${title}`}
         aria-expanded={open}
         aria-controls={popoverId}
@@ -66,10 +69,16 @@ export function PortalPropertySectionInfo({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
         className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full text-muted opacity-0 transition hover:text-primary hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-80 group-focus-within:opacity-80 [@media(hover:none)]:opacity-70"
       >
         <Info className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
-      </button>
+      </span>
       {open && pos && typeof document !== "undefined"
         ? createPortal(
             <div
