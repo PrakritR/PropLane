@@ -559,6 +559,8 @@ function SubmitInvoiceModal({
     <PortalDialog
       open={open}
       title={editingInvoice ? "Edit invoice" : "Submit invoice"}
+      previewLabel="Invoice preview"
+      preview={<article className="rounded-xl border border-border bg-card p-4"><h4 className="font-semibold">{invoiceNumber || "Invoice"}</h4><dl className="my-4 divide-y divide-border">{previewLines.map((line, index) => <div key={index} className="flex justify-between gap-3 py-3 text-sm"><dt>{line.description || "Line item"}</dt><dd className="shrink-0 tabular-nums">{formatInvoiceMoney(line.amountCents)}</dd></div>)}</dl><div className="text-right font-semibold">{formatInvoiceMoney(totalCents)}</div>{memo ? <div className="mt-4 whitespace-pre-wrap text-sm">{memo}</div> : null}</article>}
       onClose={() => {
         if (!saving) onClose();
       }}

@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link2 } from "lucide-react";
+import { ConfirmRows } from "@/components/portal/portal-dialog";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -464,6 +465,9 @@ export function WorkspaceInviteSheet({
       onClose={onClose}
       panelClassName="max-w-2xl"
       dataAttr="workspace-invite-sheet"
+      contextPanel={<div className="rounded-xl border border-border bg-card p-4 text-sm font-semibold">{workspace.name}</div>}
+      previewLabel="Invite preview"
+      preview={<ConfirmRows rows={[{ label: "Workspace", value: workspace.name }, { label: "Role", value: roleLabelFor(role) }, { label: "Houses", value: reach }, { label: "Channel", value: channel }, { label: "Recipient", value: sendValue || "Not set" }]} />}
       footer={
         <ModalFooter className="justify-end">
           {channel === "link" ? (

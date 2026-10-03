@@ -6,6 +6,7 @@ import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/pa
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   CUSTOM_PROPERTY_KEY,
+  draftToPreviewRow,
   PromotionForm,
   type PromotionDraft,
 } from "@/components/portal/promotion-form";
@@ -19,6 +20,7 @@ import type { PromotionAssetKind } from "@/lib/promotion-assets";
 import { buildPromotionNewModalAssistantContext } from "@/lib/promotion-assistant-context";
 import type { PromotionTextFormat } from "@/lib/promotion-text";
 import { PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
+import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
 const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
@@ -238,7 +240,7 @@ export function PromotionNewModal({
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
       assistantScopeKey="New promotion"
-      sidePanel={
+      sidePanel={kind === "flyer" ? <PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded /> :
         <PreviewPanel
           title="Promotion preview"
           name={kindLabel}
@@ -262,14 +264,9 @@ export function PromotionNewModal({
       {stepId === "kind" ? (
         <StepColumn>
           <StepHeading title="Kind" />
-          <WizardSelect
-            label="Promotion type"
-            value={kind}
-            onChange={(next) => void requestSwitch(next as PromotionAssetKind)}
-            options={PROMOTION_KIND_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }))}
-            disabled={flyerBusy || textBusy || uploadBusy}
-            dataAttr="promotion-new-kind"
-          />
+          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3">
+            {PROMOTION_KIND_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={kind === option.id} disabled={flyerBusy || textBusy || uploadBusy} onClick={() => void requestSwitch(option.id)} data-attr="promotion-new-kind" className={`min-h-24 rounded-xl border p-3 text-sm font-semibold ${kind === option.id ? "border-primary bg-primary/5 text-primary" : "border-border bg-card"}`}>{option.label}</button>)}
+          </div>
           {!hidePropertyPicker ? (
             <WizardSelect
               label="Property"

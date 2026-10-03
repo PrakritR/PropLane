@@ -430,7 +430,7 @@ function ModalPanelInner({
                 // own scrolling fill this box and take over; it only engages when the
                 // content would otherwise be clipped.
                 "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
-              : "min-w-0 shrink-0 flex-col",
+              : "min-w-0 flex-1 flex-col",
             "px-4 py-4 sm:px-7 sm:py-6 xl:px-10",
           )}
         >
@@ -583,7 +583,7 @@ export function Modal({
   const resolvedPanelClassName = cn(
     stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
     panelClassName,
-    "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none",
+    "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]",
   );
 
   // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment
@@ -625,7 +625,7 @@ export function Modal({
   if (!open) return null;
 
   if (showAssistantStrip) {
-    const workspaceFullScreen = fullPage || (presentation === "drawer" && fullScreenMobile);
+    const workspaceFullScreen = fullPage || presentation === "drawer";
     // Below `lg` the editor is a bottom sheet: anchored to the bottom edge,
     // rounded top, grab handle, hugging its content (Mobbin-style), never a
     // card floating in the middle of the phone over empty canvas.
@@ -707,7 +707,7 @@ export function Modal({
     );
   }
 
-  const useFullViewport = fullPage || fullScreenMobile;
+  const useFullViewport = fullPage || fullScreenMobile || presentation === "drawer";
 
   if (presentation === "drawer") {
     return (
@@ -751,7 +751,7 @@ export function Modal({
       presentation="dialog"
       dismissBlocked={dismissBlocked}
       stackClassName={fullPage ? MODAL_FULL_PAGE_STACK_CLASS : stackClassName}
-      centerClassName={fullPage ? MODAL_FULL_PAGE_CENTER_CLASS : undefined}
+      centerClassName={fullPage ? MODAL_FULL_PAGE_CENTER_CLASS : "relative z-[91] flex min-h-full items-center justify-center p-0 sm:p-5"}
       ariaDescribedBy={description ? "modal-description" : undefined}
       dataAttr={dataAttr}
       panelClassName={cn(

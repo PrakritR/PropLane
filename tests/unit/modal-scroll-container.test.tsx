@@ -55,7 +55,7 @@ function modalBody(): HTMLElement {
   // assistant strip can sit beside it once the panel is wide enough.
   const panelInner = dialog.children[0] as HTMLElement;
   const rowWrapper = panelInner.children[1] as HTMLElement;
-  return rowWrapper.children[0] as HTMLElement;
+  return rowWrapper.querySelector("[data-popup-form]") as HTMLElement;
 }
 
 describe("Modal scroll container", () => {
@@ -117,7 +117,7 @@ describe("Modal Radix / Vaul shell", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a content-height Vaul sheet on small portal viewports by default", () => {
+  it("renders a full-height Vaul sheet on small portal viewports by default", () => {
     mockMatchMedia(true);
     render(
       <Modal open title="Mobile sheet" onClose={() => {}}>
@@ -127,8 +127,8 @@ describe("Modal Radix / Vaul shell", () => {
     const drawer = document.querySelector('[data-slot="modal-vaul-drawer"]');
     expect(drawer).toBeTruthy();
     // Hugs its content and scrolls inside — no screen of white under a short form.
-    expect(drawer?.className).toContain("max-h-[min(92dvh,56rem)]");
-    expect(drawer?.className).not.toContain("h-[100dvh]");
+    expect(drawer?.className).toContain("!max-h-[100dvh]");
+    expect(drawer?.className).toContain("!h-[100dvh]");
     expect(drawer?.className).toContain("!w-screen");
     expect(drawer?.className).toContain("!max-w-none");
   });

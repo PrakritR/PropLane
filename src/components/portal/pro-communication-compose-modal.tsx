@@ -873,6 +873,8 @@ export function ManagerCommunicationComposeModal({
     <PortalDialog
       open={open}
       title="New message"
+      previewLabel="Message preview"
+      preview={<article className="rounded-xl border border-border bg-card p-4"><h4 className="font-semibold">{subject || "No subject"}</h4><div className="mt-4 whitespace-pre-wrap break-words border-t border-border pt-4 text-sm">{body || "No message"}</div></article>}
       onClose={onClose}
       primaryAction={{
         label: sendLabel,
