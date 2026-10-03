@@ -346,7 +346,9 @@ export function PortalListControlStack({
       >
         <div
           className={cn(
-            "flex min-w-0 flex-col lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
+            embedded
+              ? "flex min-w-0 flex-row flex-nowrap items-center gap-2 pr-1 sm:pr-2"
+              : "flex min-w-0 flex-col lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
             embedded
               ? "bg-transparent shadow-none"
               : "rounded-xl border border-border bg-card shadow-sm",
@@ -359,8 +361,9 @@ export function PortalListControlStack({
             <HorizontalScrollCapture
               className={cn(
                 "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
-                showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
-                toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
+                embedded && "shrink-0 border-b-0 py-1",
+                !embedded && showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
+                !embedded && toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
               )}
             >
               <div className="flex items-center gap-2" data-portal-list-destination-nav>
@@ -374,7 +377,8 @@ export function PortalListControlStack({
             <div
               className={cn(
                 "flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0",
-                toolsJoinTabsOnPhone && "max-lg:contents",
+                embedded && "min-w-[8rem] py-1",
+                !embedded && toolsJoinTabsOnPhone && "max-lg:contents",
               )}
               data-attr="portal-list-command-utilities"
             >

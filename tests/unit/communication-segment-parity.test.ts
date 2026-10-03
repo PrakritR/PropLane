@@ -20,8 +20,10 @@ describe("Communication status and action parity", () => {
 
   it("manager Communication list header is one card with embedded command row and slim rows", () => {
     const unified = read("src/components/portal/pro-unified-inbox.tsx");
+    const commandStack = read("src/components/portal/portal-list-control-stack.tsx");
     expect(unified).toContain('data-attr="communication-list-header-card"');
     expect(unified).toContain("embedded");
+    expect(commandStack).toMatch(/embedded[\s\S]*flex-row flex-nowrap/);
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*address=\{row\.address\}/);
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
   });

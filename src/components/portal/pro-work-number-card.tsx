@@ -34,7 +34,7 @@ export function workNumberReadinessCaption(args: {
 }): string {
   if (!args.sendingAvailable) return "Texting is off for this deployment";
   if (!args.canSend) return "Finishing setup";
-  return args.carrierRegistered ? "Ready to send · carrier registered" : "Ready to send";
+  return "";
 }
 
 function useManagerWorkEmail(): { email: string | null; ready: boolean } {
@@ -172,15 +172,16 @@ export function ManagerWorkNumberCard() {
     if (phone) {
       const formatted = formatSmsPhoneLabel(phone) || phone;
       const sendReady = Boolean(status.canSend) && Boolean(status.sendingAvailable);
+      const readiness = workNumberReadinessCaption({
+        canSend: Boolean(status.canSend),
+        sendingAvailable: Boolean(status.sendingAvailable),
+        carrierRegistered: status.number?.carrierRegistrationState === "registered",
+      });
       const statusLine = sendReady
         ? undefined
         : coManager
           ? "Finishing setup"
-          : workNumberReadinessCaption({
-              canSend: Boolean(status.canSend),
-              sendingAvailable: Boolean(status.sendingAvailable),
-              carrierRegistered: status.number?.carrierRegistrationState === "registered",
-            });
+          : readiness || undefined;
       return (
         <PortalInboxContactCard
           padded={false}
@@ -300,7 +301,10 @@ export function ManagerWorkNumberCard() {
   })();
 
   return (
-    <div className="shrink-0 flex flex-col gap-0.5 px-3 pb-1.5 pt-2" data-attr="manager-work-identity">
+    <div
+      className="shrink-0 flex flex-col gap-0.5 border-b border-border px-3 pb-1.5 pt-2"
+      data-attr="manager-work-identity"
+    >
       {numberBox}
       {emailBox}
     </div>
