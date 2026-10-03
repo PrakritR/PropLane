@@ -73,6 +73,7 @@ export function AddWorkspace({
   headerActions,
   skipOffPath = false,
   numberedSteps = false,
+  reviewEditLinks = true,
 }: {
   title: string;
   subtitle?: string;
@@ -135,6 +136,11 @@ export function AddWorkspace({
   skipOffPath?: boolean;
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
   numberedSteps?: boolean;
+  /**
+   * The Review step gets an Edit link per section above its body. A Review that already draws its own
+   * Edit on every section card (Add resident) passes false so the link is not offered twice.
+   */
+  reviewEditLinks?: boolean;
 }) {
   const confirm = useConfirm();
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
@@ -342,7 +348,7 @@ export function AddWorkspace({
         <div className="mb-5 flex gap-1" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
         </div>
-        {(steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
+        {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
           {steps.filter((step) => step.id !== "review" && step.id !== "preview").map((step) => <button key={step.id} type="button" onClick={() => onJump(steps.indexOf(step))} className="min-h-11 text-sm font-semibold text-primary">Edit {step.label}</button>)}
         </nav> : null}
         {children}

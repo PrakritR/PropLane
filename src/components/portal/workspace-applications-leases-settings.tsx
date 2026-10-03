@@ -67,6 +67,7 @@ import {
 } from "@/lib/manager-property-save-target";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
+import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import {
@@ -107,6 +108,8 @@ function loadPropertyEntries(managerUserId: string): PropertyEntry[] {
   const ids = new Set<string>();
   for (const listing of readExtraListingsForUser(managerUserId)) ids.add(listing.id);
   for (const pending of readPendingManagerPropertiesForUser(managerUserId)) ids.add(pending.id);
+  // A co-manager's linked homes live under the owner's id, never the viewer's.
+  for (const id of collectLinkedPropertyIdsForModule(managerUserId, "leases")) ids.add(id);
   const out: PropertyEntry[] = [];
   for (const id of ids) {
     const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, id);

@@ -556,6 +556,7 @@ export function AddResidentWizard({
       onJump={setStepIdx}
       onClose={onClose}
       dirty={addPersonFormIsDirty(form)}
+      reviewEditLinks={false}
       keepsDraft={draftKey != null}
       onDiscardDraft={discardDraft}
       discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}

@@ -181,7 +181,6 @@ import {
   RailNotice,
   RailStatus,
   SectionGroup,
-  SideBelow,
   StepColumn,
   StepHeading,
   StepRail,
@@ -3171,6 +3170,7 @@ export function ListingEditorV2({
       }
       railFooter={<RailStatus listed={isEdit} />}
       sidePanel={sidePanel}
+      previewInEye
       footer={
         <>
           {publishError || actionError ? (
@@ -3215,7 +3215,6 @@ export function ListingEditorV2({
       }
     >
       {body}
-      <SideBelow>{sidePanel}</SideBelow>
     </ListingWorkspace>
   );
 }

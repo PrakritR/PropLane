@@ -32,7 +32,7 @@ import {
 } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ImportPropertySwitcher } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds, type ListingV2StepId } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { ListingWorkspace, RailCover, RailNotice, RailStatus, SideBelow, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ListingWorkspace, RailCover, RailNotice, RailStatus, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { deleteManagerPropertyDraft, saveManagerPropertyDraftToServer } from "@/lib/demo-admin-property-inventory";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -514,6 +514,7 @@ export function CreateWorkspace({
         }
         railFooter={<RailStatus listed={false} />}
         sidePanel={sidePanel}
+        previewInEye
         footer={
           <>
             <div className="flex items-center gap-2.5">
@@ -544,7 +545,6 @@ export function CreateWorkspace({
           onMerge={(from, into) => void mergeEntries(from, into)}
           busy={busy}
         />
-        <SideBelow>{sidePanel}</SideBelow>
       </ListingWorkspace>
     </PortalAssistantConfigProvider>
   );

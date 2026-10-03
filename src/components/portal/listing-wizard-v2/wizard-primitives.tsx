@@ -18,13 +18,14 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, Check, Circle, ChevronDown, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, Circle, ChevronDown, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
@@ -104,6 +105,7 @@ export function ListingWorkspace({
   headerAside,
   headerCenter,
   onContinue,
+  previewInEye = false,
 }: {
   title: string;
   subtitle?: string;
@@ -141,8 +143,14 @@ export function ListingWorkspace({
   headerCenter?: ReactNode;
   /** Enter in a single-line field follows the same validated path as Continue. */
   onContinue?: () => void;
+  /**
+   * New / Edit property: below 1200px the live panel is not a column. An eye in the header opens it
+   * in a side sheet; from 1200px it is a fixed column and the eye steps aside.
+   */
+  previewInEye?: boolean;
 }) {
   const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
+  const [eyeOpen, setEyeOpen] = useState(false);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -181,6 +189,17 @@ export function ListingWorkspace({
         ) : null}
         <div className="flex shrink-0 items-center gap-2">
           <div ref={setUploadTarget} className="flex items-center gap-2 empty:hidden" />
+          {previewInEye && sidePanel ? (
+            <PortalIconAction
+              icon={Eye}
+              label="Preview"
+              ring
+              className="min-[1200px]:hidden"
+              data-attr="workspace-preview-eye"
+              aria-expanded={eyeOpen}
+              onClick={() => setEyeOpen((value) => !value)}
+            />
+          ) : null}
           {headerAside}
           {onClose ? (
             <button
@@ -202,7 +221,7 @@ export function ListingWorkspace({
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "min-[1200px]:grid-cols-[220px_minmax(0,1fr)_380px]")}>
         <nav
           aria-label="Listing sections"
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
@@ -224,7 +243,7 @@ export function ListingWorkspace({
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 xl:block [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 min-[1200px]:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>
@@ -233,8 +252,42 @@ export function ListingWorkspace({
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 bg-white px-4 py-3 sm:px-5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
+      {previewInEye && sidePanel && eyeOpen ? <PreviewSheet onClose={() => setEyeOpen(false)}>{sidePanel}</PreviewSheet> : null}
     </div>
     </WorkspaceUploadTarget.Provider>
+  );
+}
+
+/** The live panel as a right-hand sheet, for widths where it is not a column. */
+function PreviewSheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex justify-end" data-wizard-step-sheet="" data-attr="workspace-preview-sheet">
+      <button type="button" aria-label="Close preview" tabIndex={-1} className="absolute inset-0 bg-foreground/40" onClick={onClose} />
+      <aside
+        role="dialog"
+        aria-label="Preview"
+        className="relative flex h-full w-[min(420px,100vw)] flex-col overflow-y-auto bg-[var(--pl-surface-muted)] p-5 pt-[max(1.25rem,env(safe-area-inset-top,0px))] shadow-[-12px_0_40px_-12px_rgba(11,27,58,0.4)] [html[data-theme=dark]_&]:bg-card"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <b className="text-[17px] font-extrabold tracking-tight text-foreground">Preview</b>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid size-11 place-items-center rounded-full text-muted hover:bg-accent/50">
+            ✕
+          </button>
+        </div>
+        {children}
+      </aside>
+    </div>,
+    document.body,
   );
 }
 
@@ -248,7 +301,7 @@ export function SideBelow({ children }: { children: ReactNode }) {
   if (!children) return null;
   // A phone does not get the panel at all — it repeated the card above it in a
   // second layout. A laptop without the column still gets it under the step.
-  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block xl:hidden">{children}</div>;
+  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block min-[1200px]:hidden">{children}</div>;
 }
 
 export type StepRailItem = {
