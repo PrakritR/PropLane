@@ -4,7 +4,6 @@
  */
 
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { getPropertyById } from "@/lib/rental-application/data";
 import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { applicationFeeStatusForRow } from "@/lib/resident-application-fee-status";
 
@@ -29,7 +28,6 @@ export interface ResidentLifecycleStep {
 }
 
 export interface ResidentLifecycleInput {
-  signingOrder: "application_first" | "lease_first";
   applicationFeePaid: boolean;
   applicationSubmitted: boolean;
   applicationApproved: boolean;
@@ -76,17 +74,8 @@ const APPLICATION_FIRST: ResidentLifecycleStepId[] = [
   "move_in",
 ];
 
-const LEASE_FIRST: ResidentLifecycleStepId[] = [
-  "sign_lease",
-  "received",
-  "review",
-  "approved",
-  "pay_move_in",
-  "move_in",
-];
-
-function stepOrder(input: ResidentLifecycleInput): ResidentLifecycleStepId[] {
-  return input.signingOrder === "lease_first" ? LEASE_FIRST : APPLICATION_FIRST;
+function stepOrder(_input: ResidentLifecycleInput): ResidentLifecycleStepId[] {
+  return APPLICATION_FIRST;
 }
 
 function stepSatisfied(id: ResidentLifecycleStepId, input: ResidentLifecycleInput): boolean {
@@ -184,23 +173,12 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
     };
   }
 
-  if (input.signingOrder === "lease_first" && !input.residentSignedLease && input.applicationSubmitted) {
-    return {
-      title: "Sign your lease",
-      detail: "The application comes next.",
-      href: `${base}/sign-and-pay`,
-      ctaLabel: "Sign lease",
-      who: "You",
-      urgent: false,
-    };
-  }
-
   if (!input.applicationApproved) {
     return {
       title: "Application under review",
       detail: "You'll get an email and a text when it's decided.",
       href: `${base}/applications`,
-      ctaLabel: input.signingOrder === "lease_first" ? "View status" : "View application",
+      ctaLabel: "View application",
       who: "Property manager",
       urgent: false,
     };
@@ -266,14 +244,8 @@ export function residentLifecycleInputFromApplicationRow(
   residentEmail: string,
   basePath: string,
 ): ResidentLifecycleInput {
-  const propertyId = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
-  const signingOrder =
-    propertyId && getPropertyById(propertyId)?.signingOrder === "lease_first"
-      ? "lease_first"
-      : "application_first";
   const fee = applicationFeeStatusForRow(row, residentEmail);
   return {
-    signingOrder,
     applicationFeePaid: fee.paid,
     applicationSubmitted: Boolean(row.application) && !isInProgressApplicationRow(row),
     applicationApproved: row.bucket === "approved",

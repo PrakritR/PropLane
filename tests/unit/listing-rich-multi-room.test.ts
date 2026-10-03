@@ -265,7 +265,7 @@ describe("listing multi-room lease basics", () => {
     expect(rich.bundleCards).toEqual([]);
     expect(rich.leaseBasics.some((row) => row.id === "lease-multi-room")).toBe(false);
     const entireRow = rich.leaseBasics.find((row) => row.id === "lease-entire-home");
-    expect(entireRow?.price).toBe("$4500.00/mo");
+    expect(entireRow?.price).toBe("$4,500.00/mo");
     expect(entireRow?.section).toBe("long-term");
   });
 

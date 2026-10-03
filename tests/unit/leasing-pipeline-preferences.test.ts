@@ -18,35 +18,35 @@ describe("leasing-pipeline-preferences", () => {
     expect(normalizeLeasingPipelinePreferences(undefined)).toEqual(DEFAULT_LEASING_PIPELINE);
   });
 
-  it("normalizes lease-first order", () => {
+  it("ignores a stored lease-first order: application first, always", () => {
     const next = normalizeLeasingPipelinePreferences({
       pipelineOrder: "lease_then_application",
       requireApplication: false,
       leaseSigningFeeCents: 2500,
     });
-    expect(next.pipelineOrder).toBe("lease_then_application");
+    expect(next.pipelineOrder).toBe("application_then_lease");
     expect(next.requireApplication).toBe(false);
     expect(next.leaseSigningFeeCents).toBe(2500);
   });
 
-  it("lease-first unlocks lease without approved application", () => {
+  it("lease never unlocks without an approved application, even for a hand-built lease-first state", () => {
     expect(
       leaseUnlocksWithoutApplicationApproval({
         ...DEFAULT_LEASING_PIPELINE,
         pipelineOrder: "lease_then_application",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(leaseUnlocksWithoutApplicationApproval(DEFAULT_LEASING_PIPELINE)).toBe(false);
   });
 
-  it("send gate skips approval only for lease-first or optional application", () => {
+  it("send gate skips approval only when applications are optional", () => {
     expect(leaseSendRequiresApprovedApplication(DEFAULT_LEASING_PIPELINE)).toBe(true);
     expect(
       leaseSendRequiresApprovedApplication({
         ...DEFAULT_LEASING_PIPELINE,
         pipelineOrder: "lease_then_application",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       leaseSendRequiresApprovedApplication({
         ...DEFAULT_LEASING_PIPELINE,
@@ -55,21 +55,23 @@ describe("leasing-pipeline-preferences", () => {
     ).toBe(false);
   });
 
-  it("the signing order and shared-room lease default come from the workspace even when a house override stored its own", () => {
+  it("the shared-room lease default and Application before a tour come from the workspace even when a house override stored its own", () => {
     const state = {
-      portfolio: normalizeLeasingPipelinePreferences({ pipelineOrder: "lease_then_application", sharedRoomLease: "joint" }),
+      portfolio: normalizeLeasingPipelinePreferences({ sharedRoomLease: "joint", applicationBeforeTour: "required" }),
       byPropertyId: {
         "prop-1": normalizeLeasingPipelinePreferences({
           pipelineOrder: "application_then_lease",
           sharedRoomLease: "individual",
+          applicationBeforeTour: "not_needed",
           leaseSigningFeeCents: 2500,
           defaultLeaseTemplateId: "lease-1",
         }),
       },
     };
     const resolved = resolveLeasingPipelineForProperty(state, "prop-1");
-    expect(resolved.pipelineOrder).toBe("lease_then_application");
+    expect(resolved.pipelineOrder).toBe("application_then_lease");
     expect(resolved.sharedRoomLease).toBe("joint");
+    expect(resolved.applicationBeforeTour).toBe("required");
     // The house still owns its own fee and default template.
     expect(resolved.leaseSigningFeeCents).toBe(2500);
     expect(resolved.defaultLeaseTemplateId).toBe("lease-1");
@@ -99,11 +101,18 @@ describe("leasing-pipeline-preferences", () => {
     expect(validateLeaseSigningFeeCents(100)).toEqual({ ok: true, leaseSigningFeeCents: 100 });
   });
 
-  it("collapses pipelineOrder to the minimal public-safe signingOrder label", () => {
+  it("the public signingOrder label is application_first for every workspace", () => {
     expect(signingOrderForPipeline(DEFAULT_LEASING_PIPELINE)).toBe("application_first");
     expect(
       signingOrderForPipeline({ ...DEFAULT_LEASING_PIPELINE, pipelineOrder: "lease_then_application" }),
-    ).toBe("lease_first");
+    ).toBe("application_first");
+  });
+
+  it("Application before a tour defaults to Not needed and only reads the exact value required", () => {
+    expect(DEFAULT_LEASING_PIPELINE.applicationBeforeTour).toBe("not_needed");
+    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: "required" }).applicationBeforeTour).toBe("required");
+    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: "yes" }).applicationBeforeTour).toBe("not_needed");
+    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: true }).applicationBeforeTour).toBe("not_needed");
   });
 
   it("batch-loads leasing-pipeline state for several managers in one query, keyed by manager id", async () => {
@@ -140,14 +149,11 @@ describe("leasing-pipeline-preferences", () => {
     expect(states.size).toBe(2);
 
     const leaseFirstState = states.get("mgr-lease-first")!;
-    expect(signingOrderForPipeline(leaseFirstState.portfolio)).toBe("lease_first");
-    // The signing order is a workspace setting: a stored per-property order is ignored (C2-CP7).
-    expect(
-      signingOrderForPipeline(resolveLeasingPipelineForProperty(leaseFirstState, "prop-1")),
-    ).toBe("lease_first");
-    expect(
-      signingOrderForPipeline(resolveLeasingPipelineForProperty(leaseFirstState, "some-other-property")),
-    ).toBe("lease_first");
+    // A stored lease-first order is ignored everywhere: application first, always.
+    expect(signingOrderForPipeline(leaseFirstState.portfolio)).toBe("application_first");
+    expect(resolveLeasingPipelineForProperty(leaseFirstState, "prop-1").pipelineOrder).toBe("application_then_lease");
+    expect(resolveLeasingPipelineForProperty(leaseFirstState, "some-other-property").pipelineOrder).toBe("application_then_lease");
+    expect(resolveLeasingPipelineForProperty(leaseFirstState, "some-other-property").leaseSigningFeeCents).toBe(5000);
 
     const defaultState = states.get("mgr-default")!;
     expect(defaultState.portfolio).toEqual(DEFAULT_LEASING_PIPELINE);

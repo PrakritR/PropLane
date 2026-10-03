@@ -75,7 +75,6 @@ import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManage
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
-  residentLeaseFirstApplicationRedirectLeaseId,
 } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -445,15 +444,6 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/applications/pending`);
   }
   if (kind === "resident" && section === "applications") {
-    // Lease-first: the lease is signed before the application, so the Application pages send the
-    // resident to the lease they still owe a signature on. The id comes from the resident's own
-    // lease rows (email-scoped in loadResidentPortalAccessState), never from the URL.
-    const leaseFirstLeaseId = residentAccess
-      ? residentLeaseFirstApplicationRedirectLeaseId(residentAccess)
-      : null;
-    if (leaseFirstLeaseId) {
-      redirect(residentLeaseDetailHref(def.basePath, "pending", leaseFirstLeaseId));
-    }
     const RESIDENT_APP_BUCKETS = ["pending", "approved", "rejected"] as const;
     if (!tabParts?.length) {
       redirect(`${def.basePath}/applications/pending`);

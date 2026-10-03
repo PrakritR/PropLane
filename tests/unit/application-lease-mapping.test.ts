@@ -5,14 +5,12 @@ import {
   findMappingViolations,
   leaseIdForApplication,
   mappingRows,
-  resolveApplicationForLeaseTemplate,
   resolveLeaseForApplicationTemplate,
   setMappingTarget,
 } from "@/lib/application-lease-mapping";
 import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import {
-  applicationTemplateIdForLeaseFirstApplicant,
   listLeaseTemplateGenerateChoices,
   resolvePropertyLeaseTemplateForApplication,
 } from "@/lib/property-lease-template-sync";
@@ -87,47 +85,26 @@ describe("application first: an application maps to exactly one lease", () => {
   });
 });
 
-describe("lease first: a lease maps to exactly one application", () => {
+describe("lease first is gone: a lease maps to no application", () => {
   const standard = app("Standard application");
-  const guest = app("Guest application");
-  const long = lease("Long-term lease");
-  const short = lease("Short-term lease", "short-term");
-  const custom = lease("Custom lease", "custom");
-  const catalog = { applications: [standard, guest], leases: [long, short, custom] };
+  const long = lease("Long-term lease", "long-term", { linkedApplicationTemplateId: standard.id });
+  const catalog = { applications: [standard], leases: [long] };
 
-  it("covers every lease type offered, one application each, and one application may serve several leases", () => {
-    let current = catalog;
-    for (const [leaseRow, target] of [[long, standard], [short, standard], [custom, guest]] as const) {
-      const next = setMappingTarget("lease_then_application", current, leaseRow.id, target.id);
-      if (!next.ok) throw new Error("expected ok");
-      current = { applications: next.applications, leases: next.leases };
-    }
-    expect(applicationIdForLease(current, long.id)).toBe(standard.id);
-    expect(applicationIdForLease(current, short.id)).toBe(standard.id);
-    expect(applicationIdForLease(current, custom.id)).toBe(guest.id);
-    expect(mappingRows("lease_then_application", current).map((r) => r.dependentLabel)).toEqual([
-      "Long-term lease",
-      "Short-term lease",
-      "Custom lease",
-    ]);
+  it("a lease never answers with an application, whatever it stored", () => {
+    expect(applicationIdForLease(catalog, long.id)).toBeNull();
   });
 
-  it("refuses a second application for a lease", () => {
-    expect(setMappingTarget("lease_then_application", catalog, long.id, [standard.id, guest.id])).toEqual({
-      ok: false,
-      error: "A lease can only use one application.",
-    });
+  it("the lease -> application order maps application -> lease like every other order", () => {
+    const next = setMappingTarget("lease_then_application", catalog, standard.id, long.id);
+    if (!next.ok) throw new Error("expected ok");
+    expect(leaseIdForApplication({ applications: next.applications, leases: next.leases }, standard.id)).toBe(long.id);
+    expect(mappingRows("lease_then_application", catalog).map((r) => r.dependentLabel)).toEqual(["Standard application"]);
   });
 
-  it("re-pointing a lease replaces its application; a legacy list on an application stops claiming it", () => {
-    const legacyApp = app("Legacy", { usedForLeaseTemplateIds: [long.id] });
-    expect(applicationIdForLease({ applications: [legacyApp, guest], leases: [long] }, long.id)).toBe(legacyApp.id);
-    const moved = setMappingTarget("lease_then_application", { applications: [legacyApp, guest], leases: [long] }, long.id, guest.id);
-    if (!moved.ok) throw new Error("expected ok");
-    const after = { applications: moved.applications, leases: moved.leases };
-    expect(applicationIdForLease(after, long.id)).toBe(guest.id);
-    expect(moved.leases[0]!.linkedApplicationTemplateId).toBe(guest.id);
-    expect(after.applications.find((a) => a.id === legacyApp.id)!.usedForLeaseTemplateIds).toEqual([]);
+  it("a mapping edit never writes a lease's application link", () => {
+    const next = setMappingTarget("application_then_lease", catalog, standard.id, long.id);
+    if (!next.ok) throw new Error("expected ok");
+    expect(next.leases[0]!.linkedApplicationTemplateId).toBe(standard.id);
   });
 });
 
@@ -158,7 +135,8 @@ describe("saving never keeps two links", () => {
     const orphan = lease("Orphan", "long-term", { linkedApplicationTemplateId: "deleted-app" });
     const result = collapseApplicationLeaseLinks([gone], [keep, orphan]);
     expect(result.applications[0]!.linkedLeaseTemplateId).toBeNull();
-    expect(result.leases.find((l) => l.id === orphan.id)!.linkedApplicationTemplateId).toBeNull();
+    // A stored lease -> application link is inert (lease first is gone): left alone, never read.
+    expect(result.leases.find((l) => l.id === orphan.id)!.linkedApplicationTemplateId).toBe("deleted-app");
     const clean = { applications: [app("A", { linkedLeaseTemplateId: keep.id, usedForLeaseTemplateIds: [keep.id] })], leases: [keep] };
     const again = collapseApplicationLeaseLinks(clean.applications, clean.leases);
     expect(again.changed).toBe(false);
@@ -214,27 +192,6 @@ describe("the resident path", () => {
     expect(resolveLeaseForApplicationTemplate(catalog, loose.id, b.id)?.id).toBe(b.id);
     expect(resolveLeaseForApplicationTemplate(catalog, loose.id)).toBeNull();
     expect(resolveLeaseForApplicationTemplate(catalog, loose.id, "missing")).toBeNull();
-  });
-
-  it("a lease signer always gets the application their lease maps to; unmapped falls back to the default application, else the first published form", () => {
-    const primary = lease("Long-term lease", "long-term", { listingSeedKey: "primary" });
-    const guest = app("Guest application", { publishedQuestionConfig: published });
-    const standard = app("Standard application", { publishedQuestionConfig: published });
-    const draftOnly = app("Draft only");
-    const mappedLease = { ...primary, linkedApplicationTemplateId: guest.id };
-    const sub = { ...createDefaultListingSubmission(), propertyLeaseTemplates: [mappedLease], propertyApplicationTemplates: [standard, guest] };
-    expect(applicationTemplateIdForLeaseFirstApplicant(sub, { leaseTerm: "12-Month" })).toBe(guest.id);
-
-    const unmapped = { ...sub, propertyLeaseTemplates: [primary] };
-    expect(applicationTemplateIdForLeaseFirstApplicant(unmapped, { leaseTerm: "12-Month" })).toBeNull();
-    expect(applicationTemplateIdForLeaseFirstApplicant(unmapped, { leaseTerm: "12-Month" }, standard.id)).toBe(standard.id);
-
-    // A mapped form that is not published cannot be served.
-    const unpublished = { ...sub, propertyApplicationTemplates: [standard, { ...draftOnly, id: guest.id }] };
-    expect(applicationTemplateIdForLeaseFirstApplicant(unpublished, { leaseTerm: "12-Month" })).toBeNull();
-
-    const catalog = { applications: [standard, guest], leases: [mappedLease] };
-    expect(resolveApplicationForLeaseTemplate(catalog, mappedLease.id)?.id).toBe(guest.id);
   });
 
   it("the applicant is served the mapped form even when its variant differs from the stay's", () => {

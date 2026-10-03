@@ -96,57 +96,19 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply long term");
   });
 
-  it("says Sign lease on both the price card and the sticky bar for a lease-first listing", () => {
+  it("never says Sign lease or shows a Lease fee row, even for a stale lease_first value", () => {
     render(
       <ListingDetailSections
-        property={property({ signingOrder: "lease_first", leaseSigningFeeCents: 0 })}
-        rich={rich()}
-      />,
-    );
-    expect(priceCard().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
-    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
-  });
-
-  it("swaps Application fee for Lease fee when lease-first and no fee is charged up front", () => {
-    render(
-      <ListingDetailSections
-        property={property({ signingOrder: "lease_first", leaseSigningFeeCents: 10000 })}
-        rich={rich({ pricingBreakdown: [{ label: "Security deposit", value: "$500" }] })}
-      />,
-    );
-    const card = priceCard();
-    expect(card.textContent).not.toContain("Application fee");
-    const dueAtSigning = card.querySelector('[data-attr="listing-price-due-at-signing"]');
-    expect(dueAtSigning).not.toBeNull();
-    expect(dueAtSigning!.textContent).toContain("Lease fee");
-    expect(dueAtSigning!.textContent).toContain("$100");
-    // The unrelated deposit row is untouched.
-    expect(card.textContent).toContain("Security deposit");
-  });
-
-  it("replaces the Application fee row with the Lease fee row for a lease-first listing (studio spec)", () => {
-    render(
-      <ListingDetailSections
-        property={property({ signingOrder: "lease_first", leaseSigningFeeCents: 10000 })}
+        property={property({ signingOrder: "lease_first" as never, leaseSigningFeeCents: 10000 })}
         rich={rich({ pricingBreakdown: [{ label: "Application fee", value: "$45" }] })}
       />,
     );
     const card = priceCard();
-    expect(card.textContent).not.toContain("Application fee");
-    expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')!.textContent).toContain("$100");
-    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
-  });
-
-  it("reads None on the Lease fee row when the lease-signing fee is unset (0)", () => {
-    render(
-      <ListingDetailSections
-        property={property({ signingOrder: "lease_first" })}
-        rich={rich()}
-      />,
-    );
-    const dueAtSigning = priceCard().querySelector('[data-attr="listing-price-due-at-signing"]');
-    expect(dueAtSigning).not.toBeNull();
-    expect(dueAtSigning!.textContent).toContain("None");
+    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply long term");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply long term");
+    expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')).toBeNull();
+    expect(card.textContent).toContain("Application fee");
+    expect(card.textContent).not.toContain("Lease fee");
   });
 
   it("offers Apply short term only when the listing offers short stays, never a separate booking link", () => {

@@ -9,6 +9,7 @@ import {
   buildProspectTourHref,
   stageResidentListingMessageCompose,
 } from "@/lib/prospect-public-nav";
+import { getPropertyById } from "@/lib/rental-application/data";
 import type { RentalApplyFromListingParams } from "@/lib/rental-application/apply-from-listing";
 
 type ProspectListingCtaProps = {
@@ -43,7 +44,10 @@ export function ProspectListingCta({
       return buildProspectApplyHref({ propertyId, ...applyParams }, auth);
     }
     if (action === "tour") {
-      return buildProspectTourHref(propertyId, auth);
+      return buildProspectTourHref(propertyId, auth, {
+        // Read after mount only (the cache is browser-side), so the server render and first paint agree.
+        applicationFirst: auth.ready && getPropertyById(propertyId)?.applicationBeforeTour === true,
+      });
     }
     return buildProspectMessageHref(propertyId, auth);
   }, [action, applyParams, autofill.hasResidentRole, autofill.ready, autofill.userId, propertyId]);

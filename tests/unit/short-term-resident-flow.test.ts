@@ -60,10 +60,10 @@ describe("listing apply doors", () => {
     ]);
   });
 
-  it("keeps the lease-first wording for both terms", () => {
-    expect(listingTermCtas({ shortStayOffered: true, signingOrder: "lease_first" }).map((c) => c.label)).toEqual([
-      "Sign lease long term",
-      "Sign lease short term",
+  it("always says Apply for both terms, even for a stale lease_first value", () => {
+    expect(listingTermCtas({ shortStayOffered: true, signingOrder: "lease_first" as never }).map((c) => c.label)).toEqual([
+      "Apply long term",
+      "Apply short term",
     ]);
   });
 

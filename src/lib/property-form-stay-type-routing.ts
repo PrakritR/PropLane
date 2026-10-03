@@ -1,7 +1,6 @@
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import {
-  applicationIdForLease,
   leaseIdForApplication,
   setMappingTarget,
   type MappingCatalog,
@@ -85,15 +84,12 @@ export function stayTypeLabelForLeaseKindDisplay(
 
 export function applicationIdForStayTerm(
   catalog: MappingCatalog,
-  order: MappingSigningOrder,
+  _order: MappingSigningOrder,
   leases: readonly PropertyLeaseTemplate[],
   term: string,
 ): string | null {
   const leaseId = leaseTemplateIdForStayTerm(leases, term);
   if (!leaseId) return null;
-  if (order === "lease_then_application") {
-    return applicationIdForLease(catalog, leaseId);
-  }
   const apps = catalog.applications.filter(
     (app) => leaseIdForApplication(catalog, app.id) === leaseId,
   );
@@ -110,11 +106,6 @@ export function applyApplicationLinkForStayTerm(
 ): { applications: PropertyApplicationTemplate[]; leases: PropertyLeaseTemplate[] } | { error: string } {
   const leaseId = leaseTemplateIdForStayTerm(leases, term);
   if (!leaseId) return { error: "Pick a lease for this stay type first." };
-  if (order === "lease_then_application") {
-    const result = setMappingTarget(order, catalog, leaseId, applicationId);
-    if (!result.ok) return { error: result.error };
-    return { applications: result.applications, leases: result.leases };
-  }
   if (!applicationId) {
     const linked = catalog.applications.find((app) => leaseIdForApplication(catalog, app.id) === leaseId);
     if (!linked) return { applications: [...catalog.applications], leases: [...leases] };

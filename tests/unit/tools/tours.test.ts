@@ -13,12 +13,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const listOpenTourSlots = vi.fn();
 const createTourInquiry = vi.fn();
 const createManualPlannedTour = vi.fn();
+const applicationBeforeTourRefusal = vi.fn();
 
 vi.mock("@/lib/tour-availability.server", () => ({
   listOpenTourSlots: (...a: unknown[]) => listOpenTourSlots(...a),
 }));
 vi.mock("@/lib/tour-inquiry-create.server", () => ({
   createTourInquiry: (...a: unknown[]) => createTourInquiry(...a),
+}));
+vi.mock("@/lib/application-before-tour.server", () => ({
+  applicationBeforeTourRefusal: (...a: unknown[]) => applicationBeforeTourRefusal(...a),
 }));
 vi.mock("@/lib/manual-planned-tour.server", () => ({
   createManualPlannedTour: (...a: unknown[]) => createManualPlannedTour(...a),
@@ -112,6 +116,7 @@ const BOOK_INPUT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  applicationBeforeTourRefusal.mockResolvedValue(null);
   createTourInquiry.mockResolvedValue({ ok: true, row: {}, inquiryId: "inq-1" });
   createManualPlannedTour.mockResolvedValue({ ok: true, plannedEvent: {}, message: "Thu 2:00 PM" });
 });
@@ -225,6 +230,46 @@ describe("request_tour — files a request, books nothing", () => {
     expect(residentRequestTourTool.name).toBe(leasingRequestTourTool.name);
     const res = await previewWrite(residentRequestTourTool, makeCtx() as never, REQUEST_INPUT);
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("request_tour — Application before a tour", () => {
+  const REFUSAL = "This home asks for an application before a tour. Apply first, then book your tour.";
+
+  it("a texting prospect is never a verified applicant: the rule runs with no verified email and its refusal stops the request", async () => {
+    offerSlot();
+    applicationBeforeTourRefusal.mockResolvedValue(REFUSAL);
+    const res = await executeWrite(leasingRequestTourTool, makeCtx(), REQUEST_INPUT);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toBe(REFUSAL);
+    expect(applicationBeforeTourRefusal).toHaveBeenCalledWith(expect.anything(), { propertyId: "prop-1", verifiedEmail: null });
+    expect(createTourInquiry).not.toHaveBeenCalled();
+  });
+
+  it("the resident's tool checks the ACCOUNT email, never the email typed into the request", async () => {
+    offerSlot();
+    const ctx = { ...makeCtx(), email: "account@example.com" } as never;
+    const res = await executeWrite(residentRequestTourTool, ctx, { ...REQUEST_INPUT, email: "someone-else@example.com" });
+    expect(res.ok).toBe(true);
+    expect(applicationBeforeTourRefusal).toHaveBeenCalledWith(expect.anything(), { propertyId: "prop-1", verifiedEmail: "account@example.com" });
+    expect(createTourInquiry.mock.calls[0]![1]).toMatchObject({ verifiedApplicantEmail: "account@example.com" });
+  });
+
+  it("a resident without an application is refused in the preview too", async () => {
+    offerSlot();
+    applicationBeforeTourRefusal.mockResolvedValue(REFUSAL);
+    const res = await previewWrite(residentRequestTourTool, { ...makeCtx(), email: "account@example.com" } as never, REQUEST_INPUT);
+    expect(res).toMatchObject({ ok: false });
+    expect(createTourInquiry).not.toHaveBeenCalled();
+  });
+
+  it("a manager booking a tour is not asked for an application", async () => {
+    offerSlot(MGR);
+    applicationBeforeTourRefusal.mockResolvedValue(REFUSAL);
+    const res = await executeWrite(bookTourTool, makeCtx(), BOOK_INPUT);
+    expect(res.ok).toBe(true);
+    expect(applicationBeforeTourRefusal).not.toHaveBeenCalled();
   });
 });
 

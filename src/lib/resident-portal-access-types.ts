@@ -45,23 +45,4 @@ export type ResidentPortalAccessState = {
    */
   fullPortalAccess: boolean;
   managerSubscriptionTier: ManagerSubscriptionTier;
-  /**
-   * Manager leasing pipeline order for this resident's property/workspace
-   * (PLAN-0924-1254). Defaults to application-first when unknown.
-   */
-  pipelineOrder: "application_then_lease" | "lease_then_application";
-  /**
-   * The resident owns a lease-first lease (`leaseFirst: true` marker draft, or the
-   * lease it became once signing began). That alone unlocks the Lease section —
-   * whatever the application state is — so a resident who started a lease-first
-   * home lands on a Lease they can open and sign, never a locked row.
-   */
-  hasLeaseFirstDraft: boolean;
-  /**
-   * Id of the resident's lease-first lease that still needs THEIR signature
-   * (null once they have signed, or when there is none). Lease-first Application
-   * waits on this: the Application section sends them to this lease until it is
-   * signed, after which the application mapped from the lease is what is next.
-   */
-  leaseFirstPendingLeaseId: string | null;
 };

@@ -1,24 +1,10 @@
 # Lease generation — agent notes
 
-**Signing order is one workspace setting, and application <-> lease is one-to-one in the dependent direction (C2-CP7/8/9, Oct 2026).** Application first: every application maps to exactly ONE lease (`linkedLeaseTemplateId`); lease first: every lease maps to exactly ONE application (`linkedApplicationTemplateId`); the other side may serve many, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; `leasing-pipeline-preferences.ts` `resolveLeasingPipelineForProperty` answers the workspace order for every property). Both are edited only in Settings -> Applications & leases (`WorkspaceApplicationsLeasesSettings`); the lease and application editors have no Settings step and "this answer picks the lease" is gone. Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease); a lease signer gets the property default application, else the first published form of the stay's variant. Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`.
+**One system for every workspace: application first, then lease, then the move-in form (captain, Oct 3 2026); lease first is retired.** There is no signing-order setting: `normalizePipelineOrder` / `resolveLeasingPipelineForProperty` always answer `application_then_lease` (a stored `lease_then_application` is ignored), every CTA says "Apply", and Lease unlocks only on an approved application. Application <-> lease is one-to-one in the application direction (C2-CP9): every application maps to exactly ONE lease (`linkedLeaseTemplateId`), one lease may serve many applications, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; a stored `linkedApplicationTemplateId` on a lease is inert). Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease). Settings -> Workspace -> Applications & leases also carries **Application before a tour** (Not needed by default / Required, `leasingPipeline.applicationBeforeTour`): when Required a prospect needs a submitted application for that property before the tour flow or `POST /api/public/tour-bookings` lets them book (`src/lib/application-before-tour.server.ts`); manager-scheduled tours are unaffected. The **Move-in form** (template kind `move_in`, same question schema as the application, edited from that Settings page, answered in the resident's Move-in section once the lease is signed, stored on the resident's own lease row's `row_data.moveInForm`) is documented in `docs/agents/move-in-form.md`. Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`, `tests/unit/leasing-pipeline-preferences.test.ts`.
 
 **Short stays are applications (captain, Oct 3, 2026).** There is one way to book a short stay: the listing's "Apply short term" door (shown only when the listing offers short stays) opens the same application -> lease -> payments process as "Apply long term", in the resident portal, with `rentalType: "short_term"`. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`.
 
-## Lease-first: Lease unlocks with the draft; Application waits on the signature (Oct 3 2026)
-
-`loadResidentPortalAccessState` reads the resident's own (email-scoped) lease-first rows and
-returns `hasLeaseFirstDraft` and `leaseFirstPendingLeaseId` (the lease still awaiting THEIR
-signature). `resolveResidentPortalNavStage` maps `hasLeaseFirstDraft` to
-`post_approval_pre_lease`, so the sidebar, the phone bar, the server guard and the client guard
-all unlock Lease from the one stage (`STAGE_UNLOCKED_SECTIONS` / `RESIDENT_BOTTOM_NAV_PRIMARY`
-cannot disagree). In a lease-first workspace the Application pages redirect to that lease
-(`residentLeaseFirstApplicationRedirectLeaseId`, `render-portal-section.tsx`) until the resident
-signs; the Lease page itself is the existing intake form + `ResidentLeaseFirstSigningWizard`
-(published template questions) + the one signature path. Application-first is unchanged.
-Coverage: `resident-portal-nav.test.ts`, `resident-legacy-section-redirects.test.ts`,
-`resident-lease-first-lease-page-form.test.tsx`.
-
-## Resident lease visibility, signing, and lease-first sends (Sep 2026 hotfix)
+## Resident lease visibility and signing (Sep 2026 hotfix)
 
 Four invariants, closed together because a resident could not sign any lease
 in production until they were (live since Sep 19, `64f410ca`):
@@ -44,93 +30,9 @@ in production until they were (live since Sep 19, `64f410ca`):
   next to `leaseSignatureWriteRefusal`. It never judges a resend or re-sign
   (that guard's job) and never refuses an absent hash (WebCrypto being
   unavailable is honest, not forged).
-- **"Send lease to sign" creates a real draft.** `createLeaseFirstDraft`
-  (`src/lib/leasing/lease-first-draft.server.ts`) writes a server-authorized
-  `Draft` row (`bucket: "manager"`, `leaseFirst: true`), idempotent per
-  (manager, property, room, resident email). `buildResidentLeaseDocumentRows`
-  shows it to the resident before any document exists so
-  `ResidentLeaseIntakeSection` has something to render, and
-  `resident-portal-access.ts` resolves the pipeline manager and unlocks
-  `isPreLeaseResident` through it when there is no application yet.
-  `findLeaseRowIndexForApprovedApp`'s existing email+property match (not new
-  code) attaches a later approved application onto this same draft instead of
-  creating a duplicate lease.
 
 Coverage: `tests/unit/resident-lease-visible-when-slim.test.ts`,
-`lease-sign-awaits-server.test.ts`, `lease-signature-hash-guard.test.ts`,
-`lease-first-draft.test.ts`.
-
-## Lease-first Sign step — optional signers are invite-by-email, not typed text (C278)
-
-`ResidentLeaseFirstSigningWizard`'s "Sign" step keeps the required primary
-signature off this wizard entirely (it hands off to the real signing path via
-`onReachedSign`), and renders every OTHER field from the imported template's
-"authorization" section (representative / legal representative / personal
-guarantee) as an invite-by-email row: an email input plus a "Send invite"
-button, not a plain typed-text question. The resident's typed value (the third
-party's email) still saves through the wizard's existing `signingAnswers`
-write — no new column, no new table.
-
-"Send invite" posts to `POST /api/resident/lease-signer-invite`, which
-resolves the resident actor the same way `report-lease-issue` does, then calls
-`sendLeaseSignerInvite` (`src/lib/lease-signer-invite.server.ts`): verifies the
-caller owns the lease, that it is genuinely on the lease-first Sign step
-(`leaseFirst`, `bucket: "resident"`, `status: "Resident Signature Pending"`,
-no `residentSignature` yet), then sends ONE plain, one-way notice email
-through the existing `postResendEmail` transport. The invited party never
-gets portal access, an account, or a way to sign — the email exists purely to
-tell them they were named, matching "no new auth surface."
-
-A resident sends this email from PropLane's own domain, so nothing about it is
-caller-controlled: `classifySignerInviteRole` matches the wizard's raw field
-label against a FIXED allowlist (representative / legal representative /
-guarantor) and only the matched entry's canonical label ever reaches the
-email — an unrecognized label is refused (400), never sent verbatim. The
-resident's name in the email comes only from the lease row's own
-`residentName` (never `profiles.full_name`, which the resident controls) and
-is stripped of URLs/newlines and length-capped before it can reach the
-subject or body. `rateLimit` (`src/lib/rate-limit.ts`) caps it at 5 invites
-per resident per 24 hours and 1 invite per (lease, role) per 24 hours (429 on
-either).
-
-Coverage: `tests/unit/lease-signer-invite.test.ts`,
-`tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
-
-## Lease-first "House rules addendum" step — numbered clauses, with red-flag styling (C276)
-
-C282's real PDF-import section classification (`lease-template-pdf-import.ts`)
-made the structure buildable: once a "House rules addendum" section carries
-its own individually-classified clause rows (rather than one placeholder
-acknowledgment field), `ResidentLeaseFirstSigningWizard` renders every
-non-required field in that section as a numbered, READ-ONLY rule
-(`HouseRuleClauseRow`) instead of an editable question, and its one required
-field as a single final acknowledgment step requiring BOTH initials AND a
-date (`HouseRulesAcknowledgmentRow`) — an ordinary clause step elsewhere is
-unchanged (initials only). The date rides in `signingAnswers` under
-`${field.key}__date`, additive to the existing JSON blob.
-
-Red-flagged-in-red styling is now real, derived from the PDF's own ink, never
-guessed: `pdf-source.server.ts`'s `parsePdfForImport` walks each page's
-operator list (not just `getTextContent()`) tracking `setFill*` color state
-alongside every `showText`/`showSpacedText` call, aligns each call back onto
-the plain-text extraction's own character offsets, and reports the result as
-`pages[n].colorRuns` — spans of non-default fill color, normalized into a
-small palette (`classifyFillColorHex`: `"default"` / `"red"` / `"other"`,
-red being a hue within 20° of true red at sufficient saturation) alongside
-the raw hex. This is purely additive: every existing caller's plain `text` /
-`blocks` output is byte-identical to before. `lease-template-pdf-import.ts`'s
-`isPredominantlyRed` marks a clause `flagged: true` only when at least half
-its own characters overlap a `red` colorRun. `HouseRuleClauseRow` renders a
-flagged clause in the design system's `text-danger` token (never a raw hex)
-plus a non-color `TriangleAlert` cue with its own `aria-label="Important"`,
-so the emphasis still reaches a resident who cannot perceive color. A manager
-can correct a misread in `ManagerLeaseQuestionsEditorModal`'s per-question
-"Important" checkbox (`toggleFlagged`) — the one editable field on an
-otherwise read-only imported clause.
-
-Coverage: `tests/unit/pdf-source-color.test.ts`,
-`tests/unit/lease-template-pdf-import-color.test.ts`,
-`tests/unit/resident-lease-first-signing-wizard-house-rules.test.tsx`.
+`lease-sign-awaits-server.test.ts`, `lease-signature-hash-guard.test.ts`.
 
 ## PDF import review and signing
 

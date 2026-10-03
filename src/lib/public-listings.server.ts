@@ -519,7 +519,11 @@ export function publicListingProjection(
     ...pick(property, PUBLIC_PROPERTY_KEYS),
     ...(resolvedSub && resolvedSub.v === 1 ? { listingSubmission: publicSubmission(resolvedSub) } : {}),
     ...(signingContext
-      ? { signingOrder: signingContext.signingOrder, leaseSigningFeeCents: signingContext.leaseSigningFeeCents }
+      ? {
+          signingOrder: signingContext.signingOrder,
+          leaseSigningFeeCents: signingContext.leaseSigningFeeCents,
+          ...(signingContext.applicationBeforeTour ? { applicationBeforeTour: true as const } : {}),
+        }
       : {}),
     // Says what this payload IS, so the browser cache it lands in can tell it
     // apart from the owner's authoritative copy of the same listing. See

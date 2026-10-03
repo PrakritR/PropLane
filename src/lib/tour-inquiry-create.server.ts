@@ -27,6 +27,7 @@ import {
   managerHasPublishedSlot,
   managerMayHostPropertyTour,
 } from "@/lib/public-tour-booking-guard";
+import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
 import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { notifyManagerTourRequest, notifyTenantTourRequestReceived } from "@/lib/tour-notification-delivery.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -49,7 +50,7 @@ export type RequestedWindow = { start: string; end: string; adminUserId?: string
  */
 export type CreateTourInquiryResult =
   | { ok: true; row: Record<string, unknown>; inquiryId: string }
-  | { ok: false; reason: "invalid_contact" | "missing_host" | "slot_unavailable"; error: string }
+  | { ok: false; reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required"; error: string }
   | { ok: false; reason: "conflict"; error: string }
   | { ok: false; reason: "write_failed"; error: string };
 
@@ -239,7 +240,18 @@ export async function resolveEligibleTourHostUserIds(
  */
 export async function createTourInquiry(
   db: Db,
-  args: { incoming: Record<string, unknown>; notify?: boolean; smsOrigin?: { senderPhoneE164: string } | null },
+  args: {
+    incoming: Record<string, unknown>;
+    notify?: boolean;
+    smsOrigin?: { senderPhoneE164: string } | null;
+    /**
+     * The applicant's email as VERIFIED by the caller (the signed-in session). It is the only email
+     * "Application before a tour" trusts; `incoming.email` is a request body and proves nothing.
+     * Absent = nobody is verified (an anonymous guest, an SMS prospect), which a workspace that
+     * requires an application before a tour reads as "no application".
+     */
+    verifiedApplicantEmail?: string | null;
+  },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
   // only from the authenticated inbound channel below.
@@ -309,6 +321,14 @@ export async function createTourInquiry(
   }
   const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
   const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
+
+  if (isTour && propertyId) {
+    const refusal = await applicationBeforeTourRefusal(db, {
+      propertyId,
+      verifiedEmail: args.verifiedApplicantEmail ?? null,
+    });
+    if (refusal) return { ok: false, reason: "application_required", error: refusal };
+  }
 
   if (isTour) {
     const contactErrors = validateTourContactFields({

@@ -63,15 +63,22 @@ export type MockProperty = {
    * label. Never the manager's `pipelineOrder` preference row or the
    * per-property override map itself — those never reach an anonymous caller.
    */
-  signingOrder?: "application_first" | "lease_first";
+  signingOrder?: "application_first";
   /**
    * Set by `publicListingProjection` alongside `signingOrder`: the effective
-   * lease-signing fee in cents when `signingOrder` is `"lease_first"` (each
+   * lease-signing fee in cents (each
    * signer pays; `0` = free). Resolved server-side from the same manager
    * preference — a plain listing amount, like `applicationFee`, not a
    * preference row.
    */
   leaseSigningFeeCents?: number;
+  /**
+   * Set by `publicListingProjection` only when the workspace requires an application before a
+   * tour ("Application before a tour" = Required). Absent otherwise. A plain yes/no — never the
+   * settings row. The booking route re-checks this on the server; the page only uses it to send a
+   * prospect to apply first.
+   */
+  applicationBeforeTour?: true;
 };
 
 export type MockRow = Record<string, string>;

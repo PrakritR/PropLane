@@ -39,9 +39,8 @@
  *   Attestation) — NOT the full ~60-field form transcribed field-for-field;
  *   see the file header comment on `application-pdf-import.ts` for why a
  *   full section-accurate transcription is a separate, larger task.
- * - **Jordan Reyes**, a prospective resident with a lease-first draft SENT
- *   but NOT signed (`createLeaseFirstDraft`, the real server function — same
- *   path "Send lease to sign" uses today).
+ * - **Jordan Reyes**, a prospective resident account with no lease (lease
+ *   first is retired; he applies like any other prospect).
  * - **Casey Odom**, a resident whose License agreement is already fully
  *   signed (direct `portal_lease_pipeline_records` row, matching the
  *   existing signed-lease shape `seed-akhil-dev-accounts.mjs` already seeds
@@ -65,7 +64,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { assertTestProjectUrl } from "../tests/helpers/canonical-test-accounts.mjs";
-import { createLeaseFirstDraft } from "@/lib/leasing/lease-first-draft.server";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import type { PropertyLeaseTemplate } from "@/lib/property-lease-templates";
@@ -629,7 +627,7 @@ async function main() {
     "manager_automation_settings(leasingPipeline)",
   );
 
-  const jordanUserId = await ensureUser(JORDAN_EMAIL, "resident", { managerId: JORDAN_AXIS_ID, fullName: "Jordan Reyes" });
+  await ensureUser(JORDAN_EMAIL, "resident", { managerId: JORDAN_AXIS_ID, fullName: "Jordan Reyes" });
   const caseyUserId = await ensureUser(CASEY_EMAIL, "resident", { managerId: CASEY_AXIS_ID, fullName: "Casey Odom" });
 
   // Scoped cleanup — only this manager's own rows, never a canonical account's.
@@ -670,25 +668,9 @@ async function main() {
     "manager_property_records",
   );
 
-  // Jordan Reyes: lease-first draft SENT, not signed — the real server path
-  // ("Send lease to sign") rather than a hand-built row.
-  const draft = await createLeaseFirstDraft(supabase, {
-    managerUserId,
-    propertyId: PROPERTY_ID,
-    roomChoice: "room-1",
-    name: "Jordan Reyes",
-    email: JORDAN_EMAIL,
-    phone: "206-555-0142",
-  });
-  if (!draft.ok) throw new Error(`createLeaseFirstDraft(Jordan): ${draft.error}`);
-  // Jordan's auth account already exists (created above) — link it onto the
-  // draft row so the resident's own sign-in resolves this lease, the same
-  // way a real "create account from the lease-first invite" flow would.
-  await must(
-    supabase.from("portal_lease_pipeline_records").update({ resident_user_id: jordanUserId }).eq("id", draft.leaseId),
-    "portal_lease_pipeline_records(jordan resident_user_id)",
-  );
-  console.log(`  Jordan Reyes lease-first draft: ${draft.leaseId} (created=${draft.created})`);
+  // Jordan Reyes used to get a lease-first draft here. Lease first is retired (captain, Oct 3
+  // 2026: application, then lease, then the move-in form), so Jordan keeps his account and nothing
+  // else; he applies like any other prospect.
 
   // Casey Odom: License agreement fully signed (direct row, no fabricated
   // hash — same convention seed-akhil-dev-accounts.mjs already uses for its
@@ -786,7 +768,7 @@ async function main() {
 
   console.log(`Done seeding ${WORKSPACE_NAME}.`);
   console.log(`  Manager: ${MANAGER_EMAIL} / ${PASSWORD}`);
-  console.log(`  Jordan Reyes (sent, not signed): ${JORDAN_EMAIL} / ${PASSWORD}`);
+  console.log(`  Jordan Reyes (account only): ${JORDAN_EMAIL} / ${PASSWORD}`);
   console.log(`  Casey Odom (signed, on intake form): ${CASEY_EMAIL} / ${PASSWORD}`);
 }
 

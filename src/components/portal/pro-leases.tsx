@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
-import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -12,7 +11,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Share2 } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -23,17 +21,11 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import { MANAGER_APPLICATIONS_EVENT, syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
-import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
-import {
-  leaseSendRequiresApprovedApplication,
-  leaseUnlocksWithoutApplicationApproval,
-} from "@/lib/leasing-pipeline-preferences";
-import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 
 /**
  * Three stages, the replica's: Draft, Sent, Signed. "Sent" holds every lease out
@@ -74,7 +66,6 @@ export function ManagerLeases({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
   const [clientReady, setClientReady] = useState(false);
-  const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
 
   useEffect(() => {
@@ -143,17 +134,6 @@ export function ManagerLeases({
     () => LEASE_LABELS.map(({ id, label, dataAttr }) => ({ id, label, count: counts[id], dataAttr })),
     [counts],
   );
-  const shareableProperties = useMemo(() => {
-    void propertyTick;
-    return buildManagerShareablePropertyOptions(userId);
-  }, [userId, propertyTick]);
-
-  const showSendLeaseInvite = useMemo(() => {
-    void tick;
-    const prefs = readCachedLeasingPipelinePreferences();
-    return leaseUnlocksWithoutApplicationApproval(prefs) || !leaseSendRequiresApprovedApplication(prefs);
-  }, [tick]);
-
   const leasesFilterSheet = (
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([propertyFilters])}
@@ -175,25 +155,7 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  // Lease-first (or application not required) adds Send lease.
-  const leasesListActions = (
-    <>
-      {leasesFilterSheet}
-      {showSendLeaseInvite ? (
-        <PortalIconAction
-          icon={Share2}
-          label={
-            shareableProperties.length === 0
-              ? "Send lease to sign (list a property first)"
-              : "Send lease to sign"
-          }
-          data-attr="leases-send"
-          onClick={() => setShareLeasesOpen(true)}
-          disabled={shareableProperties.length === 0}
-        />
-      ) : null}
-    </>
-  );
+  const leasesListActions = <>{leasesFilterSheet}</>;
 
   const openLeaseAfterSend = (leaseId: string) => {
     navigate(leaseDetailHref(basePath, "resident", leaseId));
@@ -201,12 +163,6 @@ export function ManagerLeases({
 
   const modals = (
     <>
-      <ShareLeadLinkModal
-        open={shareLeasesOpen}
-        onClose={() => setShareLeasesOpen(false)}
-        kind="lease"
-        properties={shareableProperties}
-      />
       {/* The + is Send lease: the one screen, with a resident picker on top (it replaced the Add lease wizard). */}
       <LeaseSendSheet
         open={addLeaseOpen}

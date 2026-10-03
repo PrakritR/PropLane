@@ -33,7 +33,7 @@ const NONE = "__none__";
 
 export function PropertyFormUsedForMapping({
   sub,
-  pipelineOrder,
+  pipelineOrder: _pipelineOrder,
   leaseLabel = DEFAULT_LEASE_TERM,
   applicationLabel = DEFAULT_APPLICATION_TERM,
   mode,
@@ -58,7 +58,8 @@ export function PropertyFormUsedForMapping({
   onApplicationTemplatesChange: (next: PropertyApplicationTemplate[]) => void;
   onError?: (message: string) => void;
 }) {
-  const order = pipelineOrder === "lease_then_application" ? "lease_then_application" : "application_then_lease";
+  // Application first, always: the stored order is ignored (captain, Oct 3 2026).
+  const order = "application_then_lease" as const;
   const stayTypes = useMemo(() => offeredStayTypeTerms(sub), [sub]);
   const catalog = useMemo(
     (): MappingCatalog => ({ applications: applicationTemplates, leases: leaseTemplates }),
@@ -82,8 +83,6 @@ export function PropertyFormUsedForMapping({
       })),
     [applicationTemplates, applicationLabel],
   );
-
-  const leaseFirst = order === "lease_then_application";
 
   if (stayTypes.length === 0) return null;
 
@@ -189,18 +188,10 @@ export function PropertyFormUsedForMapping({
               dataAttr={`property-form-used-for-row-${slug}`}
               className="flex-wrap sm:flex-nowrap"
             >
+              {/* One system (captain, Oct 3): application first, then lease — always. */}
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:justify-end">
-                {leaseFirst ? (
-                  <>
-                    {leaseCol}
-                    {applicationCol}
-                  </>
-                ) : (
-                  <>
-                    {applicationCol}
-                    {leaseCol}
-                  </>
-                )}
+                {applicationCol}
+                {leaseCol}
               </div>
             </PropertyFormWizardRow>
           );

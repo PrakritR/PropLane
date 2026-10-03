@@ -467,7 +467,7 @@ export function ListingDetailModal({
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
   /** The listing's resolved leasing-pipeline order — swaps "Apply" for "Sign lease" below. */
-  signingOrder?: "application_first" | "lease_first" | null;
+  signingOrder?: "application_first" | null;
 }) {
   const stop = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
   const isClient = useIsClient();
@@ -999,7 +999,7 @@ export function InteractiveFloorPlanCard({
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
-  signingOrder?: "application_first" | "lease_first" | null;
+  signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
 
@@ -1039,7 +1039,7 @@ export function LeaseBasicsTableInteractive({
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
-  signingOrder?: "application_first" | "lease_first" | null;
+  signingOrder?: "application_first" | null;
   /** When true, always render Long term / Short term headings (short-term may be empty). */
   showTermSections?: boolean;
 }) {
@@ -1169,7 +1169,7 @@ export function BundleTableInteractive({
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
-  signingOrder?: "application_first" | "lease_first" | null;
+  signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
 
@@ -1378,7 +1378,7 @@ export function SpacesInteractive({
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
-  signingOrder?: "application_first" | "lease_first" | null;
+  signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
   type RoomFilter = "all" | "private" | "shared";

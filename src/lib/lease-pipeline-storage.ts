@@ -4067,41 +4067,6 @@ export async function residentSignLease(
 }
 
 /**
- * Ida Cares lease-first (PLAN-0925, C274-C287): resident-triggered transition
- * of a `createLeaseFirstDraft` marker row into `bucket: "resident", status:
- * "Resident Signature Pending"` with a real generated document, so
- * `residentSignLease` has something to hash and sign. The document is built
- * entirely server-side from the property's published lease-first template —
- * this call carries no document content, only the lease id.
- */
-export async function beginLeaseFirstSigning(leaseId: string): Promise<LeasePipelineActionResult> {
-  if (!canUseStorage()) {
-    return { ok: false, error: "Could not start signing. Check your connection and try again." };
-  }
-  try {
-    const res = await fetch("/api/portal-lease-pipeline", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ action: "begin_lease_first_signing", leaseId }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; row?: unknown; error?: string };
-    if (!res.ok || !body.ok) {
-      return { ok: false, error: body.error?.trim() || "Could not start signing. Try again." };
-    }
-    const nextRow = normalizeLeasePipelineRow(body.row ?? {});
-    const freshRows = [...(readRaw() ?? readLeasePipeline())];
-    const freshIdx = freshRows.findIndex((r) => r.id === nextRow.id);
-    if (freshIdx === -1) freshRows.push(nextRow);
-    else freshRows[freshIdx] = nextRow;
-    write(freshRows, undefined, { persist: false });
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Could not start signing. Check your connection and try again." };
-  }
-}
-
-/**
  * Manager / authorized agent electronically countersigns (only after the
  * resident has signed). Same two hotfix invariants as `residentSignLease`:
  * hash the fully loaded document, and wait for the server before reporting
