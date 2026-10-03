@@ -5,6 +5,7 @@
 // only commit, and the Sections step's duplicate-name validation.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { createPropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
@@ -30,17 +31,19 @@ function jumpRail(id: string) {
 }
 
 beforeEach(() => {
+  clearAllWorkspaceDrafts();
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }) as unknown as Response));
 });
 
 afterEach(() => {
   cleanup();
+  clearAllWorkspaceDrafts();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
-describe("F014/F-editor c: lease Setup — one fee toggle, segmented pipeline, no checkboxes", () => {
-  it("renders the fee, pipeline and default controls as toggles/segmented control, never a checkbox", async () => {
+describe("F014/F-editor c: lease Setup — segmented pipeline, no checkboxes", () => {
+  it("renders pipeline and default controls as toggles/segmented control, never a checkbox", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -58,7 +61,7 @@ describe("F014/F-editor c: lease Setup — one fee toggle, segmented pipeline, n
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    expect(screen.getByRole("switch", { name: "Offer this lease to applicants" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Offer this lease to applicants" })).toBeNull();
     expect(screen.getByRole("tablist", { name: "Pipeline order" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /Default .* lease for this property/ })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -85,7 +88,7 @@ describe("F015: lease Setup's Linked co-signer / guarantor addendum picker", () 
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    const picker = screen.getByRole("button", { name: "A co-signer or guarantor signs" });
+    const picker = screen.getByRole("button", { name: "Co-signer addendum" });
     fireEvent.click(picker);
     const listbox = await screen.findByRole("listbox");
     const option = screen.getByText("Guarantor lease");
@@ -134,7 +137,30 @@ describe("F013: lease Sections step duplicate-name validation", () => {
 });
 
 describe("F-editor c: footer-only commit", () => {
-  it("never renders an in-body upload button — only the dashed Start-from-a-file card and the footer Save", async () => {
+  it("shows the upload strip only after Start from → Upload PDF", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="add"
+        sub={createDefaultListingSubmission()}
+        templates={[]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "New lease" });
+    expect(screen.getByRole("button", { name: "Start from" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start from" }));
+    const uploadOption = await screen.findByRole("option", { name: "Upload PDF" });
+    fireEvent.pointerDown(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
+  });
+
+  it("never renders an in-body upload button on the PropLane path — footer Save only", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -149,17 +175,61 @@ describe("F-editor c: footer-only commit", () => {
     );
     await screen.findByRole("dialog", { name: "New lease" });
     expect(screen.getByRole("button", { name: "Type of lease" })).toBeTruthy();
-    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
-    // Fill the required name so Continue is reachable, then confirm the
-    // footer's commit label is "Add lease" on the last step — never a
-    // second in-body commit button anywhere along the way.
+    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).toBeNull();
     fireEvent.change(document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement, {
       target: { value: "New lease" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Document" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Settings" }));
-    expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy();
+    jumpRail("setup");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
+  });
+});
+
+describe("C2-R30-3 month-to-month and custom start as lease documents", () => {
+  it("offers month-to-month and custom start in the add-lease type picker", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="add"
+        sub={createDefaultListingSubmission()}
+        templates={[]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "New lease" });
+    fireEvent.click(screen.getByRole("button", { name: "Type of lease" }));
+    expect(await screen.findByRole("option", { name: "Month-to-month" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Custom start" })).toBeTruthy();
+  });
+});
+
+describe("C2-LA4-5 clause paper on PropLane lease document step", () => {
+  const CLAUSE_TEMPLATE: PropertyLeaseTemplate = {
+    ...createPropertyLeaseTemplate({ kind: "long-term", label: "Clause lease", source: { kind: "proplane_default" } as never }),
+    leaseTemplateHtmlOverride: `<!doctype html><html><body><section id="lease-document-header"><h1>Lease</h1></section><section id="c1"><h2>1. Rent</h2><p>Pay rent.</p></section></body></html>`,
+  };
+
+  it("uses the clause paper editor when parsed sections exist", async () => {
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="edit"
+        sub={createDefaultListingSubmission()}
+        template={CLAUSE_TEMPLATE}
+        templates={[CLAUSE_TEMPLATE]}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Edit lease" });
+    jumpRail("document");
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="property-lease-clause-paper-editor"]')).not.toBeNull(),
+    );
   });
 });

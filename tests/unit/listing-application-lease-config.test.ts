@@ -196,4 +196,31 @@ describe("lease generation with custom config", () => {
       error: expect.stringMatching(/California and Washington/),
     });
   });
+
+  it("appends the shared-room addendum on uploaded manager-template leases (C2-SR12 / C2-R30-3)", () => {
+    const sub = normalizeManagerListingSubmissionV1(
+      subWith({
+        leaseConfigMode: "custom",
+        leaseCustomKind: "document",
+        leaseTemplateDocUrl: "/api/portal/lease-template?path=11111111-1111-1111-1111-111111111111/lease-template.pdf",
+        leaseTemplateDocName: "House lease.pdf",
+      }),
+    );
+    sub.rooms = [
+      {
+        ...sub.rooms[0]!,
+        id: "room-shared",
+        name: "Shared room",
+        monthlyRent: 900,
+        occupancyCapacity: 2,
+        sharedRoomLeaseKind: "joint",
+      },
+    ];
+    const ctx = leaseCtx(sub);
+    ctx.application.roomChoice1 = "room-shared";
+    ctx.application.leaseTerm = "Month-to-Month";
+    const html = generatedLeaseHtml(ctx);
+    expect(html).toContain("Shared room addendum");
+    expect(html).toContain("joint lease");
+  });
 });

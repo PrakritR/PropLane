@@ -8,9 +8,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import {
+  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { PropertyApplicationTemplateInlinePreview } from "@/components/portal/property-application-template-inline-preview";
+import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
@@ -142,6 +146,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
+  const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -486,20 +491,61 @@ export function ManagerPropertyApplicationQuestionsPanel({
             template.draftQuestionConfig?.importProvenance?.sourceName ??
             null;
           const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
+          const rowLabel = normalizePropertyApplicationTemplateLabel(template.label);
+          const openPreview = () => setInlinePreviewTemplateId(template.id);
+          const openEditor = () => openEditApplication(template);
+          const rowMenu = (
+            <RowActionsMenu
+              label={rowLabel}
+              items={[
+                { id: "preview", label: "Preview", onSelect: openPreview },
+                { id: "edit", label: "Edit", onSelect: openEditor },
+                {
+                  id: "open-in-new-tab",
+                  label: "Open in new tab",
+                  onSelect: () => openPropertyFormTemplateInNewTab("application", template.id),
+                },
+                { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
+                {
+                  id: "delete",
+                  label: "Delete",
+                  danger: true,
+                  onSelect: () => {
+                    void confirm({ description: `Delete ${rowLabel}?` }).then((ok) => {
+                      if (ok) void handleDeleteTemplate(template.id);
+                    });
+                  },
+                },
+              ]}
+            />
+          );
           return (
-            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} onClick={() => openEditApplication(template)}>
+            <div
+              key={template.id}
+              className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}
+              data-attr={`property-application-row-${template.id}`}
+              onClick={openPreview}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openPreview();
+                }
+              }}
+            >
               <div className="flex min-w-0 flex-1 items-start gap-3">
-                <RowSelectCheckbox
-                  aria-label={`Select ${template.label}`}
-                  checked={selectedIds.has(template.id)}
-                  data-attr={`property-application-select-${template.id}`}
-                  onChange={() => toggleSelected(template.id)}
-                  onClick={(event) => event.stopPropagation()}
-                />
+                {embedInModal ? (
+                  <RowSelectCheckbox
+                    aria-label={`Select ${rowLabel}`}
+                    checked={selectedIds.has(template.id)}
+                    data-attr={`property-application-select-${template.id}`}
+                    onChange={() => toggleSelected(template.id)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                ) : null}
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">
-                    {normalizePropertyApplicationTemplateLabel(template.label)}
-                  </p>
+                  <p className="text-sm font-semibold text-foreground">{rowLabel}</p>
                   {formSetup.loaded ? (
                     <p
                       className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
@@ -526,6 +572,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
                     </p>
                   ) : null}
                 </div>
+              </div>
+              <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
+                {rowMenu}
               </div>
             </div>
           );
@@ -637,71 +686,46 @@ export function ManagerPropertyApplicationQuestionsPanel({
     />
   ) : null;
 
+  const inlinePreviewTemplate = inlinePreviewTemplateId
+    ? templates.find((t) => t.id === inlinePreviewTemplateId) ?? null
+    : null;
+
   return (
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
-      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size}       bulkActions={!embedInModal && selectedTemplateId ? (
-        <>
-          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-application-bulk-edit"
-              data-record-action-id="edit"
-              onClick={() => {
-                const template = templates.find((row) => row.id === selectedTemplateId);
-                if (template) openEditApplication(template);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-application-bulk-preview"
-              data-record-action-id="preview"
-              onClick={() => {
-                const template = templates.find((row) => row.id === selectedTemplateId);
-                if (template) openEditApplication(template);
-              }}
-            >
-              Preview
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-application-bulk-duplicate"
-              data-record-action-id="duplicate"
-              onClick={() => {
-                const template = templates.find((row) => row.id === selectedTemplateId);
-                if (template) void duplicateTemplate(template);
-              }}
-            >
-              Duplicate
-            </Button>
-            <Button
-              type="button"
-              variant="danger"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-application-bulk-delete"
-              data-record-action-id="delete"
-              onClick={() => {
-                const template = templates.find((row) => row.id === selectedTemplateId);
-                if (!template) return;
-                void confirm({ description: `Delete ${template.label}?` }).then((ok) => {
-                  if (ok) void handleDeleteTemplate(template.id);
-                });
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </>
-      ) : null}>{catalogBody}</PortalRecordListSurface>
+        inlinePreviewTemplate ? (
+          <PropertyApplicationTemplateInlinePreview
+            template={inlinePreviewTemplate}
+            sub={syncedSub}
+            propertyId={applicationPreviewPropertyId}
+            onBack={() => setInlinePreviewTemplateId(null)}
+          />
+        ) : (
+        <PortalRecordListSurface
+          className="mt-0 pb-0 max-lg:pb-0"
+          onBulkClear={embedInModal ? clearSelection : undefined}
+          bulkCount={embedInModal ? selectedIds.size : 0}
+          bulkActions={
+            embedInModal && selectedTemplateId ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-application-bulk-edit"
+                onClick={() => {
+                  const template = templates.find((row) => row.id === selectedTemplateId);
+                  if (template) openEditApplication(template);
+                }}
+              >
+                Edit application
+              </Button>
+            ) : null
+          }
+        >
+          {catalogBody}
+        </PortalRecordListSurface>
+        )
       ) : null}
 
       {editorModals}

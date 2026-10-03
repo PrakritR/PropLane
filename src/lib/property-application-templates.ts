@@ -1,3 +1,4 @@
+import { migrateApplicationTemplateDocumentQuestions } from "@/lib/application-template-document-questions-migration";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
@@ -90,6 +91,8 @@ export type ApplicationTemplateQuestionConfig = ApplicationConfigSlice & {
     reviewedAt?: string;
     reviewedDraftFingerprint?: string;
   };
+  /** L11-10: legacy photo ID / income toggles migrated into Documents questions. */
+  documentsQuestionsMigrated?: boolean;
 };
 
 export type ApplicationTemplatePublishGate = { ok: true } | { ok: false; reason: string };
@@ -115,6 +118,7 @@ function copyQuestionConfig(config: ApplicationTemplateQuestionConfig): Applicat
     questionDisplayOrder: config.questionDisplayOrder ? [...config.questionDisplayOrder] : undefined,
     disabledSectionIds: config.disabledSectionIds ? [...config.disabledSectionIds] : undefined,
     importProvenance: config.importProvenance ? { ...config.importProvenance } : undefined,
+    documentsQuestionsMigrated: config.documentsQuestionsMigrated,
   };
 }
 
@@ -129,9 +133,11 @@ export function publishedQuestionConfigForTemplate(
 export function draftQuestionConfigForTemplate(
   template: PropertyApplicationTemplate,
 ): ApplicationTemplateQuestionConfig | null {
-  return template.draftQuestionConfig
+  const base = template.draftQuestionConfig
     ? copyQuestionConfig(template.draftQuestionConfig)
     : publishedQuestionConfigForTemplate(template);
+  if (!base) return null;
+  return migrateApplicationTemplateDocumentQuestions(base);
 }
 
 /** Anonymous listing payload: published form only, never drafts or source metadata. */

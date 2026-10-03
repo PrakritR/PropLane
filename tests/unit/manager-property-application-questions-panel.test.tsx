@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addApplicationTemplateFromSeed } from "@/lib/property-application-template-sync";
@@ -20,22 +19,12 @@ const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
   usePathname: () => "/portal/properties/all/mgr-house-1",
-}));
-vi.mock("@/components/confirm-dialog", () => ({
-  useConfirm: () => () => Promise.resolve(true),
-}));
-vi.mock("@/lib/property-form-setup-settings.client", () => ({
-  usePropertyFormSetupSettings: () => ({
-    loaded: true,
-    applicationSettings: { applicationFeeCents: 0 },
-    leasingPipeline: {
-      defaultApplicationTemplateId: null,
-      pipelineOrder: "application_then_lease",
-    },
-  }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+});
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
   it("property tab shows per-template action menus and Application automation", () => {
@@ -79,16 +68,15 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
       />,
     );
 
-    expect(screen.queryAllByRole("checkbox").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('[data-attr^="property-application-select-"]').length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
   });
 
   it("opening a fallback application in bulk does not overwrite selected properties", async () => {
     persistSubmission.mockClear();
-    const sub = createDefaultListingSubmission();
     render(
       <ManagerPropertyApplicationQuestionsPanel
-        sub={sub}
+        sub={createDefaultListingSubmission()}
         saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
         propertyIds={["mgr-house-1", "mgr-house-2"]}
         managerUserId="mgr-1"
@@ -96,12 +84,11 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
         showToast={() => {}}
       />,
     );
-    const user = userEvent.setup();
-    const rowTitle = screen
-      .getAllByText("Long-term application")
-      .find((el) => el.className.includes("font-semibold"));
-    expect(rowTitle).toBeTruthy();
-    await user.click(rowTitle!);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Actions for Long-term application" })).toBeTruthy();
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
     await waitFor(() => expect(screen.getByTestId("application-editor-modal")).toBeTruthy());
     expect(persistSubmission).not.toHaveBeenCalled();
   });

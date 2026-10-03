@@ -2,7 +2,7 @@
 
 import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,13 @@ import {
   ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
+import {
+  PropertyFormStartFromFact,
+  PropertyFormStartFromSelect,
+  PropertyFormWizardCard,
+  PropertyFormWizardRow,
+  type PropertyFormStartFrom,
+} from "@/components/portal/property-form-wizard-kit";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
@@ -25,6 +32,7 @@ import {
   type LeaseConfigDraft,
 } from "@/components/portal/lease-config-form";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import { PropertyLeaseClausePaperEditor } from "@/components/portal/property-lease-clause-paper-editor";
 import { PropertyLeaseDocumentNotice, propertyLeaseNeedsAssistantReview } from "@/components/portal/property-lease-document-notice";
 import { buildLeaseModalAssistantContext } from "@/lib/lease-assistant-context";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
@@ -33,6 +41,7 @@ import {
   scopeLeaseDocumentHtmlForInlinePreview,
   stripDisclosureReviewFromLeaseHtml,
 } from "@/lib/property-lease-document-display";
+import { parseLeaseHtmlSections } from "@/lib/lease-html-sections";
 import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import {
@@ -49,6 +58,7 @@ import {
 import {
   applyPropertyLeaseDocumentMode,
   documentModeFromLease,
+  draftFieldsFromLeaseSource,
   leaseSourceFromDraft,
   PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS,
   type PropertyLeaseDocumentMode,
@@ -70,6 +80,13 @@ async function sha256Text(value: string): Promise<string> {
 }
 
 /** The lease-term choices an applicant can make, as "Applies to" boxes. */
+const LEASE_ADD_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "long-term", label: "Long-term" },
+  { value: "short-term", label: "Short term" },
+  { value: "month-to-month", label: "Month-to-month" },
+  { value: "custom-start", label: "Custom start" },
+];
+
 const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
   { value: "Long-term", label: "Long-term" },
   { value: "Month-to-Month", label: "Month-to-month" },
@@ -168,7 +185,9 @@ export function PropertyLeaseFormModal({
   /** F013/F002: the file name shown on the Sections step's dashed "Start from a file" card while reading. */
   const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [parsingLease, setParsingLease] = useState(false);
-  const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
+  const [importSource, setImportSource] = useState<
+    Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage" | "sectionCount"> | null
+  >(null);
   const [importSourceReviewed, setImportSourceReviewed] = useState(false);
   const [transcribedUnreadableSourcePages, setTranscribedUnreadableSourcePages] = useState(false);
   const unreadableSourcePage = Boolean(importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page"));
@@ -208,6 +227,10 @@ export function PropertyLeaseFormModal({
   // template's real id at commit, exactly like the application editor's
   // `addModeTemplateId`.
   const [addModeLeaseTemplateId, setAddModeLeaseTemplateId] = useState<string | null>(null);
+  const [startFrom, setStartFrom] = useState<PropertyFormStartFrom>("proplane");
+  const [copyFromLeaseId, setCopyFromLeaseId] = useState<string | null>(null);
+  const [leaseAddType, setLeaseAddType] = useState("long-term");
+  const replaceLeaseFileRef = useRef<HTMLInputElement>(null);
 
   // F013: inline duplicate-name validation — another lease already saved on
   // this property with the same (trimmed, case-insensitive) name.
@@ -229,6 +252,25 @@ export function PropertyLeaseFormModal({
     () => PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS.find((o) => o.id === documentMode),
     [documentMode],
   );
+
+  const applicationTemplateOptions = useMemo(
+    () => readPropertyApplicationTemplates(sub).map((application) => ({ value: application.id, label: application.label })),
+    [sub],
+  );
+
+  const copyLeaseOptions = useMemo(
+    () => (templates ?? []).filter((row) => row.id !== template?.id).map((row) => ({ value: row.id, label: row.label })),
+    [templates, template?.id],
+  );
+
+  const startFromFactLabel = useMemo(() => {
+    if (documentMode === "upload") {
+      return draft.leaseTemplateDocName?.trim() ? `${draft.leaseTemplateDocName.trim()} · uploaded PDF` : "Uploaded PDF";
+    }
+    if (source === "custom_builder") return "PropLane custom builder";
+    if (source === "custom_comments") return "PropLane custom clauses";
+    return "PropLane standard";
+  }, [documentMode, draft.leaseTemplateDocName, source]);
 
   const previewSub = useMemo(
     (): ManagerListingSubmissionV1 => ({
@@ -297,6 +339,7 @@ export function PropertyLeaseFormModal({
           representedCharacters: template.leaseTemplateImportReview.representedCharacters,
           complete: template.leaseTemplateImportReview.issueCodes.length === 0,
         },
+        sectionCount: parseLeaseHtmlSections(template.leaseTemplateHtmlOverride ?? "").filter((s) => s.id !== "lease-document-header").length,
       } : null);
       setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
       setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
@@ -304,9 +347,15 @@ export function PropertyLeaseFormModal({
       setPendingLeaseImport(null);
       setPendingLeaseImportCompareOpen(false);
       setAddModeLeaseTemplateId(null);
+      setStartFrom(documentModeFromLease(templateSource, templateKind) === "upload" ? "upload" : "proplane");
+      setCopyFromLeaseId(null);
+      setLeaseAddType(templateKind === "short-term" ? "short-term" : "long-term");
       return;
     }
     setAddModeLeaseTemplateId(makePropertyLeaseTemplateId());
+    setStartFrom("proplane");
+    setCopyFromLeaseId(null);
+    setLeaseAddType("long-term");
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
     setLinkedApplicationTemplateId(null);
     setOffered(true);
@@ -346,6 +395,47 @@ export function PropertyLeaseFormModal({
     setKind(applied.kind);
     setDraft((d) => ({ ...d, ...applied.draftFields }));
   };
+
+  const applyLeaseAddType = useCallback(
+    (nextType: string) => {
+      setLeaseAddType(nextType);
+      if (nextType === "short-term") {
+        handleDocumentModeChange("proplane_short_term");
+        return;
+      }
+      if (nextType === "month-to-month") {
+        handleDocumentModeChange("proplane_long_term");
+        setApplicationLeaseTerms(["Month-to-Month"]);
+        return;
+      }
+      if (nextType === "custom-start") {
+        setError(null);
+        setDocumentMode("proplane_long_term");
+        setKind("long-term");
+        setApplicationLeaseTerms([CUSTOM_LEASE_TERM]);
+        setDraft((d) => ({ ...d, ...draftFieldsFromLeaseSource("custom_builder") }));
+        return;
+      }
+      handleDocumentModeChange("proplane_long_term");
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!open || mode !== "add" || startFrom !== "copy" || !copyFromLeaseId) return;
+    const src = templates?.find((row) => row.id === copyFromLeaseId);
+    if (!src) return;
+    const srcDraft = draftFromTemplate(src);
+    const srcSource = leaseSourceFromDraft(srcDraft);
+    const srcKind = normalizeLeaseTemplateKind(src.kind);
+    setLabel(`${src.label.trim()} copy`);
+    setKind(srcKind);
+    setApplicationLeaseTerms([...(src.applicationLeaseTerms ?? [])]);
+    setLinkedApplicationTemplateId(src.linkedApplicationTemplateId ?? null);
+    setDocumentMode(documentModeFromLease(srcSource, srcKind));
+    setDraft(srcDraft);
+    setHtmlOverride(src.leaseTemplateHtmlOverride?.trim() ?? "");
+  }, [copyFromLeaseId, mode, open, startFrom, templates]);
 
   const leaseTemplateError = error && documentMode === "upload" ? error : null;
 
@@ -420,7 +510,12 @@ export function PropertyLeaseFormModal({
     }
     const p = pendingLeaseImport;
     setError(null);
-    setImportSource({ sourceSha256: p.sourceSha256, sourceIssues: p.sourceIssues, coverage: p.coverage });
+    setImportSource({
+      sourceSha256: p.sourceSha256,
+      sourceIssues: p.sourceIssues,
+      coverage: p.coverage,
+      sectionCount: p.sections.length,
+    });
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
@@ -815,53 +910,124 @@ export function PropertyLeaseFormModal({
       {stepId === "name" ? (
         <StepColumn>
           <StepHeading title="Lease" />
-          {mode === "add" ? (
-            <FieldSingleSelect
-              label="Type of lease"
-              labelClassName={WIZARD_LABEL_CLASS}
-              value={kind === "short-term" ? "short-term" : "long-term"}
-              dataAttr="property-lease-type"
-              options={[
-                { value: "long-term", label: "Long-term" },
-                { value: "short-term", label: "Short term" },
-              ]}
-              onChange={(next) =>
-                handleDocumentModeChange(next === "short-term" ? "proplane_short_term" : "proplane_long_term")
-              }
-            />
-          ) : (
-            <p className="mb-3 text-sm text-foreground" data-attr="property-lease-type-fact">
-              Type of lease · {propertyLeaseTypeLabel(kind)}
-            </p>
-          )}
-          {/* F002/F013: the same dashed drop-zone card the listing wizard and
-              the application editor use for "Start from a file". A quick-pick
-              lands the file straight from this first step — full document-mode
-              choices still live on the Form (document) step. */}
-          {mode === "add" || !draft.leaseTemplateDocUrl ? (
-            <ImportFileStrip
-              dataAttr="property-lease-name-upload"
-              chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
-              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              busy={templateUploading || parsingLease}
-              state={
-                templateUploading || parsingLease
-                  ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
-                  : { kind: "blank" }
-              }
-              onPickFile={(file) => {
-                setSectionsUploadFileName(file.name);
-                if (documentMode !== "upload") handleDocumentModeChange("upload");
-                if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
-                onPickLeaseTemplateDoc(file);
-              }}
-              onReread={() => {}}
-            />
-          ) : (
-            <p className="mb-3 text-xs text-muted" data-attr="property-lease-name-uploaded">
-              Using {draft.leaseTemplateDocName || "your uploaded lease"}.
-            </p>
-          )}
+          <PropertyFormWizardCard dataAttr="property-lease-step-one-card">
+            {mode === "edit" ? (
+              <PropertyFormWizardRow label="Type of lease">
+                <span className="text-sm font-semibold text-foreground" data-attr="property-lease-type-fact">
+                  {propertyLeaseTypeLabel(kind)}
+                </span>
+              </PropertyFormWizardRow>
+            ) : (
+              <PropertyFormWizardRow label="Type of lease">
+                <FieldSingleSelect
+                  hideLabel
+                  label="Type of lease"
+                  labelClassName={WIZARD_LABEL_CLASS}
+                  variant="cell"
+                  className="min-w-[200px] max-w-[280px]"
+                  value={leaseAddType}
+                  dataAttr="property-lease-type"
+                  options={LEASE_ADD_TYPE_OPTIONS}
+                  onChange={(next) => {
+                    if (startFrom === "proplane") applyLeaseAddType(next);
+                    else setLeaseAddType(next);
+                  }}
+                />
+              </PropertyFormWizardRow>
+            )}
+            {mode === "add" ? (
+              <PropertyFormWizardRow label="Start from">
+                <PropertyFormStartFromSelect
+                  value={startFrom}
+                  dataAttr="property-form-start-from"
+                  onChange={(next) => {
+                    setStartFrom(next);
+                    if (next === "upload") handleDocumentModeChange("upload");
+                    else if (next === "proplane") applyLeaseAddType(leaseAddType);
+                  }}
+                />
+              </PropertyFormWizardRow>
+            ) : (
+              <PropertyFormWizardRow label="Start from">
+                <PropertyFormStartFromFact
+                  label={startFromFactLabel}
+                  factDataAttr="property-lease-start-from-fact"
+                  onReplace={
+                    documentMode === "upload"
+                      ? () => replaceLeaseFileRef.current?.click()
+                      : undefined
+                  }
+                  replaceDataAttr="property-lease-replace-upload"
+                />
+              </PropertyFormWizardRow>
+            )}
+            {mode === "add" && startFrom === "copy" ? (
+              <PropertyFormWizardRow label="Copy existing">
+                <FieldSingleSelect
+                  hideLabel
+                  label="Copy existing"
+                  labelClassName={WIZARD_LABEL_CLASS}
+                  variant="cell"
+                  className="min-w-[200px] max-w-[280px]"
+                  value={copyFromLeaseId ?? ""}
+                  dataAttr="property-lease-copy-existing"
+                  options={copyLeaseOptions}
+                  placeholder="Choose a lease"
+                  onChange={(next) => setCopyFromLeaseId(next || null)}
+                />
+              </PropertyFormWizardRow>
+            ) : null}
+            <PropertyFormWizardRow label="Application">
+              <FieldSingleSelect
+                hideLabel
+                label="Application"
+                labelClassName={WIZARD_LABEL_CLASS}
+                variant="cell"
+                className="min-w-[200px] max-w-[280px]"
+                value={linkedApplicationTemplateId ?? "__none__"}
+                dataAttr="lease-setup-application-template"
+                options={[{ value: "__none__", label: "Property default" }, ...applicationTemplateOptions]}
+                onChange={(next) => setLinkedApplicationTemplateId(next === "__none__" ? null : next)}
+              />
+            </PropertyFormWizardRow>
+          </PropertyFormWizardCard>
+          <input
+            ref={replaceLeaseFileRef}
+            type="file"
+            className="hidden"
+            accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            data-attr="property-lease-replace-upload-input"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              event.target.value = "";
+              if (!file) return;
+              setSectionsUploadFileName(file.name);
+              if (documentMode !== "upload") handleDocumentModeChange("upload");
+              onPickLeaseTemplateDoc(file);
+            }}
+          />
+          {mode === "add" && startFrom === "upload" ? (
+            <div className="mt-4">
+              <ImportFileStrip
+                dataAttr="property-lease-name-upload"
+                chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
+                accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                busy={templateUploading || parsingLease}
+                state={
+                  templateUploading || parsingLease
+                    ? { kind: "reading", fileName: sectionsUploadFileName ?? "your file" }
+                    : { kind: "blank" }
+                }
+                onPickFile={(file) => {
+                  setSectionsUploadFileName(file.name);
+                  if (documentMode !== "upload") handleDocumentModeChange("upload");
+                  if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+                  onPickLeaseTemplateDoc(file);
+                }}
+                onReread={() => {}}
+              />
+            </div>
+          ) : null}
           {pendingLeaseImportCard}
           <FloatingLabelField
             id="property-lease-name"
@@ -937,6 +1103,20 @@ export function PropertyLeaseFormModal({
             </div>
           ) : null}
           {documentMode === "upload" ? <div className="mt-4">{pendingLeaseImportCard}</div> : null}
+          {importSource ? (
+            <div
+              className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+              data-attr="property-lease-detected-fields"
+            >
+              <span className="font-semibold text-foreground">
+                {(() => {
+                  const clauseCount = parseLeaseHtmlSections(displayHtml).length;
+                  return clauseCount === 1 ? "1 clause" : `${clauseCount} clauses`;
+                })()}{" "}
+                on the paper · PDF fields highlighted in the editor
+              </span>
+            </div>
+          ) : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
               {importSource ? (
@@ -1018,20 +1198,39 @@ export function PropertyLeaseFormModal({
                     </section>
                     <section className={`${mobileTemplateTab === "converted" ? "block" : "hidden"} lg:block`}>
                       <h3 className="mb-2 text-sm font-semibold">Converted lease</h3>
-                      <LeaseHtmlDirectEditor
-                        className="min-h-[min(380px,50vh)]"
-                        html={displayHtml}
-                        baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
-                        onChange={(next) => {
-                          setHtmlOverride(next);
-                          setImportSourceReviewed(false);
-                          setTranscribedUnreadableSourcePages(false);
-                        }}
-                        showPersistBar={false}
-                      />
+                      {parseLeaseHtmlSections(displayHtml).some((s) => s.id !== "lease-document-header") ? (
+                        <PropertyLeaseClausePaperEditor
+                          className="min-h-[min(380px,50vh)]"
+                          html={displayHtml}
+                          detectedFieldCount={importSource.sectionCount}
+                          onChange={(next) => {
+                            setHtmlOverride(next);
+                            setImportSourceReviewed(false);
+                            setTranscribedUnreadableSourcePages(false);
+                          }}
+                        />
+                      ) : (
+                        <LeaseHtmlDirectEditor
+                          className="min-h-[min(380px,50vh)]"
+                          html={displayHtml}
+                          baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
+                          onChange={(next) => {
+                            setHtmlOverride(next);
+                            setImportSourceReviewed(false);
+                            setTranscribedUnreadableSourcePages(false);
+                          }}
+                          showPersistBar={false}
+                        />
+                      )}
                     </section>
                   </div>
                 </div>
+              ) : parseLeaseHtmlSections(displayHtml).some((s) => s.id !== "lease-document-header") ? (
+                <PropertyLeaseClausePaperEditor
+                  className="min-h-[min(380px,50vh)] flex-1"
+                  html={displayHtml}
+                  onChange={setHtmlOverride}
+                />
               ) : (
                 <LeaseHtmlDirectEditor
                   className="min-h-[min(380px,50vh)] flex-1"
@@ -1053,88 +1252,71 @@ export function PropertyLeaseFormModal({
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
-            <div>
-              <PanelSection title="Application">
-                <FieldSingleSelect
-                  label="Application used"
-                  labelClassName={WIZARD_LABEL_CLASS}
-                  value={linkedApplicationTemplateId ?? "__none__"}
-                  dataAttr="lease-setup-application-template"
-                  options={[
-                    { value: "__none__", label: "Property default" },
-                    ...readPropertyApplicationTemplates(sub).map((application) => ({ value: application.id, label: application.label })),
-                  ]}
-                  onChange={(next) => setLinkedApplicationTemplateId(next === "__none__" ? null : next)}
-                />
-              </PanelSection>
-              <PanelSection title="Offered">
-                <ToggleRow
-                  label="Offer this lease to applicants"
-                  checked={offered}
-                  dataAttr="lease-setup-offered"
-                  onChange={setOffered}
-                />
-              </PanelSection>
-              {/* F015: another of this property's OWN lease templates — never itself. */}
-              <PanelSection title="Linked co-signer / guarantor addendum">
-                <FieldSingleSelect
-                  label="A co-signer or guarantor signs"
-                  labelClassName={WIZARD_LABEL_CLASS}
-                  value={linkedGuarantorTemplateId ?? "__none__"}
-                  dataAttr="lease-setup-linked-guarantor"
-                  options={[
-                    { value: "__none__", label: "None" },
-                    ...(templates ?? [])
-                      .filter((candidate) => candidate.id !== template?.id)
-                      .map((candidate) => ({ value: candidate.id, label: candidate.label })),
-                  ]}
-                  onChange={(next) => {
-                    setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
-                    setError(null);
-                  }}
-                />
-              </PanelSection>
-              <PanelSection title="Pipeline order">
-                <SegmentedControl
-                  ariaLabel="Pipeline order"
-                  value={formSetup.leasingPipeline.pipelineOrder}
-                  dataAttrPrefix="lease-setup-pipeline-order"
-                  options={[
-                    { value: "application_then_lease", label: "Application first" },
-                    { value: "lease_then_application", label: "Lease first" },
-                  ]}
-                  onChange={(next) =>
-                    void formSetup.patch({
-                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
-                    })
-                  }
-                />
-              </PanelSection>
+            <div className="space-y-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Signing</p>
+              <PropertyFormWizardCard dataAttr="lease-settings-signing">
+                <PropertyFormWizardRow label="Pipeline order">
+                  <SegmentedControl
+                    ariaLabel="Pipeline order"
+                    value={formSetup.leasingPipeline.pipelineOrder}
+                    dataAttrPrefix="lease-setup-pipeline-order"
+                    options={[
+                      { value: "application_then_lease", label: "Application first" },
+                      { value: "lease_then_application", label: "Lease first" },
+                    ]}
+                    onChange={(next) =>
+                      void formSetup.patch({
+                        leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
+                      })
+                    }
+                  />
+                </PropertyFormWizardRow>
+                <PropertyFormWizardRow label="Co-signer addendum">
+                  <FieldSingleSelect
+                    hideLabel
+                    label="Co-signer addendum"
+                    labelClassName={WIZARD_LABEL_CLASS}
+                    variant="cell"
+                    className="min-w-[200px] max-w-[280px]"
+                    value={linkedGuarantorTemplateId ?? "__none__"}
+                    dataAttr="lease-setup-linked-guarantor"
+                    options={[
+                      { value: "__none__", label: "None" },
+                      ...(templates ?? [])
+                        .filter((candidate) => candidate.id !== template?.id)
+                        .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                    ]}
+                    onChange={(next) => {
+                      setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
+                      setError(null);
+                    }}
+                  />
+                </PropertyFormWizardRow>
+              </PropertyFormWizardCard>
               {(() => {
-                // F007: reachable in "add" mode too — the property's default
-                // lease should be settable before the first Save, not only
-                // once the lease already exists. `thisLeaseId` is the real
-                // saved id in edit mode, or the pending id "add" mode will
-                // create the lease WITH at commit (see the `mode === "add"`
-                // branch of `save` below).
                 const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateId;
                 if (!thisLeaseId) return null;
                 return (
-                  <PanelSection title="Default">
-                    <ToggleRow
-                      label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
-                      checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
-                      dataAttr="lease-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultLeaseTemplateId: next ? thisLeaseId : null,
-                          },
-                        })
-                      }
-                    />
-                  </PanelSection>
+                  <>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Review</p>
+                    <PropertyFormWizardCard dataAttr="lease-settings-review">
+                      <PropertyFormWizardRow label="Default lease">
+                        <ToggleRow
+                          label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
+                          checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
+                          dataAttr="lease-setup-default-toggle"
+                          onChange={(next) =>
+                            void formSetup.patch({
+                              leasingPipeline: {
+                                ...formSetup.leasingPipeline,
+                                defaultLeaseTemplateId: next ? thisLeaseId : null,
+                              },
+                            })
+                          }
+                        />
+                      </PropertyFormWizardRow>
+                    </PropertyFormWizardCard>
+                  </>
                 );
               })()}
             </div>

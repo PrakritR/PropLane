@@ -40,6 +40,7 @@ import { formatRoomPriceAmount, resolveStayPricing, type StayKind } from "@/lib/
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
+import { appendSharedRoomAddendumToLeaseHtml } from "@/lib/shared-room-uploaded-lease-addendum";
 
 type LeaseApplicationWithRentSnapshot = Partial<RentalWizardFormState> & {
   __signedRentLabel?: string;
@@ -352,8 +353,8 @@ function buildManagerTemplateLeaseHtml(ctx: LeaseGenerationContext, doc: { url: 
         "This Terms Rider is attached to the manager's lease document. If this Terms Rider conflicts with the base document, this Terms Rider controls for that conflict.",
         "This PropLane Terms Rider is a separate addition to the converted source lease. If it conflicts with the source lease, the manager must review and acknowledge that difference before sending.",
       );
-    if (/<\/body\s*>/i.test(base)) return base.replace(/<\/body\s*>/i, `${rider}</body>`);
-    return `${base}${rider}`;
+    const merged = /<\/body\s*>/i.test(base) ? base.replace(/<\/body\s*>/i, `${rider}</body>`) : `${base}${rider}`;
+    return appendSharedRoomAddendumToLeaseHtml(ctx, merged);
   }
   const tenantName = dash(ctx.application.fullLegalName || "Resident");
   const generatedDate = escapeHtml(
@@ -362,7 +363,7 @@ function buildManagerTemplateLeaseHtml(ctx: LeaseGenerationContext, doc: { url: 
   const isPdf = /\.pdf(\?|$)/i.test(doc.url) || doc.url.startsWith("data:application/pdf") || /\.pdf$/i.test(doc.name);
   const docUrl = escapeHtml(doc.url);
   const docName = escapeHtml(doc.name);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  const shell = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Lease Agreement — ${tenantName}</title><style>${leaseCss()}
 .doc-embed{width:100%;height:75vh;min-height:640px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc}
 .doc-link{display:inline-block;margin:6px 0 14px;font-weight:600}</style></head><body>
@@ -379,6 +380,7 @@ ${isPdf ? `<object class="doc-embed" data="${docUrl}" type="application/pdf"><p>
 <h2>Electronic Signature</h2>
 <p><strong>Landlord / Authorized Agent</strong> and <strong>Resident / Tenant</strong> each execute this Agreement <strong>one time</strong> through the PropLane portal. The <strong>Electronic Signature Certificate</strong> appended to the signed copy is the binding record for both parties and applies to the manager's lease document above.</p>
 </body></html>`;
+  return appendSharedRoomAddendumToLeaseHtml(ctx, shell);
 }
 
 export type LeaseGenerationOutcome =

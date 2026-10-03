@@ -5,6 +5,7 @@ import {
 import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import { resolvePropertyLeaseTemplateFromApplicationAnswers } from "@/lib/application-lease-template-routing";
 import {
   createPropertyLeaseTemplate,
   readPropertyLeaseTemplates,
@@ -302,8 +303,11 @@ export function formatApplicationLeaseTermsLabel(terms: string[] | undefined): s
 /** Pick the property lease template that best matches an applicant's lease-term choice. */
 export function resolvePropertyLeaseTemplateForApplication(
   sub: ManagerListingSubmissionV1,
-  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "customFieldAnswers">,
 ): PropertyLeaseTemplate | null {
+  const fromAnswer = resolvePropertyLeaseTemplateFromApplicationAnswers(sub, application);
+  if (fromAnswer) return fromAnswer;
+
   const templates = readPropertyLeaseTemplates(sub);
   if (templates.length === 0) return null;
 

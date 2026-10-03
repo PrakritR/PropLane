@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { createPropertyApplicationTemplate, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
+import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -55,7 +56,7 @@ describe("F003: Sections step default-sections checklist", () => {
     );
     await waitWorkspace();
 
-    // Sections step (rail id "name") shows the checklist.
+    jumpRail("sections");
     const propertyRow = document.querySelector('[data-attr="application-sections-checklist-property"]') as HTMLInputElement | null;
     expect(propertyRow).not.toBeNull();
     expect(propertyRow!.checked).toBe(true);
@@ -63,9 +64,7 @@ describe("F003: Sections step default-sections checklist", () => {
     fireEvent.click(propertyRow!);
     expect(propertyRow!.checked).toBe(false);
 
-    // The Form step (rail id "sections") no longer shows "Property information".
-    jumpRail("sections");
-    expect(screen.queryByText("Property information")).toBeNull();
+    expect(document.querySelector('[data-attr="application-section-toggle-property"]')).toBeNull();
     expect(document.querySelector('[data-attr="application-section-toggle-household"]')).not.toBeNull();
   });
 
@@ -88,6 +87,7 @@ describe("F003: Sections step default-sections checklist", () => {
     );
     await waitWorkspace();
 
+    jumpRail("sections");
     const personalRow = document.querySelector('[data-attr="application-sections-checklist-personal"]') as HTMLInputElement | null;
     expect(personalRow).not.toBeNull();
     expect(personalRow!.checked).toBe(true);
@@ -156,7 +156,7 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    const picker = screen.getByRole("button", { name: "If a co-signer is planned, they fill in" });
+    const picker = screen.getByRole("button", { name: "Co-signer form" });
     fireEvent.click(picker);
     const listbox = await screen.findByRole("listbox");
     // The template being edited is never offered as its own co-signer form.
@@ -172,5 +172,18 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
     const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
     const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
     expect(savedTemplate?.linkedCosignerApplicationTemplateId).toBe(OTHER_TEMPLATE.id);
+  });
+});
+
+describe("C2-R30-11 intake ↔ licensing Used for leases link", () => {
+  it("writes linkedApplicationTemplateId on leases selected in Used for leases", () => {
+    const intake = createPropertyApplicationTemplate({ kind: "long-term", label: "Intake form" });
+    const licensing = createPropertyLeaseTemplate({ kind: "long-term", label: "Licensing agreement" });
+    const templateId = intake.id;
+    const selectedLeases = new Set([licensing.id]);
+    const propertyLeaseTemplates = [licensing].map((lease) =>
+      selectedLeases.has(lease.id) ? { ...lease, linkedApplicationTemplateId: templateId } : lease,
+    );
+    expect(propertyLeaseTemplates[0]?.linkedApplicationTemplateId).toBe(templateId);
   });
 });

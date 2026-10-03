@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
@@ -74,13 +75,30 @@ export function sanitizeCustomApplicationFieldsForSave(
  * Blank rows are allowed while editing; `sanitizeCustomFieldOptionsForSave`
  * drops them (and de-dupes case-insensitively) at Save.
  */
+function alignOptionLeaseTemplateIds(
+  ids: readonly (string | null)[] | undefined,
+  len: number,
+): (string | null)[] {
+  const next = [...(ids ?? [])];
+  while (next.length < len) next.push(null);
+  return next.slice(0, len);
+}
+
 export function OptionRowsEditor({
   options,
   onChange,
+  optionLeaseTemplateIds,
+  onOptionLeaseTemplateIdsChange,
+  leaseTemplateOptions,
 }: {
   options: readonly string[];
   onChange: (next: string[]) => void;
+  optionLeaseTemplateIds?: readonly (string | null)[];
+  onOptionLeaseTemplateIdsChange?: (next: (string | null)[]) => void;
+  leaseTemplateOptions?: readonly { value: string; label: string }[];
 }) {
+  const showLeaseRouting = Boolean(leaseTemplateOptions?.length && onOptionLeaseTemplateIdsChange);
+  const leaseIds = alignOptionLeaseTemplateIds(optionLeaseTemplateIds, options.length);
   const duplicateIndexes = (() => {
     const seen = new Map<string, number>();
     const dupes = new Set<number>();
@@ -98,20 +116,37 @@ export function OptionRowsEditor({
     next[i] = value;
     onChange(next);
   };
-  const removeAt = (i: number) => onChange(options.filter((_, idx) => idx !== i));
+  const removeAt = (i: number) => {
+    onChange(options.filter((_, idx) => idx !== i));
+    if (showLeaseRouting) {
+      onOptionLeaseTemplateIdsChange!(leaseIds.filter((_, idx) => idx !== i));
+    }
+  };
   const moveAt = (i: number, direction: "up" | "down") => {
     const swap = direction === "up" ? i - 1 : i + 1;
     if (swap < 0 || swap >= options.length) return;
     const next = [...options];
     [next[i], next[swap]] = [next[swap], next[i]];
     onChange(next);
+    if (showLeaseRouting) {
+      const nextIds = [...leaseIds];
+      [nextIds[i], nextIds[swap]] = [nextIds[swap], nextIds[i]];
+      onOptionLeaseTemplateIdsChange!(nextIds);
+    }
+  };
+  const setLeaseAt = (i: number, templateId: string | null) => {
+    if (!showLeaseRouting) return;
+    const nextIds = [...leaseIds];
+    nextIds[i] = templateId;
+    onOptionLeaseTemplateIdsChange!(nextIds);
   };
 
   return (
     <div className="space-y-1.5">
       {options.length === 0 ? <p className="text-sm text-muted">No options yet.</p> : null}
       {options.map((opt, i) => (
-        <div key={i} className="flex items-center gap-1.5">
+        <div key={i} className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
           <Input
             value={opt}
             onChange={(e) => setAt(i, e.target.value)}
@@ -151,6 +186,22 @@ export function OptionRowsEditor({
           >
             <X className="h-4 w-4" strokeWidth={2.25} aria-hidden />
           </button>
+          </div>
+          {showLeaseRouting ? (
+            <FieldSingleSelect
+              hideLabel
+              label={`Lease for option ${i + 1}`}
+              variant="cell"
+              className="max-w-md"
+              value={leaseIds[i] ?? "__none__"}
+              dataAttr={`application-question-option-lease-${i}`}
+              options={[
+                { value: "__none__", label: "Default lease routing" },
+                ...(leaseTemplateOptions ?? []),
+              ]}
+              onChange={(next) => setLeaseAt(i, next === "__none__" ? null : next)}
+            />
+          ) : null}
         </div>
       ))}
       {duplicateIndexes.size > 0 ? (
@@ -158,7 +209,10 @@ export function OptionRowsEditor({
       ) : null}
       <button
         type="button"
-        onClick={() => onChange([...options, ""])}
+        onClick={() => {
+          onChange([...options, ""]);
+          if (showLeaseRouting) onOptionLeaseTemplateIdsChange!([...leaseIds, null]);
+        }}
         className="inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-border px-3 text-xs font-semibold text-muted transition hover:border-primary/40 hover:text-foreground"
         data-attr="application-question-option-add"
       >
@@ -179,6 +233,7 @@ export function ApplicationQuestionFields({
   editableOptions,
   editableType = true,
   blockedTypes = [],
+  leaseTemplateOptions,
 }: {
   field: ResolvedApplicationField;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
@@ -197,6 +252,8 @@ export function ApplicationQuestionFields({
   editableOptions?: boolean;
   editableType?: boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
+  /** When set, dropdown options can map to a property lease template (C1-PIPE1). */
+  leaseTemplateOptions?: readonly { value: string; label: string }[];
 }) {
   const conditionCandidates = (siblingFields ?? []).filter((f) => !f.isStandard && f.id !== field.id);
   const canEditOptions = editableOptions ?? (!field.isStandard || field.options.length === 0);
@@ -253,7 +310,18 @@ export function ApplicationQuestionFields({
           <p className="text-sm font-medium text-foreground">{field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}{!canEditOptions ? " · Fixed" : ""}</p>
           <div className="mt-1">
             {canEditOptions ? (
-              <OptionRowsEditor options={field.options} onChange={(options) => onPatch({ options })} />
+              <OptionRowsEditor
+                options={field.options}
+                onChange={(options) =>
+                  onPatch({
+                    options,
+                    optionLeaseTemplateIds: alignOptionLeaseTemplateIds(field.optionLeaseTemplateIds, options.length),
+                  })
+                }
+                optionLeaseTemplateIds={field.optionLeaseTemplateIds}
+                onOptionLeaseTemplateIdsChange={(optionLeaseTemplateIds) => onPatch({ optionLeaseTemplateIds })}
+                leaseTemplateOptions={field.type === "select" ? leaseTemplateOptions : undefined}
+              />
             ) : (
               <div className="space-y-1 rounded-xl border border-border bg-muted/30 p-3" aria-label="Fixed answer choices">
                 {field.options.map((option) => <div key={option} className="text-sm text-foreground">{option}</div>)}
