@@ -1,11 +1,7 @@
 /**
- * Every manager settings nav entry (S019/S008/S014, captain 2026-09-27:
- * "simplify settings fully", corrected 06:47 to keep the properties picker
- * and Application form / Lease documents) carries exactly one of: a
- * workspace "Applies to" scope bar (with or without the properties picker),
- * an Account tag, or a Device tag — except Workspaces and Integrations (the
- * `spreadsheets` id), which are their own switchers and exempt from all
- * three.
+ * Every manager settings nav entry carries exactly one of: a
+ * workspace "Applies to" scope bar, an Account tag, or a Device tag — except
+ * Workspace, Communication, and Integrations, which are exempt.
  *
  * This asserts the classification tables in `portal-profile-client.tsx`
  * directly rather than mounting the whole settings hub (which pulls in a
@@ -24,7 +20,7 @@ import {
   type SettingsGroupId,
 } from "@/components/portal/portal-profile-client";
 
-/** Every nav id the manager hub can show, non-demo — the fullest set left after S019/S014. */
+/** Every nav id the manager hub can show, non-demo. */
 const ALL_NAV_IDS: SettingsGroupId[] = [
   "profile",
   "workspaces",
@@ -34,9 +30,6 @@ const ALL_NAV_IDS: SettingsGroupId[] = [
   "account",
   "messaging",
   "payments",
-  "payouts",
-  "applicationForm",
-  "leaseDocuments",
   "spreadsheets",
 ];
 
@@ -63,8 +56,8 @@ describe("manager settings nav entries: bar / Account tag / Device tag, exactly 
     expect(doubled).toEqual([]);
   });
 
-  it("Workspaces and Integrations are exempt from the bar and both tags", () => {
-    for (const id of ["workspaces", "spreadsheets"] as const) {
+  it("Workspace, Communication, and Integrations follow the selected workspace without a second scope picker", () => {
+    for (const id of ["workspaces", "messaging", "spreadsheets"] as const) {
       expect(classificationsFor(id)).toEqual(["exempt"]);
       expect(WORKSPACE_SCOPED_PANES.has(id)).toBe(false);
       expect(WORKSPACE_ONLY_SCOPED_PANES.has(id)).toBe(false);
@@ -73,19 +66,12 @@ describe("manager settings nav entries: bar / Account tag / Device tag, exactly 
     }
   });
 
-  it("Communication, Payments, and Payouts carry the Applies-to bar WITH the properties picker (S014 correction)", () => {
-    expect(WORKSPACE_SCOPED_PANES.size).toBe(3);
-    for (const id of ["messaging", "payments", "payouts"] as const) {
-      expect(WORKSPACE_SCOPED_PANES.has(id)).toBe(true);
-    }
+  it("Payments carries the Applies-to bar with the properties picker", () => {
+    expect([...WORKSPACE_SCOPED_PANES]).toEqual(["payments"]);
   });
 
-  it("Application form and Lease documents carry the Applies-to bar WITHOUT the properties picker — kept per S014", () => {
-    expect(WORKSPACE_ONLY_SCOPED_PANES.size).toBe(2);
-    for (const id of ["applicationForm", "leaseDocuments"] as const) {
-      expect(WORKSPACE_ONLY_SCOPED_PANES.has(id)).toBe(true);
-      expect(WORKSPACE_SCOPED_PANES.has(id)).toBe(false);
-    }
+  it("has no workspace-only settings panes in the manager navigation", () => {
+    expect(WORKSPACE_ONLY_SCOPED_PANES.size).toBe(0);
   });
 
   it("Profile, Billing, Login & security, API & MCP, and Account carry the Account tag", () => {

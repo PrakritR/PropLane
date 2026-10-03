@@ -224,8 +224,8 @@ function ManagerInvoicesSection() {
  * but the PLAN-0920-1400 page has only one shape now — there is no longer a
  * "compact strip" vs. "full card" distinction to switch between.
  */
-export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boolean } = {}) {
-  const { embedded = false } = props;
+export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boolean; showInvoices?: boolean } = {}) {
+  const { embedded = false, showInvoices = true } = props;
   const router = useRouter();
   const pathname = usePathname();
   const planSettingsPath = MANAGER_PLAN_PORTAL_PATH;
@@ -722,7 +722,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       )}
       <ManagerPlanAddonsPanel />
       <ManagerPaymentMethodsPanel />
-      <ManagerInvoicesSection />
+      {showInvoices ? <ManagerInvoicesSection /> : null}
 
       <PortalSettingsSection title="Cancellation">
         {!sub ? null : currentTier === "free" ? (

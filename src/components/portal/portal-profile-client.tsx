@@ -4,11 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
+  Check,
+  Copy,
   CreditCard,
-  Folder,
   KeyRound,
-  Landmark,
-  ListChecks,
   Lock,
   MessageSquareText,
   MessagesSquare,
@@ -20,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter, useModalPresentation } from "@/components/ui/modal";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { coercePhoneInput, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -32,11 +32,11 @@ import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
+import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
-  PortalSettingsAutosaveField,
   PortalSettingsField,
-  PortalSettingsFormBody,
   PortalSettingsGroup,
   PortalSettingsLinkRow,
   PortalSettingsNav,
@@ -45,12 +45,12 @@ import {
   PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
-  PortalSettingsToggle,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
+import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
@@ -69,9 +69,6 @@ import { AssistantDisplaySetting } from "@/components/portal/assistant-display-s
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
-import { useAppUi } from "@/components/providers/app-ui-provider";
-import { DEFAULT_REMINDER_SETTINGS, normalizeReminderSettings } from "@/lib/reminders/rules";
-import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
@@ -108,12 +105,9 @@ const SETTINGS_TAB_PARAM = "tab";
  * Settings pane for ANY variant, so a bookmark to one of them redirects to
  * Profile instead of rendering blank (S019, captain 2026-09-27). Preferences
  * and Feedback are deliberately absent — the admin variant still shows both.
- * Application form and Lease documents are ALSO absent — the S014 correction
- * (captain, 06:47) kept both reachable: the list-page gears for Applications
- * and Leases were removed by another worker on the assumption Settings still
- * hosts form/fee/waiver/lease-document editing, so pulling these two panes
- * would have left that editing with no door at all. They stay in the
- * Workspace group for now.
+ * Application form and Lease documents are not part of the redesigned
+ * Settings navigation; their configuration is reached from their property
+ * sections.
  */
 const REMOVED_SETTINGS_TAB_IDS = new Set([
   "notifications",
@@ -132,38 +126,31 @@ const REMOVED_SETTINGS_TAB_IDS = new Set([
   "residents",
   "bookings",
   "inspections",
+  "applicationForm",
+  "leaseDocuments",
 ]);
 
 /**
  * Settings simplification (S019/S008, captain 2026-09-27: "simplify settings
  * fully"). The only settings that still apply to a WORKSPACE rather than the
- * account are Communication, Payments, Payouts, Application form, and Lease
- * documents — Applications, Leases, Tours, Residents, Services, and Tasks
+ * account are Communication, Payments, and Integrations — Applications,
+ * Leases, Tours, Residents, Services, and Tasks
  * left Settings entirely (their choices move to each property's own section
  * gear, a separate piece of work), and Reminders left with them (reminders
  * run on one fixed schedule now, never a per-workspace or per-house override
  * — see `WhatProplaneSends`).
  *
- * Communication, Payments, and Payouts get `SettingsScopeBar`'s
- * `"applies-to"` variant: a workspace select ("All my workspaces" is the
- * account rung) plus the properties multi-select, exactly like the `"full"`
- * picker `ProPortalSettingsModal` still uses on its own list-page gear — the
- * S014 correction (captain, 06:47) restored this after an earlier pass had
- * dropped it; per-property overrides stay settable from Settings, as before.
- * Only the bar's own Account/Workspace/"Own values on N properties" tag is
- * gone (S008 still stands on that point).
+ * Payments retain property overrides through `SettingsScopeBar`. Communication
+ * reads the workspace chosen in the shell's workspace switcher, so a second
+ * scope picker on that page would be misleading.
  */
-export const WORKSPACE_SCOPED_PANES = new Set<SettingsGroupId>(["messaging", "payments", "payouts"]);
+export const WORKSPACE_SCOPED_PANES = new Set<SettingsGroupId>(["payments"]);
 
 /**
- * Application form and Lease documents get `"applies-to-workspace-only"` —
- * the same bar, minus the properties picker, because neither has a
- * per-house rung (the workspace-wide default template/library). Kept in
- * Settings per the S014 correction (captain, 06:47): the list-page gears
- * for Applications/Leases were removed by another worker on the assumption
- * this editing still lives here.
+ * Application form and Lease documents are not workspace-level settings in
+ * the current Settings navigation.
  */
-export const WORKSPACE_ONLY_SCOPED_PANES = new Set<SettingsGroupId>(["applicationForm", "leaseDocuments"]);
+export const WORKSPACE_ONLY_SCOPED_PANES = new Set<SettingsGroupId>();
 
 /** Profile, Billing, Login & security, API & MCP, Account — every setting on these applies to the account, never a workspace or house. Feedback joins this set only for the admin variant, which still shows that pane. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -172,14 +159,13 @@ export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing",
 export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
 
 /**
- * Exempt from every classification above: Workspaces is its own switcher
- * (`WorkspaceSettings`). Integrations (the `spreadsheets` id) is account-wide
- * Google + per-card workspace/property pickers, so the page-level house chip
- * must not hide another house's card. Exported alongside the other
+ * Exempt from every classification above: Workspace and Communication follow
+ * the selected workspace; Integrations manages Google connections outside
+ * the property scope. Exported alongside the other
  * classification sets so `tests/unit/settings-account-tags.test.tsx` can
  * assert every nav entry is accounted for exactly once.
  */
-export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "spreadsheets"]);
+export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "messaging", "spreadsheets"]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -200,11 +186,6 @@ export type SettingsGroupId =
   | "payouts"
   | "spreadsheets";
 
-const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
-  payments: "payments",
-  payouts: "payouts",
-};
-
 type SettingsGroup = {
   id: SettingsGroupId;
   label: string;
@@ -213,103 +194,21 @@ type SettingsGroup = {
   group: "Account" | "Workspace";
 };
 
-/**
- * Fixed reminders (S020, captain 2026-09-27): the one reminder-related choice
- * left anywhere in Settings. Reads and writes `automationSendMode.partyFacing`
- * through the same `/api/portal/reminder-settings` endpoint the old Reminders
- * hub used — every other field on that endpoint's `settings` now always
- * resolves to the built-in defaults (`loadReminderSettings`), so this never
- * needs a scope (`propertyId`/`workspaceId`): there is nothing left to scope.
- */
-function ManagerReminderApprovalToggle() {
-  const { showToast } = useAppUi();
-  const demo = isDemoModeActive();
-  const [partyFacing, setPartyFacing] = useState<AutomationSendMode | null>(null);
-  const [team, setTeam] = useState<AutomationSendMode>(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (demo) {
-        if (!cancelled) {
-          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
-          setTeam(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
-        }
-        return;
-      }
-      try {
-        const res = await fetch("/api/portal/reminder-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
-        if (cancelled) return;
-        if (!res.ok) throw new Error(body.error ?? "Could not load settings.");
-        const settings = normalizeReminderSettings(body.settings);
-        setPartyFacing(settings.automationSendMode.partyFacing);
-        setTeam(settings.automationSendMode.team);
-      } catch (e) {
-        if (!cancelled) {
-          showToast(e instanceof Error ? e.message : "Could not load settings.");
-          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [demo, showToast]);
-
-  const flip = async (checked: boolean) => {
-    const next: AutomationSendMode = checked ? "draft" : "auto";
-    const previous = partyFacing;
-    setPartyFacing(next);
-    if (demo) return;
-    try {
-      const res = await fetch("/api/portal/reminder-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { automationSendMode: { team, partyFacing: next } } }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not save.");
-      const settings = normalizeReminderSettings(body.settings);
-      setPartyFacing(settings.automationSendMode.partyFacing);
-      setTeam(settings.automationSendMode.team);
-    } catch (e) {
-      setPartyFacing(previous);
-      showToast(e instanceof Error ? e.message : "Could not save.");
-    }
-  };
-
-  return (
-    <PortalSettingsGroup>
-      <PortalSettingsRow label="Resident & vendor messages need my approval first">
-        <PortalSettingsToggle
-          checked={partyFacing === "draft"}
-          onChange={(next) => void flip(next)}
-          label="Resident and vendor messages draft for review"
-          disabled={partyFacing === null}
-          dataAttr="settings-toggle-party-facing-draft"
-        />
-      </PortalSettingsRow>
-    </PortalSettingsGroup>
-  );
-}
-
 function ManagerMessagingSettingsPane() {
   const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
   return (
     <>
+      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
       <PortalTextNotificationsBlock
         dataAttrPrefix="manager"
         title="Personal mobile"
         description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
-      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
-      <CommunicationSettingsPanel />
-      <PortalSettingsSection title="Reminders">
-        <ManagerReminderApprovalToggle />
+      <PortalSettingsSection title="Automation">
+        <AutoSendAiDraftsRow />
       </PortalSettingsSection>
+      <CommunicationSettingsPanel />
       <WhatProplaneSends />
     </>
   );
@@ -351,9 +250,11 @@ export function PortalProfileClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const editPresentation = useModalPresentation();
   const workspaces = useWorkspaces();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
+  const [editingField, setEditingField] = useState<ProfileField | null>(null);
   /** Per-field outcome, so a failure is reported on the row it happened to. */
   const [fieldState, setFieldState] = useState<Record<ProfileField, PortalSettingsSaveState>>({
     fullName: "idle",
@@ -399,11 +300,11 @@ export function PortalProfileClient({
    */
   const commit = useCallback(async (field: ProfileField) => {
     const next = { fullName, phone };
-    if (next[field] === savedRef.current[field]) return;
+    if (next[field] === savedRef.current[field]) return true;
     if (demo) {
       savedRef.current = next;
       markSaved(field);
-      return;
+      return true;
     }
     setFieldState((prev) => ({ ...prev, [field]: "saving" }));
     setFieldError((prev) => ({ ...prev, [field]: undefined }));
@@ -422,70 +323,128 @@ export function PortalProfileClient({
       } catch {
         setFieldState((prev) => ({ ...prev, [field]: "error" }));
         setFieldError((prev) => ({ ...prev, [field]: "The server sent something unreadable." }));
-        return;
+        return false;
       }
       if (!res.ok) {
         setFieldState((prev) => ({ ...prev, [field]: "error" }));
         setFieldError((prev) => ({ ...prev, [field]: body.error ?? "Could not save." }));
-        return;
+        return false;
       }
       if (variant === "manager") {
         cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
       }
       savedRef.current = next;
       markSaved(field);
+      return true;
     } catch {
       setFieldState((prev) => ({ ...prev, [field]: "error" }));
       setFieldError((prev) => ({ ...prev, [field]: "No connection. Your change is still here." }));
+      return false;
     } finally {
       inFlightRef.current = false;
     }
   }, [demo, fullName, phone, markSaved, variant]);
 
+  const beginEdit = (field: ProfileField) => {
+    setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    if (field === "fullName") setFullName(savedRef.current.fullName);
+    else setPhone(savedRef.current.phone);
+    setEditingField(field);
+  };
+  const cancelEdit = (field: ProfileField) => {
+    if (field === "fullName") setFullName(savedRef.current.fullName);
+    else setPhone(savedRef.current.phone);
+    setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    setEditingField(null);
+  };
+  const saveEdit = async (field: ProfileField) => {
+    if (await commit(field)) setEditingField(null);
+  };
+
+  const renderEditableProfileRow = (field: ProfileField, label: string, value: string) => {
+    const editing = editingField === field && editPresentation === "dialog";
+    const inputId = field === "fullName" ? "pf-name" : "pf-phone";
+    return (
+      <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr={`profile-${field}-row`}>
+        <div className="flex min-h-11 items-center justify-between gap-4">
+          <span className="text-sm font-medium text-foreground">{label}</span>
+          {editing ? (
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+              <Input
+                id={inputId}
+                value={field === "fullName" ? fullName : phone}
+                onChange={(event) => field === "fullName" ? setFullName(event.target.value) : setPhone(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void saveEdit(field);
+                  if (event.key === "Escape") cancelEdit(field);
+                }}
+                autoComplete={field === "fullName" ? "name" : "tel"}
+                aria-label={label}
+                data-attr={field === "fullName" ? "settings-full-name" : "settings-phone"}
+                className="h-9 max-w-[18rem] rounded-lg"
+              />
+              <Button type="button" variant="ghost" onClick={() => cancelEdit(field)}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={() => saveEdit(field)}>Save</Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-2 text-right text-sm text-foreground hover:text-primary"
+              onClick={() => beginEdit(field)}
+              data-attr={`settings-edit-${field}`}
+            >
+              <span className="max-w-[22rem] truncate">{value || "Add"}</span>
+              {fieldState[field] === "saved" ? <Check className="size-4 text-emerald-600" aria-label="Saved" /> : null}
+              {fieldState[field] !== "saved" ? <span aria-hidden className="text-muted">Edit</span> : null}
+            </button>
+          )}
+        </div>
+        {editing && fieldError[field] ? <p className="mt-1 text-sm text-danger" role="alert">{fieldError[field]}</p> : null}
+      </div>
+    );
+  };
+
   const personalInfoSection = (
-    <PortalSettingsSection title="Personal information">
-      <PortalSettingsGroup>
-        <PortalSettingsAutosaveField
-          label="Full name"
-          htmlFor="pf-name"
-          state={fieldState.fullName}
-          error={fieldError.fullName}
-          onRetry={() => void commit("fullName")}
-        >
-          <Input
-            id="pf-name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            onBlur={() => void commit("fullName")}
-            autoComplete="name"
-            data-attr="settings-full-name"
-          />
-        </PortalSettingsAutosaveField>
-        <PortalSettingsField label="Email" value={initialEmail} />
-        <PortalSettingsAutosaveField
-          label="Phone"
-          htmlFor="pf-phone"
-          state={fieldState.phone}
-          error={fieldError.phone}
-          onRetry={() => void commit("phone")}
-        >
-          <PhoneNumberField
-            id="pf-phone"
-            value={phone}
-            onChange={setPhone}
-            onBlur={() => void commit("phone")}
-          />
-        </PortalSettingsAutosaveField>
-        {/*
-          Through the display formatter. Accounts created before the rebrand
-          still STORE an `AXIS-` id — every lookup accepts both prefixes and
-          renaming the stored value is a migration, not a label change — but
-          a field captioned "PropLane ID" must never read AXIS to the person
-          whose id it is.
-        */}
-        <PortalSettingsField label={idLabel} value={formatProplaneIdForDisplay(idValue)} mono />
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+    <>
+      <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
+      <PortalSettingsSection title="Personal information">
+        <PortalSettingsGroup>
+          {renderEditableProfileRow("fullName", "Full name", fullName)}
+          <PortalSettingsField label="Email" value={initialEmail} />
+          {renderEditableProfileRow("phone", "Phone", formatSmsPhoneLabel(phone) || "")}
+          <PortalSettingsRow label={idLabel}>
+            <span className="font-mono text-sm text-foreground">{formatProplaneIdForDisplay(idValue)}</span>
+            <PortalIconAction icon={Copy} label={`Copy ${idLabel}`} onClick={() => void navigator.clipboard?.writeText(formatProplaneIdForDisplay(idValue))} data-attr="profile-copy-id" />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <Modal
+        open={editingField !== null && editPresentation === "drawer"}
+        title={editingField === "fullName" ? "Full name" : "Phone"}
+        onClose={() => editingField && cancelEdit(editingField)}
+        dataAttr="profile-edit-sheet"
+        footer={editingField ? (
+          <ModalFooter>
+            <Button type="button" variant="ghost" onClick={() => cancelEdit(editingField)}>Cancel</Button>
+            <Button type="button" variant="primary" onClick={() => saveEdit(editingField)}>Save</Button>
+          </ModalFooter>
+        ) : null}
+      >
+        {editingField ? (
+          <>
+            <label htmlFor={editingField === "fullName" ? "pf-name-sheet" : "pf-phone-sheet"} className="mb-2 block text-sm font-medium text-foreground">
+              {editingField === "fullName" ? "Full name" : "Phone"}
+            </label>
+            {editingField === "fullName" ? (
+              <Input id="pf-name-sheet" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" />
+            ) : (
+              <PhoneNumberField id="pf-phone-sheet" value={phone} onChange={setPhone} />
+            )}
+            {fieldError[editingField] ? <p className="mt-2 text-sm text-danger" role="alert">{fieldError[editingField]}</p> : null}
+          </>
+        ) : null}
+      </Modal>
+    </>
   );
 
   const groups = useMemo<SettingsGroup[]>(() => {
@@ -499,7 +458,6 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings, group: "Account" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -559,16 +517,11 @@ export function PortalProfileClient({
       icon: Settings,
       group: "Account",
     });
-    // The only settings that still apply to a WORKSPACE rather than the
-    // account: Communication, Payments, Payouts, Integrations (Google),
-    // Application form, and Lease documents. Applications, Leases, Tours,
-    // Residents, Services, and Tasks moved to each property's own section;
-    // Reminders run on one fixed schedule with no settings pane at all (see
-    // `WhatProplaneSends`, under Communication). Application form and Lease
-    // documents stay for now (captain, S014 correction, 06:47) — another
-    // worker removed the Applications/Leases list-page gears on the
-    // assumption Settings still hosts this editing.
+    // Workspace-level settings: Workspace, Payments and Communication.
+    // Integrations are account connections; forms and lease documents are
+    // reached from their corresponding property sections.
     if (!demo && variant === "manager") {
+      list.push({ id: "workspaces", label: "Workspace", description: "Workspace details, members, properties, and plan.", icon: Settings, group: "Workspace" });
       list.push({
         id: "messaging",
         label: "Communication",
@@ -579,22 +532,7 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        { id: "payments", label: "Payments", description: "Payment setup and late fees.", icon: Wallet, group: "Workspace" },
-        { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Workspace" },
-        {
-          id: "applicationForm",
-          label: "Application form",
-          description: "The rental application questions every listing asks by default.",
-          icon: ListChecks,
-          group: "Workspace",
-        },
-        {
-          id: "leaseDocuments",
-          label: "Lease documents",
-          description: "Uploaded lease PDFs a property or lease can reuse.",
-          icon: Folder,
-          group: "Workspace",
-        },
+        { id: "payments", label: "Payments", description: "Payment methods, payouts, and history.", icon: Wallet, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
@@ -620,6 +558,7 @@ export function PortalProfileClient({
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
+    if (rawTab === "payouts") router.replace("/portal/profile?tab=payments");
     // Settings simplification (S019, captain 2026-09-27): Applications, Lease
     // documents/clauses, Forms, Tours, Residents, Services, Tasks, Reminders,
     // Notifications, and every old alias that pointed at one of them left
@@ -630,10 +569,11 @@ export function PortalProfileClient({
     if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
-  const activeGroup =
+  const settingsHome = searchParams.get("settingsHome") === "1" && variant === "manager";
+  const activeGroup = settingsHome ? null :
     groups.find((g) => g.id === rawTab) ?? (billingOverride ? billingGroup : null) ?? null;
   // Desktop always shows a pane; with no tab selected it defaults to Profile.
-  const paneGroup = activeGroup ?? groups[0];
+  const paneGroup = activeGroup ?? (settingsHome ? groups.find((g) => g.id === "workspaces") : null) ?? groups[0];
 
   // Depth of history entries this component pushed, so the in-page back
   // chevron unwinds the stack (matching the iOS back gesture) instead of
@@ -658,6 +598,7 @@ export function PortalProfileClient({
       const params = new URLSearchParams(searchParams.toString());
       if (id) params.set(SETTINGS_TAB_PARAM, id);
       else params.delete(SETTINGS_TAB_PARAM);
+      if (id) params.delete("settingsHome");
       const query = params.toString();
       return query ? `${pathname}?${query}` : pathname;
     },
@@ -779,13 +720,18 @@ export function PortalProfileClient({
   }, [activeGroup?.id]);
 
   const renderPane = (id: SettingsGroupId): ReactNode => {
-    const moduleTab = HUB_MODULE_TABS[id];
-    if (moduleTab) return <HubSettingsModulePane tab={moduleTab} />;
     switch (id) {
       case "workspaces":
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
       case "profile":
         return personalInfoSection;
+      case "payments":
+        return (
+          <>
+            <HubSettingsModulePane tab="payments" />
+            <HubSettingsModulePane tab="payouts" />
+          </>
+        );
       case "billing":
         // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
         // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,
@@ -793,7 +739,7 @@ export function PortalProfileClient({
         // mounts nothing else around it.
         return (
           <div className="min-w-0">
-            <ManagerPlan embedded showCurrentPlan={false} />
+            <ManagerPlan embedded showCurrentPlan={false} showInvoices={false} />
           </div>
         );
       case "messaging":
@@ -874,19 +820,24 @@ export function PortalProfileClient({
       hideTitleOnMobileNav
     >
       <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <PortalSettingsNav
-          className="max-lg:hidden"
-          name={emptyToDash(fullName)}
-          email={initialEmail}
-          items={groups.map((g) => ({
-            id: g.id,
-            label: g.label,
-            icon: <g.icon className="h-4 w-4" />,
-            group: g.group,
-          }))}
-          activeId={paneGroup.id}
-          onSelect={openGroup}
-        />
+        <div className="max-lg:hidden lg:w-[216px] lg:shrink-0">
+          {variant === "manager" && paneGroup.group === "Workspace" ? (
+            <div className="mb-3"><WorkspaceSwitcher /></div>
+          ) : null}
+          <PortalSettingsNav
+            className="w-full"
+            name={emptyToDash(fullName)}
+            email={initialEmail}
+            items={groups.map((g) => ({
+              id: g.id,
+              label: g.label,
+              icon: <g.icon className="h-4 w-4" />,
+              group: g.group,
+            }))}
+            activeId={paneGroup.id}
+            onSelect={openGroup}
+          />
+        </div>
         <div
           ref={contentColRef}
           className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
@@ -908,6 +859,17 @@ export function PortalProfileClient({
               <>
                 {activeGroup === null ? (
                   <div className="space-y-5 lg:hidden">
+                    {settingsHome ? (
+                      <PortalDetailHeader
+                        title="Settings"
+                        onBack={() => router.back()}
+                        backLabel="Back"
+                        bare
+                        inlineActions
+                        dataAttrBack="settings-home-back"
+                      />
+                    ) : null}
+                    {variant === "manager" && settingsHome ? <WorkspaceSwitcher variant="mobile" /> : null}
                     <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
                     {(["Account", "Workspace"] as const).map((group) => {
                       const groupItems = groups.filter((item) => item.group === group);
@@ -932,6 +894,9 @@ export function PortalProfileClient({
                   </div>
                 ) : (
                   <div className="mb-4 lg:hidden">
+                    {variant === "manager" && paneGroup.group === "Workspace" ? (
+                      <div className="mb-2"><WorkspaceSwitcher variant="mobile" /></div>
+                    ) : null}
                     <PortalDetailHeader
                       title={activeGroup.label}
                       onBack={backToRoot}

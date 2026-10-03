@@ -128,20 +128,21 @@ describe("CommunicationSettingsPanel", () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  it("shows who can email the assistant when the address is ready", async () => {
+  it("does not expose personal contact fallback settings when work email is ready", async () => {
     stubPanelFetches(readyNumber, readyEmail);
     render(<CommunicationSettingsPanel />);
 
-    expect(await screen.findByText("Who can email the assistant")).toBeTruthy();
-    expect(screen.getByText("Your team, your residents, and prospects")).toBeTruthy();
+    expect(await screen.findByText("Reminders and messages")).toBeTruthy();
+    expect(screen.queryByText("Who can email the assistant")).toBeNull();
+    expect(screen.queryByText(/Share my profile phone and email/)).toBeNull();
   });
 
-  it("reflects a paused work email as nobody can reach it yet", async () => {
+  it("does not expose work email audience status in automation settings", async () => {
     stubPanelFetches(readyNumber, { ...readyEmail, state: "assigned_plan_hold", canUse: false });
     render(<CommunicationSettingsPanel />);
 
-    expect(await screen.findByText("Who can email the assistant")).toBeTruthy();
-    expect(screen.getByText("Nobody until your plan is active again")).toBeTruthy();
+    expect(await screen.findByText("Reminders and messages")).toBeTruthy();
+    expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 
   it("omits the row when the work email status could not be read", async () => {

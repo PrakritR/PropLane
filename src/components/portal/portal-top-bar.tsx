@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -174,16 +174,41 @@ export function PortalTopBar({
             {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
           </div>
 
-          <DropdownMenuItem
-            data-attr="portal-top-bar-settings"
-            onSelect={(event) => {
-              event.preventDefault();
-              router.push(`${basePath}/profile`);
-            }}
-          >
-            <Settings aria-hidden />
-            Settings
-          </DropdownMenuItem>
+          {(kind === "manager" || kind === "pro") ? (
+            <>
+              <DropdownMenuItem
+                data-attr="portal-top-bar-profile"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  router.push(`${basePath}/profile?tab=profile`);
+                }}
+              >
+                <UserRound aria-hidden />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-attr="portal-top-bar-settings"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  router.push(`${basePath}/profile?tab=workspaces&settingsHome=1`);
+                }}
+              >
+                <Settings aria-hidden />
+                Settings
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem
+              data-attr="portal-top-bar-settings"
+              onSelect={(event) => {
+                event.preventDefault();
+                router.push(`${basePath}/profile`);
+              }}
+            >
+              <Settings aria-hidden />
+              Settings
+            </DropdownMenuItem>
+          )}
 
           {DARK_MODE_ENABLED ? (
             <div className="flex items-center justify-between gap-3 px-3 py-2">

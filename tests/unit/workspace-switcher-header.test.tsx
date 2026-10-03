@@ -90,9 +90,10 @@ describe("the header switcher", () => {
     const labels = items.map((el) => el.textContent?.replace(/\s+/g, " ").trim());
     expect(labels[0]).toBe("My workspace");
     expect(labels[1]).toBe("Ballard houses");
-    expect(labels[2]).toBe("Workspace settings");
-    expect(labels[3]).toBe("Invite a manager to My workspace");
-    expect(labels[4]).toMatch(/^New workspace\s*1 of 3$/);
+    expect(labels[2]).toBe("Workspaces 1 of 3");
+    expect(labels[3]).toBe("Workspace settings");
+    expect(labels[4]).toBe("Invite manager");
+    expect(labels[5]).toMatch(/^New workspace\s*1 of 3$/);
     expect(document.querySelector('[data-attr="workspace-switcher-new"]')?.getAttribute("href")).toBe(
       "/portal/profile?tab=workspaces&new=1",
     );

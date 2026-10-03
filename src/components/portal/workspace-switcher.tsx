@@ -201,6 +201,11 @@ export function WorkspaceSwitcher({
             {workspace.id === ctx.active?.id && <Check className="size-4 shrink-0" aria-hidden />}
           </DropdownMenuItem>
         ))}
+        {capKnown ? (
+          <DropdownMenuItem disabled data-attr="workspace-switcher-plan-count">
+            Workspaces {plan!.usage.workspaces} of {plan!.workspaceLimit}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/portal/profile?tab=workspaces" data-attr="workspace-switcher-settings">
@@ -213,7 +218,7 @@ export function WorkspaceSwitcher({
             {/* Invite lives on each workspace card; land on the active one. */}
             <Link href={`/portal/profile?tab=workspaces${ctx.active ? `#workspace-${ctx.active.id}` : ""}`} data-attr="workspace-switcher-invite">
               <UserPlus className="size-4" aria-hidden />
-              <span className="min-w-0 truncate">Invite a manager to {ctx.active.name}</span>
+              <span className="min-w-0 truncate">Invite manager</span>
             </Link>
           </DropdownMenuItem>
         ) : null}

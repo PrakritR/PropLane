@@ -65,8 +65,6 @@ import {
   deliverViaFromManagerSettings,
 } from "@/lib/manager-communication-deliver-via";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
-import { isManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
-import { workEmailAudienceLabel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
@@ -1546,8 +1544,6 @@ export function CommunicationSettingsPanel({
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
-  /** "Who can email the assistant" — the Channels row's audience fact, moved here (PLAN-0920-1530). */
-  const [workEmailAudience, setWorkEmailAudience] = useState<string | null>(null);
   const [source, setSource] = useState<SettingsResolutionSource | null>(null);
 
   const anySmsEnabled = useMemo(
@@ -1570,23 +1566,16 @@ export function CommunicationSettingsPanel({
             setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
             setSavedSnapshot(JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
             setSmsSetup(null);
-            setWorkEmailAudience(null);
           }
           return;
         }
         if (!userId) return;
-        const [loadedAuto, numberRes, emailRes] = await Promise.all([
+        const [loadedAuto, numberRes] = await Promise.all([
           loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, propertyId: scopePropertyId }),
           fetch(
             scopeWorkspaceId
               ? `/api/manager/messaging-number?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
               : "/api/manager/messaging-number",
-            { credentials: "include", cache: "no-store" },
-          ).catch(() => null),
-          fetch(
-            scopeWorkspaceId
-              ? `/api/manager/assistant-email?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
-              : "/api/manager/assistant-email",
             { credentials: "include", cache: "no-store" },
           ).catch(() => null),
         ]);
@@ -1609,11 +1598,6 @@ export function CommunicationSettingsPanel({
                   canSend: status.canSend,
                 }
               : null,
-          );
-          const emailBody =
-            emailRes && emailRes.ok ? ((await emailRes.json()) as unknown) : null;
-          setWorkEmailAudience(
-            isManagerAssistantEmailStatus(emailBody) ? workEmailAudienceLabel(emailBody) : null,
           );
         }
       } catch (e) {
@@ -1728,24 +1712,6 @@ export function CommunicationSettingsPanel({
       title="Automation"
       action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
     >
-      <PortalSettingsGroup>
-        {workEmailAudience ? (
-          <PortalSettingsRow label="Who can email the assistant">
-            <span className="text-[13px] font-medium text-foreground" data-attr="communication-who-can-email-assistant">
-              {workEmailAudience}
-            </span>
-          </PortalSettingsRow>
-        ) : null}
-        <PortalSettingsRow label="Share my profile phone and email when no work number or work email is set">
-          <PortalSettingsToggle
-            checked={draft.shareProfileContactWithoutWorkChannel}
-            onChange={(next) => setDraft((prev) => ({ ...prev, shareProfileContactWithoutWorkChannel: next }))}
-            label="Share my profile phone and email when no work number or work email is set"
-            disabled={saving}
-            dataAttr="communication-share-profile-contact"
-          />
-        </PortalSettingsRow>
-      </PortalSettingsGroup>
       <ManagerSmsWorkNumberHint
         show={anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone))}
         phone={smsSetup?.phone ?? null}
