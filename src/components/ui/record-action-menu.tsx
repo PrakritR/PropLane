@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { isPostDividerRecordActionId, orderRecordActions } from "@/lib/portals/record-action-order";
 
 /** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
-export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-8 shrink-0 text-foreground stroke-[2.75]";
+export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-5 shrink-0 text-foreground stroke-[2.25]";
 
 /** Ghost circle trigger for row ⋯ menus (44×44 tap target). */
 export const RECORD_ACTION_TRIGGER_BUTTON_CLASS =
