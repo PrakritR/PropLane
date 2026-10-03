@@ -327,7 +327,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
 
       <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Available"><span data-attr="payouts-settings-available" className="tabular-nums">{formatMoney(balance.availableCents, balance.currency)}</span></PortalSettingsRow>
+          <PortalSettingsRow label="Available"><span data-attr="payouts-settings-available">{formatMoney(balance.availableCents, balance.currency)}</span></PortalSettingsRow>
 
           {balance.availableNote ? <PortalSettingsRow label="Funds status"><span data-attr="payouts-settings-available-note">{balance.availableNote}</span></PortalSettingsRow> : null}
           {pendingFact ? <PortalSettingsRow label="On the way"><span>{pendingFact}</span></PortalSettingsRow> : null}
@@ -437,7 +437,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
       />}
 
       {portal === "manager" && creditPurchases.length ? <PortalSettingsSection title="Payments activity"><PortalSettingsGroup>
-        {creditPurchases.map(purchase => <PortalSettingsRow key={purchase.id} label="Messaging credit"><span className="text-sm text-muted">{formatDate(purchase.createdAt)} · Card · {purchase.status === "paid" ? "Paid" : purchase.status.replaceAll("_", " ")}</span><span className="tabular-nums">{formatMoney(purchase.creditCents, "usd")}</span></PortalSettingsRow>)}
+        {creditPurchases.map(purchase => <PortalSettingsRow key={purchase.id} label="Messaging credit"><span className="text-sm text-muted">{formatDate(purchase.createdAt)} · Card · {purchase.status === "paid" ? "Paid" : purchase.status.replaceAll("_", " ")}</span><span >{formatMoney(purchase.creditCents, "usd")}</span></PortalSettingsRow>)}
       </PortalSettingsGroup></PortalSettingsSection> : null}
 
       <PayoutWithdrawSheet
