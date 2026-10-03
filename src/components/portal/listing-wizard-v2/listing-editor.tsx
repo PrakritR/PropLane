@@ -50,6 +50,7 @@ import {
 } from "@/lib/lease-charge-defaults";
 import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
+import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
 import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, type LucideIcon } from "lucide-react";
 import {
@@ -2580,14 +2581,16 @@ function ZillowSyndicationRow({
   sub,
   patch,
   onJump,
+  contact,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
+  contact?: ListingContactDoors;
 }) {
   const zillow = sub.syndication?.zillow;
-  const enabled = zillow?.enabled === true;
   const gapStep = zillowSyndicationGapStep(sub);
+  const title = sub.tagline?.trim() || sub.address?.trim() || "Listing";
 
   const setEnabled = (next: boolean) => {
     patch({
@@ -2601,60 +2604,31 @@ function ZillowSyndicationRow({
     track("listing_syndication_toggle", { network: "zillow", enabled: next });
   };
 
-  let networkValue = "—";
-  if (enabled) {
-    if (gapStep) networkValue = "Not accepted · fix the items below";
-    else if (zillow?.status === "live" && zillow.sentAt) {
-      networkValue = `Live since ${new Date(zillow.sentAt).toLocaleDateString()}`;
-    } else {
-      networkValue = "Sent · usually live within 24 hours";
-    }
-  }
+  const resend = () => {
+    if (!zillow?.enabled) return;
+    patch({
+      syndication: {
+        ...sub.syndication,
+        zillow: { ...zillow, enabled: true, sentAt: new Date().toISOString(), status: "sent" },
+      },
+    });
+    track("listing_syndication_resend", { network: "zillow" });
+  };
 
   return (
-    <SectionGroup title="Syndication">
-      <div className="rounded-2xl border border-border bg-card">
-        <FactRow first label="Also list on Zillow, Trulia and HotPads">
-          <RowSelectCell
-            ariaLabel="Also list on Zillow, Trulia and HotPads"
-            value={enabled ? "on" : "off"}
-            options={[
-              { value: "off", label: "Off" },
-              { value: "on", label: "On" },
-            ]}
-            onChange={(v) => setEnabled(v === "on")}
-            dataAttr="listing-v2-review-zillow-toggle"
-          />
-        </FactRow>
-        {enabled ? (
-          <>
-            <FactRow label="Zillow network">
-              <span className="text-[13px] font-semibold text-foreground">{networkValue}</span>
-            </FactRow>
-            <FactRow label="Leads arrive as">
-              <span className="text-[13px] font-semibold text-foreground">Tour requests + inbox</span>
-            </FactRow>
-            {gapStep ? (
-              <div className="flex items-center gap-2.5 border-t border-border bg-amber-50/60 px-3.5 py-2.5 text-[13px]">
-                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-amber-200 bg-amber-50 text-[10px] font-extrabold text-amber-700">
-                  !
-                </span>
-                <span className="min-w-0 flex-1 text-foreground">
-                  Zillow needs a street address and at least one photo
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onJump(gapStep)}
-                  data-attr="listing-v2-review-zillow-fix"
-                  className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
-                >
-                  Fix
-                </button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+    <SectionGroup title="Listing sites">
+      <ZillowRentalNetworkRow
+        propertyTitle={title}
+        sub={sub}
+        listingStatus="draft"
+        workPhone={contact?.phone}
+        workEmail={contact?.email}
+        onToggle={setEnabled}
+        onResend={resend}
+        onStop={() => setEnabled(false)}
+        onEdit={gapStep ? () => onJump(gapStep) : undefined}
+        dataAttrPrefix="listing-v2-review-zillow"
+      />
     </SectionGroup>
   );
 }
@@ -2781,7 +2755,7 @@ function StepReview({
       </div>
       {contact ? <ReachYouCard contact={contact} /> : null}
       <div className="mt-6 max-w-[620px]">
-        <ZillowSyndicationRow sub={sub} patch={patch} onJump={onJump} />
+        <ZillowSyndicationRow sub={sub} patch={patch} onJump={onJump} contact={contact} />
       </div>
     </StepColumn>
   );

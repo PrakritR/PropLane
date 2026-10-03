@@ -190,10 +190,10 @@ describe("the Free plan property cap", () => {
     // of the `addPropertyDisabled` prop/plumbing, so that literal is gone for
     // good reason. The invariant it guarded is unchanged: the header trigger
     // is never disabled on a loading or at-limit flag — gating happens when
-    // the menu is asked to open, via `canOpenAdd()`.
+    // Add property is clicked directly, via `canOpenAdd()` on the primary icon.
     expect(src).not.toContain("disabled={!skuLoaded}");
     expect(src).not.toContain("disabled={!skuLoaded || atPropertyLimit}");
-    expect(src).toContain("if (next && !canOpenAdd()) return;");
+    expect(src).toContain("if (!canOpenAdd()) return;");
     expect(src).toContain("if (!skuLoaded) {");
     expect(src).toContain('showToast("Loading subscription…")');
   });

@@ -82,11 +82,11 @@ describe("ADD PROPERTY at the plan limit", () => {
     // The `addPropertyDisabled` prop this used to check is gone (commit
     // 135c3f2a deleted the empty-state "Create" pill, its last consumer);
     // the header's own trigger was never wired to it — it gates on
-    // `canOpenAdd()` when the menu is asked to open, never via a disabled prop.
+    // `canOpenAdd()` on the direct Add property control, never via a disabled prop.
     expect(SOURCE).not.toContain("addPropertyDisabled");
     expect(SOURCE).not.toContain("disabled={atPropertyLimit");
     expect(SOURCE).not.toContain("disabled={!skuLoaded}");
-    expect(SOURCE).toContain("if (next && !canOpenAdd()) return;");
+    expect(SOURCE).toContain("if (!canOpenAdd()) return;");
   });
 });
 

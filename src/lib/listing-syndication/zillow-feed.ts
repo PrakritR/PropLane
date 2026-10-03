@@ -81,7 +81,7 @@ export function listingSyndicationHasStreetAddress(address: string | undefined |
 }
 
 /** Whole dollars per month, the cheapest available room when the listing is by-room. */
-function monthlyRentDollars(sub: ManagerListingSubmissionV1): number | null {
+export function monthlyRentDollarsForSyndication(sub: ManagerListingSubmissionV1): number | null {
   if (isEntireHomeListing(sub)) {
     const rent = sub.entireHomeMonthlyRent;
     return typeof rent === "number" && rent > 0 ? Math.round(rent) : null;
@@ -151,7 +151,7 @@ function buildListingElement(
   }
 
   const state = stateFromZip(property.zip);
-  const rent = monthlyRentDollars(sub);
+  const rent = monthlyRentDollarsForSyndication(sub);
   const photoTags = photos.map((url) => `<ListingPhoto source="${escapeXmlAttr(url)}"/>`).join("");
   const listingUrl = buildManagerListingUrl(origin, property.id);
 

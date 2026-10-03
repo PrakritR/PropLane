@@ -784,7 +784,7 @@ function ManagerPropertyInlineDetails({
    * filtered out here.
    */
   const propertySections = useMemo(() => {
-    const sections = recordSections("manager", "property", { basePath: propertiesBase, stage });
+    const sections = recordSections("manager", "property", { basePath: propertiesBase, stage }, activeDetailTab);
     return {
       ...sections,
       groups: sections.groups
@@ -794,7 +794,7 @@ function ManagerPropertyInlineDetails({
         }))
         .filter((group) => group.items.length > 0),
     };
-  }, [availableTabs, propertiesBase, stage]);
+  }, [availableTabs, propertiesBase, stage, activeDetailTab]);
 
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
   const isListingPreview = activeDetailTab === "preview";
@@ -1100,13 +1100,6 @@ function ManagerPropertyInlineDetails({
   // § Known gap).
   const onPropertyRecordHeaderAction = (actionId: string) => {
     switch (actionId) {
-      case "view-public":
-        if (bucket === 2 && listingId) {
-          window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener");
-        } else {
-          showToast("Coming soon");
-        }
-        return;
       case "edit":
         if (bucket === 5) {
           if (!skuLoaded) {
@@ -1127,9 +1120,18 @@ function ManagerPropertyInlineDetails({
           showToast("Coming soon");
         }
         return;
-      case "copy":
+      case "duplicate":
         if (canDuplicateAction) {
           runDuplicateProperty();
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      case "unlist":
+        if (bucket === 2 && listingId) {
+          setPendingDestructiveAction("unlist");
+        } else if (bucket === 3) {
+          showToast("Coming soon");
         } else {
           showToast("Coming soon");
         }

@@ -17,7 +17,7 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Share2 } from "lucide-react";
+import { Share2, Upload } from "lucide-react";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -160,7 +160,6 @@ export function ManagerProperties({
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
   /** Set the moment publish reports back an id — the confirmation dialog replaces the old immediate navigation (PRP-496). */
   const [publishedDialog, setPublishedDialog] = useState<{ listingId: string; name: string } | null>(null);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -531,37 +530,22 @@ export function ManagerProperties({
                * properties and their current residents goes through the
                * portfolio import instead (docs/agents/portfolio-import.md).
                */
-              <DropdownMenu
-                open={createMenuOpen}
-                onOpenChange={(next) => {
-                  // Neither menu item ("Add property" or "Import your
-                  // portfolio") is reachable past the plan's property limit,
-                  // so the gate fires on the trigger itself — the same
-                  // dialog `tryOpenAdd` already shows — rather than opening
-                  // a menu whose choices are all refused anyway.
-                  if (next && !canOpenAdd()) return;
-                  setCreateMenuOpen(next);
-                }}
-              >
-                <DropdownMenuTrigger asChild>
-                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` above
-                      already calls `canOpenAdd()`, which toasts and queues a
-                      retry for the still-loading case. A washed-out disabled-
-                      looking button for that brief window was the bug. */}
-                  <PortalPrimaryIconAction label="Add property" data-attr="manager-properties-add-top" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
-                    Add property
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-attr="manager-properties-add-import"
-                    onSelect={() => router.push("/portal/properties/import")}
-                  >
-                    Import your portfolio
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <>
+                <PortalPrimaryIconAction
+                  label="Add property"
+                  data-attr="manager-properties-add-top"
+                  onClick={() => {
+                    if (!canOpenAdd()) return;
+                    tryOpenAdd();
+                  }}
+                />
+                <PortalIconAction
+                  icon={Upload}
+                  label="Import your portfolio"
+                  data-attr="manager-properties-add-import"
+                  onClick={() => router.push("/portal/properties/import")}
+                />
+              </>
             }
           />
           {atPropertyLimit && limitMax != null ? (

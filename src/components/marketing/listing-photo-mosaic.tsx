@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
-import { Button } from "@/components/ui/button";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
@@ -335,10 +335,14 @@ export function ListingNoPhotoBand({
       <p className="min-w-0 flex-1 text-sm font-bold text-foreground">Photos coming soon</p>
       {hasVideo ? <WatchVideoButton onClick={() => setVideoOpen(true)} /> : null}
       {onAddPhotos ? (
-        <Button type="button" variant="primary" data-attr="manager-preview-add-photos" onClick={onAddPhotos}>
-          <Camera className="h-4 w-4" aria-hidden />
-          Add photos
-        </Button>
+        <PortalIconAction
+          ring
+          ringPrimary
+          icon={Camera}
+          label="Add photos"
+          data-attr="manager-preview-add-photos"
+          onClick={onAddPhotos}
+        />
       ) : null}
       {videoOpen && hasVideo ? <VideoLightbox url={videoUrl!} onClose={() => setVideoOpen(false)} /> : null}
     </div>

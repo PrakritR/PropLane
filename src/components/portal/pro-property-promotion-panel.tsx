@@ -9,7 +9,11 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
+import { Settings } from "lucide-react";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -49,6 +53,7 @@ import {
 import {
   flattenPromotionAssets,
   nextPromotionAssetDefaultTitle,
+  promotionAssetMatchesQuery,
   sortPromotionAssets,
   type PromotionAsset,
   type PromotionAssetKind,
@@ -165,7 +170,8 @@ export function ManagerPropertyPromotionPanel({
   const [textModalAssetId, setTextModalAssetId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
-  const [kindFilter, setKindFilter] = useState<string[]>(["flyer", "text", "upload"]);
+  const [promoTab, setPromoTab] = useState<"flyers" | "social" | "sites" | "yours">("flyers");
+  const [promoSearch, setPromoSearch] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zillowSaving, setZillowSaving] = useState(false);
 
@@ -216,10 +222,21 @@ export function ManagerPropertyPromotionPanel({
     return sortPromotionAssets(flattenPromotionAssets(rows), "newest");
   }, [propertyId, tick]);
 
-  const visibleAssets = useMemo(
-    () => assets.filter((asset) => kindFilter.includes(asset.kind)),
-    [assets, kindFilter],
-  );
+  const customAssets = useMemo(() => assets.filter((asset) => asset.kind === "upload"), [assets]);
+
+  const visibleAssets = useMemo(() => {
+    const q = promoSearch.trim().toLowerCase();
+    const tabbed =
+      promoTab === "flyers"
+        ? assets.filter((a) => a.kind === "flyer")
+        : promoTab === "social"
+          ? assets.filter((a) => a.kind === "text")
+          : promoTab === "yours"
+            ? customAssets
+            : [];
+    if (!q) return tabbed;
+    return tabbed.filter((asset) => promotionAssetMatchesQuery(asset, q));
+  }, [assets, customAssets, promoTab, promoSearch]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(visibleAssets.length);
 
@@ -570,6 +587,29 @@ export function ManagerPropertyPromotionPanel({
     handleDeleteAsset(asset);
   }
 
+  const openNewForTab = useCallback(() => {
+    if (promoTab === "social") {
+      setNewPromotionKind("text");
+    } else if (promoTab === "yours") {
+      setNewPromotionKind("upload");
+    } else {
+      setNewPromotionKind("flyer");
+    }
+    openNewPromotion();
+  }, [openNewPromotion, promoTab]);
+
+  const promoTabs = useMemo(() => {
+    const tabs: { id: "flyers" | "social" | "sites" | "yours"; label: string; count: number }[] = [
+      { id: "flyers", label: "Flyers & printables", count: assets.filter((a) => a.kind === "flyer").length },
+      { id: "social", label: "Social", count: assets.filter((a) => a.kind === "text").length },
+      { id: "sites", label: "Listing sites", count: 1 },
+    ];
+    if (customAssets.length > 0) {
+      tabs.push({ id: "yours", label: "Yours", count: customAssets.length });
+    }
+    return tabs;
+  }, [assets, customAssets.length]);
+
   if (!propertyId) return null;
 
   // The standalone text modal is edit-only now — creating lives in PromotionNewModal.
@@ -629,24 +669,41 @@ export function ManagerPropertyPromotionPanel({
 
   return (
     <>
-      <PortalPropertySectionToolbar
-        filter={{
-          label: "Kind",
-          options: [
-            { value: "flyer", label: "Flyers" },
-            { value: "text", label: "Listing blurbs" },
-            { value: "upload", label: "Posts" },
-          ],
-          selected: kindFilter,
-          onChange: setKindFilter,
-          dataAttr: "property-promotion-filter",
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        stickyDestinations
+        destinationAriaLabel="Promotion group"
+        destinationRow={
+          <ManagerPortalStatusPills
+            activeId={promoTab}
+            mobileSelect={false}
+            onChange={(id) => setPromoTab(id as typeof promoTab)}
+            tabs={promoTabs.map((t) => ({
+              id: t.id,
+              label: t.label,
+              count: t.count,
+              dataAttr: `property-promotion-tab-${t.id}`,
+            }))}
+          />
+        }
+        search={{
+          value: promoSearch,
+          onChange: setPromoSearch,
+          placeholder: "Search promotions",
+          dataAttr: "property-promotion-search",
         }}
-        onSettings={sub && saveTarget ? () => setSettingsOpen(true) : undefined}
-        settingsLabel="Promotion settings"
-        settingsDataAttr="property-promotion-settings-open"
-        onAdd={openNewPromotion}
-        addLabel="Add promotion"
-        addDataAttr="property-promotion-add-top"
+        actions={
+          sub && saveTarget ? (
+            <PortalIconAction
+              icon={Settings}
+              label="Promotion settings"
+              data-attr="property-promotion-settings-open"
+              onClick={() => setSettingsOpen(true)}
+            />
+          ) : undefined
+        }
+        primary={<PortalPrimaryIconAction label="Add promotion" data-attr="property-promotion-add-top" onClick={openNewForTab} />}
       />
       {sub && saveTarget ? (
         <PortalPropertySectionSettingsModal
@@ -686,7 +743,40 @@ export function ManagerPropertyPromotionPanel({
         </>
       ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
-        {visibleAssets.length === 0 ? null : (
+        {promoTab === "sites" && sub && saveTarget ? (
+          <div className="mb-3 px-1">
+            <ZillowRentalNetworkRow
+              propertyTitle={propertyLabel ?? "This property"}
+              sub={sub}
+              listingStatus="live"
+              workEmail={managerEmail}
+              onToggle={(next) => persistZillowToggle(next)}
+              onResend={() => {
+                if (!zillow?.enabled) return;
+                const nextSub: ManagerListingSubmissionV1 = {
+                  ...sub,
+                  syndication: {
+                    ...sub.syndication,
+                    zillow: { ...zillow, enabled: true, sentAt: new Date().toISOString(), status: "sent" },
+                  },
+                };
+                if (saveTarget.mode === "pending") {
+                  updatePendingManagerProperty(saveTarget.saveId, nextSub, userId ?? "");
+                } else if (saveTarget.mode === "listing") {
+                  updateExtraListingFromSubmission(saveTarget.saveId, userId ?? "", nextSub);
+                } else if (saveTarget.mode === "requestChange") {
+                  updateRequestChangeProperty(saveTarget.saveId, userId ?? "", nextSub);
+                }
+                onUpdated?.();
+                showToast("Feed resent to Zillow Rental Network.");
+              }}
+              onStop={() => persistZillowToggle(false)}
+              toggleDisabled={zillowSaving}
+              dataAttrPrefix="property-promotion-zillow"
+            />
+          </div>
+        ) : null}
+        {promoTab !== "sites" && visibleAssets.length > 0 ? (
           <PromotionAssetStack
             assets={visibleAssets}
             variant="plain"
@@ -697,7 +787,7 @@ export function ManagerPropertyPromotionPanel({
             onView={openViewAsset}
             onEdit={openEditAsset}
           />
-        )}
+        ) : null}
       </PortalPropertyDetailSection></PortalRecordListSurface>
 
       <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">

@@ -57,11 +57,8 @@ afterEach(() => {
 });
 
 async function openAddMenu() {
-  const trigger = document.querySelector('[data-attr="manager-properties-add-top"]') as HTMLElement;
-  expect(trigger).toBeTruthy();
+  const trigger = screen.getByRole("button", { name: "Add property" });
   await userEvent.click(trigger);
-  await waitFor(() => expect(screen.getByText("Add property")).toBeTruthy());
-  fireEvent.click(screen.getByText("Add property"));
 }
 
 async function seedDraft(id: string, buildingName: string) {
