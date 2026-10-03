@@ -32,6 +32,8 @@ import {
   readAllServiceRequests,
   SERVICE_REQUESTS_EVENT,
 } from "@/lib/service-requests-storage";
+import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
+import { countUnifiedServicesOpen } from "@/lib/unified-service-rows";
 import { countVisibleUnreadCommunication } from "@/lib/communication-inbox-filters";
 import { countUnreadActiveConversations } from "@/lib/communication-active-rows";
 import { loadManagerSmsArchivedIds, MANAGER_SMS_ARCHIVE_CHANGED_EVENT } from "@/lib/manager-sms-archive.client";
@@ -272,15 +274,18 @@ export function usePortalNavCounts(
           isSubmittedPendingApplicationRow(a) &&
           workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined),
       ).length;
-      const pendingServiceRequests = readAllServiceRequests().filter(
-        (r) =>
-          moduleRowVisibleToPortalUser(r, userId, "services") &&
-          r.status === "pending" &&
-          workspaceContainsProperty(r.propertyId),
-      ).length;
-      const pendingWorkOrders = readManagerWorkOrderRows().filter(
-        (w) => moduleRowVisibleToPortalUser(w, userId, "services") && w.bucket === "open",
-      ).length;
+      const directoryEmails = directoryResidentEmailSet(readManagerApplicationRows());
+      const servicesAddOns = readAllServiceRequests()
+        .filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"))
+        .filter(
+          (r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails),
+        );
+      const servicesMaintenance = readManagerWorkOrderRows()
+        .filter((w) => moduleRowVisibleToPortalUser(w, userId, "services"))
+        .filter(
+          (w) => !w.residentEmail?.trim() || isLinkedToDirectoryResident(w.residentEmail, directoryEmails),
+        );
+      const servicesOpen = safeCount(() => countUnifiedServicesOpen(servicesAddOns, servicesMaintenance));
       // Projection unread state counts in either UI-flag state; the flag only
       // changes SMS chrome, never whether an inbound original is actionable.
       const inbox = safeCount(() =>
@@ -344,7 +349,7 @@ export function usePortalNavCounts(
         leases: leaseTabs,
         payments: countState(paymentsOverdue, paymentsOverdue > 0 ? "alert" : "muted"),
         tasks: countState(openTasks, tasksOverdue > 0 ? "alert" : "muted"),
-        services: countState(pendingServiceRequests + pendingWorkOrders),
+        services: countState(servicesOpen),
         communication: countState(inbox, "alert"),
       };
     }

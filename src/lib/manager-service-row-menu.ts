@@ -1,5 +1,6 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { managerServiceNextStep } from "@/lib/manager-service-workflow";
+import type { ServiceRequest } from "@/lib/service-requests-storage";
 
 export type ManagerServiceRowMenuItem = {
   id: string;
@@ -46,5 +47,20 @@ export function managerServiceRowMenuItems(
     items.push({ id: "cancel", label: "Cancel service", danger: true });
   }
 
+  return items;
+}
+
+/** Add-on service request row ⋯ — same surface as maintenance, different actions. */
+export function managerServiceRequestRowMenuItems(req: ServiceRequest): ManagerServiceRowMenuItem[] {
+  const items: ManagerServiceRowMenuItem[] = [];
+  if (req.status === "pending") {
+    items.push({ id: "approve", label: "Approve" });
+    items.push({ id: "deny", label: "Deny" });
+  }
+  items.push({ id: "edit", label: "Edit" });
+  items.push({ id: "message", label: "Message" });
+  if (req.status !== "returned") {
+    items.push({ id: "delete", label: "Delete", danger: true });
+  }
   return items;
 }

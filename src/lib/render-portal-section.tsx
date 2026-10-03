@@ -884,7 +884,7 @@ export async function renderPortalSection(
       const WO_BUCKETS = ["open", "scheduled", "completed"] as const;
 
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/services/requests/pending`);
+        redirect(`${def.basePath}/services/work-orders/open`);
       }
 
       const servicesTab = tabParts[0]!;
