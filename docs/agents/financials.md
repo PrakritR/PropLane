@@ -454,3 +454,26 @@ a rate card, and a category that cannot be sourced is 0 with the reason in
 PostHog: `profitability_report_viewed` `{ months, propertyCount }` fires on the
 server next to the successful read. Coverage:
 `tests/unit/reports/profitability.test.ts`.
+
+## Studio redesign 0929: collections, outgoing and activity
+
+Manager navigation separates **Incoming payments** (`/portal/payments`) from
+**Outgoing payments** (`/portal/outgoing/{to-pay|scheduled|paid}`). The latter
+uses the manager invoice endpoint with `outgoing=1`: paginated, active-workspace
+scoped invoices and payout history, server-calculated integer-cent totals, and
+unpaid eligibility requiring an approved/scheduled invoice linked to a service
+assigned to its vendor. Historical paid rows remain readable. New payment
+execution stays unavailable until checkout concurrency and AP settlement are
+safe; a display status must never stand in for money movement.
+
+Finances has Overview, Activity and Reports. `financial-activity` reads recorded
+payment/refund ledger rows and expense entries, with chart-of-accounts types
+controlling operating totals and the deposit subledger controlling held funds.
+It does **not** yet reconcile every Stripe/platform movement or supply a running
+PropLane balance; never invent an opening balance to hide those missing sources.
+
+The offline receipt sheet posts `recordOfflinePayment` to
+`/api/portal-household-charges`, passing only charge id, date, method and note.
+The server re-reads the amount, checks ownership/workspace and current status,
+compares status and `updated_at` before writing, and awaits payment ledger sync.
+An identical persisted receipt can retry ledger repair after a failure.
