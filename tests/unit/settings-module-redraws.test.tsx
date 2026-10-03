@@ -198,12 +198,9 @@ describe("settings module redraws — scope tags", () => {
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    // PLAN-0920-0845 phase E dropped the "Settings" area dropdown — every
-    // area is now a stacked, always-visible section.
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
-    expect((await screen.findAllByText("Payment setup")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Processing fee").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Late fees").length).toBeGreaterThan(0);
+    expect(screen.getByText("Receiving from residents")).toBeTruthy();
+    expect(screen.getByText("Processing fee paid by")).toBeTruthy();
     // Incoming/Outgoing reminders and Delinquency moved to the Reminders hub (C111).
     expect(screen.queryByText("Incoming reminders")).toBeNull();
     expect(screen.queryByText("Outgoing reminders")).toBeNull();

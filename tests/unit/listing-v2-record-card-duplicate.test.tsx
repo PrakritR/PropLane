@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   publishManagerPropertyDraftToServer: vi.fn(),
@@ -61,40 +62,44 @@ function openStep(step: "rooms" | "bathrooms" | "spaces") {
   fireEvent.click(document.querySelector(`[data-attr="listing-v2-rail-${step}"]`)!);
 }
 
-function duplicateFromActionsMenu() {
-  const trigger = screen.getAllByRole("button").find((b) => b.getAttribute("aria-label")?.startsWith("Actions for "));
-  expect(trigger).toBeTruthy();
-  fireEvent.click(trigger!);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
+async function duplicateFromActionsMenu(recordLabel: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: `Actions for ${recordLabel}` }));
+  await user.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+}
+
+async function duplicateSharedSpace(recordLabel: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: `Duplicate ${recordLabel}` }));
 }
 
 describe("listing v2 record-card Duplicate", () => {
-  it("duplicates a room", () => {
+  it("duplicates a room", async () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("rooms");
-    duplicateFromActionsMenu();
+    await duplicateFromActionsMenu("Studio");
     const next = seen.at(-1)!;
     expect(next.rooms).toHaveLength(2);
     expect(next.rooms[1]!.name).toBe("Studio (copy)");
     expect(next.rooms[1]!.id).not.toBe("r1");
   });
 
-  it("duplicates a bathroom", () => {
+  it("duplicates a bathroom", async () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("bathrooms");
-    duplicateFromActionsMenu();
+    await duplicateFromActionsMenu("Full bathroom");
     const next = seen.at(-1)!;
     expect(next.bathrooms).toHaveLength(2);
     expect(next.bathrooms[1]!.name).toBe("Full bathroom (copy)");
   });
 
-  it("duplicates a shared space", () => {
+  it("duplicates a shared space", async () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("spaces");
-    duplicateFromActionsMenu();
+    await duplicateSharedSpace("Kitchen");
     const next = seen.at(-1)!;
     expect(next.sharedSpaces).toHaveLength(2);
     expect(next.sharedSpaces[1]!.name).toBe("Kitchen (copy)");

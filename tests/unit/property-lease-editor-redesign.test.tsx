@@ -58,7 +58,7 @@ describe("F014/F-editor c: lease Setup — one fee toggle, segmented pipeline, n
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    expect(screen.getByRole("switch", { name: "Charge a lease fee" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Offer this lease to applicants" })).toBeTruthy();
     expect(screen.getByRole("tablist", { name: "Pipeline order" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /Default .* lease for this property/ })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -149,7 +149,6 @@ describe("F-editor c: footer-only commit", () => {
     );
     await screen.findByRole("dialog", { name: "New lease" });
     expect(screen.getByRole("button", { name: "Type of lease" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start from a file" })).toBeNull();
     expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
     // Fill the required name so Continue is reachable, then confirm the

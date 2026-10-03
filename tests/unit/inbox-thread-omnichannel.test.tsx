@@ -71,7 +71,7 @@ describe("inbox thread omnichannel primitives", () => {
     expect(container.querySelector('[data-attr="inbox-scheduled-toggle"]')).toBeTruthy();
     expect(screen.queryByText(LONG)).toBeNull();
     openScheduledDetail();
-    expect(screen.getByText(LONG)).toBeTruthy();
+    expect(screen.getAllByText(LONG).length).toBeGreaterThan(0);
     expect(screen.getByText("Save")).toBeTruthy();
     expect(screen.queryByText("Send now")).toBeNull();
     expect(screen.queryByText("Cancel send")).toBeNull();

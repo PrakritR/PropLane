@@ -52,7 +52,7 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 
     expect(screen.queryByRole("checkbox")).toBeNull();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term lease" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getAllByRole("button", { name: "Actions for Long-term lease" })[0]!, { key: "ArrowDown" });
     expect(await screen.findByRole("menuitem", { name: "Edit lease" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });

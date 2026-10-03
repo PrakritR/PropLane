@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   publishManagerPropertyDraftToServer: vi.fn(),
@@ -94,15 +95,15 @@ function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmi
 }
 
 describe("bathrooms as cards", () => {
-  it("one card per bathroom; a chevron opens it in place, ✕ in the header removes", () => {
+  it("one card per bathroom; a chevron opens it in place, actions menu duplicates or removes", async () => {
+    const user = userEvent.setup();
     open("bathrooms");
     expect(document.querySelectorAll('[data-attr="listing-v2-bath-card"]').length).toBe(2);
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).toBeNull();
     openCard("Upstairs");
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-done"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-card-remove"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Actions for Upstairs" }));
+    expect(await screen.findByRole("menuitem", { name: "Duplicate" })).toBeTruthy();
   });
 
   it("has no Every bathroom card, Same-as-all tick or Make-all button (PLAN-0921-1648)", () => {
@@ -139,7 +140,7 @@ describe("bathrooms as cards", () => {
     // Rooms step: the room card offers only the access kind.
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
     openCard("Room A");
-    expect(floorOptions("Bathroom access for Room A")).toEqual(["ensuite", "shared", "hall"]);
+    expect(floorOptions("Bathroom for Room A")).toEqual(["ensuite", "shared", "hall"]);
   });
 });
 

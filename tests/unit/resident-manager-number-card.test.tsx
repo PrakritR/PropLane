@@ -38,7 +38,9 @@ describe("resident manager number card", () => {
     const { container } = render(<ResidentManagerNumberCard />);
     // The label shares its line with the caption now that the card is compact,
     // so match the label rather than the whole line.
-    await waitFor(() => expect(screen.getByText(/Your property manager/)).toBeTruthy());
+    await waitFor(() =>
+      expect(container.querySelector('[title*="Your property manager"]')).not.toBeNull(),
+    );
     // A tel/sms link so a phone opens its messages app pre-addressed rather
     // than making the resident copy digits off the screen.
     const link = container.querySelector('[data-attr="resident-manager-number-link"]');
@@ -93,7 +95,7 @@ describe("resident manager number card", () => {
     await waitFor(() => expect(screen.getByText("(510) 309-8345")).toBeTruthy());
     const secondary = container.querySelector('[data-attr="portal-inbox-contact-card-secondary"]');
     expect(secondary?.textContent).toContain("manager@test.proplane.local");
-    expect(secondary?.textContent).toContain("Email");
+    expect(secondary?.querySelector('[title^="Email:"]')).not.toBeNull();
     expect(container.querySelector('[data-attr="resident-manager-email-link"]')?.getAttribute("href")).toBe(
       "mailto:manager@test.proplane.local",
     );
@@ -133,7 +135,7 @@ describe("resident manager number card", () => {
     // A US number drops its "+1": with two action buttons beside it the full
     // form truncated mid-digit in the list pane.
     await waitFor(() => expect(screen.getByText("(206) 555-9000")).toBeTruthy());
-    expect(screen.getByText(/Akash Jain · Your property manager/)).toBeTruthy();
+    expect(screen.getByTitle(/Akash Jain · Your property manager:/)).toBeTruthy();
     expect(container.querySelector('[data-attr="resident-manager-number-link"]')?.getAttribute("href")).toBe(
       "sms:+12065559000",
     );

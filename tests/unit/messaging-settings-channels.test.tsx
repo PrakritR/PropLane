@@ -309,9 +309,11 @@ describe("Channels ⋯ actions call the existing routes", () => {
   });
 
   it("opens real setup for the active workspace with no number", async () => {
-    const status = twoWorkspaceStatus(); status.workspace = { id: "ws-2", name: "Ballard houses", owned: true, isDefault: false };
-    globalThis.fetch = stubFetch(status); render(<ManagerMessagingSettingsPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: "Work number Set up" }));
+    const status = twoWorkspaceStatus({ canRequest: true });
+    status.workspace = { id: "ws-2", name: "Ballard houses", owned: true, isDefault: false };
+    globalThis.fetch = stubFetch(status);
+    render(<ManagerMessagingSettingsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Work number.*Set up/i }));
     expect(await screen.findByRole("dialog", { name: "Set up a work number" })).toBeTruthy();
   });
 

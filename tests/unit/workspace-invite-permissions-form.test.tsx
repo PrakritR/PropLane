@@ -224,7 +224,7 @@ describe("Workspace invite — Copy link and Send carry the same Role/Houses", (
 
     const input = screen.getByLabelText("PropLane code");
     fireEvent.change(input, { target: { value: "PROPLANE-9Z9Z9Z9Z" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
 
     await waitFor(() =>
       expect(calls.some((c) => c.url === "/api/pro/account-links" && c.method === "POST")).toBe(true),
