@@ -6,6 +6,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
 import {
+  managerServiceAssigneeFact,
   managerServicePlaceLine,
   managerServiceStageFact,
 } from "@/lib/manager-service-list-row";
@@ -121,7 +122,7 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import {
-  managerServiceListStageLabel,
+  managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 import { ManagerServicesVendorsTab } from "@/components/portal/manager-services-vendors-tab";
@@ -745,23 +746,21 @@ export function ManagerAllServicesPanel({
           : null
         : null;
     const placeLine = maintenanceRow
-      ? managerServicePlaceLine(
-          {
-            residentName: row.residentName,
-            residentEmail: row.residentEmail,
-            propertyLabel: omitPropertyInSubtitle ? undefined : row.propertyLabel,
-            unitLabel: row.unitLabel,
-          },
-          assignee,
-        )
+      ? managerServicePlaceLine({
+          residentName: row.residentName,
+          residentEmail: row.residentEmail,
+          propertyLabel: omitPropertyInSubtitle ? undefined : row.propertyLabel,
+          unitLabel: row.unitLabel,
+        })
       : [row.residentName || row.residentEmail, omitPropertyInSubtitle ? null : row.propertyLabel, row.unitLabel]
           .filter(Boolean)
           .join(" · ");
+    const assigneeFact = maintenanceRow ? managerServiceAssigneeFact(assignee) : null;
     const stageFact =
       maintenanceRow
         ? managerServiceStageFact(maintenanceRow, bidCount)
         : { icon: Clock, text: row.statusLabel ?? "" };
-    const stageFigure = maintenanceRow ? managerServiceListStageLabel(maintenanceRow, bidCount) : undefined;
+    const costFigure = maintenanceRow ? managerServiceListCostFigure(maintenanceRow) : undefined;
     const menuItems =
       maintenanceRow
         ? managerServiceRowMenuItems(maintenanceRow, {
@@ -846,13 +845,22 @@ export function ManagerAllServicesPanel({
         title={row.title}
         subtitle={placeLine || undefined}
         facts={
-          maintenanceRow && stageFact.text ? (
-            <PortalRowFact icon={stageFact.icon} srLabel="Stage">{stageFact.text}</PortalRowFact>
-          ) : !maintenanceRow && stageFact.text ? (
-            <PortalRowFact icon={stageFact.icon} srLabel="Stage">{stageFact.text}</PortalRowFact>
+          assigneeFact || stageFact.text ? (
+            <>
+              {assigneeFact ? (
+                <PortalRowFact icon={assigneeFact.icon} srLabel="Assigned to">
+                  {assigneeFact.text}
+                </PortalRowFact>
+              ) : null}
+              {stageFact.text ? (
+                <PortalRowFact icon={stageFact.icon} srLabel="Stage">
+                  {stageFact.text}
+                </PortalRowFact>
+              ) : null}
+            </>
           ) : undefined
         }
-        figure={stageFigure || undefined}
+        figure={costFigure || undefined}
         actions={
           maintenanceRow ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
@@ -1038,8 +1046,11 @@ export function ManagerAllServicesPanel({
           clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "services-empty-clear-filters" },
         }
       : {
-          title: portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
-          section: "services",
+          title:
+            serviceState === "vendors"
+              ? "No vendors on services yet"
+              : portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
+          section: serviceState === "vendors" ? "vendors" : "services",
           sibling: portalEmptySibling(
             SERVICE_STATE_TABS.map((tab) => ({
               id: tab.id,
@@ -1083,16 +1094,19 @@ export function ManagerAllServicesPanel({
       titleInlineFilter={null}
       compactFilterRow
     >
+      <div className="svc30 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-svc-page={serviceState}>
       <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5 svc30"
+        className="plp-header-card"
         variant="command"
+        embedded
+        stickyDestinations={false}
         destinationRow={servicesListDestinations}
         search={{
           value: searchQuery,
           onChange: setSearchQuery,
-          placeholder: "Search services",
+          placeholder: serviceState === "vendors" ? "Search vendors" : "Search services",
           dataAttr: "services-list-search",
-          ariaLabel: "Search services",
+          ariaLabel: serviceState === "vendors" ? "Search vendors" : "Search services",
         }}
         actions={
           <>
@@ -1114,7 +1128,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className="plp-listsurface" isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className="plp-listsurface border-t border-border" isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
@@ -1171,6 +1185,7 @@ export function ManagerAllServicesPanel({
                 ))}
           </div>
       </PortalRecordListSurface>
+      </div>
 
       <ManagerAddServiceModal
         open={addServiceOpen}

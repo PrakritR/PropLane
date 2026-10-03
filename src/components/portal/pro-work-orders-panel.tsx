@@ -1795,12 +1795,9 @@ export function ManagerWorkOrdersPanel({
       return (
         <PortalRecordListSurface
           isEmpty
-          add={{
-            label: listAddAction.label ?? "Add",
-            ariaLabel: "Add service",
-            icon: listAddAction.icon ?? Wrench,
-            onClick: listAddAction.onClick,
-            dataAttr: listAddAction.dataAttr,
+          emptyCard={{
+            title: allRows.length === 0 ? "No services yet" : "No services in this bucket yet",
+            section: "services",
           }}
         />
       );

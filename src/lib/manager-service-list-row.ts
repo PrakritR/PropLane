@@ -1,8 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { AlertCircle, Calendar, Check, Clock, Scale, UserRound, Users, Wallet } from "lucide-react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
-import { managerServiceListStageLabel, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
+import {
+  managerServiceListStageLabel,
+  resolveWorkOrderAssignee,
+  type ManagerServiceAssignee,
+} from "@/lib/manager-service-workflow";
 
+/** Resident · property · room — assignee is a row fact, not part of the place line. */
 export function managerServicePlaceLine(
   row: {
     residentName?: string | null;
@@ -10,14 +15,20 @@ export function managerServicePlaceLine(
     propertyLabel?: string;
     unitLabel?: string | null;
   },
-  assignee: ReturnType<typeof resolveWorkOrderAssignee>,
 ): string {
   const resident = row.residentName?.trim() || row.residentEmail?.trim() || "";
   const parts = [resident, row.propertyLabel, row.unitLabel?.trim() || null].filter(Boolean);
-  if (assignee) {
-    parts.push(assignee.kind === "team" ? `${assignee.name} · Team` : assignee.name);
-  }
   return parts.join(" · ");
+}
+
+export function managerServiceAssigneeFact(
+  assignee: ManagerServiceAssignee,
+): { icon: LucideIcon; text: string } | null {
+  if (!assignee) return null;
+  if (assignee.kind === "team") {
+    return { icon: UserRound, text: `${assignee.name} · Team` };
+  }
+  return { icon: Users, text: assignee.name };
 }
 
 export function managerServiceStageFact(

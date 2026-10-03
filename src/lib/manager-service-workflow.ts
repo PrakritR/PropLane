@@ -36,7 +36,7 @@ export function resolveWorkOrderAssignee(row: DemoManagerWorkOrderRow): ManagerS
   return null;
 }
 
-function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrderBid | null): number | null {
+export function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrderBid | null): number | null {
   if (acceptedBid?.amountCents != null) {
     return acceptedBid.amountCents + (acceptedBid.materialsCents ?? 0);
   }
@@ -46,6 +46,13 @@ function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrde
   const parsed = parseMoneyAmount(row.cost ?? "");
   if (Number.isFinite(parsed) && parsed > 0) return Math.round(parsed * 100);
   return null;
+}
+
+export function managerServiceListCostFigure(
+  row: DemoManagerWorkOrderRow,
+  acceptedBid?: WorkOrderBid | null,
+): string {
+  return formatServiceMoney(workOrderCostCents(row, acceptedBid));
 }
 
 export function formatServiceMoney(cents: number | null | undefined): string {
