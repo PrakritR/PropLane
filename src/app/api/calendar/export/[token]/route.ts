@@ -25,7 +25,7 @@ async function occupancyRangesForRoom(
   propertyId: string,
   roomId: string,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[] }> {
-  const { data } = await db
+  const { data, error } = await db
     .from("manager_application_records")
     .select(
       "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId",
@@ -33,13 +33,14 @@ async function occupancyRangesForRoom(
     .eq("manager_user_id", managerUserId)
     .eq("row_data->>bucket", "approved")
     .limit(500);
+  if (error) throw new Error(error.message);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;
   for (const row of data ?? []) {
     if (row.ical_connection) continue;
     const property = String(row.assigned_property_id || row.property_id || "").trim();
-    if (property && property !== propertyId) continue;
+    if (property !== propertyId && !String(row.choice || row.preferred || "").startsWith(`${propertyId}::`)) continue;
     const choice = String(row.choice || row.preferred || "");
     if (choice && !choice.endsWith(roomToken) && choice !== roomId) continue;
     const start = day(row.manual_start) || day(row.lease_start);
@@ -48,6 +49,22 @@ async function occupancyRangesForRoom(
     const range = { start, end };
     if (String(row.manually_added ?? "") === "true") holds.push(range);
     else leases.push(range);
+  }
+  const { data: blocks, error: blockError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .eq("property_id", propertyId)
+    .eq("record_type", "room_date_block");
+  if (blockError) throw new Error(blockError.message);
+  for (const block of blocks ?? []) {
+    const row = block.row_data as Record<string, unknown> | null;
+    if (!row || row.bookingStatus === "cancelled") continue;
+    if (row.roomId && row.roomId !== roomId) continue;
+    const start = day(row.checkIn);
+    const checkout = day(row.checkOut);
+    if (!start || !checkout || checkout <= start) continue;
+    holds.push({ start, end: new Date(Date.parse(`${checkout}T00:00:00Z`) - 86400000).toISOString().slice(0, 10) });
   }
   return { leases, holds };
 }

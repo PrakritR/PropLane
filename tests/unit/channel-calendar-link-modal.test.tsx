@@ -28,7 +28,7 @@ afterEach(() => cleanup());
 
 describe("ChannelCalendarLinkModal", () => {
   it("walks House, Rooms and Review and rejects malformed links before save", async () => {
-    render(<ChannelCalendarLinkModal open onClose={() => {}} propertyIds={["p1"]} propertyOptions={[{ id: "p1", label: "4709A" }]} showToast={() => {}} />);
+    render(<ChannelCalendarLinkModal open onClose={() => {}} entries={[]} propertyIds={["p1"]} propertyOptions={[{ id: "p1", label: "4709A" }]} showToast={() => {}} />);
     await waitFor(() => expect(screen.getByText("Continue").closest("button")?.disabled).toBe(false));
     fireEvent.click(screen.getByText("Continue"));
     const input = screen.getByRole("textbox", { name: "Room 2 Airbnb calendar link" });
@@ -48,7 +48,7 @@ describe("ChannelCalendarLinkModal", () => {
       <ChannelCalendarLinkModal
         open
         onClose={onClose}
-        propertyIds={["p1"]}
+        entries={[]} propertyIds={["p1"]}
         propertyOptions={[{ id: "p1", label: "4709A" }]}
         showToast={() => {}}
       />,
@@ -73,6 +73,7 @@ describe("ChannelCalendarLinkModal", () => {
     const props = {
       open: true,
       onClose: () => {},
+      entries: [],
       propertyIds: ["p1"],
       propertyOptions: [{ id: "p1", label: "4709A" }],
       showToast: () => {},

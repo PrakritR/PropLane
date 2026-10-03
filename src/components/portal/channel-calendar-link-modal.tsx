@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, CircleDashed, AlertCircle, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,16 @@ import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-ap
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 
+import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { conflictingChannelStays } from "@/lib/channel-calendar/channel-conflicts";
+import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
+import { bookingRecordHref } from "@/lib/portal-detail-routes";
+
 type Props = {
+  entries?: readonly PropertyBookingEntry[];
+  onOpenBooking?: () => void;
   active: boolean;
   propertyIds: string[];
   propertyOptions: ManagerPropertyFilterOption[];
@@ -26,7 +36,7 @@ type Props = {
   onChanged?: () => void;
 };
 
-export function ChannelCalendarLinkFields({ active, propertyOptions, initialPropertyId, showToast, onChanged }: Props) {
+export function ChannelCalendarLinkFields({ active, propertyOptions, initialPropertyId, showToast, onChanged, entries = [], onOpenBooking }: Props) {
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? propertyOptions[0]?.id ?? "");
   const [provider, setProvider] = useState<ChannelCalendarProvider>("airbnb");
   const [step, setStep] = useState(0);
@@ -65,7 +75,9 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
   const openPreview = async (id: string, label: string) => {
     const response = await fetch(await exportFor(id, label), { credentials: "omit", cache: "no-store" });
     if (!response.ok) throw new Error("Could not load feed preview.");
-    setPreview({ room: label, events: parseIcsCalendar(await response.text()) });
+    const body = await response.text();
+    if (!body.includes("BEGIN:VCALENDAR")) throw new Error("The export did not return a calendar feed.");
+    setPreview({ room: label, events: parseIcsCalendar(body) });
   };
   const copy = async (id: string, label: string) => { await navigator.clipboard.writeText(await exportFor(id, label)); showToast("PropLane calendar link copied."); };
   const invalid = rooms.some((room) => Boolean(drafts[room.id!]?.trim()) && !isValidChannelImportUrl(provider, drafts[room.id!]!.trim()));
@@ -100,15 +112,17 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
           const connection = connections.find((c) => c.roomId === id && c.provider === provider);
           const StatusIcon = connection?.lastError ? AlertCircle : connection?.lastSyncedAt ? CheckCircle : CircleDashed;
           const url = exports[id] || connections.find((c) => c.roomId === id)?.exportUrl;
+          const conflicts = conflictingChannelStays(entries, propertyId, id, provider);
           const bad = Boolean(drafts[id]?.trim()) && !isValidChannelImportUrl(provider, drafts[id]!.trim());
           return <RecordActionContext.Provider key={id} value={{ scope: id, clear: () => {}, actions: <>
             <Button disabled={busy || !connection?.hasImportUrl} data-record-action-id="sync" onClick={() => run(async () => { try { await syncChannelCalendarConnection(connection!.id); } finally { await refresh(); } })}>Sync now</Button>
             <Button data-record-action-id="edit" onClick={() => document.getElementById(`channel-import-${id}`)?.focus()}>Edit link</Button>
-            <Button data-record-action-id="preview" onClick={() => run(() => openPreview(id, room.label))}>Feed preview</Button>
-            <Button data-record-action-id="copy" onClick={() => run(() => copy(id, room.label))}>Copy PropLane link</Button>
+            <Button disabled={busy} data-record-action-id="preview" onClick={() => run(() => openPreview(id, room.label))}>Feed preview</Button>
+            <Button disabled={busy} data-record-action-id="copy" onClick={() => run(() => copy(id, room.label))}>Copy PropLane link</Button>
             <Button variant="danger" disabled={!connection || busy} data-record-action-id="delete" onClick={() => setDisconnect(connection ?? null)}>Disconnect</Button>
           </> }}><section className="rounded-2xl border border-border bg-card p-5" data-attr="channel-calendar-room-card">
             <div className="mb-4 flex items-center justify-between"><h3 className="font-semibold">{room.label}</h3><RecordActionMenu label={room.label} activate={() => {}} /></div>
+            {conflicts.length ? <Link className="mb-3 flex items-center gap-2 text-sm text-danger underline" href={bookingRecordHref("/portal", bookingEntryKey(conflicts[0]!))} onClick={onOpenBooking}><AlertCircle className="size-4" />{conflicts.length} {conflicts.length === 1 ? "conflict" : "conflicts"}</Link> : null}
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-3"><h4 className="text-sm font-medium">{name} → PropLane</h4><div className="flex items-center gap-2 text-sm"><StatusIcon className="size-4" />{connection?.lastError ? "Sync failed" : connection?.lastSyncedAt ? "Connected" : "Not connected"}</div>
                 {connection?.lastSyncedAt ? <div className="text-sm">{new Date(connection.lastSyncedAt).toLocaleString()} · {connection.importedRangeCount} stays</div> : null}
@@ -116,7 +130,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
                 <Input id={`channel-import-${id}`} type="url" aria-label={`${room.label} ${name} calendar link`} aria-invalid={bad} value={drafts[id] ?? ""} disabled={busy} placeholder={connection?.hasImportUrl ? "Paste a replacement calendar link" : `Paste ${name} calendar link`} onChange={(e) => setDrafts({ ...drafts, [id]: e.target.value })} data-attr="channel-calendar-link-import-url" />
                 {bad ? <p role="alert" className="text-sm text-danger">Enter a valid {name} calendar link.</p> : null}
               </div>
-              <div className="space-y-3"><h4 className="text-sm font-medium">PropLane → {name}</h4><div className="flex items-center gap-2 text-sm"><CircleDashed className="size-4" />{url ? "Feed ready" : "Not set up"}</div><div className="flex items-center gap-2"><Input readOnly aria-label={`${room.label} PropLane export link`} value={url ?? ""} placeholder="Copy to create the export link" /><CopyIconAction label="Copy PropLane calendar link" onCopy={() => run(() => copy(id, room.label))} /><PortalIconAction label="Feed preview" icon={Eye} disabled={busy} onClick={() => run(() => openPreview(id, room.label))} /></div>
+              <div className="space-y-3"><h4 className="text-sm font-medium">PropLane → {name}</h4><div className="flex items-center gap-2 text-sm"><CircleDashed className="size-4" />{url ? "Feed ready" : "Not set up"}</div><div className="flex items-center gap-2"><Input readOnly aria-label={`${room.label} PropLane export link`} value={url ?? ""} placeholder="Copy to create the export link" /><CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(id, room.label))} /><PortalIconAction label="Feed preview" icon={Eye} disabled={busy} onClick={() => run(() => openPreview(id, room.label))} /></div>
                 <ol className="list-decimal space-y-1 pl-5 text-sm"><li>Copy the PropLane link.</li><li>In {name}, open Import calendar and paste it.</li></ol>
               </div>
             </div>
@@ -129,6 +143,15 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
   </>;
 }
 
+function ConnectedChannelCalendarFields(props: Props) {
+  const { userId } = useManagerUserId();
+  const idsKey = props.propertyIds.join("\n");
+  const ids = useMemo(() => idsKey ? idsKey.split("\n") : [], [idsKey]);
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const { entries } = useManagerBookingEntries({ userId, propertyIds: ids, propertyOptions: props.propertyOptions, propertyTick: 0, refreshSignal, showToast: props.showToast });
+  return <ChannelCalendarLinkFields {...props} entries={entries} onChanged={() => { setRefreshSignal((value) => value + 1); props.onChanged?.(); }} />;
+}
+
 export function ChannelCalendarLinkModal({ open, onClose, ...props }: Omit<Props, "active"> & { open: boolean; onClose: () => void }) {
-  return <Modal open={open} onClose={onClose} fullPage scrollableContent={false} dismissBlocked={false} title="Connect Airbnb"><div className="flex h-full min-h-0 flex-col" data-attr="channel-calendar-link-modal">{open ? <ChannelCalendarLinkFields active={open} {...props} /> : null}</div></Modal>;
+  return <Modal open={open} onClose={onClose} fullPage scrollableContent={false} dismissBlocked={false} title="Connect Airbnb"><div className="flex h-full min-h-0 flex-col" data-attr="channel-calendar-link-modal">{open ? props.entries ? <ChannelCalendarLinkFields active {...props} onOpenBooking={onClose} /> : <ConnectedChannelCalendarFields active {...props} onOpenBooking={onClose} /> : null}</div></Modal>;
 }

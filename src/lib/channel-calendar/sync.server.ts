@@ -382,6 +382,7 @@ export async function loadConnectionByExportToken(
     .from("external_calendar_connections")
     .select("*")
     .eq("export_token", exportToken)
+    .limit(1)
     .maybeSingle();
   if (error || !data) return null;
   return parseConnectionRow(data as Record<string, unknown>);
