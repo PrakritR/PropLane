@@ -304,11 +304,6 @@ export function ManagerPropertyHouseDetailsPanel({
             defaultOpen={false}
             dataAttr="house-info-legacy"
             title="Your earlier notes"
-            badge={
-              <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
-                Residents only
-              </span>
-            }
           >
             <div className="space-y-3">
               {draft.generalHouseInfo ? (
@@ -336,13 +331,6 @@ export function ManagerPropertyHouseDetailsPanel({
             </div>
           </HouseDetailsExpandable>
         ) : null}
-
-        <div className="rounded-2xl border border-dashed border-border px-4 py-3">
-          <p className="text-xs text-muted">
-            Residents also see <b className="font-semibold text-foreground">How your portal works</b> — Services,
-            Payments, Lease and Inbox. PropLane writes that for you; you do not need to type it here.
-          </p>
-        </div>
       </div>
 
       {reviewOpen ? (

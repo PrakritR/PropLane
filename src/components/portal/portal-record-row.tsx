@@ -30,6 +30,23 @@ export function PortalRecordRowStatus({ tone, text }: PortalRecordRowStatusWord)
 /** Avatar/tile shape: square for a place, round for a person — see `leadingShape` below. */
 export type PortalRecordRowLeadingShape = "square" | "round";
 
+/**
+ * The square icon tile a record row opens with (Pricing, House details, Move-in,
+ * Lease, Applications — the studio replica's `UI.row({ tile })`). Pass it as
+ * `leading` with `leadingShape="square"`.
+ */
+export function PortalRowIconTile({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span
+      className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary"
+      data-slot="portal-row-icon-tile"
+      aria-hidden
+    >
+      <Icon className="size-5" />
+    </span>
+  );
+}
+
 /** Person-centric list row (residents, applications, vendors). */
 export function PortalPersonRecordRow({
   name,

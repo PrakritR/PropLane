@@ -1,18 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Lock, Printer, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 
 /**
  * Printables — everything on the wall or in the welcome folder, drawn from the
- * house details above so it can never drift from what the manager typed.
+ * house details so it can never drift from what the manager typed.
  *
- * The door card and the rules poster carry a QR to the house's PUBLIC page:
- * rules and trash days only. The welcome sheet carries the codes and the Wi-Fi,
- * so it is printed and handed over — it never becomes a link.
+ * Rendered as three rows inside the Manager tools list (studio-redesign
+ * property-tabs, 2026-10-03: tile + title + one fact line + one ⋯, no boxed
+ * card, no pills, no subtext). The door card and the rules poster carry a QR to
+ * the house's PUBLIC page: rules and trash days only. The welcome sheet carries
+ * the codes and the Wi-Fi, so it is printed and handed over — it never becomes
+ * a link.
  */
 type LinkState = { url: string | null; issuedAt: string | null } | null;
 
@@ -27,6 +34,7 @@ export function HousePrintablesCard({
 }) {
   const [link, setLink] = useState<LinkState>(null);
   const [busy, setBusy] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [roomId, setRoomId] = useState<string>(rooms[0]?.id ?? "");
   const [residentName, setResidentName] = useState("");
 
@@ -37,7 +45,7 @@ export function HousePrintablesCard({
       const data = (await res.json()) as { url?: string | null; issuedAt?: string | null };
       setLink({ url: data.url ?? null, issuedAt: data.issuedAt ?? null });
     } catch {
-      /* the print routes still work; the link line just stays quiet */
+      /* the print routes still work; the link action just stays out of the menu */
     }
   }, [propertyId]);
 
@@ -70,95 +78,90 @@ export function HousePrintablesCard({
     ...(residentName.trim() ? { resident: residentName.trim() } : {}),
   }).toString()}`;
 
-  const printLink = (href: string, label: string, dataAttr: string) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-border bg-card px-4 text-sm font-semibold text-foreground hover:bg-accent/40"
-      data-attr={dataAttr}
-    >
-      {label}
-    </a>
+  const openPrint = (href: string) => {
+    if (typeof window !== "undefined") window.open(href, "_blank", "noopener,noreferrer");
+  };
+
+  const publicRow = (title: string, href: string, dataAttr: string) => (
+    <PortalPropertyRecordRow
+      title={title}
+      leading={<PortalRowIconTile icon={QrCode} />}
+      leadingShape="square"
+      facts={
+        <PortalRowFact icon={Lock} srLabel="Audience">
+          Public · no codes
+        </PortalRowFact>
+      }
+      onOpen={() => openPrint(href)}
+      dataAttr={dataAttr}
+      actions={
+        <RowActionsMenu
+          label={title}
+          items={[
+            { id: "open", label: "Open to print", onSelect: () => openPrint(href) },
+            link?.url
+              ? { id: "revoke", label: "Turn the link off", danger: true, onSelect: () => !busy && void revoke() }
+              : null,
+          ]}
+        />
+      }
+    />
   );
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card" data-attr="house-printables">
-      <div className="px-4 py-3">
-        <p className="text-sm font-semibold text-foreground">Printables</p>
-        <p className="text-xs text-muted">
-          Made from the details above, so they are never out of date the way a hand-made poster is.
-        </p>
-      </div>
-      <div className="space-y-4 border-t border-border px-4 pb-4 pt-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            {printLink(`/print/door-card/${encodeURIComponent(propertyId)}`, "Door card", "house-printables-door-card")}
-            {printLink(`/print/house-rules/${encodeURIComponent(propertyId)}`, "House rules poster", "house-printables-rules")}
-            <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">Public · no codes</span>
-          </div>
-          <p className="mt-2 text-xs text-muted">
-            Both carry a QR that opens the house rules and trash days — never a door code or the Wi-Fi.
-          </p>
-          {link?.url ? (
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted" data-attr="house-printables-link">
-              <a href={link.url} target="_blank" rel="noreferrer" className="font-mono text-foreground underline underline-offset-2">
-                {link.url.replace(/^https?:\/\//, "")}
-              </a>
-              <button
-                type="button"
-                className="font-semibold text-foreground underline underline-offset-2 disabled:opacity-50"
-                disabled={busy}
-                onClick={() => void revoke()}
-                data-attr="house-printables-revoke"
-              >
-                Turn the link off
-              </button>
-            </div>
-          ) : (
-            <p className="mt-2 text-xs text-muted">The QR link is created the first time you open a card or poster.</p>
-          )}
-        </div>
+    <>
+      {publicRow("Door card", `/print/door-card/${encodeURIComponent(propertyId)}`, "house-printables-door-card")}
+      {publicRow("House rules poster", `/print/house-rules/${encodeURIComponent(propertyId)}`, "house-printables-rules")}
+      <PortalPropertyRecordRow
+        title="Welcome sheet"
+        leading={<PortalRowIconTile icon={Printer} />}
+        leadingShape="square"
+        facts={
+          <PortalRowFact icon={Lock} srLabel="Audience">
+            Private · has codes
+          </PortalRowFact>
+        }
+        onOpen={() => setWelcomeOpen(true)}
+        dataAttr="house-printables-welcome-row"
+        actions={
+          <RowActionsMenu
+            label="Welcome sheet"
+            items={[{ id: "open", label: "Choose room and print", onSelect: () => setWelcomeOpen(true) }]}
+          />
+        }
+      />
 
-        <div className="rounded-xl border border-dashed border-border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">Welcome sheet</p>
-            <span className="portal-badge-notice rounded-full px-2 py-0.5 text-[10px] font-semibold">Private · has codes</span>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            Door codes, Wi-Fi and the room&apos;s move-in notes on one page. Print it and hand it over — it is never a link.
-          </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-            {rooms.length > 0 ? (
-              <FieldSingleSelect
-                label="Room"
-                value={roomId}
-                onChange={setRoomId}
-                options={rooms.map((room) => ({
-                  value: room.id,
-                  label: room.floor?.trim() ? `${room.name} · ${room.floor}` : room.name,
-                }))}
-              />
-            ) : (
-              <div className="text-xs text-muted">Whole home — no room to pick.</div>
-            )}
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-muted">Resident (optional)</span>
-              <Input
-                value={residentName}
-                onChange={(e) => setResidentName(e.target.value)}
-                placeholder="Maya"
-                aria-label="Resident name"
-              />
-            </label>
-            <Button asChild variant="primary" className="rounded-full">
-              <a href={welcomeHref} target="_blank" rel="noreferrer" data-attr="house-printables-welcome">
-                Open welcome sheet
-              </a>
-            </Button>
-          </div>
+      <Modal open={welcomeOpen} title="Welcome sheet" onClose={() => setWelcomeOpen(false)}>
+        <div className="space-y-3" data-attr="house-printables-welcome-form">
+          {rooms.length > 0 ? (
+            <FieldSingleSelect
+              label="Room"
+              value={roomId}
+              onChange={setRoomId}
+              options={rooms.map((room) => ({
+                value: room.id,
+                label: room.floor?.trim() ? `${room.name} · ${room.floor}` : room.name,
+              }))}
+            />
+          ) : null}
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-muted">Resident (optional)</span>
+            <Input
+              value={residentName}
+              onChange={(e) => setResidentName(e.target.value)}
+              placeholder="Maya"
+              aria-label="Resident name"
+            />
+          </label>
         </div>
-      </div>
-    </section>
+        <ModalFooter>
+          <Button asChild variant="primary" className="rounded-full">
+            <a href={welcomeHref} target="_blank" rel="noreferrer" data-attr="house-printables-welcome">
+              Open welcome sheet
+            </a>
+          </Button>
+        </ModalFooter>
+      </Modal>
+    </>
   );
 }

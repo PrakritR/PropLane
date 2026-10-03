@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Copy, Share2 } from "lucide-react";
+import { Copy, DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Settings, Share2, Users, Video, Wifi } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
@@ -18,7 +18,6 @@ import {
 import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import { MoveInResidentPreviewCard } from "@/components/portal/move-in-resident-preview-card";
 import { getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
-import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
@@ -28,6 +27,7 @@ import {
 import type { ManagerListingSubmissionV1, ManagerRoomResidentMoveIn, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing, reconcileRoomResidentMoveIn } from "@/lib/manager-listing-submission";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import { moveInFactTexts } from "@/lib/property-record-row-facts";
 
 type RoomSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -95,6 +95,7 @@ export function ManagerPropertyRoomMoveInPanel({
   onUpdated,
   showToast,
   propertyLabel,
+  onAddResident,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: RoomSaveTarget;
@@ -104,6 +105,8 @@ export function ManagerPropertyRoomMoveInPanel({
   showToast: (message: string) => void;
   /** For the Settings gear's "Applies to" row (S016). */
   propertyLabel?: string;
+  /** The round blue + (studio: "Add resident"). Omitted = no + (nothing to open it). */
+  onAddResident?: () => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const entireHome = isEntireHomeListing(sub);
@@ -188,22 +191,35 @@ export function ManagerPropertyRoomMoveInPanel({
     setMoveEditorOpen(true);
   };
 
-  const moveRowSummary = (instructions: string, photos: string[], video: string | null) => {
-    const parts: string[] = [];
-    if (instructions.trim()) parts.push("Instructions");
-    if (photos.length) parts.push(`${photos.length} photo${photos.length === 1 ? "" : "s"}`);
-    if (video) parts.push("Video");
-    const door = getHouseInfoValue(houseInfoDraft, "access", "doorCode");
-    const wifi = getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork");
-    if (door.trim()) parts.push("Door code");
-    if (wifi.trim()) parts.push("Wi-Fi");
-    return parts.length ? parts.join(" · ") : "Nothing added yet";
+  /** Plain text of the row's fact line — also what the search matches against. */
+  const moveRowFactTexts = (instructions: string, photos: string[], video: string | null, withHouseAccess = false) => {
+    const t = moveInFactTexts({ instructions, photoCount: photos.length, hasVideo: Boolean(video) });
+    const out: { key: string; icon: typeof FileText; text: string }[] = [
+      { key: "instructions", icon: FileText, text: t.instructions },
+      { key: "photos", icon: ImageIcon, text: t.photos },
+      { key: "video", icon: Video, text: t.video },
+    ];
+    if (withHouseAccess) {
+      if (getHouseInfoValue(houseInfoDraft, "access", "doorCode").trim()) out.push({ key: "door", icon: KeyRound, text: "Door code" });
+      if (getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork").trim()) out.push({ key: "wifi", icon: Wifi, text: "Wi-Fi" });
+    }
+    return out;
   };
+  const moveRowSummary = (instructions: string, photos: string[], video: string | null, withHouseAccess = false) =>
+    moveRowFactTexts(instructions, photos, video, withHouseAccess)
+      .map((f) => f.text)
+      .join(" · ");
+  const moveRowFacts = (instructions: string, photos: string[], video: string | null, withHouseAccess = false) =>
+    moveRowFactTexts(instructions, photos, video, withHouseAccess).map((f) => (
+      <PortalRowFact key={f.key} icon={f.icon}>
+        {f.text}
+      </PortalRowFact>
+    ));
 
   const moveMatches = (text: string) =>
     !moveQuery.trim() || text.toLowerCase().includes(moveQuery.trim().toLowerCase());
 
-  const houseRowSummary = moveRowSummary(houseInstructions, housePhotos, houseVideo);
+  const houseRowSummary = moveRowSummary(houseInstructions, housePhotos, houseVideo, true);
   const houseRowVisible = moveMatches(`The whole house ${houseRowSummary}`);
 
   const movePreviewCard = (target: MoveInEditorTarget) => {
@@ -250,8 +266,8 @@ export function ManagerPropertyRoomMoveInPanel({
     <RowActionsMenu
       label={rowLabel}
       items={[
-        { id: "preview", label: "Preview", onSelect: () => setMovePreview(target) },
         { id: "edit", label: "Edit", onSelect: () => openMoveEditor(target) },
+        { id: "preview", label: "Preview", onSelect: () => setMovePreview(target) },
       ]}
     />
   );
@@ -334,11 +350,6 @@ export function ManagerPropertyRoomMoveInPanel({
 
   return (
     <PortalPropertyDetailSection>
-      <PortalPropertySectionToolbar
-        onSettings={() => setSettingsOpen(true)}
-        settingsLabel="Move-in settings"
-        settingsDataAttr="property-move-in-settings-open"
-      />
       <PortalPropertySectionSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -353,24 +364,6 @@ export function ManagerPropertyRoomMoveInPanel({
         <p className="text-sm text-muted">Nothing to configure for Move-in yet.</p>
       </PortalPropertySectionSettingsModal>
       <div className="space-y-2" data-attr="property-move-in-list">
-        {canEdit && showRooms ? (
-          <div className="flex flex-wrap justify-end gap-1 px-0.5">
-            <PortalIconAction
-              icon={Copy}
-              label="Copy house details to rooms"
-              data-attr="property-move-in-copy"
-              disabled={!houseHasSavedDetails || copyingToRooms}
-              onClick={copyHouseToRooms}
-            />
-            <PortalIconAction
-              icon={Share2}
-              label="Share house details"
-              data-attr="property-move-in-share"
-              onClick={() => void handleShareMoveIn()}
-            />
-          </div>
-        ) : null}
-
         <PortalRecordListSurface
           listControls={
             <PortalListControlStack
@@ -386,7 +379,6 @@ export function ManagerPropertyRoomMoveInPanel({
                     onChange={(id) => setMoveTab(id as "house" | "rooms")}
                     ariaLabel="Move-in"
                     appearance="command"
-                    itemLayout="equal"
                   />
                 ) : undefined
               }
@@ -399,6 +391,38 @@ export function ManagerPropertyRoomMoveInPanel({
                 ariaLabel: "Search move-in",
                 dataAttr: "property-move-in-search",
               }}
+              actions={
+                <>
+                  {canEdit && showRooms ? (
+                    <>
+                      <PortalIconAction
+                        icon={Copy}
+                        label="Copy house details to rooms"
+                        data-attr="property-move-in-copy"
+                        disabled={!houseHasSavedDetails || copyingToRooms}
+                        onClick={copyHouseToRooms}
+                      />
+                      <PortalIconAction
+                        icon={Share2}
+                        label="Share house details"
+                        data-attr="property-move-in-share"
+                        onClick={() => void handleShareMoveIn()}
+                      />
+                    </>
+                  ) : null}
+                  <PortalIconAction
+                    icon={Settings}
+                    label="Move-in settings"
+                    data-attr="property-move-in-settings-open"
+                    onClick={() => setSettingsOpen(true)}
+                  />
+                </>
+              }
+              primary={
+                canEdit && onAddResident ? (
+                  <PortalPrimaryIconAction label="Add resident" data-attr="property-move-in-add-resident" onClick={onAddResident} />
+                ) : undefined
+              }
             />
           }
           isEmpty={
@@ -444,7 +468,9 @@ export function ManagerPropertyRoomMoveInPanel({
           {activeMoveTab === "house" && houseRowVisible ? (
             <PortalPropertyRecordRow
               title="The whole house"
-              summary={houseRowSummary}
+              leading={<PortalRowIconTile icon={Home} />}
+              leadingShape="square"
+              facts={moveRowFacts(houseInstructions, housePhotos, houseVideo, true)}
               onOpen={() => openMoveEditor({ kind: "house" })}
               dataAttr="property-move-in-house-row"
               actions={moveRowMenu("The whole house", { kind: "house" })}
@@ -467,7 +493,13 @@ export function ManagerPropertyRoomMoveInPanel({
                   <PortalPropertyRecordRow
                     key={room.id}
                     title={label}
-                    summary={roomSummary}
+                    leading={<PortalRowIconTile icon={DoorOpen} />}
+                    leadingShape="square"
+                    facts={moveRowFacts(
+                      room.moveInInstructions ?? "",
+                      room.moveInPhotoDataUrls ?? [],
+                      room.moveInVideoDataUrl ?? null,
+                    )}
                     onOpen={() => openMoveEditor({ kind: "room", roomId: room.id })}
                     dataAttr={`property-move-in-room-row-${room.id}`}
                     actions={moveRowMenu(label, { kind: "room", roomId: room.id })}
@@ -488,7 +520,13 @@ export function ManagerPropertyRoomMoveInPanel({
                       <PortalPropertyRecordRow
                         key={`${room.id}-resident-${slot}`}
                         title={residentLabel}
-                        summary={residentSummary}
+                        leading={<PortalRowIconTile icon={Users} />}
+                        leadingShape="square"
+                        facts={moveRowFacts(
+                          entry?.moveInInstructions ?? "",
+                          entry?.moveInPhotoDataUrls ?? [],
+                          entry?.moveInVideoDataUrl ?? null,
+                        )}
                         onOpen={() => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot })}
                         dataAttr={`property-move-in-resident-row-${room.id}-${slot}`}
                         actions={moveRowMenu(residentLabel, { kind: "roomResident", roomId: room.id, slotIndex: slot })}

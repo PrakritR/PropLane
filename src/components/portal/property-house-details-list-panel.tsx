@@ -1,7 +1,27 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { BedDouble, Building2, Home, Lock, Sparkles } from "lucide-react";
+import {
+  Bath,
+  BedDouble,
+  Building2,
+  CalendarDays,
+  CircleCheck,
+  CircleSlash,
+  DoorOpen,
+  Eye,
+  FileText,
+  Home,
+  Layers,
+  Lock,
+  MapPin,
+  Ruler,
+  ShieldCheck,
+  Sparkles,
+  User,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -29,7 +49,8 @@ import {
 } from "@/lib/house-info";
 import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { bathFactLabel, roomBathroomState } from "@/lib/listing-room-editor/bathroom-link";
+import { bathAccessOf, bathFactLabel, roomBathroomState, usersOfBath } from "@/lib/listing-room-editor/bathroom-link";
+import { countWord, roomAvailabilityText, roomResidentsBedsText } from "@/lib/property-record-row-facts";
 import { roomFurnitureItems, roomFurnishingLabel } from "@/lib/listing-room-editor";
 import { readHouseDetailsTab, writeHouseDetailsTab, type HouseDetailsTabId } from "@/lib/property-house-details-tab";
 import { sharedSpaceAccessTriggerLabel } from "@/lib/listing-shared-space-access";
@@ -57,6 +78,17 @@ type SavePayload = {
   houseInfo: HouseInfoV1;
   managerNotes: string;
 };
+
+/** One row's fact line: glyph + short value each, empty values dropped. */
+function rowFacts(list: ReadonlyArray<{ icon: LucideIcon; text: string | null | undefined; sr?: string }>) {
+  return list
+    .filter((f) => Boolean(f.text && f.text.trim()))
+    .map((f, index) => (
+      <PortalRowFact key={`${index}-${f.text}`} icon={f.icon} srLabel={f.sr}>
+        {f.text}
+      </PortalRowFact>
+    ));
+}
 
 export function PropertyHouseDetailsListPanel({
   propertyId,
@@ -129,8 +161,8 @@ export function PropertyHouseDetailsListPanel({
     <RowActionsMenu
       label={label}
       items={[
-        { id: "duplicate", label: "Duplicate", onSelect: onDuplicate },
         { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "room", roomId }) },
+        { id: "duplicate", label: "Duplicate", onSelect: onDuplicate },
         onRemove ? { id: "delete", label: "Delete", danger: true, onSelect: onRemove } : null,
       ]}
     />
@@ -350,7 +382,7 @@ export function PropertyHouseDetailsListPanel({
                 onChange={(id) => pickTab(id as HouseDetailsTabId)}
                 ariaLabel="House details"
                 appearance="command"
-                itemLayout="equal"
+                tight
               />
             }
             activeDestinationId={activeTab}
@@ -394,29 +426,28 @@ export function PropertyHouseDetailsListPanel({
                 const i = rooms.indexOf(room);
                 const label = room.name.trim() || `Room ${i + 1}`;
                 const bst = roomBathroomState(sub, room.id);
-                const residents = room.occupancyCapacity ?? 1;
                 return (
                   <PortalPropertyRecordRow
                     key={room.id}
                     title={label}
-                    summary={[
-                      !wholePlace ? `${residents} residents` : null,
-                      room.floor || "Floor not set",
-                      bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1),
-                      roomFurnishingLabel(roomFurnitureItems(room)),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    leading={<PortalRowIconTile icon={DoorOpen} />}
+                    leadingShape="square"
+                    facts={rowFacts([
+                      { icon: Layers, text: room.floor?.trim() || "Floor not set", sr: "Floor" },
+                      { icon: Bath, text: bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1), sr: "Bathroom" },
+                      {
+                        icon: (room.occupancyCapacity ?? 1) > 1 ? BedDouble : User,
+                        text: wholePlace ? null : roomResidentsBedsText(room),
+                        sr: "Residents",
+                      },
+                      {
+                        icon: roomAvailabilityText(room) === "Occupied" ? CircleSlash : CircleCheck,
+                        text: roomAvailabilityText(room),
+                        sr: "Availability",
+                      },
+                    ])}
                     onOpen={() => openEditor({ kind: "room", roomId: room.id })}
                     dataAttr="property-house-details-room-row"
-                    facts={[
-                      !wholePlace ? (
-                        <PortalRowFact key="res" icon={BedDouble} srLabel="Residents">{`${residents}`}</PortalRowFact>
-                      ) : null,
-                      <PortalRowFact key="furn" icon={Home} srLabel="Furnished">
-                        {roomFurnishingLabel(roomFurnitureItems(room))}
-                      </PortalRowFact>,
-                    ].filter(Boolean)}
                     actions={roomRowMenu(
                       room.id,
                       label,
@@ -436,15 +467,25 @@ export function PropertyHouseDetailsListPanel({
                 <PortalPropertyRecordRow
                   key={bath.id}
                   title={label}
-                  summary={bath.location || "Floor not set"}
+                  leading={<PortalRowIconTile icon={Bath} />}
+                  leadingShape="square"
+                  facts={rowFacts([
+                    { icon: Layers, text: bath.location?.trim() || "Floor not set", sr: "Floor" },
+                    { icon: Bath, text: bathAccessOf(sub, bath) === "shared" ? "Shared bath" : "Private bath", sr: "Access" },
+                    {
+                      icon: Users,
+                      text: usersOfBath(sub, bath).length > 0 ? countWord(usersOfBath(sub, bath).length, "room") : "No rooms yet",
+                      sr: "Rooms",
+                    },
+                  ])}
                   onOpen={() => openEditor({ kind: "bath", bathId: bath.id })}
                   dataAttr="property-house-details-bath-row"
                   actions={
                     <RowActionsMenu
                       label={label}
                       items={[
-                        { id: "duplicate", label: "Duplicate", onSelect: () => duplicateBath(bath.id) },
                         { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "bath", bathId: bath.id }) },
+                        { id: "duplicate", label: "Duplicate", onSelect: () => duplicateBath(bath.id) },
                         baths.length > 1
                           ? { id: "delete", label: "Delete", danger: true, onSelect: () => removeBath(bath.id) }
                           : null,
@@ -466,15 +507,21 @@ export function PropertyHouseDetailsListPanel({
                 <PortalPropertyRecordRow
                   key={space.id}
                   title={label}
-                  summary={[kind, space.location, access].filter(Boolean).join(" · ")}
+                  leading={<PortalRowIconTile icon={Home} />}
+                  leadingShape="square"
+                  facts={rowFacts([
+                    { icon: Home, text: kind, sr: "Kind" },
+                    { icon: Layers, text: space.location, sr: "Floor" },
+                    { icon: Users, text: access, sr: "Access" },
+                  ])}
                   onOpen={() => openEditor({ kind: "space", spaceId: space.id })}
                   dataAttr="property-house-details-space-row"
                   actions={
                     <RowActionsMenu
                       label={label}
                       items={[
-                        { id: "duplicate", label: "Duplicate", onSelect: () => duplicateSpace(space.id) },
                         { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "space", spaceId: space.id }) },
+                        { id: "duplicate", label: "Duplicate", onSelect: () => duplicateSpace(space.id) },
                         { id: "delete", label: "Delete", danger: true, onSelect: () => removeSpace(space.id) },
                       ]}
                     />
@@ -491,15 +538,20 @@ export function PropertyHouseDetailsListPanel({
                 <PortalPropertyRecordRow
                   key={spec.id}
                   title={spec.label}
-                  summary={houseInfoSectionSummaryLine(houseInfo, spec)}
+                  leading={<PortalRowIconTile icon={FileText} />}
+                  leadingShape="square"
+                  facts={rowFacts([
+                    { icon: Eye, text: "Residents only", sr: "Audience" },
+                    { icon: FileText, text: houseInfoSectionSummaryLine(houseInfo, spec), sr: "Answers" },
+                  ])}
                   onOpen={() => openEditor({ kind: "info", sectionId: spec.id })}
                   dataAttr={`property-house-details-info-${spec.id}`}
                   actions={
                     <RowActionsMenu
                       label={spec.label}
                       items={[
-                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec }) },
                         { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: spec.id }) },
+                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec }) },
                       ]}
                     />
                   }
@@ -508,15 +560,20 @@ export function PropertyHouseDetailsListPanel({
               {otherRowVisible ? (
                 <PortalPropertyRecordRow
                   title="Anything else"
-                  summary={otherSummary}
+                  leading={<PortalRowIconTile icon={FileText} />}
+                  leadingShape="square"
+                  facts={rowFacts([
+                    { icon: Eye, text: "Residents only", sr: "Audience" },
+                    { icon: FileText, text: otherSummary, sr: "Answers" },
+                  ])}
                   onOpen={() => openEditor({ kind: "infoOther" })}
                   dataAttr="property-house-details-info-other"
                   actions={
                     <RowActionsMenu
                       label="Anything else"
                       items={[
-                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "other" }) },
                         { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "infoOther" }) },
+                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "other" }) },
                       ]}
                     />
                   }
@@ -531,14 +588,18 @@ export function PropertyHouseDetailsListPanel({
             {matches(`Property facts ${propertyFactsSummary(sub)}`) ? (
               <PortalPropertyRecordRow
                 title="Property facts"
-                summary={propertyFactsSummary(sub)}
+                leading={<PortalRowIconTile icon={Building2} />}
+                leadingShape="square"
                 onOpen={() => openEditor({ kind: "facts" })}
                 dataAttr="property-house-details-facts-row"
-                facts={[
-                  <PortalRowFact key="kind" icon={Building2} srLabel="Type">
-                    {propertyFactsSummary(sub).split(" · ")[0]}
-                  </PortalRowFact>,
-                ]}
+                facts={rowFacts(
+                  propertyFactsSummary(sub)
+                    .split(" · ")
+                    .map((text, index) => ({
+                      icon: ([Home, Ruler, CalendarDays, MapPin] as const)[index] ?? Home,
+                      text,
+                    })),
+                )}
                 actions={
                   <RowActionsMenu
                     label="Property facts"
@@ -550,7 +611,8 @@ export function PropertyHouseDetailsListPanel({
             {matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? (
               <PortalPropertyRecordRow
                 title="Amenities"
-                summary={propertyAmenitiesSummary(sub)}
+                leading={<PortalRowIconTile icon={Sparkles} />}
+                leadingShape="square"
                 onOpen={() => openEditor({ kind: "amenities" })}
                 dataAttr="property-house-details-amenities-row"
                 facts={[
@@ -569,15 +631,17 @@ export function PropertyHouseDetailsListPanel({
             {matches("Rules") && rulesSpec ? (
             <PortalPropertyRecordRow
               title="Rules"
-              summary={houseInfoSectionSummaryLine(houseInfo, rulesSpec)}
+              leading={<PortalRowIconTile icon={ShieldCheck} />}
+              leadingShape="square"
+              facts={rowFacts([{ icon: ShieldCheck, text: houseInfoSectionSummaryLine(houseInfo, rulesSpec), sr: "Rules" }])}
               onOpen={() => openEditor({ kind: "info", sectionId: "rules" })}
               dataAttr="property-house-details-house-rules-row"
               actions={
                 <RowActionsMenu
                   label="Rules"
                   items={[
-                    { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec: rulesSpec }) },
                     { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: "rules" }) },
+                    { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec: rulesSpec }) },
                   ]}
                 />
               }
@@ -590,10 +654,14 @@ export function PropertyHouseDetailsListPanel({
           <>
             <PortalPropertyRecordRow
               title="Manager notes"
-              summary={managerNotes.trim() ? "Has notes" : "Nothing added yet"}
+              leading={<PortalRowIconTile icon={Lock} />}
+              leadingShape="square"
               onOpen={() => openEditor({ kind: "managerNotes" })}
               dataAttr="property-house-details-manager-notes-row"
-              facts={[<PortalRowFact key="lock" icon={Lock} srLabel="Audience">Manager only</PortalRowFact>]}
+              facts={rowFacts([
+                { icon: Lock, text: "Manager only", sr: "Audience" },
+                { icon: FileText, text: managerNotes.trim() ? "Has notes" : "Nothing added yet", sr: "Notes" },
+              ])}
               actions={
                 <RowActionsMenu
                   label="Manager notes"
@@ -601,11 +669,7 @@ export function PropertyHouseDetailsListPanel({
                 />
               }
             />
-            {propertyId ? (
-              <div className="px-1 pt-2">
-                <HousePrintablesCard propertyId={propertyId} rooms={rooms} showToast={showToast} />
-              </div>
-            ) : null}
+            {propertyId ? <HousePrintablesCard propertyId={propertyId} rooms={rooms} showToast={showToast} /> : null}
           </>
         ) : null}
       </PortalRecordListSurface>

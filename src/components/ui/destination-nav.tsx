@@ -365,6 +365,7 @@ export function LocalDestinationNav({
   centerEqualRow = false,
   /** `command` is the low-chrome list-page treatment: text tabs with an active underline. */
   appearance = "segmented",
+  tight = false,
 }: {
   items: LocalDestinationNavItem[];
   activeId: string;
@@ -377,12 +378,31 @@ export function LocalDestinationNav({
   denseEqualRow?: boolean;
   centerEqualRow?: boolean;
   appearance?: "segmented" | "command";
+  /**
+   * `command` only: trims each tab's side padding and the gap between tabs so
+   * six tabs (property House details) fit one row beside the search and the
+   * round +. The active tab is also scrolled into view if the row still overflows.
+   */
+  tight?: boolean;
 }) {
   const compactItems = itemLayout === "equal" ? false : items.length > 4;
   const commandEnabled = appearance === "command";
   const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeId, items.length, commandEnabled);
   const flashing = useCountFlash(items);
   const overflowStyle = useTabOverflowFade(wrapRef, items.length);
+
+  // A row that still overflows must never hide the active tab (House details has six).
+  useLayoutEffect(() => {
+    if (!commandEnabled) return;
+    const row = wrapRef.current;
+    if (!row || row.scrollWidth <= row.clientWidth + 2) return;
+    const active = row.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!active) return;
+    const left = active.offsetLeft;
+    const right = left + active.offsetWidth;
+    if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 8);
+    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 8;
+  }, [activeId, commandEnabled, items.length, wrapRef]);
 
   return (
     <nav
@@ -391,6 +411,7 @@ export function LocalDestinationNav({
       className={cn(
         destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow, appearance),
         commandEnabled && "relative",
+        commandEnabled && tight && "gap-0",
       )}
       aria-label={ariaLabel}
       data-slot="local-destination-nav"
@@ -415,7 +436,8 @@ export function LocalDestinationNav({
                 ? itemLayout === "equal" && denseEqualRow
                   ? "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-0 py-2 text-center leading-none font-semibold transition-[color,border-color,background-color] duration-100 lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
                   : cn(
-                      "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100 sm:px-3",
+                      "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100",
+                      tight ? "px-1.5 sm:px-2" : "px-2.5 sm:px-3",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
                         ? "border-primary text-primary"
