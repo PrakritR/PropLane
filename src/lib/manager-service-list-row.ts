@@ -31,6 +31,16 @@ export function managerServiceAssigneeFact(
   return { icon: Users, text: assignee.name };
 }
 
+/** Stage label duplicates the assignee fact when hire is already shown by name. */
+export function managerServiceStageFactRedundantWithAssignee(
+  assignee: ReturnType<typeof resolveWorkOrderAssignee>,
+  stageText: string,
+): boolean {
+  if (!assignee) return false;
+  const t = stageText.trim().toLowerCase();
+  return t === "hired" || t === "assigned";
+}
+
 export function managerServiceStageFact(
   row: DemoManagerWorkOrderRow,
   bidCount: number,

@@ -9,6 +9,7 @@ import {
   managerServiceAssigneeFact,
   managerServicePlaceLine,
   managerServiceStageFact,
+  managerServiceStageFactRedundantWithAssignee,
 } from "@/lib/manager-service-list-row";
 import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
@@ -69,7 +70,7 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Clock, Settings } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -760,6 +761,9 @@ export function ManagerAllServicesPanel({
       maintenanceRow
         ? managerServiceStageFact(maintenanceRow, bidCount)
         : { icon: Clock, text: row.statusLabel ?? "" };
+    const showStageFact =
+      stageFact.text &&
+      !managerServiceStageFactRedundantWithAssignee(assignee, stageFact.text);
     const costFigure = maintenanceRow ? managerServiceListCostFigure(maintenanceRow) : undefined;
     const menuItems =
       maintenanceRow
@@ -845,14 +849,14 @@ export function ManagerAllServicesPanel({
         title={row.title}
         subtitle={placeLine || undefined}
         facts={
-          assigneeFact || stageFact.text ? (
+          assigneeFact || showStageFact ? (
             <>
               {assigneeFact ? (
                 <PortalRowFact icon={assigneeFact.icon} srLabel="Assigned to">
                   {assigneeFact.text}
                 </PortalRowFact>
               ) : null}
-              {stageFact.text ? (
+              {showStageFact ? (
                 <PortalRowFact icon={stageFact.icon} srLabel="Stage">
                   {stageFact.text}
                 </PortalRowFact>
@@ -1051,20 +1055,6 @@ export function ManagerAllServicesPanel({
               ? "No vendors on services yet"
               : portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
           section: serviceState === "vendors" ? "vendors" : "services",
-          sibling: portalEmptySibling(
-            SERVICE_STATE_TABS.map((tab) => ({
-              id: tab.id,
-              label: tab.label,
-              count:
-                tab.id === "vendors"
-                  ? vendorTabCount
-                  : tab.id === "done"
-                    ? unifiedCounts.done + unifiedCounts.declined
-                    : unifiedCounts[tab.id as ServiceRowState],
-              onSelect: () => setServiceState(tab.id),
-            })),
-            serviceState,
-          ),
         };
 
   const servicesListDestinations = (

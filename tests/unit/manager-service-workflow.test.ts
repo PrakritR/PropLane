@@ -5,6 +5,7 @@ import {
   managerServiceWorkflowSteps,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
+import { managerServiceStageFactRedundantWithAssignee } from "@/lib/manager-service-list-row";
 import { vendorCanSeeFullWorkOrderSite, workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 
 function baseRow(overrides: Partial<DemoManagerWorkOrderRow> = {}): DemoManagerWorkOrderRow {
@@ -26,6 +27,16 @@ function baseRow(overrides: Partial<DemoManagerWorkOrderRow> = {}): DemoManagerW
 }
 
 describe("managerServiceWorkflow", () => {
+  it("hides redundant Hired stage when assignee fact is shown", () => {
+    expect(
+      managerServiceStageFactRedundantWithAssignee(
+        { kind: "vendor", id: "v1", name: "Dana Plumbing" },
+        "Hired",
+      ),
+    ).toBe(true);
+    expect(managerServiceStageFactRedundantWithAssignee(null, "3 quotes")).toBe(false);
+  });
+
   it("labels list stage from bids and publish state", () => {
     const row = baseRow({ biddingOpen: true });
     expect(managerServiceListStageLabel(row, 0)).toBe("Published");

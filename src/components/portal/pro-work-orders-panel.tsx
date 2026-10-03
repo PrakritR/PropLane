@@ -61,6 +61,8 @@ import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
 import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
 import { ServiceQuoteCompareSection } from "@/components/portal/service-quote-compare-section";
 import { ServiceWorkOrderThreadEvents } from "@/components/portal/service-work-order-thread-events";
+import { ServiceInvoiceDocument } from "@/components/portal/service-invoice-document";
+import { vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
 import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -283,11 +285,18 @@ export function ManagerWorkOrdersPanel({
   useEffect(() => {
     if (!approvePayRow) return;
     setApprovePayChannel("ach");
+    const invoiceTotal =
+      approvePayDefaults(approvePayRow).vendorCostCents + approvePayDefaults(approvePayRow).materialsCostCents;
     let cancelled = false;
     fetch("/api/portal/proplane-balance", { credentials: "include" })
       .then((res) => res.json())
       .then((body: { enabled?: boolean; availableCents?: number }) => {
-        if (!cancelled) setApprovePayBalance({ enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 });
+        if (cancelled) return;
+        const balance = { enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 };
+        setApprovePayBalance(balance);
+        if (balance.enabled && balance.availableCents >= invoiceTotal) {
+          setApprovePayChannel("balance");
+        }
       })
       .catch(() => {
         if (!cancelled) setApprovePayBalance(null);
@@ -1354,31 +1363,12 @@ export function ManagerWorkOrdersPanel({
     return (
       <div className="px-3 pb-4 sm:px-4" data-attr="work-order-invoice">
         {row.automationStatus === "vendor_marked_done" && invoiceTotal > 0 ? (
-          <div
-            className="mb-4 rounded-xl border border-border bg-card p-3"
-            data-attr="service-invoice-document"
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Invoice</p>
-            <div className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between gap-3">
-                <span className="text-muted">Labor</span>
-                <span className="font-medium tabular-nums">{formatServiceMoney(invoiceLabor)}</span>
-              </div>
-              {invoiceMaterials > 0 ? (
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted">Materials</span>
-                  <span className="font-medium tabular-nums">{formatServiceMoney(invoiceMaterials)}</span>
-                </div>
-              ) : null}
-              <div className="flex justify-between gap-3 border-t border-border pt-2 font-semibold">
-                <span>Total</span>
-                <span className="tabular-nums">{formatServiceMoney(invoiceTotal)}</span>
-              </div>
-            </div>
-            {row.vendorMarkedDoneNote ? (
-              <p className="mt-2 text-xs text-muted">{row.vendorMarkedDoneNote}</p>
-            ) : null}
-          </div>
+          <ServiceInvoiceDocument
+            className="mb-4"
+            laborCents={invoiceLabor}
+            materialsCents={invoiceMaterials}
+            note={row.vendorMarkedDoneNote}
+          />
         ) : null}
         <WorkOrderFact label="Cost" value={displayWorkOrderCost(row.cost)} />
         <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
@@ -2021,25 +2011,11 @@ export function ManagerWorkOrdersPanel({
       >
         {approvePayRow ? (
           <div className="space-y-3">
-            <div className="rounded-xl border border-border bg-card p-3" data-attr="service-approve-pay-invoice">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted">Invoice</p>
-              <div className="mt-2 space-y-1 text-sm">
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted">Labor</span>
-                  <span className="font-medium tabular-nums">
-                    {formatServiceMoney(approvePayDefaults(approvePayRow).vendorCostCents)}
-                  </span>
-                </div>
-                {approvePayDefaults(approvePayRow).materialsCostCents > 0 ? (
-                  <div className="flex justify-between gap-3">
-                    <span className="text-muted">Materials</span>
-                    <span className="font-medium tabular-nums">
-                      {formatServiceMoney(approvePayDefaults(approvePayRow).materialsCostCents)}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            <ServiceInvoiceDocument
+              laborCents={approvePayDefaults(approvePayRow).vendorCostCents}
+              materialsCents={approvePayDefaults(approvePayRow).materialsCostCents}
+              note={approvePayRow.vendorMarkedDoneNote}
+            />
             <p className="text-sm text-foreground">
               Pay{" "}
               <span className="font-semibold">
@@ -2074,16 +2050,29 @@ export function ManagerWorkOrdersPanel({
                 </Select>
               </label>
             ) : null}
-            <p className="text-xs text-muted">
-              {approvePayChannel === "balance"
-                ? approvePayBalance &&
-                  approvePayBalance.availableCents <
+            {approvePayChannel === "balance" &&
+            approvePayBalance?.enabled &&
+            approvePayBalance.availableCents <
+              approvePayDefaults(approvePayRow).vendorCostCents +
+                approvePayDefaults(approvePayRow).materialsCostCents ? (
+              <p className="text-sm font-medium text-destructive" role="alert">
+                Short by{" "}
+                {formatServiceMoney(
+                  vendorInvoiceShortfallCents(
                     approvePayDefaults(approvePayRow).vendorCostCents +
-                      approvePayDefaults(approvePayRow).materialsCostCents
-                  ? "PropLane balance is too low for this payout — choose card or add funds."
-                  : "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
-                : "Card payment runs through Stripe when the balance cannot cover the invoice."}
-            </p>
+                      approvePayDefaults(approvePayRow).materialsCostCents,
+                    approvePayBalance.availableCents,
+                  ),
+                )}{" "}
+                — add funds or pay by card.
+              </p>
+            ) : (
+              <p className="text-xs text-muted">
+                {approvePayChannel === "balance"
+                  ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
+                  : "Card payment runs through Stripe when the balance cannot cover the invoice."}
+              </p>
+            )}
           </div>
         ) : null}
       </Modal>
