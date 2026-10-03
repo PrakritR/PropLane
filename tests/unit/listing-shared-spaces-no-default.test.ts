@@ -51,11 +51,16 @@ describe("the Shared spaces step has no Default card", () => {
   it("keeps a space's own rows and starts a new one on the ground floor with Everyone", () => {
     const step = sharedSpacesStep();
     expect(step.includes('dataAttr="listing-v2-space-card"')).toBe(true);
-    expect(step.includes('dataAttr="listing-v2-add-space"')).toBe(true);
+    // The studio's round add control is a kind menu now (data-attr, not a dataAttr prop).
+    expect(step.includes('data-attr="listing-v2-add-space-icon"')).toBe(true);
     expect(step.includes('floorLevelSelectOptions(sub.listingStoriesId, "")[0]')).toBe(true);
     expect(step.includes("roomAccessIds: encodeSharedSpaceEveryone()")).toBe(true);
-    expect(step.includes("onDuplicate=")).toBe(true);
-    expect(step.includes("onRemove=")).toBe(true);
+    // C2-RB5 + ui-page-structure.md: one ⋯ per row (Edit first, Duplicate, red Delete last) replaces
+    // the onDuplicate=/onRemove= props.
+    expect(step.includes("duplicateSharedSpaceEntry")).toBe(true);
+    expect(step.includes("Duplicate")).toBe(true);
+    expect(step.includes("Delete")).toBe(true);
+    expect(step.indexOf(">Edit</DropdownMenuItem>")).toBeLessThan(step.indexOf("Duplicate"));
   });
 
   it("Rooms and Bathrooms have no Default card either any more (PLAN-0921-1648)", () => {

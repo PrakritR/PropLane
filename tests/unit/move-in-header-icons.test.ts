@@ -20,12 +20,14 @@ describe("House details Copy/Share are header icons", () => {
     expect(panel).toMatch(/actions=\{/);
   });
 
-  it("room rows get the same bare Copy/Share icon actions as the house row", () => {
-    expect(panel).toContain('data-attr="property-move-in-room-copy"');
-    expect(panel).toContain('data-attr="property-move-in-room-share"');
+  it("room rows keep Copy/Share, as items in the row's one ⋯ menu (C2-TAB2, ui-page-structure.md)", () => {
+    // Rows carry exactly one ⋯ (Edit first), so a room's Copy and Share live in it rather than as
+    // second per-row icon buttons.
+    expect(panel).toContain('label: "Copy move-in info"');
+    expect(panel).toContain('label: "Share move-in link"');
+    expect(panel).toContain("roomMoveInClipboardText");
+    expect(panel).toContain("roomMoveInShareUrl");
     expect(panel).not.toMatch(/>\s*Copy\s*</);
-    // Each room-row PortalIconAction pairs its icon with its own data-attr, in prop order.
-    expect(panel).toMatch(/<PortalIconAction[\s\S]{0,60}icon=\{Copy\}[\s\S]{0,200}?data-attr="property-move-in-room-copy"/);
-    expect(panel).toMatch(/<PortalIconAction[\s\S]{0,60}icon=\{Share2\}[\s\S]{0,200}?data-attr="property-move-in-room-share"/);
+    expect(panel.indexOf('id: "edit"')).toBeLessThan(panel.indexOf('id: "preview"'));
   });
 });

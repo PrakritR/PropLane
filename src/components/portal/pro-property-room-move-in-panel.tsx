@@ -9,7 +9,8 @@ import { PortalPropertyDetailSection } from "@/components/portal/portal-property
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { RowActionsMenu, type RowAction } from "@/components/portal/row-actions-menu";
+import { roomMoveInClipboardText, roomMoveInShareUrl } from "@/lib/move-in-share";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   PropertyMoveInEditorModal,
@@ -246,15 +247,55 @@ export function ManagerPropertyRoomMoveInPanel({
     );
   };
 
-  const moveRowMenu = (rowLabel: string, target: MoveInEditorTarget) => (
+  /** "Saved details" is what is on the SAVED room, never an unsaved draft — same rule as the house section. */
+  const roomHasSavedDetails = (room: ManagerRoomSubmission) =>
+    Boolean(room.moveInInstructions?.trim()) ||
+    (room.moveInPhotoDataUrls?.length ?? 0) > 0 ||
+    Boolean(room.moveInVideoDataUrl);
+
+  const copyRoomMoveIn = (room: ManagerRoomSubmission, label: string) => {
+    const text = roomMoveInClipboardText({
+      roomLabel: label,
+      instructions: room.moveInInstructions ?? "",
+      photoCount: (room.moveInPhotoDataUrls ?? []).length,
+      hasVideo: Boolean(room.moveInVideoDataUrl),
+      residents: (room.moveInResidentDetails ?? []).map((entry, i) => ({
+        slot: i + 1,
+        instructions: entry.moveInInstructions,
+        photoCount: entry.moveInPhotoDataUrls.length,
+        hasVideo: Boolean(entry.moveInVideoDataUrl),
+      })),
+    });
+    void navigator.clipboard.writeText(text).then(
+      () => showToast(`${label} move-in info copied.`),
+      () => showToast("Could not copy move-in info."),
+    );
+  };
+
+  const shareRoomMoveIn = (room: ManagerRoomSubmission, label: string) => {
+    const url = typeof window === "undefined" ? "/resident/move-in/info" : roomMoveInShareUrl(window.location.origin, room.id);
+    void navigator.clipboard.writeText(url).then(
+      () => showToast(`${label} move-in link copied.`),
+      () => showToast(url),
+    );
+  };
+
+  /** One ⋯ per row, Edit first (ui-page-structure.md). A room row also keeps its Copy and Share. */
+  const moveRowMenu = (rowLabel: string, target: MoveInEditorTarget, extra: RowAction[] = []) => (
     <RowActionsMenu
       label={rowLabel}
       items={[
-        { id: "preview", label: "Preview", onSelect: () => setMovePreview(target) },
         { id: "edit", label: "Edit", onSelect: () => openMoveEditor(target) },
+        { id: "preview", label: "Preview", onSelect: () => setMovePreview(target) },
+        ...extra,
       ]}
     />
   );
+
+  const roomMenuExtras = (room: ManagerRoomSubmission, label: string): RowAction[] => [
+    { id: "copy", label: "Copy move-in info", disabled: !roomHasSavedDetails(room), onSelect: () => copyRoomMoveIn(room, label) },
+    { id: "share", label: "Share move-in link", onSelect: () => shareRoomMoveIn(room, label) },
+  ];
 
   const saveMoveHouse = (payload: {
     houseInfo: HouseInfoV1;
@@ -353,15 +394,18 @@ export function ManagerPropertyRoomMoveInPanel({
         <p className="text-sm text-muted">Nothing to configure for Move-in yet.</p>
       </PortalPropertySectionSettingsModal>
       <div className="space-y-2" data-attr="property-move-in-list">
-        {canEdit && showRooms ? (
+        {canEdit ? (
           <div className="flex flex-wrap justify-end gap-1 px-0.5">
-            <PortalIconAction
-              icon={Copy}
-              label="Copy house details to rooms"
-              data-attr="property-move-in-copy"
-              disabled={!houseHasSavedDetails || copyingToRooms}
-              onClick={copyHouseToRooms}
-            />
+            {/* Copy to rooms means nothing on a whole-home listing; Share still does. */}
+            {showRooms ? (
+              <PortalIconAction
+                icon={Copy}
+                label="Copy house details to rooms"
+                data-attr="property-move-in-copy"
+                disabled={!houseHasSavedDetails || copyingToRooms}
+                onClick={copyHouseToRooms}
+              />
+            ) : null}
             <PortalIconAction
               icon={Share2}
               label="Share house details"
@@ -470,7 +514,7 @@ export function ManagerPropertyRoomMoveInPanel({
                     summary={roomSummary}
                     onOpen={() => openMoveEditor({ kind: "room", roomId: room.id })}
                     dataAttr={`property-move-in-room-row-${room.id}`}
-                    actions={moveRowMenu(label, { kind: "room", roomId: room.id })}
+                    actions={moveRowMenu(label, { kind: "room", roomId: room.id }, roomMenuExtras(room, label))}
                   />,
                 );
                 }

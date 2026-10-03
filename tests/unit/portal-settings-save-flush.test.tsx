@@ -128,6 +128,9 @@ afterEach(() => {
   paymentsOutgoingReminderSaveIfDirty.mockReset().mockResolvedValue(true);
 });
 
+// 67cce97d0: the Settings "Payments" tab now renders the withdraw-only payouts page (no autosaving
+// form), so these ordering guards run on the Reminders hub tab — the tab that still mounts the
+// autosaving handles (see the mock above). The rules under test are unchanged.
 describe("ProPortalSettingsModal — save-before-close ordering", () => {
   it("awaits a pending save before onClose is called", async () => {
     const order: string[] = [];
@@ -138,8 +141,8 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
     });
     const onClose = vi.fn(() => order.push("onClose-called"));
 
-    render(<ProPortalSettingsModal open onClose={onClose} initialTab="payments" />);
-    await screen.findByText("Payments panel");
+    render(<ProPortalSettingsModal open onClose={onClose} initialTab="automation" />);
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
 
@@ -156,15 +159,15 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
     paymentsSaveIfDirty.mockRejectedValueOnce(new Error("Network down"));
     const onClose = vi.fn();
 
-    render(<ProPortalSettingsModal open onClose={onClose} initialTab="payments" />);
-    await screen.findByText("Payments panel");
+    render(<ProPortalSettingsModal open onClose={onClose} initialTab="automation" />);
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Network down"));
     expect(onClose).not.toHaveBeenCalled();
     // The panel is still mounted — the edit was never discarded.
-    expect(screen.getByText("Payments panel")).toBeTruthy();
+    expect(screen.getByText("Reminders hub")).toBeTruthy();
   });
 
   it("runs every panel's save even when one of them rejects (allSettled, not all)", async () => {
@@ -186,9 +189,9 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
 
   it("flushes the outgoing panel before a tab switch unmounts it", async () => {
     render(
-      <ProPortalSettingsModal open onClose={() => undefined} initialTab="payments" scoped={false} />,
+      <ProPortalSettingsModal open onClose={() => undefined} initialTab="automation" scoped={false} />,
     );
-    await screen.findByText("Payments panel");
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Tours" }));
 
@@ -202,14 +205,14 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
     paymentsSaveIfDirty.mockRejectedValueOnce(new Error("Could not save payments"));
 
     render(
-      <ProPortalSettingsModal open onClose={() => undefined} initialTab="payments" scoped={false} />,
+      <ProPortalSettingsModal open onClose={() => undefined} initialTab="automation" scoped={false} />,
     );
-    await screen.findByText("Payments panel");
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Tours" }));
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Could not save payments"));
-    expect(screen.getByText("Payments panel")).toBeTruthy();
+    expect(screen.getByText("Reminders hub")).toBeTruthy();
     expect(screen.queryByText("Tours panel")).toBeNull();
   });
 
@@ -227,11 +230,11 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
       <ProPortalSettingsModal
         open
         onClose={onClose}
-        initialTab="payments"
+        initialTab="automation"
         editAction={{ label: "Edit configuration", onSelect }}
       />,
     );
-    await screen.findByText("Payments panel");
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: /edit configuration/i }));
 
@@ -254,11 +257,11 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
       <ProPortalSettingsModal
         open
         onClose={onClose}
-        initialTab="payments"
+        initialTab="automation"
         editAction={{ label: "Edit configuration", onSelect }}
       />,
     );
-    await screen.findByText("Payments panel");
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: /edit configuration/i }));
 

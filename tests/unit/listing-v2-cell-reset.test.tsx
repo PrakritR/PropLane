@@ -100,12 +100,13 @@ describe("no per-field Reset on the listing cards (PLAN-0921-1648)", () => {
   it("bathrooms: a bathroom's type is its own — no Every card to follow and no Reset", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
-    expect(screen.queryByRole("button", { name: "Type of every bathroom" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Layout of every bathroom" })).toBeNull();
     openCard("Upstairs");
-    pick("Type of Upstairs", "full");
+    // C2-RE5: the old bathroom "Type" (full / half …) moved to "Layout"; "Type" is now Private / Shared.
+    pick("Layout of Upstairs", "full");
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.bathtub).toBe(true);
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.bathtub ?? false).toBe(false);
-    expect(screen.queryByRole("button", { name: /Reset type of Upstairs/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reset layout of Upstairs/ })).toBeNull();
   });
 
   it("shared spaces: a space's floor is its own — no Every card to follow and no Reset", () => {

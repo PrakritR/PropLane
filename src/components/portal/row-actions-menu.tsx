@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
-export type RowAction = { id: string; label: string; onSelect: () => void; danger?: boolean };
+export type RowAction = { id: string; label: string; onSelect: () => void; danger?: boolean; disabled?: boolean };
 
 /** A row ⋯ built on the shared record-action menu: actions in order, a red one last. */
 export function RowActionsMenu({ label, items }: { label: string; items: readonly (RowAction | null | false | undefined)[] }) {
@@ -22,6 +22,7 @@ export function RowActionsMenu({ label, items }: { label: string; items: readonl
                 type="button"
                 variant={item.danger ? "danger" : "outline"}
                 data-record-action-id={item.danger ? "delete" : item.id}
+                disabled={item.disabled}
                 onClick={item.onSelect}
               >
                 {item.label}

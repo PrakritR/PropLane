@@ -172,7 +172,11 @@ describe("listed Preview header actions — source", () => {
       resolve(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
       "utf8",
     );
-    const footer = panel.slice(panel.indexOf("if (isListingPreview)"), panel.indexOf("return actions;"));
+    // The listed-property actions now key off the listed bucket (`bucket === 2 && listingId`), not
+    // the Preview tab flag; the slice runs to the draft (bucket 3) branch.
+    const listedStart = panel.indexOf("if (bucket === 2 && listingId)");
+    expect(listedStart).toBeGreaterThan(-1);
+    const footer = panel.slice(listedStart, panel.indexOf("if (bucket === 3)", listedStart));
     expect(footer).toContain('label="Edit"');
     expect(footer).toContain('label="Share"');
     expect(footer).toContain('label="Unlist"');

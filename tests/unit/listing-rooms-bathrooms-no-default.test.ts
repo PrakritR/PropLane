@@ -29,24 +29,25 @@ const raw = readFileSync(EDITOR, "utf8");
 const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 /**
- * RoomCardBody and StepRooms together. Bounded by function declarations, not
+ * ListingRoomEditorBody and StepRooms together (studio-redesign property-editor pass-3 renamed
+ * the card body to the shared editor body). Bounded by function declarations, not
  * banner comments — the comment strip above would otherwise erase the banner
  * text used to find them.
  */
 function roomsSource(): string {
-  const start = code.indexOf("function RoomCardBody(");
-  expect(start, "RoomCardBody is still there").toBeGreaterThan(-1);
-  const end = code.indexOf("function BathroomCardBody(", start);
-  expect(end, "BathroomCardBody is still there").toBeGreaterThan(-1);
+  const start = code.indexOf("export function ListingRoomEditorBody(");
+  expect(start, "ListingRoomEditorBody is still there").toBeGreaterThan(-1);
+  const end = code.indexOf("export function ListingBathroomEditorBody(", start);
+  expect(end, "ListingBathroomEditorBody is still there").toBeGreaterThan(-1);
   return code.slice(start, end);
 }
 
 /** BathroomCardBody and StepBathrooms together. */
 function bathroomsSource(): string {
-  const start = code.indexOf("function BathroomCardBody(");
-  expect(start, "BathroomCardBody is still there").toBeGreaterThan(-1);
-  const end = code.indexOf("function SharedSpaceCardBody(", start);
-  expect(end, "SharedSpaceCardBody is still there").toBeGreaterThan(-1);
+  const start = code.indexOf("export function ListingBathroomEditorBody(");
+  expect(start, "ListingBathroomEditorBody is still there").toBeGreaterThan(-1);
+  const end = code.indexOf("export function ListingSharedSpaceEditorBody(", start);
+  expect(end, "ListingSharedSpaceEditorBody is still there").toBeGreaterThan(-1);
   return code.slice(start, end);
 }
 
@@ -109,8 +110,9 @@ describe("the Bathrooms step has no Default card", () => {
     const step = bathroomsSource();
     expect(step.includes('label="Same as"')).toBe(true);
     expect(step.includes("sameAsOptions")).toBe(true);
-    expect(step.includes("bathroomDescriptionMatches")).toBe(true);
-    expect(step.includes("copyBathroomDescriptionFrom")).toBe(true);
+    // The helpers were renamed with the shared editor (listing-record-defaults.ts, replica room-editor-0930).
+    expect(step.includes("bathroomSetupMatches")).toBe(true);
+    expect(step.includes("copyBathroomSetupFrom")).toBe(true);
     // A card "Add bathroom" makes is a full bath with no rooms, built from the
     // same `emptyBathroom` the count uses. Its floor is left BLANK — the card
     // shows the ground floor as a display default — so an untouched card stays

@@ -9,7 +9,7 @@
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CalendarSync, Download, RefreshCw, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { CalendarSync, Download, RefreshCw, Filter, Settings2, Trash2, X } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
@@ -28,8 +28,9 @@ function renderStack(props: Partial<ComponentProps<typeof PortalListControlStack
 describe("list command band contract", () => {
   it("draws no visible-text button and one filled primary named 'Add …'", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // ui-page-structure.md § Reference implementations: the list Filter is the funnel icon.
     renderStack({
-      actions: <PortalIconAction icon={SlidersHorizontal} label="Filter" />,
+      actions: <PortalIconAction icon={Filter} label="Filter" />,
       primary: <PortalPrimaryIconAction label="Add property" />,
     });
 

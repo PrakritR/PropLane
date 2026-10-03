@@ -68,7 +68,9 @@ describe("ManagerPortfolioBookingsCalendar", () => {
 
     const hubTabs = within(screen.getAllByRole("tablist", { name: "Bookings layout" })[0]!);
     fireEvent.click(hubTabs.getByRole("tab", { name: "List" }));
-    expect(screen.getByText("All stays (0)")).toBeTruthy();
+    // Command-band text tabs carry the count as its own pill (ui-page-structure.md § Lists), not "All stays (0)".
+    expect(screen.getByText("All stays")).toBeTruthy();
+    expect(screen.getAllByLabelText("0 items").length).toBeGreaterThan(0);
     expect(screen.getByText("No bookings yet")).toBeTruthy();
   });
 
@@ -89,6 +91,7 @@ describe("ManagerPortfolioBookingsCalendar", () => {
     expect(screen.queryByRole("tablist", { name: "Bookings layout" })).toBeNull();
     // C2-CAL1 replaces the fixed 21-day strip with a remembered view dropdown.
     expect(screen.getByText("September 2026")).toBeTruthy();
-    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("month");
+    // The view pick is a FieldSingleSelect dropdown button showing the current view.
+    expect(screen.getByRole("button", { name: "Calendar view" }).textContent?.trim()).toBe("Month");
   });
 });
