@@ -49,13 +49,8 @@ import { usePortalSurface } from "@/components/ui/portal-surface";
 import { cn } from "@/lib/utils";
 
 
-/**
- * The mobile Filter surface (anchored popover vs. Vaul bottom sheet) is chosen ONCE, at the
- * moment the panel opens, and held for that panel's whole life — never re-evaluated on
- * scroll/resize/nested-field-menu-open. The popover only exists for `desktopPresentation
- * === "dropdown"` (the only presentation with an anchored path at all) and only when the
- * trigger is genuinely measurable with real room below it; otherwise fall back to the
- * existing bottom sheet exactly as before.
+/** Phone filters always use anchored popovers, regardless of desktop presentation.
+ * Legacy sizing constants remain exported for compatibility with callers.
  */
 export const PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX = 260;
 export const PORTAL_FILTER_POPOVER_MAX_FIELDS = 4;
@@ -70,7 +65,7 @@ export function resolveMobileFilterPopover(args: {
 }): boolean {
   // Every phone filter stays anchored. The positioning helper flips to the
   // roomier side and caps the scroll area, including near the bottom edge.
-  return args.desktopPresentation === "dropdown";
+  return ["dropdown", "panel", "inline"].includes(args.desktopPresentation);
 }
 
 function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {
@@ -480,7 +475,7 @@ export function PortalFilterSortSheet({
       : PORTAL_FILTER_PANEL_SIZE_CLASS);
   const panelHeightPx = portalFilterDropdownHeightPx(panelSizeClass);
   const panelWidthPx = portalFilterDropdownWidthPx(panelSizeClass);
-  const dropdownOpen = desktopPresentation === "dropdown" && open && (!isMobile || mobilePopover);
+  const dropdownOpen = open && (isMobile ? mobilePopover : desktopPresentation === "dropdown");
   const { wrapRef, buttonRef, menuRect, portalHost } = useFieldSelectMenu({
     open: dropdownOpen,
     onOpenChange: handleFilterShellOpenChange,
@@ -761,7 +756,7 @@ export function PortalFilterSortSheet({
             </div>
           </FilterSheetScrollLockContext.Provider>
         </VaulBottomSheet>
-      ) : desktopPresentation === "panel" ? (
+      ) : !isMobile && desktopPresentation === "panel" ? (
         <Modal
           open={open}
           onClose={close}

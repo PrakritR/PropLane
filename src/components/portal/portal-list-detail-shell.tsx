@@ -131,13 +131,13 @@ export function PortalDetailHeader({
             <span className={hideBackText ? "sr-only" : "max-md:sr-only"}>{backLabel}</span>
           </button>
         ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
+        <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && "max-w-[9rem] md:max-w-[15rem]")}>
           {avatarName ? (
             <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />
           ) : null}
           {/* The record's name is the page's title: it reads as one, not as a list row. */}
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-bold tracking-tight text-foreground md:text-[17px]">{title}</p>
+            <p className="truncate max-md:line-clamp-2 max-md:whitespace-normal text-[15px] font-bold tracking-tight text-foreground md:text-[17px]">{title}</p>
             {subtitle ? <p className="truncate text-[12.5px] text-muted">{subtitle}</p> : null}
           </div>
         </div>
@@ -148,7 +148,7 @@ export function PortalDetailHeader({
             inlineActions
               ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
               : iconTitleActions
-                ? "flex shrink-0 items-center gap-1.5"
+                ? "flex min-w-0 flex-1 basis-0 items-center gap-1.5"
                 : "hidden shrink-0 items-center gap-1.5 md:flex",
             !hasActions && "!hidden",
             inlineActionsClassName,
@@ -156,7 +156,7 @@ export function PortalDetailHeader({
         >
           {actions}
           {iconTitleActions && !inlineActions ? (
-            <PortalTitleActionsHost className="flex items-center gap-1.5 [&_button]:!size-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!p-0" />
+            <PortalTitleActionsHost className="flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button]:!size-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!p-0" />
           ) : (
             <PortalTitleActionsHost
               breakpoint={inlineActions ? undefined : "md-up"}
