@@ -195,6 +195,8 @@ export function buildListingQuote(
     residentSlot?: number | null;
     arrangementCount?: number | null;
     startKind?: ListingQuoteStartKind;
+    /** Property Pricing whole-house row — use `entireHomeMonthlyRent` even on shared-home listings. */
+    useEntireHomeRent?: boolean;
   },
 ): ListingQuote {
   const leaseTerm = String(options.leaseTerm ?? "").trim();
@@ -226,11 +228,13 @@ export function buildListingQuote(
       ? arrangementPrice.monthlyRent
     : room
       ? roomRentForTerm(room, leaseTerm, sub)
-      : isEntireHomeListing(sub)
+      : options.useEntireHomeRent && (sub.entireHomeMonthlyRent ?? 0) > 0
         ? (sub.entireHomeMonthlyRent ?? 0)
-        : defaults.monthlyRent > 0
-          ? defaults.monthlyRent
-          : 0;
+        : isEntireHomeListing(sub)
+          ? (sub.entireHomeMonthlyRent ?? 0)
+          : defaults.monthlyRent > 0
+            ? defaults.monthlyRent
+            : 0;
   const monthlyUtilities = isStay
     ? 0
     : slotPrice?.utilitiesEstimate != null && String(slotPrice.utilitiesEstimate).trim()
@@ -239,7 +243,9 @@ export function buildListingQuote(
         ? parseMoneyAmount(arrangementPrice.utilitiesEstimate)
       : room
         ? roomUtilitiesForTerm(room, leaseTerm, sub)
-        : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
+        : options.useEntireHomeRent && (sub.entireHomeUtilitiesEstimate ?? "").trim()
+          ? parseMoneyAmount(sub.entireHomeUtilitiesEstimate ?? "")
+          : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
   const securityDeposit =
     slotPrice?.securityDeposit != null && String(slotPrice.securityDeposit).trim()
       ? parseMoneyAmount(slotPrice.securityDeposit)

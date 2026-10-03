@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { PricingReceiptPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
+import {
+  BundleWholePricingReceiptPanel,
+  PricingReceiptPanel,
+} from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
   FactRow,
   MoneyInput,
@@ -554,6 +557,25 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             lockLeaseTerm
             plainReceipt
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
+          />
+        ) : subject.kind === "whole" ? (
+          <BundleWholePricingReceiptPanel
+            sub={draft}
+            kind="whole"
+            leaseTerm={quoteTerm}
+            leaseTerms={leaseTerms}
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
+          />
+        ) : subject.kind === "bundle" ? (
+          <BundleWholePricingReceiptPanel
+            sub={draft}
+            kind="bundle"
+            bundleId={subject.bundleId}
+            leaseTerm={quoteTerm}
+            leaseTerms={leaseTerms}
             allowMonthToMonthStart={allowM2m}
             allowCustomStart={allowCustomStart}
           />
