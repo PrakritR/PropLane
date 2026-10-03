@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,6 +170,8 @@ export const ManagerBillsPanel = forwardRef<ManagerBillsPanelHandle>(function Ma
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Add bill"
+        previewLabel="Bill preview"
+        preview={<PopupRecordPreview rows={[{ label: "Description", value: draft.description }, { label: "Amount", value: draft.amount ? `$${draft.amount}` : "Not set" }, { label: "Due date", value: draft.dueDate }]} />}
         footer={
           <ModalFooter>
             <Button variant="primary" onClick={() => createBill()}>
@@ -178,16 +182,16 @@ export const ManagerBillsPanel = forwardRef<ManagerBillsPanelHandle>(function Ma
       >
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-semibold text-muted">Description</label>
-            <Input className="mt-1" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+            <label htmlFor="bill-description" className="text-xs font-semibold text-muted">Description</label>
+            <Input id="bill-description" required className="mt-1" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
           </div>
           <div>
-            <label className="text-xs font-semibold text-muted">Amount</label>
-            <Input className="mt-1" value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} placeholder="150.00" />
+            <label htmlFor="bill-amount" className="text-xs font-semibold text-muted">Amount</label>
+            <Input id="bill-amount" required className="mt-1" value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} placeholder="150.00" />
           </div>
           <div>
-            <label className="text-xs font-semibold text-muted">Due date</label>
-            <Input className="mt-1" type="date" value={draft.dueDate} onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))} />
+            <label htmlFor="bill-dueDate" className="text-xs font-semibold text-muted">Due date</label>
+            <Input id="bill-dueDate" className="mt-1" type="date" value={draft.dueDate} onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))} />
           </div>
         </div>
       </Modal>

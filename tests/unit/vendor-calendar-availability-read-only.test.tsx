@@ -98,7 +98,7 @@ describe("vendor calendar canonical availability", () => {
     });
 
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("Set availability")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Set availability" })).toBeTruthy();
     expect(screen.getByDisplayValue("2099-08-05")).toBeTruthy();
     expect(screen.getByDisplayValue("09:00")).toBeTruthy();
     expect(screen.getByDisplayValue("09:30")).toBeTruthy();
@@ -125,7 +125,7 @@ describe("vendor calendar canonical availability", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add availability" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("Set availability")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Set availability" })).toBeTruthy();
   });
 
   it("keeps the availability dialog open when the canonical server rejects a booked-service conflict", async () => {

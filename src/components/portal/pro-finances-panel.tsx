@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps 
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { ReceiptText } from "lucide-react";
 import { ExpenseRowMenu } from "@/components/portal/expense-row-menu";
 import { Input } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -192,7 +194,7 @@ function compareRows(a: ReportRow, b: ReportRow, key: string, dir: "asc" | "desc
  * Transaction entries in a sortable sheet (Income / Expenses). Accounting
  * REPORTS (trial balance, GL, etc.) use the same table with totals intact.
  */
-function FinancesDataTable({
+export function FinancesDataTable({
   report,
   sortKey,
   sortDir,
@@ -243,37 +245,24 @@ function FinancesDataTable({
 
   return (
     <>
-      <div className="space-y-2 lg:hidden">
+      <div className="space-y-2 lg:hidden" data-attr="finances-mobile-rows">
         {sortedRows.map((row, idx) => (
-          <div key={`${row.id ?? idx}-${idx}`} className={PORTAL_MOBILE_CARD_CLASS}>
-            {amountColumn || canActOnRow ? <div className="mb-1 flex items-start justify-between gap-2">
-              {amountColumn ? <p className="min-w-0 text-sm font-medium text-foreground">
-                {formatCellValue(amountColumn, row.amount)}
-              </p> : null}
-              {canActOnRow ? (
-                <ExpenseRowMenu
-                  onEdit={onEditExpense ? () => onEditExpense(row) : undefined}
-                  onDelete={onDeleteExpense ? () => onDeleteExpense(row) : undefined}
-                />
-              ) : null}
-            </div> : null}
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {visibleCols.filter((col) => col.key !== "amount").map((col) => (
-                <div key={col.key} className={cn("min-w-0", col.key === "taxStatus" && "col-span-2")}>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">{col.label}</p>
-                  <div
-                    className={`break-words text-sm ${
-                      col.key === "amount" || col.key === "property" || col.key === "resident"
-                        ? "font-medium text-foreground"
-                        : "text-foreground/80"
-                    }`}
-                  >
-                    {renderCellValue(col, row)}
-                  </div>
+          <PortalPropertyRecordRow
+            key={`${row.id ?? idx}-${idx}`}
+            title={String(row.resident || row.vendor || row.description || row.category || report.title)}
+            address={row.property ? String(row.property) : undefined}
+            leading={<span className="grid h-12 w-14 place-items-center rounded-[10px] bg-primary/10 text-primary"><ReceiptText className="size-5" aria-hidden /></span>}
+            amount={amountColumn ? formatCellValue(amountColumn, row.amount) : undefined}
+            facts={<div className="flex min-w-0 flex-col gap-1">
+              {visibleCols.filter((col) => !["amount", "property"].includes(col.key)).map((col) => (
+                <div key={col.key} className="flex flex-wrap items-center gap-x-1.5">
+                  <span>{col.label}:</span><div className="min-w-0 break-words text-foreground">{renderCellValue(col, row)}</div>
                 </div>
               ))}
-            </div>
-          </div>
+            </div>}
+            actions={canActOnRow ? <ExpenseRowMenu onEdit={onEditExpense ? () => onEditExpense(row) : undefined} onDelete={onDeleteExpense ? () => onDeleteExpense(row) : undefined} /> : undefined}
+            dataAttr="finances-mobile-row"
+          />
         ))}
         {showTotals && report.totals ? (
           <div className={`${PORTAL_MOBILE_CARD_CLASS} bg-accent/10`}>
@@ -1383,27 +1372,24 @@ export function ManagerFinancesPanel({
         </AddWorkspace>
       ) : null}
 
-      <Modal
+      <PortalDialog
         open={Boolean(expenseToDelete)}
         onClose={() => setExpenseToDelete(null)}
         title="Delete expense"
-        footer={
-          <ModalFooter>
-            <Button variant="outline" onClick={() => setExpenseToDelete(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={() => expenseToDelete && deleteExpense(expenseToDelete)}>
-              Delete
-            </Button>
-          </ModalFooter>
-        }
+        tone="danger"
+        primaryAction={{ label: "Delete expense", onClick: () => expenseToDelete ? deleteExpense(expenseToDelete) : undefined }}
+        contextPanel={<PreviewPanel title="Expense" name={String(expenseToDelete?.category ?? "Expense")} facts={[
+          { label: "Amount", value: formatCellValue({ key: "amount", label: "Amount", format: "money" }, expenseToDelete?.amount ?? null) },
+          { label: "Property", value: String(expenseToDelete?.property ?? "Portfolio") },
+        ]} />}
+        preview={<section className="rounded-xl border border-border bg-card p-4"><h3 className="font-semibold">Removed</h3><p className="mt-3 text-sm">{String(expenseToDelete?.category ?? "Expense")}</p>{expenseToDelete?.memo ? <p className="mt-2 whitespace-pre-wrap text-sm">{String(expenseToDelete.memo)}</p> : null}</section>}
+        previewLabel="After deletion"
       >
-        <p className="text-sm font-semibold text-foreground">
-          Delete {expenseToDelete?.amount ? `${String(expenseToDelete.amount)} ` : ""}
-          {expenseToDelete?.category ? `${String(expenseToDelete.category)} ` : ""}
-          expense?
-        </p>
-      </Modal>
+        <dl className="divide-y divide-border text-sm">
+          <div className="flex justify-between gap-4 py-3"><dt>Category</dt><dd>{String(expenseToDelete?.category ?? "Expense")}</dd></div>
+          <div className="flex justify-between gap-4 py-3"><dt>Amount</dt><dd>{formatCellValue({ key: "amount", label: "Amount", format: "money" }, expenseToDelete?.amount ?? null)}</dd></div>
+        </dl>
+      </PortalDialog>
 
       {incomeModal ? (
         <AddWorkspace

@@ -128,3 +128,24 @@ describe("splitAdaptiveActions", () => {
     });
   });
 });
+
+
+describe("header action standard", () => {
+  const actions: PortalAdaptiveAction[] = [
+    { id: "approve", tone: "primary", node: null, menuItem: null },
+    { id: "decline", tone: "danger", node: null, menuItem: null },
+    { id: "edit", node: null, menuItem: null },
+    { id: "upload", node: null, menuItem: null },
+  ];
+  it("puts the primary last and folds danger before the other secondary actions", () => {
+    expect(pickAdaptiveActions(actions, 3).visible.map(({ id }) => id)).toEqual(["edit", "upload", "decline", "approve"]);
+    const narrow = pickAdaptiveActions(actions, 2);
+    expect(narrow.visible.map(({ id }) => id)).toEqual(["edit", "upload", "approve"]);
+    expect(narrow.overflow.map(({ id }) => id)).toEqual(["decline"]);
+    expect(pickAdaptiveActions(actions, 0).visible.map(({ id }) => id)).toEqual(["approve"]);
+  });
+  it("reserves the menu width when a caller supplies menu-only actions", () => {
+    expect(resolveAdaptiveOptionalFitCount(actions, () => 40, 40, 184, 8)).toBe(3);
+    expect(resolveAdaptiveOptionalFitCount(actions, () => 40, 40, 184, 8, { reserveMore: true })).toBe(2);
+  });
+});

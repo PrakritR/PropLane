@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { BookingRemovalPreview } from "@/components/portal/booking-removal-preview";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
@@ -280,12 +281,14 @@ export function BookingsDayPage({
         onClose={() => (deleting ? undefined : setDeletingEntry(null))}
         title="Remove booking"
         tone="danger"
+        previewLabel="What gets removed"
+        preview={deletingEntry ? <BookingRemovalPreview entry={deletingEntry} /> : undefined}
         dismissBlocked={deleting}
         dataAttr="bookings-day-delete-confirm"
         secondaryAction={{ label: "Keep", onClick: () => setDeletingEntry(null), disabled: deleting }}
         primaryAction={{
           label: deleting ? "Removing…" : "Remove",
-          onClick: () => void confirmDelete(),
+          onClick: () => confirmDelete(),
           disabled: deleting,
           loading: deleting,
           dataAttr: "bookings-day-delete-confirm-primary",

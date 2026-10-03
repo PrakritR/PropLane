@@ -94,7 +94,7 @@ describe("modal assistant workspace", () => {
     const action = screen.getByRole("button", { name: "Ask PropLane" });
     expect(action).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("heading", { name: "Compose message" }).parentElement).toContainElement(action);
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(document.querySelector("[data-attr=modal-assistant-strip]")).toHaveAttribute("data-expanded", "false");
   });
 
   it("keeps editor and assistant editable within one focus boundary", async () => {
@@ -175,8 +175,8 @@ describe("modal assistant workspace", () => {
     const panel = screen.getByRole("textbox", { name: "Message draft" }).closest(".modal-panel")!;
     // Full screen takes the whole phone; otherwise the editor is a bottom sheet
     // that hugs its content — full width either way, never a floating card.
-    expect(panel.className.includes("!max-h-full")).toBe(fullScreenMobile);
-    expect(panel.className.includes("rounded-t-2xl")).toBe(!fullScreenMobile);
+    expect(panel.className.includes("!max-h-[100dvh]")).toBe(true);
+    expect(panel.className.includes("!rounded-none")).toBe(true);
     expect(panel.className.includes("!max-w-none")).toBe(true);
     expect(panel.className.includes(fullScreenMobile ? "native-safe-top" : "native-safe-bottom")).toBe(true);
   });

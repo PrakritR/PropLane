@@ -504,9 +504,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           </p>
         ) : null}
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setDeleting(null)}>
-            Cancel
-          </Button>
+          
           {deleting?.destination ? (
             <Button variant="danger" onClick={() => deleteWorkspace(deleting.workspace, deleting.destination)} data-attr="workspace-delete-move">
               Move and delete
@@ -556,9 +554,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           </p>
         ) : null}
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setMoving(null)}>
-            Cancel
-          </Button>
+          
           <Button onClick={() => run({ action: "move-property", id: moving?.destination, propertyId: moving?.id }, () => setMoving(null))}>Move</Button>
         </ModalFooter>
       </Modal>

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { RecordActionItemsContext } from "@/components/ui/record-action-context";
+import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
 import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,7 @@ export function PortalAdaptiveActionRow({
   align?: "start" | "end";
   maxVisible?: number;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const { optional } = useMemo(() => splitAdaptiveActions(actions), [actions]);
@@ -155,6 +156,7 @@ export function PortalAdaptiveActionRow({
         moreWidth,
         Math.max(0, containerWidth - WIDTH_FUDGE_PX),
         gapPx,
+        { reserveMore: pinnedCount > 0 },
       );
       setOptionalFitCount(count);
     };
@@ -173,7 +175,7 @@ export function PortalAdaptiveActionRow({
       ro?.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, [actions, fixed, gapPx, optional.length]);
+  }, [actions, fixed, gapPx, optional.length, pinnedCount]);
 
   useLayoutEffect(() => {
     if (fixed) return;
@@ -198,12 +200,12 @@ export function PortalAdaptiveActionRow({
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);
-  const showMoreMenu = overflow.length > 0;
+  const showMoreMenu = overflow.length > 0 || pinnedCount > 0;
   const { leading: visibleLeading, optional: visibleMiddle, trailing: visibleTrailing } =
     splitAdaptiveActions(visible);
 
   const moreMenu = showMoreMenu ? (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -216,6 +218,7 @@ export function PortalAdaptiveActionRow({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="record-action-menu">
+        <RecordActionCloseContext.Provider value={() => setMenuOpen(false)}>
         {overflow.map((action) => (
           <div key={action.id}>{action.menuItem}</div>
         ))}
@@ -223,6 +226,7 @@ export function PortalAdaptiveActionRow({
         {pinnedMenuItems.map((item, index) => (
           <div key={index}>{item}</div>
         ))}
+        </RecordActionCloseContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
   ) : null;
@@ -235,6 +239,7 @@ export function PortalAdaptiveActionRow({
         className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex gap-0.5"
         style={{ gap: gapPx }}
         aria-hidden
+        inert
       >
         {actions.map((action) => (
           <div key={action.id} data-portal-adaptive-fit-action>
@@ -263,12 +268,12 @@ export function PortalAdaptiveActionRow({
             {action.node}
           </div>
         ))}
+        {moreMenu ? <div className="shrink-0">{moreMenu}</div> : null}
         {visibleTrailing.map((action) => (
           <div key={action.id} className="shrink-0">
             {action.node}
           </div>
         ))}
-        {moreMenu ? <div className="shrink-0">{moreMenu}</div> : null}
       </div>
     </div>
   );

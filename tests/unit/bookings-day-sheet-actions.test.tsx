@@ -2,7 +2,7 @@
 /**
  * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every
  * booking card gets Edit booking + Remove booking. Remove confirms in the
- * PortalDialog shape (destructive red primary, "Keep" secondary) and refuses
+ * PortalDialog shape (destructive red primary, header close action) and refuses
  * outright for an in-house active tenancy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -138,7 +138,7 @@ describe("BookingsDayPage — card actions", () => {
 
     const dialog = document.querySelector('[data-attr="bookings-day-delete-confirm"]') as HTMLElement;
     expect(dialog).not.toBeNull();
-    expect(dialog.textContent).toContain("Keep");
+    expect(dialog.querySelector('button[aria-label="Close"]')).not.toBeNull();
     expect(dialog.textContent).toContain("Remove");
 
     const primary = document.querySelector('[data-attr="bookings-day-delete-confirm-primary"]') as HTMLElement;
@@ -146,7 +146,7 @@ describe("BookingsDayPage — card actions", () => {
     await vi.waitFor(() => expect(onRemoveBlock).toHaveBeenCalledWith("block-1"));
   });
 
-  it("Keep dismisses the confirm dialog without removing", () => {
+  it("Header close dismisses the confirm dialog without removing", () => {
     const onRemoveBlock = vi.fn();
     const futureHold: PropertyBookingEntry = { ...hold, start: "2026-10-01", end: "2026-10-05" };
     render(
@@ -166,7 +166,8 @@ describe("BookingsDayPage — card actions", () => {
     const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Remove booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
-    const keepButton = [...document.querySelectorAll("button")].find((b) => b.textContent === "Keep")!;
+    const confirm = document.querySelector('[data-attr="bookings-day-delete-confirm"]')!;
+    const keepButton = confirm.querySelector('button[aria-label="Close"]')!;
     fireEvent.click(keepButton);
     expect(onRemoveBlock).not.toHaveBeenCalled();
     expect(document.querySelector('[data-attr="bookings-day-delete-confirm"]')).toBeNull();

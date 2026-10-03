@@ -58,7 +58,8 @@ export function ConfirmDeleteModal({
       title={title}
       tone={tone === "danger" ? "danger" : "default"}
       dismissBlocked={busy}
-      secondaryAction={{ label: "Cancel", onClick: onClose, disabled: busy }}
+      previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
+      preview={<div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>}
       primaryAction={{
         label: busy ? busyLabel : confirmLabel,
         onClick: onConfirm,

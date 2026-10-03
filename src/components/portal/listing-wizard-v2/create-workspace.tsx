@@ -517,7 +517,7 @@ export function CreateWorkspace({
         footer={
           <>
             <div className="flex items-center gap-2.5">
-              <button type="button" disabled className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45">
+              <button type="button" hidden disabled className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45">
                 Back
               </button>
             </div>
@@ -529,8 +529,7 @@ export function CreateWorkspace({
               data-attr="import-upload-continue"
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
             >
-              <span className="sm:hidden">Continue</span>
-              <span className="hidden sm:inline">Continue to Basics</span>
+              Continue
             </button>
           </>
         }

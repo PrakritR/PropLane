@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, RotateCcw, Star } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -1341,17 +1342,7 @@ export function ManagerApplicationQuestionsEditorModal({
             build report for why a genuinely separate stored "standard" state
             was scoped out. "Make default format" IS the other explicit ask
             and is real: it pushes this custom config to the workspace. */}
-        {applicationFormSource === "custom" ? (
-          <button
-            type="button"
-            className="mt-1.5 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60"
-            disabled={makingDefault}
-            data-attr="application-form-make-default"
-            onClick={() => void makeDefaultFormat()}
-          >
-            {makingDefault ? "Making default…" : "Make default format"}
-          </button>
-        ) : null}
+
       </div>
     ) : null;
 
@@ -1564,7 +1555,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 a brand-new ("add") application and an existing one. Either
                 way, picking a file only STAGES the parse (`importPdf`); it
                 is never persisted until the footer commit. */}
-            <ImportFileStrip
+            {isTemplateEditor && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
               chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
               accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -1581,7 +1572,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 }
               }}
               onReread={() => {}}
-            />
+            /> : null}
             {/* F004: a freshly parsed import waits here — nothing above or
                 below has changed yet. "Apply changes" is the only thing that
                 writes it in; "Discard" drops it and leaves the template
@@ -1733,9 +1724,12 @@ export function ManagerApplicationQuestionsEditorModal({
             <StepHeading
               title="Form"
               action={
-                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
-                  {restoreLabel}
-                </button>
+                <div className="flex items-center gap-2">
+                  <PortalIconAction ring icon={RotateCcw} label={restoreLabel} onClick={restoreDefaults} />
+                  {applicationFormSource === "custom" ? (
+                    <PortalIconAction ring icon={Star} label={makingDefault ? "Making default…" : "Make default format"} disabled={makingDefault} data-attr="application-form-make-default" onClick={() => void makeDefaultFormat()} />
+                  ) : null}
+                </div>
               }
             />
             {applicationFormSourcePicker}

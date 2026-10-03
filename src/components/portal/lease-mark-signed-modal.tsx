@@ -87,9 +87,7 @@ export function LeaseMarkSignedModal({
       dataAttr="lease-mark-signed-modal"
       footer={
         <ModalFooter>
-          <Button type="button" variant="outline" disabled={busy} onClick={onClose} data-attr="lease-mark-signed-cancel">
-            Cancel
-          </Button>
+
           <Button
             type="button"
             variant="primary"

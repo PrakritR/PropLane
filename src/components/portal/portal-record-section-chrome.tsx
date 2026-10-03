@@ -9,15 +9,16 @@ import {
 } from "@/components/portal/portal-property-section-list";
 import { PortalRecordSectionPicker } from "@/components/portal/portal-record-section-picker";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { RecordSections } from "@/lib/portals/record-sections";
 
 /**
  * A record's own header icons (Record payment · Send reminder · Edit ·
  * Delete, …) — published into the title row's icon slot
  * (`PortalRecordDetailPage iconTitleActions` + `PortalRecordActions`).
- * Hidden below `lg`, same as before (PLAN-0920-1058); PLAN-0921-1029 removes
- * the phone's sticky action bar that used to stand in for them below `lg`
- * without replacing it — a record page has no phone toolbar or footer at all.
+ * The same measured row stays in the title on phones; secondary actions fold
+ * into the anchored menu while the primary stays at the right edge.
  */
 export function PortalRecordHeaderIconActions({
   actions,
@@ -28,20 +29,28 @@ export function PortalRecordHeaderIconActions({
 }) {
   if (actions.length === 0) return null;
   return (
-    <span className="hidden items-center gap-1.5 lg:flex">
-      {actions.map((action, index) => (
-        <PortalIconAction
-          key={action.id}
+    <PortalAdaptiveActionRow
+      align="end"
+      gapPx={6}
+      actions={actions.map((action, index) => ({
+        id: action.id,
+        tone: index === 0 && action.tone !== "danger" ? "primary" : action.tone,
+        node: <PortalIconAction
           ring
-          ringPrimary={index === 0}
+          ringPrimary={index === 0 && action.tone !== "danger"}
           tone={action.tone}
           icon={action.icon}
           label={action.label}
           data-attr={`record-header-action-${action.id}`}
           onClick={() => onAction?.(action.id)}
-        />
-      ))}
-    </span>
+        />,
+        menuItem: <DropdownMenuItem
+          className={action.tone === "danger" ? "text-red-600" : undefined}
+          data-attr={`record-header-action-${action.id}`}
+          onSelect={() => onAction?.(action.id)}
+        >{action.label}</DropdownMenuItem>,
+      }))}
+    />
   );
 }
 
@@ -142,7 +151,7 @@ function PortalRecordSectionChromeFromRegistry({
         <div className="px-0 pt-3 lg:hidden">
           <PortalRecordSectionPicker groups={sections.groups} recordId={recordId} activeId={activeId} ariaLabel={ariaLabel} />
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <div className="portal-record-content flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
     </div>
   );

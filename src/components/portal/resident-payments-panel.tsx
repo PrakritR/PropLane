@@ -1,4 +1,6 @@
 "use client";
+
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { recordDelightMoment } from "@/lib/native/app-review";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -1414,9 +1416,7 @@ export function ResidentPaymentsPanel({
       panelClassName="max-w-md"
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" disabled={rentReportingBusy} onClick={() => setRentReportingConsentOpen(false)}>
-            Not now
-          </Button>
+          
           <Button
             type="button"
             variant="primary"
@@ -1460,6 +1460,9 @@ export function ResidentPaymentsPanel({
         open
         onClose={closePayModal}
         title="Pay charges"
+        contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
+        previewLabel="Payment preview"
+        preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: charge.balanceLabel })), { label: "Amount due", value: confirmTotalLabel }]} />}
         primaryAction={{
           label: `Pay ${confirmTotalLabel}`,
           onClick: () => void continuePayModal(),
@@ -1496,6 +1499,9 @@ export function ResidentPaymentsPanel({
       open={payConfirm !== null && payModalStep !== "select"}
       onClose={closePayModal}
       title="Pay charges"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
+      previewLabel="Payment preview"
+      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: charge.balanceLabel })), { label: "Amount due", value: confirmTotalLabel }]} />}
       scrollableContent
       panelClassName={payModalCheckoutReady ? MODAL_LARGE_PANEL_CLASS : "max-w-lg"}
     >

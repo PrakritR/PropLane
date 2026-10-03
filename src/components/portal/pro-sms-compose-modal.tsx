@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -252,6 +254,9 @@ export function ManagerSmsComposeModal({
     <Modal
       open={open}
       title="New message"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: withPhone.filter(person => selectedPeople.includes(personKey(person))).map(person => person.name).join(", ") || "Not selected" }]} />}
+      previewLabel="SMS preview"
+      preview={<PopupMessagePreview body={body} recipient={withPhone.filter(person => selectedPeople.includes(personKey(person))).map(person => person.name).join(", ")} channel="SMS" />}
       onClose={onClose}
       footer={
         <ModalFooter>

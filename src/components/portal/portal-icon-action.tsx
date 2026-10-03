@@ -70,8 +70,8 @@ export const PortalIconAction = forwardRef<
         active && "bg-accent text-primary",
         ring &&
           (ringPrimary
-            ? "!size-9 rounded-full border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] hover:bg-[var(--btn-primary)] active:scale-95"
-            : "!size-9 rounded-full border border-border bg-card hover:bg-accent/60"),
+            ? "!size-11 rounded-full md:!size-9 border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] hover:bg-[var(--btn-primary)] active:scale-95"
+            : "!size-11 rounded-full md:!size-9 border border-border bg-card hover:bg-accent/60"),
         className,
       )}
       {...rest}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CreditCard, Landmark } from "lucide-react";
+import { ConfirmRows } from "@/components/portal/portal-dialog";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -189,6 +190,9 @@ export function PayoutWithdrawSheet({
       title="Withdraw"
       onClose={onClose}
       panelClassName="max-w-md"
+      contextPanel={<ConfirmRows rows={[{ label: "Available", value: formatMoney(availableCents, currency) }]} />}
+      previewLabel="Withdrawal preview"
+      preview={<ConfirmRows rows={[{ label: "Amount", value: formatMoney(amountCents, currency) }, { label: "Method", value: method === "instant" ? "Instant" : "Standard" }, { label: "Fee", value: formatMoney(previewFeeCents, currency) }, { label: "Bank receives", value: formatMoney(netCents, currency) }]} />}
       footer={
         <ModalFooter>
           {step === "amount" ? (

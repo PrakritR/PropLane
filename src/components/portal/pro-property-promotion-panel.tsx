@@ -470,7 +470,7 @@ export function ManagerPropertyPromotionPanel({
       return;
     }
 
-    const base = draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts);
+    const base = draft;
     const { propertyLabel: label } = promotionTextIdentityFromDraft(base);
     const entryTitle = nextPromotionAssetDefaultTitle(assets, "text");
     setGeneratingTextId("__new__");

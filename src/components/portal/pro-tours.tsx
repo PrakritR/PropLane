@@ -14,6 +14,7 @@ import { ScheduleTourSimpleModal } from "@/components/portal/schedule-tour-simpl
 import { ManagerToursGroupedTable } from "@/components/portal/pro-tours-grouped-table";
 import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import { Button } from "@/components/ui/button";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
@@ -1490,25 +1491,16 @@ export function ManagerTours({
   const modals = (
     <>
       {deleteConfirm && deleteConfirmRow ? (
-        <Modal
+        <PortalDialog
           open
           title={deleteConfirm.length === 1 ? "Delete tour" : `Delete ${deleteConfirm.length} tours`}
-          onClose={() => {
-            if (deleteBusy) return;
-            setDeleteConfirm(null);
-          }}
-          footer={
-            <ModalFooter>
-              <Button type="button" variant="outline" disabled={deleteBusy} onClick={() => setDeleteConfirm(null)}>
-                Keep {deleteConfirm.length === 1 ? "tour" : "tours"}
-              </Button>
-              <Button
-                type="button"
-                variant="danger"
-                data-attr="tours-delete-confirm"
-                disabled={deleteBusy}
-                onClick={() => submitDeleteConfirm()}
-              >
+          tone="danger"
+          dismissBlocked={deleteBusy}
+          onClose={() => { if (!deleteBusy) setDeleteConfirm(null); }}
+          previewLabel="What gets removed"
+          preview={<div className="divide-y divide-border rounded-xl border border-border bg-card px-4">{deleteConfirm.map((row) => <div key={row.id} className="py-4"><p className="font-semibold">{row.guestName}</p><p className="text-sm">{row.propertyLabel}</p><p className="text-sm">{row.whenLabel}</p></div>)}</div>}
+          primaryAction={{ label: deleteBusy ? "Deleting…" : deleteConfirm.length === 1 ? "Delete tour" : "Delete tours", onClick: () => submitDeleteConfirm(), disabled: deleteBusy, loading: deleteBusy, dataAttr: "tours-delete-confirm" }}
+        >
                 {deleteBusy ? "Deleting…" : deleteConfirm.length === 1 ? "Delete tour" : "Delete tours"}
               </Button>
             </ModalFooter>
@@ -1519,7 +1511,7 @@ export function ManagerTours({
               ? `Delete ${deleteConfirmRow.guestName}'s tour on ${deleteConfirmRow.whenLabel}? It comes off Tours and the calendar. This cannot be undone.`
               : `Delete these ${deleteConfirm.length} tours? They come off Tours and the calendar. This cannot be undone.`}
           </p>
-        </Modal>
+        </PortalDialog>
       ) : null}
       {rescheduleTimePicker ? (
         <Modal

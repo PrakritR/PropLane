@@ -39,7 +39,7 @@ function readSource(relPath: string): string {
 }
 
 describe("PortalDialog footer shape", () => {
-  it("renders exactly one filled primary and one text secondary", () => {
+  it("renders one primary and dismisses through the header", () => {
     mockDesktopMatchMedia();
     render(
       <PortalDialog
@@ -51,16 +51,16 @@ describe("PortalDialog footer shape", () => {
         <p>Body</p>
       </PortalDialog>,
     );
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", { name: "Record payment" });
     const buttons = Array.from(dialog.querySelectorAll("button")).filter(
       (b) => b.getAttribute("aria-label") !== "Close",
     );
     // Exactly the secondary (default "Cancel") and the primary — never two commit buttons.
-    expect(buttons.map((b) => b.textContent)).toEqual(["Cancel", "Record $1,200"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Record $1,200"]);
     const primary = screen.getByText("Record $1,200").closest("button")!;
-    const secondary = screen.getByText("Cancel").closest("button")!;
+    expect(screen.queryByText("Cancel")).toBeNull();
     expect(primary.className).toContain("text-white");
-    expect(secondary.className).not.toContain("text-white");
+
   });
 
   it("never renders two filled buttons — a caller cannot add a second primary", () => {
@@ -154,7 +154,7 @@ describe("PortalDialog header", () => {
     expect(strip).toBeTruthy();
     expect(strip.textContent?.trim()).toBe("");
     const panel = screen.getByRole("dialog");
-    expect(panel.className).toContain("max-w-[720px]");
+    expect(panel.className).toContain("!max-w-[1480px]");
   });
 
   it("shows a back arrow only when a step supplies one", () => {
@@ -175,7 +175,7 @@ describe("PortalDialog header", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it("never shows the 'Ask PropLane' chip — that lives in the top bar only", () => {
+  it("shows Ask PropLane when authenticated assistant context is available", () => {
     mockDesktopMatchMedia();
     render(
       <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName="Test Manager">
@@ -189,7 +189,7 @@ describe("PortalDialog header", () => {
         </PortalDialog>
       </PortalAssistantConfigProvider>,
     );
-    expect(screen.queryByText("Ask PropLane")).toBeNull();
+    expect(screen.getByRole("button", { name: /Ask PropLane/i })).toBeTruthy();
   });
 });
 

@@ -103,11 +103,12 @@ export function WorkspaceSwitcher({
     variant === "mobile" ? (
       <button
         type="button"
-        className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-lg px-1 text-left text-lg font-semibold tracking-[-0.02em] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-lg px-1 text-left text-base font-semibold tracking-[-0.02em] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         aria-label={`Switch workspace: ${name}`}
         disabled={ctx.loading}
         data-attr="workspace-switcher"
       >
+        {avatar}
         {ctx.loading ? (
           <span
             className="inline-block h-[1.1em] w-28 animate-pulse rounded-full bg-accent/60 motion-reduce:animate-none"

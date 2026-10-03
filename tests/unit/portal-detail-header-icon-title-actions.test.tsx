@@ -153,23 +153,34 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
 });
 
 describe("listed Preview header actions — source", () => {
-  it("ships listed Preview as ringed PortalIconAction view, pen, share, and delete in the title row (PLAN-0920-1058, area 1a)", () => {
+  it("ships the C2-PR14 listed Preview actions through the measured header with real handlers", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
       "utf8",
     );
     const listed = src.slice(src.indexOf("if (bucket === 2 && listingId)"), src.indexOf("if (bucket === 3)"));
-    expect(listed).toContain('label="View public"');
     expect(listed).toContain('label="Edit"');
     expect(listed).toContain('label="Share"');
-    expect(listed).toContain('label="Delete"');
-    expect(listed).toContain("icon={Eye}");
+    expect(listed).toContain('label="Unlist"');
+    expect(listed).not.toContain('label="View public"');
+    expect(listed).not.toContain('label="Delete"');
     expect(listed).toContain("icon={Pencil}");
     expect(listed).toContain("icon={Share2}");
-    expect(listed).toContain("icon={Trash2}");
+    expect(listed).toContain("icon={CircleOff}");
+    expect(listed).toContain('tone="danger"');
+    expect(listed).toContain("if (canEditAction)");
+    expect(listed).toContain("openFullListingEditor()");
+    expect(listed).toContain("onSendToProspect?.(listingId)");
+    expect(listed).toContain('setPendingDestructiveAction("unlist")');
+    expect(listed).toContain("if (canDuplicateAction) actions.push(duplicateFooterAction())");
+    const duplicate = src.slice(src.indexOf("const duplicateFooterAction"), src.indexOf("const duplicateFooterAction") + 650);
+    expect(duplicate).toContain("icon={Copy}");
+    expect(duplicate).toContain("disabled={duplicateBusy}");
+    expect(duplicate).toContain("runDuplicateProperty()");
+    expect(src).toContain('<PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />');
     // Every ringed header action goes through PortalIconAction, never a
     // hand-rolled icon-only Button — the record page's own ring styling
-    // (40px circle, first one filled) lives in that one component.
+    // lives in that one component; the adaptive row keeps the primary last.
     expect(listed).toContain("<PortalIconAction");
     expect(listed).not.toMatch(/<Button[^>]*aria-label="(View|Edit|Send|Unlist)"/);
     expect(src).toContain('sourceBucket === 2 && (detailTabProp ?? "preview") === "preview"');

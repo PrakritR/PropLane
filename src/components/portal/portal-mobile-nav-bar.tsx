@@ -3,7 +3,7 @@
 import { Settings, User, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
@@ -64,6 +64,7 @@ export function PortalMobileNavBar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const searchParams = useSearchParams();
   const back = useMemo(
     () => resolvePortalMobileBackTarget(pathname, definition, searchParams),
@@ -98,7 +99,7 @@ export function PortalMobileNavBar({
   return (
     <div
       ref={barRef}
-      className="portal-mobile-nav-bar relative mb-0 flex min-h-11 w-full items-center justify-between gap-2 lg:mb-3 lg:hidden [html[data-native]_&]:mb-0"
+      className="portal-mobile-nav-bar relative mb-0 flex h-14 min-h-14 w-full items-center justify-between gap-2 lg:mb-3 lg:hidden [html[data-native]_&]:mb-0"
     >
       {/* Brand mark on tablet-only. */}
       <Link
@@ -132,7 +133,7 @@ export function PortalMobileNavBar({
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <DropdownMenu>
+        <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
           <DropdownMenuTrigger
             data-attr="portal-mobile-profile-menu"
             aria-label="Account menu"
@@ -190,7 +191,7 @@ export function PortalMobileNavBar({
 
             <DropdownMenuSeparator />
 
-            <PortalSignOutButton
+            <PortalSignOutButton onRequestConfirm={() => setProfileMenuOpen(false)}
               dataAttr="portal-mobile-profile-sign-out"
               className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60"
             />

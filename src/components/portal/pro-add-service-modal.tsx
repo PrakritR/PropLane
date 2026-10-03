@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -567,6 +569,7 @@ export function ManagerAddServiceModal({
         });
       }
       showToast(selectedResident ? `${taskTitle} created for ${selectedResident.residentName}.` : `${taskTitle} created.`);
+      workspaceDraft.clear();
       onSubmitted();
       await finishWithAssignment({
         kind: "add-on",
@@ -580,6 +583,13 @@ export function ManagerAddServiceModal({
       setBusy(false);
     }
   };
+
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `service`,
+    actor: managerUserId,
+    open, value: { propertyId, roomChoice, residentEmail, addTask, assignee, requestPrice, requestDeposit, photos, residentCharge, stepIdx, form },
+    restore: (saved) => { setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setResidentEmail(saved.residentEmail); setAddTask(saved.addTask); setAssignee(saved.assignee); setRequestPrice(saved.requestPrice); setRequestDeposit(saved.requestDeposit); setPhotos(saved.photos); setResidentCharge(saved.residentCharge); setStepIdx(saved.stepIdx); setForm(saved.form); },
+  });
 
   if (!open) return null;
 
@@ -619,7 +629,7 @@ export function ManagerAddServiceModal({
         setStepError(null);
         setStepIdx(index);
       }}
-      onClose={onClose}
+      onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
       dirty={Boolean(propertyId || roomChoice || residentEmail || addTask || form.description.trim() || photos.length)}
       discardTitle="Discard this service?"
       assistantContext="Log a service. Assignment messages send when you assign someone."

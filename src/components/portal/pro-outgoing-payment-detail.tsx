@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -310,6 +312,9 @@ export function ManagerOutgoingPaymentDetail({
         open={payConfirmOpen}
         onClose={() => setPayConfirmOpen(false)}
         title="Confirm vendor payment"
+        contextPanel={<PopupRecordPreview rows={[{ label: "Vendor", value: row.payeeLabel }]} />}
+        previewLabel="Payment preview"
+        preview={<PopupRecordPreview rows={[{ label: "Payee", value: row.payeeLabel }, { label: "Amount", value: row.amountLabel }, { label: "Method", value: managerVendorPayMethodLabel(paymentMethod) }]} />}
         footer={
           <ModalFooter>
             <Button

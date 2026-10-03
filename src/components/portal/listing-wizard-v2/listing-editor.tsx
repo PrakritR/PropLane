@@ -719,20 +719,20 @@ function StepBasics({
             />
           </FactRow>
           <FactRow label={<>Home size {mark("houseSizeSqft")}</>}>
-            <span className="flex items-center gap-1.5">
+            <span className="relative flex w-36 items-center">
               <Input
                 inputMode="numeric"
                 value={sub.houseSizeSqft ?? ""}
                 placeholder="1,450"
                 aria-label="Home size in square feet"
                 data-attr="listing-v2-home-size"
-                className="w-24 text-right"
+                className="w-full pr-12 text-right"
                 onChange={(e) => {
                   const n = Number(e.target.value.replace(/[^0-9]/g, ""));
                   patch({ houseSizeSqft: n > 0 ? n : undefined });
                 }}
               />
-              <span className="whitespace-nowrap text-[13px] font-semibold text-foreground/70">sq ft</span>
+              <span className="pointer-events-none absolute right-3 whitespace-nowrap text-[13px] font-semibold text-foreground/70">sq ft</span>
             </span>
           </FactRow>
           <FactRow label={<>Built {mark("yearBuilt")}</>}>
@@ -742,7 +742,7 @@ function StepBasics({
               placeholder="1962"
               aria-label="Year built"
               data-attr="listing-v2-year-built"
-              className="w-20 text-right"
+              className="w-36 text-right"
               onChange={(e) => {
                 const n = Number(e.target.value.replace(/[^0-9]/g, "").slice(0, 4));
                 patch({ yearBuilt: n > 0 ? n : undefined });
@@ -3124,6 +3124,7 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
+              hidden={prevStep == null && !leadingStep}
               disabled={busy || (prevStep == null && !leadingStep)}
               onClick={() => {
                 if (prevStep != null) goTo(prevStep);
@@ -3144,7 +3145,7 @@ export function ListingEditorV2({
           </span>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {nextStep != null ? (
-              <Button variant="outline" disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
+              <Button disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
                 Continue
               </Button>
             ) : (

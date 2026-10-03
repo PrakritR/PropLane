@@ -423,6 +423,8 @@ export function DocumentsDownloadAllModal({
     <Modal
       open={open}
       title="Download all"
+      previewLabel="Files to download"
+      preview={<ul className="divide-y divide-border rounded-xl border border-border bg-card px-4">{sections.flatMap((section) => section.items).filter((item) => selectedIds.has(item.id)).map((item) => <li key={item.id} className="py-3 text-sm">{item.label}</li>)}</ul>}
       onClose={onClose}
       panelClassName="max-w-lg"
       footer={

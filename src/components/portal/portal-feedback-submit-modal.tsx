@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
@@ -71,14 +73,17 @@ export function PortalFeedbackSubmitModal({
     <Modal
       open={open}
       title="Send feedback"
+      contextPanel={<PopupRecordPreview rows={[{ label: "From", value: reporterName }, { label: "Type", value: form.kind }]} />}
+      previewLabel="Feedback preview"
+      preview={<PopupMessagePreview subject={form.kind} body={form.message} recipient="PropLane support" />}
       onClose={handleClose}
       panelClassName="max-w-lg"
       description={form.submitted ? undefined : "Share an idea, ask a question, or report something broken."}
-      footer={
+      footer={form.submitted ? undefined : (
         <ModalFooter>
           <PortalFeedbackFormFooterButton form={form} onDone={handleClose} />
         </ModalFooter>
-      }
+      )}
     >
       <PortalFeedbackFormBody form={form} />
     </Modal>

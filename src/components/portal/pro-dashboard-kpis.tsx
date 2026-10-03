@@ -121,7 +121,7 @@ export function KpiCard({
     <Link
       href={href}
       data-attr={dataAttr}
-      className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      className="flex h-full min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
       <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
         {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
@@ -187,7 +187,7 @@ function PanelShell({
   dataAttr: string;
 }) {
   return (
-    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
+    <section className="flex h-full min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
         <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
         {count != null && count > 0 ? (
@@ -233,7 +233,7 @@ export function AttentionPanel({
               </span>
               <Link
                 href={row.href}
-                className="inline-flex min-h-9 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
               >
                 {row.actionLabel}
               </Link>

@@ -376,7 +376,7 @@ const CALENDAR_HEADER_CELL =
 const CALENDAR_WEEK_DAY_STRIP =
   "portal-calendar-week-days-header sticky z-[14] top-[var(--portal-calendar-header-top,0px)] border-b border-border/60 bg-card shadow-sm";
 const CALENDAR_TIME_CELL =
-  "whitespace-nowrap text-[10px] font-semibold tabular-nums text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
+  "whitespace-normal leading-tight text-[10px] font-semibold tabular-nums md:whitespace-nowrap text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
 const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-calendar-grid";
 // Open availability is the quiet layer of the week — a faint tint with a soft
 // ring, the way Google Calendar draws free time — so the booked tours on top
@@ -436,10 +436,10 @@ const CALENDAR_CO_MANAGER_SLOT =
   "border-violet-300 bg-violet-100 text-violet-950 ring-1 ring-inset ring-violet-300/80 [html[data-theme=dark]_&]:border-violet-400/40 [html[data-theme=dark]_&]:bg-violet-500/15 [html[data-theme=dark]_&]:text-violet-100";
 /** Toolbar default-hours pickers — same field-select chrome as property forms (rounded-2xl, portaled menu). */
 const CALENDAR_TIME_FIELD_SELECT_TRIGGER =
-  "min-h-9 rounded-2xl border border-border bg-auth-input-bg px-3 text-xs font-semibold text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-primary/25 focus:border-primary/40 focus:ring-4 focus:ring-primary/10 sm:min-h-10 sm:text-sm";
+  "min-h-11 rounded-2xl border border-border bg-auth-input-bg px-3 text-xs font-semibold text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-primary/25 focus:border-primary/40 focus:ring-4 focus:ring-primary/10 sm:min-h-10 sm:text-sm";
 /** Compact tour-calendar toolbar — fits beside week nav on phones. */
 const CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER =
-  "h-6 min-h-6 min-w-0 rounded-md border border-border bg-auth-input-bg px-1 text-[8px] font-semibold leading-none text-foreground shadow-none hover:border-primary/25 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 max-lg:[&_svg]:h-2.5 max-lg:[&_svg]:w-2.5 max-lg:[&_svg]:opacity-70 sm:h-8 sm:min-h-8 sm:rounded-lg sm:px-2.5 sm:text-xs lg:[&_svg]:h-3.5 lg:[&_svg]:w-3.5";
+  "h-11 min-h-11 min-w-0 rounded-md border border-border bg-auth-input-bg px-1 text-[8px] font-semibold leading-none text-foreground shadow-none hover:border-primary/25 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 max-lg:[&_svg]:h-2.5 max-lg:[&_svg]:w-2.5 max-lg:[&_svg]:opacity-70 sm:h-8 sm:min-h-8 sm:rounded-lg sm:px-2.5 sm:text-xs lg:[&_svg]:h-3.5 lg:[&_svg]:w-3.5";
 const CALENDAR_COMPACT_TOOLBAR_TEXT = "text-[10px] font-semibold leading-none";
 const CALENDAR_COMPACT_TIME_SELECT_WRAP =
   // `flex-1` so the pair still fills a phone toolbar; the cap stops them from
@@ -3386,7 +3386,7 @@ export function PortalCalendarPanels({
       return (
         <div
           className={cn(`grid border-b border-border/60 ${CALENDAR_GRID_GAP}`)}
-          style={{ gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))` }}
+          style={{ gridTemplateColumns: `${dates.length === 7 ? "var(--portal-calendar-time-gutter, 64px)" : "64px"} repeat(${dates.length}, minmax(0, 1fr))` }}
           data-attr="calendar-all-day-row"
         >
           <div className={`flex items-center justify-end bg-card px-1.5 text-[9px] font-semibold uppercase tracking-wide ${CALENDAR_TIME_CELL}`}>
@@ -3649,7 +3649,7 @@ export function PortalCalendarPanels({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
+                  className="h-11 w-11 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
                   onClick={() => shiftAnchor(-1)}
                   aria-label={`Previous ${viewMode}`}
                 >
@@ -3658,7 +3658,7 @@ export function PortalCalendarPanels({
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-7 shrink-0 rounded-full px-2 text-xs"
+                  className="h-11 shrink-0 rounded-full px-2 text-xs"
                   onClick={jumpToToday}
                   data-attr="calendar-today"
                 >
@@ -3678,7 +3678,7 @@ export function PortalCalendarPanels({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
+                  className="h-11 w-11 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
                   onClick={() => shiftAnchor(1)}
                   aria-label={`Next ${viewMode}`}
                 >
@@ -3712,7 +3712,7 @@ export function PortalCalendarPanels({
               </div>
             </div>
             {hideViewModeControl ? null : (
-              <div className="mt-1.5 flex justify-center sm:hidden" data-attr="calendar-view-mode-mobile">
+              <div className="mt-1.5 flex justify-center sm:hidden [&_button]:min-h-11" data-attr="calendar-view-mode-mobile">
                 <PortalSegmentedControl<CalendarMode>
                   options={[
                     { id: "day", label: "Day" },
@@ -3818,7 +3818,7 @@ export function PortalCalendarPanels({
                   <div className={bareSurface ? "min-w-0" : "min-w-0 overflow-hidden rounded-2xl border border-border bg-card"}>
                     <div
                       className={cn(
-                        "grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] gap-px bg-accent/40 text-[10px]",
+                        "grid w-full min-w-0 grid-cols-[44px_repeat(7,minmax(0,1fr))] md:grid-cols-[64px_repeat(7,minmax(0,1fr))] gap-px bg-accent/40 text-[10px]",
                         CALENDAR_WEEK_DAY_STRIP,
                       )}
                     >
@@ -3865,15 +3865,8 @@ export function PortalCalendarPanels({
                     {renderAllDayRow(activeBlockDates)}
 
                     <div className="min-w-0 overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
-                      {/*
-                        64px, not 44px (AXI-161). `CALENDAR_TIME_CELL` is
-                        `whitespace-nowrap`, so a label that does not fit does not
-                        wrap — it OVERFLOWS into the first day column. "11:30 am" at
-                        11px is about 47px of text, and 44px minus its own padding
-                        left roughly 28px, which is where the "overlap with am"
-                        came from. Every half-hour past 10 o'clock collided.
-                      */}
-                      <div className={`grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
+                      {/* Phone labels wrap inside the 44px gutter; desktop keeps 64px. */}
+                      <div className={`grid w-full min-w-0 grid-cols-[44px_repeat(7,minmax(0,1fr))] md:grid-cols-[64px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
                         {visibleSlotIndices.map((slotIdx) => (
                           <Fragment key={slotIdx}>
                             <div className={`flex min-h-8 items-center bg-card px-1.5 sm:min-h-9 sm:px-2 ${CALENDAR_TIME_CELL}`}>

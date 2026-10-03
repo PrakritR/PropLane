@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
@@ -735,6 +737,12 @@ export function PropertyLeaseFormModal({
     </div>
   ) : null;
 
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `property-lease:${propertyId ?? sub.address ?? "property"}:${mode}:${template?.id ?? "new"}`,
+    open, value: { label, kind, documentMode, draft, applicationLeaseTerms, linkedGuarantorTemplateId, htmlOverride, sectionsUploadFileName, importSource, importSourceReviewed, transcribedUnreadableSourcePages, pendingLeaseImport, stepIdx, addModeLeaseTemplateId },
+    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setDocumentMode(saved.documentMode); setDraft(saved.draft); setApplicationLeaseTerms(saved.applicationLeaseTerms); setLinkedGuarantorTemplateId(saved.linkedGuarantorTemplateId); setHtmlOverride(saved.htmlOverride); setSectionsUploadFileName(saved.sectionsUploadFileName); setImportSource(saved.importSource); setImportSourceReviewed(saved.importSourceReviewed); setTranscribedUnreadableSourcePages(saved.transcribedUnreadableSourcePages); setPendingLeaseImport(saved.pendingLeaseImport); setStepIdx(saved.stepIdx); setAddModeLeaseTemplateId(saved.addModeLeaseTemplateId); },
+  });
+
   if (!open) return null;
 
   return (
@@ -743,7 +751,7 @@ export function PropertyLeaseFormModal({
       steps={workspaceSteps}
       current={current}
       onJump={setStepIdx}
-      onClose={dismiss}
+      onClose={() => { workspaceDraft.preserve(); (dismiss)(); }}
       dirty={dirty}
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}

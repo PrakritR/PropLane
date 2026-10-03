@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmRows } from "@/components/portal/portal-dialog";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
@@ -81,12 +82,13 @@ export function BookingsEditDatesSheet({
       onClose={onClose}
       title="Edit dates"
       dataAttr="bookings-edit-dates-sheet"
+      dismissBlocked={busy}
+      contextPanel={<ConfirmRows rows={[{ label: "Property", value: entry.propertyLabel }, { label: "Room", value: entry.roomLabel }, { label: "Current move in", value: entry.start }, { label: "Current move out", value: addDaysToDateKey(entry.end, 1) }]} />}
+      previewLabel="Booking preview"
+      preview={<ConfirmRows rows={[{ label: "Move in", value: checkIn || "Not set" }, { label: "Move out", value: checkOut || "Not set" }]} />}
       footer={
         <ModalFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => void save()} disabled={!canSave} data-attr="bookings-edit-dates-save">
+          <Button type="button" onClick={save} disabled={!canSave} data-attr="bookings-edit-dates-save">
             Save dates
           </Button>
         </ModalFooter>

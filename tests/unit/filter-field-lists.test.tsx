@@ -127,13 +127,13 @@ function openMobileFilterDropdownHarness({ optionCount = 8 }: { optionCount?: nu
 
 function expectOpenMobileFilterShell() {
   expect(
-    document.querySelector('[data-slot="vaul-bottom-sheet"][data-state="open"]'),
+    document.querySelector('[data-slot="portal-filter-dropdown-panel"][data-surface="popover"]'),
   ).toBeTruthy();
 }
 
 function expectMobileFilterShellClosed() {
   expect(
-    document.querySelector('[data-slot="vaul-bottom-sheet"][data-state="open"]'),
+    document.querySelector('[data-slot="portal-filter-dropdown-panel"][data-surface="popover"]'),
   ).toBeNull();
 }
 
@@ -550,7 +550,7 @@ describe("PortalFilterSortSheet — deferred apply on close", () => {
   });
 });
 
-describe("PortalFilterSortSheet — mobile sheet stays open while filtering", () => {
+describe("PortalFilterSortSheet — anchored phone popover stays open while filtering", () => {
   it("stays open after toggling a multi-select option", async () => {
     const options = makeOptions(8);
     installMobilePortalViewport();
@@ -689,7 +689,7 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
     });
   });
 
-  it("portals the property menu into the mobile filter sheet", async () => {
+  it("portals the property menu into the anchored phone filter panel", async () => {
     const options = makeOptions(12);
     installMobilePortalViewport();
     render(
@@ -715,14 +715,15 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
     fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
     fireEvent.click(screen.getByRole("button", { name: /Property/ }));
     const listbox = screen.getByRole("listbox");
-    const sheet = document.querySelector('[data-slot="vaul-bottom-sheet"]');
-    expect(sheet).toBeTruthy();
-    expect(listbox.closest('[data-slot="vaul-bottom-sheet"]')).toBe(sheet);
+    const panel = document.querySelector('[data-slot="portal-filter-dropdown-panel"]');
+    expect(panel).toBeTruthy();
+    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeNull();
+    expect(listbox.closest('[data-slot="portal-filter-dropdown-panel"]')).toBe(panel);
     expect(listbox.closest("body")?.querySelector('[data-field-select-menu]')).toBeTruthy();
     expect(listbox.parentElement?.closest("body > [data-field-select-menu]")).toBeNull();
   });
 
-  it("closes only from the header close control, not from Escape", async () => {
+  it("Escape closes the field menu first, then the anchored panel", async () => {
     installMobilePortalViewport();
     render(
       <PortalFilterSortSheet activeCount={0} onReset={() => {}}>
@@ -741,9 +742,12 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
     );
     fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
     expectOpenMobileFilterShell();
+    fireEvent.click(screen.getByRole("button", { name: /Property/ }));
+    expect(screen.getByRole("listbox")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     expectOpenMobileFilterShell();
-    closeMobileFilterShell();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
       expectMobileFilterShellClosed();
     });
@@ -780,7 +784,7 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
     });
   });
 
-  it("stays open when the dimmed scrim behind the panel is tapped", async () => {
+  it("closes when the outside click-catcher is tapped", async () => {
     installMobilePortalViewport();
     render(
       <PortalFilterSortSheet activeCount={0} onReset={() => {}}>
@@ -799,11 +803,11 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
     );
     fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
     expectOpenMobileFilterShell();
-    const scrim = document.querySelector(".fixed.inset-0.bg-black\\/50");
+    const scrim = document.querySelector('[data-attr="portal-filter-dropdown-backdrop"]');
     expect(scrim).toBeTruthy();
     fireEvent.click(scrim!);
     await waitFor(() => {
-      expectOpenMobileFilterShell();
+      expectMobileFilterShellClosed();
     });
   });
 

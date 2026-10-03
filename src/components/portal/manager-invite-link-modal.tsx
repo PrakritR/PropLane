@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Link2, Trash2 } from "lucide-react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -193,6 +195,9 @@ export function ManagerInviteLinkModal({
     <PortalDialog
       open={open}
       title={isVendor ? "Create a vendor invite link" : "Create an invite link"}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Access", value: isVendor ? "Vendor directory" : "Management" }]} />}
+      previewLabel="Invite preview"
+      preview={<PopupRecordPreview rows={[{ label: "Name", value: label }, { label: "Properties", value: propertyOptions.filter(option => selectedPropIds.includes(option.value)).map(option => option.label).join(", ") || "None" }, { label: "Link", value: mintedUrl || "Created after confirmation" }]} />}
       onClose={() => {
         reset();
         onClose();

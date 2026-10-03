@@ -11,9 +11,8 @@ import {
 /**
  * What the captain's 2026-09-13 screenshots actually showed: a Mac, a mouse, a
  * browser window under 1024px — and a phone bottom sheet with a grabber handle.
- * The surface decision now asks about the POINTER first, so these two cases pin
- * both halves of that: a narrow desktop window keeps the anchored popover, and
- * a touch device still gets the sheet.
+ * The current standard keeps the anchored popover for both narrow desktop
+ * windows and touch devices. Neither path becomes a bottom sheet.
  */
 function stubMedia(matchers: Record<string, boolean>) {
   vi.stubGlobal(
@@ -67,9 +66,10 @@ describe("a mouse in a narrow window keeps the popover", () => {
     expect(panel?.getAttribute("data-surface")).toBe("popover");
   });
 
-  it("gives a touch device the sheet", () => {
+  it("keeps the same anchored popover on a touch device", () => {
     openFilter(A_PHONE);
-    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeNull();
+    expect(document.querySelector('[data-slot="portal-filter-dropdown-panel"]')?.getAttribute("data-surface")).toBe("popover");
   });
 });
 

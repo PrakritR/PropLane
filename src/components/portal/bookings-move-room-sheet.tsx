@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 /**
  * The booking record page's "Move room" header action (PLAN-0920-1058, area
  * 1e) — a focused sheet, not the combined Add-booking/Link-calendars dialog.
@@ -81,13 +83,14 @@ export function BookingsMoveRoomSheet({
       open={open}
       onClose={onClose}
       title="Move room"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Property", value: entry.propertyLabel }, { label: "Current room", value: entry.roomLabel }]} />}
+      previewLabel="Booking preview"
+      preview={<PopupRecordPreview rows={[{ label: "Room", value: roomOptions.find(option => option.value === roomId)?.label }, { label: "Start", value: entry.start }, { label: "End", value: entry.end }]} />}
+      dismissBlocked={busy}
       dataAttr="bookings-move-room-sheet"
       footer={
         <ModalFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => void save()} disabled={!canSave} data-attr="bookings-move-room-save">
+          <Button type="button" onClick={save} disabled={!canSave} data-attr="bookings-move-room-save">
             Move booking
           </Button>
         </ModalFooter>

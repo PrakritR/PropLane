@@ -48,6 +48,7 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
     initialTone,
     initialImages,
     onDirtyChange,
+    onDraftChange,
     submitDataAttr = "promotion-text-generate-submit",
     propertyKey,
     listings,
@@ -60,6 +61,7 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
     initialTone?: string;
     initialImages?: string[];
     onDirtyChange?: (dirty: boolean) => void;
+    onDraftChange?: (draft: PromotionTextGenerateOptions) => void;
     submitDataAttr?: string;
     propertyKey?: string;
     listings?: ManagerPromotionPropertyOption[];
@@ -95,6 +97,10 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  useEffect(() => {
+    onDraftChange?.({ format, tone, extraInstructions, images });
+  }, [format, tone, extraInstructions, images, onDraftChange]);
+
   const generate = () => {
     onGenerate({ format, tone, extraInstructions, images });
   };
@@ -124,8 +130,6 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
     }
   }
 
-  const selected = PROMOTION_TEXT_FORMAT_OPTIONS.find((o) => o.id === format);
-
   return (
     <div className="space-y-4 text-sm">
       {propertyKey !== undefined && onSelectProperty ? (
@@ -153,7 +157,6 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
             </option>
           ))}
         </Select>
-        {selected ? <p className="mt-1.5 text-xs text-muted">{selected.description}</p> : null}
       </div>
       <div>
         <label className="text-xs font-semibold text-muted" htmlFor="promotion-text-tone">

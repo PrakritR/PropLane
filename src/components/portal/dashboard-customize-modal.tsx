@@ -1,5 +1,7 @@
 "use client";
 
+import { RotateCcw } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Modal } from "@/components/ui/modal";
 import {
   MANAGER_DASHBOARD_SECTIONS,
@@ -82,26 +84,7 @@ export function DashboardCustomizeModal({
       open={open}
       onClose={onClose}
       title="Customize dashboard"
-      footer={
-        <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onReset}
-            data-attr="dashboard-customize-reset"
-            className="text-xs font-semibold text-muted hover:text-foreground"
-          >
-            Reset to defaults
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            data-attr="dashboard-customize-done"
-            className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-          >
-            Done
-          </button>
-        </div>
-      }
+      status={<PortalIconAction icon={RotateCcw} label="Reset to defaults" onClick={onReset} data-attr="dashboard-customize-reset" />}
     >
       <p className="text-xs text-muted">
         Choose which sections appear on your dashboard. {visibleCount} of {sections.length} shown. The stat row at the

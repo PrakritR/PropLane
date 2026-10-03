@@ -9,24 +9,40 @@
  * side panel, never as subtext.
  */
 
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Upload, FileText, Image as ImageIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
+import { WizardFieldError } from "./validation";
+import { WorkspaceUploadAction } from "./upload-action";
 
 /* ─────────────────────────── controls ─────────────────────────── */
 
 export const WIZARD_LABEL_CLASS = "mb-1.5 block text-[12.5px] font-bold normal-case tracking-normal text-foreground";
 
 /** The settings-kit single-select, labelled like every other wizard field. */
-export function WizardSelect(props: Parameters<typeof FieldSingleSelect>[0]) {
-  return <FieldSingleSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+export function WizardSelect({ required, ...props }: Parameters<typeof FieldSingleSelect>[0] & { required?: boolean }) {
+  const id = useId();
+  const isRequired = required ?? /\*\s*$/.test(props.label);
+  const label = props.label.replace(/\s*\*\s*$/, "");
+  return <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={isRequired} data-wizard-empty={!props.value}>
+    <FieldSingleSelect {...props} label={label}
+      labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1", props.labelClassName)}
+      wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:border-b max-sm:border-border/60 max-sm:py-2", props.wrapperClassName)}
+      triggerClassName={cn("max-sm:w-auto max-sm:max-w-[60%] max-sm:justify-end max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none", props.triggerClassName)}
+    />
+    <WizardFieldError id={id} />
+  </div>;
 }
 
-/** The settings-kit multi-select, labelled like every other wizard field. */
-export function WizardMultiSelect(props: Parameters<typeof CheckboxMultiSelect>[0]) {
-  return <CheckboxMultiSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+/** Pick-several follows the same label/value row as a single pick on a phone. */
+export function WizardMultiSelect({ required = false, ...props }: Parameters<typeof CheckboxMultiSelect>[0] & { required?: boolean }) {
+  const id = useId();
+  return <div data-wizard-field={id} data-wizard-label={props.label} data-wizard-required={required} data-wizard-empty={props.selected.length === 0} className="max-sm:border-b max-sm:border-border/60 max-sm:py-2 [&>div:first-child]:max-sm:flex [&>div:first-child]:max-sm:min-h-10 [&>div:first-child]:max-sm:items-center [&>div:first-child]:max-sm:gap-3 [&>div:first-child>button]:max-sm:ml-auto [&>div:first-child>button]:max-sm:w-auto [&>div:first-child>button]:max-sm:max-w-[60%] [&>div:first-child>button]:max-sm:border-0 [&>div:first-child>button]:max-sm:bg-transparent [&>div:first-child>button]:max-sm:shadow-none">
+    <CheckboxMultiSelect labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1")} {...props} />
+    <WizardFieldError id={id} />
+  </div>;
 }
 
 /* ─────────────────────────── layout ─────────────────────────── */
@@ -100,14 +116,16 @@ export function WizardField({
   children: ReactNode;
   className?: string;
 }) {
+  const id = useId();
   return (
-    <label className={cn("block", className)}>
+    <label data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className={cn("block", className)}>
       <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
         {label}
-        {required ? <span className="text-red-600">*</span> : null}
+        {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         {mark ? <span className="ml-1 inline-flex font-normal">{mark}</span> : null}
       </span>
       {children}
+      <WizardFieldError id={id} />
     </label>
   );
 }
@@ -212,7 +230,7 @@ export function FileStartStrip({
   title?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
+  void chips;
   const pick = (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -283,47 +301,7 @@ export function FileStartStrip({
       </div>
     );
   }
-  return (
-    <label
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        pick(e.dataTransfer.files);
-      }}
-      data-attr={dataAttr}
-      data-state="blank"
-      className={cn(
-        "mb-5 flex cursor-pointer flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
-        dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)] hover:border-primary/50",
-        disabled && "pointer-events-none opacity-60",
-      )}
-    >
-      {input}
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
-        <Upload className="h-[18px] w-[18px]" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-bold text-foreground">{title}</span>
-        <span className="mt-1 flex flex-wrap gap-1.5">
-          {chips.map((chip) => (
-            <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">
-              {chip}
-            </span>
-          ))}
-        </span>
-      </span>
-      <span className="w-full sm:w-auto">
-        <span className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground sm:w-auto">
-          Choose file
-        </span>
-      </span>
-    </label>
-  );
+  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
 }
 
 export type AttachedDocument = {

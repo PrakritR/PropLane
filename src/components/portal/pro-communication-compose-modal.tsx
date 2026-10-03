@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
@@ -873,6 +875,9 @@ export function ManagerCommunicationComposeModal({
     <PortalDialog
       open={open}
       title="New message"
+      previewLabel="Message preview"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ") || "Not selected" }]} />}
+      preview={<PopupMessagePreview subject={subject} body={body} recipient={flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ")} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       onClose={onClose}
       primaryAction={{
         label: sendLabel,

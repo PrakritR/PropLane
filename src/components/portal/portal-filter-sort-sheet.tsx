@@ -49,13 +49,8 @@ import { usePortalSurface } from "@/components/ui/portal-surface";
 import { cn } from "@/lib/utils";
 
 
-/**
- * The mobile Filter surface (anchored popover vs. Vaul bottom sheet) is chosen ONCE, at the
- * moment the panel opens, and held for that panel's whole life — never re-evaluated on
- * scroll/resize/nested-field-menu-open. The popover only exists for `desktopPresentation
- * === "dropdown"` (the only presentation with an anchored path at all) and only when the
- * trigger is genuinely measurable with real room below it; otherwise fall back to the
- * existing bottom sheet exactly as before.
+/** Phone filters always use anchored popovers, regardless of desktop presentation.
+ * Legacy sizing constants remain exported for compatibility with callers.
  */
 export const PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX = 260;
 export const PORTAL_FILTER_POPOVER_MAX_FIELDS = 4;
@@ -68,19 +63,9 @@ export function resolveMobileFilterPopover(args: {
   hasExtraModalContent: boolean;
   insets: { bottom: number; bottomNav: number };
 }): boolean {
-  const { trigger, desktopPresentation, compactPanel, filterFieldCount, hasExtraModalContent, insets } = args;
-  // `panel` and `inline` keep the sheet — only `dropdown` has an anchored path at all.
-  if (desktopPresentation !== "dropdown") return false;
-  if (!compactPanel) return false;
-  if (filterFieldCount > PORTAL_FILTER_POPOVER_MAX_FIELDS) return false;
-  if (hasExtraModalContent) return false;
-  // An unmeasurable trigger cannot honestly claim there is room below it — fail safe to the sheet.
-  if (!trigger) return false;
-  const rect = trigger.getBoundingClientRect();
-  if (!(rect.width > 0 && rect.height > 0)) return false;
-  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-  const spaceBelow = viewportHeight - rect.bottom - 12 - insets.bottom - insets.bottomNav;
-  return spaceBelow >= PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX;
+  // Every phone filter stays anchored. The positioning helper flips to the
+  // roomier side and caps the scroll area, including near the bottom edge.
+  return ["dropdown", "panel", "inline"].includes(args.desktopPresentation);
 }
 
 function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {
@@ -490,7 +475,7 @@ export function PortalFilterSortSheet({
       : PORTAL_FILTER_PANEL_SIZE_CLASS);
   const panelHeightPx = portalFilterDropdownHeightPx(panelSizeClass);
   const panelWidthPx = portalFilterDropdownWidthPx(panelSizeClass);
-  const dropdownOpen = desktopPresentation === "dropdown" && open && (!isMobile || mobilePopover);
+  const dropdownOpen = open && (isMobile ? mobilePopover : desktopPresentation === "dropdown");
   const { wrapRef, buttonRef, menuRect, portalHost } = useFieldSelectMenu({
     open: dropdownOpen,
     onOpenChange: handleFilterShellOpenChange,
@@ -609,7 +594,7 @@ export function PortalFilterSortSheet({
       <div
         className={cn(
           compactPanel
-            ? "flex min-h-0 flex-col overflow-visible px-3 py-2"
+            ? "flex min-h-0 flex-col overflow-y-auto overscroll-contain px-3 py-2"
             : PORTAL_FILTER_BODY_CLASS,
           !compactPanel && "flex-1",
         )}
@@ -771,7 +756,7 @@ export function PortalFilterSortSheet({
             </div>
           </FilterSheetScrollLockContext.Provider>
         </VaulBottomSheet>
-      ) : desktopPresentation === "panel" ? (
+      ) : !isMobile && desktopPresentation === "panel" ? (
         <Modal
           open={open}
           onClose={close}

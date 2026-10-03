@@ -61,19 +61,19 @@ describe("vendorCatalog record-sections registry entry", () => {
 });
 
 describe("catalog record header icons", () => {
-  it("renders Add to your vendors, Email, Share — Add first — by accessible name", () => {
+  it("renders Email, Share, Add to your vendors — primary last — by accessible name", () => {
     const sections = recordSections("manager", "vendorCatalog", { basePath: "/portal" });
     const onAction = vi.fn();
     render(<PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Add to your vendors", "Email", "Share"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Email", "Share", "Add to your vendors"]);
     fireEvent.click(screen.getByRole("button", { name: "Add to your vendors" }));
     expect(onAction).toHaveBeenCalledWith("add");
     fireEvent.click(screen.getByRole("button", { name: "Share" }));
     expect(onAction).toHaveBeenCalledWith("share");
   });
 
-  it("swaps the first icon to Open when the catalog vendor is already on the roster", () => {
+  it("swaps the primary icon to Open when the catalog vendor is already on the roster", () => {
     // Same swap pro-vendors-panel.tsx applies to catalogSections.headerActions
     // when catalogRosterMatch is set — never mutates the registry's own array.
     const sections = recordSections("manager", "vendorCatalog", { basePath: "/portal" });
@@ -82,7 +82,7 @@ describe("catalog record header icons", () => {
     );
     render(<PortalRecordHeaderIconActions actions={withRosterMatch} onAction={() => {}} />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Open", "Email", "Share"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Email", "Share", "Open"]);
     // The registry's own array is untouched by the panel's derived swap.
     expect(sections.headerActions.map((a) => a.id)).toEqual(["add", "email", "share"]);
   });

@@ -18,10 +18,12 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, Circle, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
+import { WizardFieldError } from "@/components/portal/add-workspace/validation";
+import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
@@ -81,9 +83,8 @@ export function WizardModal({
  * decoration: every step supplies its own, and a step with nothing useful to
  * show does not get one.
  *
- * Under 1180px the panel drops out of the grid; steps render it at the foot of
- * the body instead (see `sidePanel` / `sideBelow`), so a phone loses the column
- * and keeps the content.
+ * Below xl the preview moves under the desktop body. Phones show only fields
+ * (GAP3); their step navigation is one compact picker.
  */
 export function ListingWorkspace({
   title,
@@ -92,6 +93,7 @@ export function ListingWorkspace({
   saveState,
   onClose,
   closeDisabled = false,
+  closeDataAttr,
   rail,
   railHeader,
   railFooter,
@@ -100,6 +102,7 @@ export function ListingWorkspace({
   footer,
   headerAside,
   headerCenter,
+  onContinue,
 }: {
   title: string;
   subtitle?: string;
@@ -115,11 +118,12 @@ export function ListingWorkspace({
    * silently dropped.
    */
   closeDisabled?: boolean;
+  closeDataAttr?: string;
   rail: ReactNode;
   /**
    * What sits ABOVE the sections in the rail — the cover photo and, while
    * something still needs doing, the "finish these" card. Desktop only: on a
-   * phone the rail is a strip of chips and has no room for it.
+   * phone the rail is a compact step picker and has no room for it.
    */
   railHeader?: ReactNode;
   /** Pinned to the foot of the rail — the listing's live/draft status. Desktop only. */
@@ -134,7 +138,10 @@ export function ListingWorkspace({
    * switcher. Stays visible on a phone, where the subtitle steps aside for it.
    */
   headerCenter?: ReactNode;
+  /** Enter in a single-line field follows the same validated path as Continue. */
+  onContinue?: () => void;
 }) {
+  const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -144,17 +151,18 @@ export function ListingWorkspace({
    * `closeDisabled`; PRP-486's in-flight guard still lives in `onClose`.
    */
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
+    <WorkspaceUploadTarget.Provider value={uploadTarget}>
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-[20px] sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
       {/*
        * The native shell draws under the status bar, so on a phone the header
        * pads by the safe-area inset the way Modal and the auth layout do;
        * the website (no inset) pads zero. Same again for the footer and the
        * home indicator.
        */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 sm:min-h-[68px] sm:px-6 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <b className="truncate text-[15px] font-bold tracking-tight text-foreground sm:text-[17px]">{title}</b>
+            <b className="truncate text-[19px] font-extrabold tracking-tight text-foreground">{title}</b>
             <span className="shrink-0">{badge}</span>
           </div>
           {/* On a phone the address and the save state lose to the title and the
@@ -164,21 +172,23 @@ export function ListingWorkspace({
         {headerCenter ? <div className="min-w-0 shrink-0">{headerCenter}</div> : null}
         {saveState ? (
           <div
-            className="shrink-0 text-[12.5px] font-semibold text-foreground"
+            className="hidden shrink-0 text-[12.5px] font-medium text-muted sm:block"
             data-testid="listing-wizard-autosave-status"
           >
             {saveState}
           </div>
         ) : null}
         <div className="flex shrink-0 items-center gap-2">
+          <div ref={setUploadTarget} className="flex items-center gap-2 empty:hidden" />
           {headerAside}
           {onClose ? (
             <button
               type="button"
               onClick={onClose}
               disabled={closeDisabled}
+              data-attr={closeDataAttr}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
+              className="grid h-11 w-11 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
             >
               ✕
             </button>
@@ -186,12 +196,12 @@ export function ListingWorkspace({
         </div>
       </div>
       {/*
-       * On a phone the rail row is as tall as its chips and the body takes the
+       * On a phone the rail row is as tall as its picker and the body takes the
        * rest; without the explicit rows a short step (the import's Upload) let
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[252px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[252px_minmax(0,1fr)_340px]">
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
         <nav
           aria-label="Listing sections"
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
@@ -200,11 +210,20 @@ export function ListingWorkspace({
           {rail}
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
-        <main className="min-h-0 min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
+        <main
+          className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-7 sm:py-7 xl:px-10"
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement) || !["text", "email", "tel", "number", "url", "search"].includes(target.type)) return;
+            if (target.getAttribute("role") === "combobox" || target.getAttribute("aria-expanded") === "true") return;
+            if (onContinue) { event.preventDefault(); onContinue(); }
+          }}
+        >{children}</main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 xl:block [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 xl:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>
@@ -214,6 +233,7 @@ export function ListingWorkspace({
         {footer}
       </div>
     </div>
+    </WorkspaceUploadTarget.Provider>
   );
 }
 
@@ -227,11 +247,12 @@ export function SideBelow({ children }: { children: ReactNode }) {
   if (!children) return null;
   // A phone does not get the panel at all — it repeated the card above it in a
   // second layout. A laptop without the column still gets it under the step.
-  return <div className="mt-8 hidden border-t border-border/60 pt-6 md:block xl:hidden">{children}</div>;
+  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block xl:hidden">{children}</div>;
 }
 
 export type StepRailItem = {
   id: string;
+  disabled?: boolean;
   label: string;
   /** Off the short path — Continue skips it; the manager opens it when they want to. */
   offPath?: boolean;
@@ -275,23 +296,31 @@ export function StepRail({
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
   /**
-   * F-editor / F012: each step shows its number, or a check once nothing on
-   * it is missing, instead of only the plain attention dot. Opt-in per
-   * caller (the Add application / Add lease editors) — every other wizard
-   * using this shared rail keeps today's dot-only look unchanged.
+   * Legacy compatibility prop. POP5 uses the same dot/accent rail for all editors.
    */
   numbered?: boolean;
 }) {
-  void visited;
-  // On a phone the rail is a strip of chips; the one the manager is on must be
-  // in view, or jumping to Pricing leaves the strip showing "Basics · Rooms".
+  void numbered;
+  // Keep the active desktop section in view when navigation comes from the footer.
   const currentRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.
     currentRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [current]);
   return (
-    <ol className="flex gap-1 lg:flex-col lg:gap-1.5">
+    <>
+      <div className="min-h-11 px-2 lg:hidden">
+        <FieldSingleSelect
+          label="Jump to step"
+          hideLabel
+          value={String(current)}
+          onChange={(value) => onJump(Number(value))}
+          options={steps.map((step, index) => ({ value: String(index), disabled: step.disabled, label: `${index === current ? "◉ " : (step.attention ?? 0) > 0 ? "● " : visited?.has(step.id) ? "✓ " : ""}${step.label}${(step.attention ?? 0) > 0 ? " · needs attention" : ""}`, triggerLabel: step.label }))}
+          dataAttr="workspace-step-picker"
+          triggerClassName="min-h-11 rounded-lg text-sm font-semibold"
+        />
+      </div>
+      <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
         const on = i === current;
         const warn = (step.attention ?? 0) > 0;
@@ -301,30 +330,19 @@ export function StepRail({
               ref={on ? currentRef : undefined}
               type="button"
               onClick={() => onJump(i)}
+              disabled={step.disabled}
               aria-current={on ? "step" : undefined}
               data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-left transition lg:py-2.5",
+                "flex min-h-11 w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-r-[10px] rounded-l-md border-l-[3px] px-3 py-2.5 text-left transition disabled:opacity-45",
                 on
-                  ? "bg-white shadow-[0_0_0_1px_var(--pl-line-strong)] [html[data-theme=dark]_&]:bg-card"
-                  : "hover:bg-foreground/[0.045]",
+                  ? "border-primary bg-white [html[data-theme=dark]_&]:bg-card"
+                  : "border-transparent hover:bg-foreground/[0.045]",
               )}
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  {numbered ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                        warn ? "bg-[var(--status-overdue-fg)]/15 text-[var(--status-overdue-fg)]" : "bg-primary/15 text-primary",
-                      )}
-                    >
-                      {warn ? i + 1 : <Check className="h-[11px] w-[11px]" strokeWidth={3} />}
-                    </span>
-                  ) : warn ? (
-                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
-                  ) : null}
+                  {on ? <Circle className="size-3 shrink-0 text-primary" aria-hidden /> : warn ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : visited?.has(step.id) ? <Check className="size-3 shrink-0 text-primary" aria-hidden /> : <span className="size-3 shrink-0" aria-hidden />}
                   <span
                     className={cn(
                       "min-w-0 truncate text-[13.5px]",
@@ -346,7 +364,8 @@ export function StepRail({
           </li>
         );
       })}
-    </ol>
+      </ol>
+    </>
   );
 }
 
@@ -503,7 +522,7 @@ export function StepHeading({
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
-        <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
+        <h2 className="text-[26px] font-extrabold leading-tight tracking-tight text-foreground">{title}</h2>
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
@@ -583,7 +602,7 @@ export function Field(props: {
   const caption = (
     <>
       {label}
-      {required ? <span className="ml-0.5 text-red-600">*</span> : null}
+      {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
@@ -607,23 +626,25 @@ export function Field(props: {
 
   if (group) {
     return (
-      <div className="mb-4">
+      <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
         <span id={id} className="mb-1.5 block text-[12.5px] font-bold text-foreground">
           {caption}
         </span>
         <div role="group" aria-labelledby={id}>
           {children}
         </div>
+        <WizardFieldError id={id} />
         {note}
       </div>
     );
   }
   return (
-    <div className="mb-4">
+    <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
       <label className="block">
         <span className="mb-1.5 block text-[12.5px] font-bold text-foreground">{caption}</span>
         {children}
       </label>
+      <WizardFieldError id={id} />
       {note}
     </div>
   );
@@ -1556,7 +1577,7 @@ export function FactRow({
       <span className={cn("flex min-w-0 shrink items-center gap-2 text-[14px] text-foreground", sub ? "font-medium" : "font-semibold")}>
         <span className="truncate">
           {label}
-          {required ? <span className="ml-0.5 text-red-600">*</span> : null}
+          {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         </span>
         {own && onReset ? (
           <button

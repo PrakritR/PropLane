@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -632,6 +633,7 @@ export function ManagerTaskFormModal({
       }}
       dataAttrPrefix="manager-task"
       finishDataAttr="manager-task-save"
+      sidePanel={<PreviewPanel title="Task preview" name={form.title || "Untitled task"} facts={[{ label: "Property", value: selectedProperty?.label || "Not set" }, { label: "Type", value: MANAGER_TASK_FORM_KIND_LABELS[form.taskKind] }]} creates={[]} />}
     >
       <div hidden={stepId !== "task"}>
       <div className="pb-4">

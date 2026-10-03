@@ -7,23 +7,8 @@ import { HoldToConfirmButton } from "@/components/ui/motion/hold-to-confirm-butt
 import { Modal, MODAL_HEADER_CLOSE_CLASS, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
-/**
- * ONE pop-up shape for the whole portal — `docs/agents/ui-change-checklist.md`
- * § Pop-ups, PLAN-0920-1058 "1d · The pop-up".
- *
- * Desktop: a centered dialog, 560px (720px for `size="wizard"`), body scrolls
- * inside a fixed header/footer. Phone: a bottom sheet with a grab handle, full
- * height only for a wizard. Both come from {@link Modal}, which already does
- * that responsive dialog/drawer switch off pointer type
- * (`useModalPresentation`) — this component never re-decides it.
- *
- * The footer is exactly one text secondary (left, defaults to "Cancel") and
- * one filled primary (right) whose label names the outcome ("Record $1,200",
- * never "Save"). `tone="danger"` fills the primary red for a destructive
- * confirm. Pass `primaryAction={null}` to omit the footer on a browse-only
- * dialog (dismiss via the header ×). The in-modal "Ask PropLane" assistant
- * strip is chrome for an editing workspace, not a pop-up — every
- * `PortalDialog` renders without it.
+/** Shared popup frame. Dismiss-only footer actions are omitted; wizard Back remains.
+ * Size is retained for source compatibility; every popup uses the approved frame.
  */
 
 export type PortalDialogAction = {
@@ -144,15 +129,12 @@ export function PortalDialog({
   onBack,
   /** Step-dot strip under the title — wizard steps only. */
   step,
-  /** `wizard` widens the desktop dialog to 720px and fills the phone sheet (full height). */
+  /** Legacy sizing alias; all dialogs use the shared frame. */
   size = "default",
   /** `danger` fills the primary action red — a destructive confirm. */
   tone = "default",
   primaryAction,
-  /**
-   * Defaults to a "Cancel" that calls `onClose`. Pass `null` only where there is
-   * genuinely no way back (rare) — never to make room for a second filled button.
-   */
+  /** Optional action such as Back. Dismiss-only labels are omitted. */
   secondaryAction,
   /** Header chrome before the × — Message, prev/next, Add. Never a second footer button. */
   headerAction,
@@ -161,6 +143,9 @@ export function PortalDialog({
   /** Outside click / Escape / the header ✕ are ignored — a nested confirm is open on top. */
   dismissBlocked = false,
   className,
+  contextPanel,
+  preview,
+  previewLabel,
 }: {
   open: boolean;
   onClose: () => void;
@@ -178,10 +163,13 @@ export function PortalDialog({
   dismissBlocked?: boolean;
   /** Escape hatch for a dialog's body-specific width/height tuning. Never used to add a second footer button. */
   className?: string;
+  contextPanel?: ReactNode;
+  preview?: ReactNode;
+  previewLabel?: string;
 }) {
-  const isWizard = size === "wizard";
+  void size; // Legacy API: both sizes now use the same frame.
   const resolvedSecondary =
-    secondaryAction === null ? null : secondaryAction ?? { label: "Cancel", onClick: onClose };
+    secondaryAction && !/^(cancel|close|done|keep)$/i.test(secondaryAction.label.trim()) ? secondaryAction : null;
 
   return (
     <Modal
@@ -189,10 +177,12 @@ export function PortalDialog({
       onClose={onClose}
       dismissBlocked={dismissBlocked}
       dataAttr={dataAttr}
-      // The chip is top-bar chrome, never dialog chrome (PLAN-0920-1058 "1d · The pop-up").
-      assistantStrip={false}
-      fullScreenMobile={isWizard}
-      panelClassName={isWizard ? "max-w-[720px]" : "max-w-[560px]"}
+      // Editing popups use the authenticated role-scoped assistant.
+      assistantStrip={tone !== "danger"}
+      fullScreenMobile
+      contextPanel={contextPanel}
+      preview={preview}
+      previewLabel={previewLabel}
       status={headerAction}
       title={
         onBack ? (

@@ -5,7 +5,9 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, Link2, Mail } from "lucide-react";
+import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail } from "lucide-react";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -2691,89 +2693,28 @@ export function ManagerResidents({
    * Download is always there. "Move to pending" rather than "Un-approve"
    * because pending is a real bucket the row goes back to, not an absence.
    */
-  const residentApplicationTabFooterActions = selectedApplicationRow ? (
-    <>
-      {(() => {
-        const row = selectedApplicationRow;
-        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
-        const decidable = row.bucket === "pending" && !undecidable;
-        const moveToPending = (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="resident-application-move-pending"
-            onClick={() => void setApplicationBucket(row.id, "pending")}
-          >
-            Move to pending
-          </Button>
-        );
-        return (
-          <>
-            {decidable ? (
-              <>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={PORTAL_DETAIL_BTN}
-                  data-attr="resident-application-approve"
-                  onClick={() => setApprovePreviewRow(row)}
-                >
-                  Approve
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_DETAIL_BTN}
-                  data-attr="resident-application-reject"
-                  onClick={() => void setApplicationBucket(row.id, "rejected")}
-                >
-                  Reject
-                </Button>
-              </>
-            ) : null}
-            {row.bucket === "approved" ? moveToPending : null}
-            {row.bucket === "rejected" ? (
-              <>
-                {moveToPending}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-                  data-attr="resident-application-delete"
-                  onClick={() => void deleteApplicationForRow(row)}
-                >
-                  Delete
-                </Button>
-              </>
-            ) : null}
-            {undecidable && shouldOfferApplicationCompletionReminder(row) ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="resident-application-completion-reminder"
-                onClick={() => void openApplicationCompletionReminderPreview(row)}
-              >
-                Send reminder
-              </Button>
-            ) : null}
-          </>
-        );
-      })()}
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        data-attr="resident-application-download-footer"
-        onClick={() => {
-          runApplicationPdfDownload(selectedApplicationRow, showToast);
-        }}
-      >
-        Download
-      </Button>
-    </>
-  ) : null;
+  const residentApplicationTabFooterActions = selectedApplicationRow ? (() => {
+    const row = selectedApplicationRow;
+    const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+    const decidable = row.bucket === "pending" && !undecidable;
+    const actions = [portalIconActionSpec({ id: "download", label: "Download", icon: Download,
+      dataAttr: "resident-application-download-footer", onClick: () => runApplicationPdfDownload(row, showToast) })];
+    if (undecidable && shouldOfferApplicationCompletionReminder(row)) actions.unshift(portalIconActionSpec({
+      id: "reminder", label: "Send reminder", icon: Bell, dataAttr: "resident-application-completion-reminder",
+      onClick: () => openApplicationCompletionReminderPreview(row),
+    }));
+    if (decidable) actions.push(
+      portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "resident-application-reject", onClick: () => setApplicationBucket(row.id, "rejected") }),
+      portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "resident-application-approve", onClick: () => setApprovePreviewRow(row) }),
+    );
+    if (row.bucket === "approved" || row.bucket === "rejected") actions.push(portalIconActionSpec({
+      id: "pending", label: "Move to pending", icon: Undo2, dataAttr: "resident-application-move-pending", onClick: () => setApplicationBucket(row.id, "pending"),
+    }));
+    if (row.bucket === "rejected") actions.push(portalIconActionSpec({
+      id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "resident-application-delete", onClick: () => deleteApplicationForRow(row),
+    }));
+    return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
+  })() : null;
 
   /**
    * The screening panel already publishes the run action for this tab — "Run

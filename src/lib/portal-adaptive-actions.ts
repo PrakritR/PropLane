@@ -1,9 +1,11 @@
-import type { ReactNode } from "react";
+import { isValidElement, type ReactNode } from "react";
 
 export type PortalAdaptiveAction = {
   id: string;
   node: ReactNode;
   menuItem: ReactNode;
+  /** Header ordering: primary stays at the right edge; danger folds first. */
+  tone?: "default" | "primary" | "danger";
   /** Higher priority stays visible longer when horizontal space is tight. */
   keepPriority?: number;
   /** Never tuck into the … menu — always rendered inline. */
@@ -15,11 +17,20 @@ export type PortalAdaptiveAction = {
 /** @deprecated Use {@link PortalAdaptiveAction}. */
 export type PortalAdaptiveHeaderAction = PortalAdaptiveAction;
 
+function adaptiveActionTone(action: PortalAdaptiveAction) {
+  const props = isValidElement<{ tone?: string; variant?: string; ringPrimary?: boolean }>(action.node) ? action.node.props : undefined;
+  return action.tone ?? (props?.ringPrimary ? "primary" : props?.tone ?? props?.variant);
+}
+
 export function splitAdaptiveActions(actions: PortalAdaptiveAction[]) {
   const leading: PortalAdaptiveAction[] = [];
   const optional: PortalAdaptiveAction[] = [];
   const trailing: PortalAdaptiveAction[] = [];
+  const danger: PortalAdaptiveAction[] = [];
   for (const action of actions) {
+    const tone = adaptiveActionTone(action);
+    if (tone === "primary") { trailing.push(action); continue; }
+    if (tone === "danger") { danger.push(action); continue; }
     if (action.alwaysVisible) {
       if (action.pinEdge === "end") trailing.push(action);
       else leading.push(action);
@@ -27,6 +38,7 @@ export function splitAdaptiveActions(actions: PortalAdaptiveAction[]) {
       optional.push(action);
     }
   }
+  optional.push(...danger);
   return { leading, optional, trailing };
 }
 
@@ -39,6 +51,8 @@ export function pickVisibleActions(actions: PortalAdaptiveAction[], fitCount: nu
   if (fitCount <= 0) return [...leading, ...trailing];
 
   const ranked = [...optional].sort((a, b) => {
+    const dangerDelta = Number(adaptiveActionTone(a) === "danger") - Number(adaptiveActionTone(b) === "danger");
+    if (dangerDelta !== 0) return dangerDelta;
     const priorityDelta = (b.keepPriority ?? 0) - (a.keepPriority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
     return optional.indexOf(a) - optional.indexOf(b);
@@ -61,6 +75,8 @@ export function pickAdaptiveActions(
   }
 
   const ranked = [...optional].sort((a, b) => {
+    const dangerDelta = Number(adaptiveActionTone(a) === "danger") - Number(adaptiveActionTone(b) === "danger");
+    if (dangerDelta !== 0) return dangerDelta;
     const priorityDelta = (b.keepPriority ?? 0) - (a.keepPriority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
     return optional.indexOf(a) - optional.indexOf(b);

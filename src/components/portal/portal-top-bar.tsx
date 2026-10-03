@@ -2,7 +2,7 @@
 
 import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useEffect, useSyncExternalStore, useState } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
@@ -61,6 +61,7 @@ export function PortalTopBar({
   email: string | null;
 }) {
   const router = useRouter();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   const assistantOpen = useSyncExternalStore(
     subscribeAxisAssistantOpen,
@@ -157,7 +158,7 @@ export function PortalTopBar({
         </kbd>
       </button>
 
-      <DropdownMenu>
+      <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger
           className="hidden items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-2.5 text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-primary/40 md:flex"
           aria-label="Account menu"
@@ -223,7 +224,7 @@ export function PortalTopBar({
 
           <DropdownMenuSeparator />
 
-          <PortalSignOutButton className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60" />
+          <PortalSignOutButton onRequestConfirm={() => setProfileMenuOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60" />
         </DropdownMenuContent>
       </DropdownMenu>
     </header>

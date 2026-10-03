@@ -162,10 +162,12 @@ describe("three-path vendor invitation", () => {
     show();
     next();
     fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Vendor name is required");
+    expect(screen.getByRole("alert")).toHaveTextContent("Invite by first name: Required");
+    expect(screen.getByLabelText("Invite by first name")).toHaveAttribute("aria-invalid", "true");
     fill("invalid");
     fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
-    expect(screen.getByRole("alert")).toHaveTextContent("valid email");
+    expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
     expect(persistManagerVendorToServer).not.toHaveBeenCalled();
   });
 

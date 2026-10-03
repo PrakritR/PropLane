@@ -1,8 +1,10 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import {
@@ -79,15 +81,15 @@ export function ResidentChargeMessageModal({
         onClose();
       }}
       title="Message about this charge"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Charge", value: charge?.title }, { label: "Balance", value: charge?.balanceLabel }]} />}
+      previewLabel="Message preview"
+      preview={<PopupMessagePreview body={message} subject={charge?.title} recipient="Property manager" channel="PropLane" />}
+      footer={<ModalFooter><Button type="button" variant="primary" className="rounded-full" disabled={!canSend} data-attr="resident-charge-message-send" onClick={() => sendMessage()}>{sending ? "Sending…" : "Send message"}</Button></ModalFooter>}
       panelClassName="max-w-lg"
     >
       {charge ? (
         <div className="space-y-4 text-sm">
-          <p className="leading-relaxed text-muted">
-            Ask a question, report a problem, or explain why you disagree with{" "}
-            <span className="font-semibold text-foreground">{charge.title}</span> ({charge.balanceLabel}). Your
-            property manager receives this in Communication and on this charge.
-          </p>
+
 
           {priorMessages.length > 0 ? (
             <div className="space-y-2 rounded-xl border border-border bg-accent/20 p-3">
@@ -109,6 +111,8 @@ export function ResidentChargeMessageModal({
             </label>
             <textarea
               id="resident-charge-message-body"
+              required
+              minLength={RESIDENT_CHARGE_MESSAGE_MIN_LENGTH}
               className="mt-1.5 min-h-[8rem] w-full resize-y rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring"
               value={message}
               maxLength={RESIDENT_CHARGE_MESSAGE_MAX_LENGTH}
@@ -121,18 +125,7 @@ export function ResidentChargeMessageModal({
             </p>
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              disabled={!canSend}
-              data-attr="resident-charge-message-send"
-              onClick={() => void sendMessage()}
-            >
-              {sending ? "Sending…" : "Send message"}
-            </Button>
-          </div>
+
         </div>
       ) : null}
     </Modal>

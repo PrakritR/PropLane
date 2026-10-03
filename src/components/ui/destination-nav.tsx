@@ -59,6 +59,30 @@ function useCommandTabIndicator(activeKey: string, itemCount: number, enabled: b
   return { wrapRef, registerItem, rect };
 }
 
+/** Keep overflow visible without fading the final tab after the user reaches it. */
+function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCount: number) {
+  const [mask, setMask] = useState<string>();
+  useLayoutEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    const sync = () => {
+      const left = row.scrollLeft > 2;
+      const right = row.scrollWidth - row.clientWidth - row.scrollLeft > 2;
+      setMask(left && right
+        ? "linear-gradient(to right, transparent, black 28px, black calc(100% - 28px), transparent)"
+        : right ? "linear-gradient(to right, black calc(100% - 28px), transparent)"
+        : left ? "linear-gradient(to left, black calc(100% - 28px), transparent)" : undefined);
+    };
+    sync();
+    row.addEventListener("scroll", sync, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
+    observer?.observe(row);
+    for (const child of row.children) observer?.observe(child);
+    return () => { row.removeEventListener("scroll", sync); observer?.disconnect(); };
+  }, [ref, itemCount]);
+  return { maskImage: mask, WebkitMaskImage: mask };
+}
+
 /**
  * M014 — value flash on the count pill: marks the pill for one animation
  * cycle the instant its number changes between renders (the same "marks what
@@ -152,10 +176,12 @@ export function DestinationNav({
     )?.id ?? "";
   const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeItemId, items.length, commandEnabled);
   const flashing = useCountFlash(items);
+  const overflowStyle = useTabOverflowFade(wrapRef, items.length);
 
   return (
     <nav
-      ref={commandEnabled ? (wrapRef as never) : undefined}
+      ref={wrapRef as never}
+      style={overflowStyle}
       className={cn(
         destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow, appearance),
         commandEnabled && "relative",
@@ -269,7 +295,7 @@ function destinationNavShellClassName(
             ? "mx-auto grid w-full min-w-0 max-w-2xl auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0 max-lg:max-w-none"
             : "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0"
         : cn(
-            "flex w-full gap-1 border-0 bg-transparent p-0",
+            "flex w-full min-w-0 max-w-full gap-1 border-0 bg-transparent p-0",
             PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
             "snap-x snap-mandatory scroll-px-2",
           )
@@ -356,10 +382,12 @@ export function LocalDestinationNav({
   const commandEnabled = appearance === "command";
   const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeId, items.length, commandEnabled);
   const flashing = useCountFlash(items);
+  const overflowStyle = useTabOverflowFade(wrapRef, items.length);
 
   return (
     <nav
-      ref={commandEnabled ? (wrapRef as never) : undefined}
+      ref={wrapRef as never}
+      style={overflowStyle}
       className={cn(
         destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow, appearance),
         commandEnabled && "relative",

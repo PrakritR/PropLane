@@ -33,7 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { PortalAdaptiveActionRow, type PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -61,7 +61,7 @@ import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-leas
 import { ManagerPropertyPromotionPanel } from "@/components/portal/pro-property-promotion-panel";
 import { ManagerPropertyAiInfoPanel } from "@/components/portal/pro-property-ai-info-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-panel";
-import { ModalShell } from "@/components/ui/modal";
+import { Modal } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
@@ -134,11 +134,7 @@ import { isNativeRuntimeSync } from "@/lib/native/detect-native";
  */
 function ListingEditorLoadingModal({ onClose }: { onClose: () => void }) {
   return (
-    <ModalShell
-      open
-      onClose={onClose}
-      panelClassName="modal-panel relative z-10 flex max-h-[calc(100svh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-border shadow-2xl"
-    >
+    <Modal open onClose={onClose} title="New property" assistantContext="New property">
       <div
         className="flex min-h-[16rem] flex-col items-center justify-center gap-3 px-6 py-16"
         role="status"
@@ -151,7 +147,7 @@ function ListingEditorLoadingModal({ onClose }: { onClose: () => void }) {
         />
         <p className="text-sm font-medium text-muted">Opening listing…</p>
       </div>
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1055,13 +1051,7 @@ function ManagerPropertyInlineDetails({
       }
 
       if (actions.length === 0) return null;
-      return (
-        <>
-          {actions.map((action) => (
-            <Fragment key={action.id}>{action.node}</Fragment>
-          ))}
-        </>
-      );
+      return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
     }
     return null;
   }, [

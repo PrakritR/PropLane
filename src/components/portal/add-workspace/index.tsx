@@ -15,7 +15,7 @@
  * manager who has built a listing already knows how to add a person.
  */
 
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
 import { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
@@ -27,7 +27,7 @@ import {
   type StepRailItem,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
-import { useConfirm } from "@/components/providers/app-ui-provider";
+import { WizardInvalidFields, missingWizardFields } from "./validation";
 
 export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
 
@@ -123,7 +123,13 @@ export function AddWorkspace({
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
   numberedSteps?: boolean;
 }) {
-  const confirm = useConfirm();
+  void dirty; void discardTitle; void discardBody;
+  const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
+  const [readiness, setReadiness] = useState("");
+  const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
+  const [visitedSteps, setVisitedSteps] = useState<ReadonlySet<string>>(new Set());
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [validationError, setValidationError] = useState<{ step: number; message: string } | null>(null);
   const railSteps = useMemo<StepRailItem[]>(
     () => steps.map((s) => ({ ...s, attention: s.incomplete ? 1 : 0 })),
     [steps],
@@ -146,22 +152,10 @@ export function AddWorkspace({
   const isLast = nextPath == null;
 
   const close = useCallback(() => {
+    if (busy) return;
     if (onRequestClose && !onRequestClose()) return;
-    if (!dirty) {
-      onClose();
-      return;
-    }
-    void confirm({
-      title: discardTitle,
-      description: discardBody,
-      confirmLabel: "Discard",
-      note: null,
-      tone: "danger",
-      dataAttr: `${dataAttrPrefix}-discard`,
-    }).then((ok) => {
-      if (ok) onClose();
-    });
-  }, [confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
+    onClose();
+  }, [busy, onClose, onRequestClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -176,28 +170,75 @@ export function AddWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
+  useEffect(() => {
+    const label = missingWizardFields(workspaceRef.current).map((field) => field.label).join(", ");
+    setReadiness((previous) => previous === label ? previous : label);
+  }, [children, current]);
+
+  useEffect(() => {
+    const id = steps[current]?.id;
+    if (id) setVisitedSteps((previous) => previous.has(id) ? previous : new Set([...previous, id]));
+  }, [current, steps]);
+
+  const validateFields = () => {
+    const missing = missingWizardFields(workspaceRef.current);
+    setAttemptedSteps((previous) => new Set([...previous, current]));
+    setInvalidFields(new Set(missing.map((field) => field.id)));
+    if (missing.length) {
+      const first = missing[0]!;
+      setValidationError({ step: current, message: `${first.label}: Required` });
+      first.element.setAttribute("aria-invalid", "true");
+      first.element.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      first.element.focus();
+      return false;
+    }
+    setValidationError(null);
+    return true;
+  };
+
+  const finish = () => {
+    if (busy || lastDisabled || !validateFields()) return;
+    onFinish();
+  };
+
   const goNext = () => {
-    if (nextDisabled) return;
-    if (onBeforeNext && !onBeforeNext()) return;
-    if (nextPath == null) return;
+    if (busy || !validateFields()) return;
+    if (onBeforeNext && !onBeforeNext()) {
+      setAttemptedSteps((previous) => new Set([...previous, current]));
+      setValidationError({ step: current, message: `Complete ${steps[current]?.label ?? "the required fields"}` });
+      return;
+    }
+    if (nextDisabled || nextPath == null) return;
     onJump(nextPath);
   };
 
   return (
+    <WizardInvalidFields.Provider value={invalidFields}>
     <ListingWizardOverlay ariaLabel={title}>
-      <div className="relative h-full w-full">
+      <div ref={workspaceRef} className="relative h-full w-full" onInput={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+          if (target.validity.valid) target.removeAttribute("aria-invalid");
+          setValidationError(null);
+          const missing = missingWizardFields(workspaceRef.current);
+          setReadiness(missing.map((field) => field.label).join(", "));
+          setInvalidFields((previous) => new Set(missing.filter((field) => previous.has(field.id)).map((field) => field.id)));
+        }
+      }}>
       <ListingWorkspace
         title={title}
         subtitle={subtitle}
         saveState={saveState}
         onClose={close}
+        closeDisabled={busy}
+        onContinue={isLast ? finish : goNext}
         headerAside={
           <>
             {headerActions}
-            <ModalAssistantStrip contextHint={assistantContext} storageScopeKey={assistantScopeKey} />
+            <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
         }
-        rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} />}
+        rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} visited={visitedSteps} />}
         railHeader={
           <>
             {railHeader}
@@ -211,7 +252,8 @@ export function AddWorkspace({
               {dangerAction}
               <button
                 type="button"
-                disabled={prevPath == null}
+                disabled={prevPath == null || busy}
+                hidden={prevPath == null}
                 onClick={() => {
                   if (prevPath != null) onJump(prevPath);
                 }}
@@ -222,13 +264,13 @@ export function AddWorkspace({
               </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
-              {footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : steps[current]?.incomplete ? <span className="mb-0.5 block">Complete {steps[current]?.label}</span> : null}
               Step {current + 1} of {steps.length}
             </span>
             {isLast ? (
               <button
                 type="button"
-                onClick={onFinish}
+                onClick={finish}
                 disabled={lastDisabled || busy}
                 data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
@@ -239,18 +281,24 @@ export function AddWorkspace({
               <button
                 type="button"
                 onClick={goNext}
-                disabled={nextDisabled}
+                disabled={busy}
+                aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
                 data-attr={`${dataAttrPrefix}-next`}
                 aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:opacity-45"
               >
-                <span className="sm:hidden">Continue</span>
-                <span className="hidden sm:inline">Continue to {nextPath != null ? steps[nextPath]!.label : "next"}</span>
+                Continue
               </button>
             )}
           </>
         }
       >
+        <div className="mb-5 flex gap-1" aria-label="Step progress">
+          {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
+        </div>
+        {(steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
+          {steps.filter((step) => step.id !== "review" && step.id !== "preview").map((step) => <button key={step.id} type="button" onClick={() => onJump(steps.indexOf(step))} className="min-h-11 text-sm font-semibold text-primary">Edit {step.label}</button>)}
+        </nav> : null}
         {children}
         <SideBelow>{sidePanel}</SideBelow>
       </ListingWorkspace>
@@ -264,5 +312,6 @@ export function AddWorkspace({
       ) : null}
       </div>
     </ListingWizardOverlay>
+    </WizardInvalidFields.Provider>
   );
 }

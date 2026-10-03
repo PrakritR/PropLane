@@ -70,7 +70,7 @@ describe("document library row opens the single preview modal", () => {
     fireEvent.click(row);
     expect(navigate).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Boiler inspection certificate")).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "Boiler inspection certificate" })).toBeTruthy();
     expect(within(dialog).getByText("Download")).toBeTruthy();
     expect(within(dialog).getByText("Edit")).toBeTruthy();
   });

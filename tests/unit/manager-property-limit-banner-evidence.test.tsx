@@ -133,7 +133,7 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("Your plan allows 1 property. Upgrade to add more.");
     expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close", exact: true })).toBeTruthy();
     // Refused before anything opens — the wizard never mounts.
     expect(screen.queryByText(/Submit listing/i)).toBeNull();
 

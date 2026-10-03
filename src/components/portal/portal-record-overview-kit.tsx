@@ -55,7 +55,7 @@ export function StatTile({
     </>
   );
   const className =
-    "flex min-w-0 flex-col gap-1.5 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+    "flex min-w-0 flex-col gap-1.5 rounded-2xl border border-border bg-card px-[var(--portal-card-padding,16px)] py-3.5 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
   if (href) {
     return (
       <Link href={href} className={cn(className, "hover:border-primary/35")} data-attr={dataAttr}>
@@ -89,7 +89,7 @@ export function RecordFactCard({
 }) {
   return (
     <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
-      <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-border/70 px-[var(--portal-card-padding,16px)] py-3">
         <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
         {action ? (
           <Link
@@ -117,7 +117,7 @@ export function RecordFactRow({
   tone?: "ok" | "bad";
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-4 py-2.5">
+    <div className={cn("flex items-start justify-between gap-4 px-[var(--portal-card-padding,16px)] py-3.5", ((typeof value === "string" && value.length > 18) || label.length > 15) && "max-sm:flex-col max-sm:gap-1 [&>span]:max-sm:w-auto [&>span]:max-sm:text-left")}>
       <span className="w-28 shrink-0 text-[13px] text-muted">{label}</span>
       <span
         className={cn(
@@ -174,7 +174,7 @@ export function RecordNeedsYou({
               {row.href || row.onClick ? <ArrowRight className="size-4 shrink-0 text-muted" aria-hidden /> : null}
             </>
           );
-          const className = "flex items-center gap-3 px-4 py-2.5";
+          const className = "flex items-center gap-3 px-[var(--portal-card-padding,16px)] py-2.5";
           return (
             <li key={row.id} data-attr={`${itemDataAttrPrefix}-${row.id}`}>
               {row.href ? (
@@ -236,7 +236,7 @@ export function RecordRowsCard({
   return (
     <RecordFactCard title={title} action={action} dataAttr={dataAttr}>
       {rows.length === 0 ? (
-        <p className="px-4 py-5 text-center text-[13px] text-muted">{emptyLabel}</p>
+        <p className="px-[var(--portal-card-padding,16px)] py-5 text-center text-[13px] text-muted">{emptyLabel}</p>
       ) : (
         <ul className="divide-y divide-border/70">
           {rows.map((row) => {
@@ -250,7 +250,7 @@ export function RecordRowsCard({
                 {row.figure ? <span className="shrink-0">{row.figure}</span> : null}
               </>
             );
-            const className = "flex items-center gap-3 px-4 py-2.5";
+            const className = "flex items-center gap-3 px-[var(--portal-card-padding,16px)] py-2.5";
             return (
               <li key={row.id}>
                 {row.href ? (
@@ -273,14 +273,14 @@ export function RecordRowsCard({
         footer.href ? (
           <Link
             href={footer.href}
-            className="block border-t border-dashed border-border/70 px-4 py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
+            className="block border-t border-dashed border-border/70 px-[var(--portal-card-padding,16px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
           >
             + {footer.label}
           </Link>
         ) : (
           <button
             type="button"
-            className="block w-full border-t border-dashed border-border/70 px-4 py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
+            className="block w-full border-t border-dashed border-border/70 px-[var(--portal-card-padding,16px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
             onClick={footer.onClick}
           >
             + {footer.label}
