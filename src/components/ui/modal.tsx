@@ -41,7 +41,7 @@ export {
 
 /** Top-right dismiss control — Carbon / Primer / Watson pattern (icon, 44px target). */
 export const MODAL_HEADER_CLOSE_CLASS =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-10 sm:w-10";
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** Sticky footer action row: primary and secondary *actions* only (Save, Delete, Send). */
 export const MODAL_FOOTER_ROW_CLASS =
@@ -307,6 +307,9 @@ function ModalPanelInner({
   headerAction,
   status,
   subheader,
+  contextPanel,
+  preview,
+  previewLabel = "Preview",
   TitlePrimitive,
   DescriptionPrimitive,
   ClosePrimitive,
@@ -317,6 +320,11 @@ function ModalPanelInner({
   footer?: ReactNode;
   status?: ReactNode;
   subheader?: ReactNode;
+  /** Real record context for the desktop rail. */
+  contextPanel?: ReactNode;
+  /** Live, caller-owned preview. Never inferred from form DOM. Hidden on phones. */
+  preview?: ReactNode;
+  previewLabel?: string;
   dense: boolean;
   onClose: () => void;
   showAssistantStrip: boolean;
@@ -360,7 +368,7 @@ function ModalPanelInner({
         data-field-select-host-chrome=""
         className={cn(
           "flex shrink-0 flex-col border-b border-border",
-          dense ? "gap-2 pb-2" : "gap-3 pb-4",
+          "min-h-[68px] justify-center gap-2 px-4 py-3 sm:px-6",
         )}
       >
         <div className="flex items-center justify-between gap-3">
@@ -369,7 +377,7 @@ function ModalPanelInner({
               id="modal-title"
               className={cn(
                 "min-w-0 flex-1 font-semibold leading-tight text-foreground",
-                dense ? "text-base" : "text-lg",
+                "text-[19px] font-extrabold tracking-tight",
               )}
             >
               {title}
@@ -397,10 +405,14 @@ function ModalPanelInner({
           bodyFillsPanel
             ? cn("flex min-h-0 min-w-0 flex-col overflow-hidden", middleGrows ? "flex-1" : "shrink-0")
             : "flex shrink-0 flex-col",
-          assistantSideLayout ? "@2xl:flex-row" : undefined,
+          "sm:flex-row",
         )}
       >
+        <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] sm:block">
+          {contextPanel ?? (typeof title === "string" ? <div className="rounded-xl border border-border bg-card p-4 text-sm font-semibold">{title}</div> : null)}
+        </aside>
         <div
+          data-popup-form=""
           className={cn(
             bodyFillsPanel
               ? scrollableContent
@@ -419,11 +431,17 @@ function ModalPanelInner({
                 // content would otherwise be clipped.
                 "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
               : "min-w-0 shrink-0 flex-col",
-            dense ? "pt-2" : "pt-4",
+            "px-4 py-4 sm:px-7 sm:py-6 xl:px-10",
           )}
         >
           {children}
         </div>
+        {preview != null ? (
+          <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 sm:block xl:w-[380px]">
+            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted">{previewLabel}</div>
+            {preview}
+          </aside>
+        ) : null}
         {showAssistantStrip ? (
           <ModalAssistantStrip
             contextHint={assistantHint}
@@ -448,7 +466,7 @@ function ModalPanelInner({
             // Footer actions sit on the modal canvas; the divider, rather than a
             // second grey surface, separates them from the form above.
             "relative shrink-0 border-t border-border bg-card pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]",
-            dense ? "mt-2 pt-3" : "mt-4 pt-4",
+            "px-4 pt-3 sm:px-6",
           )}
         >
           {footer}
@@ -482,7 +500,7 @@ export function Modal({
    * footer pinned — and grows to 96dvh at most. A flow that is a page in its
    * own right (the listing editor) opts in.
    */
-  fullScreenMobile = false,
+  fullScreenMobile = true,
   /** Fill the viewport on every breakpoint (not only mobile drawer). */
   fullPage = false,
   /** When false, modal body does not scroll — children own internal overflow. */
@@ -493,6 +511,9 @@ export function Modal({
   dismissBlocked = false,
   status,
   subheader,
+  contextPanel,
+  preview,
+  previewLabel = "Preview",
 }: {
   open: boolean;
   title: ReactNode;
@@ -508,6 +529,11 @@ export function Modal({
   status?: ReactNode;
   /** Row rendered under the title, outside the title's flex row (e.g. a scope picker). */
   subheader?: ReactNode;
+  /** Real record context for the desktop rail. */
+  contextPanel?: ReactNode;
+  /** Live, caller-owned preview. Never inferred from form DOM. Hidden on phones. */
+  preview?: ReactNode;
+  previewLabel?: string;
   panelClassName?: string;
   stackClassName?: string;
   dense?: boolean;
@@ -557,6 +583,7 @@ export function Modal({
   const resolvedPanelClassName = cn(
     stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
     panelClassName,
+    "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none",
   );
 
   // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment
@@ -576,6 +603,9 @@ export function Modal({
     title,
     status,
     subheader,
+    contextPanel,
+    preview,
+    previewLabel,
     description,
     children,
     footer,
@@ -633,7 +663,7 @@ export function Modal({
           data-full-screen={workspaceFullScreen ? "true" : "false"}
           className={cn(
             "pointer-events-none flex min-h-0 min-w-0 flex-1 justify-center",
-            workspaceFullScreen ? "items-center p-0" : workspaceSheet ? "items-end p-0" : "items-center p-4",
+            workspaceFullScreen ? "items-center p-0 sm:p-5" : workspaceSheet ? "items-end p-0" : "items-center p-4",
           )}
         >
           {!editorDismissed ? (
@@ -643,7 +673,7 @@ export function Modal({
               resolvedPanelClassName,
               workspaceSheet &&
                 "!w-screen !max-w-none !rounded-b-none rounded-t-2xl border-x-0 border-b-0 !max-h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(1.25rem,var(--native-safe-bottom,0px))]",
-              workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto !h-full !max-h-full", dense ? "px-4" : "px-5"),
+              workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[20px]", dense ? "px-4" : "px-5"),
             )}>
               {workspaceSheet ? (
                 <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border" />
