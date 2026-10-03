@@ -25,6 +25,7 @@ export function propertyPricingRoomSummary(
   sub: ManagerListingSubmissionV1,
   meta?: RoomPricingUiMeta,
 ): string {
+  void meta;
   const normalized = normalizeManagerListingSubmissionV1(sub);
   const copy = resolveRoomPricingCopyLabel(normalized, room.id, "long_term");
   if (copy) return copy;

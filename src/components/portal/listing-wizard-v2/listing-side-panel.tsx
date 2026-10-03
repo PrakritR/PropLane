@@ -367,8 +367,18 @@ export function PricingReceiptPanel({
             const price = roomPriceForResidentCount(room, count);
             const money =
               price.monthlyRent > 0 ? `$${price.monthlyRent.toLocaleString("en-US")}` : "—";
-            const unit = quote.isStay ? "/night" : "/mo";
-            return `${count === 1 ? "Private" : `Shared by ${count}`} ${money}${count > 1 ? " each" : unit}`;
+            if (quote.isStay) {
+              const occRow = room.occupancyPrices?.find((r) => r.count === count);
+              const nightly =
+                parseMoneyAmount(occRow?.shortTermRent ?? "") ||
+                parseMoneyAmount(room.shortTermRent ?? "") ||
+                0;
+              const nightlyLabel =
+                nightly > 0 ? `$${nightly.toLocaleString("en-US")}` : money !== "—" ? money : "—";
+              const suffix = count > 1 ? " each/night" : "/night";
+              return `${count === 1 ? "Private" : `Shared by ${count}`} ${nightlyLabel}${suffix}`;
+            }
+            return `${count === 1 ? "Private" : `Shared by ${count}`} ${money}${count > 1 ? " each" : "/mo"}`;
           })
           .join(" · ")
       : arrangementSummaryLine(room);

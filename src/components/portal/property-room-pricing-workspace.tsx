@@ -33,6 +33,8 @@ import {
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import { termPriceFieldText, writeRoomTermPrice } from "@/lib/listing-house-defaults";
+import { isStayLeaseTerm } from "@/lib/listing-quote";
 import {
   pricingCopySourceBundles,
   setBundlePricingCopyFrom,
@@ -76,6 +78,35 @@ function mergePrivateArrangementRow(room: ManagerRoomSubmission, patch: Arrangem
   const row = { ...privateArrangementRow(room), ...patch, count: 1 as const };
   const rest = (room.occupancyPrices ?? []).filter((r) => r.count !== 1);
   return { ...room, occupancyPrices: [...rest, row] };
+}
+
+function roomHasOwnTermPricing(room: ManagerRoomSubmission, term: string): boolean {
+  const entry = room.termPricing?.[term];
+  return Boolean(entry && Object.keys(entry).length > 0);
+}
+
+function clearRoomTermPricing(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  if (!room.termPricing?.[term]) return room;
+  const next = { ...room.termPricing };
+  delete next[term];
+  return { ...room, termPricing: Object.keys(next).length > 0 ? next : undefined };
+}
+
+function seedRoomTermFromLongTerm(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  const seed = {
+    monthlyRent: room.monthlyRent > 0 ? room.monthlyRent : undefined,
+    securityDeposit: room.securityDeposit,
+    utilitiesEstimate: room.utilitiesEstimate,
+    pricingMode: room.pricingMode,
+  };
+  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
+  return {
+    ...room,
+    termPricing: {
+      ...(room.termPricing ?? {}),
+      [term]: cleaned,
+    },
+  };
 }
 
 function subjectTitle(subject: PropertyPricingSubject, sub: ManagerListingSubmissionV1): string {
@@ -168,13 +199,19 @@ export function PropertyRoomPricingWorkspace({
       if (subject.kind !== "room") return s;
       const room = draft.rooms.find((r) => r.id === subject.roomId);
       if (!room) return s;
-      const summary =
-        s.id === LONG_TERM_LEASE_TERM
-          ? propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id])
-          : room.shortTermRent
-            ? `$${room.shortTermRent}/night`
-            : "—";
-      return { ...s, summary };
+      if (s.id === LONG_TERM_LEASE_TERM) {
+        return { ...s, summary: propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id]) };
+      }
+      if (s.id === SHORT_TERM_LEASE_TERM || isStayLeaseTerm(s.id)) {
+        const nightly = room.shortTermRent?.trim();
+        return { ...s, summary: nightly ? `$${nightly.replace(/^\$/, "")}/night` : "—" };
+      }
+      const term = listingPricingTabToLeaseTerm(s.id) ?? s.id;
+      if (!roomHasOwnTermPricing(room, term)) {
+        return { ...s, summary: "Same as long-term" };
+      }
+      const rent = room.termPricing?.[term]?.monthlyRent;
+      return { ...s, summary: rent && rent > 0 ? `$${rent.toLocaleString("en-US")}/mo` : "—" };
     });
   }, [draft, extraLeaseTerms, leaseTerms, subject]);
 
@@ -223,7 +260,9 @@ export function PropertyRoomPricingWorkspace({
           const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
           const copySources = pricingCopySourceRooms(draft, room.id, activeTerm);
           const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
-          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const isStay = isStayLeaseTerm(quoteTerm);
+          const isBaseLong = quoteTerm === LONG_TERM_LEASE_TERM;
+          const isCustomMonthlyTerm = !isBaseLong && !isStay;
           const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
           const stepTitle =
             activeStepId === SHORT_TERM_LEASE_TERM
@@ -311,11 +350,92 @@ export function PropertyRoomPricingWorkspace({
                     sub={draft}
                     patch={patch}
                     term={quoteTerm}
-                    prorate={activeStepId === LONG_TERM_LEASE_TERM}
+                    prorate={isBaseLong}
                     showResidentsCapacity
-                    showMonthToMonthSurcharge={allowM2m}
-                    showCustomStartSurcharge={allowCustomStart}
+                    showMonthToMonthSurcharge={allowM2m && isBaseLong}
+                    showCustomStartSurcharge={allowCustomStart && isBaseLong}
                   />
+                ) : isCustomMonthlyTerm ? (
+                  <>
+                    <ToggleRow
+                      label="Same as long-term"
+                      checked={!roomHasOwnTermPricing(room, quoteTerm)}
+                      onChange={(same) => {
+                        if (same) updateRoom(room.id, clearRoomTermPricing(room, quoteTerm));
+                        else updateRoom(room.id, seedRoomTermFromLongTerm(room, quoteTerm));
+                      }}
+                      dataAttr="property-room-pricing-same-as-long-term"
+                    />
+                    {roomHasOwnTermPricing(room, quoteTerm) ? (
+                      <>
+                        <FactRow label="Rent /mo">
+                          <MoneyInput
+                            label="Rent"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "monthlyRent") ||
+                              (room.monthlyRent > 0 ? String(room.monthlyRent) : "")
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "monthlyRent", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Utilities /mo">
+                          <MoneyInput
+                            label="Utilities"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "utilitiesEstimate") ||
+                              room.utilitiesEstimate ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "utilitiesEstimate", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Deposit">
+                          <MoneyInput
+                            label="Deposit"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "securityDeposit") ||
+                              room.securityDeposit ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "securityDeposit", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FeeRows
+                          sub={draft}
+                          patch={patch}
+                          roomId={room.id}
+                          roomName={room.name?.trim() || "Room"}
+                          term={quoteTerm}
+                        />
+                        <ArrangementStandardFeeRows
+                          count={1}
+                          row={privateArrangementRow(room)}
+                          onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                          showMonthToMonth={allowM2m}
+                          showCustomStart={allowCustomStart}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-[13px] font-semibold text-muted">
+                        Uses this room&apos;s long-term rent, utilities, deposit, and fees.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <>
                     <FactRow label="Rent /mo">
@@ -351,7 +471,7 @@ export function PropertyRoomPricingWorkspace({
                       roomName={room.name?.trim() || "Room"}
                       term={quoteTerm}
                     />
-                    {activeStepId === LONG_TERM_LEASE_TERM && allowCustomStart ? (
+                    {isBaseLong && allowCustomStart ? (
                       <ProrateRows
                         sub={draft}
                         patch={patch}
