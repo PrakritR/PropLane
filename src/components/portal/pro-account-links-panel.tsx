@@ -6,7 +6,7 @@ import { usePublishTitleActions } from "@/components/portal/portal-title-actions
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { Users, UserPlus, UserMinus, ArrowLeftRight } from "lucide-react";
+import { Plus, Users, UserPlus, UserMinus, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -15,7 +15,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 import { WorkspaceInviteLinkStrip } from "@/components/portal/workspace-invite-link-strip";
 import {
@@ -2052,7 +2052,7 @@ export function ProAccountLinksPanel({
     const loading = useRemote && !remoteLoaded && !loadError;
     return (
       <div data-attr="workspace-team" data-workspace-id={workspace.id}>
-        <PortalSettingsSection title="Managers" action={workspace.owned || workspace.canManageMembers ? <PortalPrimaryIconAction icon={UserPlus} label="Invite manager" disabled={inviteLinkBlocked} onClick={() => openLinkModal(workspace.id)} data-attr="workspace-team-invite" /> : undefined}>
+        <PortalSettingsSection title="Managers">
         <PortalSettingsGroup>
         {loading ? (
           <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading team">
@@ -2082,6 +2082,17 @@ export function ProAccountLinksPanel({
                 refreshKey={inviteLinksRefreshKey}
                 onEdit={() => openLinkModal(workspace.id)}
               />
+            ) : null}
+            {workspace.owned || workspace.canManageMembers ? (
+              <button
+                type="button"
+                className="flex min-h-12 w-full items-center gap-2 border-t border-border/60 px-4 text-left text-[15px] font-semibold text-primary disabled:opacity-50"
+                disabled={inviteLinkBlocked}
+                onClick={() => openLinkModal(workspace.id)}
+                data-attr="workspace-team-invite"
+              >
+                <Plus className="size-4" aria-hidden /> Invite manager
+              </button>
             ) : null}
           </>
         )}

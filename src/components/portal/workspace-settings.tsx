@@ -20,7 +20,7 @@ import { PortalSettingsSection, PortalSettingsGroup, PortalSettingsRow } from ".
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRightLeft, ArrowUpRight, Lock, Pencil } from "lucide-react";
+import { Home, ArrowRightLeft, ArrowUpRight, Lock, Pencil } from "lucide-react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -61,7 +61,7 @@ function WorkspaceCard({ workspace, ownedCount, canManage, onRename, onDelete, o
     </PortalSettingsGroup></PortalSettingsSection>
     {teamSection}
     <PortalSettingsSection title="Properties"><PortalSettingsGroup>
-      {workspace.propertyIds.map((id) => <PortalSettingsRow key={id} label={<Link href={`/portal/properties/listed/${encodeURIComponent(id)}/preview`}>{workspace.propertyLabels?.[id] ?? resolvePropertyLabelForId(id)}</Link>}>
+      {workspace.propertyIds.map((id) => <PortalSettingsRow key={id} label={<Link href={`/portal/properties/listed/${encodeURIComponent(id)}/preview`} className="inline-flex items-center gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden><Home className="size-4" /></span>{workspace.propertyLabels?.[id] ?? resolvePropertyLabelForId(id)}</Link>}>
         {(canManage || workspace.canAddProperties) && ownedCount > 1 ? <PortalIconAction icon={ArrowRightLeft} label={`Move ${workspace.propertyLabels?.[id] ?? "this house"} to another workspace`} onClick={() => onMove(id)} data-attr="workspace-move-property" /> : null}
       </PortalSettingsRow>)}
       {!workspace.propertyIds.length ? <PortalSettingsRow label="No properties" /> : null}
@@ -182,7 +182,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   return (
     // Bottom room so the last card's ⋯ can scroll clear of the assistant FAB.
     <div className="space-y-4 pb-20" data-attr="workspace-settings">
-      <div className="flex items-center justify-between"><h2 className="text-2xl font-semibold">Workspace</h2>{!ctx.active ? <PortalPrimaryIconAction label="Add workspace" icon={Plus} disabled={atWorkspaceCap} onClick={() => { setName(""); setEditing("new"); }} /> : null}</div>
+      <div className="flex items-center justify-end empty:hidden">{!ctx.active ? <PortalPrimaryIconAction label="Add workspace" icon={Plus} disabled={atWorkspaceCap} onClick={() => { setName(""); setEditing("new"); }} /> : null}</div>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}
