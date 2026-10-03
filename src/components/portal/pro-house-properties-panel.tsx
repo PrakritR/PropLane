@@ -829,8 +829,9 @@ function ManagerPropertyInlineDetails({
     PROPERTY_ACTIVITY_CATEGORY_OPTIONS.map((option) => option.value),
   );
 
+  // C2-PR14: the record header keeps Edit, Share, Duplicate, Unlist, Delete on every property tab (studio).
   const propertyTabFooterActions = useMemo(() => {
-    if (isListingPreview) {
+    {
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {

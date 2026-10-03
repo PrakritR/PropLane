@@ -40,7 +40,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, PanelsTopLeft, ScrollText } from "lucide-react";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings } from "lucide-react";
 
@@ -143,8 +145,10 @@ export function PropertyPricingPanel({
     else showToast("Add a room on House details first.");
   };
 
+  // Studio row fact: the leases this property offers ("Long-term, Short term").
+  const leaseTermsLabel = resolveAllowedLeaseTerms(sub).join(", ");
   const addLabel =
-    tab === "bundles" ? "bundle" : tab === "whole" ? "whole house price" : "room price";
+    tab === "bundles" ? "Add bundle" : tab === "whole" ? "Add whole house price" : "Add room price";
 
   const tabItems = [
     { id: "rooms" as const, label: "Rooms", count: rooms.length },
@@ -229,6 +233,13 @@ export function PropertyPricingPanel({
                   summary={summary}
                   amount={propertyPricingRoomAmount(room)}
                   onOpen={() => openSubject({ kind: "room", roomId: room.id })}
+                  leading={
+                    <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
+                      <PanelsTopLeft className="size-5" />
+                    </span>
+                  }
+                  leadingShape="square"
+                  facts={leaseTermsLabel ? <PortalRowFact icon={ScrollText} srLabel="Leases offered">{leaseTermsLabel}</PortalRowFact> : undefined}
                   dataAttr="property-pricing-room-row"
                   actions={
                     <PricingRowMenu
