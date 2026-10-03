@@ -451,6 +451,7 @@ export function PortalMessageSendViaField({
 /** Multi-select Send via — same field width and label style as Subject / Message. */
 export function PortalMessageSendViaDropdown({
   selected,
+  channelLabels = { inbox: "PropLane", email: "Email", sms: "SMS" },
   onChange,
   emailAvailable = true,
   smsAvailable = true,
@@ -458,6 +459,7 @@ export function PortalMessageSendViaDropdown({
   footerNote = PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   dataAttr = "portal-message-send-via",
 }: {
+  channelLabels?: { inbox: string; email: string; sms: string };
   selected: string[];
   onChange: (next: string[]) => void;
   emailAvailable?: boolean;
@@ -467,15 +469,15 @@ export function PortalMessageSendViaDropdown({
   dataAttr?: string;
 }) {
   const options = [
-    { value: "proplane", label: "PropLane" },
+    { value: "proplane", label: channelLabels.inbox },
     {
       value: "email",
-      label: emailAvailable ? "Email" : "Email (unavailable)",
+      label: emailAvailable ? channelLabels.email : `${channelLabels.email} (unavailable)`,
       disabled: !emailAvailable,
     },
     {
       value: "sms",
-      label: smsAvailable ? "SMS" : "SMS (not enabled)",
+      label: smsAvailable ? channelLabels.sms : `${channelLabels.sms} (not enabled)`,
       disabled: !smsAvailable,
     },
   ];
@@ -492,9 +494,9 @@ export function PortalMessageSendViaDropdown({
       : ["proplane", ...(emailAvailable ? ["email"] : [])];
 
   const labels: string[] = [];
-  if (displaySelected.includes("proplane")) labels.push("PropLane");
-  if (displaySelected.includes("email")) labels.push("Email");
-  if (displaySelected.includes("sms")) labels.push("SMS");
+  if (displaySelected.includes("proplane")) labels.push(channelLabels.inbox);
+  if (displaySelected.includes("email")) labels.push(channelLabels.email);
+  if (displaySelected.includes("sms")) labels.push(channelLabels.sms);
   const selectionTriggerLabel =
     labels.length > 1 ? labels.join(" & ") : labels[0] ?? "PropLane";
 
