@@ -153,13 +153,18 @@ Small confirmations and single-field actions stay `PortalDialog` pop-ups (§4).
 
 ## 5. Settings
 
-Opens inside the portal shell. On the left, a nav card headed by avatar, name and email,
-then groups ACCOUNT / PORTFOLIO / OPERATIONS with icon rows. On the right, the page title
-with an Account/Workspace scope chip, then section headings above cards of two-column
-rows (label left, control right; read-only values as bold text). Changes save on blur with
-a "Saved" tick. Account pages never depend on workspace permissions. Phone: a profile
-card and grouped list cards (icon tile · label · ›), where each row opens its page with a
-back arrow. Notifications is a read-only "What PropLane sends" list.
+One Settings place (captain, 2026-10-03): the avatar menu has a single Settings row and
+there is no separate Profile. It opens inside the portal shell. On the left, a nav with two
+uppercase-labelled groups: PROFILE (Profile, Login & security, API & MCP, Account, Billing &
+plan) and WORKSPACE (Workspace, Balance & payouts, Communication, Integrations). The workspace
+pages and Billing & plan always show the workspace selected in the sidebar's top-left switcher;
+Settings has no switcher of its own, and that workspace's tile and name sit read-only above the
+WORKSPACE rows. On the right, the page title (the Workspace page is "Workspace settings"), then
+section headings above cards of two-column rows (label left, control right; read-only values as
+bold text). Changes save on blur with a "Saved" tick. Account pages never depend on workspace
+permissions. Phone: the same two groups as list cards (icon tile · label · ›), where each row
+opens its page with a back arrow. Notifications is a read-only "What PropLane sends" list.
+There is no "Defaults for properties" page.
 
 ## 6. Dashboard
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings, User, UserRound } from "lucide-react";
+import { Settings, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -151,42 +151,17 @@ export function PortalMobileNavBar({
               {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
             </div>
 
-            {(definition.kind === "manager" || definition.kind === "pro") ? (
-              <>
-                <DropdownMenuItem
-                  data-attr="portal-mobile-profile"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    router.push(`${definition.basePath}/profile?tab=profile&profileHome=1`);
-                  }}
-                >
-                  <UserRound aria-hidden />
-                  Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-attr="portal-mobile-profile-settings"
-                  onSelect={(event) => {
-                    // Explicit navigation is reliable inside the iOS WebView.
-                    event.preventDefault();
-                    router.push(`${definition.basePath}/profile?tab=workspaces&settingsHome=1`);
-                  }}
-                >
-                  <Settings aria-hidden />
-                  Settings
-                </DropdownMenuItem>
-              </>
-            ) : (
-              <DropdownMenuItem
-                data-attr="portal-mobile-profile-settings"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  router.push(`${definition.basePath}/profile`);
-                }}
-              >
-                <User aria-hidden />
-                Settings
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem
+              data-attr="portal-mobile-profile-settings"
+              onSelect={(event) => {
+                // Explicit navigation is reliable inside the iOS WebView.
+                event.preventDefault();
+                router.push(`${definition.basePath}/profile`);
+              }}
+            >
+              {definition.kind === "manager" || definition.kind === "pro" ? <Settings aria-hidden /> : <User aria-hidden />}
+              Settings
+            </DropdownMenuItem>
 
             <div className="px-1">
               <PortalRoleSwitcher currentKind={definition.kind} />

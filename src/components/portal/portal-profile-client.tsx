@@ -32,7 +32,7 @@ import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-pa
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
-import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
+import { workspaceInitials } from "@/components/portal/workspace-switcher";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -188,7 +188,7 @@ type SettingsGroup = {
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
-  group: "Account" | "Workspace";
+  group: "Profile" | "Workspace";
 };
 
 function ManagerMessagingSettingsPane() {
@@ -451,18 +451,9 @@ export function PortalProfileClient({
         label: "Profile",
         description: `Name, contact details, and ${idLabel}.`,
         icon: UserRound,
-        group: "Account",
+        group: "Profile",
       },
     ];
-    if (!demo && variant === "manager") {
-      list.push({
-        id: "billing",
-        label: "Billing & plan",
-        description: "Subscription and payment details.",
-        icon: CreditCard,
-        group: "Account",
-      });
-    }
     // Preferences and Notifications left manager Settings entirely (S019,
     // captain 2026-09-27: "simplify settings fully"): the assistant popup/dock
     // choice moved onto the assistant itself (`AssistantDisplaySetting`),
@@ -474,7 +465,7 @@ export function PortalProfileClient({
         label: "Preferences",
         description: "Appearance, assistant, and device options.",
         icon: SlidersHorizontal,
-        group: "Account",
+        group: "Profile",
       });
     }
     list.push({
@@ -482,7 +473,7 @@ export function PortalProfileClient({
       label: "Login & security",
       description: "Password and sign-in options.",
       icon: Lock,
-      group: "Account",
+      group: "Profile",
     });
     // Keys authorize against the manager tool layer, so the pane is manager-only.
     // /demo must never mint a real credential.
@@ -492,7 +483,7 @@ export function PortalProfileClient({
         label: "API & MCP",
         description: "Connect your own AI agent to PropLane.",
         icon: KeyRound,
-        group: "Account",
+        group: "Profile",
       });
     }
     // Feedback left manager Settings too — "Need help?" in the sidebar is the
@@ -504,7 +495,7 @@ export function PortalProfileClient({
         label: "Feedback",
         description: "Report issues or share product feedback.",
         icon: MessageSquareText,
-        group: "Account",
+        group: "Profile",
       });
     }
     list.push({
@@ -512,8 +503,19 @@ export function PortalProfileClient({
       label: "Account",
       description: "Switch portals, sign out, or delete your account.",
       icon: Settings,
-      group: "Account",
+      group: "Profile",
     });
+    // Billing & plan sits in the Profile group (captain, 2026-10-03) but still
+    // bills the workspace selected in the sidebar switcher.
+    if (!demo && variant === "manager") {
+      list.push({
+        id: "billing",
+        label: "Billing & plan",
+        description: "Subscription and payment details.",
+        icon: CreditCard,
+        group: "Profile",
+      });
+    }
     // Workspace-level settings: Workspace, Payments and Communication.
     // Integrations are account connections; forms and lease documents are
     // reached from their corresponding property sections.
@@ -529,7 +531,7 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        { id: "payments", label: "Payments", description: "Payment methods, payouts, and history.", icon: Wallet, group: "Workspace" },
+        { id: "payments", label: "Balance & payouts", description: "PropLane balance, bank accounts, and withdrawals.", icon: Wallet, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
@@ -570,8 +572,8 @@ export function PortalProfileClient({
   const profileHome = searchParams.get("profileHome") === "1" && variant === "manager";
   const activeGroup = settingsHome || profileHome ? null :
     groups.find((g) => g.id === rawTab) ?? (billingOverride ? billingGroup : null) ?? null;
-  // Desktop always shows a pane; with no tab selected it defaults to Profile.
-  const paneGroup = activeGroup ?? (settingsHome ? groups.find((g) => g.id === "workspaces") : null) ?? groups[0];
+  // Desktop always shows a pane (a phone-home link still names its tab); with none it defaults to Profile, the first group.
+  const paneGroup = activeGroup ?? groups.find((g) => g.id === rawTab) ?? groups[0];
 
   // Depth of history entries this component pushed, so the in-page back
   // chevron unwinds the stack (matching the iOS back gesture) instead of
@@ -786,53 +788,79 @@ export function PortalProfileClient({
     }
   };
 
-  const personalIds = new Set(["profile", "security", "developer", "account", "preferences", "feedback"]);
-  const personalView = profileHome || (!settingsHome && personalIds.has(paneGroup.id));
-  const workspaceOrder = ["workspaces", "payments", "messaging", "spreadsheets", "billing"];
-  const visibleGroups = variant === "manager"
-    ? (personalView ? groups.filter((g) => personalIds.has(g.id)) : workspaceOrder.flatMap((id) => groups.filter((g) => g.id === id)))
-    : groups;
+  // One settings place (captain, 2026-10-03): the avatar menu has a single
+  // Settings row, and this nav carries both groups. PROFILE is the account
+  // (never workspace-dependent); WORKSPACE follows the workspace selected in the
+  // sidebar switcher, whose name is shown read-only above its rows.
+  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "messaging", "spreadsheets"];
+  const profileGroups = groups.filter((g) => g.group === "Profile");
+  const workspaceGroups = WORKSPACE_GROUP_ORDER.flatMap((id) => groups.filter((g) => g.id === id));
   const limitedWorkspace = variant === "manager" && Boolean(workspaces?.active && !workspaces.active.owned && !workspaces.active.canManageMembers);
   const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "spreadsheets"].includes(id);
-  const switcher = variant === "manager" && !personalView ? <WorkspaceSwitcher variant="mobile" /> : null;
+  // Panes whose content is the selected workspace's: remount when the sidebar switches it.
+  const followsWorkspace = (id: string) => [...WORKSPACE_GROUP_ORDER, "billing"].includes(id);
+  const paneTitle = paneGroup.id === "workspaces" ? "Workspace settings" : paneGroup.label;
+  const workspaceName = variant === "manager" && workspaceGroups.length > 0 && workspaces?.active ? (
+    <div data-attr="settings-workspace-name" className="flex min-w-0 items-center gap-2.5 px-3 py-2">
+      <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary" aria-hidden>{workspaceInitials(workspaces.active.name)}</span>
+      <span className="truncate text-sm font-semibold text-foreground">{workspaces.active.name}</span>
+    </div>
+  ) : null;
   const pane = locked(paneGroup.id)
     ? <PortalSettingsGroup><PortalSettingsRow label={<span className="flex items-center gap-2"><Lock className="h-4 w-4" />{paneGroup.label}</span>}><span className="text-[15px] text-muted">Read-only access</span></PortalSettingsRow></PortalSettingsGroup>
     : renderPane(paneGroup.id);
   const scopedPane = WORKSPACE_SCOPED_PANES.has(paneGroup.id) || WORKSPACE_ONLY_SCOPED_PANES.has(paneGroup.id)
     ? <SettingsPropertyScopeProvider workspaceId={workspaces?.active?.id ?? scopeWorkspaceId} onWorkspaceIdChange={setScopeWorkspaceId} propertyIds={[]} onPropertyIdsChange={setScopePropertyIds} options={scopeOptions}>{pane}</SettingsPropertyScopeProvider>
     : pane;
+  const groupLabelClass = "px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-muted";
+  const navButton = (g: SettingsGroup) => (
+    <button key={g.id} type="button" onClick={() => openGroup(g.id)} aria-current={paneGroup.id === g.id ? "page" : undefined}
+      data-attr={`settings-nav-${g.id}`} className={`flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${paneGroup.id === g.id ? "bg-primary/10 text-primary" : "text-muted hover:bg-accent/40"}`}>
+      <g.icon className="h-4 w-4" /><span className="flex-1">{g.label}</span>{locked(g.id) ? <Lock className="h-3.5 w-3.5" /> : null}
+    </button>
+  );
+  const linkRow = (g: SettingsGroup) => (
+    <PortalSettingsLinkRow key={g.id} icon={locked(g.id) ? <Lock className="h-4 w-4" /> : <g.icon className="h-4 w-4" />} label={g.label}
+      value={g.id === "billing" ? workspaces?.plan?.tier ?? undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
+  );
+  const homeVisible = activeGroup === null;
   return (
-    <ManagerPortalPageShell title={personalView ? "Profile" : "Settings"} navigationProvidesTitle hideTitleOnMobileNav>
+    <ManagerPortalPageShell title="Settings" navigationProvidesTitle hideTitleOnMobileNav>
       <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
-          {switcher ? <div className="mb-4">{switcher}</div> : null}
-          {visibleGroups.map((g) => <button key={g.id} type="button" onClick={() => openGroup(g.id)} aria-current={paneGroup.id === g.id ? "page" : undefined}
-            data-attr={`settings-nav-${g.id}`} className={`flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${paneGroup.id === g.id ? "bg-primary/10 text-primary" : "text-muted hover:bg-accent/40"}`}>
-            <g.icon className="h-4 w-4" /><span className="flex-1">{g.label}</span>{locked(g.id) ? <Lock className="h-3.5 w-3.5" /> : null}
-          </button>)}
+          {variant === "manager" ? <p className={`${groupLabelClass} pt-0`} data-attr="settings-group-profile">Profile</p> : null}
+          {profileGroups.map(navButton)}
+          {workspaceGroups.length > 0 ? <>
+            <p className={groupLabelClass} data-attr="settings-group-workspace">Workspace</p>
+            {workspaceName}
+            {workspaceGroups.map(navButton)}
+          </> : null}
         </nav>
         <div ref={contentColRef} className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
-          {activeGroup === null ? <div className="space-y-6 lg:hidden" data-attr={personalView ? "profile-home" : "settings-home"}>
+          {homeVisible ? <div className="space-y-6 lg:hidden" data-attr="settings-home">
             <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => router.back()}><ChevronLeft className="h-6 w-6" /></button>
-            <h2 className="text-[30px] font-semibold tracking-tight">{personalView ? "Profile" : "Settings"}</h2>
-            {switcher}
-            {personalView ? <button type="button" data-attr="settings-open-profile" onClick={() => openGroup("profile")} className="block w-full text-left" aria-label="Open Profile">
-              <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} action={<ChevronRight className="h-4 w-4 text-muted" />} />
-            </button> : null}
-            <PortalSettingsGroup>{visibleGroups.filter((g) => !personalView || g.id !== "profile").map((g) =>
-              <PortalSettingsLinkRow key={g.id} icon={locked(g.id) ? <Lock className="h-4 w-4" /> : <g.icon className="h-4 w-4" />} label={g.label}
-                value={g.id === "billing" ? workspaces?.plan?.tier ?? undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
-            )}</PortalSettingsGroup>
+            <h2 className="text-[30px] font-semibold tracking-tight">Settings</h2>
+            <div className="space-y-2">
+              {variant === "manager" ? <p className={`${groupLabelClass} pt-0`}>Profile</p> : null}
+              {variant === "manager" ? <button type="button" data-attr="settings-open-profile" onClick={() => openGroup("profile")} className="block w-full text-left" aria-label="Open Profile">
+                <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} action={<ChevronRight className="h-4 w-4 text-muted" />} />
+              </button> : null}
+              <PortalSettingsGroup>{profileGroups.filter((g) => variant !== "manager" || g.id !== "profile").map(linkRow)}</PortalSettingsGroup>
+            </div>
+            {workspaceGroups.length > 0 ? <div className="space-y-2">
+              <p className={`${groupLabelClass} pt-0`}>Workspace</p>
+              {workspaceName}
+              <PortalSettingsGroup>{workspaceGroups.map(linkRow)}</PortalSettingsGroup>
+            </div> : null}
           </div> : <>
             <div className="sticky top-0 z-20 mb-4 flex h-[52px] items-center justify-center bg-background/95 backdrop-blur lg:hidden">
               <button type="button" onClick={backToRoot} aria-label="Back" data-attr="settings-back-to-root" className="absolute left-0 grid h-11 w-11 place-items-center"><ChevronLeft className="h-6 w-6" /></button>
-              <h2 className="max-w-[70%] truncate text-[17px] font-semibold">{paneGroup.label}</h2>
+              <h2 className="max-w-[70%] truncate text-[17px] font-semibold">{paneTitle}</h2>
             </div>
-            {switcher ? <div className="mb-6 lg:hidden">{switcher}</div> : null}
           </>}
-          <div className={activeGroup === null ? "max-lg:hidden" : undefined}>
-            <h1 className="mb-6 hidden text-2xl font-semibold tracking-tight lg:block">{paneGroup.label}</h1>
-            <PortalSettingsSections key={personalView ? "account" : workspaces?.active?.id ?? "workspace"}>{scopedPane}</PortalSettingsSections>
+          <div className={homeVisible ? "max-lg:hidden" : undefined}>
+            <h1 className="mb-6 hidden text-2xl font-semibold tracking-tight lg:block">{paneTitle}</h1>
+            <PortalSettingsSections key={followsWorkspace(paneGroup.id) ? workspaces?.active?.id ?? "workspace" : "account"}>{scopedPane}</PortalSettingsSections>
           </div>
         </div>
       </div>

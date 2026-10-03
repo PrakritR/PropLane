@@ -7,17 +7,17 @@ const src = readFileSync(resolve("src/components/portal/portal-profile-client.ts
 function groupFor(id: string): string | null {
   const block = src.split(`id: "${id}"`)[1];
   if (!block) return null;
-  const match = block.match(/group:\s*"(Account|Workspace)"/);
+  const match = block.match(/group:\s*"(Profile|Workspace)"/);
   return match?.[1] ?? null;
 }
 
 describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 simplification, corrected 06:47)", () => {
-  it("keeps person settings on Account", () => {
-    expect(groupFor("profile")).toBe("Account");
-    expect(groupFor("preferences")).toBe("Account");
-    expect(groupFor("security")).toBe("Account");
-    expect(groupFor("feedback")).toBe("Account");
-    expect(groupFor("account")).toBe("Account");
+  it("keeps person settings in the Profile group", () => {
+    expect(groupFor("profile")).toBe("Profile");
+    expect(groupFor("preferences")).toBe("Profile");
+    expect(groupFor("security")).toBe("Profile");
+    expect(groupFor("feedback")).toBe("Profile");
+    expect(groupFor("account")).toBe("Profile");
   });
 
   it("puts Workspace under the active workspace", () => {
@@ -51,17 +51,19 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(src).not.toContain('id: "notifications"');
   });
 
-  it("keeps Payments and Payouts on Workspace, and renames Spreadsheets to Integrations", () => {
+  it("keeps Balance & payouts on Workspace, and renames Spreadsheets to Integrations", () => {
     expect(groupFor("payments")).toBe("Workspace");
+    expect(src).toContain('label: "Balance & payouts"');
+    expect(src).not.toContain('label: "Payments"');
     expect(groupFor("payouts")).toBeNull();
     expect(src).toContain('router.replace("/portal/profile?tab=payments")');
     expect(groupFor("spreadsheets")).toBe("Workspace");
     expect(src).toContain('label: "Integrations"');
   });
 
-  it("moves Billing and API onto Account — they belong to the login", () => {
-    expect(groupFor("billing")).toBe("Account");
-    expect(groupFor("developer")).toBe("Account");
+  it("keeps Billing & plan and API & MCP in the Profile group (captain, 2026-10-03)", () => {
+    expect(groupFor("billing")).toBe("Profile");
+    expect(groupFor("developer")).toBe("Profile");
   });
 
   it("redirects the retired Settings Vendors tab to the operations list", () => {

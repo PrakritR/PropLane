@@ -170,14 +170,16 @@ describe("manager settings categories", () => {
   });
 
   it.each([
-    ["?profileHome=1", ["profile", "security", "developer", "account"]],
-    ["?settingsHome=1", ["workspaces", "payments", "messaging", "spreadsheets", "billing"]],
-  ])("offers the matching root list and rail for %s", async (query, categories) => {
+    ["?profileHome=1"],
+    ["?settingsHome=1"],
+    [""],
+  ])("offers every category in one root list and rail for %s", async (query) => {
     goto(query as string);
     renderSettings();
-    for (const id of categories) {
-      expect(document.querySelector(`[data-attr="settings-open-${id}"]`), `root row for ${id}`).toBeTruthy();
+    // One settings place (captain, 2026-10-03): both groups are always present.
+    for (const id of CATEGORIES) {
       expect(document.querySelector(`[data-attr="settings-nav-${id}"]`), `nav for ${id}`).toBeTruthy();
+      expect(document.querySelector(`[data-attr="settings-open-${id}"]`), `root row for ${id}`).toBeTruthy();
     }
   });
 

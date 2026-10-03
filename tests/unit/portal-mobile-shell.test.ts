@@ -208,7 +208,7 @@ describe("portal mobile shell conventions", () => {
 
     const shellTag = PROFILE_SOURCE.match(/<ManagerPortalPageShell\b[\s\S]*?>/);
     expect(shellTag).not.toBeNull();
-    expect(shellTag?.[0]).toContain('title={personalView ? "Profile" : "Settings"}');
+    expect(shellTag?.[0]).toContain('title="Settings"');
     expect(shellTag?.[0]).toContain("hideTitleOnMobileNav");
   });
 
