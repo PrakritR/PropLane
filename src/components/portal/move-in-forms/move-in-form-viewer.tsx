@@ -110,8 +110,9 @@ export function MoveInFormViewer({
       .then(({ form: loaded }) => {
         if (cancelled) return;
         setRecord(loaded);
-        // The server stamps "opened" on the first read of a submitted form; tell the sidebar count.
-        if (loaded.status === "submitted" && !loaded.managerViewedAt && !announced.current) {
+        // The server stamps "opened" on the first read of a submitted form and returns the stamped
+        // record, so "first read" is judged from the row this popup was opened with, not `loaded`.
+        if (loaded.status === "submitted" && !form.managerViewedAt && !announced.current) {
           announced.current = true;
           window.dispatchEvent(new Event(MOVE_IN_FORMS_CHANGED));
         }
