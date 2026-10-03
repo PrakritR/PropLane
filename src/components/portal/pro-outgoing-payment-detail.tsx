@@ -33,6 +33,7 @@ import {
   type ExistingVendorPayoutSummary,
 } from "@/lib/vendor-payout-guard";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
+import { formatOutgoingDueDetail } from "@/lib/portal-display-dates";
 
 function approvePayDefaults(row: DemoManagerWorkOrderRow) {
   return {
@@ -229,7 +230,7 @@ export function ManagerOutgoingPaymentDetail({
   return (
     <>
       <p className="mb-3 text-sm text-muted">
-        Due: <span className="font-semibold text-foreground">{row.dueDate}</span>
+        Due: <span className="font-semibold text-foreground">{formatOutgoingDueDetail(row.dueDate)}</span>
         {" · "}
         Payee: <span className="font-semibold text-foreground">{row.payeeLabel}</span>
       </p>

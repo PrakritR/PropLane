@@ -42,6 +42,7 @@ import {
 } from "@/components/portal/portal-record-overview-kit";
 import { Bell, CalendarDays, RotateCcw, Trash2, Check, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
@@ -775,7 +776,12 @@ export function ManagerPaymentsLedgerPanel({
 
   const renderDueDateCell = (row: DemoManagerPaymentLedgerRow) => {
     const label = formatDueMeta(row.dueDate ?? "").replace(/^Due\s+/i, "");
-    return <span className="block">{label || row.dueDate}</span>;
+    const raw = row.dueDate?.trim() ?? "";
+    const fallback =
+      raw && !label
+        ? formatPortalListDate(raw.length >= 10 ? raw.slice(0, 10) : raw) || raw
+        : raw;
+    return <span className="block">{label || fallback}</span>;
   };
 
   const buildReminderPreviewForRow = (row: DemoManagerPaymentLedgerRow): BulkPaymentReminderPreviewItem | null => {

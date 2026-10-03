@@ -47,4 +47,19 @@ describe("portal list dates — rent receipts", () => {
     expect(source).toContain("formatPortalListDate");
     expect(source).toMatch(/formatPortalListDate\(row\.dueDate\)/);
   });
+
+  it("outgoing payment detail uses shared due formatting", () => {
+    const panel = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-outgoing-payments-panel.tsx"),
+      "utf8",
+    );
+    const detail = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-outgoing-payment-detail.tsx"),
+      "utf8",
+    );
+    expect(panel).toContain("formatOutgoingDue(");
+    expect(panel).toContain("formatOutgoingDueDetail(");
+    expect(detail).toMatch(/formatOutgoingDueDetail\(row\.dueDate\)/);
+    expect(detail).not.toMatch(/>\{row\.dueDate\}</);
+  });
 });
