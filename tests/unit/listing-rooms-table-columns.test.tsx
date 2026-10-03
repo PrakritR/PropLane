@@ -72,5 +72,6 @@ describe("listing rooms table columns", () => {
     expect(Number(widthOf("Bath"))).toBeGreaterThanOrEqual(15);
     expect(Number(widthOf("Available"))).toBeGreaterThanOrEqual(20);
     expect(Number(widthOf("Room"))).toBeGreaterThanOrEqual(25);
+    expect(Number(widthOf("Floor"))).toBeGreaterThanOrEqual(14); // "2nd floor" never truncates
   });
 });

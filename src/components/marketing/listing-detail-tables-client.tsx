@@ -1454,11 +1454,11 @@ export function SpacesInteractive({
                   <th className={`${SPACE_TH} w-[84px]`}>
                     <span className="sr-only">Photo</span>
                   </th>
-                  <th className={`${SPACE_TH} w-[23%]`}>Room</th>
+                  <th className={`${SPACE_TH} w-[25%]`}>Room</th>
                   <th className={`${SPACE_TH} w-[14%]`}>Floor</th>
                   <th className={`${SPACE_TH} w-[15%]`}>Bath</th>
                   <th className={`${SPACE_TH} w-[20%]`}>Available</th>
-                  <th className={`${SPACE_TH} w-[12%] text-right`}>Rent</th>
+                  <th className={`${SPACE_TH} w-[10%] text-right`}>Rent</th>
                   <th className={`${SPACE_TH} w-[4.75rem] text-right`}>
                     <span className="sr-only">Details</span>
                   </th>
