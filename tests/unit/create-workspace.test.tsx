@@ -120,7 +120,7 @@ describe("CreateWorkspace", () => {
     expect(rail.textContent).not.toContain("Import");
     expect(rail.textContent).toContain("Basics");
     // No Import step yet: the footer counts the listing's own path only.
-    expect(screen.getByText(/^Step 1 of \d$/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Step 1 of \d$/).length).toBeGreaterThan(0); // footer, and the phone step picker
     expect(screen.getByText("New listing")).toBeInTheDocument();
   });
 
@@ -149,7 +149,7 @@ describe("CreateWorkspace", () => {
     expect(screen.getAllByText("Imported").length).toBeGreaterThan(0);
     expect(document.querySelector("[data-attr='import-property-switcher']")).toBeNull();
     // Basics is now the second step: Import counts in the footer.
-    expect(screen.getByText(/^Step 2 of \d$/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Step 2 of \d$/).length).toBeGreaterThan(0);
   });
 
   it("a file picked over typed work asks first; Keep drops the file, Replace reads it", async () => {
@@ -206,7 +206,7 @@ describe("CreateWorkspace", () => {
     expect(nav.textContent).toContain("By the room");
     expect(nav.textContent).toMatch(/4 rooms/);
     expect(nav.textContent).toContain("Draft");
-    const importStep = screen.getByText(/^Step 1 of \d+$/).textContent;
+    const importStep = screen.getAllByText(/^Step 1 of \d+$/)[0]!.textContent;
     const total = importStep?.match(/of (\d+)/)?.[1];
     fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
     // Rooms has no Default card (PLAN-0921-1648); its chrome is the "N rooms"

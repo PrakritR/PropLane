@@ -26,6 +26,11 @@ import { PromotionUploadComposer } from "@/components/portal/promotion-upload-co
 import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
 import { Input, Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizard-draft-memory";
+
+/** Where the x parks an unfinished promotion (flyer and post kinds; a picked upload file is not kept). */
+const PROMOTION_DRAFT_KEY = "new-promotion";
+type KeptPromotion = { kind: PromotionAssetKind; stepIdx: number; draft: PromotionDraft };
 
 const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; icon: LucideIcon }[] = [
   { id: "flyer", label: "Flyer", icon: FileText },
@@ -139,6 +144,23 @@ export function PromotionNewModal({
 
   useEffect(() => {
     if (!open) return;
+    // The x kept an unfinished promotion: pick it up where it was left (consumed here, so a
+    // promotion that is then generated never leaves a stale copy behind).
+    const kept = initialStepId ? undefined : readWizardDraft<KeptPromotion>(PROMOTION_DRAFT_KEY);
+    clearWizardDraft(PROMOTION_DRAFT_KEY);
+    if (kept) {
+      setKind(kept.kind);
+      setStepIdx(kept.stepIdx);
+      setDraft(kept.draft);
+      // The baseline stays the seed the modal opened with, so the kept edits still count as typed content.
+      setFlyerBase(draft);
+      setFlyerBaseProperty(kept.draft.propertyKey);
+      setTextDirty(false);
+      setUploadFile(null);
+      setUploadFileName(null);
+      setUploadError(null);
+      return;
+    }
     setKind(initialKind);
     setStepIdx(initialStepId === "content" ? 1 : initialStepId === "preview" ? 2 : 0);
     setFlyerBase(draft);
@@ -232,6 +254,11 @@ export function PromotionNewModal({
         ? textDirty || flyerContentChanged(draft, flyerBase)
         : Boolean(uploadFile);
 
+  const keepAndClose = () => {
+    if (kind !== "upload" && leavingDirty) writeWizardDraft<KeptPromotion>(PROMOTION_DRAFT_KEY, { kind, stepIdx, draft });
+    onClose();
+  };
+
   const preview = kind === "flyer" ? <PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded />
     : kind === "upload" ? <PromotionUploadPreview file={uploadFile} /> : <PromotionPostPreview draft={draft} options={textPreview} />;
 
@@ -243,7 +270,9 @@ export function PromotionNewModal({
       steps={workspaceSteps}
       current={current}
       onJump={setStepIdx}
-      onClose={onClose}
+      onClose={keepAndClose}
+      keepsDraft={kind !== "upload"}
+      onDiscardDraft={() => clearWizardDraft(PROMOTION_DRAFT_KEY)}
       dirty={leavingDirty}
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}

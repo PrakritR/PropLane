@@ -214,6 +214,8 @@ export function ManagerAddOutgoingPaymentModal({
         setStepIdx(index);
       }}
       onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
+      keepsDraft
+      onDiscardDraft={workspaceDraft.clear}
       dirty={Boolean(amount.trim() || memo.trim() || propertyId || vendorId)}
       discardTitle="Discard this payment?"
       assistantContext="Add an outgoing payment for taxes, mortgage, fees, or a vendor invoice."

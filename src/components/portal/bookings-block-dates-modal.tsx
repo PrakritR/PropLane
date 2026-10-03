@@ -320,6 +320,8 @@ export function BookingsBlockDatesModal({
         current={current}
         onJump={setStepIdx}
         onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
+        keepsDraft
+        onDiscardDraft={workspaceDraft.clear}
         dirty={Boolean(propertyId || checkIn || residentChoice)}
         discardTitle={editingBlockId ? "Discard these edits?" : "Discard this booking?"}
         assistantContext={editingBlockId ? "Edit booking" : "Add booking"}
