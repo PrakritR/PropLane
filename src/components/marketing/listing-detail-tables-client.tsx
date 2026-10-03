@@ -1573,8 +1573,9 @@ export function SpacesInteractive({
                 </tr>
               </thead>
               <tbody>
-                {realBathrooms.map((row) => (
-                  <tr key={row.id}>
+                {realBathrooms.map((row, index) => (
+                  // Index too: older listings may carry two bathrooms with one id.
+                  <tr key={`${row.id}-${index}`}>
                     <td className={SPACE_TD}>
                       <ListingThumb urls={row.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
@@ -1602,9 +1603,9 @@ export function SpacesInteractive({
             </table>
           </div>
           <div className={SPACE_ROWS_MOBILE}>
-            {realBathrooms.map((row) => (
+            {realBathrooms.map((row, index) => (
               <button
-                key={row.id}
+                key={`${row.id}-${index}`}
                 type="button"
                 data-attr="listing-bath-details"
                 onClick={() => setModal({ kind: "bathroom", row })}
@@ -1648,8 +1649,8 @@ export function SpacesInteractive({
                 </tr>
               </thead>
               <tbody>
-                {realShared.map((row) => (
-                  <tr key={row.id}>
+                {realShared.map((row, index) => (
+                  <tr key={`${row.id}-${index}`}>
                     <td className={SPACE_TD}>
                       <ListingThumb urls={row.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
@@ -1672,9 +1673,9 @@ export function SpacesInteractive({
             </table>
           </div>
           <div className={SPACE_ROWS_MOBILE}>
-            {realShared.map((row) => (
+            {realShared.map((row, index) => (
               <button
-                key={row.id}
+                key={`${row.id}-${index}`}
                 type="button"
                 data-attr="listing-shared-details"
                 onClick={() => setModal({ kind: "shared", row })}

@@ -2084,9 +2084,42 @@ export function normalizeManagerListingSubmissionV1(
 ): ManagerListingSubmissionV1 {
   // The rent-based lease charges that are still marked as defaults follow the rent this
   // listing holds NOW, so a rent typed after the listing was created reaches the lease.
-  return withSingleApplicationLeaseLinks(
-    refreshMarkedLeaseChargeDefaults(normalizeManagerListingSubmissionV1Base(sub, opts)),
+  return withUniqueBathAndSpaceIds(
+    withSingleApplicationLeaseLinks(
+      refreshMarkedLeaseChargeDefaults(normalizeManagerListingSubmissionV1Base(sub, opts)),
+    ),
   );
+}
+
+/**
+ * Two bathrooms (or shared spaces) minted in the same millisecond once shared an
+ * id, so editing one changed both and the public table broke. A repeat gets a
+ * stable suffix — the same every time this runs. Rooms are never re-minted:
+ * leases and bookings point at room ids.
+ */
+function withUniqueBathAndSpaceIds(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const unique = <T extends { id: string }>(rows: T[] | undefined): T[] | undefined => {
+    if (!Array.isArray(rows)) return rows;
+    const seen = new Set<string>();
+    let changed = false;
+    const out = rows.map((row, index) => {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        return row;
+      }
+      changed = true;
+      let id = `${row.id}-dup${index}`;
+      while (seen.has(id)) id = `${id}x`;
+      seen.add(id);
+      return { ...row, id };
+    });
+    return changed ? out : rows;
+  };
+  const bathrooms = unique(sub.bathrooms);
+  const sharedSpaces = unique(sub.sharedSpaces);
+  return bathrooms === sub.bathrooms && sharedSpaces === sub.sharedSpaces
+    ? sub
+    : { ...sub, bathrooms: bathrooms ?? sub.bathrooms, sharedSpaces: sharedSpaces ?? sub.sharedSpaces };
 }
 
 function normalizeManagerListingSubmissionV1Base(

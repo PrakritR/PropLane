@@ -18,7 +18,6 @@
  */
 
 import { roomFurnishingLabel, roomFurnitureItems } from "@/lib/listing-room-editor";
-import { dedupeAddressSegments } from "@/lib/property-row-summary";
 import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
@@ -132,12 +131,11 @@ export function ListingPreviewPanel({
       </h4>
       <p className="text-[11.5px] text-muted">
         {/* The stored address often already carries city/state/ZIP — never print them twice. */}
-        {dedupeAddressSegments(
-          [listingSubmissionStreetLine(sub) || sub.address, sub.city, [sub.state, sub.zip].filter(Boolean).join(" ")]
-            .map((part) => (part ?? "").trim())
-            .filter(Boolean)
-            .join(", "),
-        )}
+        {[listingSubmissionStreetLine(sub) || sub.address, sub.city, [sub.state, sub.zip].filter(Boolean).join(" ")]
+          .map((part) => (part ?? "").trim())
+          .filter(Boolean)
+          // Skip any piece the line already says (a ZIP or city inside the stored street).
+          .reduce((line, part) => (line.toLowerCase().includes(part.toLowerCase()) ? line : line ? `${line}, ${part}` : part), "")}
       </p>
       <Facts
         rows={[

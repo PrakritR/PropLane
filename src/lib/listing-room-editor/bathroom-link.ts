@@ -102,7 +102,7 @@ function linkRoomToBath(
 
 function mintBathroom(sub: ManagerListingSubmissionV1): ManagerBathroomSubmission {
   const n = (sub.bathrooms ?? []).length + 1;
-  const blank = writeBathroomType({ ...emptyBathroom(n - 1), id: `bath-${Date.now()}`, name: `Bathroom ${n}` }, "full");
+  const blank = writeBathroomType({ ...emptyBathroom(n - 1), id: `bath-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: `Bathroom ${n}` }, "full");
   return blank;
 }
 

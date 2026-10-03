@@ -1353,7 +1353,7 @@ function StepRooms({
       ui?.showToast("Maximum 20 rooms.");
       return;
     }
-    const id = `room-${Date.now()}`;
+    const id = `room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const blank: ManagerRoomSubmission = { ...emptyRoom(rooms.length), id, name: "", occupancyCapacity: 1 };
     writeRooms([...rooms, blank]);
     setOpen(id);
@@ -1644,7 +1644,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
       ui?.showToast("Maximum 12 bathrooms.");
       return;
     }
-    const id = `bath-${Date.now()}`;
+    const id = `bath-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const blank = writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full");
     patch({ bathrooms: [...baths, blank] });
     setOpen(id);

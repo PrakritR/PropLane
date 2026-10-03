@@ -1201,7 +1201,7 @@ function BundlesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch
         label="Add bundle"
         dataAttr="listing-v2-add-bundle"
         onClick={() => {
-          const id = `bundle-${Date.now()}`;
+          const id = `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           patch({ bundles: [...bundles, { id, label: "", price: "", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: [] }] });
           setOpen(id);
         }}
