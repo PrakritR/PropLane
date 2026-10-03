@@ -3322,6 +3322,46 @@ export function generateLeaseHtmlForRow(
 }
 
 /** Regenerate unsigned manager-review leases after resident or payment edits (never after sent to resident). */
+/** Void every out-for-signature lease for this resident so terms can be re-drafted. */
+export function voidOutForSignatureLeasesForResidentEdit(
+  residentEmail: string,
+  managerUserId: string | null | undefined,
+  reason?: string,
+): number {
+  const email = residentEmail.trim().toLowerCase();
+  if (!email) return 0;
+  const iso = new Date().toISOString();
+  let voided = 0;
+  for (const lr of readLeasePipeline(managerUserId)) {
+    if (lr.residentEmail.trim().toLowerCase() !== email) continue;
+    if (lr.status !== "Resident Signature Pending" && lr.status !== "Manager Signature Pending") continue;
+    const thread = Array.isArray(lr.thread) ? lr.thread : [];
+    const ok = updateLeasePipelineRow(
+      lr.id,
+      {
+        voidedAt: iso,
+        status: "Voided",
+        stageLabel: "Voided",
+        currentActorRole: "system",
+        updatedAtIso: iso,
+        updated: formatUpdatedLabel(iso),
+        thread: [
+          ...thread,
+          {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            at: iso,
+            role: "manager",
+            body: reason?.trim() || "Lease voided — resident terms changed.",
+          },
+        ],
+      },
+      managerUserId,
+    );
+    if (ok) voided += 1;
+  }
+  return voided;
+}
+
 export function regenerateEditableLeasesForResident(
   residentEmail: string,
   managerUserId: string | null | undefined,

@@ -6,7 +6,11 @@ import {
   recordApprovedApplicationCharges,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
-import { regenerateEditableLeasesForResident, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
+import {
+  regenerateEditableLeasesForResident,
+  syncLeasePipelineFromServer,
+  voidOutForSignatureLeasesForResidentEdit,
+} from "@/lib/lease-pipeline-storage";
 import {
   readManagerApplicationRows,
   replaceManagerApplicationRowInCache,
@@ -111,7 +115,11 @@ export type ResidentBillingSyncOutcome = {
 function regenerateBillingForRow(
   row: DemoApplicantRow,
   managerUserId: string | null,
+  options?: { voidSentLeases?: boolean },
 ): ResidentBillingSyncOutcome {
+  if (options?.voidSentLeases && row.email?.trim()) {
+    voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId);
+  }
   const skipped: string[] = [];
   const chargesRegenerated = recordApprovedApplicationCharges(row, managerUserId, true);
   if (!chargesRegenerated) {
@@ -221,8 +229,9 @@ export async function persistResidentProfileEdit(input: {
   rows: DemoApplicantRow[];
   nextRow: DemoApplicantRow;
   managerUserId: string | null;
+  voidSentLeases?: boolean;
 }): Promise<{ ok: boolean; error?: string; sync?: ResidentBillingSyncOutcome }> {
-  const { rows, nextRow, managerUserId } = input;
+  const { rows, nextRow, managerUserId, voidSentLeases } = input;
   writeManagerApplicationRows(rows);
 
   if (!isDemoModeActive()) {
@@ -242,7 +251,7 @@ export async function persistResidentProfileEdit(input: {
     }
   }
 
-  const sync = regenerateBillingForRow(nextRow, managerUserId);
+  const sync = regenerateBillingForRow(nextRow, managerUserId, { voidSentLeases });
 
   // Wait for the WRITE, never the read-back. The charges must reach the server before this
   // resolves — reporting "updated" for an edit still sitting in the browser is the failure this
