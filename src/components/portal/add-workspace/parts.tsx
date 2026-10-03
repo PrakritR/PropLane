@@ -104,7 +104,7 @@ export function WizardField({
     <label className={cn("block", className)}>
       <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
         {label}
-        {required ? <span className="text-red-600">*</span> : null}
+        {required ? <span className="sr-only"> (required)</span> : null}
         {mark ? <span className="ml-1 inline-flex font-normal">{mark}</span> : null}
       </span>
       {children}

@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, Check, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
@@ -100,6 +100,7 @@ export function ListingWorkspace({
   footer,
   headerAside,
   headerCenter,
+  onContinue,
 }: {
   title: string;
   subtitle?: string;
@@ -134,6 +135,8 @@ export function ListingWorkspace({
    * switcher. Stays visible on a phone, where the subtitle steps aside for it.
    */
   headerCenter?: ReactNode;
+  /** Enter in a single-line field follows the same validated path as Continue. */
+  onContinue?: () => void;
 }) {
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
@@ -144,17 +147,17 @@ export function ListingWorkspace({
    * `closeDisabled`; PRP-486's in-flight guard still lives in `onClose`.
    */
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-[20px] sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
       {/*
        * The native shell draws under the status bar, so on a phone the header
        * pads by the safe-area inset the way Modal and the auth layout do;
        * the website (no inset) pads zero. Same again for the footer and the
        * home indicator.
        */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 sm:min-h-[68px] sm:px-6 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <b className="truncate text-[15px] font-bold tracking-tight text-foreground sm:text-[17px]">{title}</b>
+            <b className="truncate text-[19px] font-extrabold tracking-tight text-foreground">{title}</b>
             <span className="shrink-0">{badge}</span>
           </div>
           {/* On a phone the address and the save state lose to the title and the
@@ -164,7 +167,7 @@ export function ListingWorkspace({
         {headerCenter ? <div className="min-w-0 shrink-0">{headerCenter}</div> : null}
         {saveState ? (
           <div
-            className="shrink-0 text-[12.5px] font-semibold text-foreground"
+            className="hidden shrink-0 text-[12.5px] font-medium text-muted sm:block"
             data-testid="listing-wizard-autosave-status"
           >
             {saveState}
@@ -178,7 +181,7 @@ export function ListingWorkspace({
               onClick={onClose}
               disabled={closeDisabled}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
+              className="grid h-11 w-11 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
             >
               ✕
             </button>
@@ -191,7 +194,7 @@ export function ListingWorkspace({
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[252px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[252px_minmax(0,1fr)_340px]">
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
         <nav
           aria-label="Listing sections"
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
@@ -200,11 +203,20 @@ export function ListingWorkspace({
           {rail}
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
-        <main className="min-h-0 min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
+        <main
+          className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-7 sm:py-7 xl:px-10"
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement) || !["text", "email", "tel", "number", "url", "search"].includes(target.type)) return;
+            if (target.getAttribute("role") === "combobox" || target.getAttribute("aria-expanded") === "true") return;
+            if (onContinue) { event.preventDefault(); onContinue(); }
+          }}
+        >{children}</main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 xl:block [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 xl:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>
@@ -227,7 +239,7 @@ export function SideBelow({ children }: { children: ReactNode }) {
   if (!children) return null;
   // A phone does not get the panel at all — it repeated the card above it in a
   // second layout. A laptop without the column still gets it under the step.
-  return <div className="mt-8 hidden border-t border-border/60 pt-6 md:block xl:hidden">{children}</div>;
+  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block xl:hidden">{children}</div>;
 }
 
 export type StepRailItem = {
@@ -283,6 +295,7 @@ export function StepRail({
   numbered?: boolean;
 }) {
   void visited;
+  void numbered;
   // On a phone the rail is a strip of chips; the one the manager is on must be
   // in view, or jumping to Pricing leaves the strip showing "Basics · Rooms".
   const currentRef = useRef<HTMLButtonElement | null>(null);
@@ -291,7 +304,14 @@ export function StepRail({
     currentRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [current]);
   return (
-    <ol className="flex gap-1 lg:flex-col lg:gap-1.5">
+    <>
+      <label className="flex min-h-11 items-center gap-3 px-2 lg:hidden">
+        <span className="sr-only">Jump to step</span>
+        <select aria-label="Jump to step" value={current} onChange={(event) => onJump(Number(event.target.value))} className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-sm font-semibold">
+          {steps.map((step, index) => <option key={step.id} value={index}>{step.label}{(step.attention ?? 0) > 0 ? " · needs attention" : ""}</option>)}
+        </select>
+      </label>
+      <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
         const on = i === current;
         const warn = (step.attention ?? 0) > 0;
@@ -304,27 +324,15 @@ export function StepRail({
               aria-current={on ? "step" : undefined}
               data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-left transition lg:py-2.5",
+                "flex min-h-11 w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-r-[10px] rounded-l-md border-l-[3px] px-3 py-2.5 text-left transition",
                 on
-                  ? "bg-white shadow-[0_0_0_1px_var(--pl-line-strong)] [html[data-theme=dark]_&]:bg-card"
-                  : "hover:bg-foreground/[0.045]",
+                  ? "border-primary bg-white [html[data-theme=dark]_&]:bg-card"
+                  : "border-transparent hover:bg-foreground/[0.045]",
               )}
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  {numbered ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                        warn ? "bg-[var(--status-overdue-fg)]/15 text-[var(--status-overdue-fg)]" : "bg-primary/15 text-primary",
-                      )}
-                    >
-                      {warn ? i + 1 : <Check className="h-[11px] w-[11px]" strokeWidth={3} />}
-                    </span>
-                  ) : warn ? (
-                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
-                  ) : null}
+                  <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", warn ? "bg-[var(--status-overdue-fg)]" : "bg-transparent")} aria-hidden />
                   <span
                     className={cn(
                       "min-w-0 truncate text-[13.5px]",
@@ -346,7 +354,8 @@ export function StepRail({
           </li>
         );
       })}
-    </ol>
+      </ol>
+    </>
   );
 }
 
@@ -503,7 +512,7 @@ export function StepHeading({
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
-        <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
+        <h2 className="text-[26px] font-extrabold leading-tight tracking-tight text-foreground">{title}</h2>
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
@@ -583,7 +592,7 @@ export function Field(props: {
   const caption = (
     <>
       {label}
-      {required ? <span className="ml-0.5 text-red-600">*</span> : null}
+      {required ? <span className="sr-only"> (required)</span> : null}
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
@@ -1556,7 +1565,7 @@ export function FactRow({
       <span className={cn("flex min-w-0 shrink items-center gap-2 text-[14px] text-foreground", sub ? "font-medium" : "font-semibold")}>
         <span className="truncate">
           {label}
-          {required ? <span className="ml-0.5 text-red-600">*</span> : null}
+          {required ? <span className="sr-only"> (required)</span> : null}
         </span>
         {own && onReset ? (
           <button

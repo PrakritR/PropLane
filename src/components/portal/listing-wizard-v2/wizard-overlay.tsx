@@ -37,7 +37,7 @@ export function ListingWizardOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
-      className="pointer-events-none fixed inset-0 z-[80] flex min-h-0 min-w-0 outline-none overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-4"
+      className="pointer-events-none fixed inset-0 z-[80] flex min-h-0 min-w-0 outline-none overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-5"
     >
       {/*
        * ModalAssistantStrip portals the assistant rail into the nearest
@@ -50,7 +50,7 @@ export function ListingWizardOverlay({
         data-full-screen="true"
         className="pointer-events-none flex min-h-0 min-w-0 flex-1 items-stretch justify-center p-0"
       >
-        <div className="pointer-events-auto h-full w-full max-w-[1560px]">{children}</div>
+        <div className="pointer-events-auto h-full w-full max-w-[1480px]">{children}</div>
       </div>
     </div>,
     document.body,
