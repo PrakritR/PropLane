@@ -19,6 +19,8 @@ export type PropertyApplicationTemplate = {
   label: string;
   formVariant: ApplicationFormVariant;
   applicationLeaseTerms?: string[];
+  /** Lease documents this application form can be used with. */
+  usedForLeaseTemplateIds?: string[];
   listingSeedKey?: PropertyLeaseListingSeedKey;
   createdAt: string;
   updatedAt: string;
@@ -314,6 +316,7 @@ export function createPropertyApplicationTemplate(args: {
   kind: PropertyLeaseTemplateKind;
   label?: string;
   applicationLeaseTerms?: string[];
+  usedForLeaseTemplateIds?: string[];
   listingSeedKey?: PropertyLeaseListingSeedKey;
   formVariant?: ApplicationFormVariant;
 }): PropertyApplicationTemplate {
@@ -326,6 +329,7 @@ export function createPropertyApplicationTemplate(args: {
     label: args.label?.trim() || kindMeta?.defaultLabel.replace(/ lease$/i, " application") || "Application",
     formVariant: args.formVariant ?? applicationFormVariantForKind(kind),
     applicationLeaseTerms: args.applicationLeaseTerms?.length ? [...args.applicationLeaseTerms] : undefined,
+    usedForLeaseTemplateIds: args.usedForLeaseTemplateIds?.length ? [...args.usedForLeaseTemplateIds] : undefined,
     listingSeedKey: args.listingSeedKey,
     createdAt: stamp,
     updatedAt: stamp,
@@ -346,6 +350,9 @@ function normalizeApplicationTemplate(
     ...row,
     kind,
     formVariant: applicationFormVariantForTemplate({ ...row, kind }),
+    usedForLeaseTemplateIds: Array.isArray(row.usedForLeaseTemplateIds)
+      ? [...new Set(row.usedForLeaseTemplateIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))]
+      : undefined,
   };
 }
 

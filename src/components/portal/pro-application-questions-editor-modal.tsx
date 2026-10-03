@@ -27,7 +27,7 @@ import {
 } from "@/components/portal/portal-collapsible-edit-row";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   customApplicationFieldTypeLabel,
   emptyCustomApplicationField,
@@ -266,6 +266,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // F-editor d: another of this property's application templates whose form
   // a planned co-signer fills in — see `PropertyApplicationTemplate.linkedCosignerApplicationTemplateId`.
   const [linkedCosignerTemplateId, setLinkedCosignerTemplateId] = useState<string | null>(null);
+  const [usedForLeaseTemplateIds, setUsedForLeaseTemplateIds] = useState<string[]>([]);
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
@@ -359,6 +360,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
     setLinkedCosignerTemplateId(applicationTemplate?.linkedCosignerApplicationTemplateId ?? null);
+    setUsedForLeaseTemplateIds(applicationTemplate?.usedForLeaseTemplateIds?.slice() ?? []);
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
@@ -779,6 +781,7 @@ export function ManagerApplicationQuestionsEditorModal({
             feeCentsOverride,
             waiverCodeOverride,
             linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
+            usedForLeaseTemplateIds,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(
                 applicationConfigForVariant(sanitizedSub, "standard"),
@@ -800,6 +803,7 @@ export function ManagerApplicationQuestionsEditorModal({
           feeCentsOverride,
           waiverCodeOverride,
           linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
+          usedForLeaseTemplateIds,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -835,7 +839,17 @@ export function ManagerApplicationQuestionsEditorModal({
           }
         }
       }
-      const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
+      const templateId = applicationTemplate?.id ?? addModeTemplateId;
+      const selectedLeases = new Set(usedForLeaseTemplateIds);
+      const propertyLeaseTemplates = (sub.propertyLeaseTemplates ?? []).map((lease) => {
+        if (selectedLeases.has(lease.id)) return { ...lease, linkedApplicationTemplateId: templateId };
+        if (lease.linkedApplicationTemplateId === templateId) return { ...lease, linkedApplicationTemplateId: null };
+        return lease;
+      });
+      const merged = {
+        ...withPropertyApplicationTemplatesExplicit(sub, nextTemplates),
+        propertyLeaseTemplates,
+      };
       const okSaved = await onPersistSubmission(merged, {
         message: publishTarget
           ? "Application published."
@@ -1831,6 +1845,23 @@ export function ManagerApplicationQuestionsEditorModal({
                       }}
                     />
                   ) : null}
+                </PanelSection>
+                <PanelSection title="Used for leases">
+                  <CheckboxMultiSelect
+                    label="Leases"
+                    labelClassName={WIZARD_LABEL_CLASS}
+                    options={(sub.propertyLeaseTemplates ?? [])
+                      .filter((lease) => lease && lease.offered !== false)
+                      .map((lease) => ({ value: lease.id, label: lease.label }))}
+                    selected={usedForLeaseTemplateIds}
+                    onChange={(next) => {
+                      setUsedForLeaseTemplateIds(next);
+                      setDirty(true);
+                    }}
+                    emptyLabel="No leases selected"
+                    emptyMenuText="No offered leases"
+                    dataAttr="application-setup-used-for-leases"
+                  />
                 </PanelSection>
                 {/* F009: another of this property's OWN application forms —
                     never the whole workspace catalog, and never itself. */}
