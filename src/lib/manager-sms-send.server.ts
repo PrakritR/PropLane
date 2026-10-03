@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
 import { track } from "@/lib/analytics/posthog";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -105,6 +106,28 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
       );
     }
   }
+  // The line a reply leaves on is the conversation's own. A projection thread
+  // carries its exact line; any other thread is placed by the number it used or
+  // the house it is about. Two lines and no placement is a refusal - never the
+  // owner's default workspace number.
+  let selectedWorkLineId: string | null = args.selectedConversation ? match.workLineId ?? null : null;
+  if (!args.selectedConversation) {
+    const linePhones = [...(match.messages ?? [])]
+      .reverse()
+      .filter((message) => message.source === "work_number")
+      .map((message) => (message.direction === "inbound" ? message.toPhone : message.fromPhone));
+    const line = await resolveConversationSendLine(db, ownerManagerUserId, {
+      linePhones,
+      propertyId: match.houses?.[0]?.propertyId ?? null,
+    });
+    if (!line.ok) {
+      return response(
+        { error: "This conversation does not say which work number it belongs to. Open it from its workspace and try again." },
+        { status: 409 },
+      );
+    }
+    selectedWorkLineId = line.numberId;
+  }
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
     ? `manager:${requestedDedupe}`
@@ -122,7 +145,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
         .digest("hex")}`;
   const result = await enqueueOwnerSms({
     managerUserId: ownerManagerUserId,
-    selectedWorkLineId: args.selectedConversation ? match.workLineId : null,
+    selectedWorkLineId,
     actorUserId: args.actorUserId,
     recipientPhone: matchedPhone,
     recipientEmail: match?.residentEmail ?? null,

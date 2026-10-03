@@ -53,6 +53,13 @@ export type CommunicationScope = {
    * rows. Shared-in number assignments do not duplicate threads.
    */
   workspaceByLine: Map<string, Set<string>>;
+  /**
+   * True when no workspace could be named for a surface that has no browser
+   * cookie (API key, MCP, SMS / email assistant). Nothing is visible: a
+   * surface that cannot say which workspace it speaks for gets no workspace,
+   * never the first one.
+   */
+  closed?: boolean;
 };
 
 export type VisibilityInput = {
@@ -105,6 +112,7 @@ function workspaceHoldersForLines(scope: CommunicationScope, lines: readonly str
 
 /** Pure. Decides one conversation against a resolved scope. */
 export function conversationVisible(scope: CommunicationScope, input: VisibilityInput): boolean {
+  if (scope.closed) return false;
   const ownerId = clean(input.ownerId);
   const threadId = clean(input.threadId);
   const houses = [...new Set(input.houseIds.map(clean).filter(Boolean))];
@@ -165,7 +173,7 @@ export async function resolveCommunicationScope(
   db: SupabaseClient,
   viewerUserId: string,
   level: CommunicationLevel = "read",
-  options: { selectedWorkspaceId?: string | null } = {},
+  options: { selectedWorkspaceId?: string | null; strictWorkspace?: boolean } = {},
 ): Promise<CommunicationScope> {
   const viewerId = clean(viewerUserId);
   const scope: CommunicationScope = {
@@ -179,6 +187,9 @@ export async function resolveCommunicationScope(
     workspaceByLine: new Map(),
   };
   if (!viewerId) return scope;
+
+  // A credential-bound surface must name its workspace; with none, refuse.
+  if (options.strictWorkspace && !clean(options.selectedWorkspaceId)) return closedCommunicationScope(viewerId, level);
 
   // Grants: a failure shares nothing.
   try {
@@ -209,11 +220,15 @@ export async function resolveCommunicationScope(
     // account still reaches another owner's houses through the grant, so a
     // resolved workspace (one or many) always narrows. Only "no workspace at
     // all" and a failed load (caught below) skip narrowing.
-    if (workspaces.length === 0) return scope;
+    if (workspaces.length === 0) return options.strictWorkspace ? closedCommunicationScope(viewerId, level) : scope;
     const selected =
       options.selectedWorkspaceId !== undefined ? options.selectedWorkspaceId : await readSelectedWorkspaceId();
-    const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];
-    if (!active) return scope;
+    // A browser with no (or a stale) cookie lands in the first workspace; a
+    // credential-bound surface never guesses.
+    const active = options.strictWorkspace
+      ? workspaces.find((w) => w.id === selected)
+      : (workspaces.find((w) => w.id === selected) ?? workspaces[0]);
+    if (!active) return options.strictWorkspace ? closedCommunicationScope(viewerId, level) : scope;
     scope.workspaceHouseIds = new Set(active.propertyIds.map(clean).filter(Boolean));
     scope.untaggedOwnedVisible = active.owned && active.isDefault;
     scope.activeWorkspaceId = active.id;
@@ -252,12 +267,43 @@ export async function resolveCommunicationScope(
       }
     }
   } catch {
+    if (options.strictWorkspace) return closedCommunicationScope(viewerId, level);
     scope.workspaceHouseIds = null;
     scope.untaggedOwnedVisible = true;
     scope.activeWorkspaceId = null;
     scope.workspaceByLine = new Map();
   }
   return scope;
+}
+
+/** A scope that shows nothing: the answer when a surface cannot say which workspace it speaks for. */
+export function closedCommunicationScope(viewerUserId: string, level: CommunicationLevel = "read"): CommunicationScope {
+  return {
+    viewerId: clean(viewerUserId),
+    level,
+    ownerIds: [],
+    grantedHousesByOwner: new Map(),
+    workspaceHouseIds: new Set(),
+    untaggedOwnedVisible: false,
+    activeWorkspaceId: null,
+    workspaceByLine: new Map(),
+    closed: true,
+  };
+}
+
+/**
+ * Communication scope for an assistant / API-key / MCP turn. Those have no
+ * browser cookie, so the workspace is the one the credential or the work line
+ * carries (`ctx.workspace`), passed through explicitly. With none - or one that
+ * did not resolve - the answer is closed, not "the first workspace".
+ */
+export async function resolveAgentCommunicationScope(
+  ctx: { db: SupabaseClient; userId: string; workspace?: { id: string } | null },
+  level: CommunicationLevel = "read",
+): Promise<CommunicationScope> {
+  const workspaceId = clean(ctx.workspace?.id);
+  if (!workspaceId) return closedCommunicationScope(ctx.userId, level);
+  return resolveCommunicationScope(ctx.db, ctx.userId, level, { selectedWorkspaceId: workspaceId, strictWorkspace: true });
 }
 
 export type StoredInboxThreadRecord = {
@@ -427,8 +473,10 @@ export async function visibleInboxThreadRecord<T extends StoredInboxThreadRecord
   viewerUserId: string,
   level: CommunicationLevel,
   record: T,
+  /** A scope the caller already resolved (an agent turn passes its workspace-bound one). */
+  scopeOverride?: CommunicationScope,
 ): Promise<(T & { houses: ConversationHouseRef[] }) | null> {
-  const scope = await resolveCommunicationScope(db, viewerUserId, level);
+  const scope = scopeOverride ?? (await resolveCommunicationScope(db, viewerUserId, level));
   const [visible] = await filterVisibleInboxThreadRecords(db, scope, [record]);
   return visible ?? null;
 }

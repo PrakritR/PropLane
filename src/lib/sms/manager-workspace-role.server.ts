@@ -343,3 +343,62 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   }
   return { data: rows.find((r) => !r.workspace_id) ?? rows[0], error: null };
 }
+
+const lineDigits = (raw: unknown): string => {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+};
+
+export type ConversationSendLine =
+  | { ok: true; numberId: string | null; phoneNumber: string | null; via: "line" | "house" | "only" }
+  | { ok: false; reason: "work_line_ambiguous" };
+
+/**
+ * The work line a REPLY must leave on: the one the conversation itself used.
+ *
+ * A reply that finds no line of its own used to fall to the owner's DEFAULT
+ * workspace's number, so answering a workspace-B tenant texted them from
+ * workspace A's number and their answer landed in A. Order:
+ *
+ *  1. a line the conversation already went through (the number texted / sent
+ *     from), when this owner holds it;
+ *  2. the line of the workspace that holds the house the conversation is about;
+ *  3. the owner's only line, when they have just one - nothing to confuse;
+ *  4. otherwise refuse. Guessing the default is how a message left from the
+ *     wrong business.
+ */
+export async function resolveConversationSendLine(
+  db: SupabaseClient,
+  ownerUserId: string,
+  hints: { linePhones?: ReadonlyArray<string | null | undefined>; propertyId?: string | null } = {},
+): Promise<ConversationSendLine> {
+  const owner = ownerUserId.trim();
+  const { data } = owner
+    ? await db.from("manager_sms_numbers").select("id, workspace_id, phone_number").eq("manager_user_id", owner)
+    : { data: [] };
+  const rows = ((data ?? []) as { id?: unknown; workspace_id?: unknown; phone_number?: unknown }[])
+    .map((row) => ({
+      id: String(row.id ?? "").trim(),
+      workspaceId: String(row.workspace_id ?? "").trim(),
+      phone: String(row.phone_number ?? "").trim(),
+    }))
+    .filter((row) => row.id);
+
+  for (const phone of hints.linePhones ?? []) {
+    const key = lineDigits(phone);
+    if (!key) continue;
+    const hit = rows.find((row) => lineDigits(row.phone) === key);
+    if (hit) return { ok: true, numberId: hit.id, phoneNumber: hit.phone || null, via: "line" };
+  }
+
+  const propertyId = hints.propertyId?.trim();
+  if (propertyId) {
+    const { data: house } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+    const houseWorkspace = String((house as { workspace_id?: unknown } | null)?.workspace_id ?? "").trim();
+    const hit = houseWorkspace ? rows.find((row) => row.workspaceId === houseWorkspace) : undefined;
+    if (hit) return { ok: true, numberId: hit.id, phoneNumber: hit.phone || null, via: "house" };
+  }
+
+  if (rows.length <= 1) return { ok: true, numberId: rows[0]?.id ?? null, phoneNumber: rows[0]?.phone || null, via: "only" };
+  return { ok: false, reason: "work_line_ambiguous" };
+}

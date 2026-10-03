@@ -21,6 +21,8 @@ async function conversations(ctx: AgentContext, level: "read" | "edit") {
   const payload = await fetchManagerSmsConversations(ctx.db, ctx.userId, {
     scopeManagerIdsOverride: ids,
     provisionWorkNumber: false,
+    // The workspace the credential / work line speaks for; none means nothing is listed.
+    workspace: { id: ctx.workspace?.id ?? null },
   });
   return {
     ids,

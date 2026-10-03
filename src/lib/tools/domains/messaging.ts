@@ -11,7 +11,7 @@ import { defineWriteTool } from "../registry";
 import { withBodyWarnings } from "../preview-body";
 import type { AgentContext } from "../context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
-import { filterRecipientsBySenderScope, type InboxScopeSender } from "@/lib/inbox-recipient-scope";
+import { filterRecipientsBySenderScope, recipientReachFromScope, type InboxScopeSender } from "@/lib/inbox-recipient-scope";
 import { deliverPortalInboxMessage, resolveBroadcastRecipients } from "@/lib/portal-inbox-delivery";
 import type { InboxEmailOutcome, InboxSmsConversationTarget, InboxSmsOutcome } from "@/lib/portal-inbox-delivery";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
@@ -26,9 +26,10 @@ import {
   sendResidentOutboundSms,
 } from "@/lib/resident-outbound-sms.server";
 import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
-import { visibleInboxThreadRecord } from "@/lib/communication/conversation-visibility.server";
+import { resolveAgentCommunicationScope, visibleInboxThreadRecord } from "@/lib/communication/conversation-visibility.server";
 import { resolveExistingSmsConversation } from "@/lib/sms/existing-conversation.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import {
   createScheduledInboxMessage,
@@ -252,8 +253,21 @@ async function resolveMessageRecipients(
   // A delegated actor may message the number owner's contacts only after the
   // Communication grant above. Never use the actor's combined portfolio here:
   // texting A's number must not send to a resident belonging only to B.
+  //
+  // The send is also narrowed to the workspace this turn speaks for and the
+  // houses the actor is granted: "all residents" in workspace A is A's alone.
+  // No workspace on the turn (an unresolved credential) means nobody is reachable.
+  const agentScope = await resolveAgentCommunicationScope(ctx, "edit");
+  const reach = recipientReachFromScope(agentScope);
+  const delegated = ctx.managerSmsAccess?.mode === "delegated" ? new Set(ctx.managerSmsAccess.assignedPropertyIds) : null;
+  if (delegated) {
+    reach.workspaceHouseIds = reach.workspaceHouseIds
+      ? new Set([...reach.workspaceHouseIds].filter((id) => delegated.has(id)))
+      : delegated;
+  }
+  if (agentScope.closed) return { allowed: [], blocked: enriched };
   return filterRecipientsBySenderScope(ctx.db, {
-    ...managerSender(ctx), id: ctx.landlordId,
+    ...managerSender(ctx), id: ctx.landlordId, reach,
   }, enriched);
 }
 
@@ -497,7 +511,13 @@ async function loadOwnInboxThread(ctx: AgentContext, threadId: string): Promise<
     if (error) throw new Error(error.message);
     if (!data) continue;
     // Same house / workspace rule as the UI: a thread the user could not open is not writable here.
-    const visible = await visibleInboxThreadRecord(ctx.db, ctx.userId, "edit", data as OwnThreadRow & { thread_type?: string | null });
+    const visible = await visibleInboxThreadRecord(
+      ctx.db,
+      ctx.userId,
+      "edit",
+      data as OwnThreadRow & { thread_type?: string | null },
+      await resolveAgentCommunicationScope(ctx, "edit"),
+    );
     return visible ? (data as OwnThreadRow) : null;
   }
   return null;
@@ -506,6 +526,29 @@ async function loadOwnInboxThread(ctx: AgentContext, threadId: string): Promise<
 /** The counterparty address of a thread: sender for received mail, recipient for sent. */
 function threadCounterpartyEmail(thread: PersistedInboxThread): string {
   return normalizeEmail(String(thread.email ?? ""));
+}
+
+
+/**
+ * The number a phone-only reply leaves from: the line the thread itself used,
+ * else the line of the workspace holding its house. The sender's profile number
+ * is only the answer when the owner has a single line - with two and nothing to
+ * place the thread, the reply is refused rather than sent from the default.
+ */
+async function threadReplyFromNumber(
+  ctx: AgentContext,
+  thread: PersistedInboxThread,
+  profileNumber: string,
+): Promise<string> {
+  const record = thread as unknown as Record<string, unknown>;
+  const line = await resolveConversationSendLine(ctx.db, ctx.landlordId, {
+    linePhones: [record.workLine, record.workNumber].map((value) => (typeof value === "string" ? value : null)),
+    propertyId: typeof record.propertyId === "string" ? record.propertyId : null,
+  });
+  if (!line.ok) {
+    throw new Error("This conversation does not say which work number it belongs to, so it cannot be answered from here. Reply from Communication instead.");
+  }
+  return line.via === "only" ? profileNumber : line.phoneNumber || profileNumber;
 }
 
 export const replyToThreadTool = defineWriteTool({
@@ -540,7 +583,7 @@ export const replyToThreadTool = defineWriteTool({
         .select("sms_from_number")
         .eq("id", ctx.landlordId)
         .maybeSingle();
-      const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      const smsFromNumber = await threadReplyFromNumber(ctx, thread, String(senderProfile?.sms_from_number ?? "").trim());
       if (!canSendResidentOutboundSms(smsFromNumber)) {
         throw new Error(
           "Your work number is not ready to send yet. Open Settings → Messaging, then try again.",
@@ -607,7 +650,7 @@ export const replyToThreadTool = defineWriteTool({
     const fromName = String(senderProfile?.full_name ?? "").trim() || ctx.email || "Property manager";
 
     if (!hasEmail && phoneHint) {
-      const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      const smsFromNumber = await threadReplyFromNumber(ctx, thread, String(senderProfile?.sms_from_number ?? "").trim());
       if (!canSendResidentOutboundSms(smsFromNumber)) {
         throw new Error(
           "Your work number is not ready to send yet. Open Settings → Messaging, then try again.",

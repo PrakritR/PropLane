@@ -1,8 +1,26 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { listInboxThreadsTool } from "@/lib/tools/domains/inbox";
 import { listCalendarEventsTool, listScheduledMessagesTool } from "@/lib/tools/domains/calendar";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { makeManagerRowsCtx, type FakeRecord } from "./fake-agent-ctx";
+
+// These tests drive the tools' owner scoping against a fake database. The
+// workspace a credential-bound turn speaks for has its own coverage
+// (agent-communication-scope.test.ts), so an open scope stands in here.
+vi.mock("@/lib/communication/conversation-visibility.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/communication/conversation-visibility.server")>()),
+  resolveAgentCommunicationScope: async (ctx: { userId: string }, level = "read") => ({
+    viewerId: ctx.userId,
+    level,
+    ownerIds: [ctx.userId],
+    grantedHousesByOwner: new Map(),
+    workspaceHouseIds: null,
+    untaggedOwnedVisible: true,
+    activeWorkspaceId: null,
+    workspaceByLine: new Map(),
+  }),
+}));
+
 
 describe("list_inbox_threads", () => {
   const thread = (owner: string, scope: string, data: Record<string, unknown>): FakeRecord =>

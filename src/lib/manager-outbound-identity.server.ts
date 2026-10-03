@@ -28,12 +28,25 @@ export async function resolveManagerOutboundFrom(
    * on the same workspace identity its texts already do (`resolveOwnerSendNumberRow`).
    * Server-resolved by callers from the row they authorized; never a request-body value.
    */
-  opts: { propertyId?: string | null } = {},
+  opts: {
+    propertyId?: string | null;
+    /**
+     * The work address the conversation already used. A reply leaves from that
+     * workspace's identity; one that cannot be placed keeps the shared sender -
+     * it never borrows another workspace's address.
+     */
+    workLine?: string | null;
+  } = {},
 ): Promise<string | null> {
   const id = managerUserId?.trim();
   if (!id) return null;
   try {
-    const houseWorkspaceId = await workspaceIdForProperty(db, opts.propertyId);
+    let houseWorkspaceId = await workspaceIdForProperty(db, opts.propertyId);
+    if (opts.workLine?.trim()) {
+      const lineWorkspaceId = await workspaceIdForWorkAddress(db, id, opts.workLine);
+      if (!lineWorkspaceId) return null;
+      houseWorkspaceId = lineWorkspaceId;
+    }
     const workspace = houseWorkspaceId
       ? await resolveWorkspaceWorkEmail(db, id, houseWorkspaceId)
       : await resolveWorkspaceWorkEmail(db, id);
@@ -50,6 +63,33 @@ export async function resolveManagerOutboundFrom(
   } catch {
     return null;
   }
+}
+
+/** The owner's workspace whose work address this is, or null when none of theirs matches. */
+async function workspaceIdForWorkAddress(
+  db: SupabaseClient,
+  ownerUserId: string,
+  address: string,
+): Promise<string | null> {
+  const wanted = address.trim().toLowerCase();
+  if (!wanted) return null;
+  const { data: workspaces } = await db.from("portal_workspaces").select("id").eq("owner_user_id", ownerUserId);
+  const ids = (workspaces ?? []).map((row) => String((row as { id?: unknown }).id ?? "").trim()).filter(Boolean);
+  if (ids.length === 0) return null;
+  const { data: emails } = await db
+    .from("manager_assistant_emails")
+    .select("workspace_id, inbox_token, mailbox_local")
+    .in("workspace_id", ids);
+  const { assistantEmailAddress, assistantMailboxAddress } = await import("@/lib/manager-assistant-email/assistant-email-address");
+  for (const row of (emails ?? []) as { workspace_id?: unknown; inbox_token?: unknown; mailbox_local?: unknown }[]) {
+    const local = String(row.mailbox_local ?? "").trim();
+    const token = String(row.inbox_token ?? "").trim();
+    const candidates = [local ? assistantMailboxAddress(local) : "", token ? assistantEmailAddress(token) : ""];
+    if (candidates.some((candidate) => candidate && candidate.toLowerCase() === wanted)) {
+      return String(row.workspace_id ?? "").trim() || null;
+    }
+  }
+  return null;
 }
 
 /** The workspace that holds a house, or null when unknown (callers then keep the active workspace). */
@@ -80,7 +120,7 @@ export function sharedPortalFromAddress(): string {
 export async function managerOutboundFromHeader(
   db: SupabaseClient,
   managerUserId: string | null | undefined,
-  opts: { propertyId?: string | null } = {},
+  opts: { propertyId?: string | null; workLine?: string | null } = {},
 ): Promise<string> {
   return (await resolveManagerOutboundFrom(db, managerUserId, opts)) ?? sharedPortalFromAddress();
 }

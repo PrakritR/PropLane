@@ -6,7 +6,7 @@ import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import {
   filterVisibleInboxThreadRecords,
-  resolveCommunicationScope,
+  resolveAgentCommunicationScope,
   visibleInboxThreadRecord,
 } from "@/lib/communication/conversation-visibility.server";
 import { writeAuditLog } from "../audit";
@@ -66,7 +66,9 @@ async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
       if (page.length < PAGE_SIZE) break;
     }
   }
-  const scope = await resolveCommunicationScope(ctx.db, ctx.userId, "read");
+  // The workspace this turn speaks for comes from the credential / work line,
+  // never from "the first workspace"; with none, the answer is empty.
+  const scope = await resolveAgentCommunicationScope(ctx, "read");
   return filterVisibleInboxThreadRecords(ctx.db, scope, all);
 }
 
@@ -77,6 +79,7 @@ async function loadOwnThread(
   level: "read" | "edit" = "read",
 ): Promise<PersistedInboxThread | null> {
   const ownerIds = await smsInboxOwnerIds(ctx, level);
+  const agentScope = await resolveAgentCommunicationScope(ctx, level);
   for (const ownerId of ownerIds) {
     const { data, error } = await ctx.db
       .from("portal_inbox_thread_records")
@@ -88,7 +91,7 @@ async function loadOwnThread(
     if (error) throw new Error(error.message);
     const row = ((data ?? []) as ThreadRow[])[0];
     if (!row) continue;
-    const visible = await visibleInboxThreadRecord(ctx.db, ctx.userId, level, row);
+    const visible = await visibleInboxThreadRecord(ctx.db, ctx.userId, level, row, agentScope);
     return visible ? ((visible.row_data as PersistedInboxThread) ?? null) : null;
   }
   return null;

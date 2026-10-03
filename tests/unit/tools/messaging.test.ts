@@ -31,6 +31,23 @@ vi.mock("@/lib/resident-outbound-sms.server", () => ({
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: fetchManagerSmsConversationsMock,
 }));
+// These tests drive the tools' owner scoping against a fake database. The
+// workspace a credential-bound turn speaks for has its own coverage
+// (agent-communication-scope.test.ts), so an open scope stands in here.
+vi.mock("@/lib/communication/conversation-visibility.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/communication/conversation-visibility.server")>()),
+  resolveAgentCommunicationScope: async (ctx: { userId: string }, level = "read") => ({
+    viewerId: ctx.userId,
+    level,
+    ownerIds: [ctx.userId],
+    grantedHousesByOwner: new Map(),
+    workspaceHouseIds: null,
+    untaggedOwnedVisible: true,
+    activeWorkspaceId: null,
+    workspaceByLine: new Map(),
+  }),
+}));
+
 
 /**
  * Richer in-memory Supabase stand-in than tests/unit/tools/fake-agent-ctx.ts

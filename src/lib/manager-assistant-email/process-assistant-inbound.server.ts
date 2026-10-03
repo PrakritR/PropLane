@@ -158,6 +158,9 @@ export async function processManagerAssistantInboundEmail(
       managerUserId: sender.identity.workNumberOwnerId,
       actorUserId: sender.identity.actorUserId,
       access: sender.identity.access,
+      // The address answers for the workspace it belongs to: the agent's tools
+      // (inbox, houses, residents) are narrowed to it, not to the whole portfolio.
+      workspaceId,
     });
     if (managerIdentity.ok) {
       const turn = await runManagerEmailAgentTurn(db, {

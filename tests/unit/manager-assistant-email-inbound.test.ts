@@ -169,6 +169,19 @@ describe("processManagerAssistantInboundEmail", () => {
     expect(result).toEqual({ handled: false });
   });
 
+  it("S11: the manager's agent turn is bound to the workspace the address belongs to", async () => {
+    mocks.resolveWorkspaceOwnerForWorkEmail.mockImplementation(async (_db: unknown, id: string) => ({
+      ownerUserId: id,
+      sharedFromCoManager: false,
+      workspaceId: "workspace-b",
+    }));
+    await processManagerAssistantInboundEmail(db, parsed);
+    expect(mocks.resolveManagerSmsAgentContext).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ workspaceId: "workspace-b" }),
+    );
+  });
+
   it("runs the agent and sends a reply for a verified manager", async () => {
     const result = await processManagerAssistantInboundEmail(db, parsed);
     expect(result).toMatchObject({ handled: true, replied: true, role: "manager" });

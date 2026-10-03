@@ -255,10 +255,30 @@ export async function deleteManagerSmsMessage(
 
   if (!ownerManagerUserId) return { ok: false, error: "not_found", status: 404 };
   if (ownerManagerUserId !== viewerUserId) {
-    const editScope = await resolveSmsScopeManagerIds(db, viewerUserId, "edit");
-    if (!editScope.includes(ownerManagerUserId)) {
+    // Deleting is a DELETE right, not an edit right, and it is per HOUSE: a
+    // co-manager granted one house may erase only the texts of conversations
+    // they can see at the delete level - never any of the owner's other
+    // history by guessing a message id.
+    const deleteScope = await resolveSmsScopeManagerIds(db, viewerUserId, "delete");
+    if (!deleteScope.includes(ownerManagerUserId)) {
       return { ok: false, error: "forbidden", status: 403 };
     }
+    let reachable = false;
+    try {
+      const payload = await fetchManagerSmsConversations(db, viewerUserId, {
+        scopeManagerIdsOverride: [ownerManagerUserId],
+        provisionWorkNumber: false,
+        visibility: "delete",
+      });
+      reachable = payload.residents.some((conversation) =>
+        conversation.messages.some(
+          (message) => message.id === messageId && (message.storageTable ?? args.storageTable) === args.storageTable,
+        ),
+      );
+    } catch {
+      reachable = false;
+    }
+    if (!reachable) return { ok: false, error: "forbidden", status: 403 };
   }
 
   const table =
@@ -707,6 +727,13 @@ export async function fetchManagerSmsConversations(
      * admin oversight, which is not a viewer of this inbox at all.
      */
     visibility?: "read" | "edit" | "delete" | "none";
+    /**
+     * The workspace an API key, MCP connection or assistant turn speaks for.
+     * Those have no browser cookie, so the first workspace used to be assumed.
+     * When this is given the workspace is exactly this one; an empty id means
+     * the turn could not name one and nothing is shown.
+     */
+    workspace?: { id: string | null };
   },
 ): Promise<ManagerSmsConversationsPayload> {
   const scopeManagerIds =
@@ -1103,7 +1130,14 @@ export async function fetchManagerSmsConversations(
     visibility === "none"
       ? conversations
       : await (async () => {
-          const scope = await resolveCommunicationScope(db, managerUserId, visibility);
+          const scope = await resolveCommunicationScope(
+            db,
+            managerUserId,
+            visibility,
+            options?.workspace
+              ? { selectedWorkspaceId: options.workspace.id?.trim() || null, strictWorkspace: true }
+              : {},
+          );
           return conversations.filter((conversation) =>
             conversationVisible(scope, {
               ownerId: String(conversation.ownerManagerUserId ?? "").trim() || managerUserId,
