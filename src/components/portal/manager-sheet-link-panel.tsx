@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Sheet, House } from "lucide-react";
 
+import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
+import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
+import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { GoogleSpreadsheetPicker } from "@/components/portal/google-spreadsheet-picker";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalListAddRow } from "@/components/portal/portal-list-add-row";
 import {
   PortalSettingsGroup,
   PortalSettingsRow,
@@ -70,6 +74,17 @@ export function ManagerSheetLinkPanel() {
   const workspaceCtx = useWorkspaces();
   const workspaceList = workspaceCtx?.workspaces ?? [];
   const activeWorkspace = workspaceCtx?.active ?? null;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [airbnbOpen, setAirbnbOpen] = useState(false);
+  const [airbnbRooms, setAirbnbRooms] = useState<number | null>(null);
+  const propertyKey = (activeWorkspace?.propertyIds ?? []).join(",");
+  const loadAirbnb = useCallback(async () => {
+    const ids = propertyKey.split(",").filter(Boolean);
+    if (!ids.length) { setAirbnbRooms(0); return; }
+    try { const properties = await fetchManagerChannelBookings(ids); setAirbnbRooms(new Set(properties.flatMap((p) => p.rooms.filter((r) => r.provider === "airbnb").map((r) => `${p.propertyId}:${r.roomId}`))).size); }
+    catch { showToast("Could not load Airbnb connections."); }
+  }, [propertyKey, showToast]);
+  useEffect(() => { void loadAirbnb(); }, [loadAirbnb]);
   const [payload, setPayload] = useState<SheetLinkResponse | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTargetId, setPickerTargetId] = useState<string | null>(null);
@@ -120,7 +135,7 @@ export function ManagerSheetLinkPanel() {
 
   const connectGoogle = () => {
     const origin = encodeURIComponent(window.location.origin);
-    const returnTo = encodeURIComponent("/portal/profile?tab=spreadsheets");
+    const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
     window.location.assign(`/api/portal/google-sheets/connect?origin=${origin}&returnTo=${returnTo}`);
   };
 
@@ -312,34 +327,34 @@ export function ManagerSheetLinkPanel() {
     return [{ value: ALL_SHEET_PROPERTIES, label: "All" }, ...houses];
   };
 
-  const links = payload?.links ?? [];
+  const links = (payload?.links ?? []).filter((link) => !activeWorkspace || link.workspaceId === activeWorkspace.id);
   const sheets = payload?.sheets;
   const googleConnected = Boolean(sheets?.connected);
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Google">
-        <PortalSettingsGroup>
-          <PortalSettingsRow label="Google">
-            {googleConnected ? (
-              <Button type="button" variant="ghost" onClick={() => disconnectGoogle()}>
-                {sheets?.email || "Connected"}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={sheets?.configured === false}
-                onClick={connectGoogle}
-              >
-                Connect
-              </Button>
-            )}
-          </PortalSettingsRow>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
+      <PortalSettingsGroup>
+        <GoogleCalendarConnectPanel presentation="row" />
+        <PortalSettingsRow label={<span className="flex items-center gap-3"><Sheet className="h-5 w-5 text-emerald-600" />Google Sheets</span>}>
+          <div className="flex items-center gap-2"><span className="hidden text-xs text-muted sm:inline">{googleConnected ? `Connected · ${sheets?.email ?? ""}` : ""}</span>
+          {googleConnected ? <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label="Google Sheets actions" /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setPickerTargetId(null); setPickerOpen(true); }}>Add spreadsheet</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+          <Button variant="ghost" disabled={!payload || sheets?.configured === false} onClick={googleConnected ? () => disconnectGoogle() : connectGoogle}>{googleConnected ? "Disconnect" : "Connect"}</Button></div>
+        </PortalSettingsRow>
+        {links.map((link) => <PortalSettingsRow key={link.id} label={<span className="flex items-center gap-3 pl-4"><Sheet className="h-4 w-4 text-emerald-600" />{link.title}</span>}>
+          <div className="flex items-center gap-2"><span className="hidden text-xs text-muted sm:inline">Updated {formatStamp(link.lastSyncedAt)}</span><DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${link.title} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={!link.linked || syncingId === link.id} onSelect={() => { void updateFromSheet(link.id); }}>Update now</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setEditingId(link.id)}>Settings</DropdownMenuItem>
+          <DropdownMenuItem className="text-danger" onSelect={() => { void removeLink(link); }}>Remove</DropdownMenuItem>
+          </DropdownMenuContent></DropdownMenu></div>
+        </PortalSettingsRow>)}
+        <PortalSettingsRow label={<span className="flex items-center gap-3"><House className="h-5 w-5 text-rose-500" />Airbnb</span>}>
+          <div className="flex items-center gap-2"><span className="text-xs text-muted">{airbnbRooms ? `Connected · ${airbnbRooms} ${airbnbRooms === 1 ? "room" : "rooms"}` : ""}</span><Button variant="ghost" onClick={() => setAirbnbOpen(true)}>{airbnbRooms ? "Manage" : "Connect"}</Button></div>
+        </PortalSettingsRow>
+      </PortalSettingsGroup>
+      <ChannelCalendarLinkModal open={airbnbOpen} onClose={() => setAirbnbOpen(false)} propertyIds={activeWorkspace?.propertyIds ?? []} propertyOptions={(activeWorkspace?.propertyIds ?? []).map((id) => ({ id, label: activeWorkspace?.propertyLabels?.[id] ?? id }))} showToast={showToast} onChanged={() => { void loadAirbnb(); }} />
+      <PortalDialog open={Boolean(editingId)} onClose={() => setEditingId(null)} title="Spreadsheet settings" primaryAction={null}>
 
-      {links.map((link) => (
+      {links.filter((link) => link.id === editingId).map((link) => (
         <PortalSettingsSection
           key={link.id}
           title={link.title}
@@ -488,17 +503,7 @@ export function ManagerSheetLinkPanel() {
         </PortalSettingsSection>
       ))}
 
-      <PortalListAddRow
-        label="Add spreadsheet"
-        ariaLabel="Add spreadsheet"
-        inline={links.length > 0}
-        disabled={!googleConnected}
-        onClick={() => {
-          setPickerTargetId(null);
-          setPickerOpen(true);
-        }}
-        dataAttr="manager-sheet-add"
-      />
+      </PortalDialog>
 
       <GoogleSpreadsheetPicker
         open={pickerOpen}

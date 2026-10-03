@@ -19,21 +19,21 @@ describe("ManagerApiKeysPanel permissions", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { container } = render(<ManagerApiKeysPanel />);
+    render(<ManagerApiKeysPanel />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "Create API key" }));
     fireEvent.change(screen.getByLabelText("Key name"), { target: { value: "My harness" } });
 
-    const paymentRead = container.querySelector('[data-attr="api-key-payments-read"]') as HTMLInputElement;
-    const paymentWrite = container.querySelector('[data-attr="api-key-payments-write"]') as HTMLInputElement;
+    const paymentRead = document.querySelector('[data-attr="api-key-payments-read"]') as HTMLInputElement;
+    const paymentWrite = document.querySelector('[data-attr="api-key-payments-write"]') as HTMLInputElement;
     expect(paymentRead).not.toBeChecked();
     expect(paymentWrite).not.toBeChecked();
     fireEvent.click(paymentWrite);
     expect(paymentWrite).toBeChecked();
     expect(paymentRead).toBeChecked();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create API key", exact: true }));
+    fireEvent.click(document.querySelector('[data-attr="api-key-create-submit"]')!);
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
       expect(post).toBeDefined();
