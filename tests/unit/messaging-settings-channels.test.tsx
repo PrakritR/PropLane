@@ -146,6 +146,9 @@ function stubFetch(
     if (url.includes("/api/manager/assistant-email")) {
       return email ? Response.json(email) : new Response("missing", { status: 404 });
     }
+    if (url.includes("/api/manager/phone")) {
+      return Response.json({ phone: null, phoneVerifiedAt: null, smsConfigured: true });
+    }
     if (url.includes("/api/manager/messaging-number")) {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       if (method === "PATCH") return handlers.patch ? handlers.patch(body) : Response.json(status);
@@ -315,6 +318,9 @@ describe("Channels ⋯ actions call the existing routes", () => {
     render(<ManagerMessagingSettingsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: /Work number.*Set up/i }));
     expect(await screen.findByRole("dialog", { name: "Set up a work number" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(screen.getByText("Ballard houses")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
   });
 
   it("Remove on a legacy shared-in row PATCHes unassign", async () => {
