@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
+import { Check, FileUp, FileText, AlertTriangle, Plus, MoreHorizontal, Copy, Pencil, Eye, ExternalLink, Trash2 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -47,7 +47,10 @@ import {
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
-import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -111,6 +114,7 @@ export function ManagerPropertyLeasePanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -389,6 +393,33 @@ export function ManagerPropertyLeasePanel({
     })();
   };
 
+  const duplicateTemplate = async (template: PropertyLeaseTemplate) => {
+    const copy = createPropertyLeaseTemplate({
+      kind: template.kind,
+      label: `${template.label} copy`,
+      source: propertyLeaseSourceFromTemplate(template),
+      customLeaseTerms: template.customLeaseTerms,
+      leaseTemplateDocUrl: template.leaseTemplateDocUrl,
+      leaseTemplateDocName: template.leaseTemplateDocName,
+      applicationLeaseTerms: template.applicationLeaseTerms,
+    });
+    const duplicate: PropertyLeaseTemplate = {
+      ...template,
+      ...copy,
+      leaseTemplateHtmlOverride: template.leaseTemplateHtmlOverride,
+      draftQuestionConfig: template.draftQuestionConfig ? structuredClone(template.draftQuestionConfig) : undefined,
+      publishedQuestionConfig: template.publishedQuestionConfig ? structuredClone(template.publishedQuestionConfig) : undefined,
+      leaseTemplateImportReview: template.leaseTemplateImportReview ? structuredClone(template.leaseTemplateImportReview) : undefined,
+      listingSeedKey: undefined,
+    };
+    if (!(await persistTemplates([...templates, duplicate]))) {
+      showToast("Could not duplicate lease.");
+      return;
+    }
+    onUpdated();
+    showToast("Lease duplicated.");
+  };
+
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
@@ -427,9 +458,8 @@ export function ManagerPropertyLeasePanel({
         formSetup.leasingPipeline.defaultLeaseTemplateId &&
         formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
     );
-    const feeCents = formSetup.loaded ? formSetup.leasingPipeline.leaseSigningFeeCents : null;
     return (
-      <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+      <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} onClick={() => openEdit(template.id)}>
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <RowSelectCheckbox
             aria-label={`Select ${template.label}`}
@@ -455,9 +485,6 @@ export function ManagerPropertyLeasePanel({
                     Default
                   </PortalRowFact>
                 ) : null}
-                <PortalRowFact icon={CreditCard} srLabel="Lease fee">
-                  {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} lease fee` : "No lease fee"}
-                </PortalRowFact>
                 {template.leaseTemplateDocName ? (
                   <PortalRowFact icon={FileUp} srLabel="Source">
                     From {template.leaseTemplateDocName}
@@ -467,6 +494,23 @@ export function ManagerPropertyLeasePanel({
             ) : null}
           </div>
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <span onClick={(event) => event.stopPropagation()}>
+              <PortalIconAction icon={MoreHorizontal} label={`Actions for ${template.label}`} data-attr="property-lease-row-menu" onClick={(event) => event.stopPropagation()} />
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" data-attr="property-lease-row-actions">
+            <DropdownMenuItem onSelect={() => openEdit(template.id)}><Pencil aria-hidden />Edit</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openEdit(template.id)}><Eye aria-hidden />Preview</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}><ExternalLink aria-hidden />Open in new tab</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void duplicateTemplate(template)}><Copy aria-hidden />Duplicate</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => {
+              void confirm({ description: `Delete ${template.label}?` }).then((ok) => { if (ok) handleDelete(template.id); });
+            }} className="text-red-600"><Trash2 aria-hidden />Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   };

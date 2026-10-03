@@ -6,7 +6,6 @@ import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
 import {
   FloatingLabelField,
-  MoneyInput,
   PanelSection,
   SegmentedControl,
   StepColumn,
@@ -651,10 +650,8 @@ export function PropertyLeaseFormModal({
       id: "setup",
       label: "Settings",
       summary: formSetup.loaded
-        ? `${(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0 ? "Fee set" : "No lease fee"} · ${
-            formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
-          }`
-        : "Lease fee, pipeline",
+        ? `${formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"}`
+        : "Pipeline order",
     },
     // "Preview" is no longer a separate rail step (P005: 3 steps, not 4) —
     // `htmlPreview` was already passed as `sidePanel` below and rendered on
@@ -1038,40 +1035,6 @@ export function PropertyLeaseFormModal({
             <p className="text-sm text-muted">Loading…</p>
           ) : (
             <div>
-              {/* F014: ONE lease fee — toggle + amount, no separate segmented
-                  None/Custom control. */}
-              <PanelSection title="Lease fee">
-                <ToggleRow
-                  label="Charge a lease fee"
-                  checked={(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0}
-                  dataAttr="lease-setup-fee-toggle"
-                  onChange={(next) =>
-                    void formSetup.patch({
-                      leasingPipeline: {
-                        ...formSetup.leasingPipeline,
-                        leaseSigningFeeCents: next ? formSetup.leasingPipeline.leaseSigningFeeCents || 10000 : 0,
-                      },
-                    })
-                  }
-                />
-                {(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0 ? (
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <span className={WIZARD_LABEL_CLASS}>Lease fee</span>
-                    <MoneyInput
-                      label="Lease fee"
-                      dataAttr="lease-setup-fee-amount"
-                      value={String((formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) / 100)}
-                      placeholder="100"
-                      onChange={(raw) => {
-                        const cents = Math.round((parseFloat(raw) || 0) * 100);
-                        void formSetup.patch({
-                          leasingPipeline: { ...formSetup.leasingPipeline, leaseSigningFeeCents: cents },
-                        });
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </PanelSection>
               {/* F015: another of this property's OWN lease templates — never itself. */}
               <PanelSection title="Linked co-signer / guarantor addendum">
                 <FieldSingleSelect

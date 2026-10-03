@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp, Signature } from "lucide-react";
+import { Check, CreditCard, FileUp, Signature, MoreHorizontal, Copy, Pencil, Eye, ExternalLink, Trash2 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -49,6 +49,10 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 /**
  * "Ida Cares Homes_Intake Form.pdf" -> "Intake Form": a manager's uploaded
@@ -133,6 +137,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
@@ -398,6 +403,31 @@ export function ManagerPropertyApplicationQuestionsPanel({
     showToast("Application deleted.");
   };
 
+  const duplicateTemplate = async (template: PropertyApplicationTemplate) => {
+    const created = createPropertyApplicationTemplate({
+      kind: template.kind,
+      label: `${template.label} copy`,
+      applicationLeaseTerms: template.applicationLeaseTerms,
+      formVariant: template.formVariant,
+    });
+    const duplicate: PropertyApplicationTemplate = {
+      ...template,
+      ...created,
+      listingSeedKey: undefined,
+      draftQuestionConfig: template.draftQuestionConfig ? structuredClone(template.draftQuestionConfig) : undefined,
+      publishedQuestionConfig: template.publishedQuestionConfig ? structuredClone(template.publishedQuestionConfig) : undefined,
+      publishedQuestionConfigVersions: template.publishedQuestionConfigVersions
+        ? structuredClone(template.publishedQuestionConfigVersions)
+        : undefined,
+    };
+    const next = [...templates, duplicate];
+    if (!(await persistSubmission(withPropertyApplicationTemplatesExplicit(syncedSub, next), { message: "Application duplicated." }))) {
+      showToast("Could not duplicate application.");
+      return;
+    }
+    onUpdated();
+  };
+
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
@@ -450,7 +480,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
             null;
           const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
           return (
-            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} onClick={() => openEditApplication(template)}>
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <RowSelectCheckbox
                   aria-label={`Select ${template.label}`}
@@ -490,6 +520,23 @@ export function ManagerPropertyApplicationQuestionsPanel({
                   ) : null}
                 </div>
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <span onClick={(event) => event.stopPropagation()}>
+                    <PortalIconAction icon={MoreHorizontal} label={`Actions for ${template.label}`} data-attr="property-application-row-menu" onClick={(event) => event.stopPropagation()} />
+                  </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" data-attr="property-application-row-actions">
+                  <DropdownMenuItem onSelect={() => openEditApplication(template)}><Pencil aria-hidden />Edit</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => openEditApplication(template)}><Eye aria-hidden />Preview</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}><ExternalLink aria-hidden />Open in new tab</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void duplicateTemplate(template)}><Copy aria-hidden />Duplicate</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => {
+                    void confirm({ description: `Delete ${template.label}?` }).then((ok) => { if (ok) void handleDeleteTemplate(template.id); });
+                  }} className="text-red-600"><Trash2 aria-hidden />Delete</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           );
         })}
