@@ -641,8 +641,6 @@ export function ManagerPropertyLeasePanel({
     return null;
   };
 
-  const hasCustomTemplate = templates.some((t) => t.kind === "custom");
-
   const catalogBody = (
     <>
       <PortalPropertyDetailSection contentClassName="space-y-0">
@@ -653,7 +651,6 @@ export function ManagerPropertyLeasePanel({
           }
           return [emptyLeaseTypeRow(seed.seedKey, seed.label, () => addSeedTemplate(seed.seedKey), seed.seedKey)];
         })}
-        {!hasCustomTemplate ? emptyLeaseTypeRow("custom", "Custom lease", openAdd, "custom") : null}
         {visibleTemplates
           .filter((t) => !offeredSeeds.some((seed) => seed.seedKey === t.listingSeedKey))
           .map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}

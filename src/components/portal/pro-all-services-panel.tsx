@@ -16,6 +16,7 @@ import {
   outgoingPayHref,
 } from "@/lib/manager-service-invoice-nav";
 import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildUnifiedServiceRows,
@@ -947,10 +948,10 @@ export function ManagerAllServicesPanel({
           recordId: detailRequest.id,
           recordLabel: detailRequest.offerName,
           overviewTiles: [
-            { id: "status", label: "Status", value: detailRequest.status },
+            { id: "status", label: "Status", value: detailRequest.status.charAt(0).toUpperCase() + detailRequest.status.slice(1).toLowerCase() },
             { id: "vendor", label: "Vendor", value: detailRequest.assignee?.name ?? "None", detail: detailRequest.assignee ? undefined : "Not assigned", tone: detailRequest.assignee ? "default" : "danger" },
             { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
-            { id: "requested", label: "Requested", value: new Date(detailRequest.requestedAt).toLocaleDateString() },
+            { id: "requested", label: "Requested", value: formatPortalListDate(detailRequest.requestedAt) },
           ],
           overviewNeeds: !detailRequest.assignee
             ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
@@ -962,7 +963,7 @@ export function ManagerAllServicesPanel({
               action: { label: "Photos", href: serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "photos") },
               rows: [
                 { label: "Details", value: detailRequest.offerDescription || detailRequest.notes || "—" },
-                { label: "Reported", value: new Date(detailRequest.requestedAt).toLocaleDateString() },
+                { label: "Reported", value: formatPortalListDate(detailRequest.requestedAt) },
               ],
             },
             {
