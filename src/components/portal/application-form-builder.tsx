@@ -189,6 +189,7 @@ function BuilderQuestionCard({
   onMoveToSection,
   canEditBuiltIn,
   blockedTypes = [],
+  leaseTemplateOptions,
 }: {
   field: ResolvedApplicationField;
   /** Every question in the form (all sections), for "Show only if …" candidates. */
@@ -206,6 +207,7 @@ function BuilderQuestionCard({
   onMoveToSection: (sectionId: RentalApplicationSectionId) => void;
   canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
+  leaseTemplateOptions?: readonly { value: string; label: string }[];
 }) {
   // Built-in and custom questions share order only where the applicant
   // renderer places their controls in the same ordered section.
@@ -304,6 +306,7 @@ function BuilderQuestionCard({
           editableRequired={canEditBuiltIn?.(field, "required") ?? true}
           editableType={!field.isStandard}
           blockedTypes={blockedTypes}
+          leaseTemplateOptions={leaseTemplateOptions}
         />
         <div className="border-t border-border/70 pt-4">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
@@ -339,6 +342,7 @@ export function ApplicationFormBuilder({
   canEditBuiltIn,
   blockedCustomTypes = [],
   onAddSection,
+  leaseTemplateOptions,
 }: {
   applicationFields: ResolvedApplicationField[];
   disabledFields: ResolvedApplicationField[];
@@ -359,6 +363,7 @@ export function ApplicationFormBuilder({
   blockedCustomTypes?: readonly ManagerCustomApplicationFieldType[];
   /** Full-width footer row to enable another default section (Questions step). */
   onAddSection?: () => void;
+  leaseTemplateOptions?: readonly { value: string; label: string }[];
 }) {
   const sectionsToRender = activeSectionId
     ? RENTAL_APPLICATION_SECTIONS.filter((section) => section.id === activeSectionId)
@@ -412,6 +417,7 @@ export function ApplicationFormBuilder({
                     onMoveToSection={(sectionId) => onMoveFieldToSection?.(field, sectionId)}
                   canEditBuiltIn={canEditBuiltIn}
                   blockedTypes={blockedCustomTypes}
+                  leaseTemplateOptions={leaseTemplateOptions}
                   />
                 </div>
               ))}

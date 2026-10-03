@@ -32,6 +32,7 @@ import {
   type LeaseConfigDraft,
 } from "@/components/portal/lease-config-form";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import { PropertyLeaseClausePaperEditor } from "@/components/portal/property-lease-clause-paper-editor";
 import { PropertyLeaseDocumentNotice, propertyLeaseNeedsAssistantReview } from "@/components/portal/property-lease-document-notice";
 import { buildLeaseModalAssistantContext } from "@/lib/lease-assistant-context";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
@@ -184,7 +185,9 @@ export function PropertyLeaseFormModal({
   /** F013/F002: the file name shown on the Sections step's dashed "Start from a file" card while reading. */
   const [sectionsUploadFileName, setSectionsUploadFileName] = useState<string | null>(null);
   const [parsingLease, setParsingLease] = useState(false);
-  const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
+  const [importSource, setImportSource] = useState<
+    Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage" | "sectionCount"> | null
+  >(null);
   const [importSourceReviewed, setImportSourceReviewed] = useState(false);
   const [transcribedUnreadableSourcePages, setTranscribedUnreadableSourcePages] = useState(false);
   const unreadableSourcePage = Boolean(importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page"));
@@ -336,6 +339,7 @@ export function PropertyLeaseFormModal({
           representedCharacters: template.leaseTemplateImportReview.representedCharacters,
           complete: template.leaseTemplateImportReview.issueCodes.length === 0,
         },
+        sectionCount: parseLeaseHtmlSections(template.leaseTemplateHtmlOverride ?? "").filter((s) => s.id !== "lease-document-header").length,
       } : null);
       setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
       setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
@@ -506,7 +510,12 @@ export function PropertyLeaseFormModal({
     }
     const p = pendingLeaseImport;
     setError(null);
-    setImportSource({ sourceSha256: p.sourceSha256, sourceIssues: p.sourceIssues, coverage: p.coverage });
+    setImportSource({
+      sourceSha256: p.sourceSha256,
+      sourceIssues: p.sourceIssues,
+      coverage: p.coverage,
+      sectionCount: p.sections.length,
+    });
     setImportSourceReviewed(false);
     setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
@@ -1189,20 +1198,39 @@ export function PropertyLeaseFormModal({
                     </section>
                     <section className={`${mobileTemplateTab === "converted" ? "block" : "hidden"} lg:block`}>
                       <h3 className="mb-2 text-sm font-semibold">Converted lease</h3>
-                      <LeaseHtmlDirectEditor
-                        className="min-h-[min(380px,50vh)]"
-                        html={displayHtml}
-                        baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
-                        onChange={(next) => {
-                          setHtmlOverride(next);
-                          setImportSourceReviewed(false);
-                          setTranscribedUnreadableSourcePages(false);
-                        }}
-                        showPersistBar={false}
-                      />
+                      {parseLeaseHtmlSections(displayHtml).some((s) => s.id !== "lease-document-header") ? (
+                        <PropertyLeaseClausePaperEditor
+                          className="min-h-[min(380px,50vh)]"
+                          html={displayHtml}
+                          detectedFieldCount={importSource.sectionCount}
+                          onChange={(next) => {
+                            setHtmlOverride(next);
+                            setImportSourceReviewed(false);
+                            setTranscribedUnreadableSourcePages(false);
+                          }}
+                        />
+                      ) : (
+                        <LeaseHtmlDirectEditor
+                          className="min-h-[min(380px,50vh)]"
+                          html={displayHtml}
+                          baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
+                          onChange={(next) => {
+                            setHtmlOverride(next);
+                            setImportSourceReviewed(false);
+                            setTranscribedUnreadableSourcePages(false);
+                          }}
+                          showPersistBar={false}
+                        />
+                      )}
                     </section>
                   </div>
                 </div>
+              ) : parseLeaseHtmlSections(displayHtml).some((s) => s.id !== "lease-document-header") ? (
+                <PropertyLeaseClausePaperEditor
+                  className="min-h-[min(380px,50vh)] flex-1"
+                  html={displayHtml}
+                  onChange={setHtmlOverride}
+                />
               ) : (
                 <LeaseHtmlDirectEditor
                   className="min-h-[min(380px,50vh)] flex-1"

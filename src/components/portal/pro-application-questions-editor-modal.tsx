@@ -1396,6 +1396,10 @@ export function ManagerApplicationQuestionsEditorModal({
             canMoveField={canMoveField}
             canEditBuiltIn={canEditBuiltIn}
             blockedCustomTypes={variant === "cosigner" ? ["file", "photos"] : []}
+            leaseTemplateOptions={(sub.propertyLeaseTemplates ?? []).map((lease) => ({
+              value: lease.id,
+              label: lease.offered === false ? `${lease.label} · Not offered` : lease.label,
+            }))}
           />
         )}
       </div>
