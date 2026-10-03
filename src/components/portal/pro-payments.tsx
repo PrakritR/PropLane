@@ -741,7 +741,7 @@ export function ManagerPayments({
       icon={Settings}
       label={direction === "incoming" ? "Defaults for properties" : paymentsSettingsEntry.label}
       data-attr={paymentsSettingsEntry.dataAttr}
-      onClick={() => direction === "incoming" ? window.location.assign(`${basePath}/profile?tab=payments`) : setPaymentSettingsOpen(true)}
+      onClick={() => direction === "incoming" ? window.location.assign(`${basePath}/profile?tab=defaults`) : setPaymentSettingsOpen(true)}
     />
   );
 

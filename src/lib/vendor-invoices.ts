@@ -59,6 +59,9 @@ export type VendorInvoice = {
   paidAt: string | null;
   /** Which rail settled the invoice. `null`/`"stripe"` reads as the historical ACH Checkout path (night/vendor-pay). */
   paidFrom: "stripe" | "balance" | null;
+  scheduledFor?: string | null;
+  offlineMethod?: string | null;
+  managerEntered?: boolean;
 };
 
 /** Map an invoice status onto the four shared `Badge` tones (no fifth color). */
@@ -108,6 +111,9 @@ export function sumLineItemsCents(items: VendorInvoiceLineItem[]): number {
 /** Shape a DB row (snake_case) into the client `VendorInvoice`. */
 export function mapVendorInvoiceRow(row: Record<string, unknown>): VendorInvoice {
   return {
+    scheduledFor: row.scheduled_for as string | null,
+    offlineMethod: row.offline_method as string | null,
+    managerEntered: row.manager_entered === true,
     id: String(row.id),
     vendorId: String(row.vendor_id ?? ""),
     workOrderId: (row.work_order_id as string | null) ?? null,

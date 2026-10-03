@@ -116,6 +116,13 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   const [error, setError] = useState("");
   const [month, setMonth] = useState("");
   const [clock, setClock] = useState(0);
+  const [rentDue, setRentDue] = useState<{ dueCents: number; collectedCents: number; percent: number | null } | null>(null);
+  useEffect(() => {
+    if (!month) return; let cancelled = false;
+    const query = new URLSearchParams({ period: month, ...(propertyId ? { propertyId } : {}) });
+    fetch(`/api/reports/rent-due?${query}`).then(async res => { if (!res.ok) throw new Error("Could not load rent due"); return res.json(); }).then(data => { if (!cancelled) setRentDue(data); }).catch(() => { if (!cancelled) setRentDue(null); });
+    return () => { cancelled = true; };
+  }, [month, propertyId, userId]);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setSummary(null); setBalance(null); setOwed(undefined); setBillCount(undefined); setError(""); setRevision(n => n + 1); };
@@ -132,7 +139,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
       setSummary(JSON.parse(String(activity.meta?.summary)));
       setMonth(pacificCalendarDateYmd().slice(0, 7)); setClock(Date.now());
     }).catch(err => { if (!cancelled) setError(err.message); });
-    fetchJson("/api/portal/proplane-balance").then(snapshot => { if (!cancelled) setBalance(snapshot.enabled ? snapshot : null); }).catch(() => undefined);
+    Promise.all([fetchJson("/api/portal/proplane-balance").catch(() => null), fetchJson("/api/stripe/payouts/balance").catch(() => null)]).then(([ledger, stripe]) => { if (!cancelled) setBalance(ledger?.enabled ? ledger : stripe); });
     fetchJson("/api/manager/vendor-invoices?outgoing=1&status=approved,scheduled").then(invoices => { if (!cancelled) { setOwed(invoices.totals?.owedCents); setBillCount(invoices.totals?.billCount); } }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [ready, propertyId, userId, revision]);
@@ -155,7 +162,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
       <div className="border-b border-border p-3"><input aria-label="Month" type="month" className="bg-transparent" value={month} onChange={e => setMonth(e.target.value)} /></div>
       <div className="grid grid-cols-2 md:grid-cols-4">
         {tile("Revenue", totals.revenueCents, activityHref("in"))}{tile("Expenses", totals.expenseCents, activityHref("out"))}
-        {tile("Profit", totals.profitCents)}{tile("Rent collected", totals.rentCollectedCents)}
+        {tile("Profit", totals.profitCents)}{tile("Rent collected", rentDue?.collectedCents, undefined, rentDue?.dueCents ? `of ${money(rentDue.dueCents)} due · ${rentDue.percent}%` : undefined)}
       </div>
     </div>
     <MonthlyProfitChart hideSummary defaultRangeMonths={12} onMonthSelect={setMonth} points={months.map(m => {

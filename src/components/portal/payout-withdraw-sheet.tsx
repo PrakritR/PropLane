@@ -41,6 +41,7 @@ export function PayoutWithdrawSheet({
   onSuccess,
   initialAmountCents,
   initialMethod,
+  heldDepositCents = 0,
 }: {
   open: boolean;
   onClose: () => void;
@@ -61,6 +62,7 @@ export function PayoutWithdrawSheet({
   /** Prefills the amount/speed — used to route a failed payout's Retry through this same sheet. */
   initialAmountCents?: number;
   initialMethod?: "standard" | "instant";
+  heldDepositCents?: number;
 }) {
   const [amountInput, setAmountInput] = useState("");
   const [method, setMethod] = useState<"standard" | "instant">("standard");
@@ -143,6 +145,7 @@ export function PayoutWithdrawSheet({
         {instantDisabledReason ? <p className="text-sm text-muted">{instantDisabledReason}</p> : null}
         <div className="flex justify-between text-sm"><span>Arrives</span><span>{method === "instant" ? "Within 30 minutes" : "1–2 business days"}</span></div>
         {method === "instant" ? <><div className="flex justify-between text-sm"><span>Fee</span><span>{formatMoney(previewFeeCents, currency)}</span></div><div className="flex justify-between text-sm"><span>Bank receives</span><span>{formatMoney(netCents, currency)}</span></div></> : null}
+        {amountCents > Math.max(0, availableCents - heldDepositCents) && heldDepositCents > 0 ? <p role="status" className="text-sm text-foreground" data-attr="withdraw-held-deposits">Includes {formatMoney(Math.min(heldDepositCents, amountCents - Math.max(0, availableCents - heldDepositCents)), currency)} of held deposits</p> : null}
         {overBalance ? <p role="alert" className="text-sm text-danger">Amount exceeds available balance.</p> : null}
         {belowMinimum ? <p role="alert" className="text-sm text-danger">Enter at least $1.00.</p> : null}
         {error ? <p className="text-sm text-danger" role="alert" data-attr="withdraw-error">{error}</p> : null}

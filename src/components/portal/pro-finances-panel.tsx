@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { FinancesWithdrawAction } from "@/components/portal/finances/finances-withdraw-action";
+import { PropertyFinanceWorksheet } from "@/components/portal/finances/property-worksheet";
 import { ManagerFinancesActivity } from "@/components/portal/finances/finances-activity";
-import { ArrowDownToLine, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -601,6 +603,8 @@ export function ManagerFinancesPanel({
   const [rowFilters, setRowFilters] = useState(emptyRowFilters);
   const [expenseModal, setExpenseModal] = useState(false);
   const [incomeModal, setIncomeModal] = useState(false);
+  const [entryChooser, setEntryChooser] = useState(false);
+  const [entryKind, setEntryKind] = useState("expense");
   const [expenseStepIdx, setExpenseStepIdx] = useState(0);
   const [incomeStepIdx, setIncomeStepIdx] = useState(0);
   const [financeStepError, setFinanceStepError] = useState<string | null>(null);
@@ -619,7 +623,7 @@ export function ManagerFinancesPanel({
   });
 
   const reportId: string | null =
-    ["overview", "reports", "activity", "income", "expenses"].includes(tabId) ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
+    ["overview", "reports", "activity", "income", "expenses", "profitability"].includes(tabId) ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
   const [sortKey, setSortKey] = useState(DEFAULT_SORT[tabId]?.key ?? "date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT[tabId]?.dir ?? "desc");
 
@@ -1148,8 +1152,8 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={ArrowDownToLine} label="Withdraw" onClick={() => window.location.assign(`${basePath}/profile?tab=payouts`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
-        primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={openAddExpense} /> : undefined}
+        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <FinancesWithdrawAction /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
+        primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
         activeFilterChips={
           !isActivityTab && activeFinanceFilterChips.length > 0 ? (
@@ -1157,7 +1161,8 @@ export function ManagerFinancesPanel({
           ) : null
         }
       />
-      {isActivityTab ? <ManagerFinancesActivity userId={userId} key={`${tabId}:${userId}`} direction={tabId === "income" ? "in" : tabId === "expenses" ? "out" : undefined} /> : isOverviewTab ? (
+      <Modal open={entryChooser} onClose={() => setEntryChooser(false)} title="Financial entry"><label>Type<select value={entryKind} onChange={e => setEntryKind(e.target.value)}><option value="expense">Expense</option><option value="income">Income</option></select></label><ModalFooter><Button onClick={() => { setEntryChooser(false); if (entryKind === "income") openAddIncome(); else openAddExpense(); }}>Continue</Button></ModalFooter></Modal>
+      {tabId === "profitability" ? <PropertyFinanceWorksheet onAdd={propertyId => { setFilters(current => ({ ...current, propertyId })); setEntryChooser(true); }} /> : isActivityTab ? <ManagerFinancesActivity userId={userId} key={`${tabId}:${userId}`} direction={tabId === "income" ? "in" : tabId === "expenses" ? "out" : undefined} /> : isOverviewTab ? (
         <ManagerFinancesOverview
           key={userId}
           userId={userId ?? null}

@@ -197,11 +197,13 @@ export type SettingsGroupId =
   | "applicationForm"
   | "leaseDocuments"
   | "payments"
+  | "defaults"
   | "payouts"
   | "spreadsheets";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
   payments: "payments",
+  defaults: "payments",
   payouts: "payouts",
 };
 
@@ -315,7 +317,7 @@ function ManagerMessagingSettingsPane() {
   );
 }
 
-function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
+function HubSettingsModulePane({ tab, defaultsForProperties = false }: { tab: ManagerPortalSettingsTab; defaultsForProperties?: boolean }) {
   const { userId } = useManagerUserId();
   const workspaces = useWorkspaces();
   const propertyOptions = useMemo(
@@ -327,7 +329,7 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
     [userId, workspaces?.workspaces],
   );
 
-  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
+  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink defaultsForProperties={defaultsForProperties} />;
 }
 
 export function PortalProfileClient({
@@ -579,6 +581,7 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
+        { id: "defaults", label: "Defaults for properties", description: "Property payment defaults.", icon: Wallet, group: "Workspace" },
         { id: "payments", label: "Payments", description: "Payment setup and late fees.", icon: Wallet, group: "Workspace" },
         { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Workspace" },
         {
@@ -780,7 +783,7 @@ export function PortalProfileClient({
 
   const renderPane = (id: SettingsGroupId): ReactNode => {
     const moduleTab = HUB_MODULE_TABS[id];
-    if (moduleTab) return <HubSettingsModulePane tab={moduleTab} />;
+    if (moduleTab) return <HubSettingsModulePane tab={moduleTab} defaultsForProperties={id === "defaults"} />;
     switch (id) {
       case "workspaces":
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;

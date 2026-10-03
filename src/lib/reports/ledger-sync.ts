@@ -385,14 +385,11 @@ export async function syncLedgerRefundEntry(
     updated_at: new Date().toISOString(),
   };
 
-  const ledgerId = await upsertLedgerEntryRow(db, row);
-  if (ledgerId) {
-    await db
-      .from("ledger_entries")
-      .update({ stripe_charge_id: input.stripeChargeId, updated_at: new Date().toISOString() })
-      .eq("id", ledgerId);
-  }
-  return ledgerId;
+  const { data, error } = await db.from("ledger_entries").upsert({
+    ...row, stripe_charge_id: input.stripeChargeId, stripe_refund_id: input.stripeRefundId,
+  }, { onConflict: "source_charge_id,entry_type,stripe_refund_id" }).select("id").single();
+  if (error) throw new Error(error.message);
+  return data?.id ? String(data.id) : null;
 }
 
 /**

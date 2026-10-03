@@ -25,6 +25,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: validated.error }, { status: 422 });
     }
 
+    if (validated.schedule.interval !== "manual") return NextResponse.json({ error: "Payouts are withdrawal-only." }, { status: 422 });
+
     const db = createSupabaseServiceRoleClient();
     const accountId = await resolveManagerConnectAccountId(db, access.actor.userId);
     if (!accountId) {

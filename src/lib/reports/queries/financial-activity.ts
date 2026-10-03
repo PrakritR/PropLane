@@ -1,3 +1,5 @@
+import { loadActivityRunningBalances } from "../activity-running-balance.server";
+import { loadAccountFinancialActivity } from "../account-financial-activity.server";
 import { summarizeFinancialActivity } from "../financial-activity-totals";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
@@ -14,12 +16,12 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
   const from = filters.from || "1900-01-01";
   const to = filters.to || "9999-12-31";
   let receipts = db.from("ledger_entries")
-    .select("id, posted_date, description, amount_cents, category_code, property_id, resident_email, entry_type")
+    .select("id, posted_date, description, amount_cents, category_code, property_id, resident_email, source_charge_id, entry_type, stripe_checkout_session_id, stripe_charge_id, stripe_transfer_id, stripe_refund_id")
     .eq("manager_user_id", managerUserId).in("entry_type", ["payment", "refund"])
     .gte("posted_date", from).lte("posted_date", to);
   receipts = applyReportPropertyScope(receipts, filters);
   let expenses = db.from("manager_expense_entries")
-    .select("id, expense_date, memo, amount_cents, category_code, property_id, vendor_id, source_work_order_id")
+    .select("id, expense_date, memo, amount_cents, category_code, property_id, vendor_id, source_work_order_id, source_vendor_invoice_id")
     .eq("manager_user_id", managerUserId).gte("expense_date", from).lte("expense_date", to);
   expenses = applyReportPropertyScope(expenses, filters);
   receipts = receipts.order("id", { ascending: true });
@@ -31,7 +33,7 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
       const cents = (row.entry_type === "refund" ? -1 : 1) * Math.abs(Number(row.amount_cents));
-      rows.push({ id: `ledger-${row.id}`, date: row.posted_date, description: row.description || chartAccountLabel(row.category_code), amountCents: cents, amount: centsToUsd(cents), category: chartAccountLabel(row.category_code), categoryCode: row.category_code, accountType: systemChartAccountByCode(row.category_code)?.accountType ?? "unclassified", property: display.propertyLabel(row.property_id), propertyId: row.property_id, who: display.residentLabel(row.resident_email), source: "Resident payment", entryType: row.entry_type });
+      rows.push({ id: `ledger-${row.id}`, date: row.posted_date, description: row.description || chartAccountLabel(row.category_code), amountCents: cents, amount: centsToUsd(cents), category: chartAccountLabel(row.category_code), categoryCode: row.category_code, accountType: systemChartAccountByCode(row.category_code)?.accountType ?? "unclassified", property: display.propertyLabel(row.property_id), propertyId: row.property_id, who: row.source_charge_id ? display.residentLabel(row.resident_email) : "Income", source: row.source_charge_id ? "Resident payment" : "Outside PropLane", entryType: row.entry_type, balanceReferences: row.entry_type === "refund" ? row.stripe_refund_id ?? "" : [row.stripe_charge_id, row.stripe_transfer_id, row.stripe_checkout_session_id ? `resident-payment:${row.stripe_checkout_session_id}` : null].filter(Boolean).join("|") });
     }
     if (!data || data.length < 500) break;
   }
@@ -40,10 +42,14 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
       const cents = -Math.abs(Number(row.amount_cents));
-      rows.push({ id: `expense-${row.id}`, date: row.expense_date, description: row.memo || chartAccountLabel(row.category_code), amountCents: cents, amount: centsToUsd(cents), category: chartAccountLabel(row.category_code), categoryCode: row.category_code, accountType: systemChartAccountByCode(row.category_code)?.accountType ?? "unclassified", property: display.propertyLabel(row.property_id), propertyId: row.property_id, who: display.vendorLabel(row.vendor_id), source: row.source_work_order_id ? "Service expense" : "Outside PropLane", entryType: "expense" });
+      rows.push({ id: `expense-${row.id}`, date: row.expense_date, description: row.memo || chartAccountLabel(row.category_code), amountCents: cents, amount: centsToUsd(cents), category: chartAccountLabel(row.category_code), categoryCode: row.category_code, accountType: systemChartAccountByCode(row.category_code)?.accountType ?? "unclassified", property: display.propertyLabel(row.property_id), propertyId: row.property_id, who: display.vendorLabel(row.vendor_id), source: row.source_work_order_id ? "Service expense" : "Outside PropLane", entryType: "expense", balanceReferences: row.source_vendor_invoice_id ? `vendor-invoice:${row.source_vendor_invoice_id}:out` : "" });
     }
     if (!data || data.length < 500) break;
   }
+  if (filters.includeAccountMovements && !filters.propertyId) {
+    rows.push(...await loadAccountFinancialActivity(db, managerUserId, { from, to }));
+  }
+  if (filters.includeAccountMovements && !filters.propertyId) await loadActivityRunningBalances(db, managerUserId, rows);
   let heldDepositsCents = 0;
   let deposits = db.from("security_deposit_ledger").select("id, amount_held_cents").eq("manager_user_id", managerUserId).order("id", { ascending: true });
   deposits = applyReportPropertyScope(deposits, filters);

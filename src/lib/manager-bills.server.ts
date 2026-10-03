@@ -248,8 +248,15 @@ export async function createBillFromVendorInvoice(
     bill = await loadExistingBill();
     if (!bill) {
       try {
+        let propertyId: string | null = null;
+        if (invoice.work_order_id) {
+          const { data: service, error: serviceError } = await db.from("portal_work_order_records").select("property_id").eq("id", invoice.work_order_id).eq("manager_user_id", managerUserId).maybeSingle();
+          if (serviceError || !service) throw new Error(serviceError?.message || "Service not found.");
+          propertyId = service.property_id;
+        }
         bill = await createManagerBill(db, {
           managerUserId,
+          propertyId,
           description: String(invoice.memo ?? "Vendor invoice").trim() || "Vendor invoice",
           amountCents: Number(invoice.total_cents),
           vendorId: String(invoice.vendor_id),

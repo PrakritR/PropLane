@@ -61,9 +61,9 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
-import { Plus, ChevronDown, ChevronUp,  X } from "lucide-react";
+import { Plus, Pencil, ChevronDown, ChevronUp,  X } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
-import { formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
+import { canEditVendorReview, formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
 type ManagerFacingVendorReview = {
   id: string;
@@ -752,6 +752,7 @@ export function ManagerVendorDetail({
                       <VendorReviewStarDisplay stars={review.stars} />
                       <span className="text-[13px] text-muted">{review.reviewerLabel} · {review.createdAt.slice(0, 10)}</span>
                     </div>
+                    {review.isOwnWorkspace && canEditVendorReview(review.createdAt) ? <PortalIconAction label="Edit review" icon={Pencil} onClick={() => setReviewJob({ id: review.workOrderId, title: jobs.find(job => job.id === review.workOrderId)?.title ?? "Service", vendorName: row.name })} /> : null}
                     {review.body ? <p className="text-[13.5px]">{review.body}</p> : null}
                     {review.vendorReply ? (
                       <p className="rounded-lg bg-muted/10 px-2.5 py-1.5 text-[13px] text-muted">

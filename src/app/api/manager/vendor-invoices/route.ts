@@ -19,7 +19,7 @@ async function allRows<T>(query: { range: (from: number, to: number) => PromiseL
 
 /** Extra columns beyond `VENDOR_INVOICE_SELECT` this manager-facing list needs to pay or attribute a row. */
 const MANAGER_VENDOR_INVOICE_SELECT =
-  "id, vendor_id, vendor_user_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
+  "id, vendor_id, vendor_user_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at, scheduled_for, offline_method, manager_entered, voided_at";
 
 /**
  * Vendor invoices billed to the signed-in manager — the manager-facing twin
@@ -41,6 +41,11 @@ export async function GET(req: Request) {
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const url = new URL(req.url);
+    if (url.searchParams.get("choices") === "1") {
+      const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+      const services = await allRows(auth.db.from("portal_work_order_records").select("id,vendor_user_id,property_id,row_data").eq("manager_user_id", auth.userId).not("vendor_user_id", "is", null).order("id", { ascending: true }));
+      return NextResponse.json({ services: services.filter(service => rowAllowedInWorkspaceScope(scope, service.property_id)).map(service => ({ id: service.id, vendorUserId: service.vendor_user_id, title: (service.row_data as { title?: string })?.title || "Service" })) });
+    }
     const vendorUserId = url.searchParams.get("vendorUserId")?.trim() || null;
     const statusParam = url.searchParams.getAll("status").flatMap((s) => s.split(","));
     const statuses = (statusParam.length > 0 ? statusParam : ["approved", "scheduled"])
@@ -56,7 +61,7 @@ export async function GET(req: Request) {
       .order("submitted_at", { ascending: false }).order("id", { ascending: true });
     if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
 
-    const rows = await allRows(query);
+    const rows = (await allRows(query)).filter(row => !row.voided_at);
 
     const vendorUserIds = [...new Set(rows.map((row) => String(row.vendor_user_id ?? "")).filter(Boolean))];
     const namesById = new Map<string, string>();
@@ -123,4 +128,31 @@ export async function GET(req: Request) {
     const message = e instanceof Error ? e.message : "Could not load vendor invoices.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/** Manager-entered bills still require a service assigned to the billed vendor. */
+export async function POST(req: Request) {
+  try {
+    const auth = await getReportsAuthContext({ preferRole: "manager" });
+    if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const gate = await assertManagerFinancialsAccess(auth);
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+    const body = await req.json() as { id?: string; workOrderId?: string; title?: string; amountCents?: number };
+    if (!body.id || !/^[0-9a-f-]{36}$/i.test(body.id) || !body.title?.trim() || !Number.isSafeInteger(body.amountCents) || Number(body.amountCents) < 100) return NextResponse.json({ error: "Enter a service, description and amount of at least $1." }, { status: 400 });
+    const { data: service, error } = await auth.db.from("portal_work_order_records").select("id, vendor_user_id, property_id").eq("id", body.workOrderId).eq("manager_user_id", auth.userId).maybeSingle();
+    if (error) throw new Error(error.message);
+    const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    if (!service?.vendor_user_id || !rowAllowedInWorkspaceScope(scope, service.property_id)) return NextResponse.json({ error: "Choose an assigned service in this workspace." }, { status: 400 });
+    const { data: vendor } = await auth.db.from("manager_vendor_records").select("id").eq("manager_user_id", auth.userId).eq("vendor_user_id", service.vendor_user_id).limit(1).maybeSingle();
+    if (!vendor) return NextResponse.json({ error: "Vendor not found." }, { status: 404 });
+    const { error: createError } = await auth.db.from("vendor_invoices").insert({ id: body.id, manager_user_id: auth.userId, vendor_user_id: service.vendor_user_id, vendor_id: vendor.id, work_order_id: service.id, total_cents: body.amountCents, subtotal_cents: body.amountCents, tax_cents: 0, line_items: [{ description: body.title.trim(), quantity: 1, unitAmountCents: body.amountCents, amountCents: body.amountCents }], status: "approved", memo: body.title.trim(), manager_entered: true });
+    if (createError) {
+      if (createError.code !== "23505") throw new Error(createError.message);
+      const { data: prior } = await auth.db.from("vendor_invoices").select("manager_user_id,work_order_id,total_cents").eq("id", body.id).maybeSingle();
+      if (!prior || prior.manager_user_id !== auth.userId || prior.work_order_id !== service.id || prior.total_cents !== body.amountCents) throw new Error("Bill id already used.");
+    }
+    const { createBillFromVendorInvoice } = await import("@/lib/manager-bills.server");
+    await createBillFromVendorInvoice(auth.db, auth.userId, body.id);
+    return NextResponse.json({ id: body.id });
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not create bill." }, { status: 400 }); }
 }

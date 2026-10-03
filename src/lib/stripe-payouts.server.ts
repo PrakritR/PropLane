@@ -50,6 +50,7 @@ export type PayoutSnapshot = {
   pendingCents: number;
   onTheWayCents: number;
   heldCents: number;
+  heldDepositCents?: number;
   withdrawableCents: number;
   availableNote: string;
   bank: PayoutBankInfo | null;
@@ -69,7 +70,7 @@ export function emptyPayoutSnapshot(): PayoutSnapshot {
     withdrawableCents: 0,
     availableNote: "",
     bank: null,
-    schedule: { interval: "weekly", weeklyAnchor: "friday", nextPayoutAt: null },
+    schedule: { interval: "manual", nextPayoutAt: null },
     setup: { identity: "needed", bank: "needed", ready: false },
     history: [],
   };
@@ -392,6 +393,12 @@ export async function readPayoutSnapshot(
   const nextPayoutAt = computeNextPayoutDate(schedule);
   const heldCents = await sumHeldCentsForOwner(db, opts.ownerUserId).catch(() => 0);
   const holdHistory = await holdHistoryItems(db, opts.ownerUserId).catch(() => []);
+  let heldDepositCents = 0;
+  if (opts.portal === "manager") {
+    const { data: deposits, error: depositError } = await db.from("security_deposit_ledger").select("amount_held_cents").eq("manager_user_id", opts.ownerUserId);
+    if (depositError) throw new Error("Could not verify held deposits.");
+    heldDepositCents = (deposits ?? []).reduce((sum, row) => sum + Number(row.amount_held_cents ?? 0), 0);
+  }
   const bankLabel = bank ? `${bank.bankName ?? "Bank"} ··${bank.last4}` : null;
 
   return {
@@ -402,6 +409,7 @@ export async function readPayoutSnapshot(
     onTheWayCents,
     heldCents,
     withdrawableCents: stripeAvailableCents,
+    heldDepositCents,
     availableNote: payoutsAvailableNote({ ready: setup.ready, heldCents, bankLabel }),
     bank,
     schedule: { ...schedule, nextPayoutAt },

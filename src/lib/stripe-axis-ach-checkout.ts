@@ -21,6 +21,7 @@ export type AxisAchLineItem = {
 };
 
 export type AxisAchCheckoutInput = {
+  idempotencyKey?: string;
   residentEmail: string;
   /** Total cents when using a single line item (default). */
   amountCents?: number;
@@ -30,6 +31,7 @@ export type AxisAchCheckoutInput = {
   lineItems?: AxisAchLineItem[];
   metadata: Record<string, string>;
   returnUrl?: string;
+  redirectOnCompletion?: "if_required";
   successUrl?: string;
   cancelUrl?: string;
   mode: AxisAchCheckoutMode;
@@ -411,7 +413,8 @@ export async function createAxisAchCheckoutSession(
       ui_mode: "embedded_page",
       ...sessionBase,
       return_url: input.returnUrl,
-    } as unknown as Parameters<typeof stripe.checkout.sessions.create>[0]);
+      ...(input.redirectOnCompletion ? { redirect_on_completion: input.redirectOnCompletion } : {}),
+    } as unknown as Parameters<typeof stripe.checkout.sessions.create>[0], input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined);
     if (!session.client_secret) throw new Error("Stripe did not return a client secret.");
     return {
       mode: "embedded",
@@ -428,7 +431,7 @@ export async function createAxisAchCheckoutSession(
     ...sessionBase,
     success_url: input.successUrl,
     cancel_url: input.cancelUrl,
-  } as Parameters<typeof stripe.checkout.sessions.create>[0]);
+  } as Parameters<typeof stripe.checkout.sessions.create>[0], input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined);
   if (!session.url) throw new Error("Stripe did not return a checkout URL.");
   return {
     mode: "hosted",

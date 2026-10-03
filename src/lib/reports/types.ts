@@ -40,6 +40,8 @@ export type ManagerReportFilters = {
    * report has nothing to report rather than everything.
    */
   workspacePropertyIds?: string[] | null;
+  /** Server-only owner authorization; never parsed from URL parameters. */
+  includeAccountMovements?: boolean;
 };
 
 export type DocumentScope = "portfolio" | "property" | "tenant" | "room";

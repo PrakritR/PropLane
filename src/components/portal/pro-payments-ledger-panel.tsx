@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
+import { ManagerTakePaymentDialog } from "@/components/portal/manager-take-payment-dialog";
 import { escapeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
@@ -318,6 +319,7 @@ export function ManagerPaymentsLedgerPanel({
     [scheduledMessages],
   );
   const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
+  const [takePaymentRow, setTakePaymentRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
@@ -2158,6 +2160,7 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
+      {takePaymentRow?.householdChargeId ? <ManagerTakePaymentDialog key={takePaymentRow.householdChargeId} chargeId={takePaymentRow.householdChargeId} onClose={() => setTakePaymentRow(null)} onSubmitted={() => { setTakePaymentRow(null); onRowsChanged?.(); showToast("Payment submitted. Status updates when confirmed."); }} /> : null}
       <PortalDialog open={Boolean(offlineRow)} title="Mark paid offline" onClose={() => setOfflineRow(null)} primaryAction={{ label: "Mark paid", onClick: async () => {
         if (!offlineRow?.householdChargeId) { showToast("This payment cannot be recorded offline."); return; }
         const paidAt = offlineDate === new Date().toLocaleDateString("en-CA") ? new Date().toISOString() : `${offlineDate}T12:00:00`;
@@ -2233,6 +2236,7 @@ export function ManagerPaymentsLedgerPanel({
           // `record-sections.ts` since only THIS record kind, in only its paid state, offers them.
           const headerActions = [
             ...(isMarkableAsPaid(detailRow) ? [
+              { id: "take-payment", label: "Take payment", icon: Check, tone: "primary" as const },
               { id: "mark-paid", label: "Mark paid offline", icon: Check },
               { id: "send-reminder", label: "Send reminder", icon: Bell },
               ...(rowEditable(detailRow) ? [{ id: "edit", label: "Edit", icon: Pencil }] : []),
@@ -2257,6 +2261,7 @@ export function ManagerPaymentsLedgerPanel({
               openReminderPreview(detailRow);
               return;
             }
+            if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
             if (actionId === "mark-paid") { setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }
             if (actionId === "move-pending") { void moveToPending(detailRow); return; }

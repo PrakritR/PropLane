@@ -1,4 +1,5 @@
 "use client";
+import { ManagerPaymentSourceSetting } from "@/components/portal/manager-payment-source-setting";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Copy, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1408,8 +1409,10 @@ export function PaymentsSettingsPanel({
   onFooterReady,
   formRef,
   mode = "incoming",
+  defaultsForProperties = false,
   propertyOptions = [],
 }: {
+  defaultsForProperties?: boolean;
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
@@ -1483,6 +1486,7 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
+      {defaultsForProperties ? <PortalSettingsSection title="Defaults for properties"><ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} /></PortalSettingsSection> : <ManagerPaymentSourceSetting />}
       <PortalSettingsSection
         title="Processing fee"
         action={<SettingsGroupSourceTag namespace="processing-fee-settings" />}

@@ -46,7 +46,7 @@ export function ManagerFinancesActivity({ direction, userId }: { direction?: "in
     {error ? <p role="alert" className="py-6">{error}</p> : !report ? <p role="status" className="py-6">Loading activity…</p> : rows.length === 0 ? <p className="py-6 text-muted">No entries found.</p> : <div className="divide-y divide-border">{rows.map(row => <div key={String(row.id)} className="flex items-center gap-3 py-4">
       <time className="grid size-12 shrink-0 place-items-center rounded-lg bg-accent text-xs tabular-nums" dateTime={String(row.date)}>{String(row.date).slice(5)}</time>
       <div className="min-w-0 flex-1"><div className="truncate font-medium">{String(row.who || row.description)}</div><div className="truncate text-sm">{[row.description, row.property].filter(Boolean).join(" · ")}</div><div className="text-xs text-muted">{String(row.category)} · {String(row.source)}</div></div>
-      <div className={cn("shrink-0 font-semibold tabular-nums", Number(row.amountCents) > 0 && "text-emerald-600")}>{Number(row.amountCents) > 0 ? "+" : ""}{String(row.amount)}</div>
+      <div className={cn("shrink-0 font-semibold tabular-nums", Number(row.amountCents) > 0 && "text-emerald-600")}>{Number(row.amountCents) > 0 ? "+" : ""}{String(row.amount)}{typeof row.runningBalanceCents === "number" ? <span className="mt-1 block text-xs font-normal text-muted">Balance {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(row.runningBalanceCents / 100)}</span> : null}</div>
     </div>)}</div>}
   </div>;
 }

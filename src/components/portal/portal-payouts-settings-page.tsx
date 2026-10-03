@@ -479,6 +479,7 @@ export function PortalPayoutsSettingsPage({
       />
 
       <PayoutWithdrawSheet
+        heldDepositCents={balance.heldDepositCents}
         open={withdrawOpen}
         onClose={closeWithdraw}
         apiBase={apiBase}

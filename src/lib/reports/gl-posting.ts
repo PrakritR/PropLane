@@ -455,6 +455,18 @@ export async function postGlBillApproved(db: SupabaseClient, input: GlBillInput)
   });
 }
 
+export async function postGlBillVoided(db: SupabaseClient, input: GlBillInput): Promise<string | null> {
+  if (input.amountCents <= 0) return null;
+  return insertJournalEntry(db, {
+    managerUserId: input.managerUserId, propertyId: input.propertyId, entryDate: input.entryDate,
+    memo: input.memo ?? "Bill voided", sourceType: "bill", sourceId: `bill-void:${input.billId}`,
+    lines: [
+      { accountCode: AP_ACCOUNT, debitCents: input.amountCents, creditCents: 0, propertyId: input.propertyId, vendorId: input.vendorId },
+      { accountCode: input.categoryCode, debitCents: 0, creditCents: input.amountCents, propertyId: input.propertyId, vendorId: input.vendorId },
+    ],
+  });
+}
+
 export async function postGlBillPaid(db: SupabaseClient, input: GlBillInput): Promise<string | null> {
   if (input.amountCents <= 0) return null;
   return insertJournalEntry(db, {

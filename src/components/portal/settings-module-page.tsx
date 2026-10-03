@@ -141,6 +141,7 @@ export const SettingsModulePage = forwardRef<
     active?: boolean;
     /** Hub page: Form row jumps to the listing. Popup Form pane already owns that. */
     showFormLink?: boolean;
+    defaultsForProperties?: boolean;
   }
 >(function SettingsModulePage(
   {
@@ -153,6 +154,7 @@ export const SettingsModulePage = forwardRef<
     onSaveStatusChange,
     active = true,
     showFormLink = false,
+    defaultsForProperties = false,
   },
   ref,
 ) {
@@ -640,6 +642,7 @@ export const SettingsModulePage = forwardRef<
 
       {active && tab === "payments" ? (
         <PaymentsSettingsPanel
+          defaultsForProperties={defaultsForProperties}
           onFooterReady={setPanelFooter}
           formRef={paymentsFormRef}
           mode={paymentsMode}
