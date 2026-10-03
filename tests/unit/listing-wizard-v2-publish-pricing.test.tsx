@@ -32,7 +32,7 @@ function mount(submission: ManagerListingSubmissionV1) {
         onChange={setSub}
         onClose={() => {}}
         onPublish={onPublish}
-        initialStep="pricing"
+        initialStep="review"
       />
     );
   }
@@ -47,14 +47,14 @@ function publish() {
 
 describe("V2 publish pricing readiness", () => {
   it("accepts a short-term-only nightly price entered through the V2 control", () => {
+    const base = readyBase();
     const onPublish = mount({
-      ...readyBase(),
+      ...base,
       allowedLeaseTerms: [SHORT_TERM_LEASE_TERM],
       shortTermRentalsAllowed: true,
+      rooms: [{ ...base.rooms[0]!, shortTermRent: "85" }],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Room 1 stay prices" }));
-    fireEvent.change(screen.getByLabelText("Room 1 rent per night"), { target: { value: "85" } });
     publish();
 
     expect(onPublish).toHaveBeenCalledTimes(1);

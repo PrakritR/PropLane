@@ -12,6 +12,7 @@ import {
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { offeredResidentCountsFor } from "@/lib/room-arrangement-pricing";
 import { entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
+import { listingV2PublishPricingBlocker } from "@/lib/listing-wizard-validation";
 
 export type PropertyPricingPublishResult = {
   submission: ManagerListingSubmissionV1;
@@ -88,20 +89,23 @@ export function propertyPricingPublishBlocker(
   sub: ManagerListingSubmissionV1,
   rawDefaults: unknown,
 ): string | null {
-  const defaults = normalizeWorkspacePricingDefaults(rawDefaults);
-  const n = normalizeManagerListingSubmissionV1(sub);
-  for (const room of n.rooms) {
-    if (!room.name.trim() && room.monthlyRent <= 0) continue;
-    if (room.monthlyRent > 0) continue;
-    const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
-    if (workspaceDefaultRentForRoom(defaults, cap)) continue;
-    const label = room.name?.trim() || "Room";
-    return `${label} needs a price — set it in Pricing or add a workspace default.`;
+  const leaseBlock = listingV2PublishPricingBlocker(sub, rawDefaults);
+  if (leaseBlock === "Add a rent before publishing." || leaseBlock === "Choose a lease type before publishing.") {
+    const defaults = normalizeWorkspacePricingDefaults(rawDefaults);
+    const n = normalizeManagerListingSubmissionV1(sub);
+    for (const room of n.rooms) {
+      if (!room.name.trim() && room.monthlyRent <= 0) continue;
+      if (room.monthlyRent > 0) continue;
+      const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+      if (workspaceDefaultRentForRoom(defaults, cap)) continue;
+      const label = room.name?.trim() || "Room";
+      return `${label} needs a price — set it in Pricing or add a workspace default.`;
+    }
+    if (n.entireHomeOffered && entireHomeMonthlyRentAmount(n) <= 0 && !(defaults.rentWhole && defaults.rentWhole > 0)) {
+      return "Whole house needs a price — set it in Pricing or add a workspace default.";
+    }
   }
-  if (n.entireHomeOffered && entireHomeMonthlyRentAmount(n) <= 0 && !(defaults.rentWhole && defaults.rentWhole > 0)) {
-    return "Whole house needs a price — set it in Pricing or add a workspace default.";
-  }
-  return null;
+  return leaseBlock;
 }
 
 export function resetRoomToWorkspaceDefault(

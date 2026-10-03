@@ -11,14 +11,25 @@ import {
   type ListingStFeeToggles,
 } from "@/lib/listing-fee-term-toggles";
 import { validateListingBundleShortTermPricing } from "@/lib/listing-bundle-short-term";
-import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import {
+  entireHomeMonthlyRentAmount,
+  isEntireHomeListing,
+  normalizeManagerListingSubmissionV1,
+  resolveAllowedLeaseTerms,
+  type ManagerListingSubmissionV1,
+  type ManagerRoomSubmission,
+} from "@/lib/manager-listing-submission";
+import { parseMoneyAmount } from "@/lib/parse-money";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { roomHasStayOffer } from "@/lib/room-pricing";
+import { normalizeWorkspacePricingDefaults, workspaceDefaultRentForRoom } from "@/lib/workspace-pricing-defaults";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
   LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
   managerCanSelectProplaneServiceFee,
 } from "@/lib/payment-policy";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export function listingRoomNameKey(roomId: string): string {
   return `room-${roomId}-name`;
@@ -43,11 +54,60 @@ export function listingRoomWeeklyRentKey(roomId: string): string {
  * that passes step validation is not rejected later by a monthly-only check.
  */
 export function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
+  const nightly = parseMoneyAmount(room.shortTermRent);
+  const weekly = room.weeklyRentPrice ?? 0;
   return (
     room.monthlyRent > 0 ||
+    (nightly != null && nightly > 0) ||
+    weekly > 0 ||
     (room.rentBasis === "daily" && (room.dailyRentPrice ?? 0) > 0) ||
-    (room.rentBasis === "weekly" && (room.weeklyRentPrice ?? 0) > 0)
+    (room.rentBasis === "weekly" && weekly > 0)
   );
+}
+
+function roomMonthlyRentForTerm(room: ManagerRoomSubmission, term: string): number {
+  const override = room.termPricing?.[term]?.monthlyRent;
+  if (typeof override === "number" && override > 0) return override;
+  if (room.monthlyRent > 0) return room.monthlyRent;
+  return 0;
+}
+
+function listingHasRentForAllowedTerm(sub: ManagerListingSubmissionV1, term: string): boolean {
+  if (term === SHORT_TERM_LEASE_TERM) {
+    return sub.rooms.some((room) => roomHasStayOffer(room));
+  }
+  if (term === AIRBNB_LEASE_TERM) {
+    if (isEntireHomeListing(sub)) return entireHomeMonthlyRentAmount(sub) > 0;
+    return sub.rooms.some((room) => {
+      const nightly = parseMoneyAmount(room.shortTermRent);
+      return nightly != null && nightly > 0;
+    });
+  }
+  if (isEntireHomeListing(sub)) return entireHomeMonthlyRentAmount(sub) > 0;
+  return sub.rooms.some((room) => roomMonthlyRentForTerm(room, term) > 0);
+}
+
+/** V2 listing publish — offered lease types must carry a real price (pricing moved off the wizard rail, studio redesign 0929). */
+export function listingV2PublishPricingBlocker(
+  sub: ManagerListingSubmissionV1,
+  rawDefaults?: unknown,
+): string | null {
+  const allowed = resolveAllowedLeaseTerms(sub);
+  if (allowed.length === 0) return "Choose a lease type before publishing.";
+  if (allowed.some((term) => listingHasRentForAllowedTerm(sub, term))) return null;
+
+  const defaults = normalizeWorkspacePricingDefaults(rawDefaults);
+  const normalized = normalizeManagerListingSubmissionV1(sub);
+  for (const room of normalized.rooms) {
+    if (!room.name.trim() && room.monthlyRent <= 0) continue;
+    if (room.monthlyRent > 0) continue;
+    const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+    if (workspaceDefaultRentForRoom(defaults, cap)) return null;
+  }
+  if (normalized.entireHomeOffered && entireHomeMonthlyRentAmount(normalized) <= 0 && (defaults.rentWhole ?? 0) > 0) {
+    return null;
+  }
+  return "Add a rent before publishing.";
 }
 
 export function listingBathroomNameKey(bathId: string): string {

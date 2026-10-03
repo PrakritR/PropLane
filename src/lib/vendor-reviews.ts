@@ -103,10 +103,11 @@ export function normalizeVendorReviewBody(raw: unknown): string {
   return String(raw ?? "").trim().slice(0, VENDOR_REVIEW_BODY_MAX_LENGTH);
 }
 
-/** A reviewer may edit their own review for fourteen days after creation. */
-export function canEditVendorReview(createdAt: string, now = new Date()): boolean {
-  const age = now.getTime() - new Date(createdAt).getTime();
-  return Number.isFinite(age) && age >= 0 && age < 14 * 24 * 60 * 60 * 1000;
+/** C158: posted vendor reviews are immutable — no edit window. */
+export function canEditVendorReview(createdAt: string, _now = new Date()): boolean {
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return false;
+  return false;
 }
 
 export type VendorReviewEligibilityInput = {

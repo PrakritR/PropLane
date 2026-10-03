@@ -244,9 +244,6 @@ export class InspectionError extends Error {
  * write is the rule.
  */
 export function assertInspectionWritable(report: InspectionRecord, role: InspectionRole) {
-  if (report.status === "completed") {
-    throw new InspectionError("This inspection is completed and locked.", 409);
-  }
   if (role === "resident" && report.document.residentSubmission) {
     throw new InspectionError("You have submitted these photos. Ask your manager to reopen the report before adding more.", 409);
   }
