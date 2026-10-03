@@ -300,24 +300,6 @@ export function ApplicationsSettingsPanel({
         action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
       >
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Pipeline order">
-            <FieldSingleSelect
-              label="Pipeline order"
-              hideLabel
-              value={leasingPipeline.pipelineOrder}
-              disabled={disabled || !onLeasingPipelineChange}
-              options={[
-                { value: "application_then_lease", label: "Application first → then lease" },
-                { value: "lease_then_application", label: "Lease first → then application" },
-              ]}
-              onChange={(next) =>
-                onLeasingPipelineChange?.({
-                  ...leasingPipeline,
-                  pipelineOrder: next as PipelineOrder,
-                })
-              }
-            />
-          </PortalSettingsRow>
           <PortalSettingsRow label="Application required">
             <PortalSettingsToggle
               checked={leasingPipeline.requireApplication}

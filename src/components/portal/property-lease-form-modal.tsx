@@ -9,10 +9,8 @@ import { Button } from "@/components/ui/button";
 import {
   FloatingLabelField,
   PanelSection,
-  SegmentedControl,
   StepColumn,
   StepHeading,
-  ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import {
@@ -23,7 +21,6 @@ import {
   type PropertyFormStartFrom,
 } from "@/components/portal/property-form-wizard-kit";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
 import {
   LeaseConfigForm,
@@ -71,7 +68,6 @@ import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-se
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
-import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 async function sha256Text(value: string): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure import review is unavailable.");
@@ -215,17 +211,9 @@ export function PropertyLeaseFormModal({
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
-  // P006/P009/P011: same per-property leasing-pipeline settings the
-  // application editor's Setup step reads/writes — pipeline order, lease
-  // signing fee (real charge path: `lease-signing-fee-checkout.server.ts`,
-  // "each signer pays" per docs/agents/resident-payments.md), default lease.
-  const formSetup = usePropertyFormSetupSettings(propertyId);
   // F007: a brand-new ("add" mode) lease has no id until the footer commit
-  // creates it, but the Setup step's "Default for this property" toggle
-  // needs a stable id to compare/patch against the moment the step is
-  // reachable — generated once per open and reused as the created
-  // template's real id at commit, exactly like the application editor's
-  // `addModeTemplateId`.
+  // creates it — generated once per open and reused as the created template's
+  // real id at commit, exactly like the application editor's `addModeTemplateId`.
   const [addModeLeaseTemplateId, setAddModeLeaseTemplateId] = useState<string | null>(null);
   const [startFrom, setStartFrom] = useState<PropertyFormStartFrom>("proplane");
   const [copyFromLeaseId, setCopyFromLeaseId] = useState<string | null>(null);
@@ -251,11 +239,6 @@ export function PropertyLeaseFormModal({
   const documentModeMeta = useMemo(
     () => PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS.find((o) => o.id === documentMode),
     [documentMode],
-  );
-
-  const applicationTemplateOptions = useMemo(
-    () => readPropertyApplicationTemplates(sub).map((application) => ({ value: application.id, label: application.label })),
-    [sub],
   );
 
   const copyLeaseOptions = useMemo(
@@ -747,19 +730,13 @@ export function PropertyLeaseFormModal({
       summary: label.trim() || "Name this lease",
     },
     {
-      // Keep the property editor aligned with the shared Lease → Document →
-      // Settings flow. The internal id stays stable for the import guards.
+      // Lease → Document. Workspace-wide choices live in Settings → Applications &
+      // leases; property switches in the Lease tab's settings gear. The internal id
+      // stays stable for the import guards.
       id: "document",
       label: "Document",
       incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
       summary: documentModeMeta?.label ?? "Lease document",
-    },
-    {
-      id: "setup",
-      label: "Settings",
-      summary: formSetup.loaded
-        ? `${formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"}`
-        : "Pipeline order",
     },
     // "Preview" is no longer a separate rail step (P005: 3 steps, not 4) —
     // `htmlPreview` was already passed as `sidePanel` below and rendered on
@@ -977,19 +954,6 @@ export function PropertyLeaseFormModal({
                 />
               </PropertyFormWizardRow>
             ) : null}
-            <PropertyFormWizardRow label="Application">
-              <FieldSingleSelect
-                hideLabel
-                label="Application"
-                labelClassName={WIZARD_LABEL_CLASS}
-                variant="cell"
-                className="min-w-[200px] max-w-[280px]"
-                value={linkedApplicationTemplateId ?? "__none__"}
-                dataAttr="lease-setup-application-template"
-                options={[{ value: "__none__", label: "Property default" }, ...applicationTemplateOptions]}
-                onChange={(next) => setLinkedApplicationTemplateId(next === "__none__" ? null : next)}
-              />
-            </PropertyFormWizardRow>
           </PropertyFormWizardCard>
           <input
             ref={replaceLeaseFileRef}
@@ -1244,83 +1208,6 @@ export function PropertyLeaseFormModal({
           ) : documentMode === "upload" && !draft.leaseTemplateDocUrl ? (
             <p className="mt-3 text-sm text-foreground">Upload a PDF to parse it into PropLane format.</p>
           ) : null}
-        </StepColumn>
-      ) : null}
-      {stepId === "setup" ? (
-      <StepColumn>
-          <StepHeading title="Settings" />
-          {!formSetup.loaded ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Signing</p>
-              <PropertyFormWizardCard dataAttr="lease-settings-signing">
-                <PropertyFormWizardRow label="Pipeline order">
-                  <SegmentedControl
-                    ariaLabel="Pipeline order"
-                    value={formSetup.leasingPipeline.pipelineOrder}
-                    dataAttrPrefix="lease-setup-pipeline-order"
-                    options={[
-                      { value: "application_then_lease", label: "Application first" },
-                      { value: "lease_then_application", label: "Lease first" },
-                    ]}
-                    onChange={(next) =>
-                      void formSetup.patch({
-                        leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
-                      })
-                    }
-                  />
-                </PropertyFormWizardRow>
-                <PropertyFormWizardRow label="Co-signer addendum">
-                  <FieldSingleSelect
-                    hideLabel
-                    label="Co-signer addendum"
-                    labelClassName={WIZARD_LABEL_CLASS}
-                    variant="cell"
-                    className="min-w-[200px] max-w-[280px]"
-                    value={linkedGuarantorTemplateId ?? "__none__"}
-                    dataAttr="lease-setup-linked-guarantor"
-                    options={[
-                      { value: "__none__", label: "None" },
-                      ...(templates ?? [])
-                        .filter((candidate) => candidate.id !== template?.id)
-                        .map((candidate) => ({ value: candidate.id, label: candidate.label })),
-                    ]}
-                    onChange={(next) => {
-                      setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
-                      setError(null);
-                    }}
-                  />
-                </PropertyFormWizardRow>
-              </PropertyFormWizardCard>
-              {(() => {
-                const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateId;
-                if (!thisLeaseId) return null;
-                return (
-                  <>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Review</p>
-                    <PropertyFormWizardCard dataAttr="lease-settings-review">
-                      <PropertyFormWizardRow label="Default lease">
-                        <ToggleRow
-                          label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
-                          checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
-                          dataAttr="lease-setup-default-toggle"
-                          onChange={(next) =>
-                            void formSetup.patch({
-                              leasingPipeline: {
-                                ...formSetup.leasingPipeline,
-                                defaultLeaseTemplateId: next ? thisLeaseId : null,
-                              },
-                            })
-                          }
-                        />
-                      </PropertyFormWizardRow>
-                    </PropertyFormWizardCard>
-                  </>
-                );
-              })()}
-            </div>
-          )}
         </StepColumn>
       ) : null}
     </AddWorkspace>

@@ -10,15 +10,11 @@ import {
   FloatingLabelField,
   MoneyInput,
   PanelSection,
-  SegmentedControl,
   StepColumn,
   StepHeading,
-  ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
-import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
-import { leaseIdsUsingApplicationTemplate, linkLeasesToApplicationTemplate } from "@/lib/property-lease-templates";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
@@ -28,7 +24,7 @@ import {
 } from "@/components/portal/portal-collapsible-edit-row";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   PropertyFormStartFromFact,
   PropertyFormStartFromSelect,
@@ -271,25 +267,14 @@ export function ManagerApplicationQuestionsEditorModal({
   const [feeOverrideCents, setFeeOverrideCents] = useState<number>(0);
   const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
   const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
-  // F-editor d: another of this property's application templates whose form
-  // a planned co-signer fills in — see `PropertyApplicationTemplate.linkedCosignerApplicationTemplateId`.
-  const [linkedCosignerTemplateId, setLinkedCosignerTemplateId] = useState<string | null>(null);
-  const [usedForLeaseTemplateIds, setUsedForLeaseTemplateIds] = useState<string[]>([]);
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
   const [addChooserSectionId, setAddChooserSectionId] = useState<string | null>(null);
   const [addChoice, setAddChoice] = useState<string>(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
   const [stepIdx, setStepIdx] = useState(0);
-  // P003/P006/P011: this application's Setup step reads/writes the SAME
-  // account fee, per-property pipeline order and default-template settings
-  // Settings -> Forms already edits (see property-form-setup-settings.client.ts)
-  // — never a second fee resolver. Bulk edit spans several properties, where
-  // "this property's fee" is ambiguous, so Setup is single-property only.
+  // Bulk edit spans several properties, where a per-property template step does not apply.
   const isBulkTemplateEditor = (propertyIds?.filter((id) => id.trim()).length ?? 0) > 0;
-  const formSetup = usePropertyFormSetupSettings(applicationPreviewPropertyId, {
-    enabled: isTemplateEditor && !isBulkTemplateEditor,
-  });
   // Round 31: every edit stays local until an explicit Save. `dirty` gates the Save button
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
@@ -377,10 +362,6 @@ export function ManagerApplicationQuestionsEditorModal({
     setFeeOverrideCents(applicationTemplate?.feeCentsOverride ?? 0);
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
-    setLinkedCosignerTemplateId(applicationTemplate?.linkedCosignerApplicationTemplateId ?? null);
-    setUsedForLeaseTemplateIds(
-      applicationTemplate ? leaseIdsUsingApplicationTemplate(sub.propertyLeaseTemplates ?? [], applicationTemplate) : [],
-    );
     const importName =
       templateDraft?.importProvenance?.sourceName ??
       applicationTemplate?.publishedQuestionConfig?.importProvenance?.sourceName;
@@ -677,8 +658,9 @@ export function ManagerApplicationQuestionsEditorModal({
       return n === 1 ? "1 question" : `${n} questions`;
     };
     if (isTemplateEditor) {
-      // P002: the property Add/Edit application editor — Name -> Form (every
-      // section, one expandable accordion) -> Setup. Matches the studio
+      // P002: the property Add/Edit application editor — Name -> Questions. The
+      // Settings step is gone (C2-CP8): workspace choices live in Settings ->
+      // Applications & leases, property switches on the Application tab's gear. Matches the studio
       // After (proto/property-forms.js ED_STEPS); the listing-wide editor
       // below (opened outside a property record) keeps its own separate
       // per-section step rail, out of scope for this collapse.
@@ -687,7 +669,7 @@ export function ManagerApplicationQuestionsEditorModal({
         RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== "review" && !disabledSectionIds.includes(s.id)).map((s) => s.id),
       );
       const totalQuestions = applicationFields.filter((f) => includedSectionIds.has((f.section ?? "additional") as RentalApplicationSectionId)).length;
-      const steps: AddWorkspaceStep[] = [
+      return [
         { id: "name", label: "Application", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
         {
           id: "sections",
@@ -695,21 +677,6 @@ export function ManagerApplicationQuestionsEditorModal({
           summary: `${totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`} · ${includedSectionIds.size === 1 ? "1 section" : `${includedSectionIds.size} sections`}`,
         },
       ];
-      // P003: Setup — fee, promo code, pipeline order, default for this
-      // property — single-property template editing only; a listing-wide/
-      // bulk edit has no one property's fee to show.
-      if (!isBulkTemplateEditor) {
-        steps.push({
-          id: "setup",
-          label: "Settings",
-          summary: formSetup.loaded
-            ? formSetup.leasingPipeline.pipelineOrder === "lease_then_application"
-              ? "Lease first"
-              : "Application first"
-            : "Signing and review",
-        });
-      }
-      return steps;
     }
     const head: AddWorkspaceStep[] = lockVariant
       ? []
@@ -726,12 +693,9 @@ export function ManagerApplicationQuestionsEditorModal({
   }, [
     applicationFields,
     isTemplateEditor,
-    isBulkTemplateEditor,
     lockVariant,
     templateLabel,
     variant,
-    formSetup.loaded,
-    formSetup.leasingPipeline.pipelineOrder,
   ]);
 
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
@@ -829,8 +793,6 @@ export function ManagerApplicationQuestionsEditorModal({
             id: addModeTemplateId ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
-            linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
-            usedForLeaseTemplateIds,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(
                 applicationConfigForVariant(sanitizedSub, "standard"),
@@ -851,8 +813,6 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
-          linkedCosignerApplicationTemplateId: linkedCosignerTemplateId,
-          usedForLeaseTemplateIds,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -888,14 +848,7 @@ export function ManagerApplicationQuestionsEditorModal({
           }
         }
       }
-      const templateId = applicationTemplate?.id ?? addModeTemplateId;
-      const propertyLeaseTemplates = templateId
-        ? linkLeasesToApplicationTemplate(sub.propertyLeaseTemplates ?? [], templateId, usedForLeaseTemplateIds)
-        : (sub.propertyLeaseTemplates ?? []);
-      const merged = {
-        ...withPropertyApplicationTemplatesExplicit(sub, nextTemplates),
-        propertyLeaseTemplates,
-      };
+      const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
       const okSaved = await onPersistSubmission(merged, {
         message: publishTarget
           ? "Application published."
@@ -1397,10 +1350,6 @@ export function ManagerApplicationQuestionsEditorModal({
             canMoveField={canMoveField}
             canEditBuiltIn={canEditBuiltIn}
             blockedCustomTypes={variant === "cosigner" ? ["file", "photos"] : []}
-            leaseTemplateOptions={(sub.propertyLeaseTemplates ?? []).map((lease) => ({
-              value: lease.id,
-              label: lease.offered === false ? `${lease.label} · Not offered` : lease.label,
-            }))}
           />
         )}
       </div>
@@ -1904,107 +1853,6 @@ export function ManagerApplicationQuestionsEditorModal({
           <StepColumn>
             <StepHeading title={currentSection.title} action={sectionAddButton(currentSection.id)} />
             {renderSection(currentSection.id)}
-          </StepColumn>
-        ) : null}
-        {stepId === "setup" ? (
-          <StepColumn>
-            <StepHeading title="Settings" />
-            {!formSetup.loaded ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Signing</p>
-                <PropertyFormWizardCard dataAttr="application-settings-signing">
-                  <PropertyFormWizardRow label="Signing order">
-                    <SegmentedControl
-                      ariaLabel="Pipeline order"
-                      value={formSetup.leasingPipeline.pipelineOrder}
-                      dataAttrPrefix="application-setup-pipeline-order"
-                      options={[
-                        { value: "application_then_lease", label: "Application first" },
-                        { value: "lease_then_application", label: "Lease first" },
-                      ]}
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
-                        })
-                      }
-                    />
-                  </PropertyFormWizardRow>
-                  <PropertyFormWizardRow label="Co-signer form">
-                    <FieldSingleSelect
-                      hideLabel
-                      label="Co-signer form"
-                      labelClassName={WIZARD_LABEL_CLASS}
-                      variant="cell"
-                      className="min-w-[200px] max-w-[280px]"
-                      value={linkedCosignerTemplateId ?? "__none__"}
-                      dataAttr="application-setup-linked-cosigner"
-                      options={[
-                        { value: "__none__", label: "None" },
-                        ...(templates ?? [])
-                          .filter((candidate) => candidate.id !== applicationTemplate?.id)
-                          .map((candidate) => ({ value: candidate.id, label: candidate.label })),
-                      ]}
-                      onChange={(next) => {
-                        setLinkedCosignerTemplateId(next === "__none__" ? null : next);
-                        setDirty(true);
-                      }}
-                    />
-                  </PropertyFormWizardRow>
-                </PropertyFormWizardCard>
-                <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
-                <PropertyFormWizardCard dataAttr="application-settings-pipeline">
-                  <PropertyFormWizardRow label="Used for leases">
-                    <CheckboxMultiSelect
-                      hideLabel
-                      label="Used for leases"
-                      labelClassName={WIZARD_LABEL_CLASS}
-                      options={(sub.propertyLeaseTemplates ?? []).map((lease) => ({
-                        value: lease.id,
-                        label: lease.offered === false ? `${lease.label} · Not offered` : lease.label,
-                      }))}
-                      selected={usedForLeaseTemplateIds}
-                      onChange={(next) => {
-                        setUsedForLeaseTemplateIds(next);
-                        setDirty(true);
-                      }}
-                      emptyLabel="No leases selected"
-                      emptyMenuText="No leases on this property"
-                      dataAttr="application-setup-used-for-leases"
-                    />
-                  </PropertyFormWizardRow>
-                </PropertyFormWizardCard>
-                {(() => {
-                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateId;
-                  if (!applicationTemplateIdForDefault) return null;
-                  return (
-                    <>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Review</p>
-                      <PropertyFormWizardCard dataAttr="application-settings-review">
-                        <PropertyFormWizardRow label="Default application">
-                          <ToggleRow
-                            label="Default application for this property"
-                            checked={
-                              formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplateIdForDefault
-                            }
-                            dataAttr="application-setup-default-toggle"
-                            onChange={(next) =>
-                              void formSetup.patch({
-                                leasingPipeline: {
-                                  ...formSetup.leasingPipeline,
-                                  defaultApplicationTemplateId: next ? applicationTemplateIdForDefault : null,
-                                },
-                              })
-                            }
-                          />
-                        </PropertyFormWizardRow>
-                      </PropertyFormWizardCard>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
           </StepColumn>
         ) : null}
         {stepId === "sections" ? (

@@ -186,7 +186,10 @@ export function ManagerPropertyLeasePanel({
     [managerUserId, saveTarget, showToast],
   );
 
-  const persistTemplates = async (nextTemplates: PropertyLeaseTemplate[]) => {
+  const persistTemplates = async (
+    nextTemplates: PropertyLeaseTemplate[],
+    extra?: Partial<Pick<ManagerListingSubmissionV1, "allowedLeaseTerms">>,
+  ) => {
     if (!managerUserId) return false;
 
     if (bulkPropertyIds.length > 0) {
@@ -216,7 +219,7 @@ export function ManagerPropertyLeasePanel({
     }
 
     if (!saveTarget) return false;
-    const next = syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates);
+    const next = { ...syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates), ...extra };
     return persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next);
   };
 
@@ -830,6 +833,7 @@ export function ManagerPropertyLeasePanel({
         templates={templates}
         propertyId={rowFactPropertyId}
         onSaveTemplates={persistTemplates}
+        sub={bulkPropertyIds.length === 0 ? syncedSub : undefined}
       />
     </>
   );
