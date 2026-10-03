@@ -166,12 +166,51 @@ describe("what a co-manager may add to another owner's conversation", () => {
     expect((result.rowData.messages as { houseId?: string }[]).at(-1)?.houseId).toBe("H1");
   });
 
-  it("refuses an untagged turn when no single granted house can be named", () => {
+  it("allows an untagged reply when they hold EVERY house the conversation names", () => {
+    // The write side of the read rule: an untagged turn is only readable by a
+    // viewer who holds every house, so it is only writable by one.
     const untagged = {
       ...stored(),
       messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
     };
-    expect(merge(untagged, delegate(["H1", "H2"]))).toEqual({ ok: false, reason: "house_not_granted" });
+    const result = merge(untagged, delegate(["H1", "H2"]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const added = (result.rowData.messages as Record<string, unknown>[]).at(-1)!;
+    expect(added.houseId).toBeUndefined();
+    expect(added).toMatchObject({ from: "Dana Co-Manager", outbound: true });
+  });
+
+  it("allows an untagged reply on a conversation that names no house at all", () => {
+    const noHouses = {
+      ...stored(),
+      messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
+    };
+    expect(merge(noHouses, delegate(["H1", "H2"], [])).ok).toBe(true);
+  });
+
+  it("names their single granted house for them on a partly granted conversation", () => {
+    const untagged = {
+      ...stored(),
+      messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
+    };
+    const result = merge(untagged, delegate(["H1"], ["H1", "H2", "H3"]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.rowData.messages as { houseId?: string }[]).at(-1)?.houseId).toBe("H1");
+  });
+
+  it("refuses an untagged turn when they hold only SOME of the houses and several of them", () => {
+    // No single house to name and not every house of the conversation: the
+    // reply has to say which one it is about.
+    const untagged = {
+      ...stored(),
+      messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
+    };
+    expect(merge(untagged, delegate(["H1", "H2"], ["H1", "H2", "H3"]))).toEqual({
+      ok: false,
+      reason: "house_not_granted",
+    });
   });
 
   it("a mailbox-only save with nothing new is always fine", () => {
@@ -254,6 +293,22 @@ describe("the explicit clear", () => {
     });
     expect(result.ok && result.rowData.messages).toEqual([]);
     expect(result.ok && result.rowData.unread).toBe(false);
+  });
+
+  it("a second clear keeps the ids it is removing, dropping the oldest tombstones instead", () => {
+    const alreadyCleared = clearedInboxThreadRowData(stored(), { preview: "" });
+    const withNewTurns = {
+      ...alreadyCleared,
+      messages: [{ id: "later-1", body: "new", at: "Oct 5" }],
+    };
+    const cleared = clearedInboxThreadRowData(withNewTurns, { preview: "" });
+    expect(cleared.clearedMessageIds).toEqual(["m0", "m1", "m2", "later-1"]);
+    const result = mergeInboxThreadRowData({
+      stored: cleared,
+      requested: { ...withNewTurns, unread: false },
+      rule: owner,
+    });
+    expect(result.ok && result.rowData.messages).toEqual([]);
   });
 
   it("names every message a row accounts for, tombstones included", () => {

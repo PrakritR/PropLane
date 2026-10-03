@@ -71,6 +71,8 @@ function charge(over: Record<string, unknown>): Row {
     property_id: "prop-1",
     kind: data.kind,
     status: data.status,
+    // The SERVER's own timestamp, which the gate reads over the document's.
+    created_at: data.createdAt,
     row_data: data,
   };
 }
@@ -198,6 +200,7 @@ describe("the signing gate reads the server's charges", () => {
       const data = row.row_data as Record<string, unknown>;
       delete data.axisPaymentsEnabledSnapshot;
       data.createdAt = "2026-09-30T00:00:00.000Z";
+      row.created_at = "2026-09-30T00:00:00.000Z";
     }
     payable.on = null;
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
@@ -216,6 +219,7 @@ describe("the signing gate reads the server's charges", () => {
       const data = row.row_data as Record<string, unknown>;
       delete data.axisPaymentsEnabledSnapshot;
       data.createdAt = "2026-11-01T00:00:00.000Z";
+      row.created_at = "2026-11-01T00:00:00.000Z";
     }
     payable.on = null;
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
@@ -231,8 +235,23 @@ describe("the signing gate reads the server's charges", () => {
       const data = row.row_data as Record<string, unknown>;
       delete data.axisPaymentsEnabledSnapshot;
       data.createdAt = "2026-11-01T00:00:00.000Z";
+      row.created_at = "2026-11-01T00:00:00.000Z";
     }
     payable.on = true;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok && gate.unpaidCents).toBe(80_000);
+  });
+
+  it("the SERVER's created_at decides, not the manager browser's stamp", async () => {
+    // A clock behind the cutoff would otherwise turn the gate off for that
+    // workspace: every line would read as predating it.
+    for (const row of tables.portal_household_charge_records!) {
+      (row.row_data as Record<string, unknown>).createdAt = "2026-09-01T00:00:00.000Z";
+    }
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
       lease,
       residentUserId: RESIDENT,

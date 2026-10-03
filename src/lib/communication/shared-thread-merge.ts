@@ -126,16 +126,39 @@ function unseenTurns(
   });
 }
 
-/** The house a delegate's appended turn is about: the one they named, else the conversation's own. */
-function delegateHouseFor(turn: Turn, rule: Extract<ThreadAppendRule, { kind: "delegate" }>): string {
+/**
+ * The house a delegate's appended turn is about.
+ *
+ * This is the WRITE side of the D2 read rule, and it mirrors it: an untagged
+ * turn is only ever readable by a viewer who holds every house of that
+ * conversation, so an untagged turn may only be WRITTEN by one. A delegate who
+ * holds only some of the houses must name one of theirs - which the composer
+ * does for them, since a restricted thread already shows them only the houses
+ * they hold.
+ */
+function delegateHouseFor(
+  turn: Turn,
+  rule: Extract<ThreadAppendRule, { kind: "delegate" }>,
+): { ok: true; houseId: string } | { ok: false } {
+  // A grant on no house at all holds nothing: there is nothing to add.
+  if (rule.allowedHouses.size === 0) return { ok: false };
   const named = str(turn.houseId);
-  if (named) return named;
-  const shared = [...rule.allowedHouses].filter((id) => rule.conversationHouseIds.includes(id));
-  if (shared.length === 1) return shared[0]!;
-  if (rule.conversationHouseIds.length === 0 && rule.allowedHouses.size === 1) {
-    return [...rule.allowedHouses][0]!;
+  if (named) return rule.allowedHouses.has(named) ? { ok: true, houseId: named } : { ok: false };
+
+  const conversation = [...new Set(rule.conversationHouseIds.map((id) => str(id)).filter(Boolean))];
+  const mine = conversation.filter((id) => rule.allowedHouses.has(id));
+  if (mine.length === 1) return { ok: true, houseId: mine[0]! };
+  // They hold every house the conversation names, so an untagged turn is theirs
+  // to write - exactly the viewers the read rule shows it to.
+  if (conversation.length > 0 && mine.length === conversation.length) return { ok: true, houseId: "" };
+  // The conversation names no house at all (a thread written before turns
+  // carried one): there is nothing to attribute and nothing to withhold.
+  if (conversation.length === 0) {
+    return rule.allowedHouses.size === 1
+      ? { ok: true, houseId: [...rule.allowedHouses][0]! }
+      : { ok: true, houseId: "" };
   }
-  return "";
+  return { ok: false };
 }
 
 /** A turn appended to someone else's row, attributed by the server — or the reason it is refused. */
@@ -158,11 +181,17 @@ function authorForeignTurn(
     };
   }
   if (turn.outbound !== true) return { ok: false, reason: "inbound_turn_not_authorable" };
-  const houseId = delegateHouseFor(turn, rule);
-  if (!houseId || !rule.allowedHouses.has(houseId)) return { ok: false, reason: "house_not_granted" };
+  const house = delegateHouseFor(turn, rule);
+  if (!house.ok) return { ok: false, reason: "house_not_granted" };
   return {
     ok: true,
-    turn: { ...turn, from: rule.authorName, outbound: true, houseId, authorUserId: rule.authorUserId },
+    turn: {
+      ...turn,
+      from: rule.authorName,
+      outbound: true,
+      authorUserId: rule.authorUserId,
+      ...(house.houseId ? { houseId: house.houseId } : {}),
+    },
   };
 }
 
@@ -227,7 +256,14 @@ export function clearedInboxThreadRowData(
   clearedAtIso = new Date().toISOString(),
 ): Record<string, unknown> {
   const stored = asRecord(storedRowData);
-  const tombstones = [...new Set(storedThreadMessageIds(stored))].slice(-MAX_CLEARED_TOMBSTONES);
+  // The ids this Clear is removing come LAST, so the cap drops the oldest
+  // tombstones rather than the turns being cleared right now.
+  const removedNow = [str(stored.rootMessageId), ...turns(stored.messages).map((turn) => str(turn?.id))].filter(
+    Boolean,
+  );
+  const tombstones = [...new Set([...stringList(stored.clearedMessageIds), ...removedNow])].slice(
+    -MAX_CLEARED_TOMBSTONES,
+  );
   const next: Record<string, unknown> = {
     ...stored,
     messages: [],

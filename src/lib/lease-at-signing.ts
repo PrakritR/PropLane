@@ -48,6 +48,11 @@ export const AT_SIGNING_GATE_RELEASED_AT = "2026-10-03T00:00:00.000Z";
  * Does this line lock Sign until it is paid? Only one created at or after
  * {@link AT_SIGNING_GATE_RELEASED_AT}. A charge whose `createdAt` cannot be read
  * is treated as predating the gate, which is how every charge behaved before it.
+ *
+ * `createdAt` must be the server's own `created_at` column, which
+ * `loadAtSigningChargesForLease` reads over the stored document: the document's
+ * stamp comes from the manager's browser clock, and a clock behind the cutoff
+ * would otherwise turn the gate off for that workspace entirely.
  */
 export function atSigningChargeGatesSignature(charge: Pick<HouseholdCharge, "createdAt">): boolean {
   const created = Date.parse(String(charge.createdAt ?? ""));

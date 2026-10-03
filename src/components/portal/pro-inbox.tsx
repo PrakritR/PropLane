@@ -181,7 +181,27 @@ type InboxThread = {
   aiDraft?: InboxAiDraft;
   aiDraftQueue?: InboxAiDraft[];
   resolvedAiDraftIds?: string[];
+  /** The houses this conversation is about, already narrowed to the ones this account holds. */
+  houses?: { propertyId: string; label: string }[];
+  rootHouseId?: string;
 };
+
+/**
+ * The house a reply into this conversation is about, or "" when the
+ * conversation does not name exactly one.
+ *
+ * The server attributes a co-manager's turn to a house they hold, and refuses an
+ * untagged one when they hold only SOME of the conversation's houses (the write
+ * side of the same rule that hides an untagged turn from them on read). The
+ * list already narrows `houses` to the houses this account holds, so naming the
+ * single one here is what keeps an ordinary reply from being refused.
+ */
+function replyHouseIdFor(thread: InboxThread): string {
+  const houses = thread.houses ?? [];
+  if (houses.length === 1) return houses[0]?.propertyId?.trim() ?? "";
+  if (houses.length > 1) return "";
+  return (thread.rootHouseId ?? "").trim();
+}
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
@@ -858,6 +878,7 @@ export const ManagerInbox = forwardRef<
       }
 
       const replyId = `reply-${Date.now().toString(36)}`;
+      const replyHouseId = replyHouseIdFor(thread);
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const subject = emailReplySubjectFor(thread.subject);
       // The bubble wears the channel the reply is leaving on — email first when
@@ -877,6 +898,11 @@ export const ManagerInbox = forwardRef<
         attachments: attachmentMeta.length ? attachmentMeta : undefined,
         channel: replyChannel,
         ...(emailAllowed ? { subject } : {}),
+        // Which house the reply is about, when the conversation names exactly
+        // one. On another owner's conversation `houses` is already narrowed to
+        // the houses this account holds, so a co-manager granted just one of a
+        // merged conversation's houses names it instead of replying untagged.
+        ...(replyHouseId ? { houseId: replyHouseId } : {}),
       };
       persistInboxRef.current = false;
       setLocal((current) =>

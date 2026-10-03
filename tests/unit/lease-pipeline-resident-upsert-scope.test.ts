@@ -992,6 +992,7 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
   const charge = (id: string, kind: string, status: string, amount = "$300.00") => ({
     id,
     status,
+    created_at: "2026-10-03T12:00:00.000Z",
     row_data: {
       id,
       kind,

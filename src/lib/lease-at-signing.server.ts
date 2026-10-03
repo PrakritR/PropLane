@@ -51,17 +51,29 @@ export async function loadAtSigningChargesForLease(
   // A signer we cannot name owes nothing we can find; the signature route already refuses unscoped writers.
   if (!identityFilter) return { ok: true, charges: [] };
 
-  const { data, error } = await db.from(CHARGE_TABLE).select("id, status, row_data").or(identityFilter);
+  const { data, error } = await db
+    .from(CHARGE_TABLE)
+    .select("id, status, created_at, row_data")
+    .or(identityFilter);
   if (error) return { ok: false, error: error.message };
 
-  const rows = (data ?? []) as Array<{ id: string; status?: string | null; row_data: unknown }>;
+  const rows = (data ?? []) as Array<{
+    id: string;
+    status?: string | null;
+    created_at?: string | null;
+    row_data: unknown;
+  }>;
   const charges: HouseholdCharge[] = [];
   for (const row of rows) {
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge || typeof charge !== "object" || !charge.id) continue;
     // The status COLUMN is what the webhook and the manager both write; it wins over a stale document.
     const status = (row.status as HouseholdCharge["status"] | null | undefined) ?? charge.status;
-    charges.push({ ...charge, status });
+    // So does `created_at`: the document's own stamp is the manager's browser
+    // clock, and the gate's cutoff decides whether this line locks Sign - a
+    // skewed clock must not be able to put a new charge before the gate shipped.
+    const createdAt = String(row.created_at ?? "").trim() || charge.createdAt;
+    charges.push({ ...charge, status, createdAt });
   }
 
   const lease = input.lease;
