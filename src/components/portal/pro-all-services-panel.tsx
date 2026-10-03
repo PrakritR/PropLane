@@ -491,16 +491,20 @@ export function ManagerAllServicesPanel({
     return chips;
   }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions]);
 
-  const renderRequestDetail = (req: ServiceRequest) => {
+  const renderRequestDetail = (req: ServiceRequest, opts?: { actionsOnly?: boolean }) => {
     return (
       <ManagerServiceRequestDetail
         req={req}
+        actionsOnly={opts?.actionsOnly}
         onFooterActionsChange={setDetailFooterActions}
         propertyLabel={resolveRequestPropertyLabel(req)}
         onUpdated={() => setDataTick((t) => t + 1)}
         onApproved={() => router.push(`${basePath}/services/requests/approved`)}
         onDenied={() => router.push(`${basePath}/services/requests/denied`)}
         onCollapsed={() => navigate(serviceRequestListHref(basePath, reqBucket))}
+        onMessage={() =>
+          navigate(serviceRequestDetailHref(basePath, reqBucket, req.id, "communication"))
+        }
       />
     );
   };
@@ -918,7 +922,7 @@ export function ManagerAllServicesPanel({
           )}
         </div>
       ) : activeTab === "photos" ? (
-        renderRequestDetail(detailRequest)
+        <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="service-request-photos-empty" />
       ) : activeTab === "payments" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="service-request-invoice">
           <p className="text-sm text-foreground">
@@ -974,6 +978,7 @@ export function ManagerAllServicesPanel({
       );
     return (
       <>
+        {renderRequestDetail(detailRequest, { actionsOnly: true })}
         <PortalRecordDetailPage
           pageTitle="Services"
           title={detailRequest.offerName}
@@ -986,13 +991,9 @@ export function ManagerAllServicesPanel({
           dataAttrBack="service-request-detail-back"
           pinScrollBody
         >
-          {/*
-            No separate header icons here — the actions below already publish
-            Approve / Deny / Edit / Delete into this same title-row icon slot
-            (`iconTitleActions`); a second publisher would silently overwrite
-            it rather than combine with it (docs/agents/record-page.md).
-          */}
-          {detailFooterActions ? <PortalRecordActions>{detailFooterActions}</PortalRecordActions> : null}
+          {detailFooterActions ? (
+            <PortalRecordActions omitSpacer>{detailFooterActions}</PortalRecordActions>
+          ) : null}
           <PortalRecordSectionChrome
             sections={sections}
             recordId={detailRequest.id}
