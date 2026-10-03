@@ -64,14 +64,8 @@ export function buildResidentLeaseDocumentRows(row: LeasePipelineRow | null): Re
     });
   }
 
-  // A lease-first draft (Part 3 hotfix, defect 4) has no document yet — the
-  // manager hasn't generated or sent it — so `residentCanViewLeaseRow` is
-  // correctly false. It still needs to appear so the resident can open it and
-  // fill in the intake section (`ResidentLeaseIntakeSection`); marked with
-  // `leaseFirst: true` by `createLeaseFirstDraft` so an ordinary draft the
-  // manager has not shared yet stays invisible.
-  const isLeaseFirstDraft = row.leaseFirst === true && row.bucket === "manager" && row.status === "Draft";
-
+  // A stored lease-first draft (`leaseFirst: true`, bucket manager, status Draft) is never listed:
+  // lease first is retired (captain, Oct 3 2026), so it stays invisible like any unshared draft.
   if (hasBothLeaseSignatures(row)) {
     rows.unshift({
       id: encodeLeaseDocumentDetailId(row.id),
@@ -86,7 +80,6 @@ export function buildResidentLeaseDocumentRows(row: LeasePipelineRow | null): Re
   } else if (
     residentCanViewLeaseRow(row) ||
     row.pendingRenewal ||
-    isLeaseFirstDraft ||
     ((row.signedLeaseSnapshots?.length ?? 0) > 0 && Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl))
   ) {
     rows.unshift({
@@ -94,10 +87,8 @@ export function buildResidentLeaseDocumentRows(row: LeasePipelineRow | null): Re
       leaseRowId: row.id,
       label: row.pendingRenewal
         ? `Renewal in progress${row.unit ? ` · ${row.unit}` : ""}`
-        : isLeaseFirstDraft
-          ? `Your lease details${row.unit ? ` · ${row.unit}` : ""}`
-          : `Lease agreement${row.unit ? ` · ${row.unit}` : ""}`,
-      status: isLeaseFirstDraft ? "Details needed" : "Pending",
+        : `Lease agreement${row.unit ? ` · ${row.unit}` : ""}`,
+      status: "Pending",
       signedAt: row.updatedAtIso,
       filterBucket: "pending",
       snapshot: null,

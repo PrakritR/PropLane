@@ -5,9 +5,8 @@ import {
 } from "@/lib/resident-lifecycle-journey";
 
 describe("residentLifecycleSteps", () => {
-  it("orders lease-first with sign lease before application received", () => {
+  it("always puts the application before the lease: no lease-first order exists", () => {
     const steps = residentLifecycleSteps({
-      signingOrder: "lease_first",
       applicationFeePaid: true,
       applicationSubmitted: true,
       applicationApproved: false,
@@ -16,13 +15,13 @@ describe("residentLifecycleSteps", () => {
       moveInChargesPaid: false,
       movedIn: false,
     });
-    expect(steps[0]?.id).toBe("sign_lease");
-    expect(steps[1]?.id).toBe("received");
+    const ids = steps.map((step) => step.id);
+    expect(ids.indexOf("received")).toBeLessThan(ids.indexOf("sign_lease"));
+    expect(ids[0]).not.toBe("sign_lease");
   });
 
   it("surfaces pay fee when the card was declined", () => {
     const action = resolveResidentLifecycleNextAction({
-      signingOrder: "application_first",
       applicationFeePaid: false,
       applicationSubmitted: true,
       applicationApproved: false,

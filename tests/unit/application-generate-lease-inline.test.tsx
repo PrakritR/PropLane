@@ -4,7 +4,7 @@
 //
 // One primary icon on an APPROVED application, in an application-first
 // workspace, opens the one Send lease screen (LeaseSendSheet), for this
-// applicant — never a separate page. A lease-first workspace never gates a lease on application
+// applicant — never a separate page. A workspace with applications off never gates a lease on application
 // approval at all, so the card must not appear there; a pending/rejected/
 // withdrawn row must not show it either.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -135,8 +135,8 @@ describe("Send lease — on an approved application (C050/C065)", () => {
     expect(lastAddLeaseModalProps?.applicationId).toBe("AXIS-GENLEASE-1");
   });
 
-  it("is absent in a lease-first workspace", () => {
-    LEASING_PREFS = { ...DEFAULT_LEASING_PIPELINE, pipelineOrder: "lease_then_application" };
+  it("is absent in a workspace that does not require applications", () => {
+    LEASING_PREFS = { ...DEFAULT_LEASING_PIPELINE, requireApplication: false };
     ROWS = [approvedRow()];
 
     render(<ManagerApplications bucket="approved" applicationId="AXIS-GENLEASE-1" />);

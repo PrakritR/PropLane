@@ -389,10 +389,10 @@ describe("publicListingProjection", () => {
 
     it("adds only the two derived fields — never the manager's pipelineOrder preference or override map", () => {
       const projected = publicListingProjection(storedListing(), null, {
-        signingOrder: "lease_first",
+        signingOrder: "application_first",
         leaseSigningFeeCents: 5000,
       });
-      expect(projected.signingOrder).toBe("lease_first");
+      expect(projected.signingOrder).toBe("application_first");
       expect(projected.leaseSigningFeeCents).toBe(5000);
       const keys = allKeys(projected);
       expect(keys.has("pipelineOrder")).toBe(false);
@@ -419,8 +419,8 @@ describe("publicListingProjection", () => {
       });
     });
 
-    it("takes the signing order from the workspace, never from a per-property override (C2-CP7), but keeps the override's fee", () => {
-      const base = { requireApplication: true, requireLease: true, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null, sharedRoomLease: "individual" as const };
+    it("is application first whatever the workspace or a per-property override stored, but keeps the override's fee", () => {
+      const base = { requireApplication: true, requireLease: true, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null, sharedRoomLease: "individual" as const, applicationBeforeTour: "not_needed" as const };
       const state = {
         portfolio: { ...base, pipelineOrder: "lease_then_application" as const, leaseSigningFeeCents: 5000 },
         byPropertyId: {
@@ -428,11 +428,11 @@ describe("publicListingProjection", () => {
         },
       };
       expect(resolvePublicSigningContext(state, "prop-1")).toEqual({
-        signingOrder: "lease_first",
+        signingOrder: "application_first",
         leaseSigningFeeCents: 0,
       });
       expect(resolvePublicSigningContext(state, "prop-2")).toEqual({
-        signingOrder: "lease_first",
+        signingOrder: "application_first",
         leaseSigningFeeCents: 5000,
       });
     });

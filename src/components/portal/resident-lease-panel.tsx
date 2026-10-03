@@ -13,8 +13,6 @@ import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
 import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-signing-fee-card";
-import { ResidentLeaseIntakeSection } from "@/components/portal/resident-lease-intake-section";
-import { ResidentLeaseFirstSigningWizard, leaseFirstSigningPhase } from "@/components/portal/resident-lease-first-signing-wizard";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
 import {
@@ -503,29 +501,10 @@ export function ResidentLeasePanel({
       />
     ) : null;
 
-  const leaseFirstPhase = pipelineRow ? leaseFirstSigningPhase(pipelineRow) : null;
-
   const leaseDetailBody = documentView || pipelineRow ? (
     <div className="px-3 pb-6 pt-2 sm:px-4 text-left">
-      {pipelineRow ? (
-        <ResidentLeaseIntakeSection
-          row={pipelineRow}
-          onSaved={() => {
-            void syncLeasePipelineFromServer(undefined, { force: true });
-          }}
-        />
-      ) : null}
-      {pipelineRow && leaseFirstPhase ? (
-        <ResidentLeaseFirstSigningWizard
-          row={pipelineRow}
-          onSaved={() => {
-            void syncLeasePipelineFromServer(undefined, { force: true });
-          }}
-          onReachedSign={() => onSignLease()}
-        />
-      ) : null}
       {signingFeeCard ? <div className="mb-3">{signingFeeCard}</div> : null}
-      {documentView && leaseFirstPhase !== "in-progress" ? (
+      {documentView ? (
         <ResidentLeaseBareDocumentPreview
           pdfSrc={documentView.pdfSrc}
           leaseHtml={documentView.leaseHtml}

@@ -15,7 +15,15 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * One signing order for every workspace (captain, Oct 3 2026): application first, then lease, then
+ * the move-in form. `lease_then_application` stays in the union only so an old stored value still
+ * parses; `normalizePipelineOrder` never returns it, so nothing downstream can be lease-first.
+ */
 export type PipelineOrder = "application_then_lease" | "lease_then_application";
+
+/** Workspace setting: may a prospect book a tour before they have applied for that property? */
+export type ApplicationBeforeTour = "not_needed" | "required";
 
 /** Workspace default for a shared room's lease when the room itself says "Property default" (C2-CP8). */
 export type SharedRoomLeaseDefault = "individual" | "joint";
@@ -25,6 +33,8 @@ export type LeasingPipelinePreferences = {
   pipelineOrder: PipelineOrder;
   /** Workspace-wide: do roommates in a shared room each sign their own lease, or one joint lease? */
   sharedRoomLease: SharedRoomLeaseDefault;
+  /** Workspace-wide: "required" = a prospect applies for the property before they can book a tour of it. */
+  applicationBeforeTour: ApplicationBeforeTour;
   requireApplication: boolean;
   requireLease: boolean;
   /** Cents; `0` = free (no Stripe gate). Null = not configured (treat as 0). */
@@ -38,6 +48,7 @@ export type LeasingPipelinePreferences = {
 export const DEFAULT_LEASING_PIPELINE: LeasingPipelinePreferences = {
   pipelineOrder: "application_then_lease",
   sharedRoomLease: "individual",
+  applicationBeforeTour: "not_needed",
   requireApplication: true,
   requireLease: true,
   leaseSigningFeeCents: null,
@@ -51,8 +62,13 @@ export const MAX_LEASE_SIGNING_FEE_CENTS = 100_000;
 const ROW_DATA_KEY = "leasingPipeline";
 const ROW_DATA_BY_PROPERTY_KEY = "leasingPipelineByPropertyId";
 
-function normalizePipelineOrder(raw: unknown): PipelineOrder {
-  return raw === "lease_then_application" ? "lease_then_application" : "application_then_lease";
+/** Always application first: a stored `lease_then_application` is ignored (captain, Oct 3 2026). */
+function normalizePipelineOrder(_raw: unknown): PipelineOrder {
+  return "application_then_lease";
+}
+
+function normalizeApplicationBeforeTour(raw: unknown): ApplicationBeforeTour {
+  return raw === "required" ? "required" : "not_needed";
 }
 
 function normalizeSharedRoomLease(raw: unknown): SharedRoomLeaseDefault {
@@ -92,6 +108,7 @@ export function normalizeLeasingPipelinePreferences(raw: unknown): LeasingPipeli
   return {
     pipelineOrder: normalizePipelineOrder(row.pipelineOrder),
     sharedRoomLease: normalizeSharedRoomLease(row.sharedRoomLease),
+    applicationBeforeTour: normalizeApplicationBeforeTour(row.applicationBeforeTour),
     requireApplication: row.requireApplication === false ? false : true,
     requireLease: row.requireLease === false ? false : true,
     leaseSigningFeeCents: normalizeLeaseSigningFeeCents(row.leaseSigningFeeCents),
@@ -141,8 +158,8 @@ export function normalizeLeasingPipelineByPropertyId(
 
 /**
  * Property override wins for the per-house fields (fee, default templates, requirements); else
- * the workspace/portfolio default. The signing order and the shared-room lease default are
- * workspace-wide, so they ALWAYS come from the workspace row, whatever an old override stored.
+ * the workspace/portfolio default. The signing order, the shared-room lease default and
+ * "Application before a tour" are workspace-wide, so they ALWAYS come from the workspace row, whatever an old override stored.
  */
 export function resolveLeasingPipelineForProperty(
   state: LeasingPipelineState,
@@ -150,11 +167,13 @@ export function resolveLeasingPipelineForProperty(
 ): LeasingPipelinePreferences {
   const id = propertyId?.trim() ?? "";
   const override = id ? state.byPropertyId[id] : undefined;
-  if (!override) return state.portfolio;
+  const base = override ? { ...override } : { ...state.portfolio };
   return {
-    ...override,
-    pipelineOrder: state.portfolio.pipelineOrder,
+    ...base,
+    // Application first, always: whatever a hand-built or legacy state carries.
+    pipelineOrder: "application_then_lease",
     sharedRoomLease: state.portfolio.sharedRoomLease,
+    applicationBeforeTour: state.portfolio.applicationBeforeTour,
   };
 }
 
@@ -166,16 +185,16 @@ export function effectiveLeaseSigningFeeCents(prefs: LeasingPipelinePreferences)
   return prefs.leaseSigningFeeCents ?? 0;
 }
 
-/** The minimal derived label a public/anonymous surface may see (PLAN-0927). */
-export type SigningOrder = "application_first" | "lease_first";
+/** The minimal derived label a public/anonymous surface may see (PLAN-0927). Application first is the only order. */
+export type SigningOrder = "application_first";
 
 /**
- * Collapse `pipelineOrder` to the one label a prospect-facing surface needs.
- * Never expose `pipelineOrder`, the workspace default, or the per-property
- * override map itself to an anonymous caller — only this derived value.
+ * Every prospect-facing surface is application first (captain, Oct 3 2026). Kept as a function so
+ * the public projection and the manager's own Preview still ask the one place, and the stored
+ * `pipelineOrder` of an older workspace can never reach a prospect.
  */
-export function signingOrderForPipeline(prefs: LeasingPipelinePreferences): SigningOrder {
-  return prefs.pipelineOrder === "lease_then_application" ? "lease_first" : "application_first";
+export function signingOrderForPipeline(_prefs: LeasingPipelinePreferences): SigningOrder {
+  return "application_first";
 }
 
 /** The two fields a prospect-facing surface derives from the pipeline preference — never the preference row itself. */
@@ -186,8 +205,7 @@ export type PublicSigningContext = {
 
 /**
  * The one place the pair is derived. The public projection
- * (`resolvePublicSigningContext`) and the manager's own Preview both call this,
- * so "Sign lease or Apply" can never be decided by two copies of the rule.
+ * (`resolvePublicSigningContext`) and the manager's own Preview both call this.
  */
 export function signingContextForPipeline(prefs: LeasingPipelinePreferences): PublicSigningContext {
   return {
@@ -196,23 +214,14 @@ export function signingContextForPipeline(prefs: LeasingPipelinePreferences): Pu
   };
 }
 
-/**
- * Whether the resident lease section unlocks without an approved application.
- * Lease-first workspaces unlock lease when a lease is required; application-first
- * keeps today's approve → lease unlock.
- */
-export function leaseUnlocksWithoutApplicationApproval(prefs: LeasingPipelinePreferences): boolean {
-  if (!prefs.requireLease) return false;
-  return prefs.pipelineOrder === "lease_then_application";
+/** Lease never unlocks ahead of an approved application. */
+export function leaseUnlocksWithoutApplicationApproval(_prefs: LeasingPipelinePreferences): boolean {
+  return false;
 }
 
-/**
- * Whether send-for-signature still requires an approved linked application.
- * Lease-first (or application not required) skips that gate.
- */
+/** Whether send-for-signature still requires an approved linked application (unless applications are off). */
 export function leaseSendRequiresApprovedApplication(prefs: LeasingPipelinePreferences): boolean {
-  if (!prefs.requireApplication) return false;
-  return prefs.pipelineOrder === "application_then_lease";
+  return prefs.requireApplication;
 }
 
 async function readAutomationRowData(

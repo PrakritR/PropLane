@@ -63,10 +63,10 @@ export type MockProperty = {
    * label. Never the manager's `pipelineOrder` preference row or the
    * per-property override map itself — those never reach an anonymous caller.
    */
-  signingOrder?: "application_first" | "lease_first";
+  signingOrder?: "application_first";
   /**
    * Set by `publicListingProjection` alongside `signingOrder`: the effective
-   * lease-signing fee in cents when `signingOrder` is `"lease_first"` (each
+   * lease-signing fee in cents (each
    * signer pays; `0` = free). Resolved server-side from the same manager
    * preference — a plain listing amount, like `applicationFee`, not a
    * preference row.

@@ -155,7 +155,7 @@ describe("resident legacy section redirects resolve before the stage guard", () 
   });
 });
 
-describe("lease-first: Application sends the resident to the lease they still owe a signature on", () => {
+describe("lease first is gone: stale lease-first flags change nothing", () => {
   beforeEach(() => {
     Object.assign(residentAccess, {
       applicationApproved: false,
@@ -170,17 +170,13 @@ describe("lease-first: Application sends the resident to the lease they still ow
     });
   });
 
-  it("redirects every Application page to the pending lease while it is unsigned", async () => {
-    expect(await redirectTargetFor("applications")).toBe("/resident/lease/pending/lease_first_abc");
-    expect(await redirectTargetFor("applications", ["pending"])).toBe("/resident/lease/pending/lease_first_abc");
-    expect(await redirectTargetFor("applications", ["pending", "app-1"])).toBe(
-      "/resident/lease/pending/lease_first_abc",
-    );
+  it("Application never redirects to a lease", async () => {
+    expect(await redirectTargetFor("applications")).toBe("/resident/applications/pending");
+    await expect(renderPortalSection("resident", "applications", ["pending"])).resolves.toBeDefined();
   });
 
-  it("lets the resident open Lease itself (no bounce home)", async () => {
-    // Reaching the panel means no redirect was thrown; the stubbed panel render is not under test.
-    await expect(renderPortalSection("resident", "lease", ["pending", "lease_first_abc"])).resolves.toBeDefined();
+  it("Lease stays locked until an application is approved", async () => {
+    expect(await redirectTargetFor("lease")).toBe("/resident/dashboard");
   });
 
   it("once the lease is signed, Application is the resident's again", async () => {

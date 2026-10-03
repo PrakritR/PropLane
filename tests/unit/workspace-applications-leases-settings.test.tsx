@@ -45,13 +45,14 @@ async function pick(trigger: string, option: string) {
 }
 
 describe("WorkspaceApplicationsLeasesSettings", () => {
-  it("renders the four workspace rows with the signing order defaulting to application first", async () => {
+  it("renders the workspace rows, with Application before a tour defaulting to Not needed and no Signing order row", async () => {
     render(<WorkspaceApplicationsLeasesSettings />);
     expect(await screen.findByText("Applications & leases")).toBeTruthy();
-    for (const label of ["Signing order", "Roommates in a shared room sign", "Deposit accounting", "Auto-send the lease to the resident"]) {
+    expect(screen.queryByText("Signing order")).toBeNull();
+    for (const label of ["Application before a tour", "Roommates in a shared room sign", "Deposit accounting", "Auto-send the lease to the resident"]) {
       expect(screen.getByText(label, { selector: "div, span, p, dt, label" })).toBeTruthy();
     }
-    await waitFor(() => expect(screen.getByRole("button", { name: "Signing order" })).toHaveTextContent("Application first, then lease"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Application before a tour" })).toHaveTextContent("Not needed"));
   });
 
   it("no longer lists per-template mappings or co-signers", async () => {
@@ -63,11 +64,12 @@ describe("WorkspaceApplicationsLeasesSettings", () => {
     expect(screen.queryByRole("button", { name: /^(Lease|Application|Co-signer form|Co-signer \/ guarantor addendum) for / })).toBeNull();
   });
 
-  it("saves the signing order once on the workspace record", async () => {
+  it("saves Application before a tour once on the workspace record, and the order stays application first", async () => {
     render(<WorkspaceApplicationsLeasesSettings />);
     await screen.findByText("Applications & leases");
-    await pick("Signing order", "Lease first, then application");
-    await waitFor(() => expect(pipeline.pipelineOrder).toBe("lease_then_application"));
+    await pick("Application before a tour", "Required");
+    await waitFor(() => expect(pipeline.applicationBeforeTour).toBe("required"));
+    expect(pipeline.pipelineOrder).toBe("application_then_lease");
   });
 
   it("saves the shared-room default on the workspace record", async () => {

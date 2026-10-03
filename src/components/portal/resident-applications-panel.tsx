@@ -64,7 +64,6 @@ import {
   signerAppIdsForCosignerLookup,
 } from "@/lib/rental-application/application-list-grouping";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
-import { ResidentLeaseFirstGate } from "@/components/portal/resident-lease-first-gate";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
 import {
   isPropertyActiveForLeads,
@@ -107,11 +106,6 @@ import {
 } from "@/lib/manager-applications-storage";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { clearRentalWizardDraft, loadRentalWizardDraft, loadRentalWizardDraftAxisId, saveRentalWizardDraft, saveRentalWizardDraftAxisId } from "@/lib/rental-application/drafts";
-import { readLeasePipeline } from "@/lib/lease-pipeline-storage";
-import {
-  applicationFieldsFromLeaseRow,
-  mergeLeaseAutofillIntoApplication,
-} from "@/lib/leasing/lease-application-field-map";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { getRoomChoiceLabel, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import {
@@ -690,28 +684,6 @@ export function ResidentApplicationsPanel({
         nextPropertyId: pid,
         inProgressRows,
       });
-    } else {
-      // Lease-first: prefill allowlisted fields from a linked lease intake when present.
-      const email = (sessionEmail ?? "").trim().toLowerCase();
-      const leaseRows = readLeasePipeline();
-      const linkedLease =
-        leaseRows.find(
-          (row) =>
-            (row.propertyId?.trim() === pid || row.application?.propertyId?.trim() === pid) &&
-            (!email || row.residentEmail.trim().toLowerCase() === email),
-        ) ??
-        leaseRows.find((row) => row.propertyId?.trim() === pid || row.application?.propertyId?.trim() === pid);
-      if (linkedLease) {
-        const fromLease = applicationFieldsFromLeaseRow(linkedLease);
-        if (Object.keys(fromLease).length > 0) {
-          const base = {
-            ...createInitialRentalWizardState(),
-            propertyId: pid,
-            email,
-          };
-          saveRentalWizardDraft(mergeLeaseAutofillIntoApplication(base, fromLease));
-        }
-      }
     }
 
     if (demoMode) {
@@ -963,19 +935,7 @@ export function ResidentApplicationsPanel({
       linkedPropertyId={applyTarget?.propertyId ?? demoApplyPropertyId}
     />
   );
-  // A lease-first home starts the lease (form first), not the application.
-  const embeddedWizard =
-    applyTarget && !demoMode ? (
-      <ResidentLeaseFirstGate
-        propertyId={applyTarget.propertyId}
-        listingRoomId={applyTarget.listingRoomId}
-        basePath={basePath}
-      >
-        {applicationWizard}
-      </ResidentLeaseFirstGate>
-    ) : (
-      applicationWizard
-    );
+  const embeddedWizard = applicationWizard;
 
   const renderStandaloneApplySurface = () => {
     if (!applyMode || activeInProgressRow || !applyTarget) return null;

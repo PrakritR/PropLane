@@ -5,7 +5,7 @@ import {
 import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
-import { resolveApplicationForLeaseTemplate, resolveLeaseForApplicationTemplate } from "@/lib/application-lease-mapping";
+import { resolveLeaseForApplicationTemplate } from "@/lib/application-lease-mapping";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import {
   createPropertyLeaseTemplate,
@@ -357,28 +357,6 @@ export function resolvePropertyLeaseTemplateForApplication(
   }
 
   return longTermTemplate;
-}
-
-/**
- * C2-CP9 (lease first): the application template a lease signer fills in. The lease they get (the
- * stay-kind pick, exactly as for an applicant) maps to ONE application; an unmapped lease falls
- * back to `defaultApplicationTemplateId` when the caller knows it, else null — and the caller then
- * serves the first published form of the applicant's variant, as before. A mapped form that is not
- * published cannot be served, so it also reads as null.
- */
-export function applicationTemplateIdForLeaseFirstApplicant(
-  sub: ManagerListingSubmissionV1,
-  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
-  defaultApplicationTemplateId?: string | null,
-): string | null {
-  const lease = resolvePropertyLeaseTemplateForApplication(sub, application);
-  const applications = readPropertyApplicationTemplates(sub);
-  const mapped = resolveApplicationForLeaseTemplate(
-    { applications, leases: readPropertyLeaseTemplates(sub) },
-    lease?.id,
-    defaultApplicationTemplateId,
-  );
-  return mapped && mapped.publishedQuestionConfig ? mapped.id : null;
 }
 
 export function applicationUsesBundleLeaseTemplate(
