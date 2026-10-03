@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
+import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
@@ -21,7 +23,8 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Send, Smile, Sparkles, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import { Button } from "@/components/ui/button";
@@ -40,8 +43,6 @@ import {
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PortalMessageBodyField,
   PortalMessageRecipientReadonly,
-  PortalMessageCheckboxRow,
-  PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
@@ -643,6 +644,8 @@ export type InboxBubbleMessage = {
   /** Human timestamp label — already formatted by the caller. */
   at: string;
   direction: InboxMessageDirection;
+  automated?: boolean;
+  eventTitle?: string;
   /** Optional delivery/status caption under the bubble (e.g. "Scheduled"). */
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
@@ -917,7 +920,7 @@ export const INBOX_THREAD_ICON_BTN_DANGER =
 
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
-  "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+  "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 [-webkit-overflow-scrolling:touch]";
 
 /** Full-page record lists — let #portal-main-content scroll (no nested panel). */
 export const PORTAL_LIST_PAGE_BODY =
@@ -1054,7 +1057,7 @@ export function InboxConversationRow({
   const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
   return (
     <div
-      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
+      className={`portal-inbox-row group flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
         selected
           ? "portal-inbox-row--selected border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
@@ -1062,7 +1065,7 @@ export function InboxConversationRow({
     >
       {leading}
       <div className="flex min-w-0 flex-1 flex-col">
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <button type="button" onClick={onOpen} title={subtitle || name} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
@@ -1080,7 +1083,7 @@ export function InboxConversationRow({
               {time}
               {unread && unreadCount && unreadCount > 0 ? (
                 <span
-                  className="grid h-5 min-w-[1.3rem] shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+                  className="shrink-0 text-[11px] font-semibold text-primary"
                   aria-label={`${unreadCount} unread`}
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
@@ -1088,7 +1091,6 @@ export function InboxConversationRow({
               ) : null}
             </span>
           </div>
-          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
           {preview.trim() ? (
           <div className="mt-0.5 flex items-center gap-2">
             {channelBadge ? (
@@ -1118,10 +1120,10 @@ export function InboxConversationRow({
       {address || category || recordChip ? (
         <div className="mt-1.5 flex items-center gap-2 pl-[52px] max-md:pl-[46px]">
           {address ? (
-            <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
+            <span className="flex min-w-0 items-center gap-1 text-xs text-muted/[0.78]"><House className="h-3 w-3 shrink-0" aria-hidden /><span className="truncate">{address}</span></span>
           ) : null}
           {category ? (
-            <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
+            <span className="shrink-0 text-xs text-muted">
               {category}
             </span>
           ) : null}
@@ -1130,14 +1132,14 @@ export function InboxConversationRow({
               <Link
                 href={recordChip.href}
                 onClick={(event) => event.stopPropagation()}
-                className="shrink-0 truncate rounded-full border border-primary/25 bg-primary/[0.06] px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-primary hover:bg-primary/10"
+                className="min-w-0 truncate text-xs text-primary hover:underline"
                 data-attr="inbox-record-chip"
               >
                 {recordChip.label}
               </Link>
             ) : (
               <span
-                className="shrink-0 truncate rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted"
+                className="min-w-0 truncate text-xs text-muted"
                 data-attr="inbox-record-chip"
               >
                 {recordChip.label}
@@ -1147,7 +1149,7 @@ export function InboxConversationRow({
         </div>
       ) : null}
       </div>
-      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+      {trailing ? <div className="shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">{trailing}</div> : null}
     </div>
   );
 }
@@ -1250,15 +1252,20 @@ export function InboxBubble({
   /** True only for the PropLane Assistant conversation — AI sits on the left. */
   alignAssistantStart?: boolean;
 }) {
-  if (message.direction === "system") {
-    return (
-      <div className="my-2 flex w-full justify-center px-2" data-inbox-bubble-kind="system">
-        <span className="max-w-[85%] break-words rounded-full bg-secondary/70 px-3 py-1 text-center text-xs text-muted [overflow-wrap:anywhere]">
-          {message.body}
-          {message.at ? <span className="text-muted/70"> · {message.at}</span> : null}
-        </span>
-      </div>
-    );
+  if (message.direction === "system" || message.automated) {
+    const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
+    const at = /^\d{4}-\d\d-\d\dT/.test(message.at) && !Number.isNaN(Date.parse(message.at))
+      ? formatInboxStamp(new Date(message.at)) : message.at;
+    const content = <>
+      <Sparkles className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+      <span className="min-w-0 flex-1 truncate font-semibold" title={message.body}>{event.title}</span>
+      {event.property ? <span className="hidden min-w-0 truncate text-muted md:block">{event.property}</span> : null}
+      <span className="shrink-0 text-xs text-muted">{at}</span>
+      <span className="w-4 shrink-0">{event.href ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}</span>
+    </>;
+    const className = "my-1 flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl bg-secondary/70 px-3 py-2 text-sm text-foreground";
+    return event.href ? <a href={event.href} className={className} data-inbox-bubble-kind="system" aria-label={event.title}>{content}</a>
+      : <div className={className} data-inbox-bubble-kind="system">{content}</div>;
   }
   const outbound = message.direction === "outbound";
   const assistant = message.direction === "assistant";
@@ -1588,85 +1595,6 @@ export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
   "portal-inbox-composer-send mb-0.5 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-[46px] md:w-[46px]";
 
 
-/**
- * Common reactions, inline. Deliberately a fixed list rather than a picker
- * package: a landed dependency here has broken both the unit suite and the dev
- * server before, and a reply box does not need 1,800 glyphs.
- */
-const INBOX_COMPOSER_EMOJI = [
-  "👍", "🙏", "✅", "👋", "🙂", "😄", "🎉", "🔧",
-  "🏠", "🔑", "📅", "💬", "⚠️", "❤️", "👌", "🚿",
-] as const;
-
-function InboxEmojiButton({
-  onPick,
-  disabled,
-  dataAttr,
-  className,
-}: {
-  onPick: (emoji: string) => void;
-  disabled?: boolean;
-  dataAttr?: string;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocPointerDown = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onDocPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDocPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={wrapRef} className={cn("absolute bottom-1.5 right-1.5", className)}>
-      {open ? (
-        <div
-          className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 grid w-[15.5rem] grid-cols-8 gap-0.5 rounded-2xl border border-border bg-popover p-2 shadow-[var(--shadow-card-hover)]"
-          role="menu"
-          aria-label="Insert emoji"
-        >
-          {INBOX_COMPOSER_EMOJI.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              role="menuitem"
-              className="grid h-7 w-7 place-items-center rounded-lg text-base leading-none hover:bg-accent/50"
-              onClick={() => {
-                onPick(emoji);
-                setOpen(false);
-              }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <button
-        type="button"
-        disabled={disabled}
-        aria-label="Insert emoji"
-        aria-expanded={open}
-        data-attr={dataAttr}
-        className="grid h-8 w-8 place-items-center rounded-full text-muted transition-colors hover:bg-accent/40 hover:text-foreground disabled:opacity-50"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Smile className="h-[18px] w-[18px]" strokeWidth={1.8} />
-      </button>
-    </div>
-  );
-}
-
 /** Persistent composer pinned to the bottom of an open thread. */
 export function InboxComposer({
   value,
@@ -1795,7 +1723,7 @@ export function InboxComposer({
             channel menu collapses to the icon (`InboxComposerChannelMenu`). */}
         <div
           className={cn(
-            "portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap",
+            "portal-inbox-composer-row flex flex-nowrap items-end gap-2",
             (trailingControls || resolvedChannel) && "max-sm:gap-1 sm:max-md:gap-1.5 max-md:flex-nowrap",
           )}
         >
@@ -1835,7 +1763,7 @@ export function InboxComposer({
               data-attr={dataAttr}
               // With tools in the row, a phone has no width to spare for the
               // emoji picker; the keyboard has one.
-              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${trailingControls || resolvedChannel ? "md:pr-11" : "pr-11"}`}
+              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${resolvedChannel ? "pr-12" : ""}`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -1843,20 +1771,11 @@ export function InboxComposer({
                 }
               }}
             />
-            <InboxEmojiButton
-              disabled={disabled}
-              onPick={(emoji) => {
-                onChange(`${value}${emoji}`);
-                inputRef.current?.focus();
-              }}
-              dataAttr={dataAttr ? `${dataAttr}-emoji` : undefined}
-              className={trailingControls || resolvedChannel ? "max-md:hidden" : undefined}
-            />
+            {resolvedChannel ? <div className="absolute bottom-1 right-1">{resolvedChannel}</div> : null}
           </div>
           {trailingControls || resolvedChannel ? (
             <div className="mb-0.5 flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
               {trailingControls}
-              {resolvedChannel}
             </div>
           ) : null}
           <button
@@ -2186,6 +2105,7 @@ export function AiDraftReplyCard({
 export type InboxScheduledSaveEdit = {
   subject: string;
   body: string;
+  deliverViaInbox?: boolean;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
   sendAt?: string;
@@ -2205,7 +2125,7 @@ function ScheduledMessageComposeFooter({
 }: {
   busy?: boolean;
   canSave: boolean;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
 }) {
   return (
     <Button
@@ -2216,7 +2136,7 @@ function ScheduledMessageComposeFooter({
       disabled={busy || !canSave}
       data-attr="inbox-scheduled-save"
     >
-      {busy ? "Saving…" : "Schedule"}
+      {busy ? "Saving…" : "Save"}
     </Button>
   );
 }
@@ -2245,6 +2165,7 @@ export type InboxScheduledCardProps = {
   body: string;
   meta?: string;
   channel?: InboxChannel;
+  deliverViaInbox?: boolean;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
   source: "manual" | "automation";
@@ -2322,6 +2243,7 @@ export function InboxScheduledCard({
   body,
   meta,
   channel = "email",
+  deliverViaInbox,
   deliverViaEmail,
   deliverViaSms,
   source: _source,
@@ -2338,10 +2260,10 @@ export function InboxScheduledCard({
   recipient,
   recipientPhone,
   sendAt,
-  onCancel: _onCancel,
-  onSendNow: _onSendNow,
+  onCancel,
+  onSendNow,
   onSaveEdit,
-  showSendActions: _showSendActions = true,
+  showSendActions = true,
   pinActionsInModalFooter = false,
   onModalFooterChange,
 }: InboxScheduledCardProps) {
@@ -2361,10 +2283,10 @@ export function InboxScheduledCard({
   const canCompose = Boolean(editable && onSaveEdit);
 
   const viewSendVia = useMemo(
-    () => deliverViaEmail !== undefined || deliverViaSms !== undefined
-      ? [deliverViaEmail ? "email" : "", deliverViaSms ? "sms" : ""].filter(Boolean)
+    () => deliverViaEmail !== undefined || deliverViaSms !== undefined || deliverViaInbox !== undefined
+      ? [deliverViaInbox !== false ? "proplane" : "", deliverViaEmail ? "email" : "", deliverViaSms ? "sms" : ""].filter(Boolean)
       : defaultPortalMessageChannelSelection(emailAvailable, smsAvailable, true, false),
-    [deliverViaEmail, deliverViaSms, emailAvailable, smsAvailable],
+    [deliverViaInbox, deliverViaEmail, deliverViaSms, emailAvailable, smsAvailable],
   );
 
   const activeSendVia = canCompose ? draftSendVia : viewSendVia;
@@ -2380,10 +2302,10 @@ export function InboxScheduledCard({
   */
   const channelsChanged =
     canEditChannels &&
-    (draftChannels.viaEmail !== shownChannels.viaEmail || draftChannels.viaSms !== shownChannels.viaSms);
+    (draftChannels.viaInbox !== shownChannels.viaInbox || draftChannels.viaEmail !== shownChannels.viaEmail || draftChannels.viaSms !== shownChannels.viaSms);
   const draftChannelsOk =
     !channelsChanged ||
-    ((draftChannels.viaEmail || draftChannels.viaSms) &&
+    ((draftChannels.viaInbox || draftChannels.viaEmail || draftChannels.viaSms) &&
       (!draftChannels.viaEmail || emailAvailable) &&
       (!draftChannels.viaSms || smsAvailable));
 
@@ -2411,7 +2333,7 @@ export function InboxScheduledCard({
     setSaveError(null);
   }, [modalOpen, presentation, subject, body, sendAt, viewSendVia]);
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!onSaveEdit || !canCompose || !draftBody.trim() || !draftChannelsOk) return;
     setSaving(true);
     setSaveError(null);
@@ -2420,24 +2342,22 @@ export function InboxScheduledCard({
       draftSendAt.trim() && !Number.isNaN(new Date(draftSendAt).getTime())
         ? new Date(draftSendAt).toISOString()
         : undefined;
-    void Promise.resolve(
-      onSaveEdit({
+    try {
+      await onSaveEdit({
         subject: draftSubject.trim(),
         body: draftBody.trim(),
         ...(channelsChanged
-          ? { deliverViaEmail: channels.viaEmail, deliverViaSms: channels.viaSms }
+          ? { deliverViaInbox: channels.viaInbox, deliverViaEmail: channels.viaEmail, deliverViaSms: channels.viaSms }
           : {}),
         ...(nextSendAt ? { sendAt: nextSendAt } : {}),
-      }),
-    )
-      .then(() => {
-        setSaveError(null);
-        if (presentation === "compact") closeModal();
-      })
-      .catch((e: unknown) => {
-        setSaveError(e instanceof Error && e.message ? e.message : "Could not save changes.");
-      })
-      .finally(() => setSaving(false));
+      });
+      setSaveError(null);
+      if (presentation === "compact") closeModal();
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error && e.message ? e.message : "Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
@@ -2459,7 +2379,7 @@ export function InboxScheduledCard({
           busy={actionBusy}
           canSave={canSave}
           onSave={() => {
-            saveEditRef.current();
+            return saveEditRef.current();
           }}
         />
       ) : null,
@@ -2489,6 +2409,7 @@ export function InboxScheduledCard({
           dataAttr="inbox-scheduled-edit-subject"
         />
         <PortalMessageSendViaDropdown
+          channelLabels={{ inbox: "In-app", email: "Email", sms: "Text" }}
           selected={activeSendVia}
           onChange={setDraftSendVia}
           emailAvailable={emailAvailable}
@@ -2516,37 +2437,18 @@ export function InboxScheduledCard({
 
       {meta && !canCompose ? <p className="text-[11px] text-muted">{meta}</p> : null}
 
-      {canCompose ? (
-        <PortalMessageScheduleFields
-          scheduleLater
-          onScheduleLaterChange={() => {}}
-          sendAt={draftSendAt}
-          onSendAtChange={setDraftSendAt}
-          scheduleDataAttr="inbox-scheduled-schedule-later"
-          sendAtDataAttr="inbox-scheduled-schedule-at"
+      <label className="block text-sm font-medium">
+        Sends
+        <Input
+          type="datetime-local"
+          className="mt-1"
+          value={canCompose ? draftSendAt : sendAt ? scheduledSendAtToLocalInput(sendAt) : ""}
+          onChange={(event) => setDraftSendAt(event.target.value)}
+          disabled={!canCompose}
+          aria-label="Send date and time"
+          data-attr="inbox-scheduled-schedule-at"
         />
-      ) : (
-        <PortalMessageCheckboxRow
-          label="Schedule for later"
-          checked
-          onChange={() => {}}
-          dataAttr="inbox-scheduled-schedule-later"
-        >
-          {sendAt ? (
-            <Input
-              type="datetime-local"
-              className="min-w-0 flex-1"
-              value={scheduledSendAtToLocalInput(sendAt)}
-              disabled
-              readOnly
-              aria-label="Send date and time"
-              data-attr="inbox-scheduled-schedule-at"
-            />
-          ) : (
-            <p className="min-w-0 flex-1 text-sm text-muted">sends {sendLabel}</p>
-          )}
-        </PortalMessageCheckboxRow>
-      )}
+      </label>
 
       {saveError ? (
         <p className="text-[12px] font-medium text-danger" role="alert" data-attr="inbox-scheduled-save-error">
@@ -2565,6 +2467,12 @@ export function InboxScheduledCard({
       }
       data-attr="inbox-scheduled-card"
     >
+      {showSendActions ? (
+        <div className="mb-2 flex justify-end gap-1">
+          <PortalIconAction icon={Send} label="Send now" disabled={actionBusy} onClick={onSendNow} />
+          <PortalIconAction icon={X} label="Cancel send" disabled={actionBusy} onClick={onCancel} />
+        </div>
+      ) : null}
       {composeBody}
       {!pinFooterActions && actionFooter ? (
         <div className="mt-2.5 flex justify-end">{actionFooter}</div>
@@ -2664,7 +2572,7 @@ export function InboxScheduledThreadList({
 }) {
   const [listOpen, setListOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailIdx, setDetailIdx] = useState(0);
+  const [detailKey, setDetailKey] = useState<string | null>(null);
 
   const childArray = Children.toArray(children).filter(isValidElement);
   const detailChildren = childArray.map((child) =>
@@ -2673,17 +2581,19 @@ export function InboxScheduledThreadList({
     }),
   );
   const openDetail = (index: number) => {
-    setDetailIdx(index);
+    setDetailKey(String(childArray[index]?.key ?? index));
     setListOpen(false);
     setDetailOpen(true);
   };
+
+  const detailIdx = childArray.findIndex((child, index) => String(child.key ?? index) === detailKey);
 
   if (count <= 0) return null;
 
   if (placement === "bar") {
     return (
       <>
-        <div className="border-b border-border bg-card" data-attr="inbox-scheduled-bar">
+        <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-border bg-accent/20" data-attr="inbox-scheduled-bar">
           {childArray.map((child, index) => {
             const props = (child as React.ReactElement<{
               subject?: string;
@@ -2691,6 +2601,7 @@ export function InboxScheduledThreadList({
               source?: "manual" | "automation";
               onSendNow?: () => void;
               busy?: boolean;
+              showSendActions?: boolean;
             }>).props;
             const kind = props.source === "automation" ? "Reminder" : "Scheduled";
             return (
@@ -2698,6 +2609,7 @@ export function InboxScheduledThreadList({
                 <button
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+                  aria-label={`Edit ${props.subject?.trim() || "scheduled message"}, ${props.sendLabel || ""}`}
                   data-attr="inbox-scheduled-bar-row"
                   onClick={() => openDetail(index)}
                 >
@@ -2708,7 +2620,7 @@ export function InboxScheduledThreadList({
                   </span>
                   <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
                 </button>
-                {props.onSendNow ? (
+                {props.onSendNow && props.showSendActions !== false ? (
                   <button
                     type="button"
                     className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
@@ -2726,7 +2638,7 @@ export function InboxScheduledThreadList({
           })}
         </div>
         <ScheduledMessageDetailModal
-          open={detailOpen}
+          open={detailOpen && detailIdx >= 0}
           onClose={() => setDetailOpen(false)}
           dataAttr="inbox-scheduled-detail-modal"
         >
@@ -2790,7 +2702,7 @@ export function InboxScheduledThreadList({
         </div>
       </Modal>
       <ScheduledMessageDetailModal
-        open={detailOpen}
+        open={detailOpen && detailIdx >= 0}
         onClose={() => setDetailOpen(false)}
         dataAttr="inbox-scheduled-detail-modal"
       >
@@ -2957,7 +2869,7 @@ export function InboxThreadView({
           </div>
         ) : (
           <div
-            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "mt-auto"}`}
+            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "md:mt-auto"}`}
           >
             {beforeMessages}
             <InboxMessageTimeline
@@ -3047,10 +2959,9 @@ export function InboxTwoPane({
         setMeasuredHeight(Math.max(240, avail));
         return;
       }
-      const minH = compact ? 280 : narrow ? 360 : 440;
       // Communication split view: use full remaining viewport (no cap) so both panes can scroll.
       const maxH = fillParent ? avail : compact ? 600 : narrow ? 680 : 760;
-      setMeasuredHeight(Math.max(minH, Math.min(maxH, avail)));
+      setMeasuredHeight(Math.max(0, Math.min(maxH, avail)));
     };
     measure();
     // Re-measure after layout settles — the fixed bottom nav (and final card
@@ -3058,6 +2969,7 @@ export function InboxTwoPane({
     const raf = requestAnimationFrame(measure);
     const timer = window.setTimeout(measure, 300);
     window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
     // The chrome ABOVE this pane can change height after the 300ms timer — the
     // manager's work-number card resolves from a fetch, and filter chips appear
     // and disappear. Height here is derived from our own top edge, so a late
@@ -3074,9 +2986,10 @@ export function InboxTwoPane({
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
       window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
       observer?.disconnect();
     };
-  }, [fillParent, fillViewport, heightMode, mobileCompact]);
+  }, [fillParent, fillViewport, heightMode, mobileCompact, threadOpen]);
 
   const sectionHeight = "min(20rem, 38dvh)";
   const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68vh, 640px)";
@@ -3132,7 +3045,7 @@ export function InboxTwoPane({
           {list}
         </section>
         <section
-          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
           {thread}
         </section>

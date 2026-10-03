@@ -187,7 +187,7 @@ export function ManagerWorkNumberCard() {
           dataAttr="manager-work-number-card"
           value={formatted}
           label={numberLabel}
-          note={caption}
+          note={sendReady ? undefined : caption}
           noteTone={sendReady ? "muted" : "warn"}
           actions={[
             copyIdentityAction({

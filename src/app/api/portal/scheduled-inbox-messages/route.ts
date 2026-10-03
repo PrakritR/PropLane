@@ -111,6 +111,7 @@ export async function POST(req: Request) {
       recipientName?: string;
       recipientUserId?: string;
       broadcastCategories?: unknown;
+      deliverViaInbox?: boolean;
       deliverViaEmail?: boolean;
       deliverViaSms?: boolean;
       senderPortal?: string;
@@ -179,6 +180,7 @@ export async function POST(req: Request) {
         recipientEmail,
         recipientName: recipientName || recipientEmail,
         recipientUserId,
+        deliverViaInbox: body.deliverViaInbox !== false,
         deliverViaEmail: body.deliverViaEmail !== false,
         deliverViaSms: body.deliverViaSms !== false,
         senderPortal: "resident",
@@ -230,6 +232,7 @@ export async function POST(req: Request) {
         recipientEmail: resolvedEmail.includes("@") ? resolvedEmail : "",
         recipientName: resolvedName,
         recipientUserId: recipientUserIdFromBody,
+        deliverViaInbox: body.deliverViaInbox !== false,
         deliverViaEmail: body.deliverViaEmail !== false,
         deliverViaSms: body.deliverViaSms === true,
         senderPortal: "manager",
@@ -261,7 +264,8 @@ export async function POST(req: Request) {
         : recipientName || recipientEmail,
       recipientUserId,
       broadcastCategories: broadcastCategories.length ? broadcastCategories : undefined,
-      deliverViaEmail: body.deliverViaEmail !== false,
+      deliverViaInbox: body.deliverViaInbox !== false,
+        deliverViaEmail: body.deliverViaEmail !== false,
       deliverViaSms: body.deliverViaSms === true,
       senderPortal: "manager",
       senderUserId: ctx.userId,

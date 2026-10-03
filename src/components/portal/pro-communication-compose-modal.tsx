@@ -3,21 +3,19 @@
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X, Mail, Smartphone, MessageSquare, Paperclip, Sparkles } from "lucide-react";
+import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { INBOX_ATTACHMENT_ACCEPT, INBOX_MAX_ATTACHMENTS, createPendingInboxAttachment, uploadInboxAttachment, revokeInboxAttachmentPreview, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
 import {
   defaultPortalMessageChannelSelection,
   defaultPortalMessageScheduleAt,
-  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
-  PortalMessageComposeRecipientSection,
-  PortalMessageScheduleFields,
-  PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
   portalMessageFieldLabel,
-  portalMessageSendViaFooterNote,
 } from "@/components/portal/portal-message-compose-fields";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
@@ -29,7 +27,6 @@ import {
   composeValidPersonKeys,
   houseComposeCategoryLabel,
   houseIdFromComposeCategory,
-  isAdminOnlyDirectorySelection,
   isHouseComposeCategory,
   mergeAdminComposePersonKey,
   type InboxComposeDirectoryCategory,
@@ -42,11 +39,10 @@ import {
   type InboxScopedContact,
 } from "@/data/inbox-scoped-directory";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
-import { parseOtherRecipientTokens, normalizePhoneE164, type OtherRecipientToken } from "@/lib/communication-other-recipients";
+import { parseOtherRecipientTokens, commitOtherRecipientToken, normalizePhoneE164, type OtherRecipientToken } from "@/lib/communication-other-recipients";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { buildOptimisticSentThread } from "@/lib/inbox-message-timeline";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
-import { RecipientChipsInput } from "@/components/ui/recipient-chips-input";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import {
   invalidatePersistedInboxCache,
@@ -270,6 +266,13 @@ export function ManagerCommunicationComposeModal({
   const [selectedCategories, setSelectedCategories] = useState<ComposeCategory[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<PersonKey[]>([]);
   const [otherTokens, setOtherTokens] = useState<OtherRecipientToken[]>([]);
+  const [attachments, setAttachments] = useState<InboxComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  const [drafting, setDrafting] = useState(false);
+  useEffect(() => () => { attachmentsRef.current.forEach(revokeInboxAttachmentPreview); }, []);
+  const [recipientQuery, setRecipientQuery] = useState("");
+  const [recipientOpen, setRecipientOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sendVia, setSendVia] = useState<string[]>(["email"]);
@@ -281,6 +284,8 @@ export function ManagerCommunicationComposeModal({
   const { channelsFor } = useManagerCommunicationDeliverVia();
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
+  const viaInbox = sendVia.includes("proplane");
+  const viaPortalDelivery = viaEmail || viaInbox;
 
   const withPhone = useMemo(
     () => smsRecipients.filter((r) => Boolean(r.phone?.trim())),
@@ -293,11 +298,12 @@ export function ManagerCommunicationComposeModal({
     [selectedCategories],
   );
 
-  const sectionOptions = useMemo(
-    () => categoryOptions.map((c) => ({ value: c, label: categoryLabel(c, contacts) })),
-    [categoryOptions, contacts],
-  );
-
+  const recipientOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return categoryOptions.filter((category): category is DirectoryComposeCategory => category !== "other")
+      .flatMap((category) => peopleForCategory(category, contacts).map((person) => ({ ...person, category })))
+      .filter((person) => { if (seen.has(person.key)) return false; seen.add(person.key); return true; });
+  }, [categoryOptions, contacts]);
   const personGroups = useMemo((): CheckboxMultiSelectGroup[] => {
     return directoryCategories
       .map((category) => ({
@@ -315,7 +321,6 @@ export function ManagerCommunicationComposeModal({
     () => composeValidPersonKeys(flatPersonOptions.map((o) => o.value), directoryCategories),
     [directoryCategories, flatPersonOptions],
   );
-  const adminOnlyDirectory = isAdminOnlyDirectorySelection(directoryCategories);
 
   useEffect(() => {
     if (!open) return;
@@ -375,6 +380,10 @@ export function ManagerCommunicationComposeModal({
               smsUiEnabled,
             ),
       );
+      attachmentsRef.current.forEach(revokeInboxAttachmentPreview);
+      setAttachments([]);
+      setRecipientQuery("");
+      setRecipientOpen(false);
       setScheduleLater(false);
       setSendAt(defaultPortalMessageScheduleAt());
       setSending(false);
@@ -411,15 +420,6 @@ export function ManagerCommunicationComposeModal({
   useEffect(() => {
     if (!otherSelected) setOtherTokens([]);
   }, [otherSelected]);
-
-  const onCategoriesChange = (next: string[]) => {
-    const cats = next.filter((v): v is ComposeCategory =>
-      categoryOptions.includes(v as ComposeCategory),
-    );
-    setSelectedCategories(cats);
-    const dirs = cats.filter((c): c is DirectoryComposeCategory => c !== "other");
-    setSelectedKeys((prev) => mergeAdminComposePersonKey(dirs, prev));
-  };
 
   const resolveEmailTargets = () => {
     const labels: string[] = [];
@@ -575,36 +575,65 @@ export function ManagerCommunicationComposeModal({
     showToast(message);
   };
 
+  const draftMessage = async () => {
+    const targets = resolveEmailTargets();
+    const email = targets.directEmails[0];
+    if (!email || targets.directEmails.length !== 1 || targets.broadcastCategories.length) {
+      setFormError("Choose one recipient with an email address to draft a message."); return;
+    }
+    setDrafting(true); setFormError(null);
+    try {
+      const response = await fetch("/api/portal/inbox-draft-reply", {method: "POST", credentials: "include", headers: {"Content-Type": "application/json"}, body: JSON.stringify({residentEmail: email, residentName: targets.labels[0] || email})});
+      const result = await response.json() as {ok?: boolean; error?: string; draft?: {text?: string}};
+      if (!response.ok || !result.ok || !result.draft?.text) throw new Error(result.error || "Could not draft a message.");
+      setBody(result.draft.text);
+    } catch (error) { setFormError(error instanceof Error ? error.message : "Could not draft a message."); }
+    finally { setDrafting(false); }
+  };
+  const pickAttachments = (files: FileList | null) => {
+    if (!files) return;
+    for (const file of Array.from(files).slice(0, INBOX_MAX_ATTACHMENTS - attachmentsRef.current.length)) {
+      const pending = createPendingInboxAttachment(file);
+      setAttachments((previous) => [...previous, pending]);
+      void uploadInboxAttachment(file).then((uploadUrl) => setAttachments((previous) => previous.map((item) => item.id === pending.id ? {...item, uploadUrl, uploading: false} : item)))
+        .catch((error) => setAttachments((previous) => previous.map((item) => item.id === pending.id ? {...item, uploading: false, error: error instanceof Error ? error.message : "Upload failed"} : item)));
+    }
+  };
+
   const submit = async () => {
+    if (attachments.some((item) => item.uploading || item.error)) {setFormError("Wait for uploads to finish or remove failed attachments."); return;}
+    if (attachments.length && (scheduleLater || viaSms)) {setFormError(scheduleLater ? "Scheduled attachments are not supported. Remove the files or send now." : "Attachments can be sent by Email or In-app. Turn off Text message to send these files."); return;}
+
+    if (recipientQuery.trim()) { setFormError("Press Enter to add the recipient before sending."); return; }
     setFormError(null);
-    if (!viaEmail && !viaSms) {
+    if (!viaPortalDelivery && !viaSms) {
       fail("Choose Email and/or SMS at the bottom.");
       return;
     }
     const text = body.trim();
-    if (!text) {
+    if (!text && attachments.length === 0) {
       fail("Write a message.");
       return;
     }
     if (selectedCategories.length === 0) {
-      fail("Select at least one section under To.");
+      fail("Choose a recipient.");
       return;
     }
     const other = otherSelected
       ? parseOtherRecipientTokens(otherTokens)
       : { emails: [] as string[], phones: [] as string[] };
     if (otherSelected && other.emails.length === 0 && other.phones.length === 0) {
-      fail("Type an email or phone under Other.");
+      fail("Enter an email or phone number.");
       return;
     }
     if (directoryCategories.length > 0 && selectedKeys.length === 0) {
-      fail("Select at least one person from Which people.");
+      fail("Choose a recipient.");
       return;
     }
 
-    if (viaEmail) {
+    if (viaPortalDelivery) {
       const s = subject.trim();
-      if (!s) {
+      if (viaEmail && !s) {
         fail("Add a subject for email.");
         return;
       }
@@ -640,7 +669,7 @@ export function ManagerCommunicationComposeModal({
       const s = subject.trim();
       setSending(true);
       try {
-        const emailTargets = viaEmail ? resolveEmailTargets() : null;
+        const emailTargets = viaPortalDelivery ? resolveEmailTargets() : null;
         const schedulePayloads: Record<string, unknown>[] = [];
         if (emailTargets) {
           for (const category of emailTargets.broadcastCategories) {
@@ -649,7 +678,8 @@ export function ManagerCommunicationComposeModal({
               body: text,
               sendAt: when.toISOString(),
               broadcastCategories: [category],
-              deliverViaEmail: true,
+              deliverViaEmail: viaEmail,
+              deliverViaInbox: viaInbox,
               deliverViaSms: viaSms,
             });
           }
@@ -660,7 +690,8 @@ export function ManagerCommunicationComposeModal({
               sendAt: when.toISOString(),
               recipientEmail: email,
               recipientName: email,
-              deliverViaEmail: true,
+              deliverViaEmail: viaEmail,
+              deliverViaInbox: viaInbox,
               deliverViaSms: viaSms,
             });
           }
@@ -701,14 +732,14 @@ export function ManagerCommunicationComposeModal({
     }
 
     setSending(true);
-    let emailOk = !viaEmail;
+    let emailOk = !viaPortalDelivery;
     let smsOk = !viaSms;
     let lastError = "Could not send.";
     let smsOutcomeUnknown = false;
     let optimisticId: string | null = null;
     let primaryRecipientEmail: string | undefined;
 
-    if (viaEmail) {
+    if (viaPortalDelivery) {
       const emailTargets = resolveEmailTargets();
       if (
         emailTargets.directEmails.length === 1 &&
@@ -727,7 +758,7 @@ export function ManagerCommunicationComposeModal({
     }
 
     try {
-      if (viaEmail) {
+      if (viaPortalDelivery) {
         const emailTargets = resolveEmailTargets();
         if (emailTargets.includesAxisAdmin && isDemoModeActive()) {
           appendPortalMessageToAdminInbox({
@@ -747,9 +778,11 @@ export function ManagerCommunicationComposeModal({
             fromEmail: senderEmail,
             toEmails: emailTargets.directEmails,
             toBroadcast: emailTargets.broadcastCategories,
-            subject: subject.trim(),
+            subject: subject.trim() || "Message",
+            attachmentUrls: attachments.flatMap((item) => item.uploadUrl ? [item.uploadUrl] : []),
             text,
-            deliverToPortalInbox: true,
+            deliverToPortalInbox: viaInbox || viaEmail,
+            deliverViaEmail: viaEmail,
             deliverViaSms: false,
             eventCategory: "messages",
             senderPortal: "manager",
@@ -831,7 +864,7 @@ export function ManagerCommunicationComposeModal({
         return;
       }
 
-      if ((viaEmail && !emailOk) || (viaSms && !smsOk)) {
+      if ((viaPortalDelivery && !emailOk) || (viaSms && !smsOk)) {
         if (optimisticId) onClearOptimistic?.(optimisticId);
         if (viaEmail && emailOk && viaSms && !smsOk) {
           showToast("Email sent, but SMS failed.");
@@ -868,7 +901,7 @@ export function ManagerCommunicationComposeModal({
     if (scheduleLater) return "Schedule";
     if (viaEmail && viaSms) return "Send message";
     if (viaSms) return "Send SMS";
-    return "Send email";
+    return viaEmail ? "Send email" : "Send message";
   })();
 
   return (
@@ -878,11 +911,12 @@ export function ManagerCommunicationComposeModal({
       previewLabel="Message preview"
       contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ") || "Not selected" }]} />}
       preview={<PopupMessagePreview subject={subject} body={body} recipient={flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ")} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
+      secondaryAction={null}
       onClose={onClose}
       primaryAction={{
         label: sendLabel,
         onClick: () => submit(),
-        disabled: sending || (!viaEmail && !viaSms),
+        disabled: sending || (!viaPortalDelivery && !viaSms),
         loading: sending,
         dataAttr: "communication-compose-send",
       }}
@@ -897,68 +931,32 @@ export function ManagerCommunicationComposeModal({
             {formError}
           </p>
         ) : null}
-        <PortalMessageComposeRecipientSection
-          sectionOptions={sectionOptions}
-          selectedCategories={selectedCategories}
-          onCategoriesChange={onCategoriesChange}
-          sectionDataAttr="communication-compose-category"
-          personGroups={personGroups}
-          selectedKeys={selectedKeys}
-          onPeopleChange={(next) => setSelectedKeys(next as PersonKey[])}
-          peopleDisabled={directoryCategories.length === 0 || adminOnlyDirectory}
-          peopleEmptyMenuText={
-            selectedCategories.length === 0
-              ? "Pick a section first"
-              : adminOnlyDirectory
-                ? "PropLane admin is the recipient"
-                : directoryCategories.length === 0
-                  ? "Other uses the field below"
-                  : "No contacts in selected sections"
-          }
-        />
-
-        {selectedCategories.includes("other") ? (
-          <div data-attr="communication-compose-other-wrap">
-            <label className={portalMessageFieldLabel()} htmlFor="communication-compose-other">
-              Other
-            </label>
-            <RecipientChipsInput
-              id="communication-compose-other"
-              tokens={otherTokens}
-              onChange={setOtherTokens}
-              placeholder={
-                viaSms && !viaEmail
-                  ? "Type a phone, then press Space…"
-                  : viaEmail && !viaSms
-                    ? "Type an email, then press Space…"
-                    : "Type email or phone, then press Space…"
-              }
-              dataAttr="communication-compose-other"
-            />
-            <p className="mt-1 text-xs text-muted">Press Space, comma, or Enter to save each recipient as a chip.</p>
+        <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRecipientOpen(false); }}>
+          <label className={portalMessageFieldLabel()} htmlFor="communication-compose-recipient">To</label>
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border px-3 py-2">
+            {selectedKeys.map((key) => <button type="button" key={key} className="inline-flex items-center gap-1 text-sm" aria-label={`Remove ${recipientOptions.find((option) => option.key === key)?.label || key}`} onClick={() => {setSelectedKeys((previous) => previous.filter((value) => value !== key)); if (key === "admin") setSelectedCategories((previous) => previous.filter((category) => category !== "admin"));}}>
+              {recipientOptions.find((option) => option.key === key)?.label || key}<X className="h-3 w-3" />
+            </button>)}
+            {otherTokens.map((token) => <button type="button" key={token.value} className="inline-flex items-center gap-1 text-sm" aria-label={`Remove ${token.label}`} onClick={() => {setOtherTokens((previous) => previous.filter((value) => value.value !== token.value)); if (otherTokens.length === 1) setSelectedCategories((previous) => previous.filter((category) => category !== "other"));}}>{token.label}<X className="h-3 w-3" /></button>)}
+            <input id="communication-compose-recipient" role="combobox" aria-expanded={recipientOpen} aria-controls="communication-compose-recipient-options" aria-autocomplete="list" value={recipientQuery} placeholder="Name, email or phone number" className="min-w-32 flex-1 bg-transparent py-2 text-sm outline-none" onFocus={() => setRecipientOpen(true)} onChange={(event) => {setRecipientQuery(event.target.value); setRecipientOpen(true);}} onKeyDown={(event) => {
+              if (event.key === "Escape") setRecipientOpen(false);
+              if (event.key !== "Enter" && event.key !== ",") return;
+              event.preventDefault();
+              const token = commitOtherRecipientToken(recipientQuery);
+              if (!token) {setFormError("Choose a contact or enter a valid email or phone number."); return;}
+              setSelectedCategories((previous) => previous.includes("other") ? previous : [...previous, "other"]);
+              setOtherTokens((previous) => previous.some((item) => item.value === token.value) ? previous : [...previous, token]);
+              setRecipientQuery(""); setRecipientOpen(false); setFormError(null);
+            }} data-attr="communication-compose-recipient" />
           </div>
-        ) : null}
-
-        <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
-          <PortalMessageSubjectField
-            value={subject}
-            onChange={setSubject}
-            dataAttr="communication-compose-subject"
-          />
-
-          <PortalMessageSendViaDropdown
-            selected={sendVia}
-            onChange={setSendVia}
-            emailAvailable
-            smsAvailable={smsUiEnabled}
-            footerNote={
-              smsUiEnabled
-                ? portalMessageSendViaFooterNote(true)
-                : portalMessageSendViaFooterNote(false)
-            }
-            dataAttr="communication-compose-send-via"
-          />
+          {recipientOpen ? <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-lg" id="communication-compose-recipient-options" role="listbox" aria-label="Recipients">
+            {recipientOptions.filter((option) => !selectedKeys.includes(option.key) && option.label.toLowerCase().includes(recipientQuery.toLowerCase())).map((option) => <button key={option.key} type="button" role="option" aria-selected={false} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => {
+              setSelectedCategories((previous) => previous.includes(option.category) ? previous : [...previous, option.category]);
+              setSelectedKeys((previous) => [...previous, option.key]); setRecipientQuery(""); setRecipientOpen(false);
+            }}>{option.label}</button>)}
+          </div> : null}
         </div>
+        <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
 
         <PortalMessageBodyField
           value={body}
@@ -970,14 +968,18 @@ export function ManagerCommunicationComposeModal({
           dataAttr="communication-compose-body"
         />
 
-        <PortalMessageScheduleFields
-          scheduleLater={scheduleLater}
-          onScheduleLaterChange={setScheduleLater}
-          sendAt={sendAt}
-          onSendAtChange={setSendAt}
-          scheduleDataAttr="communication-compose-schedule-later"
-          sendAtDataAttr="communication-compose-schedule-at"
-        />
+        {attachments.length ? <div className="flex flex-wrap gap-2">{attachments.map((item) => <span key={item.id} className="inline-flex items-center gap-2 rounded-lg border border-border px-2 py-1 text-sm" title={item.error}>
+          <Paperclip className="h-3 w-3" />{item.fileName}{item.uploading ? " · Uploading…" : item.error ? " · Failed" : ""}
+          <button type="button" aria-label={`Remove ${item.fileName}`} onClick={() => {revokeInboxAttachmentPreview(item); setAttachments((previous) => previous.filter((value) => value.id !== item.id));}}><X className="h-3 w-3" /></button>
+        </span>)}</div> : null}
+        <div className="flex items-center gap-2" data-attr="communication-compose-tools">
+          <label className="grid h-10 w-10 cursor-pointer place-items-center rounded-full text-muted hover:bg-accent" title="Attach files">
+            <Paperclip className="h-4 w-4" aria-hidden /><input type="file" aria-label="Attach files" className="sr-only" accept={INBOX_ATTACHMENT_ACCEPT} multiple disabled={sending || attachments.length >= INBOX_MAX_ATTACHMENTS} onChange={(event) => {pickAttachments(event.target.files); event.target.value = "";}} data-attr="communication-compose-attach" />
+          </label>
+          <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Sparkles className="h-4 w-4" /></button>
+          <InboxComposerScheduleMenu scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} scheduleDataAttr="communication-compose-schedule-later" sendAtDataAttr="communication-compose-schedule-at" />
+          {[{ id: "proplane", label: "In-app", icon: MessageSquare }, { id: "email", label: "Email", icon: Mail }, ...(smsUiEnabled ? [{ id: "sms", label: "Text message", icon: Smartphone }] : [])].map(({id, label, icon: Icon}) => <button type="button" key={id} title={label} aria-label={label} aria-pressed={sendVia.includes(id)} className={`grid h-10 w-10 place-items-center rounded-full ${sendVia.includes(id) ? "bg-primary/10 text-primary" : "text-muted"}`} onClick={() => setSendVia((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])}><Icon className="h-4 w-4" /></button>)}
+        </div>
       </PortalMessageComposeModalBody>
     </PortalDialog>
   );

@@ -211,6 +211,12 @@ export function inboxCounterpartyName(
     if (name && name.toLowerCase() !== email) return name;
   }
   const fromName = trimmedText(from);
-  if (fromName) return fromName;
-  return trimmedText(counterpartyEmail);
+  if (fromName && !fromName.includes("@")) return fromName;
+  const address = fromName || trimmedText(counterpartyEmail);
+  const displayName = address.match(/^([^<>]+)\s*<[^<>]+@[^<>]+>$/)?.[1]?.trim();
+  if (displayName) return displayName.replace(/^"|"$/g, "");
+  // An address-only sender has no verified person name. Display its readable
+  // mailbox label; keep the actual address in the contact tooltip.
+  const local = address.split("@")[0].replace(/^(occupancy|resident|tenant)[._-]/i, "");
+  return local.replace(/[._-]+/g, " ").replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
 }

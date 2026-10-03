@@ -57,31 +57,10 @@ function ContactIdentityRow({
     <>
       {leading}
       <div className="min-w-0 flex-1">
-        {/* The value earns its size. A phone number is short and wants to be
-            big; an assistant address is 35 characters and the list pane is
-            only ~400px wide, so at 16px it truncated mid-domain — which is
-            the whole point of the card, cut off. Stepping down by length fits
-            the long one without shrinking the short one. */}
-        <p
-          className={`truncate font-extrabold tabular-nums tracking-[-0.015em] text-foreground ${
-            value.length > 32 ? "text-[12.5px]" : value.length > 24 ? "text-[14px]" : "text-[16px]"
-          }`}
-          title={value}
-        >
+        <p className="truncate text-sm font-semibold tabular-nums text-foreground" title={`${label}: ${value}`}>
           {value}
         </p>
-        {/* The label and note share one truncating line, so the full sentence
-            stays reachable on hover rather than being cut with no way to read
-            it. */}
-        <p className="truncate text-[12.5px] leading-snug text-muted" title={note ? `${label} · ${note}` : label}>
-          {label}
-          {note ? (
-            <>
-              {" · "}
-              <span className={noteTone === "warn" ? "text-[var(--status-pending-fg)]" : undefined}>{note}</span>
-            </>
-          ) : null}
-        </p>
+        {note ? <p className={cn("truncate text-xs", noteTone === "warn" ? "text-[var(--status-pending-fg)]" : "text-muted")} title={note}>{note}</p> : null}
       </div>
       {actions?.map((action) =>
         action.href ? (
@@ -166,11 +145,11 @@ export function PortalInboxContactCard({
         "rounded-2xl border",
         tone === "setup"
           ? "border-border bg-card"
-          : "border-primary/25 bg-primary/[0.05]",
+          : "border-border bg-card",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
-      <div className="flex items-center gap-3 px-3 py-2.5">
+      <div className="flex items-center gap-2 px-3 py-1">
         <ContactIdentityRow
           leading={leading}
           value={value}
@@ -182,7 +161,7 @@ export function PortalInboxContactCard({
       </div>
       {secondary ? (
         <div
-          className="flex items-center gap-3 border-t border-primary/15 px-3 py-2.5"
+          className="flex items-center gap-2 border-t border-border px-3 py-1"
           data-attr="portal-inbox-contact-card-secondary"
         >
           <ContactIdentityRow
@@ -197,7 +176,7 @@ export function PortalInboxContactCard({
   );
 
   return (
-    <div className={padded ? "shrink-0 px-3.5 pb-2.5 pt-3.5" : "min-w-0"} data-attr={href && !disabled ? undefined : dataAttr}>
+    <div className={padded ? "shrink-0 px-3 pb-2 pt-2" : "min-w-0"} data-attr={href && !disabled ? undefined : dataAttr}>
       {href && !disabled ? (
         <Link
           href={href}

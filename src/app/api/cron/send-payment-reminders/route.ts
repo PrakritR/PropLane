@@ -317,7 +317,7 @@ export async function GET(req: Request) {
         // reminder is a real choice and `false || default` would undo it.
         managerDeliverViaEmail: message.deliverViaEmail ?? settingsForCharge(primary).paymentReminderDeliverViaEmail,
         managerDeliverViaSms: message.deliverViaSms ?? settingsForCharge(primary).paymentReminderDeliverViaSms,
-        managerDeliverViaInbox: settingsForCharge(primary).paymentReminderDeliverViaInbox,
+        managerDeliverViaInbox: message.deliverViaInbox ?? settingsForCharge(primary).paymentReminderDeliverViaInbox,
       });
       if (result.error) errors.push(result.error);
       if (result.sent) {
@@ -437,7 +437,7 @@ export async function GET(req: Request) {
                   lateFeeNoticeOverride?.customDeliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
                 managerDeliverViaSms:
                   lateFeeNoticeOverride?.customDeliverViaSms ?? settings.paymentReminderDeliverViaSms,
-                managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
+                managerDeliverViaInbox: lateFeeNoticeOverride?.customDeliverViaInbox ?? settings.paymentReminderDeliverViaInbox,
               });
               if (result.error) errors.push(result.error);
               if (result.sent) noteResidentEmailed(charge.residentEmail);

@@ -72,7 +72,7 @@ describe("inbox thread omnichannel primitives", () => {
     expect(screen.queryByText(LONG)).toBeNull();
     openScheduledDetail();
     expect(screen.getByText(LONG)).toBeTruthy();
-    expect(screen.getByText("Schedule")).toBeTruthy();
+    expect(screen.getByText("Save")).toBeTruthy();
     expect(screen.queryByText("Send now")).toBeNull();
     expect(screen.queryByText("Cancel send")).toBeNull();
   });
@@ -99,7 +99,7 @@ describe("inbox thread omnichannel primitives", () => {
     const bodyField = document.querySelector('[data-attr="inbox-scheduled-edit-body"]') as HTMLTextAreaElement;
     expect(bodyField).toBeTruthy();
     fireEvent.change(bodyField, { target: { value: "Edited body" } });
-    fireEvent.click(screen.getByText("Schedule"));
+    fireEvent.click(screen.getByText("Save"));
     expect(onSaveEdit).toHaveBeenCalledTimes(1);
     const saved = onSaveEdit.mock.calls[0][0] as Record<string, unknown>;
     expect(saved).toMatchObject({ body: "Edited body" });
@@ -128,11 +128,11 @@ describe("inbox thread omnichannel primitives", () => {
     const sendVia = document.querySelector('[data-attr="inbox-scheduled-edit-send-via"]') as HTMLElement;
     expect(sendVia).toBeTruthy();
     fireEvent.click(sendVia);
-    const smsOption = await screen.findByRole("option", { name: /^SMS$/ });
+    const smsOption = await screen.findByRole("option", { name: /^Text$/ });
     // A pick is pointerdown + pointerup at the same point.
     fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.click(screen.getByText("Schedule"));
+    fireEvent.click(screen.getByText("Save"));
 
     expect(onSaveEdit).toHaveBeenCalledTimes(1);
     expect(onSaveEdit.mock.calls[0][0]).toMatchObject({
@@ -159,7 +159,7 @@ describe("inbox thread omnichannel primitives", () => {
     openScheduledDetail();
     const bodyField = document.querySelector('[data-attr="inbox-scheduled-edit-body"]') as HTMLTextAreaElement;
     fireEvent.change(bodyField, { target: { value: "Edited body" } });
-    fireEvent.click(screen.getByText("Schedule"));
+    fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() =>
       expect(document.querySelector('[data-attr="inbox-scheduled-save-error"]')?.textContent).toBe(

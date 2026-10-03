@@ -3897,3 +3897,17 @@ html[data-native] [data-listing-subnav] {
     --portal-calendar-time-gutter: 44px;
   }
 }
+/* Communication owns one viewport: the list and thread scroll inside it. */
+html[data-communication-surface] .portal-communication-inbox,
+html[data-communication-surface] .portal-communication-inbox > *,
+html[data-communication-surface] .portal-communication-inbox .portal-list-page-body {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+@media (max-width: 1023px) {
+  html[data-communication-thread-reading] .portal-inbox-thread-pane {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}

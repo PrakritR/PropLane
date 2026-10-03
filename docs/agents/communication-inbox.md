@@ -227,7 +227,11 @@ conversations) plus the archive toggle. Invariants:
   messages (`InboxScheduledThreadList` `placement="bar"` on `InboxThreadView`'s
   `underHeader`). Each row is clock · kind · subject · time, plus a send icon
   that sends that row now. Tapping the row opens the detail card (body, Send now,
-  Cancel, Edit). Edit stays the card's inline textarea via `onSaveEdit`. The
+  Cancel, Save). The subject, body, send time and In-app/Email/Text choices
+  save through `onSaveEdit`; an unchanged channel choice emits no override.
+  In-app is persisted as `deliverViaInbox` for manual sends and
+  `customDeliverViaInbox` for payment-reminder overrides. Bar selection uses
+  message identity, so removal of an earlier row never changes the editor. The
   standalone Schedule table is gone from production. Matching is pure:
   `scheduledItemsForRecipient(email, manual, automation)` in
   `src/lib/inbox-scheduled-thread.ts`. Edit permissions are unchanged —

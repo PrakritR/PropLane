@@ -94,6 +94,18 @@ describe("per-reminder channel override", () => {
     expect(row!.deliverViaSms).toBe(true);
   });
 
+  it("does not bundle reminders with different in-app delivery choices", () => {
+    const a = makeCharge({ id: "hc_inbox_on" });
+    const b = makeCharge({ id: "hc_inbox_off" });
+    const overrides = new Map([
+      ...overridesFor(a.id, { customDeliverViaInbox: true }),
+      ...overridesFor(b.id, { customDeliverViaInbox: false }),
+    ]);
+    const rows = project([a, b], overrides);
+    expect(rows.map((row) => row.deliverViaInbox).sort()).toEqual([false, true]);
+    expect(combineScheduledPaymentMessages(rows)).toHaveLength(2);
+  });
+
   it("keeps a channel turned OFF rather than falling back to the default", () => {
     // The `false` case is the one a `||` fallback would quietly undo.
     const charge = makeCharge();
@@ -231,7 +243,7 @@ describe("Send via on an automated reminder", () => {
       />,
     );
     await userEvent.click(screen.getByLabelText("Send via"));
-    await userEvent.click(await screen.findByText(/^SMS$/i));
+    await userEvent.click(await screen.findByText(/^Text$/i));
     fireEvent.click(screen.getByRole("button", { name: /Schedule|Save/i }));
 
     expect(onSaveEdit).toHaveBeenCalled();

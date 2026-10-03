@@ -46,3 +46,18 @@ the modal targets one tour flow. Rules baked into the modal +
   threads like any other prospect SMS — see
   [`docs/agents/sms-system.md`](sms-system.md)). SMS copy is its own
   short builder, `buildLeadInviteSmsText`, not a trimmed email body.
+
+## Studio redesign 0929
+
+Listing, application and tour shares now use `ListingWizardOverlay` and
+`WizardShell`: Home → Recipient → Review. Contact fields follow the selected
+Email/Text channels; the review sends through the existing authorized endpoint.
+The listing intro is `listing:shared:resident` in the existing scoped
+`automatedMessages` settings namespace. It is the sole editable exception to
+fixed automated notices; Settings → What PropLane sends → Leasing edits it.
+The first selected property resolves the intro for a multi-property share.
+`listing-shared-template.ts` expands `{homes}`, `{property}`, `{first_name}`.
+The server reconstructs listing cards from authorized properties and derives
+From/signature from authenticated work identity. Client intro text grants no
+additional property access. Email and SMS still use their existing delivery
+paths; a new prospect's two contact identities are not automatically merged.

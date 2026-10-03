@@ -39,6 +39,7 @@ export type ThreadScheduledItem = {
    * channels come online, rather than a parallel list.
    */
   channel: "email" | "sms";
+  deliverViaInbox?: boolean;
   deliverViaEmail: boolean;
   deliverViaSms: boolean;
 };
@@ -61,6 +62,7 @@ export function threadScheduledItemFromManualMessage(
     body: message.body,
     editable: message.status === "scheduled" && !isResidentOriginatedScheduledMessage(message),
     channel: message.deliverViaSms && !message.deliverViaEmail ? "sms" : "email",
+    deliverViaInbox: message.deliverViaInbox !== false,
     deliverViaEmail: message.deliverViaEmail !== false,
     deliverViaSms: message.deliverViaSms === true,
   };
@@ -76,18 +78,20 @@ export function threadScheduledItemFromManualMessage(
  * hold the settings object.
  */
 export type ScheduledAutomationChannelDefaults = {
+  deliverViaInbox?: boolean;
   deliverViaEmail: boolean;
   deliverViaSms: boolean;
 };
 
 export function automationChannelDefaultsFromSettings(
   settings:
-    | { paymentReminderDeliverViaEmail?: boolean; paymentReminderDeliverViaSms?: boolean }
+    | { paymentReminderDeliverViaInbox?: boolean; paymentReminderDeliverViaEmail?: boolean; paymentReminderDeliverViaSms?: boolean }
     | null
     | undefined,
 ): ScheduledAutomationChannelDefaults | undefined {
   if (!settings) return undefined;
   return {
+    deliverViaInbox: settings.paymentReminderDeliverViaInbox !== false,
     deliverViaEmail: settings.paymentReminderDeliverViaEmail !== false,
     deliverViaSms: settings.paymentReminderDeliverViaSms === true,
   };
@@ -119,6 +123,7 @@ export function threadScheduledItemFromAutomationMessage(
         ? `${message.bundledChargeIds.length} payments${message.propertyLabel ? ` · ${message.propertyLabel}` : ""}`
         : [message.chargeTitle, message.propertyLabel].filter(Boolean).join(" · ") || undefined,
     editable: true,
+    deliverViaInbox: message.deliverViaInbox ?? defaults?.deliverViaInbox ?? true,
     channel: deliverViaSms && !deliverViaEmail ? "sms" : "email",
     deliverViaEmail,
     deliverViaSms,

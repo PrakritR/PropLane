@@ -217,3 +217,18 @@ describe("paymentSchedulePreview", () => {
     expect(rows.map((r) => r.monthKey)).toEqual(["2026-06", "2026-07"]);
   });
 });
+
+
+describe("name-only walk-in visitors", () => {
+  it("allows the tour wizard to save a named visitor without inventing contact details", () => {
+    const form = { ...emptyAddPersonForm("prospect"), name: "Walk-in visitor" };
+    const result = buildProspectRow(form, { ...ctx, allowContactless: true });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.row.email).toBeUndefined();
+      expect(result.row.manualResidentDetails?.phone).toBeUndefined();
+    }
+    expect(buildProspectRow(form, ctx).ok).toBe(false);
+    expect(buildProspectRow({ ...form, name: "" }, { ...ctx, allowContactless: true }).ok).toBe(false);
+  });
+});

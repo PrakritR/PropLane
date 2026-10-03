@@ -1,3 +1,4 @@
+import { DEFAULT_LISTING_SHARED_INTRO, renderListingSharedIntro } from "@/lib/listing-shared-template";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -55,6 +56,16 @@ function appOrigin(): string {
   return resolveEmailLinkBaseUrl();
 }
 
+/** Authenticated sender identity used by the exact-message review. */
+export async function GET() {
+  const auth = await createSupabaseServerClient();
+  const { data: { user } } = await auth.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const db = createSupabaseServiceRoleClient();
+  const [from, workNumber] = await Promise.all([managerOutboundFromHeader(db, user.id), resolveManagerWorkNumber(db, user.id)]);
+  return NextResponse.json({ from, name: fromHeaderDisplayName(from), email: fromHeaderAddress(from), workNumber, origin: appOrigin() });
+}
+
 export async function POST(req: Request) {
   try {
     const auth = await createSupabaseServerClient();
@@ -75,6 +86,7 @@ export async function POST(req: Request) {
       listingRoomId?: unknown;
       roomName?: unknown;
       note?: unknown;
+      listingIntro?: unknown;
       rentalType?: unknown;
     };
     try {
@@ -267,6 +279,8 @@ export async function POST(req: Request) {
         ? buildListingShareSummary(listing, { roomChoice: roomName || undefined, roomId: listingRoomId || undefined })
         : undefined;
 
+    const from = await managerOutboundFromHeader(svc, user.id);
+    const signatureNumber = kind === "listing" ? await resolveManagerWorkNumber(svc, user.id) : null;
     const subject = leadInviteSubject(kind, propertyTitle, listingCount ?? tourCount);
     const emailParams = {
       kind,
@@ -276,6 +290,11 @@ export async function POST(req: Request) {
       listingPageUrl: kind === "listing" && !isMultiListing ? listingPageUrl : undefined,
       tourUrl: kind === "listing" && !isMultiListing ? tourUrl : undefined,
       listingSummary,
+      listingShare: kind === "listing" ? {
+        intro: typeof body.listingIntro === "string" ? body.listingIntro.slice(0, 4000) : renderListingSharedIntro(DEFAULT_LISTING_SHARED_INTRO, { count: authorized.length, property: propertyTitle, name: prospectName }),
+        listings: authorized.map((entry) => buildListingShareSummary(entry.listing)),
+        signature: [fromHeaderDisplayName(from), ...(signatureNumber ? [signatureNumber] : []), fromHeaderAddress(from)],
+      } : undefined,
       managerNote: note || undefined,
       listingCount,
       tourCount,
@@ -287,7 +306,7 @@ export async function POST(req: Request) {
       kind,
       prospectName: prospectName || undefined,
       propertyTitle,
-      linkUrl,
+      linkUrl: kind === "listing" && !isMultiListing ? listingPageUrl : linkUrl,
       listingCount,
       tourCount,
       managerNote: note || undefined,
@@ -322,7 +341,6 @@ export async function POST(req: Request) {
         );
       }
 
-      const from = await managerOutboundFromHeader(svc, user.id);
       const res = await postResendEmail({
         apiKey,
         actorUserId: user.id,

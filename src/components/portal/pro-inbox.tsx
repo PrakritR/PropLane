@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Eraser, Pencil, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Info, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -1482,6 +1482,8 @@ export const ManagerInbox = forwardRef<
       lastEmailSubject = fields.lastShownSubject;
       return {
         id: m.id,
+        automated: m.automated,
+        eventTitle: m.subject,
         author: m.from,
         body: fields.body,
         at: m.at,
@@ -1602,6 +1604,7 @@ export const ManagerInbox = forwardRef<
       next: {
         subject: string;
         body: string;
+        deliverViaInbox?: boolean;
         deliverViaEmail?: boolean;
         deliverViaSms?: boolean;
         sendAt?: string;
@@ -1618,6 +1621,7 @@ export const ManagerInbox = forwardRef<
             body: JSON.stringify({
               subject: next.subject,
               body: next.body,
+              ...(next.deliverViaInbox !== undefined ? { deliverViaInbox: next.deliverViaInbox } : {}),
               ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
               ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
               ...(next.sendAt ? { sendAt: next.sendAt } : {}),
@@ -1629,6 +1633,7 @@ export const ManagerInbox = forwardRef<
             customSubject: next.subject,
             customBody: next.body,
             ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+            ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
             ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
             ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
           });
@@ -1716,6 +1721,10 @@ export const ManagerInbox = forwardRef<
     // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
     // so there is one send button and no second way to fire the message.
     if (scheduleLater) {
+      if (attachmentUrls.length > 0) {
+        showToast("Scheduled replies do not support attachments yet. Remove them or send now.");
+        return;
+      }
       const sendAt = new Date(scheduleSendAt);
       if (Number.isNaN(sendAt.getTime())) {
         showToast("Choose a valid send date and time.");
@@ -1738,6 +1747,7 @@ export const ManagerInbox = forwardRef<
             sendAt: sendAt.toISOString(),
             recipientEmail: activeThread.email,
             recipientName: activeThread.from || activeThread.email,
+            deliverViaInbox: replyViaProplane && activeProplaneAvailable,
             deliverViaEmail: replyViaEmail && activeEmailAvailable,
             deliverViaSms: replyViaSms && activeSmsAvailable,
           }),
@@ -2253,12 +2263,12 @@ export const ManagerInbox = forwardRef<
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
-      aria-label="Edit contact details"
-      title="Edit contact details"
+      aria-label="Contact information"
+      title="Contact information"
       data-attr="inbox-thread-contact-edit"
       onClick={openThreadPhone}
     >
-      <Pencil className="h-4 w-4" aria-hidden />
+      <Info className="h-4 w-4" aria-hidden />
     </button>
   ) : null;
 
@@ -2432,18 +2442,7 @@ export const ManagerInbox = forwardRef<
           <Archive className="h-4 w-4" aria-hidden />
         </button>
         ) : null}
-        {!activeIsAssistantThread ? (
-        <button
-          type="button"
-          className={INBOX_THREAD_ICON_BTN_DANGER}
-          aria-label="Delete conversation"
-          title="Delete"
-          data-attr="inbox-thread-delete"
-          onClick={() => deleteForever(activeThread.id)}
-        >
-          <Trash2 className="h-4 w-4" aria-hidden />
-        </button>
-        ) : onClearAssistant ? (
+        {activeIsAssistantThread && onClearAssistant ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN_DANGER}
@@ -2481,6 +2480,7 @@ export const ManagerInbox = forwardRef<
             body={item.body}
             meta={item.meta}
             channel={item.channel}
+            deliverViaInbox={item.deliverViaInbox}
             deliverViaEmail={item.deliverViaEmail}
             deliverViaSms={item.deliverViaSms}
             emailAvailable={activeEmailAvailable}
@@ -2488,7 +2488,7 @@ export const ManagerInbox = forwardRef<
             channelEditable={item.editable}
             source={item.source}
             editable={item.editable}
-            busy={scheduledBusyId === item.id}
+            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
             recipient={activeThread.email}
             sendAt={item.sendAt}
             onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}

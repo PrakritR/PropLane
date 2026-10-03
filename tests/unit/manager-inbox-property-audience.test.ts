@@ -50,10 +50,10 @@ describe("conversation titles use names (PRP-315)", () => {
     expect(inboxCounterpartyName("mason.clark@example.com", null, contacts)).toBe("Mason Clark");
   });
 
-  it("falls back to the sender name, then the address, for someone outside the directory", () => {
+  it("falls back to the sender name, then a readable mailbox label, outside the directory", () => {
     expect(inboxCounterpartyName("stranger@example.com", "A Stranger", contacts)).toBe("A Stranger");
-    expect(inboxCounterpartyName("stranger@example.com", "", contacts)).toBe("stranger@example.com");
-    expect(inboxCounterpartyName("stranger@example.com", null, undefined)).toBe("stranger@example.com");
+    expect(inboxCounterpartyName("stranger@example.com", "", contacts)).toBe("Stranger");
+    expect(inboxCounterpartyName("stranger@example.com", null, undefined)).toBe("Stranger");
   });
 
   it("does not treat a contact whose name is just their email as a name", () => {

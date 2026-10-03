@@ -209,7 +209,6 @@ describe("PortalDialog adoption — source guard", () => {
     { file: "src/components/portal/inspection-editor.tsx" },
     { file: "src/components/portal/channel-calendar-link-modal.tsx" },
     { file: "src/components/portal/pro-communication-compose-modal.tsx" },
-    { file: "src/components/portal/share-lead-link-modal.tsx" },
     { file: "src/components/portal/manager-invite-link-modal.tsx" },
     { file: "src/components/portal/vendor-finances-panel.tsx" },
     { file: "src/components/portal/resident-payments-panel.tsx" },
@@ -229,6 +228,16 @@ describe("PortalDialog adoption — source guard", () => {
       const scoped = marker ? source.slice(source.indexOf(marker)) : source;
       expect(scoped, `${file} does not render <PortalDialog`).toContain("<PortalDialog");
     }
+  });
+
+  it("listing, application and tour sends use the shared full-page wizard", () => {
+    const source = readSource("src/components/portal/share-lead-link-modal.tsx");
+    expect(source).toContain("<ListingWizardOverlay");
+    expect(source).toContain("<WizardShell");
+    expect(source).toContain('label: "Home"');
+    expect(source).toContain('label: "Recipient"');
+    expect(source).toContain('label: "Review"');
+    expect(source).not.toContain("<PortalNotificationPreviewModal");
   });
 
   it("the listing wizard's save-failed dialog reuses ListingSaveFailedDialog, not a hand-rolled three-button Modal", () => {

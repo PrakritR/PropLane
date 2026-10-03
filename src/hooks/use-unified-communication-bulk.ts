@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { resolveSmsDeletePhone } from "@/lib/communication-inbox-filters";
 import { deleteManagerSmsConversationClient, updateManagerSmsConversationStateClient } from "@/lib/manager-sms-conversations-client";
@@ -23,7 +23,7 @@ import { useInboxRowSelection } from "@/components/portal/portal-inbox-selection
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 import type { InboxListSegment } from "@/components/portal/portal-inbox-ui";
 import type { PortalContactDetailsValues } from "@/components/portal/portal-contact-details-modal";
-import { useConfirm } from "@/components/providers/app-ui-provider";
+import { useConfirm, type ToastOptions } from "@/components/providers/app-ui-provider";
 
 type SelectedRow = {
   key: string;
@@ -62,11 +62,13 @@ export function useUnifiedCommunicationBulk({
   smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null; projectionId?: string | null; stateVersion?: number | null; archived?: boolean }>;
   onSmsDeleted?: () => void;
   onSmsMutationStart?: () => (mutation: SmsBulkMutation) => void;
-  showToast?: (message: string) => void;
+  showToast?: (message: string, options?: ToastOptions) => void;
   /** Preview/from/subject restored after Clear PropLane Assistant. */
   assistantPlaceholder?: Pick<PersistedInboxThread, "from" | "subject" | "preview">;
 }) {
   const toast = showToast;
+  const pendingClearTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => { const timers = pendingClearTimers.current; return () => {timers.forEach(clearTimeout); timers.clear();}; }, []);
   const selectableKeys = useMemo(() => mergedRows.map((row) => row.key), [mergedRows]);
   const selection = useInboxRowSelection(selectableKeys);
 
@@ -212,9 +214,11 @@ export function useUnifiedCommunicationBulk({
     [archiveRows, rowsFromListKeys],
   );
 
-  const handleRestore = useCallback(async () => {
-    const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
-    const smsIds = [...new Set(selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
+  const handleRestore = useCallback(async (keys?: string[]) => {
+    const targetRows = keys ? rowsFromListKeys(keys) : selectedRows;
+    if (targetRows.length === 0) return;
+    const emailIds = targetRows.filter((row) => row.channel === "email").map((row) => row.threadId);
+    const smsIds = [...new Set(targetRows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
     const reportSmsMutation = smsIds.length ? onSmsMutationStart?.() : undefined;
     const previousEmailThreads = emailThreads;
 
@@ -277,6 +281,7 @@ export function useUnifiedCommunicationBulk({
     onSmsArchiveChange,
     onSmsMutationStart,
     selectedRows,
+    rowsFromListKeys,
     showToast,
     smsTargets,
     storageKey,
@@ -400,21 +405,17 @@ export function useUnifiedCommunicationBulk({
     storageKey,
   ]);
 
-  const handleDelete = useCallback(async () => {
-    const conversationCount = selection.selectedIds.size;
-    await deleteRowsForever(selectedRows, conversationCount || selectedRows.length);
-  }, [deleteRowsForever, selectedRows, selection.selectedIds.size]);
+  const handleDelete = useCallback(async (keys?: string[]) => {
+    const rows = keys ? rowsFromListKeys(keys) : selectedRows;
+    const conversationCount = keys ? keys.length : selection.selectedIds.size;
+    await deleteRowsForever(rows, conversationCount || rows.length);
+  }, [deleteRowsForever, rowsFromListKeys, selectedRows, selection.selectedIds.size]);
 
   const handleClearAssistant = useCallback(async (
     row: UnifiedInboxListItem,
     opts?: { skipConfirm?: boolean },
   ) => {
     if (!isAssistantUnifiedInboxRow(row, emailThreads)) return false;
-    if (!opts?.skipConfirm && !(await confirm({
-      description: "Clear PropLane Assistant? This removes the messages. The conversation stays.",
-    }))) {
-      return false;
-    }
     const ids = [...new Set([row.key, ...(row.memberKeys ?? [])])]
       .map(parseUnifiedInboxKey)
       .flatMap((member) => {
@@ -425,14 +426,28 @@ export function useUnifiedCommunicationBulk({
         const thread = emailThreads.find((entry) => entry.id === member.threadId);
         return thread && isPropLaneAssistantInboxThread(thread) ? [member.threadId] : [];
       });
-    const ok = await clearAssistantIds(ids);
-    if (!ok) {
-      showToast("Could not clear PropLane Assistant.");
-      return false;
+    if (!opts?.skipConfirm) {
+      // Give Undo the whole toast lifetime before issuing the irreversible
+      // clear. Closing this surface cancels pending work as well.
+      pendingClearTimers.current.forEach(clearTimeout);
+      pendingClearTimers.current.clear();
+      const timer = setTimeout(() => {
+        pendingClearTimers.current.delete(timer);
+        void clearAssistantIds(ids).then((ok) => {
+          if (!ok) showToast("Could not clear PropLane Assistant.");
+        }).catch(() => showToast("Could not clear PropLane Assistant."));
+      }, 6100);
+      pendingClearTimers.current.add(timer);
+      showToast("Chat will clear.", {undo: () => {
+        clearTimeout(timer);
+        pendingClearTimers.current.delete(timer);
+      }});
+      return true;
     }
-    if (!opts?.skipConfirm) showToast("Cleared.");
-    return true;
-  }, [clearAssistantIds, confirm, emailThreads, showToast]);
+    const ok = await clearAssistantIds(ids);
+    if (!ok) showToast("Could not clear PropLane Assistant.");
+    return ok;
+  }, [clearAssistantIds, emailThreads, showToast]);
 
   const handleDeleteAllArchived = useCallback(async () => {
     if (listSegment !== "archived") return;

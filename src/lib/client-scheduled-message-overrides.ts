@@ -5,6 +5,7 @@ export type ClientScheduledMessagePatch = {
   customSubject?: string;
   customBody?: string;
   customSendAt?: string;
+  customDeliverViaInbox?: boolean;
   customDeliverViaEmail?: boolean;
   customDeliverViaSms?: boolean;
 };
@@ -54,6 +55,7 @@ export function applyClientPatchesToMessages(messages: ScheduledPaymentMessage[]
       // `??` and not `||`: false is a real choice here ("do not send by email"),
       // and the fall-through carries the row's own absence, which means the
       // automation settings still decide.
+      deliverViaInbox: patch.customDeliverViaInbox ?? message.deliverViaInbox,
       deliverViaEmail: patch.customDeliverViaEmail ?? message.deliverViaEmail,
       deliverViaSms: patch.customDeliverViaSms ?? message.deliverViaSms,
     };

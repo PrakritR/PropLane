@@ -523,6 +523,7 @@ export function ChargeRemindersModal({
           smsAvailable={capability.status === "ready" && capability.sms?.available === true}
           smsDisabledReason={capability.status === "loading" ? "Checking this workspace’s SMS capability…" : capability.status === "error" ? "Could not check SMS capability." : capability.sms?.reason ?? undefined}
           smsSenderPhone={capability.status === "ready" ? capability.sms?.fromNumber ?? undefined : undefined}
+          deliverViaInbox={editingMessage.deliverViaInbox}
           deliverViaEmail={editingMessage.deliverViaEmail}
           deliverViaSms={editingMessage.deliverViaSms}
           busy={detailBusy}
@@ -551,6 +552,7 @@ export function ChargeRemindersModal({
                     customSubject: next.subject,
                     customBody: next.body,
                     ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                    ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
                     ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
                     ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                   });
@@ -1443,6 +1445,7 @@ export async function patchScheduledMessage(
     customBody?: string;
     customDaysBeforeDue?: number;
     customSendAt?: string;
+    customDeliverViaInbox?: boolean;
     customDeliverViaEmail?: boolean;
     customDeliverViaSms?: boolean;
   },

@@ -1416,17 +1416,7 @@ export function ManagerUnifiedInbox({
               </div>
             ) : null}
           </div>
-          {listRows.length > 0 ? (
-            <p className="hidden px-1 text-[11px] text-muted sm:block">
-              {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
-              {query.trim() ? ` matching “${query.trim()}”` : ""}
-            </p>
-          ) : null}
         </div>
-      ) : listRows.length > 0 && query.trim() ? (
-        <p className="mb-2 hidden px-1 text-[11px] text-muted sm:block">
-          {listRows.length} conversation{listRows.length === 1 ? "" : "s"} matching “{query.trim()}”
-        </p>
       ) : null}
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!initialListReady ? (
@@ -1469,7 +1459,7 @@ export function ManagerUnifiedInbox({
               key={row.key}
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
-              subtitle={row.subtitle}
+              subtitle={row.personEmail || row.subtitle}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}
@@ -1671,6 +1661,12 @@ export function ManagerUnifiedInbox({
       key={`${viewerId}:${workspaceIdentity.id}:${selectedRow?.key ?? ""}`}
       residentEmail={directChatEmail}
       residentName={placeholderContact?.name ?? selectedRow?.name}
+      propertyLabel={selectedRow?.address}
+      onRestore={selectedRow && listSegment === "archived" ? async () => {
+        const keys = [...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])];
+        await bulk.handleRestore(keys);
+        closeActiveThread();
+      } : undefined}
       smsResident={selectedSmsResidents[0] ?? null}
       smsResidents={selectedSmsResidents}
       smsUiEnabled={smsUiEnabled}
@@ -1699,9 +1695,7 @@ export function ManagerUnifiedInbox({
       onDelete={
         selectedRow && listSegment === "archived" && !isAssistantUnifiedInboxRow(selectedRow, emailThreads)
           ? async () => {
-              bulk.selection.clearSelection();
-              bulk.selection.toggleSelected(selectedRow.key);
-              await bulk.handleDelete();
+              await bulk.handleDelete([...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])]);
               closeActiveThread();
             }
           : selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)

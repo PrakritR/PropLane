@@ -1354,6 +1354,8 @@ export const ResidentInboxPanel = forwardRef<
       lastShownSubject = fields.lastShownSubject;
       return {
         id: m.id,
+        automated: m.automated,
+        eventTitle: m.subject,
         author: m.from,
         body: fields.body,
         at: m.at,
@@ -1419,6 +1421,7 @@ export const ResidentInboxPanel = forwardRef<
                 body={item.body}
                 meta={item.meta}
                 channel={item.channel}
+                deliverViaInbox={item.deliverViaInbox}
                 deliverViaEmail={item.deliverViaEmail}
                 deliverViaSms={item.deliverViaSms}
                 source={item.source}

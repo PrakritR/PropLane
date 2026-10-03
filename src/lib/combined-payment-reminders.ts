@@ -40,7 +40,7 @@ function deliveryChannelBundleKey(message: ScheduledPaymentMessage): string {
   // behavior if the workspace defaults change before this reminder is sent.
   const value = (channel: boolean | undefined) =>
     channel === undefined ? "default" : channel ? "on" : "off";
-  return `${value(message.deliverViaEmail)},${value(message.deliverViaSms)}`;
+  return `${value(message.deliverViaInbox)},${value(message.deliverViaEmail)},${value(message.deliverViaSms)}`;
 }
 
 export function scheduledPaymentMessageBundleKey(message: ScheduledPaymentMessage): string {
@@ -275,6 +275,7 @@ function canCombineGroup(messages: ScheduledPaymentMessage[]): boolean {
       // Two reminders the manager pointed at DIFFERENT channels are two sends,
       // not one. Bundling them would keep only the first row's choice and
       // silently drop the other, which is the failure this guard exists for.
+      m.deliverViaInbox === first.deliverViaInbox &&
       m.deliverViaEmail === first.deliverViaEmail &&
       m.deliverViaSms === first.deliverViaSms,
   );

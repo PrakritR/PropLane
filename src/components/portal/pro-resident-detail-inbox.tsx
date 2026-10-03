@@ -2,7 +2,7 @@
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Archive, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Info, Trash2 } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
@@ -177,6 +177,8 @@ export function ResidentDirectChatPane({
   smsUiEnabled,
   onSent,
   onArchive,
+  onRestore,
+  propertyLabel,
   onDelete,
   onBack,
   readSources = [],
@@ -196,6 +198,8 @@ export function ResidentDirectChatPane({
   onSent: () => void;
   /** Archive every thread folded into this person's conversation. */
   onArchive?: () => void | Promise<void>;
+  onRestore?: () => void | Promise<void>;
+  propertyLabel?: string;
   /** Delete every thread folded into this person's conversation. */
   onDelete?: () => void | Promise<void>;
   /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
@@ -526,6 +530,7 @@ export function ResidentDirectChatPane({
       next: {
         subject: string;
         body: string;
+        deliverViaInbox?: boolean;
         deliverViaEmail?: boolean;
         deliverViaSms?: boolean;
         sendAt?: string;
@@ -539,6 +544,7 @@ export function ResidentDirectChatPane({
           body: JSON.stringify({
             subject: next.subject,
             body: next.body,
+            ...(next.deliverViaInbox !== undefined ? { deliverViaInbox: next.deliverViaInbox } : {}),
             ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
             ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
             ...(next.sendAt ? { sendAt: next.sendAt } : {}),
@@ -550,6 +556,7 @@ export function ResidentDirectChatPane({
           customSubject: next.subject,
           customBody: next.body,
           ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
           ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
           ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
         });
@@ -574,6 +581,7 @@ export function ResidentDirectChatPane({
             body={item.body}
             meta={item.meta}
             channel={item.channel}
+            deliverViaInbox={item.deliverViaInbox}
             deliverViaEmail={item.deliverViaEmail}
             deliverViaSms={item.deliverViaSms}
             emailAvailable
@@ -581,7 +589,7 @@ export function ResidentDirectChatPane({
             channelEditable={item.editable}
             source={item.source}
             editable={item.editable}
-            busy={scheduledBusyId === item.id}
+            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
             recipient={email}
             sendAt={item.sendAt}
             onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
@@ -656,6 +664,10 @@ export function ResidentDirectChatPane({
     // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
     // so there is one send button and no second way to fire the message.
     if (scheduleLater) {
+      if (attachmentUrls.length > 0) {
+        showToast("Scheduled replies do not support attachments yet. Remove them or send now.");
+        return;
+      }
       const sendAt = new Date(scheduleSendAt);
       if (Number.isNaN(sendAt.getTime())) {
         showToast("Choose a valid send date and time.");
@@ -678,6 +690,7 @@ export function ResidentDirectChatPane({
             sendAt: sendAt.toISOString(),
             recipientEmail: email,
             recipientName: displayName,
+            deliverViaInbox: replyViaProplane,
             deliverViaEmail: replyViaEmail && emailAvailable,
             deliverViaSms: replyViaSms && smsAvailable,
           }),
@@ -963,17 +976,21 @@ export function ResidentDirectChatPane({
       <button
         type="button"
         className={INBOX_THREAD_ICON_BTN}
-        aria-label="Edit contact details"
-        title="Edit contact details"
+        aria-label="Contact information"
+        title="Contact information"
         data-attr="inbox-thread-contact-edit"
         onClick={() => {
           setContactEditError(null);
           setContactEditOpen(true);
         }}
       >
-        <Pencil className="h-4 w-4" aria-hidden />
+        <Info className="h-4 w-4" aria-hidden />
       </button>
-      {onArchive ? (
+      {onRestore ? (
+        <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Restore conversation" title="Restore" data-attr="inbox-thread-restore" onClick={() => onRestore()}>
+          <ArchiveRestore className="h-4 w-4" aria-hidden />
+        </button>
+      ) : onArchive ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN}
@@ -1029,7 +1046,7 @@ export function ResidentDirectChatPane({
     <>
     <InboxThreadView
       title={displayName}
-      subtitle={email || undefined}
+      subtitle={propertyLabel || undefined}
       avatarName={displayName}
       messages={messages}
       beforeMessages={projectionSummaries.some((resident) => projectionPages[resident.projectionId!]?.nextCursor) || projectionError ? (

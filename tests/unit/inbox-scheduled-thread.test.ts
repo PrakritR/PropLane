@@ -108,4 +108,10 @@ describe("scheduledItemsForRecipient (inline in the person's thread)", () => {
     expect(items).toHaveLength(1);
     expect(items[0]!.subject).toContain("3 payments");
   });
+  it("preserves explicit in-app delivery choices for manual and automated sends", () => {
+    const items = scheduledItemsForRecipient("dana@example.com", [manual({ id: "manual-off", deliverViaInbox: false })], [automation({ id: "auto-off", deliverViaInbox: false })]);
+    expect(items.find((item) => item.id === "manual-off")?.deliverViaInbox).toBe(false);
+    expect(items.find((item) => item.id === "auto-off")?.deliverViaInbox).toBe(false);
+  });
+
 });

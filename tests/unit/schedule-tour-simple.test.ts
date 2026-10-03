@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyAddPersonForm, type AddPersonForm } from "@/components/portal/resident-wizard/state";
 import {
   buildScheduleTourSimpleForm,
+  tourSlotsForManager,
   fetchOpenTourSlotsForProperty,
   openSlotKeysForDate,
   openTourDates,
@@ -159,5 +160,17 @@ describe("buildScheduleTourSimpleForm — payload parity with the old wizard", (
     });
     expect(simple.tourDate).toBe("");
     expect(simple.tourStart).toBe("");
+  });
+});
+
+
+describe("manual tour host eligibility", () => {
+  it("excludes slots offered only by another host and fails closed without an actor", () => {
+    const other = { userId: "mgr-2", label: "Co-manager" };
+    const union = { "2026-08-06:18": [other], "2026-08-06:19": [...HOSTS, other], "2026-08-06:20": [] };
+    expect(tourSlotsForManager(union, "mgr-1")).toEqual({ "2026-08-06:19": HOSTS });
+    expect(tourSlotsForManager(union, null)).toEqual({});
+    // A once-open actor slot must disappear if only the co-manager remains on refresh.
+    expect(tourSlotsForManager({ "2026-08-06:19": [other] }, "mgr-1")).toEqual({});
   });
 });

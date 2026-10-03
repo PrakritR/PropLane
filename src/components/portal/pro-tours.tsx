@@ -1912,9 +1912,11 @@ export function ManagerTours({
           propertyOptions={propertyOptions}
           propertyTick={propertyTick}
           defaultPropertyId={scopedPropertyId}
-          onAdded={() => {
+          onAdded={(outcome) => {
             void refresh();
-            if (bucket !== "upcoming") {
+            if (outcome.tourId) {
+              navigate(detailHrefForTour("upcoming", `planned-${outcome.tourId}`));
+            } else if (bucket !== "upcoming") {
               navigate(listHrefForBucket("upcoming"));
             }
           }}
