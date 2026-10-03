@@ -30,6 +30,7 @@ import {
   workspaceAutopayEnabled,
   workspaceAutopayRetryEnabled,
 } from "@/lib/workspace-payment-settings.server";
+import { normalizeWorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { assertManualPaymentSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 import {
   assertSettingsScopeOwned,
@@ -97,7 +98,15 @@ async function workspacePaymentSettingsPublic(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
 ): Promise<
-  Record<string, { serviceFeePayer: ServiceFeePayer | null; autopayEnabled: boolean; autopayRetryEnabled: boolean }>
+  Record<
+    string,
+    {
+      serviceFeePayer: ServiceFeePayer | null;
+      autopayEnabled: boolean;
+      autopayRetryEnabled: boolean;
+      pricingDefaults?: ReturnType<typeof normalizeWorkspacePricingDefaults>;
+    }
+  >
 > {
   const all = await loadWorkspacePaymentSettings(db, userId);
   return Object.fromEntries(
@@ -107,6 +116,7 @@ async function workspacePaymentSettingsPublic(
         serviceFeePayer: value.serviceFeePayer,
         autopayEnabled: workspaceAutopayEnabled(value),
         autopayRetryEnabled: workspaceAutopayRetryEnabled(value),
+        pricingDefaults: value.pricingDefaults,
       },
     ]),
   );
@@ -193,6 +203,7 @@ export async function PATCH(req: Request) {
       workspaceServiceFeeWaiverCode,
       workspaceAutopayEnabled: workspaceAutopayEnabledPatch,
       workspaceAutopayRetryEnabled: workspaceAutopayRetryEnabledPatch,
+      workspacePricingDefaults,
       ...rest
     } = body;
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
@@ -230,10 +241,11 @@ export async function PATCH(req: Request) {
     const feePayerProvided = workspaceServiceFeePayer !== undefined;
     const autopayEnabledProvided = typeof workspaceAutopayEnabledPatch === "boolean";
     const autopayRetryProvided = typeof workspaceAutopayRetryEnabledPatch === "boolean";
+    const pricingDefaultsProvided = workspacePricingDefaults !== undefined;
     if (
       typeof workspaceId === "string" &&
       workspaceId.trim() &&
-      (feePayerProvided || autopayEnabledProvided || autopayRetryProvided)
+      (feePayerProvided || autopayEnabledProvided || autopayRetryProvided || pricingDefaultsProvided)
     ) {
       // A workspace id in the body is scope, never a grant: the caller must own it.
       const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { workspaceId: workspaceId.trim() });
@@ -269,6 +281,9 @@ export async function PATCH(req: Request) {
           : {}),
         ...(autopayEnabledProvided ? { autopayEnabled: workspaceAutopayEnabledPatch as boolean } : {}),
         ...(autopayRetryProvided ? { autopayRetryEnabled: workspaceAutopayRetryEnabledPatch as boolean } : {}),
+        ...(pricingDefaultsProvided
+          ? { pricingDefaults: normalizeWorkspacePricingDefaults(workspacePricingDefaults) }
+          : {}),
       });
       if (!result.saved) {
         return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });

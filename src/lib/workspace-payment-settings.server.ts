@@ -2,6 +2,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { normalizeServiceFeeChoice, type ServiceFeePayer } from "@/lib/payment-policy";
+import {
+  countWorkspacePricingDefaultsSet,
+  normalizeWorkspacePricingDefaults,
+  type WorkspacePricingDefaults,
+} from "@/lib/workspace-pricing-defaults";
 
 /**
  * Payment setup, answered once per workspace.
@@ -30,6 +35,8 @@ export type WorkspacePaymentSettings = {
    * means the default, On (retry once).
    */
   autopayRetryEnabled?: boolean;
+  /** Default rent figures for property Pricing (additive JSON on payment_settings). */
+  pricingDefaults?: WorkspacePricingDefaults;
 };
 
 function readSettings(raw: unknown): WorkspacePaymentSettings {
@@ -45,6 +52,7 @@ function readSettings(raw: unknown): WorkspacePaymentSettings {
     serviceFeeWaiverCode: code || undefined,
     autopayEnabled: typeof record.autopayEnabled === "boolean" ? record.autopayEnabled : undefined,
     autopayRetryEnabled: typeof record.autopayRetryEnabled === "boolean" ? record.autopayRetryEnabled : undefined,
+    pricingDefaults: normalizeWorkspacePricingDefaults(record.pricingDefaults),
   };
 }
 
@@ -169,13 +177,17 @@ export async function saveWorkspacePaymentSettings(
   const payload =
     merged.serviceFeePayer === null &&
     merged.autopayEnabled === undefined &&
-    merged.autopayRetryEnabled === undefined
+    merged.autopayRetryEnabled === undefined &&
+    countWorkspacePricingDefaultsSet(merged.pricingDefaults ?? {}) === 0
       ? null
       : {
           ...(merged.serviceFeePayer ? { serviceFeePayer: merged.serviceFeePayer } : {}),
           ...(merged.serviceFeeWaiverCode ? { serviceFeeWaiverCode: merged.serviceFeeWaiverCode } : {}),
           ...(merged.autopayEnabled !== undefined ? { autopayEnabled: merged.autopayEnabled } : {}),
           ...(merged.autopayRetryEnabled !== undefined ? { autopayRetryEnabled: merged.autopayRetryEnabled } : {}),
+          ...(merged.pricingDefaults && Object.keys(merged.pricingDefaults).length > 0
+            ? { pricingDefaults: merged.pricingDefaults }
+            : {}),
         };
   const { data, error } = await db
     .from("portal_workspaces")
