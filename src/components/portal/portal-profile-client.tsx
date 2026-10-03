@@ -5,10 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   CreditCard,
-  Folder,
   KeyRound,
-  Landmark,
-  ListChecks,
   Lock,
   MessageSquareText,
   MessagesSquare,
@@ -32,6 +29,7 @@ import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
+import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   PortalSettingsAutosaveField,
@@ -108,12 +106,9 @@ const SETTINGS_TAB_PARAM = "tab";
  * Settings pane for ANY variant, so a bookmark to one of them redirects to
  * Profile instead of rendering blank (S019, captain 2026-09-27). Preferences
  * and Feedback are deliberately absent — the admin variant still shows both.
- * Application form and Lease documents are ALSO absent — the S014 correction
- * (captain, 06:47) kept both reachable: the list-page gears for Applications
- * and Leases were removed by another worker on the assumption Settings still
- * hosts form/fee/waiver/lease-document editing, so pulling these two panes
- * would have left that editing with no door at all. They stay in the
- * Workspace group for now.
+ * Application form and Lease documents are not part of the redesigned
+ * Settings navigation; their configuration is reached from their property
+ * sections.
  */
 const REMOVED_SETTINGS_TAB_IDS = new Set([
   "notifications",
@@ -132,38 +127,31 @@ const REMOVED_SETTINGS_TAB_IDS = new Set([
   "residents",
   "bookings",
   "inspections",
+  "applicationForm",
+  "leaseDocuments",
 ]);
 
 /**
  * Settings simplification (S019/S008, captain 2026-09-27: "simplify settings
  * fully"). The only settings that still apply to a WORKSPACE rather than the
- * account are Communication, Payments, Payouts, Application form, and Lease
- * documents — Applications, Leases, Tours, Residents, Services, and Tasks
+ * account are Communication, Payments, and Integrations — Applications,
+ * Leases, Tours, Residents, Services, and Tasks
  * left Settings entirely (their choices move to each property's own section
  * gear, a separate piece of work), and Reminders left with them (reminders
  * run on one fixed schedule now, never a per-workspace or per-house override
  * — see `WhatProplaneSends`).
  *
- * Communication, Payments, and Payouts get `SettingsScopeBar`'s
- * `"applies-to"` variant: a workspace select ("All my workspaces" is the
- * account rung) plus the properties multi-select, exactly like the `"full"`
- * picker `ProPortalSettingsModal` still uses on its own list-page gear — the
- * S014 correction (captain, 06:47) restored this after an earlier pass had
- * dropped it; per-property overrides stay settable from Settings, as before.
- * Only the bar's own Account/Workspace/"Own values on N properties" tag is
- * gone (S008 still stands on that point).
+ * Payments retain property overrides through `SettingsScopeBar`. Communication
+ * reads the workspace chosen in the shell's workspace switcher, so a second
+ * scope picker on that page would be misleading.
  */
-export const WORKSPACE_SCOPED_PANES = new Set<SettingsGroupId>(["messaging", "payments", "payouts"]);
+export const WORKSPACE_SCOPED_PANES = new Set<SettingsGroupId>(["payments"]);
 
 /**
- * Application form and Lease documents get `"applies-to-workspace-only"` —
- * the same bar, minus the properties picker, because neither has a
- * per-house rung (the workspace-wide default template/library). Kept in
- * Settings per the S014 correction (captain, 06:47): the list-page gears
- * for Applications/Leases were removed by another worker on the assumption
- * this editing still lives here.
+ * Application form and Lease documents are not workspace-level settings in
+ * the current Settings navigation.
  */
-export const WORKSPACE_ONLY_SCOPED_PANES = new Set<SettingsGroupId>(["applicationForm", "leaseDocuments"]);
+export const WORKSPACE_ONLY_SCOPED_PANES = new Set<SettingsGroupId>();
 
 /** Profile, Billing, Login & security, API & MCP, Account — every setting on these applies to the account, never a workspace or house. Feedback joins this set only for the admin variant, which still shows that pane. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -172,14 +160,13 @@ export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing",
 export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
 
 /**
- * Exempt from every classification above: Workspaces is its own switcher
- * (`WorkspaceSettings`). Integrations (the `spreadsheets` id) is account-wide
- * Google + per-card workspace/property pickers, so the page-level house chip
- * must not hide another house's card. Exported alongside the other
+ * Exempt from every classification above: Workspace and Communication follow
+ * the selected workspace; Integrations manages Google connections outside
+ * the property scope. Exported alongside the other
  * classification sets so `tests/unit/settings-account-tags.test.tsx` can
  * assert every nav entry is accounted for exactly once.
  */
-export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "spreadsheets"]);
+export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "messaging", "spreadsheets"]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -199,11 +186,6 @@ export type SettingsGroupId =
   | "payments"
   | "payouts"
   | "spreadsheets";
-
-const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
-  payments: "payments",
-  payouts: "payouts",
-};
 
 type SettingsGroup = {
   id: SettingsGroupId;
@@ -499,7 +481,6 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings, group: "Account" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -559,16 +540,11 @@ export function PortalProfileClient({
       icon: Settings,
       group: "Account",
     });
-    // The only settings that still apply to a WORKSPACE rather than the
-    // account: Communication, Payments, Payouts, Integrations (Google),
-    // Application form, and Lease documents. Applications, Leases, Tours,
-    // Residents, Services, and Tasks moved to each property's own section;
-    // Reminders run on one fixed schedule with no settings pane at all (see
-    // `WhatProplaneSends`, under Communication). Application form and Lease
-    // documents stay for now (captain, S014 correction, 06:47) — another
-    // worker removed the Applications/Leases list-page gears on the
-    // assumption Settings still hosts this editing.
+    // Workspace-level settings: Workspace, Payments and Communication.
+    // Integrations are account connections; forms and lease documents are
+    // reached from their corresponding property sections.
     if (!demo && variant === "manager") {
+      list.push({ id: "workspaces", label: "Workspace", description: "Workspace details, members, properties, and plan.", icon: Settings, group: "Workspace" });
       list.push({
         id: "messaging",
         label: "Communication",
@@ -579,22 +555,7 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        { id: "payments", label: "Payments", description: "Payment setup and late fees.", icon: Wallet, group: "Workspace" },
-        { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Workspace" },
-        {
-          id: "applicationForm",
-          label: "Application form",
-          description: "The rental application questions every listing asks by default.",
-          icon: ListChecks,
-          group: "Workspace",
-        },
-        {
-          id: "leaseDocuments",
-          label: "Lease documents",
-          description: "Uploaded lease PDFs a property or lease can reuse.",
-          icon: Folder,
-          group: "Workspace",
-        },
+        { id: "payments", label: "Payments", description: "Payment methods, payouts, and history.", icon: Wallet, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
@@ -620,6 +581,7 @@ export function PortalProfileClient({
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
+    if (rawTab === "payouts") router.replace("/portal/profile?tab=payments");
     // Settings simplification (S019, captain 2026-09-27): Applications, Lease
     // documents/clauses, Forms, Tours, Residents, Services, Tasks, Reminders,
     // Notifications, and every old alias that pointed at one of them left
@@ -630,10 +592,11 @@ export function PortalProfileClient({
     if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
-  const activeGroup =
+  const settingsHome = searchParams.get("settingsHome") === "1" && variant === "manager";
+  const activeGroup = settingsHome ? null :
     groups.find((g) => g.id === rawTab) ?? (billingOverride ? billingGroup : null) ?? null;
   // Desktop always shows a pane; with no tab selected it defaults to Profile.
-  const paneGroup = activeGroup ?? groups[0];
+  const paneGroup = activeGroup ?? (settingsHome ? groups.find((g) => g.id === "workspaces") : null) ?? groups[0];
 
   // Depth of history entries this component pushed, so the in-page back
   // chevron unwinds the stack (matching the iOS back gesture) instead of
@@ -658,6 +621,7 @@ export function PortalProfileClient({
       const params = new URLSearchParams(searchParams.toString());
       if (id) params.set(SETTINGS_TAB_PARAM, id);
       else params.delete(SETTINGS_TAB_PARAM);
+      if (id) params.delete("settingsHome");
       const query = params.toString();
       return query ? `${pathname}?${query}` : pathname;
     },
@@ -779,13 +743,18 @@ export function PortalProfileClient({
   }, [activeGroup?.id]);
 
   const renderPane = (id: SettingsGroupId): ReactNode => {
-    const moduleTab = HUB_MODULE_TABS[id];
-    if (moduleTab) return <HubSettingsModulePane tab={moduleTab} />;
     switch (id) {
       case "workspaces":
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
       case "profile":
         return personalInfoSection;
+      case "payments":
+        return (
+          <>
+            <HubSettingsModulePane tab="payments" />
+            <HubSettingsModulePane tab="payouts" />
+          </>
+        );
       case "billing":
         // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
         // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,
@@ -874,19 +843,24 @@ export function PortalProfileClient({
       hideTitleOnMobileNav
     >
       <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <PortalSettingsNav
-          className="max-lg:hidden"
-          name={emptyToDash(fullName)}
-          email={initialEmail}
-          items={groups.map((g) => ({
-            id: g.id,
-            label: g.label,
-            icon: <g.icon className="h-4 w-4" />,
-            group: g.group,
-          }))}
-          activeId={paneGroup.id}
-          onSelect={openGroup}
-        />
+        <div className="max-lg:hidden lg:w-[216px] lg:shrink-0">
+          {variant === "manager" && paneGroup.group === "Workspace" ? (
+            <div className="mb-3"><WorkspaceSwitcher /></div>
+          ) : null}
+          <PortalSettingsNav
+            className="w-full"
+            name={emptyToDash(fullName)}
+            email={initialEmail}
+            items={groups.map((g) => ({
+              id: g.id,
+              label: g.label,
+              icon: <g.icon className="h-4 w-4" />,
+              group: g.group,
+            }))}
+            activeId={paneGroup.id}
+            onSelect={openGroup}
+          />
+        </div>
         <div
           ref={contentColRef}
           className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
@@ -908,6 +882,17 @@ export function PortalProfileClient({
               <>
                 {activeGroup === null ? (
                   <div className="space-y-5 lg:hidden">
+                    {settingsHome ? (
+                      <PortalDetailHeader
+                        title="Settings"
+                        onBack={() => router.back()}
+                        backLabel="Back"
+                        bare
+                        inlineActions
+                        dataAttrBack="settings-home-back"
+                      />
+                    ) : null}
+                    {variant === "manager" && settingsHome ? <WorkspaceSwitcher variant="mobile" /> : null}
                     <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
                     {(["Account", "Workspace"] as const).map((group) => {
                       const groupItems = groups.filter((item) => item.group === group);
@@ -932,6 +917,9 @@ export function PortalProfileClient({
                   </div>
                 ) : (
                   <div className="mb-4 lg:hidden">
+                    {variant === "manager" && paneGroup.group === "Workspace" ? (
+                      <div className="mb-2"><WorkspaceSwitcher variant="mobile" /></div>
+                    ) : null}
                     <PortalDetailHeader
                       title={activeGroup.label}
                       onBack={backToRoot}

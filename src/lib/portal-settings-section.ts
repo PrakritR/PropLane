@@ -68,6 +68,7 @@ export function managerSettingsHubTab(tab: ManagerPortalSettingsTab | null | und
   if (!tab || tab === "properties") return "applications";
   if (tab === "automation") return "reminders";
   if (tab === "communication") return "messaging";
+  if (tab === "payouts") return "payments";
   return tab;
 }
 

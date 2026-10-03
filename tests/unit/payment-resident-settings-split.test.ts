@@ -45,17 +45,17 @@ describe("Payment settings owns setup; Residents drop rent reminders", () => {
     expect(payments).toContain("paymentsSettingsMenu");
   });
 
-  it("Workspace order is Communication, then Payments, Payouts, Integrations — Services/Tasks/Reminders left Settings entirely (S019, captain 2026-09-27)", () => {
+  it("Workspace settings keep Communication, one Payments page, and Integrations", () => {
     const profile = src("portal-profile-client.tsx");
     expect(profile).toMatch(/id: "messaging"[\s\S]*?group: "Workspace"/);
     const opsPush = profile.slice(profile.indexOf('id: "payments", label: "Payments"'));
     const ids = [...opsPush.matchAll(/id: "(payments|payouts|spreadsheets|services|tasks|bookings|inspections|reminders)"/g)].map(
       (m) => m[1],
     );
-    expect(ids).toEqual(["payments", "payouts", "spreadsheets"]);
-    // Application form and Lease documents also stay on Workspace — kept per
-    // the S014 correction (captain, 06:47), not removed with the rest.
-    expect(opsPush).toContain('id: "applicationForm"');
-    expect(opsPush).toContain('id: "leaseDocuments"');
+    expect(ids).toEqual(["payments", "spreadsheets"]);
+    expect(opsPush).not.toContain('id: "payouts"');
+    expect(opsPush).not.toContain('id: "applicationForm"');
+    expect(opsPush).not.toContain('id: "leaseDocuments"');
+    expect(profile).toContain('<HubSettingsModulePane tab="payouts" />');
   });
 });

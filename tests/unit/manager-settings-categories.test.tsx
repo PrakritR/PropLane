@@ -91,25 +91,21 @@ vi.mock("@/components/portal/lease-document-library-panel", () => ({
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 
-// The manager nav after S019/S014 (captain 2026-09-27: "simplify settings
-// fully", corrected 06:47 to keep Application form and Lease documents
-// reachable). Applications, Leases, Forms, Tours, Residents, Services,
-// Tasks, Reminders, Notifications, and Preferences all left manager
-// Settings — see `portal-settings-group-split.test.ts` and
+// The manager Settings nav after the studio redesign: Application form and
+// Lease documents leave this nav, and Payouts folds into Payments. Applications,
+// Leases, Forms, Tours, Residents, Services, Tasks, Reminders, Notifications,
+// and Preferences are also absent — see `portal-settings-group-split.test.ts` and
 // `settings-account-tags.test.tsx` for the removal and classification
 // coverage; this file only checks the panes manager Settings still has.
 const CATEGORIES = [
   "profile",
-  "workspaces",
   "billing",
   "security",
   "developer",
   "account",
+  "workspaces",
   "messaging",
   "payments",
-  "payouts",
-  "applicationForm",
-  "leaseDocuments",
   "spreadsheets",
 ] as const;
 
@@ -183,10 +179,10 @@ describe("manager settings categories", () => {
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],
     ["account", () => screen.getByText("Sign out")],
-    ["payments", () => screen.getByTestId("pane-module-payments")],
-    ["payouts", () => screen.getByTestId("pane-module-payouts")],
-    ["applicationForm", () => screen.getByTestId("pane-application-form")],
-    ["leaseDocuments", () => screen.getByTestId("pane-lease-documents")],
+    ["payments", () => {
+      expect(screen.getByTestId("pane-module-payments")).toBeTruthy();
+      return screen.getByTestId("pane-module-payouts");
+    }],
     ["spreadsheets", () => screen.getByTestId("pane-spreadsheets")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {
     goto(`?tab=${tab}`);
