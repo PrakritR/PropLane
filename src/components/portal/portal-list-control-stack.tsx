@@ -105,7 +105,8 @@ function assertPortalListBandContract(filterRow: ReactNode, actions: ReactNode, 
   }
   if (isValidElement(primary) && primary.type === PortalPrimaryIconAction) {
     const label = (primary.props as { label?: string }).label ?? "";
-    if (!/^Add\s/i.test(label)) {
+    // "New message" is the one create action named for what it starts (C2-CM6).
+    if (!/^(Add\s|New message$)/i.test(label)) {
       console.error(
         `[portal-list-control-stack] the band's primary accessible name is "${label}" — it must read "Add <noun>" (portalListAddPrimaryLabel).`,
       );
