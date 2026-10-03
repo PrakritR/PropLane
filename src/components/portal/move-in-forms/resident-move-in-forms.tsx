@@ -35,6 +35,7 @@ import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
+  deleteMyMoveInFormFile,
   downloadMoveInFormPdf,
   getMyMoveInForm,
   loadMoveInForms,
@@ -49,6 +50,8 @@ import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormRecord, MoveInForm
 import { cn } from "@/lib/utils";
 
 const AUTOSAVE_MS = 800;
+/** Waits before retrying a failed autosave: quick at first, then settling at the last value. */
+const AUTOSAVE_RETRY_MS = [2_000, 5_000, 15_000, 30_000] as const;
 
 function CheckCircle({ done }: { done: boolean }) {
   return (
@@ -237,6 +240,12 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
   const latest = useRef<MoveInAnswerMap>({});
   const dirty = useRef(false);
   const timer = useRef<number | null>(null);
+  const retryTimer = useRef<number | null>(null);
+  const failures = useRef(0);
+  // True while the form is closing: that final save is attempted once and never rescheduled.
+  const closing = useRef(false);
+  // The retry timer calls the latest flush through this ref (a callback cannot name itself).
+  const flushRef = useRef<() => Promise<boolean>>(async () => true);
   const recordRef = useRef<MoveInFormRecord | null>(null);
   const readOnlyRef = useRef(false);
 
@@ -266,27 +275,47 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
     };
   }, [id]);
 
-  const flush = useCallback(async () => {
+  /** Saves what is pending now. Resolves true when nothing is left unsaved. */
+  const flush = useCallback(async (): Promise<boolean> => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     const form = recordRef.current;
-    if (!form || readOnlyRef.current || !dirty.current) return;
+    if (!form || readOnlyRef.current || !dirty.current) return true;
     dirty.current = false;
     setSaveState("saving");
     try {
       await saveMyMoveInFormDraft(id, mapToAnswers(form.snapshot.questions, latest.current, { draft: true }));
+      failures.current = 0;
       setSaveState("saved");
+      return true;
     } catch {
       dirty.current = true;
       setSaveState("error");
+      // A real retry, with backoff: a resident who stops typing after a failed save is not left waiting.
+      if (!closing.current) {
+        const delay = AUTOSAVE_RETRY_MS[Math.min(failures.current, AUTOSAVE_RETRY_MS.length - 1)]!;
+        failures.current += 1;
+        retryTimer.current = window.setTimeout(() => void flushRef.current(), delay);
+      }
+      return false;
     }
   }, [id]);
 
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
+
   // Leaving mid-form still sends what was typed.
   useEffect(() => {
+    closing.current = false;
     return () => {
+      closing.current = true;
       void flush();
     };
   }, [flush]);
@@ -361,6 +390,10 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
       window.clearTimeout(timer.current);
       timer.current = null;
     }
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     try {
       await submitMyMoveInForm(id, mapToAnswers(questions, latest.current));
       dirty.current = false;
@@ -409,6 +442,10 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
   const fileUrl = (path: string) => moveInFormFileUrl("resident", record.id, path);
   const uploaderFor = (question: MoveInFormQuestion) => (file: Blob, fileName: string) =>
     uploadMyMoveInFormFile(record.id, question.key, file, fileName).then((result) => result.storagePath);
+  // The answer that drops a file is saved first, so a draft never points at an object that is gone.
+  const removeUpload = async (storagePath: string) => {
+    if (await flush()) await deleteMyMoveInFormFile(record.id, storagePath);
+  };
 
   if (readOnly) {
     return (
@@ -475,6 +512,7 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
               onChange={(answer) => setAnswer(current.key, answer)}
               error={errors[current.key]}
               uploadFile={uploaderFor(current)}
+              removeFile={removeUpload}
               fileUrl={fileUrl}
               signerName={record.residentName}
             />
@@ -511,7 +549,7 @@ function ResidentMoveInFormFlow({ id, onClose, onSubmitted }: { id: string; onCl
           </Button>
         </div>
         <p className="text-center text-xs text-muted" aria-live="polite">
-          {saveState === "saving" ? "Saving…" : saveState === "error" ? "Could not save yet. We will retry." : "Saved as you go"}
+          {saveState === "saving" ? "Saving…" : saveState === "error" ? "Not saved yet. Retrying…" : "Saved as you go"}
         </p>
       </div>
     </div>

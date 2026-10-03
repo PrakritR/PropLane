@@ -14,8 +14,11 @@ resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`.
 - **Instances** are rows of `public.resident_move_in_forms`
   (`supabase/migrations/20261003120000_resident_move_in_forms.sql`), one per
   (residency, form): `status` is `sent | submitted | cancelled`. A partial
-  unique index on `(application_id, form_id) where status <> 'cancelled'` is
-  what makes dispatch idempotent.
+  unique index on `(application_id, form_id) where status = 'sent'`
+  (`20261003190000_move_in_forms_resend.sql`) allows one waiting copy; a submitted copy stays as
+  history and "Send again" creates a fresh one. Automatic dispatch checks for ANY non-cancelled copy
+  itself (`liveFormIds`), so it never re-sends a form a resident finished. `reminders_sent` (jsonb)
+  records which automatic reminders (`before`, `due`) went out.
 - **Contract**: `src/lib/move-in-forms/types.ts`; browser half `client.ts`.
 - Questions reuse `ManagerCustomApplicationField` plus a `signature` type.
   `showIf` follows `isCustomFieldHiddenByCondition`: a hidden question is never
@@ -27,7 +30,8 @@ One catch-all, `/api/move-in-forms/[[...path]]?portal=manager|resident`, the
 same shape as `/api/inspections`. Manager: `GET ""`, `GET/POST template-pdf`,
 `POST send`, `POST send-existing`, `GET :id`, `GET :id/pdf`, `GET :id/file?path=`,
 `POST :id/remind`, `POST :id/cancel`. Resident: everything under `mine`
-(`mine`, `mine/:id`, `PATCH mine/:id`, `mine/:id/files`, `mine/:id/submit`,
+(`mine`, `mine/:id`, `PATCH mine/:id`, `mine/:id/files` (POST uploads; `DELETE ?path=` removes an own upload while the form is open),
+`mine/:id/submit`,
 `mine/:id/pdf`, `mine/:id/file?path=`, `mine/:id/template-pdf`).
 
 Server logic: `server.ts` (scope, send, dispatch, answers, files), `pdf.ts`
@@ -38,7 +42,7 @@ the action-event bus, domain `move_in_form`).
 
 `dispatchMoveInFormsForResidency(applicationId, trigger)` sends every
 template whose trigger matches and whose audience covers the residency's room.
-Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
+The hooks run after the response (`after()` via `dispatch...AfterResponse`), never inside the save. Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
 `dispatchMoveInFormsForSignedLease`) and application approved
 (`manager-applications` POST). Due date comes from the move-in date
 (`moveInFormDueAt`, end of the due day in Pacific).
@@ -60,6 +64,23 @@ Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
   is read, because the template JSON is client-writable.
 - **Upload forms sign exact bytes.** Submit hashes the stored PDF and refuses if
   it no longer matches the snapshot; the hash is stored as `signed_document_sha256`.
+- **Reminders follow the property's "Remind residents" setting.** `sweepMoveInFormReminders`
+  (`reminders/subjects/move-in-forms.server.ts`, on the 5-minute `dispatch-reminders` tick): 2 days
+  before the due date and on it (Pacific), on it only, or never. The reminder is claimed on the row
+  first (`reminders_sent.<kind>`), so a re-run never double-sends; a submitted/cancelled form or one
+  sent the same day is skipped. It sends the same `reminder` event as the manager's Remind.
+- **"Tell me when a resident submits"**: none; an Assistant notice (the event is sent as the manager,
+  which the bus delivers as an Assistant notice with no email); or that plus an email to the manager's
+  profile address from the shared sender (`emailManagerOfMoveInFormSubmission`).
+- **Resident access before a lease**: after approval My home opens for the Forms tab only
+  (`RESIDENT_PRE_LEASE_MOVE_IN_TABS`; the path guard, server render gate and `STAGE_UNLOCKED_SECTIONS`
+  agree). Placement, housemates, info and amenities stay locked until the lease is signed. The
+  resident's email link goes to `/resident/move-in/forms`.
+- **Uploads are not leaked.** A removed photo or redone signature is deleted (`DELETE mine/:id/files`),
+  and a submit prunes stored objects the final answers do not reference. Autosave and file calls are
+  "quiet": they do not clear the list cache or fire `MOVE_IN_FORMS_CHANGED`. The photo cap is the
+  shared `limits.ts` constant.
+- **Only the property owner uploads the original PDF** (403 for a co-manager, who can still build the form).
 - **Dispatch is best-effort and idempotent.** It never throws into a lease or
   application save, and running it twice sends nothing new.
 - **No on/off switch.** A form is a plain row, like an application template. Whether it

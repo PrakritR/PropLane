@@ -12,6 +12,7 @@ import { questionCountLabel } from "@/components/portal/move-in-forms/move-in-fo
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { MOVE_IN_FORM_STARTERS } from "@/lib/move-in-forms/templates";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import { cn } from "@/lib/utils";
 
 export type MoveInCopySource = { propertyId: string; label: string; templates: MoveInFormTemplate[] };
 
@@ -39,11 +40,14 @@ export function MoveInFormChooser({
   onClose,
   copySources,
   onPick,
+  canUploadPdf = true,
 }: {
   open: boolean;
   onClose: () => void;
   copySources: readonly MoveInCopySource[];
   onPick: (pick: MoveInChooserPick) => void;
+  /** Only the property's owner stores the original PDF; a co-manager can still build and copy forms. */
+  canUploadPdf?: boolean;
 }) {
   const [view, setView] = useState<View>("main");
   const [sourceId, setSourceId] = useState("");
@@ -78,7 +82,14 @@ export function MoveInFormChooser({
               </ChoiceTile>
               <b className="text-[14.5px] text-foreground">Build a form</b>
             </button>
-            <button type="button" className={CHOICE_CLASS} onClick={() => pick({ kind: "upload" })} data-attr="move-in-form-choose-upload">
+            <button
+              type="button"
+              className={cn(CHOICE_CLASS, !canUploadPdf && "pointer-events-none opacity-50")}
+              disabled={!canUploadPdf}
+              title={canUploadPdf ? undefined : "Only the property owner can upload the form's PDF."}
+              onClick={() => pick({ kind: "upload" })}
+              data-attr="move-in-form-choose-upload"
+            >
               <ChoiceTile>
                 <Upload className="size-5" aria-hidden />
               </ChoiceTile>

@@ -151,11 +151,13 @@ describe("resident portal nav — application first, always", () => {
     expect(isResidentPathAllowedForAccess("/resident/lease/pending/lease_first_1", stale)).toBe(false);
   });
 
-  it("Lease unlocks on approval, and the move-in form's section only once the lease is signed", () => {
+  it("Lease and My home › Forms unlock on approval, the rest of My home only once the lease is signed", () => {
     const approved = { ...startedApplication, applicationApproved: true };
     expect(resolveResidentPortalNavStage(approved)).toBe("post_approval_pre_lease");
     expect(isResidentPathAllowedForAccess("/resident/lease", approved)).toBe(true);
-    expect(isResidentPathAllowedForAccess("/resident/move-in", approved)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", approved)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/placement", approved)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/placement", { ...approved, leaseAccessUnlocked: true })).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/move-in", { ...approved, leaseAccessUnlocked: true })).toBe(true);
   });
 
@@ -164,6 +166,41 @@ describe("resident portal nav — application first, always", () => {
       for (const section of residentBottomNavPrimarySections(stage)) {
         expect(residentSectionLockedForStage(section, stage)).toBe(false);
       }
+    }
+  });
+});
+
+/**
+ * Move-in forms set to go out on approval must be reachable then: after approval, before the lease is
+ * signed, My home opens for its Forms tab ONLY. The other tabs disclose the house and stay locked.
+ */
+describe("resident portal nav — Forms open at approval, the rest of My home at lease signing", () => {
+  const preLeaseApproved = { leaseAccessUnlocked: false, applicationApproved: true, hasCompletedApplicationSubmission: true };
+  const signed = { leaseAccessUnlocked: true, applicationApproved: true, hasCompletedApplicationSubmission: true };
+  const submitted = { leaseAccessUnlocked: false, applicationApproved: false, hasCompletedApplicationSubmission: true };
+
+  it("lets an approved resident open My home › Forms", () => {
+    expect(residentSectionUnlockedForStage("move-in", "post_approval_pre_lease")).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in", preLeaseApproved)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", preLeaseApproved)).toBe(true);
+  });
+
+  it("keeps placement, housemates, info and amenities locked until the lease is signed", () => {
+    for (const tab of ["placement", "housemates", "info", "amenities", "inspections", "move-in"]) {
+      expect({ tab, allowed: isResidentPathAllowedForAccess(`/resident/move-in/${tab}`, preLeaseApproved) }).toEqual({ tab, allowed: false });
+      expect({ tab, allowed: isResidentPathAllowedForAccess(`/resident/move-in/${tab}`, signed) }).toEqual({ tab, allowed: true });
+    }
+  });
+
+  it("keeps all of My home locked before approval, and the other sections locked before the lease", () => {
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", submitted)).toBe(false);
+    expect(residentSectionLockedForStage("services", "post_approval_pre_lease")).toBe(true);
+    expect(residentSectionLockedForStage("inspections", "post_approval_pre_lease")).toBe(true);
+  });
+
+  it("every bottom-bar tab is still unlocked at its own stage", () => {
+    for (const stage of ["pre_approval", "application_submitted", "post_approval_pre_lease", "post_lease"] as const) {
+      for (const section of RESIDENT_BOTTOM_NAV_PRIMARY[stage]) expect(residentSectionUnlockedForStage(section, stage)).toBe(true);
     }
   });
 });

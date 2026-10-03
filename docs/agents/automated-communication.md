@@ -46,6 +46,7 @@ Invariants:
 | Inspections | Room photos (resident / you) | resident submitted, report reopened |
 | Tasks | Task reminders, overdue | **task assigned to a vendor** |
 | Residents | Welcome message | — |
+| Move-in forms | Per-property "Remind residents": 2 days before + due date, due date only, or never (`reminders/subjects/move-in-forms.server.ts`, claimed on `reminders_sent`) | sent, reminder, submitted (`move-in-form-events.server.ts`; the submitted notice can also email the manager) |
 
 Resident → Settings → Preferences: per-category Email / Text (messages, lease & move, payments, services, applications, **tours**, **inspections**, phone calls, account) plus **quiet hours for texts**.
 

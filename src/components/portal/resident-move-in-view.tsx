@@ -391,12 +391,15 @@ export function ResidentMoveInShell({
   activeTab = "placement",
   focusRoomId,
   leaseSigned = false,
+  formsOnly = false,
 }: {
   activeTab?: string;
   basePath?: string;
   resolved: ResidentMoveInResolved | null;
   email: string;
   locked?: boolean;
+  /** Approved, lease not yet signed: Forms is the only tab, and nothing about the house is shown. */
+  formsOnly?: boolean;
   /** A `room` search param naming a structured room id. Ignored unless it matches the viewer's OWN room. */
   focusRoomId?: string;
   /** Feeds the placement tab's move-in checklist (C130) — already resolved by the caller. */
@@ -406,13 +409,13 @@ export function ResidentMoveInShell({
 
   const destinations = useMemo(
     () =>
-      RESIDENT_MOVE_IN_TABS.map((id) => ({
+      RESIDENT_MOVE_IN_TABS.filter((id) => !formsOnly || id === "forms").map((id) => ({
         id,
         label: RESIDENT_MOVE_IN_TAB_LABELS[id],
         href: residentMoveInHref(basePath, id),
         dataAttr: `resident-move-in-tab-${id}`,
       })),
-    [basePath],
+    [basePath, formsOnly],
   );
 
   useEffect(() => {
@@ -428,6 +431,20 @@ export function ResidentMoveInShell({
         <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
       ) : !email ? (
         <PortalDataTableEmpty icon="default" message="Sign in to see your house details." />
+      ) : formsOnly ? (
+        <>
+          <PortalListControlStack
+            className="mb-2 max-lg:mb-1.5"
+            variant="command"
+            stickyDestinations={false}
+            destinations={destinations}
+            activeDestinationId="forms"
+            destinationAriaLabel="My home"
+            destinationItemLayout="equal"
+            destinationDenseEqualRow
+          />
+          <ResidentMoveInForms />
+        </>
       ) : !resolved ? (
         <PortalDataTableEmpty icon="residents" message="No placement assigned yet." />
       ) : (

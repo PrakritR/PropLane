@@ -114,6 +114,9 @@ export function PropertyMoveInFormsPanel({
 }) {
   const { userId: viewerId } = usePortalSession();
   const propertyId = saveTarget?.saveId ?? "";
+  // Originals are stored under the property owner's prefix, so only the owner uploads a PDF. Unknown
+  // identity is treated as the owner; the server enforces it either way.
+  const canUploadPdf = !viewerId || !managerUserId || viewerId === managerUserId;
   const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
   const rooms = useMemo(() => templateRooms(sub), [sub]);
   const copySources = useCopySources(managerUserId, propertyId);
@@ -317,7 +320,7 @@ export function PropertyMoveInFormsPanel({
         )}
       </PortalRecordListSurface>
 
-      <MoveInFormChooser open={chooserOpen} onClose={() => onChooserOpenChange(false)} copySources={copySources} onPick={onPick} />
+      <MoveInFormChooser open={chooserOpen} onClose={() => onChooserOpenChange(false)} copySources={copySources} onPick={onPick} canUploadPdf={canUploadPdf} />
 
       {editor ? (
         <MoveInFormEditorModal
@@ -330,6 +333,7 @@ export function PropertyMoveInFormsPanel({
           onSave={saveFromEditor}
           onDelete={editor.mode === "edit" && canEdit ? deleteTemplate : undefined}
           onClose={() => setEditor(null)}
+          canUploadPdf={canUploadPdf}
         />
       ) : null}
     </>

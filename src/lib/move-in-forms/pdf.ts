@@ -1,12 +1,26 @@
 import "server-only";
 import { PDFDocument, StandardFonts, rgb, type PDFImage } from "pdf-lib";
 import { getMoveInFormForExport, MOVE_IN_FORM_FILES_BUCKET, MoveInFormError, type MoveInFormActor } from "./server";
+import { formatPacificDate } from "@/lib/pacific-time";
 import type { MoveInFormAnswer, MoveInFormQuestion } from "./types";
+
+/** "Oct 3, 2026, 4:07 PM PT": the export prints people's time, never a raw ISO string. */
+function pacificStamp(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  const text = formatPacificDate(iso, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  return text === "\u2014" ? "-" : `${text} PT`;
+}
+
+function pacificDay(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  const text = formatPacificDate(iso, { month: "short", day: "numeric", year: "numeric" });
+  return text === "\u2014" ? "-" : text;
+}
 
 function answerText(question: MoveInFormQuestion, answer: MoveInFormAnswer | undefined): string {
   if (!answer) return "No answer";
   if ("files" in answer) return answer.files.length ? `${answer.files.length} photo${answer.files.length === 1 ? "" : "s"} attached` : "No answer";
-  if ("signature" in answer) return `Signed by ${answer.signature.signedName} on ${answer.signature.signedAt.slice(0, 10)}`;
+  if ("signature" in answer) return `Signed by ${answer.signature.signedName} on ${pacificDay(answer.signature.signedAt)}`;
   const value = answer.value;
   if (value === true || value === "yes") return question.type === "checkbox" ? "Checked" : "Yes";
   if (value === false || value === "no") return question.type === "checkbox" ? "Not checked" : "No";
@@ -60,7 +74,7 @@ export async function moveInFormPdf(actor: MoveInFormActor, id: string): Promise
 
   line(`PropLane | ${record.formName}`, true);
   line(`${record.residentName} | ${record.propertyLabel}${record.roomLabel ? ` | ${record.roomLabel}` : ""}`);
-  line(`Submitted: ${record.submittedAt ?? "-"} | Sent: ${record.sentAt}${record.dueAt ? ` | Due: ${record.dueAt.slice(0, 10)}` : ""}`);
+  line(`Submitted: ${pacificStamp(record.submittedAt)} | Sent: ${pacificStamp(record.sentAt)}${record.dueAt ? ` | Due: ${pacificDay(record.dueAt)}` : ""}`);
   line(`Form: ${record.id} | Residency: ${record.applicationId}`);
   if (record.signedDocumentSha256) line(`Signed document SHA-256: ${record.signedDocumentSha256}`);
   if (record.snapshot.pdf) line(`Document: ${record.snapshot.pdf.fileName} (${record.snapshot.pdf.pageCount} page${record.snapshot.pdf.pageCount === 1 ? "" : "s"})`);

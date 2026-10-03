@@ -76,6 +76,7 @@ import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManage
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
+  RESIDENT_PRE_LEASE_MOVE_IN_TABS,
 } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -1613,8 +1614,10 @@ export async function renderPortalSection(
     if (tabParts?.[0] === "inspections") redirect(`${def.basePath}/inspections/move-in`);
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
     const allowedTabs = meta.tabs.map((t) => t.id);
-    // Use the same entitlement as navigation, including attested off-platform tenancies.
-    if (!residentAccess?.leaseAccessUnlocked) {
+    // Use the same entitlement as navigation, including attested off-platform tenancies. An approved
+    // application opens the Forms tab alone (the same rule as `isResidentPathAllowedForAccess`).
+    const preLeaseFormsOnly = !residentAccess?.leaseAccessUnlocked && Boolean(residentAccess?.applicationApproved);
+    if (!residentAccess?.leaseAccessUnlocked && !preLeaseFormsOnly) {
       return (
         <ManagerPortalPageShell title="My home" hideTitleOnMobileNav>
           <ResidentMoveInShell
@@ -1627,10 +1630,13 @@ export async function renderPortalSection(
       );
     }
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/move-in/${allowedTabs[0] ?? "placement"}`);
+      redirect(`${def.basePath}/move-in/${preLeaseFormsOnly ? "forms" : allowedTabs[0] ?? "placement"}`);
     }
     if (tabParts.length > 1) notFound();
     const moveInTab = tabParts[0]!;
+    if (preLeaseFormsOnly && !RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(moveInTab)) {
+      redirect(`${def.basePath}/move-in/forms`);
+    }
     // A retired sub-tab keeps its URL: the "Move-in" tab's arrival details now render under
     // Info & rules, and a bookmark or an emailed link must land there rather than 404.
     if (!allowedTabs.includes(moveInTab)) {
@@ -1646,6 +1652,7 @@ export async function renderPortalSection(
         tabs={meta.tabs}
         focusRoomId={typeof searchParams?.room === "string" ? searchParams.room : undefined}
         leaseSigned={residentAccess?.leaseSigned ?? false}
+        formsOnly={preLeaseFormsOnly}
       />
     );
   }

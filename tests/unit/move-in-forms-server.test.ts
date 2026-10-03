@@ -11,18 +11,20 @@ vi.mock("@/lib/tools/audit", () => ({ writeAuditLog: vi.fn(async () => ({ record
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/auth/manager-application-access", () => ({ managerOwnedPropertyIdSet: async (_db: unknown, userId: string) => new Set(userId === "owner" ? ["home"] : []) }));
-vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: async () => ({ owners: new Set(), propertyIds: new Set() }) }));
+vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: async (_db: unknown, userId: string) => ({ owners: new Set(), propertyIds: new Set(userId === "co-manager" ? ["home"] : []) }) }));
 vi.mock("@/lib/workspaces/scope.server", () => ({ activeWorkspacePropertyScope: vi.fn(async () => null) }));
 const emitted = vi.hoisted(() => ({ calls: [] as { event: string; id: string }[] }));
 vi.mock("@/lib/move-in-forms/move-in-form-events.server", () => ({
   emitMoveInFormEvent: vi.fn(async (_db: unknown, input: { event: string; row: { id: string } }) => { emitted.calls.push({ event: input.event, id: input.row.id }); }),
+  emailManagerOfMoveInFormSubmission: vi.fn(async (_db: unknown, row: { id: string }) => { emitted.calls.push({ event: "email", id: row.id }); return true; }),
 }));
 
 import {
-  cancelMoveInForm, checkMoveInFormAnswers, dispatchMoveInFormsForResidency, dispatchMoveInFormsForSignedLease,
+  cancelMoveInForm, checkMoveInFormAnswers, deleteMoveInFormFile, dispatchMoveInFormsForResidency, dispatchMoveInFormsForSignedLease,
   listMoveInForms, moveInFormDetail, moveInFormFileUrl, remindMoveInForm, saveMoveInFormDraft, sendMoveInForm,
-  submitMoveInForm, uploadMoveInFormFile, type MoveInFormActor,
+  submitMoveInForm, uploadMoveInFormFile, uploadMoveInFormTemplatePdf, type MoveInFormActor,
 } from "@/lib/move-in-forms/server";
+import { MAX_FILES_PER_QUESTION } from "@/lib/move-in-forms/limits";
 
 type Row = Record<string, unknown>;
 let forms: Row[];
@@ -50,13 +52,14 @@ function builder(table: string) {
   const q: Record<string, unknown> = {
     select: () => q, order: () => q,
     eq: (key: string, value: unknown) => { filters.push((row) => row[key] === value); return q; },
+    neq: (key: string, value: unknown) => { filters.push((row) => row[key] !== value); return q; },
     in: (key: string, values: unknown[]) => { filters.push((row) => values.includes(row[key])); return q; },
     is: (key: string, value: unknown) => { filters.push((row) => (row[key] ?? null) === value); return q; },
     range: (a: number, b: number) => { from = a; to = b; return q; },
     update: (value: Row) => { patch = value; return q; },
     insert: (value: Row) => {
-      // The partial unique index: one live copy of a form per residency.
-      const clash = forms.some((row) => row.application_id === value.application_id && row.form_id === value.form_id && row.status !== "cancelled");
+      // The partial unique index: one SENT copy of a form per residency (a submitted one is history).
+      const clash = forms.some((row) => row.application_id === value.application_id && row.form_id === value.form_id && row.status === "sent");
       if (clash) { insertError = { code: "23505" }; return q; }
       inserted = { id: crypto.randomUUID(), answers: [], signed_document_sha256: null, submitted_at: null, reminded_at: null,
         manager_viewed_at: null, sent_at: new Date().toISOString(), ...value };
@@ -73,6 +76,7 @@ const storage = {
   from: (bucket: string) => ({
     list: async (prefix: string) => ({ data: [...(objects[bucket]?.keys() ?? [])].filter((p) => p.startsWith(`${prefix}/`)).map((p) => ({ name: p.slice(prefix.length + 1) })), error: null }),
     upload: vi.fn(async (path: string, bytes: Uint8Array) => { (objects[bucket] ??= new Map()).set(path, bytes); return { error: null }; }),
+    remove: vi.fn(async (paths: string[]) => { for (const path of paths) objects[bucket]?.delete(path); return { error: null }; }),
     download: async (path: string) => { const bytes = objects[bucket]?.get(path); return bytes ? { data: new Blob([bytes as BlobPart]), error: null } : { data: null, error: { message: "missing" } }; },
     createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://signed.example/${path}` }, error: null }),
   }),
@@ -244,6 +248,28 @@ describe("submit", () => {
     await submitMoveInForm(resident(), ID, { answers: goodAnswers() });
     expect(emitted.calls).toEqual([]);
   });
+
+  it("emails the manager only when the property asks for an Assistant notice and email", async () => {
+    stored();
+    properties[0]!.settings = { remind: "never", notifyOnSubmit: "assistant" };
+    await submitMoveInForm(resident(), ID, { answers: goodAnswers() });
+    expect(emitted.calls.map((call) => call.event)).toEqual(["submitted"]);
+    emitted.calls = [];
+    forms = [formRow()];
+    properties[0]!.settings = { remind: "never", notifyOnSubmit: "assistant-and-email" };
+    await submitMoveInForm(resident(), ID, { answers: goodAnswers() });
+    expect(emitted.calls.map((call) => call.event)).toEqual(["submitted", "email"]);
+  });
+
+  it("prunes stored uploads the final answers no longer reference", async () => {
+    stored();
+    const orphan = `${ID}/room_photos/${OTHER_ID}.jpg`;
+    objects["move-in-form-files"]!.set(orphan, new Uint8Array([1]));
+    await submitMoveInForm(resident(), ID, { answers: goodAnswers() });
+    expect(objects["move-in-form-files"]!.has(orphan)).toBe(false);
+    expect(objects["move-in-form-files"]!.has(`${ID}/room_photos/${UUID}.jpg`)).toBe(true);
+    expect(objects["move-in-form-files"]!.has(`${ID}/sig/${UUID}.png`)).toBe(true);
+  });
 });
 
 describe("uploaded document forms", () => {
@@ -328,6 +354,19 @@ describe("manager actions", () => {
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "nope" })).rejects.toMatchObject({ status: 404 });
   });
 
+  it("sends again after the resident submitted: a fresh copy, the submitted one stays as history", async () => {
+    properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f1", name: "Checklist", trigger: "manual", questions: [q("sig", "signature", { required: true })] }];
+    forms = [formRow({ status: "submitted", submitted_at: "2026-10-02T00:00:00Z" })];
+    const again = await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f1" });
+    expect(again.form.status).toBe("sent");
+    expect(forms).toHaveLength(2);
+    expect(forms.filter((row) => row.status === "submitted")).toHaveLength(1);
+    expect(forms.filter((row) => row.status === "sent")).toHaveLength(1);
+    // A second send while that fresh copy is still waiting is refused.
+    await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f1" })).rejects.toMatchObject({ status: 409 });
+    expect(forms).toHaveLength(2);
+  });
+
   it("will not send an upload form that has no stored document", async () => {
     properties[0]!.templates = [{ ...newMoveInFormTemplate("upload"), id: "up", name: "Rules", pdf: null }];
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "up" })).rejects.toMatchObject({ status: 409 });
@@ -363,6 +402,56 @@ describe("files", () => {
   });
 });
 
+describe("removing an upload", () => {
+  it("deletes only a file inside this record's prefix, only while the form is open", async () => {
+    stored();
+    const photo = `${ID}/room_photos/${UUID}.jpg`;
+    await expect(deleteMoveInFormFile(resident(), ID, photo)).resolves.toEqual({ ok: true });
+    expect(objects["move-in-form-files"]!.has(photo)).toBe(false);
+    for (const path of [`${OTHER_ID}/room_photos/${UUID}.jpg`, `${ID}/not_a_question/${UUID}.jpg`, `${ID}/room_photos/../x.jpg`, `${ID}/room_photos/${UUID}.svg`, "nonsense"]) {
+      await expect(deleteMoveInFormFile(resident(), ID, path)).rejects.toMatchObject({ status: 404 });
+    }
+    await expect(deleteMoveInFormFile(resident("res-b", "b@example.test"), ID, `${ID}/sig/${UUID}.png`)).rejects.toMatchObject({ status: 404 });
+    await expect(deleteMoveInFormFile(manager(), ID, `${ID}/sig/${UUID}.png`)).rejects.toMatchObject({ status: 404 });
+    expect(objects["move-in-form-files"]!.has(`${ID}/sig/${UUID}.png`)).toBe(true);
+    forms = [formRow({ status: "submitted" })];
+    await expect(deleteMoveInFormFile(resident(), ID, `${ID}/sig/${UUID}.png`)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("frees the question's file cap once a photo is deleted", async () => {
+    const png = await (await import("sharp")).default({ create: { width: 4, height: 4, channels: 3, background: "white" } }).png().toBuffer();
+    const file = () => new File([new Uint8Array(png)], "x.png", { type: "image/png" });
+    const paths: string[] = [];
+    for (let i = 0; i < MAX_FILES_PER_QUESTION; i++) paths.push((await uploadMoveInFormFile(resident(), ID, "room_photos", file())).storagePath);
+    await expect(uploadMoveInFormFile(resident(), ID, "room_photos", file())).rejects.toMatchObject({ message: "This question has reached its file limit." });
+    await deleteMoveInFormFile(resident(), ID, paths[0]!);
+    await expect(uploadMoveInFormFile(resident(), ID, "room_photos", file())).resolves.toHaveProperty("storagePath");
+  });
+});
+
+describe("listing filters run in the query", () => {
+  it("scopes by application, property and status", async () => {
+    forms = [
+      formRow(),
+      formRow({ id: OTHER_ID, application_id: "AXIS-B", status: "submitted" }),
+      formRow({ id: UUID, application_id: "AXIS-A", status: "cancelled" }),
+    ];
+    expect((await listMoveInForms(manager(), { applicationId: "AXIS-A" })).forms.map((form) => form.id)).toEqual([ID]);
+    expect((await listMoveInForms(manager(), { status: "submitted" })).forms.map((form) => form.id)).toEqual([OTHER_ID]);
+    expect((await listMoveInForms(manager(), { propertyId: "elsewhere" })).forms).toEqual([]);
+    expect((await listMoveInForms(manager())).forms.map((form) => form.id).sort()).toEqual([ID, OTHER_ID].sort());
+  });
+});
+
+describe("template PDF upload", () => {
+  it("tells a co-manager the real reason, and a stranger that the property does not exist", async () => {
+    const file = new File([new TextEncoder().encode("%PDF-1.4 hello world")], "Rules.pdf", { type: "application/pdf" });
+    await expect(uploadMoveInFormTemplatePdf(manager("other-owner"), { propertyId: "home", formId: "f1", file })).rejects.toMatchObject({ status: 404 });
+    await expect(uploadMoveInFormTemplatePdf(manager("co-manager"), { propertyId: "home", formId: "f1", file }))
+      .rejects.toMatchObject({ status: 403, message: "Only the property owner can upload the form's PDF." });
+  });
+});
+
 describe("dispatch", () => {
   const enabled = (id: string, extra: Partial<MoveInFormTemplate> = {}): MoveInFormTemplate =>
     ({ ...newMoveInFormTemplate("built"), id, name: id, trigger: "lease-signed", questions: [q("sig", "signature", { required: true })], ...extra });
@@ -383,6 +472,15 @@ describe("dispatch", () => {
   it("is idempotent: a second dispatch sends nothing new", async () => {
     properties[0]!.templates = [enabled("a")];
     await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(forms).toHaveLength(1);
+    expect(emitted.calls).toHaveLength(1);
+  });
+
+  it("never re-sends a form the resident already submitted", async () => {
+    properties[0]!.templates = [enabled("a")];
+    await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
+    forms[0]!.status = "submitted";
     expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
     expect(forms).toHaveLength(1);
     expect(emitted.calls).toHaveLength(1);

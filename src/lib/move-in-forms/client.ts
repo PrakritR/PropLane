@@ -20,16 +20,26 @@ export function moveInFormUrl(portal: MoveInFormPortal, path = "", query: Record
   return `/api/move-in-forms${path}?${params.toString()}`;
 }
 
-export async function moveInFormRequest<T>(portal: MoveInFormPortal, path = "", init?: RequestInit): Promise<T> {
+/**
+ * `quiet` writes (an autosaved draft, a photo upload or removal) change nothing a list shows, so they
+ * neither clear the list cache nor broadcast `MOVE_IN_FORMS_CHANGED`; only send, remind, cancel and
+ * submit do. Otherwise every debounced keystroke pause would refetch the resident's whole form list.
+ */
+export async function moveInFormRequest<T>(
+  portal: MoveInFormPortal,
+  path = "",
+  init?: RequestInit,
+  options: { quiet?: boolean; query?: Record<string, string | undefined> } = {},
+): Promise<T> {
   if (isDemoModeActive()) throw new Error("Open your signed-in portal to use move-in forms.");
   const isJson = typeof init?.body === "string";
-  const response = await fetch(moveInFormUrl(portal, path), {
+  const response = await fetch(moveInFormUrl(portal, path, options.query), {
     ...init,
     headers: { ...(isJson ? { "Content-Type": "application/json" } : {}), ...init?.headers },
   });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error((value as { error?: string }).error || "Could not load move-in forms. Please try again.");
-  if (init?.method && init.method !== "GET") {
+  if (init?.method && init.method !== "GET" && !options.quiet) {
     for (const entry of lists.values()) entry.expires = 0;
     window.dispatchEvent(new Event(MOVE_IN_FORMS_CHANGED));
   }
@@ -92,13 +102,16 @@ export async function uploadMoveInFormPdf(propertyId: string, formId: string, fi
 export const getMyMoveInForm = (id: string) =>
   moveInFormRequest<{ form: MoveInFormRecord }>("resident", `/mine/${encodeURIComponent(id)}`);
 export const saveMyMoveInFormDraft = (id: string, answers: MoveInFormAnswer[]) =>
-  moveInFormRequest<{ form: MoveInFormRecord }>("resident", `/mine/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ answers }) });
+  moveInFormRequest<{ form: MoveInFormRecord }>("resident", `/mine/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ answers }) }, { quiet: true });
 export async function uploadMyMoveInFormFile(id: string, questionKey: string, file: Blob, fileName: string) {
   const data = new FormData();
   data.set("questionKey", questionKey);
   data.set("file", file, fileName);
-  return moveInFormRequest<{ storagePath: string }>("resident", `/mine/${encodeURIComponent(id)}/files`, { method: "POST", body: data });
+  return moveInFormRequest<{ storagePath: string }>("resident", `/mine/${encodeURIComponent(id)}/files`, { method: "POST", body: data }, { quiet: true });
 }
+/** Removes a photo or signature the resident uploaded and then took out of their answers. */
+export const deleteMyMoveInFormFile = (id: string, storagePath: string) =>
+  moveInFormRequest<{ ok: true }>("resident", `/mine/${encodeURIComponent(id)}/files`, { method: "DELETE" }, { quiet: true, query: { path: storagePath } });
 export const submitMyMoveInForm = (id: string, answers: MoveInFormAnswer[]) =>
   moveInFormRequest<{ form: MoveInFormRecord }>("resident", `/mine/${encodeURIComponent(id)}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
 

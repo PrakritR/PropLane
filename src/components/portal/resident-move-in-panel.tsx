@@ -11,6 +11,7 @@ export async function ResidentMoveInPanel({
   tabs: _tabs,
   focusRoomId,
   leaseSigned = false,
+  formsOnly = false,
 }: {
   residentEmail?: string | null;
   basePath?: string;
@@ -19,9 +20,11 @@ export async function ResidentMoveInPanel({
   focusRoomId?: string;
   /** Already resolved by the caller's access check — free to pass along, no extra query. */
   leaseSigned?: boolean;
+  /** Approved but not yet leased: only the Forms tab, with none of the house's details loaded. */
+  formsOnly?: boolean;
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
-  const resolved = email ? await loadResidentMoveInForEmail(email) : null;
+  const resolved = email && !formsOnly ? await loadResidentMoveInForEmail(email) : null;
 
   return (
     <ManagerPortalPageShell title="My home" hideTitleOnMobileNav compactFilterRow>
@@ -32,6 +35,7 @@ export async function ResidentMoveInPanel({
         activeTab={tabId}
         focusRoomId={focusRoomId}
         leaseSigned={leaseSigned}
+        formsOnly={formsOnly}
       />
     </ManagerPortalPageShell>
   );

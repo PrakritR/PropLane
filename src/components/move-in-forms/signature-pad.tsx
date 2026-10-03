@@ -12,6 +12,23 @@ const PAD_HEIGHT = 168;
 
 type Point = { x: number; y: number };
 
+function drawDot(ctx: CanvasRenderingContext2D, p: Point) {
+  // A tap leaves a dot, so a signature can start with one.
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
+  ctx.fillStyle = "#0b1b3a";
+  ctx.fill();
+}
+
+function drawSegment(ctx: CanvasRenderingContext2D, from: Point, to: Point) {
+  const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.quadraticCurveTo(from.x, from.y, mid.x, mid.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+}
+
 function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((resolve) => {
     try {
@@ -40,6 +57,8 @@ export function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<Point | null>(null);
+  // Every stroke drawn so far, in CSS pixels, so a resize can redraw the signature instead of wiping it.
+  const strokes = useRef<Point[][]>([]);
   const [hasInk, setHasInk] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -60,6 +79,13 @@ export function SignaturePad({
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.strokeStyle = "#0b1b3a";
+    // Redraw what was already signed (empty after a Clear, so a blank pad stays blank).
+    for (const stroke of strokes.current) {
+      const first = stroke[0];
+      if (!first) continue;
+      drawDot(ctx, first);
+      for (let i = 1; i < stroke.length; i++) drawSegment(ctx, stroke[i - 1]!, stroke[i]!);
+    }
   }, []);
 
   useEffect(() => {
@@ -68,13 +94,10 @@ export function SignaturePad({
     if (!wrap || typeof ResizeObserver === "undefined") return;
     let width = wrap.clientWidth;
     const observer = new ResizeObserver(() => {
-      // A width change wipes the bitmap; only redo it when the pad is still blank.
+      // A width change wipes the bitmap, so redraw the stored strokes; never mid-stroke.
       if (Math.abs(wrap.clientWidth - width) < 2) return;
       width = wrap.clientWidth;
-      if (!drawing.current) {
-        prepare();
-        setHasInk(false);
-      }
+      if (!drawing.current) prepare();
     });
     observer.observe(wrap);
     return () => observer.disconnect();
@@ -93,11 +116,8 @@ export function SignaturePad({
     last.current = p;
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    // A tap leaves a dot, so a signature can start with one.
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
-    ctx.fillStyle = "#0b1b3a";
-    ctx.fill();
+    drawDot(ctx, p);
+    strokes.current.push([p]);
     setHasInk(true);
     setFailed(false);
   };
@@ -108,12 +128,8 @@ export function SignaturePad({
     const from = last.current;
     if (!ctx || !from) return;
     const to = point(event);
-    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.quadraticCurveTo(from.x, from.y, mid.x, mid.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
+    drawSegment(ctx, from, to);
+    strokes.current[strokes.current.length - 1]?.push(to);
     last.current = to;
   };
 
@@ -123,6 +139,7 @@ export function SignaturePad({
   };
 
   const clear = () => {
+    strokes.current = [];
     prepare();
     setHasInk(false);
     setFailed(false);

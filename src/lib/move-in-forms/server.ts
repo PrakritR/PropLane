@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 import { z } from "zod";
@@ -19,7 +20,8 @@ import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submis
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
-import { emitMoveInFormEvent } from "./move-in-form-events.server";
+import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION } from "./limits";
+import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "./move-in-form-events.server";
 import {
   MOVE_IN_FORM_ID_PATTERN, moveInFormDueAt, readMoveInFormSettings, readMoveInFormTemplates, templateAppliesToRoom,
 } from "./templates";
@@ -42,8 +44,6 @@ export class MoveInFormError extends Error {
 const TABLE = "resident_move_in_forms";
 export const MOVE_IN_FORM_FILES_BUCKET = "move-in-form-files";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_FILES_PER_QUESTION = 10;
-const MAX_FILES_PER_FORM = 40;
 const FILE_URL_SECONDS = 300;
 const REMIND_COOLDOWN_MS = 5 * 60_000;
 const KEY_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
@@ -104,7 +104,8 @@ async function resolveScope(actor: MoveInFormActor, level: "read" | "edit"): Pro
   const [owned, linked, workspaceIds] = await Promise.all([
     managerOwnedPropertyIdSet(db, userId),
     linkedOwnerScopeForModule(db, userId, "residents", level),
-    // A failure here may only ever narrow, never widen.
+    // A failed read becomes `null`, which means "no workspace narrowing" (the project-wide convention in
+    // workspaces/scope.server.ts), not "no access": ownership/grants above remain the authorization.
     activeWorkspacePropertyScope(db, userId).catch(() => null),
   ]);
   return {
@@ -138,7 +139,9 @@ function tableReadError(table: string, error: { code?: string; message?: string 
 }
 
 /** Each query is scoped before it runs, and paginated past Supabase's 1,000-row ceiling. */
-async function scopedRows(actor: MoveInFormActor, scope: Scope, id?: string): Promise<MoveInFormRow[]> {
+type RowFilters = { id?: string; propertyId?: string; applicationId?: string; status?: "sent" | "submitted"; excludeCancelled?: boolean };
+
+async function scopedRows(actor: MoveInFormActor, scope: Scope, only: RowFilters = {}): Promise<MoveInFormRow[]> {
   const filters: { column: string; values: string[] }[] = actor.role === "resident"
     ? [{ column: "resident_email", values: [actor.context.email] }]
     : [{ column: "manager_user_id", values: [...scope.owners] }, { column: "property_id", values: [...scope.properties] }];
@@ -147,7 +150,11 @@ async function scopedRows(actor: MoveInFormActor, scope: Scope, id?: string): Pr
     for (let chunk = 0; chunk < filter.values.length; chunk += 100) {
       for (let offset = 0; ; offset += 500) {
         let query = actor.context.db.from(TABLE).select("*").in(filter.column, filter.values.slice(chunk, chunk + 100));
-        if (id) query = query.eq("id", id);
+        if (only.id) query = query.eq("id", only.id);
+        if (only.propertyId) query = query.eq("property_id", only.propertyId);
+        if (only.applicationId) query = query.eq("application_id", only.applicationId);
+        if (only.status) query = query.eq("status", only.status);
+        else if (only.excludeCancelled) query = query.neq("status", "cancelled");
         const { data, error } = await query.order("id").range(offset, offset + 499);
         if (error) throw tableReadError(TABLE, error);
         for (const row of (data ?? []) as unknown as MoveInFormRow[]) rows.set(row.id, row);
@@ -161,7 +168,7 @@ async function scopedRows(actor: MoveInFormActor, scope: Scope, id?: string): Pr
 /** A foreign or missing id is a 404 either way: never an oracle for which one it was. */
 async function getRow(actor: MoveInFormActor, id: string, level: "read" | "edit" = "read"): Promise<MoveInFormRow> {
   const scope = await scopeFor(actor, level);
-  const row = (await scopedRows(actor, scope, id))[0];
+  const row = (await scopedRows(actor, scope, { id }))[0];
   if (!row || !authorized(actor, scope, row)) throw new MoveInFormError("Form not found.", 404);
   return row;
 }
@@ -390,10 +397,21 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
     answers: [],
     due_at: input.dueAt,
   }).select("*").single();
-  // The partial unique index makes a second send of the same form a no-op, not a duplicate.
+  // The partial unique index (one SENT copy per residency and form) makes a concurrent second send a no-op.
   if (error?.code === "23505") return { row: null, created: false };
   if (error || !data) throw new MoveInFormError("Could not send the form.", 500);
   return { row: data as unknown as MoveInFormRow, created: true };
+}
+
+/**
+ * The form ids a residency already holds a live copy of: sent OR submitted. The unique index only
+ * covers a SENT copy (so a manager can send a submitted form again as a fresh copy), which means
+ * automatic sends must check this themselves or they would re-send every form a resident finished.
+ */
+async function liveFormIds(db: SupabaseClient, applicationId: string): Promise<Set<string>> {
+  const { data, error } = await db.from(TABLE).select("form_id").eq("application_id", applicationId).neq("status", "cancelled");
+  if (error) throw new MoveInFormError("Could not check the forms already sent.", 500);
+  return new Set(((data ?? []) as { form_id: string }[]).map((row) => String(row.form_id)));
 }
 
 /* --------------------------------------------------------------- dispatch */
@@ -401,8 +419,9 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
 /**
  * Sends every form whose trigger matches to a residency. Called from server events
  * (lease fully signed, application approved) with an id the SERVER read, never one from a
- * request body. Idempotent through the unique index, best-effort, and never throws into its
- * caller: a form that fails to go out must not break signing a lease.
+ * request body. Idempotent (a form the residency already has, waiting or submitted, is skipped),
+ * best-effort, and never throws into its caller: a form that fails to go out must not break signing
+ * a lease.
  */
 export async function dispatchMoveInFormsForResidency(
   applicationId: string,
@@ -423,8 +442,10 @@ export async function dispatchMoveInFormsForResidency(
       !(options.secondaryMember && template.audience.kind === "whole-house") &&
       templateAppliesToRoom(template, room.id));
     const cache: PdfCache = new Map();
+    const already = await liveFormIds(db, residency.id);
     let sent = 0;
     for (const template of dispatchable) {
+      if (already.has(template.id)) continue;
       try {
         const snapshot = await buildSnapshot(db, template, property.ownerId, cache);
         if (!snapshot) continue;
@@ -465,6 +486,33 @@ export async function dispatchMoveInFormsForSignedLease(
   }
 }
 
+/**
+ * Runs best-effort work after the response has gone out (Next's `after()`), so approving an
+ * application or saving a lease never waits on template downloads and inserts. Outside a request
+ * scope (a script, a unit test) `after` is unavailable and the work simply runs now.
+ */
+function afterResponse(task: () => Promise<unknown>): void {
+  const run = () => task().catch(() => undefined);
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
+}
+
+export function dispatchMoveInFormsForResidencyAfterResponse(
+  applicationId: string,
+  trigger: Exclude<MoveInFormTrigger, "manual">,
+): void {
+  afterResponse(() => dispatchMoveInFormsForResidency(applicationId, trigger));
+}
+
+export function dispatchMoveInFormsForSignedLeaseAfterResponse(
+  lease: Parameters<typeof dispatchMoveInFormsForSignedLease>[0],
+): void {
+  afterResponse(() => dispatchMoveInFormsForSignedLease(lease));
+}
+
 /* ------------------------------------------------------------- manager API */
 
 const sendSchema = z.object({
@@ -486,13 +534,17 @@ export async function listMoveInForms(
   filters: { status?: string; propertyId?: string; applicationId?: string } = {},
 ): Promise<{ forms: MoveInFormSummary[]; unread: number }> {
   const scope = await scopeFor(actor);
-  const rows = (await scopedRows(actor, scope)).filter((row) => authorized(actor, scope, row) && row.status !== "cancelled");
-  const unread = actor.role === "manager" ? rows.filter((row) => row.status === "submitted" && !row.manager_viewed_at).length : 0;
   const status = filters.status === "submitted" || filters.status === "sent" ? filters.status : undefined;
+  // The filters run in the query, so a single record's tab never pays for the whole move-in history.
+  // `unread` therefore counts within the same filters (the nav badge asks with none).
+  const rows = (await scopedRows(actor, scope, {
+    propertyId: filters.propertyId || undefined,
+    applicationId: filters.applicationId || undefined,
+    status,
+    excludeCancelled: true,
+  })).filter((row) => authorized(actor, scope, row) && row.status !== "cancelled");
+  const unread = actor.role === "manager" ? rows.filter((row) => row.status === "submitted" && !row.manager_viewed_at).length : 0;
   const forms = rows
-    .filter((row) => (!status || row.status === status) &&
-      (!filters.propertyId || row.property_id === filters.propertyId) &&
-      (!filters.applicationId || row.application_id === filters.applicationId))
     .sort((a, b) => (b.submitted_at ?? b.sent_at).localeCompare(a.submitted_at ?? a.sent_at))
     .map((row) => toSummary(row, actor.role));
   return { forms, unread };
@@ -523,7 +575,8 @@ export async function sendMoveInForm(actor: MoveInFormActor, raw: unknown): Prom
     dueAt: input.dueAt ?? moveInFormDueAt(template.due, residency.moveInDate),
   });
   await updateAuditResult(actor.context, auditKey, { status: result.created ? "success" : "duplicate", form_id: result.row?.id ?? null });
-  if (!result.created) throw new MoveInFormError("This resident already has this form.", 409);
+  // Only a copy still waiting on the resident blocks this; a submitted one stays as history and the form goes out again.
+  if (!result.created) throw new MoveInFormError("This resident already has this form waiting for them.", 409);
   track("move_in_form_sent", actor.context.userId, { form_id: template.id, trigger: "manual" });
   void emitMoveInFormEvent(actor.context.db, { row: result.row, event: "sent" }).catch(() => undefined);
   return { form: toSummary(result.row, "manager") };
@@ -578,6 +631,8 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
   for (const [applicationId, secondary] of applicationIds) {
     const residency = await readResidency(db, applicationId);
     if (!residency?.approved || residency.identity.property_id !== property.id || !residency.identity.resident_email) continue;
+    // "Send to current residents" never repeats a form a resident already holds or finished.
+    if ((await liveFormIds(db, applicationId)).has(template.id)) continue;
     if (secondary && template.audience.kind === "whole-house") continue;
     const room = resolveRoom(property, residency);
     if (!templateAppliesToRoom(template, room.id)) continue;
@@ -836,13 +891,48 @@ export async function uploadMoveInFormFile(actor: MoveInFormActor, id: string, q
   // Caps come from what is really stored, not from what a draft happens to reference.
   const { data: forQuestion, error: listError } = await storage.list(`${row.id}/${questionKey}`, { limit: 100 });
   if (listError) throw new MoveInFormError("Could not upload the file.", 500);
-  if ((forQuestion ?? []).length >= (question.type === "signature" ? 5 : MAX_FILES_PER_QUESTION)) throw new MoveInFormError("This question has reached its file limit.");
+  if ((forQuestion ?? []).length >= (question.type === "signature" ? MAX_SIGNATURES_PER_QUESTION : MAX_FILES_PER_QUESTION)) throw new MoveInFormError("This question has reached its file limit.");
   if ((await countStored(storage, row.id, questionsOf(row))) >= MAX_FILES_PER_FORM) throw new MoveInFormError("This form has reached its file limit.");
   const image = await normalizeImage(file, question.type === "signature" ? "signature" : "photo");
   const path = `${row.id}/${questionKey}/${randomUUID()}.${image.ext}`;
   const { error } = await storage.upload(path, image.bytes, { contentType: image.contentType, cacheControl: "31536000", upsert: false });
   if (error) throw new MoveInFormError("Could not upload the file.", 500);
   return { storagePath: path };
+}
+
+/**
+ * A resident removes a file they uploaded (a photo taken out, a signature redone). Only while the
+ * form is still open, and only a path inside this record's own prefix; anything else is a 404.
+ */
+export async function deleteMoveInFormFile(actor: MoveInFormActor, id: string, path: string): Promise<{ ok: true }> {
+  const row = await getOpenResidentRow(actor, id);
+  const key = path.split("/")[1] ?? "";
+  if (!pathBelongsToRecord(path, row.id, key) || !questionsOf(row).some((question) => question.key === key)) {
+    throw new MoveInFormError("File not found.", 404);
+  }
+  const { error } = await actor.context.db.storage.from(MOVE_IN_FORM_FILES_BUCKET).remove([path]);
+  if (error) throw new MoveInFormError("Could not remove the file.", 500);
+  return { ok: true };
+}
+
+/** After a submit: drop stored objects under the record that the final answers no longer reference. */
+async function pruneUnreferencedFiles(
+  storage: ReturnType<SupabaseClient["storage"]["from"]>,
+  recordId: string,
+  questions: MoveInFormQuestion[],
+  answers: MoveInFormAnswer[],
+): Promise<void> {
+  const keep = new Set(answers.flatMap((answer) => "files" in answer ? answer.files : "signature" in answer ? [answer.signature.storagePath] : []));
+  const doomed: string[] = [];
+  for (const question of questions) {
+    if (!(isFileQuestion(question) || question.type === "signature")) continue;
+    const { data } = await storage.list(`${recordId}/${question.key}`, { limit: 100 });
+    for (const entry of data ?? []) {
+      const path = `${recordId}/${question.key}/${entry.name}`;
+      if (!keep.has(path)) doomed.push(path);
+    }
+  }
+  if (doomed.length) await storage.remove(doomed);
 }
 
 async function countStored(storage: ReturnType<SupabaseClient["storage"]["from"]>, recordId: string, questions: MoveInFormQuestion[]): Promise<number> {
@@ -894,18 +984,24 @@ export async function submitMoveInForm(actor: MoveInFormActor, id: string, raw: 
   if (!data) throw new MoveInFormError("This form was already submitted.", 409);
   const saved = data as unknown as MoveInFormRow;
   track("move_in_form_submitted", actor.context.userId, { form_id: row.form_id });
-  await notifyManagerOfSubmission(actor, saved);
+  // Uploads the final answers no longer reference (photos taken out, a signature redone) are dead weight.
+  await pruneUnreferencedFiles(storage, row.id, questions, answers).catch(() => undefined);
+  await notifyManagerOfSubmission(saved, db);
   return { form: toRecord(saved, "resident") };
 }
 
-async function notifyManagerOfSubmission(actor: Extract<MoveInFormActor, { role: "resident" }>, row: MoveInFormRow): Promise<void> {
+/**
+ * The property's "Tell me when a resident submits" choice: nothing, an Assistant notice, or an Assistant
+ * notice plus an email to the manager. Runs on the service client (the row is already saved), and each
+ * leg is best-effort on its own so a mail failure never hides the in-app notice.
+ */
+async function notifyManagerOfSubmission(row: MoveInFormRow, db: SupabaseClient): Promise<void> {
   try {
-    const property = await readProperty(actor.context.db, row.property_id);
-    if (property?.settings.notifyOnSubmit === "none") return;
-    await emitMoveInFormEvent(actor.context.db, {
-      row, event: "submitted",
-      actor: { userId: actor.context.userId, email: actor.context.email },
-    });
+    const property = await readProperty(db, row.property_id);
+    const choice = property?.settings.notifyOnSubmit ?? "assistant";
+    if (choice === "none") return;
+    await emitMoveInFormEvent(db, { row, event: "submitted" }).catch(() => undefined);
+    if (choice === "assistant-and-email") await emailManagerOfMoveInFormSubmission(db, row).catch(() => undefined);
   } catch {
     // Best-effort: the submission is saved above.
   }
@@ -967,10 +1063,13 @@ export async function uploadMoveInFormTemplatePdf(
   const db = actor.context.db;
   const scope = await scopeFor(actor, "edit");
   const property = await readProperty(db, input.propertyId);
-  // Only the property's owner stores originals under their own prefix.
-  if (!property || property.ownerId !== actor.context.userId ||
-    !authorized(actor, scope, { resident_email: "", manager_user_id: property.ownerId, property_id: property.id })) {
+  if (!property || !authorized(actor, scope, { resident_email: "", manager_user_id: property.ownerId, property_id: property.id })) {
     throw new MoveInFormError("Property not found.", 404);
+  }
+  // Only the property's owner stores originals under their own prefix. A co-manager who can edit the
+  // form still sees the real reason rather than a missing property.
+  if (property.ownerId !== actor.context.userId) {
+    throw new MoveInFormError("Only the property owner can upload the form's PDF.", 403);
   }
   let pageCount: number;
   try { pageCount = (await PDFDocument.load(bytes)).getPageCount(); }

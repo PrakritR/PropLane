@@ -23,9 +23,10 @@ import {
 } from "@/components/portal/move-in-forms/move-in-form-model";
 import { useNativeCamera, type PhotoCaptureSource } from "@/lib/native/use-native-camera";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
+import { MAX_FILES_PER_QUESTION } from "@/lib/move-in-forms/limits";
 import type { MoveInFormAnswer, MoveInFormQuestion } from "@/lib/move-in-forms/types";
 
-const MAX_PHOTOS = 12;
+const MAX_PHOTOS = MAX_FILES_PER_QUESTION;
 
 export type MoveInQuestionFieldProps = {
   question: MoveInFormQuestion;
@@ -39,6 +40,11 @@ export type MoveInQuestionFieldProps = {
    * preview, where nothing may be sent anywhere: picks then stay on the device.
    */
   uploadFile?: (file: Blob, fileName: string) => Promise<string>;
+  /**
+   * Deletes a stored upload the resident took back out (a removed photo, a redone signature), so it
+   * stops counting against the question's file cap. Best-effort: a failure never blocks the edit.
+   */
+  removeFile?: (storagePath: string) => void | Promise<void>;
   /** Server-minted URL for a stored path, for thumbnails and the signature image. */
   fileUrl?: (storagePath: string) => string;
   /** The name recorded beside the signature. */
@@ -66,9 +72,15 @@ function TextishQuestion({ question, answer, onChange, error, readOnly }: MoveIn
 
 /* ───────────────────────────── photos ───────────────────────────── */
 
+/** Fire-and-forget removal of a stored upload; a builder-preview pick has nothing stored. */
+function discardUpload(removeFile: MoveInQuestionFieldProps["removeFile"], path: string) {
+  if (!removeFile || path.startsWith("preview:")) return;
+  void Promise.resolve(removeFile(path)).catch(() => undefined);
+}
+
 type PhotoRow = { path: string; preview?: string };
 
-function PhotoQuestion({ question, answer, onChange, error, readOnly, uploadFile, fileUrl }: MoveInQuestionFieldProps) {
+function PhotoQuestion({ question, answer, onChange, error, readOnly, uploadFile, removeFile, fileUrl }: MoveInQuestionFieldProps) {
   const { capture } = useNativeCamera();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -114,6 +126,7 @@ function PhotoQuestion({ question, answer, onChange, error, readOnly, uploadFile
     if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
     setPreviews((prev) => omitKey(prev, path));
     commit(stored.filter((item) => item !== path));
+    discardUpload(removeFile, path);
   };
 
   return (
@@ -171,7 +184,7 @@ function PhotoQuestion({ question, answer, onChange, error, readOnly, uploadFile
 
 /* ───────────────────────────── signature ───────────────────────────── */
 
-function SignatureQuestion({ question, answer, onChange, error, readOnly, uploadFile, fileUrl, signerName }: MoveInQuestionFieldProps) {
+function SignatureQuestion({ question, answer, onChange, error, readOnly, uploadFile, removeFile, fileUrl, signerName }: MoveInQuestionFieldProps) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const signed = answer && "signature" in answer ? answer.signature : null;
@@ -194,6 +207,7 @@ function SignatureQuestion({ question, answer, onChange, error, readOnly, upload
     if (preview) URL.revokeObjectURL(preview);
     setPreview(null);
     onChange(null);
+    if (signed) discardUpload(removeFile, signed.storagePath);
   };
 
   const imageSrc = preview ?? (signed && !signed.storagePath.startsWith("preview:") && fileUrl ? fileUrl(signed.storagePath) : null);

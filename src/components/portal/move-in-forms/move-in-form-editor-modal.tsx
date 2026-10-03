@@ -90,6 +90,7 @@ export function MoveInFormEditorModal({
   onSave,
   onDelete,
   onClose,
+  canUploadPdf = true,
 }: {
   mode: "add" | "edit";
   initial: MoveInFormTemplate;
@@ -102,6 +103,8 @@ export function MoveInFormEditorModal({
   /** Edit only: removes the form from the property. Resolves true on success, after which the editor closes. */
   onDelete?: (template: MoveInFormTemplate) => Promise<boolean>;
   onClose: () => void;
+  /** Only the property's owner stores the original PDF; a co-manager builds the form but cannot upload. */
+  canUploadPdf?: boolean;
 }) {
   const confirm = useConfirm();
   const [draft, setDraft] = useState<MoveInFormTemplate>(() => structuredClone(initial));
@@ -390,7 +393,7 @@ export function MoveInFormEditorModal({
               className="min-w-[200px] max-w-[280px]"
               value={startsFrom}
               onChange={changeStartsFrom}
-              options={STARTS_FROM_OPTIONS}
+              options={canUploadPdf ? STARTS_FROM_OPTIONS : STARTS_FROM_OPTIONS.filter((option) => option.value !== "upload")}
               dataAttr="move-in-form-starts-from"
             />
           </PropertyFormWizardRow>
@@ -421,21 +424,23 @@ export function MoveInFormEditorModal({
                   {draft.pdf.pageCount} page{draft.pdf.pageCount === 1 ? "" : "s"}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                loading={uploading}
-                onClick={() => fileInput.current?.click()}
-                data-attr="move-in-form-pdf-replace"
-              >
-                Replace
-              </Button>
+              {canUploadPdf ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  loading={uploading}
+                  onClick={() => fileInput.current?.click()}
+                  data-attr="move-in-form-pdf-replace"
+                >
+                  Replace
+                </Button>
+              ) : null}
             </div>
           ) : (
             <button
               type="button"
-              disabled={uploading}
+              disabled={uploading || !canUploadPdf}
               onClick={() => fileInput.current?.click()}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -445,7 +450,7 @@ export function MoveInFormEditorModal({
               onDrop={(event) => {
                 event.preventDefault();
                 setDragging(false);
-                void pickPdf(event.dataTransfer.files?.[0]);
+                if (canUploadPdf) void pickPdf(event.dataTransfer.files?.[0]);
               }}
               data-attr="move-in-form-pdf-drop"
               className={cn(
@@ -454,7 +459,7 @@ export function MoveInFormEditorModal({
               )}
             >
               <Upload className={cn("size-6 text-muted transition-transform duration-(--motion-base)", dragging && "-translate-y-0.5 text-primary")} aria-hidden />
-              {uploading ? "Uploading…" : "Drop a PDF here or browse"}
+              {!canUploadPdf ? "Only the property owner can upload the PDF" : uploading ? "Uploading…" : "Drop a PDF here or browse"}
             </button>
           )}
           {uploadError ? (

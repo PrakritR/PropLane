@@ -5,7 +5,7 @@ import { managerCanAccessLeaseRecord, type LeaseScopeRecord } from "@/lib/auth/m
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/document-auto-file-hooks.server";
 import { buildDurableLeaseTransitionEnvelope } from "@/lib/domain-action-events.server";
-import { dispatchMoveInFormsForSignedLease } from "@/lib/move-in-forms/server";
+import { dispatchMoveInFormsForSignedLeaseAfterResponse } from "@/lib/move-in-forms/server";
 import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
@@ -239,7 +239,7 @@ export async function POST(req: Request) {
     // them executed.
     await autoFileLeaseDocument(db, next as unknown as AutoFileLeaseRow).catch(() => undefined);
     // Off-platform signing is full execution too: the move-in forms go out now (best-effort).
-    await dispatchMoveInFormsForSignedLease(next as LeasePipelineRow);
+    dispatchMoveInFormsForSignedLeaseAfterResponse(next as LeasePipelineRow);
     if (managerUserId) {
       void syncLeaseLifecycleTasks(db, managerUserId, stored, next as LeasePipelineRow).catch(() => undefined);
     }

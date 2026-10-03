@@ -47,6 +47,13 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
   post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
+/**
+ * My home tabs open BEFORE a lease is signed. Approval is when "application approved" move-in forms
+ * are sent, so Forms must be reachable then; every other My home tab (placement, housemates, info &
+ * rules, amenities) discloses the house and stays locked until the lease is signed.
+ */
+export const RESIDENT_PRE_LEASE_MOVE_IN_TABS: readonly string[] = ["forms"];
+
 const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = {
   pre_approval: ["tour", "applications", "dashboard", "communication", "profile"],
   application_submitted: ["tour", "applications", "dashboard", "communication", "profile"],
@@ -58,6 +65,9 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "dashboard",
     "communication",
     "documents",
+    // My home is open for its Forms tab only (RESIDENT_PRE_LEASE_MOVE_IN_TABS); the path guard and
+    // the server render gate hold the other tabs back until the lease is signed.
+    "move-in",
     "profile",
   ],
   // Lease/Payments/Documents/Services/My home (move-in + inspections) unlock
@@ -171,6 +181,12 @@ export function isResidentPathAllowedForAccess(
 
   if (section === "applications" || pathname.startsWith("/resident/applications/")) {
     return residentSectionUnlockedForStage("applications", stage);
+  }
+
+  // Between approval and a signed lease My home opens for Forms alone.
+  if (section === "move-in" && stage === "post_approval_pre_lease") {
+    const tab = pathname.split("/").filter(Boolean)[2];
+    return !tab || RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(tab);
   }
 
   return residentSectionUnlockedForStage(section, stage);

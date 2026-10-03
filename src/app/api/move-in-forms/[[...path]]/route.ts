@@ -4,7 +4,7 @@ import { resolveAgentContext } from "@/lib/tools/context";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { moveInFormPdf } from "@/lib/move-in-forms/pdf";
 import {
-  cancelMoveInForm, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
+  cancelMoveInForm, deleteMoveInFormFile, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
   moveInFormTemplatePdf, remindMoveInForm, saveMoveInFormDraft, sendMoveInForm, sendMoveInFormToCurrentResidents,
   submitMoveInForm, uploadMoveInFormFile, uploadMoveInFormTemplatePdf, type MoveInFormActor,
 } from "@/lib/move-in-forms/server";
@@ -128,6 +128,7 @@ async function handle(req: NextRequest, context: RouteContext) {
       if (!(file instanceof File)) throw new MoveInFormError("Choose a file.");
       return json(await uploadMoveInFormFile(actor, id, z.string().min(1).max(80).parse(form.get("questionKey")), file), 201);
     }
+    if (id && req.method === "DELETE" && verb === "files") return json(await deleteMoveInFormFile(actor, id, filePath(search)));
     throw new MoveInFormError("Not found.", 404);
   } catch (error) {
     if (error instanceof ZodError) return json({ error: error.issues[0]?.message ?? "Invalid move-in form input." }, 400);
@@ -143,3 +144,4 @@ const fileRedirect = (url: string) => NextResponse.redirect(url, { status: 302, 
 export const GET = handle;
 export const POST = handle;
 export const PATCH = handle;
+export const DELETE = handle;

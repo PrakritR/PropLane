@@ -42,6 +42,7 @@ import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confir
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
+import { sweepMoveInFormReminders } from "@/lib/reminders/subjects/move-in-forms.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -122,6 +123,8 @@ export async function GET(req: Request) {
       ["task_overdue", sweepTaskOverdue],
       ["document_signature", sweepDocumentSignatureReminders],
       ["resident_welcome", sweepResidentWelcome],
+      // Move-in forms: each property's own "Remind residents" choice.
+      ["move_in_form", sweepMoveInFormReminders],
     ] as const) {
       try {
         swept += await sweep(db);

@@ -70,7 +70,7 @@ describe("portal nav lock kinds", () => {
       // Tour and Applications stay UNLOCKED after approval (upstream
       // "Keep resident Tour and Application nav unlocked after approval"), so
       // the stage lock is about sections the resident has not reached yet.
-      for (const section of ["services", "move-in"]) {
+      for (const section of ["services", "inspections"]) {
         expect(
           portalNavLockKind({
             kind: "resident",
@@ -80,6 +80,25 @@ describe("portal nav lock kinds", () => {
           }),
         ).toBe("inert");
       }
+    });
+
+    it("opens My home at approval so its Forms tab is reachable (the other tabs are held by the route guard)", () => {
+      expect(
+        portalNavLockKind({
+          kind: "resident",
+          section: "move-in",
+          subscriptionTier: "paid",
+          residentNavStage: "post_approval_pre_lease",
+        }),
+      ).toBe("none");
+      expect(
+        portalNavLockKind({
+          kind: "resident",
+          section: "move-in",
+          subscriptionTier: "paid",
+          residentNavStage: "application_submitted",
+        }),
+      ).toBe("inert");
     });
 
     it("a free-tier manager plan opens the resident's disabled feature preview", () => {

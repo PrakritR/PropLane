@@ -6,13 +6,18 @@ import "server-only";
  *  - `sent`      resident hears a form is waiting (as the manager).
  *  - `reminder`  resident is nudged by the manager (as the manager, so it lands from the
  *                work inbox the way every cross-party copy does).
- *  - `submitted` manager hears the resident finished (an Assistant notice).
+ *  - `submitted` manager hears the resident finished (an Assistant notice; the property's
+ *                "Tell me when a resident submits" choice may add an email, see
+ *                `emailManagerOfMoveInFormSubmission`).
  *
  * All three are best-effort callers' business: the row is already saved before any of these run.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent, type ActionEventAudience } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 export type MoveInFormEvent = "sent" | "reminder" | "submitted";
 type EventRow = {
@@ -65,8 +70,6 @@ export async function emitMoveInFormEvent(
   input: {
     row: EventRow;
     event: MoveInFormEvent;
-    /** The resident's identity for `submitted`; the manager is looked up for the other two. */
-    actor?: { userId: string; email: string; name?: string };
     /** Distinguishes repeated reminders; ignored for the one-shot events. */
     nonce?: string;
   },
@@ -78,9 +81,10 @@ export async function emitMoveInFormEvent(
     placeLabel: [row.property_label, row.room_label].filter(Boolean).join(" · "),
     dueLabel: dueLabel(row.due_at),
   };
-  const sender = event === "submitted"
-    ? input.actor
-    : await managerSender(db, row.manager_user_id);
+  // The manager is always the sender. For `submitted` that makes the manager's copy an Assistant
+  // notice (the bus never self-sends a manager their own event), which is what "Assistant notice"
+  // promises: no email unless the property also asks for one.
+  const sender = await managerSender(db, row.manager_user_id);
   if (!sender?.email) return;
   const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const recipient = event === "submitted"
@@ -88,7 +92,8 @@ export async function emitMoveInFormEvent(
     : { audience: "resident" as const, userId: row.resident_user_id ?? undefined, email: row.resident_email || undefined };
   const rendered = renderMoveInFormEvent(event, recipient.audience, facts);
   if (!rendered) return;
-  const link = `${base}/${recipient.audience === "manager" ? "portal/move-in" : "resident/move-in"}`;
+  // The resident lands on the Forms tab itself (My home › Forms), the one tab open before a lease is signed.
+  const link = `${base}/${recipient.audience === "manager" ? "portal/move-in" : "resident/move-in/forms"}`;
   await emitActionEvent(db, {
     eventId: `${row.id}:${event}${event === "reminder" ? `:${input.nonce ?? Date.now()}` : ""}`,
     domain: "move_in_form",
@@ -103,4 +108,44 @@ export async function emitMoveInFormEvent(
     templateContext: { residentName: facts.residentName, formName: facts.formName, propertyTitle: facts.placeLabel, url: link },
     recipients: [{ ...recipient, rendered: { ...rendered, text: `${rendered.text}\n\n${link}` } }],
   });
+}
+
+/**
+ * The "Assistant notice and email" choice: the same news, also in the manager's mailbox. Sent from
+ * the shared PropLane sender to the manager's own profile email (alerts to a manager never leave
+ * on a work address). Best-effort and called once per submission, after the row is saved.
+ */
+export async function emailManagerOfMoveInFormSubmission(
+  db: SupabaseClient,
+  row: EventRow,
+): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return false;
+  const { data } = await db.from("profiles").select("email").eq("id", row.manager_user_id).maybeSingle();
+  const to = String(data?.email ?? "").trim().toLowerCase();
+  if (!to.includes("@") || shouldSkipOutboundEmail(to)) return false;
+  const rendered = renderMoveInFormEvent("submitted", "manager", {
+    residentName: row.resident_name,
+    formName: row.form_name,
+    placeLabel: [row.property_label, row.room_label].filter(Boolean).join(" · "),
+    dueLabel: "",
+  });
+  if (!rendered) return false;
+  const link = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/move-in`;
+  const text = `${rendered.text}\n\n${link}`;
+  const escape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const response = await postResendEmail({
+    apiKey,
+    actorUserId: row.manager_user_id,
+    payload: {
+      from: sharedPortalFromAddress(),
+      to: [to],
+      subject: rendered.subject,
+      text,
+      html: `<p>${escape(rendered.text)}</p><p><a href="${escape(link)}">Open Move-in</a></p>`,
+    },
+    effectSummary: "Move-in form submission email captured for the test workspace.",
+    metadata: { formRecordId: row.id },
+  });
+  return response.ok;
 }

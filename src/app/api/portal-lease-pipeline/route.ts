@@ -57,7 +57,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { AT_SIGNING_UNPAID_CODE, AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { checkResidentAtSigningGate } from "@/lib/lease-at-signing.server";
 import { buildDurableLeaseTransitionEnvelope, leaseEventForTransition } from "@/lib/domain-action-events.server";
-import { dispatchMoveInFormsForSignedLease } from "@/lib/move-in-forms/server";
+import { dispatchMoveInFormsForSignedLeaseAfterResponse } from "@/lib/move-in-forms/server";
 import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
 
 /** The resident-identity scope for this route's two reads; null = match nothing. */
@@ -1614,7 +1614,7 @@ export async function POST(req: Request) {
       // Move-in forms go out the moment the lease is fully signed. Best-effort and idempotent;
       // it never changes the outcome of this save.
       if (nowSigned && !plan.previouslySigned) {
-        await dispatchMoveInFormsForSignedLease(plan.record.row_data as LeasePipelineRow);
+        dispatchMoveInFormsForSignedLeaseAfterResponse(plan.record.row_data as LeasePipelineRow);
       }
 
       if (managerUserId) {
