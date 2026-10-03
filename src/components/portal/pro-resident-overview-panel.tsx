@@ -347,7 +347,9 @@ export function ResidentOverviewPanel({
             {residentHeaderStageLine(lifecycle)}
           </p>
         ) : null}
-        <ol className="flex list-none gap-0 p-0" data-rt-track aria-label="Stage progress">
+        {/* Every step is the same shape (dot · label · date line, top-aligned), so a step
+            with no date never sits lower than its neighbours. */}
+        <ol className="flex list-none items-start gap-0 p-0" data-rt-track aria-label="Stage progress">
           {lifecycle.steps.map((step, index) => (
             <li
               key={step.id}
@@ -356,7 +358,7 @@ export function ResidentOverviewPanel({
               data-rt-first={index === Math.min(...phoneKeep) ? "" : undefined}
               aria-current={step.state === "current" ? "step" : undefined}
               className={cn(
-                "relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center",
+                "relative flex min-w-0 flex-1 flex-col items-center justify-start gap-2 self-start text-center",
                 "max-sm:data-[rt-keep]:flex max-sm:data-[rt-keep=false]:hidden",
                 index > 0 &&
                   "before:absolute before:right-1/2 before:top-[6px] before:-z-0 before:h-0.5 before:w-full before:rounded-full before:bg-foreground/10",
@@ -380,7 +382,9 @@ export function ResidentOverviewPanel({
               >
                 {step.label}
               </span>
-              {step.date ? <span className="-mt-1 text-xs text-muted/80">{step.date}</span> : null}
+              <span className="-mt-1 min-h-4 text-xs leading-4 text-muted/80" aria-hidden={step.date ? undefined : true}>
+                {step.date ?? ""}
+              </span>
             </li>
           ))}
         </ol>

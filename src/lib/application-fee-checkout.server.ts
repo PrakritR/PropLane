@@ -7,22 +7,19 @@ import {
   loadManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
 import {
-  isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
-import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   residentServiceFeeBreakdown,
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
-import { applicationFeeLeaseTypeKey, listingApplicationFeeRaw } from "@/lib/listing-application-fee";
-import { placementApplicationFeeCents, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
-import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { applicationFeeLeaseTypeKey } from "@/lib/listing-application-fee";
+import { resolveApplicationFeeBasis } from "@/lib/application-fee-by-room";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
 import {
   APPLICATION_FEE_CHECKOUT_PURPOSE,
@@ -92,34 +89,31 @@ function offeredLeaseTerm(
 }
 
 /**
- * The stay type's own application fee for the room + lease type the applicant picked, in
- * cents -- the same resolver the listing quote reads (`listing-placement-standard-fees`).
- * `null` when the room is not known (an entire-home listing has no room to name), the room
- * is not on this listing, or that stay type typed no application fee of its own.
+ * `rentalType` is also a client-supplied selector: a stay's fee applies only
+ * when the listing really lets stays, so a long-term-only listing cannot be
+ * quoted the short-term row by naming it.
  */
-function placementFeeCentsFor(
+function offeredRentalType(
   listing: ManagerListingSubmissionV1 | null,
-  input: { rentalType?: "standard" | "short_term"; leaseTerm?: string; roomId?: string },
-): number | null {
-  if (!listing) return null;
-  const roomId = String(input.roomId ?? "").trim();
-  const room = roomId ? (listing.rooms ?? []).find((r) => r.id === roomId) ?? null : null;
-  const entireHomeFees = !room && isEntireHomeListing(listing) ? listing.entireHomeArrangementFees : undefined;
-  if (!room && !entireHomeFees) return null;
-  const offered = offeredLeaseTerm(listing, input.leaseTerm);
-  const isStay = input.rentalType === "short_term" || offered === SHORT_TERM_LEASE_TERM || offered === AIRBNB_LEASE_TERM;
-  return placementApplicationFeeCents(listing, {
-    leaseTerm: isStay ? stayPlacementLeaseTerm(offered) : (offered ?? LONG_TERM_LEASE_TERM),
-    room,
-    entireHomeFees,
-    isStay,
-  });
+  rentalType: "standard" | "short_term" | undefined,
+): "standard" | "short_term" {
+  if (rentalType !== "short_term") return "standard";
+  return listing?.shortTermRentalsAllowed || listing?.airbnbRentalsAllowed ? "short_term" : "standard";
 }
+
+/** Which level of the chain set the amount, recorded on the payment so a later fee change is explainable. */
+export type ApplicationFeeSource = "room_term" | "template" | "listing" | "account";
 
 export type ResolvedApplicationFeeProperty = {
   managerUserId: string;
   listing: ManagerListingSubmissionV1 | null;
   applicationFeeCents: number;
+  /** Which level of the fee chain set `applicationFeeCents`. */
+  feeSource: ApplicationFeeSource;
+  /** The room (`whole` for a whole-home listing) the fee was computed for; null when no room resolved. */
+  feeRoomId: string | null;
+  /** The lease type the fee was computed for (as offered by the listing); empty when none. */
+  feeLeaseTerm: string;
   /**
    * P003: the resolved application template's own advertised waiver code
    * (`PropertyApplicationTemplate.waiverCodeOverride`), when the applicant's
@@ -163,11 +157,11 @@ export async function resolveApplicationFeeProperty(
      */
     leaseTerm?: string;
     /**
-     * The room the applicant picked -- a SELECTOR into the listing's stored rooms, never an
-     * amount. With `leaseTerm` it names the placement whose own application fee (typed in
-     * Pricing) replaces the account default; absent, nothing placement-specific applies.
+     * The applicant's first room choice (`roomChoice1`) - a SELECTOR into the
+     * listing's stored rooms, never an amount. An id the listing does not
+     * contain resolves no room, and the fee falls back down the chain.
      */
-    roomId?: string;
+    roomChoice1?: string;
     /**
      * P003: a SELECTOR (like `leaseTerm` above), never an amount — picks which
      * of the listing's stored `propertyApplicationTemplates` rows the
@@ -229,20 +223,34 @@ export async function resolveApplicationFeeProperty(
   const matchedTemplate = templateId
     ? readPropertyApplicationTemplates(listing ?? { propertyApplicationTemplates: [] }).find((t) => t.id === templateId)
     : undefined;
-  // The Application system fee is authoritative for EVERY listing, including an explicit
-  // 0 (free); listing fees are ignored (PLAN-0924-1254, docs/agents/resident-payments.md).
-  // `effectiveApplicationFeeCents` owns that rule; the listing value is still passed only
-  // through its deprecated parameter.
+  // The fee follows the room the applicant chose and the lease type they chose
+  // (captain, 2026-10-03). Chain: that room's fee for that term -> the
+  // application template's own fee -> the listing-level fee -> the Application
+  // system setting -> legacy default (`effectiveApplicationFeeCents`). A typed 0
+  // at any level means free. Every input is read from the stored listing; the
+  // room id and term are selectors only.
   const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
-  const rawListingFee = listingApplicationFeeRaw(listing, input.rentalType, offeredLeaseTerm(listing, input.leaseTerm));
-  const listingFeeCents =
-    rawListingFee === "" ? null : clampAmountCents(parseMoneyAmount(rawListingFee) * 100);
+  const feeLeaseTerm = offeredLeaseTerm(listing, input.leaseTerm);
+  const basis = resolveApplicationFeeBasis(listing, {
+    roomChoice1: input.roomChoice1,
+    leaseTerm: feeLeaseTerm,
+    rentalType: offeredRentalType(listing, input.rentalType),
+  });
+  const templateCents = matchedTemplate?.feeCentsOverride ?? null;
+  const feeSource: ApplicationFeeSource =
+    basis.roomTermCents !== null
+      ? "room_term"
+      : templateCents !== null
+        ? "template"
+        : basis.listingCents !== null
+          ? "listing"
+          : "account";
   const applicationFeeCents = clampAmountCents(
     effectiveApplicationFeeCents({
       managerFeeCents: managerSettings.applicationFeeCents,
-      templateFeeCentsOverride: matchedTemplate?.feeCentsOverride ?? null,
-      placementFeeCents: placementFeeCentsFor(listing, input),
-      listingFeeCents,
+      roomTermFeeCents: basis.roomTermCents,
+      templateFeeCentsOverride: templateCents,
+      listingFeeCents: basis.listingCents,
     }),
   );
   if (applicationFeeCents <= 0 && !opts?.allowZeroFee) {
@@ -255,6 +263,9 @@ export async function resolveApplicationFeeProperty(
       managerUserId: ownerUserId,
       listing,
       applicationFeeCents,
+      feeSource,
+      feeRoomId: basis.roomId,
+      feeLeaseTerm: feeLeaseTerm ?? "",
       templateWaiverCodeOverride: matchedTemplate?.waiverCodeOverride?.trim() || null,
       resolvedApplicationTemplateId: matchedTemplate?.id ?? null,
     },
@@ -308,9 +319,9 @@ export async function resolveRequiredApplicationFeeCents(
     propertyId: string;
     managerUserId: string;
     applicationTemplateId?: string | null;
+    roomChoice1?: string | null;
+    leaseTerm?: string | null;
     rentalType?: "standard" | "short_term";
-    leaseTerm?: string;
-    roomId?: string;
   },
 ): Promise<number> {
   const resolved = await resolveApplicationFeeProperty(
@@ -319,9 +330,9 @@ export async function resolveRequiredApplicationFeeCents(
       propertyId: input.propertyId,
       managerUserId: input.managerUserId,
       applicationTemplateId: input.applicationTemplateId ?? undefined,
+      roomChoice1: input.roomChoice1 ?? undefined,
+      leaseTerm: input.leaseTerm ?? undefined,
       rentalType: input.rentalType,
-      leaseTerm: input.leaseTerm,
-      roomId: input.roomId,
     },
     { allowZeroFee: true },
   );
@@ -388,8 +399,8 @@ export type ApplicationFeeCheckoutInput = {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type; picks the listing's per-type fee when one is set. */
   leaseTerm?: string;
-  /** The applicant's room (a selector); with `leaseTerm` it picks the stay type's own application fee. */
-  roomId?: string;
+  /** The applicant's first room choice - a selector into the listing's stored rooms, never an amount. */
+  roomChoice1?: string;
   /** P003: selects the stored application template's own fee override, when it set one. */
   applicationTemplateId?: string;
   /**
@@ -449,6 +460,12 @@ export async function createApplicationFeeCheckout(
     // omitted, so a reader can tell "no template" from "field predates this".
     application_template_id: (resolved.value.resolvedApplicationTemplateId ?? "").slice(0, 120),
     fee_cents: String(applicationFeeCents),
+    // Which room / lease type this fee was computed for, and which level of the
+    // fee chain set it. After payment a room or term change does NOT re-charge
+    // or refund; this is the record of what the amount was based on.
+    fee_room_id: (resolved.value.feeRoomId ?? "").slice(0, 120),
+    fee_lease_term: resolved.value.feeLeaseTerm.slice(0, 40),
+    fee_source: resolved.value.feeSource,
   };
   if (input.residentName) metadata.resident_name = input.residentName.slice(0, 450);
 

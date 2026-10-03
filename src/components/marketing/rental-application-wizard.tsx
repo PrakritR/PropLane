@@ -838,7 +838,7 @@ function RentalApplicationWizardInner({
         managerUserId: catalogManagerUserId || undefined,
         rentalType: applicationRentalTypeFor(form.rentalType),
         leaseTerm: form.leaseTerm || undefined,
-        roomId: parseRoomChoiceValue(form.roomChoice1).listingRoomId,
+        roomChoice1: form.roomChoice1 || undefined,
         applicationTemplateId: form.applicationTemplateId,
         residentEmail: email,
       }).then((result) => {
@@ -1900,7 +1900,7 @@ function RentalApplicationWizardInner({
           managerUserId: managerUserIdForFee || undefined,
           rentalType: applicationRentalTypeFor(form.rentalType),
           leaseTerm: form.leaseTerm || undefined,
-          roomId: parseRoomChoiceValue(form.roomChoice1).listingRoomId,
+          roomChoice1: form.roomChoice1 || undefined,
           applicationTemplateId: form.applicationTemplateId,
         });
         if (previewResult.preview) {
@@ -2211,7 +2211,7 @@ function RentalApplicationWizardInner({
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
             leaseTerm: form.leaseTerm || undefined,
-            roomId: parseRoomChoiceValue(form.roomChoice1).listingRoomId,
+            roomChoice1: form.roomChoice1 || undefined,
             applicationTemplateId: form.applicationTemplateId,
           });
           const feePreview = feeResult.preview;
@@ -2435,7 +2435,7 @@ function RentalApplicationWizardInner({
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
             leaseTerm: form.leaseTerm || undefined,
-            roomId: parseRoomChoiceValue(form.roomChoice1).listingRoomId,
+            roomChoice1: form.roomChoice1 || undefined,
             applicationTemplateId: form.applicationTemplateId,
             residentEmail: emailTrim,
           });

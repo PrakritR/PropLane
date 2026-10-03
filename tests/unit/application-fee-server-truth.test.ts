@@ -240,10 +240,10 @@ function dbWith(managerFeeCents: number | null, listingFee: string): SupabaseCli
   } as unknown as SupabaseClient;
 }
 
-// PLAN-0924-1254 (docs/agents/resident-payments.md): the fee is set ONCE per
-// manager in Application system settings and is authoritative for every
-// listing, including an explicit 0 (free). Listing fees are ignored.
-describe("resolveApplicationFeeProperty — the account-wide fee is authoritative for every listing", () => {
+// Captain, 2026-10-03: the fee follows the chosen room + lease type, then the listing-level
+// fee, then the Application system setting (docs/agents/resident-payments.md). A typed 0 at
+// any level is free. By-room coverage lives in tests/unit/application-fee-by-room.test.ts.
+describe("resolveApplicationFeeProperty — listing-level fee, then the account-wide fee", () => {
   it("charges the account-wide fee for a listing that sets nothing", async () => {
     const res = await resolveApplicationFeeProperty(dbWith(7500, ""), {
       propertyId: "p1",
@@ -253,28 +253,18 @@ describe("resolveApplicationFeeProperty — the account-wide fee is authoritativ
     if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 
-  it("ignores a differing per-listing fee", async () => {
+  it("a per-listing fee wins over the account-wide fee", async () => {
     const res = await resolveApplicationFeeProperty(dbWith(7500, "$50"), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(5000);
   });
 
-  it("a per-listing $0 does not make a listing free while the account charges a fee", async () => {
+  it("a per-listing $0 makes the listing free even while the account charges a fee", async () => {
     const res = await resolveApplicationFeeProperty(
       dbWith(7500, "$0"),
-      { propertyId: "p1", managerUserId: MANAGER_ID },
-      { allowZeroFee: true },
-    );
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
-  });
-
-  it("the preview answers an account-wide $0 as ok/0 (free), whatever the listing says", async () => {
-    const res = await resolveApplicationFeeProperty(
-      dbWith(0, "$50"),
       { propertyId: "p1", managerUserId: MANAGER_ID },
       { allowZeroFee: true },
     );
@@ -282,8 +272,18 @@ describe("resolveApplicationFeeProperty — the account-wide fee is authoritativ
     if (res.ok) expect(res.value.applicationFeeCents).toBe(0);
   });
 
-  it("the checkout mint refuses an account-wide $0 — there is nothing to collect", async () => {
-    const res = await resolveApplicationFeeProperty(dbWith(0, "$50"), {
+  it("the preview answers an account-wide $0 as ok/0 (free) when the listing sets nothing", async () => {
+    const res = await resolveApplicationFeeProperty(
+      dbWith(0, ""),
+      { propertyId: "p1", managerUserId: MANAGER_ID },
+      { allowZeroFee: true },
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(0);
+  });
+
+  it("the checkout mint refuses a free fee — there is nothing to collect", async () => {
+    const res = await resolveApplicationFeeProperty(dbWith(0, ""), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
@@ -291,8 +291,8 @@ describe("resolveApplicationFeeProperty — the account-wide fee is authoritativ
     if (!res.ok) expect(res.code).toBe("NO_APPLICATION_FEE");
   });
 
-  it("falls back to the legacy default when the manager never saved a fee", async () => {
-    const res = await resolveApplicationFeeProperty(dbWith(null, "$90"), {
+  it("falls back to the legacy default when nothing at all is set", async () => {
+    const res = await resolveApplicationFeeProperty(dbWith(null, ""), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
@@ -300,7 +300,7 @@ describe("resolveApplicationFeeProperty — the account-wide fee is authoritativ
     if (res.ok) expect(res.value.applicationFeeCents).toBe(LEGACY_DEFAULT_APPLICATION_FEE_CENTS);
   });
 
-  it("ignores a per-listing short-term fee too", async () => {
+  it("a stay reads the listing-level short-term fee, not the long-term one", async () => {
     const db = {
       from: (table: string) => {
         const chain: Record<string, unknown> = {};
@@ -339,7 +339,9 @@ describe("resolveApplicationFeeProperty — the account-wide fee is authoritativ
       rentalType: "short_term",
     });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
+    // The listing has to offer stays for the short-term row to apply; this one does not,
+    // so a client naming a stay cannot reach it and the long-term listing fee applies.
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(5000);
   });
 });
 

@@ -312,7 +312,13 @@ export function createJsonRecordRoute(config: RecordConfig) {
             }
           }
           const { error } = await ctx.db.from(config.table).upsert(finalRecord, { onConflict: "id" });
-          if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+          if (error) {
+            // A table trigger's refusal (last bed taken, invalid dates) is the caller's
+            // conflict, not a server failure — same mapping as the applications route.
+            const code = String((error as { code?: unknown }).code ?? "");
+            const status = ["P4001", "40001", "40P01"].includes(code) ? 409 : code === "23514" ? 422 : 500;
+            return NextResponse.json({ error: error.message }, { status });
+          }
           if (config.afterWrite) {
             try {
               await config.afterWrite({

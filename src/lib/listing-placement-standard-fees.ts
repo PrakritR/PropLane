@@ -52,6 +52,28 @@ function readStoredTermFee(
   return trimmed === "" ? undefined : trimmed;
 }
 
+/**
+ * A stay's own lease / application fee stored on the arrangement row itself
+ * (`shortTermLeaseFee` / `shortTermApplicationFee`). This is where an entire-home listing keeps
+ * its Short term fees (it has no room, so no `termPricing`), and where rows saved before the
+ * per-stay-type `termPricing` entry existed keep theirs.
+ */
+const STAY_FEE_FIELD_ON_ROW = {
+  leaseFee: "shortTermLeaseFee",
+  applicationFee: "shortTermApplicationFee",
+} as const;
+
+function readStayFeeOnRow(
+  row: RoomOccupancyPrice | { leaseFee?: string; applicationFee?: string; moveInFee?: string } | undefined,
+  kind: PlacementStandardFeeKind,
+): string | undefined {
+  if (kind === "moveInFee") return undefined;
+  const raw = (row as Record<string, unknown> | undefined)?.[STAY_FEE_FIELD_ON_ROW[kind]];
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 function readArrangementFee(
   row: RoomOccupancyPrice | { leaseFee?: string; applicationFee?: string; moveInFee?: string } | undefined,
   kind: PlacementStandardFeeKind,
@@ -95,11 +117,20 @@ export function placementStandardFeeRaw(
   const fromEntireHome = (kind: PlacementStandardFeeKind) =>
     options.entireHomeFees ? readArrangementFee({ count: 1, ...options.entireHomeFees }, kind) : undefined;
 
+  const isStayTerm = leaseTerm === SHORT_TERM_LEASE_TERM || leaseTerm === AIRBNB_LEASE_TERM;
+  const fromStayFieldOnRow = (kind: PlacementStandardFeeKind) =>
+    isStayTerm
+      ? readStayFeeOnRow(longTermRow, kind) ??
+        (options.entireHomeFees ? readStayFeeOnRow(options.entireHomeFees as RoomOccupancyPrice, kind) : undefined)
+      : undefined;
+
   const resolve = (kind: PlacementStandardFeeKind): string | undefined => {
     if (isBase) {
       return fromLongTermArrangement(kind) ?? fromEntireHome(kind);
     }
-    return fromTerm(kind) ?? fromLongTermArrangement(kind) ?? fromEntireHome(kind);
+    return (
+      fromTerm(kind) ?? fromStayFieldOnRow(kind) ?? fromLongTermArrangement(kind) ?? fromEntireHome(kind)
+    );
   };
 
   return {
@@ -166,6 +197,37 @@ export function placementApplicationFeeCents(
   if (!sub) return null;
   const raw = placementStandardFeeRaw(sub, options).applicationFee;
   return raw === undefined ? null : Math.round(parseMoneyAmount(raw) * 100);
+}
+
+/**
+ * The placement options for one selection (room or whole house, lease type, rental type) -- how
+ * every consumer (quote, application fee charged, lease document, charge ledger) turns what the
+ * applicant chose into the ONE resolver's input, so none of them keeps its own stay / long-term test.
+ */
+export function placementFeeOptionsFor(
+  sub: Pick<ManagerListingSubmissionV1, "entireHomeArrangementFees">,
+  input: {
+    room?: ManagerRoomSubmission | null;
+    wholeHouse?: boolean;
+    leaseTerm?: string | null;
+    rentalType?: string | null;
+    arrangementCount?: number | null;
+  },
+): PlacementFeeOptions {
+  const term = String(input.leaseTerm ?? "").trim();
+  const isStay =
+    input.rentalType === "short_term" ||
+    input.rentalType === "airbnb" ||
+    term === SHORT_TERM_LEASE_TERM ||
+    term === AIRBNB_LEASE_TERM;
+  const room = input.room ?? null;
+  return {
+    leaseTerm: isStay ? stayPlacementLeaseTerm(term) : term || LONG_TERM_LEASE_TERM,
+    room,
+    arrangementCount: input.arrangementCount ?? null,
+    entireHomeFees: !room && input.wholeHouse ? sub.entireHomeArrangementFees : undefined,
+    isStay,
+  };
 }
 
 /** The stay term a short-stay placement is priced under: its own stay lease type, else Short-Term Stay. */

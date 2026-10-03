@@ -787,6 +787,8 @@ export type ManagerListingSubmissionV1 = {
     moveInFee?: string;
     monthToMonthSurcharge?: string;
     customStartSurcharge?: string;
+    shortTermLeaseFee?: string;
+    shortTermApplicationFee?: string;
   };
   /** Per-room pricing markers (workspace default fill, copy-from-room). Manager-only metadata. */
   roomPricingMeta?: Record<string, RoomPricingUiMeta>;

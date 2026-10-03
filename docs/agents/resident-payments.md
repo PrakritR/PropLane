@@ -242,33 +242,41 @@ sibling `allowMultiplePropertyApplications` is likewise inert —
 properties/rooms and blocks only an exact same-property + same-room PENDING
 duplicate. Coverage: `tests/unit/application-policy.test.ts`.
 
-**The application fee is configured ONCE per manager, in Application system
-settings — NOT on listing Pricing** (PLAN-0924-1254; earlier captain decision
-2026-07-26). The manager-level value lives on
-`manager_automation_settings.row_data.applicationSettings`
-(`src/lib/manager-application-settings.ts`, `GET/PATCH
-/api/portal/manager-application-settings`) and is surfaced under Settings →
-**Applications → Application system** (cost + charge policy), alongside promo
-waiver codes under Handling. Source-of-truth rule
-(`effectiveApplicationFeeCents`): the Application system fee is authoritative
-for EVERY listing (including an explicit `0` = free); listing
-`applicationFee` fields are ignored. Until the manager saves a value it is
-`null` and the resolver uses the legacy $50 default. Pricing no longer
-edits the house fee. **One exception (captain, Oct 3, 2026): each stay type
+**The application fee follows the room the applicant chose and the lease type
+they chose** (captain decisions, 2026-10-03). ONE resolver decides a stay type's
+own fees: `src/lib/listing-placement-standard-fees.ts`
+(`placementStandardFeeRaw` / `placementApplicationFeeCents`). Each stay type
 (Long-term, Month-to-month, Short term, Custom) carries its OWN lease fee,
-application fee and move-in fee in the room's Pricing popup.** A stay type's
-value REPLACES the house fee of the same kind (never a second line); empty
-inherits (Custom "Same as long-term" inherits long-term). One resolver decides:
-`src/lib/listing-placement-standard-fees.ts`. The quote / listing card, the
-application fee charged (`placementFeeCents` in `effectiveApplicationFeeCents`,
-order: the application's own fee, then the stay type's typed fee for the
-applicant's room + lease type, then the account fee, then $50; the applicant
-sends `roomId` as a selector, never an amount), the booked application-fee
-charge, and the move-in charged at signing / previewed / put on the lease
-(`resolvedMoveInFeeRaw`) all read it. The lease fee is shown on the quote but no
-charge kind bills it yet. Coverage: `tests/unit/manager-application-settings.test.ts`,
+application fee and move-in fee in the room's Pricing popup (a room's
+`termPricing[<term>]`; an entire-home listing keeps its Short term pair on the
+whole-house row's `shortTermLeaseFee` / `shortTermApplicationFee`). A stay
+type's value REPLACES the house fee of the same kind (never a second line);
+empty inherits (stay type -> long-term row -> listing default). The quote /
+listing card, the application fee charged, the booked application-fee charge,
+the lease document's fee rider, and the move-in / lease fee charged at signing
+and put on the lease snapshot all read that resolver, so **the fee shown is the
+fee charged is the signing charge**. `application-fee-by-room.ts` only SELECTS
+the placement (the first-choice room via `resolveSubmissionRoom`, the whole-house
+row on an entire-home listing, the offered lease type / rental type) and hands it
+to the resolver; `room-term-fees.ts` only overlays the resolved values onto the
+listing for the lease and the ledger.
+
+`effectiveApplicationFeeCents` walks the chain: **the stay type's own fee for the
+room + lease type (the resolver) -> the application template's own fee -> the
+listing-level fee -> the Application system setting
+(`manager_automation_settings.row_data.applicationSettings`, Settings ->
+Applications -> Application system) -> legacy $50**. A typed `0` at any level is
+free. `roomChoice1` and `leaseTerm` are selectors only (an unoffered term, a stay
+on a listing that lets none, or a room the listing lacks falls back); the body
+never carries an amount. The Stripe session and the paid household charge record
+the room, lease type and chain level the amount was computed for (`fee_room_id`
+/ `fee_lease_term` / `fee_source`, `applicationFeeBasis`); a room or term change
+AFTER paying does not re-charge or refund. The lease fee is billed once at
+signing as a one-time fee. Coverage: `tests/unit/application-fee-by-room.test.ts`,
+`tests/unit/manager-application-settings.test.ts`,
 `tests/unit/application-fee-inline-checkout.test.ts`,
-`tests/unit/term-fees-consumers.test.ts`, `tests/unit/term-fees-application-fee.test.ts`.
+`tests/unit/term-fees-consumers.test.ts`, `tests/unit/term-fees-application-fee.test.ts`,
+`tests/unit/short-term-application-fee-one-resolver.test.ts`.
 
 **Pipeline order and lease signing fee** live on
 `manager_automation_settings.row_data.leasingPipeline`

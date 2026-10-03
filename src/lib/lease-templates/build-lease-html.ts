@@ -55,6 +55,7 @@ import {
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
 import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
+import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { resolveStayPricing, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
@@ -464,7 +465,30 @@ ${closing}
 
 /** Full HTML document suitable for download and "Print to PDF". */
 
-export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdictionTemplateConfig): string {
+/**
+ * The lease prices the room the way the Pricing popup and its receipt do: the room's own
+ * month-to-month / custom start surcharges, its Lease fee and Application fee for THIS lease's
+ * term (`room-term-fees.ts`). A room that sets none of them returns the same context.
+ */
+function leaseContextWithRoomTermFees(ctx: LeaseGenerationContext): LeaseGenerationContext {
+  if (!ctx.submission || ctx.propertyTemplatePreview) return ctx;
+  const a = ctx.application;
+  const normalized = normalizeManagerListingSubmissionV1(ctx.submission);
+  const overlaid = submissionWithApplicationRoomFees(
+    normalized,
+    {
+      roomChoices: [a.roomChoice1],
+      unitLabel: ctx.leasedRoom?.unitLabel,
+      signedMonthlyRent: parseAmount((a as LeaseApplicationWithRentSnapshot).__signedRentLabel?.trim() ?? "") ?? undefined,
+      bundleId: a.bundleId,
+    },
+    { leaseTerm: a.leaseTerm, rentalType: a.rentalType },
+  );
+  return !overlaid || overlaid === normalized ? ctx : { ...ctx, submission: overlaid };
+}
+
+export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJurisdictionTemplateConfig): string {
+  const ctx = leaseContextWithRoomTermFees(ctxIn);
   const { application: a, leasedRoom: room, listingProperty: list, submission: sub, generatedAtIso } = ctx;
   const signedRentLabel = (a as LeaseApplicationWithRentSnapshot).__signedRentLabel?.trim();
 

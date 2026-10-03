@@ -8,7 +8,7 @@ import {
   effectiveApplicationFeeCents,
   loadManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
-import { parseMoneyAmount } from "@/lib/parse-money";
+import { resolveApplicationFeeBasis } from "@/lib/application-fee-by-room";
 
 /**
  * Server-side "make sure the applicant's pending application-fee row exists".
@@ -108,6 +108,18 @@ export async function ensureApplicationFeeChargeRow(
     propertyId: string;
     residentUserId?: string | null;
     residentName?: string;
+    /**
+     * Cents the applicant actually paid, from the Stripe session's own
+     * `fee_cents` metadata (stamped server-side at checkout). When present the
+     * booked row equals the money collected, whichever room/term priced it.
+     */
+    paidFeeCents?: number | null;
+    /** The lease type the paid fee was computed for (session `fee_lease_term` metadata). */
+    feeLeaseTerm?: string | null;
+    /** The room the paid fee was computed for (session `fee_room_id` metadata). */
+    feeRoomId?: string | null;
+    /** Which level of the fee chain set the amount (session `fee_source` metadata). */
+    feeSource?: string | null;
   },
 ): Promise<ChargeRow | null> {
   const existing = await loadApplicationFeeRow(db, input.residentEmail, input.propertyId, input.residentUserId);
@@ -131,15 +143,21 @@ export async function ensureApplicationFeeChargeRow(
   if (!resolved) return null;
   const { managerUserId, propertyLabel, sub } = resolved;
 
-  const managerSettings = await loadManagerApplicationSettings(db, managerUserId);
-  // Per-listing value wins ([app-fee-authority] option B); an empty string is "unset" and
-  // falls back to the account-wide default. A set "0" means free and is charged as-is.
-  const rawListingFee = String(sub.applicationFee ?? "").trim();
-  const listingFeeCents = rawListingFee === "" ? null : Math.round(parseMoneyAmount(rawListingFee) * 100);
-  const applicationFeeCents = effectiveApplicationFeeCents({
-    managerFeeCents: managerSettings.applicationFeeCents,
-    listingFeeCents,
-  });
+  const paidCents = Number(input.paidFeeCents ?? 0);
+  let applicationFeeCents: number;
+  if (Number.isFinite(paidCents) && paidCents > 0) {
+    applicationFeeCents = Math.round(paidCents);
+  } else {
+    // No paid amount to mirror (a legacy session): resolve it the way checkout does, from the
+    // listing's stored room/term fees, then the account setting.
+    const managerSettings = await loadManagerApplicationSettings(db, managerUserId);
+    const basis = resolveApplicationFeeBasis(sub, { leaseTerm: input.feeLeaseTerm });
+    applicationFeeCents = effectiveApplicationFeeCents({
+      managerFeeCents: managerSettings.applicationFeeCents,
+      roomTermFeeCents: basis.roomTermCents,
+      listingFeeCents: basis.listingCents,
+    });
+  }
   const amount = applicationFeeCents / 100;
   if (amount <= 0) return null;
 
@@ -160,6 +178,15 @@ export async function ensureApplicationFeeChargeRow(
     balanceLabel: label,
     status: "pending",
     blocksLeaseUntilPaid: false,
+    ...(input.feeRoomId || input.feeLeaseTerm || input.feeSource
+      ? {
+          applicationFeeBasis: {
+            roomId: input.feeRoomId?.trim() ?? "",
+            leaseTerm: input.feeLeaseTerm?.trim() ?? "",
+            source: input.feeSource?.trim() ?? "",
+          },
+        }
+      : {}),
   };
 
   await upsertManagerCharges(db, managerUserId, [charge as unknown as Record<string, unknown>]);

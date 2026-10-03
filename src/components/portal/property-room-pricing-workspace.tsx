@@ -36,11 +36,15 @@ import {
   type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
 import {
-  CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
-import { listingPricingTabToLeaseTerm, termEntryHasOwnPrice } from "@/lib/listing-fee-scope";
+import { listingPricingLeaseTabs, listingPricingTabToLeaseTerm, termEntryHasOwnPrice } from "@/lib/listing-fee-scope";
+import {
+  feeVisibilityForTerms,
+  roomFeeTermScope,
+  roomPricingFeeVisibility,
+} from "@/lib/room-term-fees";
 import {
   termPriceFieldText,
   writeRoomTermPrice,
@@ -88,12 +92,29 @@ function standardFeesForTerm(
   term: string,
   isBaseLong: boolean,
 ): Pick<RoomOccupancyPrice, "leaseFee" | "applicationFee" | "moveInFee"> {
-  if (isBaseLong) return longTermPrivateArrangementRow(room);
+  const longRow = longTermPrivateArrangementRow(room);
+  if (isBaseLong) return longRow;
   const own = termStandardFeeRow(room, term);
+  // A Short term step saved before stay types kept their own entry holds its fees on the long-term row.
+  const stay = roomFeeTermScope(term) === "short";
   return {
-    leaseFee: own.leaseFee,
-    applicationFee: own.applicationFee,
+    leaseFee: own.leaseFee ?? (stay ? longRow.shortTermLeaseFee : undefined),
+    applicationFee: own.applicationFee ?? (stay ? longRow.shortTermApplicationFee : undefined),
     moveInFee: own.moveInFee,
+  };
+}
+
+/** What an empty box on a non-long-term step follows: the long-term row (the resolver's next level). */
+function inheritedFeesForTerm(
+  room: ManagerRoomSubmission,
+  isBaseLong: boolean,
+): Pick<RoomOccupancyPrice, "leaseFee" | "applicationFee" | "moveInFee"> | undefined {
+  if (isBaseLong) return undefined;
+  const row = longTermPrivateArrangementRow(room);
+  return {
+    leaseFee: formatPlacementMoneyField(row.leaseFee ?? ""),
+    applicationFee: formatPlacementMoneyField(row.applicationFee ?? ""),
+    moveInFee: formatPlacementMoneyField(row.moveInFee ?? ""),
   };
 }
 
@@ -103,8 +124,31 @@ function patchStandardFeesForTerm(
   isBaseLong: boolean,
   patch: ArrangementFeePatch,
 ): ManagerRoomSubmission {
-  if (isBaseLong) return mergeLongTermPrivateArrangementRow(room, patch);
-  return mergeTermStandardFees(room, term, patch);
+  // The two start surcharges always live on the long-term private row; a stay type's own
+  // Lease / Application / Move-in fees live on its term entry (the long-term row on the base step).
+  const { monthToMonthSurcharge, customStartSurcharge, shortTermLeaseFee, shortTermApplicationFee, ...fees } = patch;
+  void shortTermLeaseFee;
+  void shortTermApplicationFee;
+  const surcharges: { monthToMonthSurcharge?: string; customStartSurcharge?: string } = {};
+  if (monthToMonthSurcharge !== undefined) surcharges.monthToMonthSurcharge = monthToMonthSurcharge;
+  if (customStartSurcharge !== undefined) surcharges.customStartSurcharge = customStartSurcharge;
+  let next = room;
+  if (Object.keys(surcharges).length > 0) next = mergeLongTermPrivateArrangementRow(next, surcharges);
+  if (Object.keys(fees).length > 0) {
+    next = isBaseLong ? mergeLongTermPrivateArrangementRow(next, fees) : mergeTermStandardFees(next, term, fees);
+  }
+  return next;
+}
+
+/** The row the fee block shows for a step: that step's own fees, plus the long-term row's start surcharges. */
+function feeRowForStep(room: ManagerRoomSubmission, term: string, isBaseLong: boolean): RoomOccupancyPrice {
+  const longRow = longTermPrivateArrangementRow(room);
+  return {
+    count: 1,
+    ...displayFeeRow(standardFeesForTerm(room, term, isBaseLong)),
+    monthToMonthSurcharge: longRow.monthToMonthSurcharge,
+    customStartSurcharge: longRow.customStartSurcharge,
+  };
 }
 
 function displayFeeRow(
@@ -234,8 +278,23 @@ export function PropertyRoomPricingWorkspace({
       ),
     [leaseTerms],
   );
-  const allowM2m = leaseTerms.includes("Month-to-Month");
-  const allowCustomStart = leaseTerms.includes(CUSTOM_LEASE_TERM);
+  /*
+   * Month-to-month surcharge, Custom start surcharge and Partial months follow what is
+   * OFFERED: the room's own Leases offered when it restricts them, else the listing's.
+   * (A lease can start mid-month only on Custom, so Partial months rides with it.)
+   */
+  const feeVisibility = useMemo(
+    () =>
+      subject.kind === "room"
+        ? roomPricingFeeVisibility(
+            draft,
+            draft.rooms.find((r) => r.id === subject.roomId),
+          )
+        : feeVisibilityForTerms(listingPricingLeaseTabs(draft)),
+    [draft, subject],
+  );
+  const allowM2m = feeVisibility.monthToMonthSurcharge;
+  const allowCustomStart = feeVisibility.customStartSurcharge;
   const steps: AddWorkspaceStep[] = useMemo(() => {
     const out: AddWorkspaceStep[] = [];
     if (subject.kind === "bundle") {
@@ -297,6 +356,8 @@ export function PropertyRoomPricingWorkspace({
   const activeTerm =
     activeStepId === "bundle" ? LONG_TERM_LEASE_TERM : activeStepId;
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
+  /** Lease fee / Application fee are set per step: Short term has its own, every other step is the shared (long-term) value. */
+  const feeScope = roomFeeTermScope(quoteTerm);
 
   const jumpStep = (index: number) => {
     setSlideDir(index > step ? 1 : index < step ? -1 : 0);
@@ -414,15 +475,15 @@ export function PropertyRoomPricingWorkspace({
                       />
                       <ArrangementStandardFeeRows
                         count={1}
-                        row={{
-                          count: 1,
-                          ...displayFeeRow(standardFeesForTerm(room, quoteTerm, isBaseLong)),
-                        }}
+                        row={feeRowForStep(room, quoteTerm, isBaseLong)}
                         onPatch={(feePatch) =>
                           updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, isBaseLong, feePatch))
                         }
                         showMonthToMonth={false}
                         showCustomStart={false}
+                        scope={feeScope}
+                        storage="term"
+                        inheritedRow={inheritedFeesForTerm(room, isBaseLong)}
                       />
                     </>
                   )
@@ -433,7 +494,7 @@ export function PropertyRoomPricingWorkspace({
                     sub={draft}
                     patch={patch}
                     term={quoteTerm}
-                    prorate={isBaseLong}
+                    prorate={isBaseLong && feeVisibility.partialMonths}
                     showResidentsCapacity
                     showMonthToMonthSurcharge={allowM2m && isBaseLong}
                     showCustomStartSurcharge={allowCustomStart && isBaseLong}
@@ -507,15 +568,15 @@ export function PropertyRoomPricingWorkspace({
                         />
                         <ArrangementStandardFeeRows
                           count={1}
-                          row={{
-                            count: 1,
-                            ...displayFeeRow(standardFeesForTerm(room, quoteTerm, false)),
-                          }}
+                          row={feeRowForStep(room, quoteTerm, false)}
                           onPatch={(feePatch) =>
                             updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, false, feePatch))
                           }
                           showMonthToMonth={allowM2m}
                           showCustomStart={allowCustomStart}
+                          scope={feeScope}
+                          storage="term"
+                          inheritedRow={inheritedFeesForTerm(room, false)}
                         />
                       </>
                     ) : (
@@ -597,15 +658,15 @@ export function PropertyRoomPricingWorkspace({
                     ) : null}
                     <ArrangementStandardFeeRows
                       count={1}
-                      row={{
-                        count: 1,
-                        ...displayFeeRow(standardFeesForTerm(room, quoteTerm, isBaseLong)),
-                      }}
+                      row={feeRowForStep(room, quoteTerm, isBaseLong)}
                       onPatch={(feePatch) =>
                         updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, isBaseLong, feePatch))
                       }
                       showMonthToMonth={allowM2m}
                       showCustomStart={allowCustomStart}
+                      scope={feeScope}
+                      storage="term"
+                      inheritedRow={inheritedFeesForTerm(room, isBaseLong)}
                     />
                   </>
                 )
@@ -678,6 +739,7 @@ export function PropertyRoomPricingWorkspace({
                     onPatch={(feePatch) => patchWholeFees(feePatch)}
                     showMonthToMonth={false}
                     showCustomStart={false}
+                    scope="short"
                   />
                 </>
               ) : (

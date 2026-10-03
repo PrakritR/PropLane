@@ -227,7 +227,9 @@ export function buildListingQuote(
     leaseTerm,
     room,
     arrangementCount,
-    entireHomeFees: options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined,
+    // An entire-home listing reads its whole-house row even before a rent view is pinned, so the
+    // application fee follows the lease type with no room chosen.
+    entireHomeFees: !room && (options.useEntireHomeRent || isEntireHomeListing(sub)) ? sub.entireHomeArrangementFees : undefined,
     isStay,
   });
 
@@ -307,6 +309,9 @@ export function buildListingQuote(
     oneTime.push(fee);
   }
 
+  // Application fee: the stay type's own fee replaces the house fee -- the one resolver
+  // (`placementFees`), which follows the room and lease type even before an occupancy count is
+  // chosen (a known room reads its Private row, an entire-home listing its whole-house row).
   if (placementFees.applicationFee > 0) {
     applicationFees.unshift({
       id: "application_fee",
