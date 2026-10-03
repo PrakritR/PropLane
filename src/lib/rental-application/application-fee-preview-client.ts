@@ -69,6 +69,8 @@ export async function fetchApplicationFeePreview(input: {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type; a listing may price its fee per type. */
   leaseTerm?: string;
+  /** The applicant's first room choice; the server prices the fee off that room's row for the lease type. */
+  roomChoice1?: string;
   /**
    * P003: the application template the applicant is actually applying with
    * (`RentalWizardFormState.applicationTemplateId`) — a selector into the
@@ -89,11 +91,12 @@ export async function fetchApplicationFeePreview(input: {
 
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const leaseTerm = input.leaseTerm?.trim() ?? "";
+  const roomChoice1 = input.roomChoice1?.trim() ?? "";
   const applicationTemplateId = input.applicationTemplateId?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim() ?? "";
   const residentKey = residentEmail.includes("@") ? `::${residentEmail.toLowerCase()}` : "";
   const viewerId = await viewerCacheId();
-  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${leaseTerm}::${applicationTemplateId}::${viewerId}${residentKey}`;
+  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${leaseTerm}::${roomChoice1}::${applicationTemplateId}::${viewerId}${residentKey}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.value;
 
@@ -110,6 +113,7 @@ export async function fetchApplicationFeePreview(input: {
           ...(managerUserId ? { managerUserId } : {}),
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           leaseTerm: leaseTerm || undefined,
+          roomChoice1: roomChoice1 || undefined,
           applicationTemplateId: applicationTemplateId || undefined,
           residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
         }),

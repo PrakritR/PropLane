@@ -44,7 +44,7 @@ import {
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { resolveTermFeesFromRow } from "@/lib/room-term-fees";
+import { resolveTermFeesFromRow, roomFeeRow } from "@/lib/room-term-fees";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -303,7 +303,14 @@ export function buildListingQuote(
    * Lease fee are set per step, the start surcharges follow the lease's start.
    */
   const termFees = resolveTermFeesFromRow({ sub, row: arrangementRow, leaseTerm });
-  const applicationFee = termFees.applicationFee;
+  // The Application fee follows the room and lease type even before an occupancy count is
+  // chosen: a known room reads its Private row, an entire-home listing its whole-house row.
+  const applicationFeeRow =
+    arrangementRow ?? (room ? roomFeeRow(sub, room, 1) : isEntireHomeListing(sub) ? sub.entireHomeArrangementFees : undefined);
+  const applicationFee =
+    applicationFeeRow === arrangementRow
+      ? termFees.applicationFee
+      : resolveTermFeesFromRow({ sub, row: applicationFeeRow, leaseTerm }).applicationFee;
   if (applicationFee > 0) {
     applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });
   }

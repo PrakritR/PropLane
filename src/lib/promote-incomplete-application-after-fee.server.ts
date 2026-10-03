@@ -14,6 +14,7 @@ import {
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -166,6 +167,9 @@ export async function promoteIncompleteApplicationAfterFeePaid(
       propertyId,
       managerUserId: draft.record.manager_user_id?.trim() || "",
       applicationTemplateId: submittedApplicationTemplateId,
+      roomChoice1: previousApplication.roomChoice1,
+      leaseTerm: previousApplication.leaseTerm,
+      rentalType: applicationRentalTypeFor(previousApplication.rentalType),
     });
     if (
       !applicationFeePaymentSatisfiesTemplate({
