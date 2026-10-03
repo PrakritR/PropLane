@@ -239,6 +239,10 @@ describe("PortalDialog adoption — source guard", () => {
     expect(source).toContain('label: "Recipient"');
     expect(source).toContain('label: "Review"');
     expect(source).not.toContain("<PortalNotificationPreviewModal");
+    // Preview lives in the step column — ListingWorkspace sidePanel fights lg grid-cols.
+    expect(source).toContain("ShareLeadLinkPreviewPanel");
+    expect(source).not.toMatch(/sidePanel=\s*\{/);
+    expect(source).toContain("normalizeSharePropertyLabel");
   });
 
   it("the listing wizard's save-failed dialog reuses ListingSaveFailedDialog, not a hand-rolled three-button Modal", () => {
