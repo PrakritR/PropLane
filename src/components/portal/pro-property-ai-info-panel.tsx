@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/input";
 import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
 import {
   type AiCommunicationInfo,
   type AiCommunicationInfoSection,
@@ -53,6 +56,15 @@ const SECTIONS: { key: SectionKey; title: string; placeholder: string }[] = [
 
 const EMPTY_INFO: AiCommunicationInfo = { tours: "", rules: "", pricing: "", neighborhood: "" };
 
+type AiInfoTab = "home" | "leasing" | "rules" | "area";
+
+const AI_INFO_TABS: { id: AiInfoTab; label: string; keys: SectionKey[] }[] = [
+  { id: "home", label: "Home", keys: ["about"] },
+  { id: "leasing", label: "Leasing", keys: ["tours", "pricing"] },
+  { id: "rules", label: "Rules", keys: ["rules"] },
+  { id: "area", label: "Area", keys: ["neighborhood"] },
+];
+
 function readSection(sub: ManagerListingSubmissionV1, key: SectionKey): string {
   if (key === "about") return sub.marketingNotes ?? "";
   return sub.aiCommunicationInfo?.[key] ?? "";
@@ -82,6 +94,8 @@ export function ManagerPropertyAiInfoPanel({
   // overwrites text the manager is mid-typing.
   const [drafts, setDrafts] = useState<Partial<Record<SectionKey, string | null>>>({});
   const [status, setStatus] = useState<Partial<Record<SectionKey, "saving" | "saved" | "error">>>({});
+  const [activeTab, setActiveTab] = useState<AiInfoTab>("home");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     setDrafts({});
@@ -120,9 +134,43 @@ export function ManagerPropertyAiInfoPanel({
 
   if (!resolved) return null;
 
+  const tabKeys = AI_INFO_TABS.find((t) => t.id === activeTab)?.keys ?? [];
+  const q = search.trim().toLowerCase();
+  const visibleSections = SECTIONS.filter((section) => {
+    if (!tabKeys.includes(section.key)) return false;
+    if (!q) return true;
+    return section.title.toLowerCase().includes(q);
+  });
+
+  const tabCounts = AI_INFO_TABS.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    count: tab.keys.length,
+    dataAttr: `property-ai-info-tab-${tab.id}`,
+  }));
+
   return (
-    <div className="space-y-3 px-3 py-4 max-md:px-2.5" data-attr="property-ai-info">
-      {SECTIONS.map((section) => {
+    <div className="px-3 py-4 max-md:px-2.5" data-attr="property-ai-info">
+      <PortalListControlStack
+        className="mb-3"
+        variant="command"
+        destinationRow={
+          <ManagerPortalStatusPills
+            activeId={activeTab}
+            mobileSelect={false}
+            onChange={(id) => setActiveTab(id as AiInfoTab)}
+            tabs={tabCounts}
+          />
+        }
+        search={{
+          value: search,
+          onChange: setSearch,
+          placeholder: "Search AI info",
+          dataAttr: "property-ai-info-search",
+        }}
+      />
+      <div className="space-y-3">
+      {visibleSections.map((section) => {
         const saved = readSection(resolved.sub, section.key);
         const draft = drafts[section.key];
         const value = draft ?? saved;
@@ -132,7 +180,14 @@ export function ManagerPropertyAiInfoPanel({
             className="rounded-2xl border border-border bg-card p-4 sm:p-5"
             data-attr={`property-ai-info-${section.key}`}
           >
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{section.title}</p>
+            <p className="group inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
+              {section.title}
+              <PortalPropertySectionInfo
+                title={section.title}
+                body="Sample answers in the assistant use this text when prospects ask about this home."
+                dataAttr={`property-ai-info-help-${section.key}`}
+              />
+            </p>
             <Textarea
               value={value}
               onChange={(e) =>
@@ -164,6 +219,7 @@ export function ManagerPropertyAiInfoPanel({
           </section>
         );
       })}
+      </div>
     </div>
   );
 }

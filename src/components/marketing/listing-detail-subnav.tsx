@@ -6,6 +6,8 @@ import {
   syncPortalDetailDestinationOffset,
   syncPortalMobileTopChrome,
 } from "@/lib/portal-mobile-top-chrome";
+import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
+import { PROPERTY_PREVIEW_SECTION_INFO } from "@/lib/property-section-info-copy";
 
 type ListingSubnavMode = "page" | "modal" | "portal";
 
@@ -532,12 +534,28 @@ export function ListingStickySubnav({
                 }}
               >
                 {compactEqualTabs ? (
-                  <span className="block w-full max-w-full truncate text-center">{item.shortLabel}</span>
+                  <span className="group inline-flex w-full max-w-full items-center justify-center gap-0.5 truncate text-center">
+                    {item.shortLabel}
+                    {portalTabs && PROPERTY_PREVIEW_SECTION_INFO[item.id] ? (
+                      <PortalPropertySectionInfo
+                        title={PROPERTY_PREVIEW_SECTION_INFO[item.id].title}
+                        body={PROPERTY_PREVIEW_SECTION_INFO[item.id].body}
+                        dataAttr={`listing-section-info-${item.id}`}
+                      />
+                    ) : null}
+                  </span>
                 ) : (
-                  <>
+                  <span className="group inline-flex items-center gap-0.5">
                     <span className="sm:hidden">{item.shortLabel}</span>
                     <span className="hidden sm:inline">{item.label}</span>
-                  </>
+                    {portalTabs && PROPERTY_PREVIEW_SECTION_INFO[item.id] ? (
+                      <PortalPropertySectionInfo
+                        title={PROPERTY_PREVIEW_SECTION_INFO[item.id].title}
+                        body={PROPERTY_PREVIEW_SECTION_INFO[item.id].body}
+                        dataAttr={`listing-section-info-${item.id}`}
+                      />
+                    ) : null}
+                  </span>
                 )}
               </button>
             </li>
