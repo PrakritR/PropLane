@@ -88,18 +88,24 @@ function AvailabilityPill({ text, variant = "default" }: { text: string; variant
 function RoomAvailabilityCell({ text }: { text: string }) {
   const tone = roomAvailabilityTone(text);
   const { dot } = roomAvailabilityPillClasses(tone);
-  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\))$/i.exec(text.trim());
-  const head = match ? match[1] : text;
+  const trimmed = text.trim();
+  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\))$/i.exec(trimmed);
+  const head = match ? match[1] : trimmed;
   const tail = match ? match[2] : null;
   return (
-    <span className="block whitespace-nowrap" data-attr="listing-room-availability">
-      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${roomAvailabilityTextClasses(tone)}`}>
+    <span className="block max-w-[10.5rem] min-w-0" data-attr="listing-room-availability" title={trimmed}>
+      <span className={`inline-flex max-w-full items-center gap-1.5 text-xs font-semibold ${roomAvailabilityTextClasses(tone)}`}>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-        {head}
+        <span className="truncate">{head}</span>
       </span>
-      {tail ? <span className="block pl-3 text-[11px] text-muted">{tail}</span> : null}
+      {tail ? <span className="block truncate pl-3 text-[11px] text-muted">{tail}</span> : null}
     </span>
   );
+}
+
+function roomNameSortKey(name: string): number {
+  const m = /(\d+)/.exec(name);
+  return m ? Number.parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
 }
 
 function DetailsButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
@@ -1310,7 +1316,8 @@ export function ListingThumb({
 }
 
 const SPACE_TABLE_WRAP = "hidden overflow-x-auto rounded-xl border border-border bg-card listing-detail-surface @min-[680px]:block";
-const SPACE_TABLE = "w-full text-sm";
+const SPACE_TABLE = "w-full table-fixed text-sm";
+const LISTING_TABLE_MONEY = "font-bold text-foreground";
 const SPACE_TH = `${LISTING_TABLE_HEAD} bg-[var(--pl-surface-muted)] px-3 py-2 text-left font-semibold`;
 const SPACE_TD = "border-t border-border px-3 py-2.5 align-middle";
 // Decided by the page column, not the viewport: the manager Preview sits beside a sidebar and a price card,
@@ -1384,12 +1391,16 @@ export function SpacesInteractive({
     },
     [listingPropertyId, occupancyRows],
   );
-  // Natural order by name (Room 1, 2, 3 … 9, 10), whatever floor each one sits on.
+  // Natural order by room number (1, 2, 3 … 9, 10), whatever floor each one sits on.
   const rooms = useMemo(
     () =>
       floorPlans
         .flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })))
-        .sort((a, b) => a.room.name.localeCompare(b.room.name, undefined, { numeric: true, sensitivity: "base" })),
+        .sort((a, b) => {
+          const byNum = roomNameSortKey(a.room.name) - roomNameSortKey(b.room.name);
+          if (byNum !== 0) return byNum;
+          return a.room.name.localeCompare(b.room.name, undefined, { numeric: true, sensitivity: "base" });
+        }),
     [floorPlans],
   );
   const filteredRooms = useMemo(() => {
@@ -1440,12 +1451,12 @@ export function SpacesInteractive({
                   <th className={`${SPACE_TH} w-[84px]`}>
                     <span className="sr-only">Photo</span>
                   </th>
-                  <th className={SPACE_TH}>Room</th>
-                  <th className={SPACE_TH}>Floor</th>
-                  <th className={SPACE_TH}>Bath</th>
-                  <th className={SPACE_TH}>Available</th>
-                  <th className={`${SPACE_TH} text-right`}>Rent</th>
-                  <th className={SPACE_TH}>
+                  <th className={`${SPACE_TH} w-[22%]`}>Room</th>
+                  <th className={`${SPACE_TH} w-[12%]`}>Floor</th>
+                  <th className={`${SPACE_TH} w-[10%]`}>Bath</th>
+                  <th className={`${SPACE_TH} w-[24%]`}>Available</th>
+                  <th className={`${SPACE_TH} w-[14%] text-right`}>Rent</th>
+                  <th className={`${SPACE_TH} w-[4.75rem] text-right`}>
                     <span className="sr-only">Details</span>
                   </th>
                 </tr>
@@ -1477,14 +1488,14 @@ export function SpacesInteractive({
                     <td className={SPACE_TD}>
                       <RoomAvailabilityCell text={room.availability} />
                     </td>
-                    <td className={`${SPACE_TD} whitespace-nowrap text-right font-bold tabular-nums text-foreground`}>
+                    <td className={`${SPACE_TD} whitespace-nowrap text-right ${LISTING_TABLE_MONEY}`}>
                       {capacity >= 2
                         ? sharedRoomRentCellLabel([
                             room.priceMonthlyEquivalent ?? room.priceHeadlineAmount ?? 0,
                           ])
                         : roomRentCell(room)}
                     </td>
-                    <td className={`${SPACE_TD} text-right`}>
+                    <td className={`${SPACE_TD} w-[4.75rem] whitespace-nowrap text-right`}>
                       <button
                         type="button"
                         data-attr="listing-room-details"
@@ -1518,7 +1529,7 @@ export function SpacesInteractive({
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="block text-sm font-bold tabular-nums text-foreground">{roomRentCell(room)}</span>
+                  <span className={`block text-sm ${LISTING_TABLE_MONEY}`}>{roomRentCell(room)}</span>
                   <span className={`block text-[11px] font-semibold ${roomAvailabilityTextClasses(roomAvailabilityTone(room.availability))}`}>
                     {room.availability}
                   </span>

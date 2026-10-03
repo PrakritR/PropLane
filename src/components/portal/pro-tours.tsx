@@ -20,7 +20,7 @@ import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-
 
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarClock, CalendarPlus, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, Check, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -29,11 +29,14 @@ import {
   type NotificationConfirmDraft,
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
-import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -108,13 +111,6 @@ const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
 }));
 
 const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
-/**
- * Tour detail header actions are icons, not words: Message / Reschedule /
- * Cancel are navigation on a phone-width header. Approve and Decline on a
- * pending request stay as words — a decision that messages a prospect is
- * never a bare glyph.
- */
-const TOUR_DETAIL_ICON_BTN = "h-10 min-h-10 w-10 rounded-full px-0";
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -337,7 +333,6 @@ export function ManagerTours({
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
-  const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
   // C201: the active workspace resolves via its own async fetch, racing the
   // tour sync below; `workspaceContainsProperty` reads that resolution off a
@@ -617,41 +612,6 @@ export function ManagerTours({
       body: buildTourRequestRemovedTenantBody(ctx),
     });
   }, []);
-
-  /**
-   * The record header's one-click decline (C029/C030, recommended build: a
-   * quick generic confirm from the header; the row ⋯ / bulk bar keeps the
-   * editable reason-message flow above via `openDeclinePreview`). No message
-   * preview, no skip-messaging toggle — a plain "are you sure", then the
-   * guest gets the same default removal notice `openDeclinePreview` sends.
-   */
-  const quickDeclineFromHeader = useCallback(
-    async (row: ManagerTourRow) => {
-      if (!isPendingInquiry(row)) return;
-      const ok = await confirm({
-        title: "Decline tour",
-        description: `Decline ${row.guestName || "this prospect"}'s tour request for ${row.whenLabel}? They'll be notified.`,
-        confirmLabel: "Decline",
-        tone: "danger",
-        dataAttr: "tour-detail-decline-confirm",
-      });
-      if (!ok) return;
-      const ctx = buildTourNotifyContext(row);
-      const result = await deletePartnerInquiryFromServer(row.sourceId, {
-        notifyTenant: true,
-        subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
-        body: buildTourRequestRemovedTenantBody(ctx),
-      });
-      if (!result.ok) {
-        showToast(result.error ?? "Could not decline tour request.");
-        return;
-      }
-      await refresh();
-      navigate(listHrefForBucket(bucket));
-      showToast("Tour declined and guest notified.");
-    },
-    [confirm, refresh, navigate, bucket, showToast],
-  );
 
   const openCancelPreview = useCallback((rows: ManagerTourRow[]) => {
     const eligible = rows.filter(isUpcomingPlanned);
@@ -1244,152 +1204,6 @@ export function ManagerTours({
     />
   );
 
-  const renderDetailPanel = (row: ManagerTourRow) => (
-    <div className="space-y-4 px-3 py-2 text-sm sm:px-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className="text-xs font-medium text-muted">Property</p>
-          <p className="text-foreground">{row.propertyTitle}</p>
-        </div>
-        {row.roomLabel ? (
-          <div>
-            <p className="text-xs font-medium text-muted">Room</p>
-            <p className="text-foreground">{row.roomLabel}</p>
-          </div>
-        ) : null}
-        <div>
-          <p className="text-xs font-medium text-muted">When</p>
-          <p className="text-foreground">{row.whenLabel}</p>
-        </div>
-        <div>
-          <p className="text-xs font-medium text-muted">Format</p>
-          <p className="text-foreground" data-attr="tour-detail-format">{tourFormatLabel(row.tourFormat)}</p>
-        </div>
-        {row.guestEmail ? (
-          <div>
-            <p className="text-xs font-medium text-muted">Email</p>
-            <p className="truncate text-foreground">{row.guestEmail}</p>
-          </div>
-        ) : null}
-        {row.guestPhone ? (
-          <div>
-            <p className="text-xs font-medium text-muted">Phone</p>
-            <p className="text-foreground">{row.guestPhone}</p>
-          </div>
-        ) : null}
-      </div>
-      {row.notes ? (
-        <div>
-          <p className="text-xs font-medium text-muted">Notes</p>
-          <p className="whitespace-pre-wrap leading-relaxed text-foreground/90">{row.notes}</p>
-        </div>
-      ) : null}
-    </div>
-  );
-
-  const detailActions = detailRow ? (
-    <>
-      {detailRow.guestEmail?.includes("@") ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={TOUR_DETAIL_ICON_BTN}
-          data-attr="tour-detail-message"
-          aria-label="Message guest"
-          title="Message"
-          onClick={() => openGuestMessage(detailRow)}
-        >
-          <MessageSquare className="size-[18px] shrink-0" aria-hidden />
-        </Button>
-      ) : null}
-      {(isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={TOUR_DETAIL_ICON_BTN}
-          data-attr="tour-detail-reschedule"
-          aria-label="Reschedule tour"
-          title="Reschedule"
-          onClick={() => openReschedulePreview([detailRow])}
-        >
-          <CalendarClock className="size-[18px] shrink-0" aria-hidden />
-        </Button>
-      ) : null}
-      {detailRow.bucket === "pending" && detailRow.source === "inquiry" ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className={`${BULK_BAR_BTN} text-rose-800`}
-            data-attr="tour-detail-decline"
-            onClick={() => openDeclinePreview([detailRow])}
-          >
-            Decline
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className={BULK_BAR_BTN}
-            data-attr="tour-detail-approve"
-            onClick={() => openApprovePreview([detailRow])}
-          >
-            Approve
-          </Button>
-        </>
-      ) : null}
-      {isPendingProposal(detailRow) ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className={`${BULK_BAR_BTN} text-rose-800`}
-            data-attr="tour-detail-proposal-discard"
-            disabled={proposalBusy}
-            onClick={() => decideTourProposals([detailRow], "discard")}
-          >
-            Decline
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className={BULK_BAR_BTN}
-            data-attr="tour-detail-proposal-approve"
-            disabled={proposalBusy}
-            onClick={() => decideTourProposals([detailRow], "approve")}
-          >
-            Approve
-          </Button>
-        </>
-      ) : null}
-      {detailRow.bucket === "upcoming" && detailRow.source === "planned" ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${TOUR_DETAIL_ICON_BTN} text-rose-800`}
-          data-attr="tour-detail-cancel"
-          aria-label="Cancel tour"
-          title="Cancel tour"
-          onClick={() => openCancelPreview([detailRow])}
-        >
-          <XCircle className="size-[18px] shrink-0" aria-hidden />
-        </Button>
-      ) : null}
-      {isDeletableTour(detailRow) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${TOUR_DETAIL_ICON_BTN} !text-danger`}
-          data-attr="tour-detail-delete"
-          aria-label="Delete tour"
-          title="Delete tour"
-          onClick={() => openDeletePrompt([detailRow])}
-        >
-          <Trash2 className="size-[18px] shrink-0" aria-hidden />
-        </Button>
-      ) : null}
-    </>
-  ) : null;
-
   const messageBulkRow =
     singleSelectedTourRow?.guestEmail?.includes("@") ? singleSelectedTourRow : null;
   const canBulkReschedule =
@@ -1677,42 +1491,53 @@ export function ManagerTours({
   if (tourIdProp && detailRow) {
     const sections = recordSections("manager", "tour", { basePath, tourBucket: bucket });
     const activeTab = tourDetailTabProp ?? "overview";
-    const onHeaderAction = (actionId: string) => {
-      if (actionId === "confirm") {
-        if (isPendingInquiry(detailRow)) {
-          openApprovePreview([detailRow]);
-          return;
-        }
-        if (isPendingProposal(detailRow)) {
-          void decideTourProposals([detailRow], "approve");
-          return;
-        }
-        showToast("Coming soon");
-        return;
-      }
-      if (actionId === "reschedule") {
-        if (isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) {
-          openReschedulePreview([detailRow]);
-          return;
-        }
-        showToast("Coming soon");
-        return;
-      }
-      if (actionId === "decline") {
-        if (detailRow.bucket === "pending" && detailRow.source === "inquiry") {
-          void quickDeclineFromHeader(detailRow);
-          return;
-        }
-        if (isPendingProposal(detailRow)) {
-          void decideTourProposals([detailRow], "discard");
-          return;
-        }
-        showToast("Coming soon");
-      }
-    };
-    const sourceLabel =
-      detailRow.source === "inquiry" ? "Inquiry" : detailRow.source === "proposal" ? "Proposed" : "Planned";
     const needsConfirm = isPendingInquiry(detailRow) || isPendingProposal(detailRow);
+    // Studio CX-RC6 (Tour and Communication): the record's header carries Reschedule · Message · Decline or Cancel ·
+    // Delete, with Confirm as the one filled primary. The adaptive row keeps the primary at the right edge and folds
+    // the red one into the ⋯ first.
+    const headerActionSpecs = [];
+    if (needsConfirm) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "confirm", label: "Confirm", icon: Check, tone: "primary", dataAttr: "record-header-action-confirm",
+        onClick: () => {
+          if (isPendingInquiry(detailRow)) openApprovePreview([detailRow]);
+          else void decideTourProposals([detailRow], "approve");
+        },
+      }));
+    }
+    if (detailRow.guestEmail?.includes("@")) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "message", label: "Message guest", icon: MessageSquare, dataAttr: "tour-detail-message",
+        onClick: () => openGuestMessage(detailRow),
+      }));
+    }
+    if (isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "reschedule", label: "Reschedule", icon: CalendarClock, dataAttr: "tour-detail-reschedule",
+        onClick: () => openReschedulePreview([detailRow]),
+      }));
+    }
+    if (isPendingInquiry(detailRow) || isPendingProposal(detailRow)) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "decline", label: "Decline", icon: XCircle, dataAttr: "tour-detail-decline",
+        disabled: isPendingProposal(detailRow) && proposalBusy,
+        onClick: () => {
+          if (isPendingInquiry(detailRow)) openDeclinePreview([detailRow]);
+          else void decideTourProposals([detailRow], "discard");
+        },
+      }));
+    } else if (isUpcomingPlanned(detailRow)) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "cancel", label: "Cancel tour", icon: XCircle, dataAttr: "tour-detail-cancel",
+        onClick: () => openCancelPreview([detailRow]),
+      }));
+    }
+    if (isDeletableTour(detailRow)) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "delete", label: "Delete tour", icon: Trash2, tone: "danger", dataAttr: "tour-detail-delete",
+        onClick: () => openDeletePrompt([detailRow]),
+      }));
+    }
     const ownContent =
       activeTab === "communication" ? (
         renderRecordSection("communication", {
@@ -1725,51 +1550,21 @@ export function ManagerTours({
           contactIds: detailRow.guestEmail ? [detailRow.guestEmail] : undefined,
         })
       ) : (
-        <>
-          {renderRecordSection("overview", {
-            role: "manager",
-            kind: "tour",
-            kindLabel: "tour",
-            recordId: detailRow.id,
-            recordLabel: detailRow.guestName,
-            overviewTiles: [
-              { id: "when", label: "When", value: detailRow.whenLabel },
-              { id: "status", label: "Status", value: detailRow.statusLabel, detail: needsConfirm ? "Needs confirm" : undefined, tone: needsConfirm ? "danger" : "default" },
-              { id: "prospect", label: "Prospect", value: sourceLabel },
-              { id: "room", label: "Room", value: detailRow.roomLabel || detailRow.propertyTitle },
-            ],
-            overviewNeeds: needsConfirm
-              ? [{ id: "confirm", title: "Confirm the tour", detail: detailRow.whenLabel, onClick: () => onHeaderAction("confirm") }]
-              : [],
-            overviewCards: [
-              {
-                id: "prospect",
-                title: "Prospect",
-                rows: [
-                  { label: "Name", value: detailRow.guestName },
-                  { label: "Email", value: detailRow.guestEmail || "—" },
-                  { label: "Phone", value: detailRow.guestPhone || "—" },
-                  { label: "Source", value: sourceLabel },
-                ],
-              },
-              {
-                id: "listing",
-                title: "Listing",
-                rows: [
-                  { label: "Property", value: detailRow.propertyTitle },
-                  { label: "Room", value: detailRow.roomLabel || "—" },
-                  { label: "Format", value: tourFormatLabel(detailRow.tourFormat) },
-                ],
-              },
-            ],
-          })}
-          {renderDetailPanel(detailRow)}
-          {detailActions ? (
-            <div className="flex flex-wrap items-center gap-2 px-3 pb-3 sm:px-4" data-attr="tour-overview-actions">
-              {detailActions}
-            </div>
-          ) : null}
-        </>
+        <div className="space-y-4" data-attr="tour-detail-sections">
+          <RecordFactCard title="Tour" dataAttr="record-overview-card-tour">
+            <RecordFactRow label="Status" value={detailRow.statusLabel} />
+            <RecordFactRow label="When" value={detailRow.whenLabel} />
+            <RecordFactRow label="Property" value={detailRow.propertyTitle} />
+            <RecordFactRow label="Room" value={detailRow.roomLabel || "—"} />
+            <RecordFactRow label="Format" value={tourFormatLabel(detailRow.tourFormat)} />
+            {detailRow.notes ? <RecordFactRow label="Notes" value={detailRow.notes} /> : null}
+          </RecordFactCard>
+          <RecordFactCard title="Prospect" dataAttr="record-overview-card-prospect">
+            <RecordFactRow label="Name" value={detailRow.guestName} />
+            <RecordFactRow label="Email" value={detailRow.guestEmail || "—"} />
+            <RecordFactRow label="Phone" value={detailRow.guestPhone || "—"} />
+          </RecordFactCard>
+        </div>
       );
     return (
       <>
@@ -1788,7 +1583,9 @@ export function ManagerTours({
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+            <div className="flex min-w-0 flex-1" data-attr="tour-header-icons">
+              <PortalAdaptiveActionRow actions={headerActionSpecs} align="end" gapPx={6} />
+            </div>
           </PortalRecordActions>
           <PortalRecordSectionChrome
             sections={sections}
@@ -1799,7 +1596,6 @@ export function ManagerTours({
             backHref={listHrefForBucket(bucket)}
             backLabel="All tours"
             ariaLabel="Tour sections"
-            onHeaderAction={onHeaderAction}
           >
             {ownContent}
           </PortalRecordSectionChrome>

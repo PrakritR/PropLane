@@ -23,8 +23,10 @@ vi.mock("@/lib/portal-mobile-top-chrome", () => ({
   syncPortalMobileTopChrome: () => 0,
 }));
 
-const LAYOUT_LINE =
+const LAYOUT_LINE_RAW =
   "Townhouse · Shared home · 3 · 3.5 bathrooms · 1,800 sq ft · 9 bedrooms for rent";
+const LAYOUT_LINE =
+  "Townhouse · Shared home · 3 stories · 3.5 bathrooms · 1,800 sq ft · 9 bedrooms for rent";
 
 function property(): MockProperty {
   return {
@@ -50,7 +52,7 @@ const rich: ListingRichContent = {
   amenities: [],
   bundlesText: "",
   bundleCards: [],
-  quickFacts: [{ label: "Property & layout", value: LAYOUT_LINE }],
+  quickFacts: [{ label: "Property & layout", value: LAYOUT_LINE_RAW }],
 };
 
 beforeEach(() => {
