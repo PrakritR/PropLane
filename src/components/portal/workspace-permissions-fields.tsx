@@ -384,6 +384,7 @@ export function CoManagerPermissionsEditor({
   role,
   onRoleChange,
   hideRole = false,
+  hidePresets = false,
 }: {
   value: CoManagerPermissions;
   onChange: (next: CoManagerPermissions) => void;
@@ -394,6 +395,8 @@ export function CoManagerPermissionsEditor({
   onRoleChange?: (next: TeamRoleId) => void;
   /** Invite sheet puts Role above Properties. */
   hideRole?: boolean;
+  /** Invite manager popup: per-module rows only (no preset chips or empty-state banner). */
+  hidePresets?: boolean;
 }) {
   void variant;
   const currentRole = role ?? inferTeamRoleFromPermissions(value);
@@ -432,42 +435,46 @@ export function CoManagerPermissionsEditor({
       {hideRole ? null : (
         <CoManagerRoleSelect value={currentRole} onChange={applyRole} disabled={disabled} />
       )}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={disabled || isEmpty}
-          onClick={() => {
-            onChange({});
-            onRoleChange?.("custom");
-          }}
-          className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-          data-attr="co-manager-preset-none"
-        >
-          Clear all
-        </button>
-        {PERMISSION_LEVEL_PRESETS.map((preset) => (
-          <button
-            key={preset.dataAttr}
-            type="button"
-            disabled={disabled}
-            onClick={() => applyPreset(preset.levels)}
-            className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-            data-attr={preset.dataAttr}
-          >
-            {preset.label}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted" data-attr="co-manager-effective-access">
-          {isEmpty
-            ? "No access"
-            : `${grantedCount} of ${CO_MANAGER_PERMISSION_OPTIONS.length} modules granted`}
-        </span>
-      </div>
-      {isEmpty ? (
-        <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Choose a role, a preset, or set View, Edit, or Manage for each module below.
-        </p>
-      ) : null}
+      {hidePresets ? null : (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={disabled || isEmpty}
+              onClick={() => {
+                onChange({});
+                onRoleChange?.("custom");
+              }}
+              className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+              data-attr="co-manager-preset-none"
+            >
+              Clear all
+            </button>
+            {PERMISSION_LEVEL_PRESETS.map((preset) => (
+              <button
+                key={preset.dataAttr}
+                type="button"
+                disabled={disabled}
+                onClick={() => applyPreset(preset.levels)}
+                className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+                data-attr={preset.dataAttr}
+              >
+                {preset.label}
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-muted" data-attr="co-manager-effective-access">
+              {isEmpty
+                ? "No access"
+                : `${grantedCount} of ${CO_MANAGER_PERMISSION_OPTIONS.length} modules granted`}
+            </span>
+          </div>
+          {isEmpty ? (
+            <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
+              No access. Choose a role, a preset, or set View, Edit, or Manage for each module below.
+            </p>
+          ) : null}
+        </>
+      )}
       <div className="space-y-4">
         {PERMISSION_EDITOR_GROUPS.map((group) => (
           <div key={group.label} className="space-y-2">

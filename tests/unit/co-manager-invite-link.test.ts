@@ -164,7 +164,7 @@ describe("active invite link per workspace", () => {
     expect(source).toContain("copyAndSaveInviteLink");
     expect(source).toContain("replaceActive: false");
     expect(source).toContain("onClose()");
-    expect(source).not.toContain("workspace-invite-link-box");
+    expect(source).toContain("WorkspaceInviteLinkBox");
   });
 
   it("Members strip lists live saved links only (no Off rows)", () => {

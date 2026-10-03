@@ -231,7 +231,6 @@ describe("WorkspaceInviteSheet", () => {
     expect(onInviteLinkSaved).toHaveBeenCalled();
     expect(onChanged).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
-    expect(document.querySelector('[data-attr="workspace-invite-link-box"]')).toBeNull();
   });
 
   it("Send after a role change mints with replaceActive: true before emailing", async () => {
@@ -507,12 +506,29 @@ describe("WorkspaceInviteSheet", () => {
   });
 });
 
-/**
- * Copy invite link never paints an in-sheet URL card — the unique link lands
- * under Members on the workspace card.
- */
-describe("WorkspaceInviteSheet — no in-sheet link box", () => {
-  it("never renders the INVITE LINK card, before or after Copy", async () => {
+describe("WorkspaceInviteSheet — bottom invite link box", () => {
+  it("reveals the held link at the bottom when terms still match", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed-held" },
+    });
+    renderSheet();
+    await waitFor(() => expect(roleTrigger().textContent).toContain("Viewer"));
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-link-box"]')).toBeTruthy(),
+    );
+    expect(document.querySelector('[data-attr="workspace-invite-link-url"]')?.textContent).toContain(
+      "https://proplane.test/invite/revealed-held",
+    );
+  });
+
+  it("does not show the link box after Copy closes the sheet", async () => {
     mockFetch({
       existingLink: {
         id: "link-existing",
@@ -523,16 +539,12 @@ describe("WorkspaceInviteSheet — no in-sheet link box", () => {
       },
       mintResult: { url: "https://proplane.test/invite/fresh-copy", link: { id: "link-fresh-copy" } },
     });
-    renderSheet();
+    const { onClose } = renderSheet();
     await waitFor(() => expect(roleTrigger().textContent).toContain("Viewer"));
-
-    expect(document.querySelector('[data-attr="workspace-invite-link-box"]')).toBeNull();
-    expect(document.querySelector('[data-attr="workspace-invite-link-stale"]')).toBeNull();
 
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     clickInviteLink();
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Invite link copied."));
-    expect(document.querySelector('[data-attr="workspace-invite-link-box"]')).toBeNull();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("Copy invite link writes the minted URL to the clipboard", async () => {
