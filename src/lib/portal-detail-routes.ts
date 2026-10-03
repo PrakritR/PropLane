@@ -1585,6 +1585,14 @@ export function parseVendorDetailTab(raw: string | undefined | null): VendorDeta
   return "overview";
 }
 
+/** A vendor bill or payout is a record page: `/outgoing/payment/<id>[/communication]` (Payment · Communication). */
+export const OUTGOING_PAYMENT_RECORD_TABS = ["overview", "communication"] as const;
+export type OutgoingPaymentRecordTabId = (typeof OUTGOING_PAYMENT_RECORD_TABS)[number];
+export function outgoingPaymentRecordHref(basePath: string, id: string, tab: OutgoingPaymentRecordTabId = "overview"): string {
+  const path = `${basePath}/outgoing/payment/${encodeURIComponent(id)}`;
+  return tab === "overview" ? path : `${path}/${tab}`;
+}
+
 export function vendorDetailHref(basePath: string, vendorId: string, tab: VendorDetailTabId = "overview"): string {
   return `${basePath}/vendors/${encodeURIComponent(vendorId)}/${tab}`;
 }

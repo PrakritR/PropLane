@@ -7,6 +7,9 @@ import {
   CircleOff,
   CheckCircle2,
   CreditCard,
+  FileText,
+  MessageSquare,
+  Wallet,
   Download,
   HandCoins,
   FileSignature,
@@ -32,6 +35,7 @@ import {
   leaseDetailHref,
   managerTaskDetailHref,
   managerTourDetailHref,
+  outgoingPaymentRecordHref,
   paymentRecordDetailHref,
   propertyDetailHref,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
@@ -94,6 +98,7 @@ export type ManagerRecordKind =
   | "resident"
   | "payment"
   | "outgoing-payment"
+  | "vendor-bill"
   | "lease"
   | "application"
   | "inspection"
@@ -367,6 +372,27 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       const direction = ctx.direction ?? "outgoing";
       const bucket = (ctx.bucket ?? "pending") as never;
       return (recordId, tab) => paymentRecordDetailHref(basePath, direction, bucket, recordId, tab as never);
+    },
+  },
+  "vendor-bill": {
+    basePathDefault: "/portal",
+    // Operations > Outgoing payments: one vendor bill or payout (PLAN studio-redesign-0929, C2-OUT2).
+    // Payment · Communication. The page renders the set below in its own order (Pay now right-most),
+    // dropping what the server cannot do for that bill; Dispute / Void request have no handler yet.
+    ownGroups: [{ label: "", ids: [{ id: "overview", label: "Payment" }] }],
+    headerActions: [
+      { id: "view-invoice", label: "View invoice", icon: FileText },
+      { id: "schedule", label: "Schedule payment", icon: Calendar },
+      { id: "message", label: "Message vendor", icon: MessageSquare },
+      { id: "mark-paid", label: "Mark paid", icon: CheckCircle2 },
+      { id: "delete", label: "Delete bill", icon: Trash2, tone: "danger" },
+      { id: "pay-now", label: "Pay now", icon: Wallet, tone: "primary" },
+    ],
+    hasDocuments: false,
+    hasActivity: false,
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => outgoingPaymentRecordHref(basePath, recordId, tab as never);
     },
   },
   lease: {

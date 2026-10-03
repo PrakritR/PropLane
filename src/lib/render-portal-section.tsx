@@ -990,6 +990,21 @@ export async function renderPortalSection(
     if (section === "outgoing") {
       if (!tabParts?.length) redirect(`${def.basePath}/outgoing/to-pay`);
       const outgoingTab = tabParts[0]!;
+      // One payment is a record page: outgoing/payment/<id>[/communication] (Payment · Communication).
+      if (outgoingTab === "payment") {
+        const paymentSection = tabParts[2];
+        if (tabParts.length < 2 || tabParts.length > 3 || (paymentSection !== undefined && paymentSection !== "communication")) notFound();
+        const { ManagerOutgoingInvoicesPanel } = await import("@/components/portal/manager-outgoing-invoices-panel");
+        return subscriptionGated(
+          <ManagerOutgoingInvoicesPanel
+            tabId="to-pay"
+            basePath={def.basePath}
+            paymentId={decodeURIComponent(tabParts[1]!)}
+            paymentTab={paymentSection === "communication" ? "communication" : "overview"}
+          />,
+          kind, "outgoing", managerOwnerSubscriptionTier,
+        );
+      }
       if (tabParts.length !== 1 || !["to-pay", "scheduled", "paid"].includes(outgoingTab)) notFound();
       const { ManagerOutgoingInvoicesPanel } = await import("@/components/portal/manager-outgoing-invoices-panel");
       return subscriptionGated(
