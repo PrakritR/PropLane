@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { stripePayoutErrorResponse, writePayoutSchedule } from "@/lib/stripe-payouts.server";
 import { validateScheduleRequestBody } from "@/lib/stripe-payouts";
+import { manualPayoutPolicyEnabled } from "@/lib/manual-payout-policy-flag";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: validated.error }, { status: 422 });
     }
 
-    if (validated.schedule.interval !== "manual") return NextResponse.json({ error: "Payouts are withdrawal-only." }, { status: 422 });
+    if (manualPayoutPolicyEnabled() && validated.schedule.interval !== "manual") return NextResponse.json({ error: "Payouts are withdrawal-only." }, { status: 422 });
 
     const db = createSupabaseServiceRoleClient();
     const accountId = await resolveManagerConnectAccountId(db, access.actor.userId);
