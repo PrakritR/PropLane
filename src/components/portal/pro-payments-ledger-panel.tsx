@@ -2272,16 +2272,15 @@ export function ManagerPaymentsLedgerPanel({
           // (or Return deposit for a security deposit), added here rather than in
           // `record-sections.ts` since only THIS record kind, in only its paid state, offers them.
           const headerActions = [
-            ...(isMarkableAsPaid(detailRow) ? [
-              { id: "take-payment", label: "Take payment", icon: Check, tone: "primary" as const },
-              { id: "mark-paid", label: "Mark paid offline", icon: Check },
-              { id: "send-reminder", label: "Send reminder", icon: Bell },
-              ...(rowEditable(detailRow) ? [{ id: "edit", label: "Edit", icon: Pencil }] : []),
-            ] : []),
+            ...(isMarkableAsPaid(detailRow)
+              ? [
+                  { id: "record-payment", label: "Record payment", icon: Check },
+                  { id: "send-reminder", label: "Send reminder", icon: Bell },
+                ]
+              : []),
+            ...(isPaidRow(detailRow) ? [{ id: "send-reminder", label: "Send reminder", icon: Bell }] : []),
             ...(isReturnableDepositRow(detailRow) ? [{ id: "return-deposit", label: "Return deposit", icon: RotateCcw }] : []),
             ...(isRefundableChargeRow(detailRow) ? [{ id: "refund", label: "Refund", icon: RotateCcw }] : []),
-            ...(isPaidRow(detailRow) ? [{ id: "move-pending", label: "Move to pending", icon: RotateCcw }] : []),
-            { id: "download", label: "Download", icon: Download },
             ...(rowDeletable(detailRow) ? [{ id: "delete", label: "Delete", icon: Trash2, tone: "danger" as const }] : []),
           ];
           const groups = allSections.groups;
@@ -2296,6 +2295,10 @@ export function ManagerPaymentsLedgerPanel({
           const onHeaderAction = (actionId: string) => {
             if (actionId === "send-reminder") {
               openReminderPreview(detailRow);
+              return;
+            }
+            if (actionId === "record-payment") {
+              void recordPaid(detailRow, "Marked as paid.");
               return;
             }
             if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
