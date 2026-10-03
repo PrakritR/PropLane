@@ -521,6 +521,13 @@ export function ManagerProperties({
                   data-attr="manager-properties-share-open"
                   onClick={() => openShareListing()}
                 />
+                {/* Import sits with the utilities; the round + stays right-most. */}
+                <PortalIconAction
+                  icon={Upload}
+                  label="Import your portfolio"
+                  data-attr="manager-properties-add-import"
+                  onClick={() => router.push("/portal/properties/import")}
+                />
               </>
             }
             primary={
@@ -538,12 +545,6 @@ export function ManagerProperties({
                     if (!canOpenAdd()) return;
                     tryOpenAdd();
                   }}
-                />
-                <PortalIconAction
-                  icon={Upload}
-                  label="Import your portfolio"
-                  data-attr="manager-properties-add-import"
-                  onClick={() => router.push("/portal/properties/import")}
                 />
               </>
             }
