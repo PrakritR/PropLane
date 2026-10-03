@@ -2,8 +2,8 @@
  * "For listing only have title, pictures, price and description."
  * "There is too much on the listing."
  *
- * The editor's Continue button walks a SHORT path — Basics (title, photos,
- * description) → Pricing → Review — and treats Rooms, Bathrooms and Shared spaces
+ * The editor's Continue button walks a SHORT path — Basics → Review — and treats
+ * Rooms, Bathrooms and Shared spaces
  * as optional detail reachable from the rail.
  * A home let by the room keeps Rooms on the path, because there the rooms ARE the
  * product; and a detail step the manager already filled in stays on the path.
@@ -13,14 +13,14 @@ import { LISTING_V2_STEPS, listingV2PathStepIds } from "@/components/portal/list
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 describe("the short path through the listing editor", () => {
-  it("a whole-place listing is Basics → Pricing → Review", () => {
+  it("a whole-place listing is Basics → Review", () => {
     const sub = { ...createDefaultListingSubmission(), listingPlaceCategoryId: "entire_home", rooms: [], bathrooms: [], sharedSpaces: [] };
-    expect(listingV2PathStepIds(sub)).toEqual(["basics", "pricing", "review"]);
+    expect(listingV2PathStepIds(sub)).toEqual(["basics", "review"]);
   });
 
   it("a by-the-room listing keeps Rooms on the path — the rooms are the product", () => {
     const sub = { ...createDefaultListingSubmission(), listingPlaceCategoryId: "shared_home", rooms: [], bathrooms: [], sharedSpaces: [] };
-    expect(listingV2PathStepIds(sub)).toEqual(["basics", "rooms", "pricing", "review"]);
+    expect(listingV2PathStepIds(sub)).toEqual(["basics", "rooms", "review"]);
   });
 
   it("detail the manager already entered stays on the path", () => {
@@ -32,7 +32,7 @@ describe("the short path through the listing editor", () => {
       bathrooms: [{ ...(base.bathrooms?.[0] ?? {}), id: "b1", name: "Bath 1" }],
       sharedSpaces: [{ ...(base.sharedSpaces?.[0] ?? {}), id: "s1", name: "Kitchen" }],
     } as typeof base;
-    expect(listingV2PathStepIds(sub)).toEqual(["basics", "bathrooms", "spaces", "pricing", "review"]);
+    expect(listingV2PathStepIds(sub)).toEqual(["basics", "bathrooms", "spaces", "review"]);
   });
 
   it("the path is always a subsequence of the full step list", () => {

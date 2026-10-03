@@ -71,8 +71,7 @@ describe("ListingEditorV2 with the import's Upload step", () => {
     expect(back).not.toBeDisabled();
     fireEvent.click(back);
     expect(onOpen).toHaveBeenCalledTimes(2);
-    // The listing steps still work as before: jumping to Pricing lands on Pricing.
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-pricing']")!);
-    expect(document.querySelector("[data-attr='listing-v2-rail-pricing']")?.getAttribute("aria-current")).toBe("step");
+    fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-review']")!);
+    expect(document.querySelector("[data-attr='listing-v2-rail-review']")?.getAttribute("aria-current")).toBe("step");
   });
 });

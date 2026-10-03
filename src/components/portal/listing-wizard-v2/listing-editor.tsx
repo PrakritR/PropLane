@@ -51,7 +51,16 @@ import {
 import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
-import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, type LucideIcon } from "lucide-react";
+import { Bath, Building, Building2, DoorOpen, Home, Layers, LayoutGrid, MoreHorizontal, Plus, Store, Warehouse, type LucideIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ListingMediaRow } from "@/components/portal/listing-room-editor/listing-media-row";
+import { applyRoomFurnitureItems, roomFurnitureItems, roomFurnishingLabel, ROOM_FURNITURE_ITEMS } from "@/lib/listing-room-editor";
 import {
   BATHROOM_EXTRA_AMENITY_PRESETS,
   HOUSE_WIDE_AMENITY_PRESETS,
@@ -88,6 +97,7 @@ import {
   bedsLine,
   parseBedsLine,
   isRoomSlotRemovable,
+  isBathroomSlotRemovable,
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
 } from "@/lib/manager-listing-submission";
@@ -124,13 +134,7 @@ import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
-import {
-  BathroomCoveragePanel,
-  ListingPreviewPanel,
-  PricingReceiptPanel,
-  RoomPreviewPanel,
-  SharedSpacesPanel,
-} from "@/components/portal/listing-wizard-v2/listing-side-panel";
+import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
   applyHouseDefaultsToRooms,
   copyRoomDescriptionFrom,
@@ -174,24 +178,14 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 /**
- * Six steps, and Pricing is one of them.
- *
- * The money used to live on a step called **Advanced**, behind an accordion,
- * beside the certificate of occupancy. That is the wrong place for the thing a
- * manager opens the editor to change: rent, deposits, fees and what is collected
- * before move-in are now their own named step, where the live receipt can sit
- * beside them.
- *
- * What is left of Advanced is genuine paperwork a home has once — the building,
- * move-in logistics, local compliance — and it sits behind a disclosure at the
- * foot of Basics rather than pretending to be a stage of the work.
+ * Five steps — rent and fees live on the property Payments tab, not here
+ * (studio redesign 0929 / property-pricing workstream).
  */
 export const LISTING_V2_STEPS = [
   { id: "basics", label: "Basics" },
   { id: "rooms", label: "Rooms" },
   { id: "bathrooms", label: "Bathrooms" },
   { id: "spaces", label: "Shared spaces" },
-  { id: "pricing", label: "Pricing" },
   { id: "review", label: "Review" },
 ] as const;
 
@@ -213,8 +207,8 @@ export type ListingEditorLeadingStep = {
  * "For listing only have title, pictures, price and description."
  * "There is too much on the listing."
  *
- * The steps a listing HAS to pass through. Basics already carries the title,
- * the photos and the description; Pricing carries the price; Review publishes.
+ * The steps a listing HAS to pass through. Basics carries the title, photos and
+ * description; Review publishes. Rent is set on the property Payments tab.
  * Rooms, Bathrooms and Shared spaces are detail a manager adds when they want
  * to — Continue skips them, and the rail marks them optional.
  *
@@ -257,7 +251,6 @@ export type ListingRailChrome = {
     rooms: string;
     bathrooms: string;
     spaces: string;
-    pricing: string;
     review: string;
     open: number;
   };
@@ -267,7 +260,6 @@ export type ListingRailChrome = {
 
 export function listingRailChrome(submission: ManagerListingSubmissionV1): ListingRailChrome {
   const rooms = submission.rooms ?? [];
-  const leaseTerms = listingLeaseTypeScopeOptions(submission);
   const checks = listingReadiness(submission);
   const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
   const attention = {
@@ -275,13 +267,10 @@ export function listingRailChrome(submission: ManagerListingSubmissionV1): Listi
     rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
     bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
     spaces: 0,
-    pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
     review: 0,
   } as Record<string, number>;
   const open = checks.filter((c) => c.state !== "done").length;
   const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
-  const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
-  const from = priced.length > 0 ? Math.min(...priced) : 0;
   const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
   const baths = (submission.bathrooms ?? []).length;
   const spaces = (submission.sharedSpaces ?? []).length;
@@ -303,10 +292,6 @@ export function listingRailChrome(submission: ManagerListingSubmissionV1): Listi
           : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
       bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
       spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
-      pricing:
-        from > 0
-          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
-          : "Rent not set",
       review: open === 0 ? "Ready to publish" : `${open} to finish`,
       open,
     },
@@ -1013,7 +998,6 @@ const ROOM_HELP = {
   people: "How many residents can rent this room, each on their own lease. Not the number of beds.",
   bathroom: "The bathroom this room uses, and whether it is private (ensuite) or shared. Add bathrooms on the Bathrooms step first.",
   floor: "Which level this room is on.",
-  rent: "Set per room in Pricing. Shown here so every room’s price is in one place.",
 } as const;
 
 /**
@@ -1075,7 +1059,6 @@ function RoomCardBody({
   onAccess,
   onGoToBathrooms,
   onRoom,
-  onGoToPricing,
   onDone,
   storiesId,
   sameAsOptions,
@@ -1092,7 +1075,6 @@ function RoomCardBody({
   onAccess: (kind: string) => void;
   onGoToBathrooms: () => void;
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
-  onGoToPricing: () => void;
   onDone?: () => void;
   storiesId: string | undefined;
   /** "—" plus every other room's name; picking one copies its description onto this room once. */
@@ -1104,17 +1086,14 @@ function RoomCardBody({
   const photos = room.photoDataUrls ?? [];
   const video = room.videoDataUrl;
   const detail = room.detail ?? "";
-  const moveInInstructions = room.moveInInstructions ?? "";
-  const entryPhotos = room.moveInPhotoDataUrls ?? [];
-  const arrivalClip = room.moveInVideoDataUrl;
   const beds: ManagerRoomBed[] = room.beds ?? [];
   const residents = room.occupancyCapacity ?? 1;
-  const furnishing = room.furnishing || "";
+  const bedCount = beds.reduce((n, b) => n + b.count, 0) || residents;
   const amenities = room.roomAmenitiesText || "";
   const size = room.sizeSqft ?? 0;
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
   const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
-  const writeFurnishing = (next: string) => onRoom({ furnishing: next });
+  const furnItems = roomFurnitureItems(room);
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
     <span className="inline-flex items-center gap-1.5">
@@ -1126,102 +1105,66 @@ function RoomCardBody({
   return (
     <>
       <FactRow first label="Same as">
-        <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="—" onChange={onSameAs} />
+        <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="Set for this room" onChange={onSameAs} />
       </FactRow>
       {wholePlace ? null : (
-        <FactRow label={help("Residents per room", ROOM_HELP.people)}>
-          <CountStepper compact value={residents} min={1} max={OCCUPANCY_MAX} label={`Residents per room for ${who}`} onChange={(n) => onRoom({ occupancyCapacity: n })} />
+        <FactRow label={help("Residents", ROOM_HELP.people)}>
+          <CountStepper compact value={residents} min={1} max={OCCUPANCY_MAX} label={`Residents for ${who}`} onChange={(n) => onRoom({ occupancyCapacity: n })} />
         </FactRow>
       )}
+      <FactRow label="Beds">
+        <CountStepper compact value={bedCount} min={1} max={OCCUPANCY_MAX} label={`Beds for ${who}`} onChange={(n) => writeBeds(beds.length ? beds.map((b, i) => (i === 0 ? { ...b, count: n } : b)) : [{ type: "Twin", count: n }])} />
+      </FactRow>
       {wholePlace ? null : bathrooms === 0 ? (
         <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
           <button type="button" onClick={onGoToBathrooms} data-attr="listing-v2-add-bathroom-first" className="text-[13.5px] font-bold text-primary hover:underline">
-            Add a bathroom first →
+            + Add bathroom
           </button>
         </FactRow>
       ) : (
         <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
-          <RowSelectCell ariaLabel={`Bathroom access for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
+          <RowSelectCell ariaLabel={`Bathroom for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
         </FactRow>
       )}
       <FactRow label={help("Floor", ROOM_HELP.floor)}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floorOptions} placeholder="Floor…" onChange={(v) => onRoom({ floor: v })} />
       </FactRow>
+      <FactRow label="Furnished">
+        <CheckboxMultiSelect
+          hideLabel
+          label={`Furnished for ${who}`}
+          variant="cell"
+          className="min-w-[150px] max-w-[240px]"
+          options={ROOM_FURNITURE_ITEMS.map((v) => ({ value: v, label: v }))}
+          selected={furnItems}
+          selectionTriggerLabel={roomFurnishingLabel(furnItems)}
+          emptyLabel="Unfurnished"
+          onChange={(next) => onRoom(applyRoomFurnitureItems(room, next))}
+        />
+      </FactRow>
 
       <MoreRows dataAttr="listing-v2-room-more">
-        <FactRow label="Furnishing">
-          <RowSelectCell
-            ariaLabel={`Furnishing for ${who}`}
-            value={isFurnished(furnishing) ? "furnished" : "unfurnished"}
-            options={FURNISHING_OPTIONS}
-            onChange={(v) => writeFurnishing(v === "furnished" ? furnishingLine(furnishingItems(furnishing)) : "")}
-          />
-        </FactRow>
-        {isFurnished(furnishing) ? (
-          <>
-            <BedsRows beds={beds} inherited={false} onChange={writeBeds} who={who} />
-            <FactRow sub label="Included">
-              <MultiPick
-                label={`Included in ${who}`}
-                options={FURNISHING_ITEMS}
-                selected={furnishingItems(furnishing)}
-                emptyLabel="Choose…"
-                onChange={(next) => writeFurnishing(furnishingLine(next))}
-              />
-            </FactRow>
-          </>
-        ) : null}
         <FactRow label="Room amenities">
           <AmenityPick label={`Room amenities for ${who}`} presets={ROOM_AMENITY_PRESETS} value={amenities} onChange={(next) => onRoom({ roomAmenitiesText: next })} />
         </FactRow>
         <FactRow label="Size">
           <SizeInput who={who} value={size} inherited={false} onCommit={(n) => onRoom({ sizeSqft: n ?? undefined })} />
         </FactRow>
-
-        <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="room" urls={photos} onChange={(next) => onRoom({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video">
-            <VideoSlot label="room" url={video} onChange={(next) => onRoom({ videoDataUrl: next })} />
-          </Field>
-        </CardFields>
+        <div className="px-3.5 py-2">
+          <ListingMediaRow
+            photos={<PhotoStrip label="room" urls={photos} onChange={(next) => onRoom({ photoDataUrls: next })} />}
+            video={<VideoSlot label="room" url={video} onChange={(next) => onRoom({ videoDataUrl: next })} />}
+            photoSlot={null}
+            videoSlot={null}
+          />
+        </div>
         <CardFields>
           <Field label="Description">
             <Textarea rows={3} value={detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
           </Field>
         </CardFields>
         <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} />
-
-        <div className="grid grid-cols-2 gap-x-4 border-t border-border px-3.5 pb-1 pt-2">
-          <CheckboxOption label="Move-in checklist required" checked={Boolean(room.moveInInspectionRequired)} onChange={(next) => onRoom({ moveInInspectionRequired: next })} />
-          <CheckboxOption label="Move-out checklist required" checked={Boolean(room.moveOutInspectionRequired)} onChange={(next) => onRoom({ moveOutInspectionRequired: next })} />
-        </div>
-
-        <CardFields>
-          <Field label="Move-in instructions">
-            <Textarea rows={2} value={moveInInstructions} placeholder="Which key opens it, where to park" onChange={(e) => onRoom({ moveInInstructions: e.target.value })} />
-          </Field>
-        </CardFields>
-        <CardFields cols={2}>
-          <Field label="Entry photos">
-            <PhotoStrip label="entry" urls={entryPhotos} onChange={(next) => onRoom({ moveInPhotoDataUrls: next })} />
-          </Field>
-          <Field label="Arrival clip">
-            <VideoSlot label="arrival" url={arrivalClip} onChange={(next) => onRoom({ moveInVideoDataUrl: next })} />
-          </Field>
-        </CardFields>
-
-        {!wholePlace ? (
-          <FactRow label={help("Rent", ROOM_HELP.rent)}>
-            <button type="button" onClick={onGoToPricing} data-attr="listing-v2-room-set-in-pricing" className="text-[13.5px] font-bold text-primary hover:underline">
-              Set in Pricing →
-            </button>
-          </FactRow>
-        ) : null}
       </MoreRows>
-
-      {onDone ? <EditorDone onClick={onDone} dataAttr="listing-v2-room-done" /> : null}
     </>
   );
 }
@@ -1239,16 +1182,19 @@ function StepRooms({
   sub,
   propertyId = null,
   patch,
-  onGoToPricing,
   onGoToBathrooms,
+  onOpenRoomChange,
 }: {
   sub: ManagerListingSubmissionV1;
   propertyId?: string | null;
   patch: Patch;
-  onGoToPricing: () => void;
   onGoToBathrooms: () => void;
+  onOpenRoomChange?: (roomId: string | null) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    onOpenRoomChange?.(open);
+  }, [open, onOpenRoomChange]);
   const ui = useOptionalAppUi();
   const rooms = sub.rooms ?? [];
   const baths = sub.bathrooms ?? [];
@@ -1317,8 +1263,8 @@ function StepRooms({
   const roomLabel = (room: ManagerRoomSubmission, i: number) => room.name.trim() || `${wholePlace ? "Bedroom" : "Room"} ${i + 1}`;
   /** "—" plus every other room's name, in card order. */
   const sameAsOptions = (room: ManagerRoomSubmission) => [
-    { value: "", label: "—" },
-    ...rooms.filter((r) => r.id !== room.id).map((r) => ({ value: r.id, label: roomLabel(r, rooms.indexOf(r)) })),
+    { value: "", label: "Set for this room" },
+    ...rooms.filter((r) => r.id !== room.id).map((r) => ({ value: r.id, label: `Same as ${roomLabel(r, rooms.indexOf(r))}` })),
   ];
   /**
    * The first other room this room's description still matches, or "" —
@@ -1342,6 +1288,23 @@ function StepRooms({
       Object.assign(roomPatch, { [key]: copied[key] });
     }
     writeRoom(room.id, roomPatch);
+    const sourceAccess = accessForRoom(otherId);
+    if (sourceAccess) setAccessForRoom(room.id, sourceAccess);
+  };
+
+  const factsFor = (room: ManagerRoomSubmission, i: number) => {
+    const residents = room.occupancyCapacity ?? 1;
+    const floorShown = room.floor || groundFloor || "Floor not set";
+    const bath = accessLabel(accessForRoom(room.id));
+    const furn = roomFurnishingLabel(roomFurnitureItems(room));
+    return (
+      <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
+        {!wholePlace ? <span>{residents} residents</span> : null}
+        <span>{floorShown}</span>
+        {bath ? <span>{bath} bath</span> : null}
+        <span>{furn}</span>
+      </span>
+    );
   };
 
   const summaryFor = (room: ManagerRoomSubmission) => {
@@ -1362,16 +1325,32 @@ function StepRooms({
     return parts.filter(Boolean).join(" · ");
   };
 
+  const addRoom = () => {
+    if (rooms.length >= MAX_LISTING_ROOMS) {
+      ui?.showToast("Maximum 20 rooms.");
+      return;
+    }
+    const id = `room-${Date.now()}`;
+    const blank: ManagerRoomSubmission = { ...emptyRoom(rooms.length), id, name: "", occupancyCapacity: 1 };
+    writeRooms([...rooms, blank]);
+    setOpen(id);
+  };
+
   return (
     <StepColumn>
-      <StepHeading title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`} />
+      <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+        <StepHeading title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`} />
+        <PortalPrimaryIconAction icon={Plus} label={wholePlace ? "Add bedroom" : "Add room"} onClick={addRoom} data-attr="listing-v2-add-room-icon" />
+      </div>
 
       {rooms.map((room, i) => {
         const isOpen = open === room.id;
         const label = roomLabel(room, i);
+        const canRemove = rooms.length > 1 && isRoomSlotRemovable(room);
         return (
           <RecordCard
             key={room.id}
+            propertyEditor
             name={room.name}
             nameLabel={`Name for room ${i + 1}`}
             namePlaceholder={`${wholePlace ? "Bedroom" : "Room"} ${i + 1}`}
@@ -1386,9 +1365,33 @@ function StepRooms({
               writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
               setOpen(copy.id);
             }}
-            onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); } : undefined}
-            removeLabel={`Remove ${label}`}
-            summary={summaryFor(room)}
+            facts={factsFor(room, i)}
+            headerEnd={
+              <div className="pr9-acts flex shrink-0 items-center gap-0.5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
+                      <MoreHorizontal className="h-5 w-5" aria-hidden />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => {
+                      const idx = rooms.findIndex((r) => r.id === room.id);
+                      const copy = duplicateRoomEntry(room);
+                      writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
+                      setOpen(copy.id);
+                    }}>
+                      Duplicate
+                    </DropdownMenuItem>
+                    {canRemove ? (
+                      <DropdownMenuItem className="text-red-700" onClick={() => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); }}>
+                        Remove room
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            }
             open={isOpen}
             onToggle={() => toggle(room.id)}
             toggleLabel={label}
@@ -1405,8 +1408,6 @@ function StepRooms({
                 onAccess={(v) => setAccessForRoom(room.id, v)}
                 onGoToBathrooms={onGoToBathrooms}
                 onRoom={(p) => writeRoom(room.id, p)}
-                onGoToPricing={onGoToPricing}
-                onDone={() => setOpen(null)}
                 storiesId={sub.listingStoriesId}
                 sameAsOptions={sameAsOptions(room)}
                 sameAsValue={sameAsValue(room)}
@@ -1416,22 +1417,6 @@ function StepRooms({
           </RecordCard>
         );
       })}
-
-      <AddRowButton
-        label={wholePlace ? "Add bedroom" : "Add room"}
-        icon={DoorOpen}
-        dataAttr="listing-v2-add-room"
-        onClick={() => {
-          const id = `room-${Date.now()}`;
-          // The same blank the Basics bedroom count makes (`emptyRoom`), so
-          // two rooms added seconds apart by two controls cannot disagree on
-          // availability or how utilities are billed. Only the name (the card
-          // shows `Room N` as its placeholder) and one resident differ.
-          const blank: ManagerRoomSubmission = { ...emptyRoom(rooms.length), id, name: "", occupancyCapacity: 1 };
-          writeRooms([...rooms, blank]);
-          setOpen(id);
-        }}
-      />
     </StepColumn>
   );
 }
@@ -1470,7 +1455,6 @@ function BathroomCardBody({
   sameAsValue,
   onSameAs,
   onChange,
-  onDone,
 }: {
   bath: ManagerBathroomSubmission;
   who: string;
@@ -1481,7 +1465,6 @@ function BathroomCardBody({
   sameAsValue: string;
   onSameAs: (bathId: string) => void;
   onChange: (patch: Partial<ManagerBathroomSubmission>) => void;
-  onDone: () => void;
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
@@ -1493,7 +1476,7 @@ function BathroomCardBody({
   return (
     <>
       <FactRow first label="Same as">
-        <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="—" onChange={onSameAs} />
+        <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="Set for this bathroom" onChange={onSameAs} />
       </FactRow>
       <FactRow label="Floor">
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floors} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
@@ -1554,16 +1537,13 @@ function BathroomCardBody({
             <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" onChange={(e) => onChange({ detail: e.target.value })} />
           </Field>
         </CardFields>
-        <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video">
-            <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
-          </Field>
-        </CardFields>
+        <div className="px-3.5 py-2">
+          <ListingMediaRow
+            photos={<PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />}
+            video={<VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />}
+          />
+        </div>
       </MoreRows>
-      <EditorDone onClick={onDone} dataAttr="listing-v2-bath-done" />
     </>
   );
 }
@@ -1582,8 +1562,8 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   const bathLabel = (bath: ManagerBathroomSubmission, i: number) => bath.name.trim() || `Bathroom ${i + 1}`;
   /** "—" plus every other bathroom's name, in card order. */
   const sameAsOptions = (bath: ManagerBathroomSubmission) => [
-    { value: "", label: "—" },
-    ...baths.filter((b) => b.id !== bath.id).map((b) => ({ value: b.id, label: bathLabel(b, baths.indexOf(b)) })),
+    { value: "", label: "Set for this bathroom" },
+    ...baths.filter((b) => b.id !== bath.id).map((b) => ({ value: b.id, label: `Same as ${bathLabel(b, baths.indexOf(b))}` })),
   ];
   /**
    * The first other bathroom this bathroom's description still matches, or ""
@@ -1600,23 +1580,61 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   };
 
   const typeLabel = (bath: ManagerBathroomSubmission) => BATHROOM_TYPE_OPTIONS.find((o) => o.value === bathroomTypeOf(bath))?.label ?? "";
-  const summaryFor = (bath: ManagerBathroomSubmission) => {
-    const using = bath.allResidents
-      ? ["Every room"]
-      : rooms.filter((r) => (bath.assignedRoomIds ?? []).includes(r.id)).map((r, i) => r.name.trim() || `Room ${i + 1}`);
-    return [bath.location || groundFloor || "Floor not set", typeLabel(bath), wholePlace ? "" : using.length ? using.join(" & ") : "No rooms yet"].filter(Boolean).join(" · ");
+  const whoUsesFact = (bath: ManagerBathroomSubmission) => {
+    if (wholePlace) return "";
+    const assigned = bath.assignedRoomIds ?? [];
+    if (bath.allResidents || (assigned.length > 0 && assigned.length === rooms.length)) return "Every room";
+    if (assigned.length === 0) return "No rooms yet";
+    if (assigned.length === 1) {
+      const roomId = assigned[0]!;
+      const idx = rooms.findIndex((r) => r.id === roomId);
+      const name = rooms[idx]?.name.trim() || (idx >= 0 ? `Room ${idx + 1}` : "Room");
+      const kind = bath.accessKindByRoomId?.[roomId];
+      if (kind === "ensuite") return `Private to ${name}`;
+      if (kind === "hall") return `Private to ${name}`;
+      return `Shared · ${name}`;
+    }
+    return `Shared by ${assigned.length} rooms`;
+  };
+  const factsFor = (bath: ManagerBathroomSubmission) => {
+    const floorShown = bath.location || groundFloor || "Floor not set";
+    const type = typeLabel(bath);
+    const who = whoUsesFact(bath);
+    return (
+      <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
+        <span>{floorShown}</span>
+        {type ? <span>{type}</span> : null}
+        {who ? <span>{who}</span> : null}
+      </span>
+    );
+  };
+
+  const addBathroom = () => {
+    if (baths.length >= MAX_LISTING_BATHROOMS) {
+      ui?.showToast("Maximum 12 bathrooms.");
+      return;
+    }
+    const id = `bath-${Date.now()}`;
+    const blank = writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full");
+    patch({ bathrooms: [...baths, blank] });
+    setOpen(id);
   };
 
   return (
     <StepColumn>
-      <StepHeading title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`} />
+      <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+        <StepHeading title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`} />
+        <PortalPrimaryIconAction icon={Bath} label="Add bathroom" onClick={addBathroom} data-attr="listing-v2-add-bath-icon" />
+      </div>
 
       {baths.map((bath, i) => {
         const isOpen = open === bath.id;
         const label = bathLabel(bath, i);
+        const canRemove = baths.length > 1 && isBathroomSlotRemovable(bath);
         return (
           <RecordCard
             key={bath.id}
+            propertyEditor
             name={bath.name}
             nameLabel={`Name for bathroom ${i + 1}`}
             namePlaceholder={`Bathroom ${i + 1}`}
@@ -1631,12 +1649,41 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
               patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
               setOpen(copy.id);
             }}
-            onRemove={() => {
-              patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
-              if (open === bath.id) setOpen(null);
-            }}
-            removeLabel={`Remove ${label}`}
-            summary={summaryFor(bath)}
+            facts={factsFor(bath)}
+            headerEnd={
+              <div className="pr9-acts flex shrink-0 items-center gap-0.5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
+                      <MoreHorizontal className="h-5 w-5" aria-hidden />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const idx = baths.findIndex((b) => b.id === bath.id);
+                        const copy = duplicateBathroomEntry(bath);
+                        patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
+                        setOpen(copy.id);
+                      }}
+                    >
+                      Duplicate
+                    </DropdownMenuItem>
+                    {canRemove ? (
+                      <DropdownMenuItem
+                        className="text-red-700"
+                        onClick={() => {
+                          patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
+                          if (open === bath.id) setOpen(null);
+                        }}
+                      >
+                        Remove bathroom
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            }
             open={isOpen}
             onToggle={() => toggle(bath.id)}
             toggleLabel={label}
@@ -1653,32 +1700,11 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 sameAsValue={sameAsValue(bath)}
                 onSameAs={(id) => applySameAs(bath, id)}
                 onChange={(p) => patchBath(bath, p)}
-                onDone={() => setOpen(null)}
               />
             </div>
           </RecordCard>
         );
       })}
-
-      <AddRowButton
-        label="Add bathroom"
-        icon={Bath}
-        dataAttr="listing-v2-add-bath"
-        onClick={() => {
-          if (baths.length >= MAX_LISTING_BATHROOMS) {
-            ui?.showToast("Maximum 12 bathrooms.");
-            return;
-          }
-          const id = `bath-${Date.now()}`;
-          // Built from `emptyBathroom` — the shape the bathroom count makes —
-          // so every field a helper reads without a guard is really there
-          // (`isBathroomSlotRemovable` reads `amenitiesText` and
-          // `photoDataUrls` directly). Full bath, blank floor, no rooms.
-          const blank = writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full");
-          patch({ bathrooms: [...baths, blank] });
-          setOpen(id);
-        }}
-      />
     </StepColumn>
   );
 }
@@ -2512,24 +2538,13 @@ export type ListingReadiness = { id: string; label: string; state: "done" | "tod
 /** What the review step reports, and what a completeness percentage means. */
 export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadiness[] {
   const rooms = sub.rooms ?? [];
-  const priced = rooms.filter((r) => r.monthlyRent > 0 || (r.dailyRentPrice ?? 0) > 0 || roomHasStayOffer(r));
   const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0);
-  const allowed = resolveAllowedLeaseTerms(sub);
   return [
     { id: "address", label: "Address confirmed", state: sub.address.trim() ? "done" : "todo" },
     {
       id: "rooms",
-      label:
-        priced.length === rooms.length
-          ? `${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}, all priced`
-          : `${rooms.length - priced.length} of ${rooms.length} rooms have no rent`,
-      state: rooms.length > 0 && priced.length === rooms.length ? "done" : "todo",
-    },
-    { id: "terms", label: "Lease lengths set", state: allowed.length > 0 ? "done" : "todo" },
-    {
-      id: "deposit",
-      label: "Deposit and fees set",
-      state: (sub.securityDeposit ?? "").trim() || (sub.applicationFee ?? "").trim() ? "done" : "todo",
+      label: rooms.length === 0 ? "Add at least one room" : `${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`,
+      state: rooms.length > 0 ? "done" : "todo",
     },
     {
       id: "photos",
@@ -2540,19 +2555,6 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
       state: rooms.length > 0 && withPhotos.length === rooms.length ? "done" : "warn",
     },
     { id: "description", label: "Description written", state: sub.houseOverview.trim() ? "done" : "todo" },
-    // "PropLane pays" without a code is stored, but checkout bills the resident
-    // unless the account itself carries a grant — say so rather than let the
-    // manager believe the fee is covered. A warning, not a blocker: an account
-    // grant (staff approval or signup promo) satisfies it without any code.
-    ...(sub.serviceFeePayer === "proplane" && !isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode)
-      ? [
-          {
-            id: "processing",
-            label: "PropLane pays needs a promo code — until then the resident is billed",
-            state: "warn" as const,
-          },
-        ]
-      : []),
   ];
 }
 
@@ -2562,9 +2564,6 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   description: "basics",
   rooms: "rooms",
   photos: "rooms",
-  terms: "pricing",
-  deposit: "pricing",
-  processing: "pricing",
 };
 
 
@@ -2778,7 +2777,6 @@ function StepReview({
           })}
         </ul>
       </div>
-      {contact ? <ReachYouCard contact={contact} /> : null}
       <div className="mt-6 max-w-[620px]">
         <ZillowSyndicationRow sub={sub} patch={patch} onJump={onJump} />
       </div>
@@ -2904,9 +2902,7 @@ export function ListingEditorV2({
     const start = LISTING_V2_STEPS[listingV2StepIndex(initialStep)]!.id;
     return new Set([LISTING_V2_STEPS[0]!.id, start]);
   });
-  /** Which room and lease type the receipt is quoting. */
-  const [quoteRoomId, setQuoteRoomId] = useState<string | null>(null);
-  const [quoteTerm, setQuoteTerm] = useState<string | null>(null);
+  const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
   const patch: Patch = (next) => onChange({ ...submission, ...next });
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
@@ -2924,9 +2920,9 @@ export function ListingEditorV2({
     if (!validateStateAbbrev(submission.state).ok) return focus("basics", '[data-wizard-field="state"]', "Add a valid two-letter state before publishing.");
     if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
     if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
-    if (resolveAllowedLeaseTerms(submission).length === 0) return focus("pricing", '[data-attr="lease-type"] button, [data-attr="lease-type"]', "Choose a lease type before publishing.");
-    if (!hasOfferedListingRent(submission)) return focus("pricing", '[aria-label^="Rent"]', "Add a rent before publishing.");
-    if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) return focus("pricing", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");
+    if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) {
+      return focus("basics", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");
+    }
     return null;
   };
 
@@ -2960,12 +2956,6 @@ export function ListingEditorV2({
   const prevStep = prevOnPath();
   const onPath = pathIndexOf(stepId) !== -1;
   const pathPosition = onPath ? pathIndexOf(stepId) + 1 : null;
-
-  const rooms = useMemo(() => submission.rooms ?? [], [submission.rooms]);
-  const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
-  const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
-  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : null;
-  const openRoom = rooms.find((r) => r.id === receiptRoomId) ?? rooms[0] ?? null;
 
   // The same assistant the previous wizard offered, told which step it is on so
   // it can answer about the field in front of the manager.
@@ -3025,24 +3015,14 @@ export function ListingEditorV2({
             propertyId={propertyId}
             sub={submission}
             patch={patch}
-            onGoToPricing={() => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === "pricing"))}
             onGoToBathrooms={() => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === "bathrooms"))}
+            onOpenRoomChange={setPreviewRoomId}
           />
         );
       case "bathrooms":
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
-      case "pricing":
-        return (
-          <StepPricing
-            sub={submission}
-            patch={patch}
-            defaults={defaults}
-            setDefaults={setDefaults}
-            onActiveLeaseTermChange={setQuoteTerm}
-          />
-        );
       default:
         return (
           <StepReview
@@ -3063,31 +3043,9 @@ export function ListingEditorV2({
    * the step itself is wrong, not a reason for an empty column.
    */
   const sidePanel = useMemo(() => {
-    switch (stepId) {
-      case "rooms":
-        return <RoomPreviewPanel sub={submission} room={openRoom} />;
-      case "bathrooms":
-        return <BathroomCoveragePanel sub={submission} />;
-      case "spaces":
-        return <SharedSpacesPanel sub={submission} />;
-      case "pricing":
-        return (
-          <PricingReceiptPanel
-            sub={submission}
-            patch={patch}
-            leaseTerm={receiptTerm}
-            roomId={receiptRoomId}
-            leaseTerms={leaseTerms.length > 0 ? leaseTerms : [DEFAULT_QUOTE_TERM]}
-            onRoomChange={setQuoteRoomId}
-            onLeaseTermChange={setQuoteTerm}
-            lockLeaseTerm
-          />
-        );
-      default:
-        return <ListingPreviewPanel sub={submission} />;
-    }
+    return <ListingPreviewPanel sub={submission} highlightRoomId={stepId === "rooms" ? previewRoomId : null} />;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, openRoom, receiptTerm, receiptRoomId, leaseTerms]);
+  }, [stepId, submission, previewRoomId]);
 
   return (
     <ListingWorkspace

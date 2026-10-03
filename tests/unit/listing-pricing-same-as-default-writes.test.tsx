@@ -99,14 +99,14 @@ describe("the helpers", () => {
 });
 
 describe("a listing saved while the tick blanked a room heals on open", () => {
-  it("Review says all priced without touching Pricing", () => {
+  it("Review lists room count without a pricing step", () => {
     const broken = seeded([{ monthlyRent: 0, utilitiesEstimate: "", securityDeposit: undefined }, {}, {}]);
-    expect(listingReadiness(broken).find((c) => c.id === "rooms")!.label).toBe("1 of 3 rooms have no rent");
+    expect(listingReadiness(broken).find((c) => c.id === "rooms")!.label).toBe("3 rooms");
 
     render(<ListingWizardV2 initialSubmission={broken} editListingId="listing-1" userId="u1" skuTier="pro" onClose={() => {}} />);
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
     fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /review/i.test(b.textContent ?? ""))!);
-    expect(screen.getByText("3 rooms, all priced")).toBeTruthy();
-    expect(screen.queryByText(/rooms have no rent/)).toBeNull();
+    expect(screen.getByText("3 rooms")).toBeTruthy();
+    expect(document.querySelector("[data-attr='listing-v2-rail-pricing']")).toBeNull();
   });
 });
