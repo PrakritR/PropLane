@@ -35,9 +35,8 @@ describe("Add tour matches every other tab's ADD row", () => {
     expect(add).not.toContain("className:");
   });
 
-  it("still renders a Schedule tour affordance — the one empty card's pill", () => {
-    expect(tours).toContain('label: "Schedule tour"');
-    expect(tours).toContain('dataAttr: "tours-list-add"');
+  it("the empty card has no Schedule tour pill — the round + is the only create action", () => {
+    expect(tours).not.toContain('dataAttr: "tours-list-add"');
   });
 
   it("leaves the shared inline-when-nonempty rule as the default", () => {

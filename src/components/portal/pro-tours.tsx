@@ -1820,7 +1820,6 @@ export function ManagerTours({
           label: tab.label,
           href: listHrefForBucket(tab.id),
           count: tab.count,
-          alert: tab.alert,
           dataAttr: `tours-bucket-${tab.id}`,
         }))}
         activeDestinationId={bucket}
@@ -1885,19 +1884,8 @@ export function ManagerTours({
                   tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: listHrefForBucket(t.id) })),
                   bucket,
                 ),
-                // Past tours are history; only the live tabs offer the pill.
-                actions:
-                  bucket === "past"
-                    ? []
-                    : [
-                        {
-                          label: "Schedule tour",
-                          onClick: () => setAddTourOpen(true),
-                          disabled: scopedPropertyIds.length === 0,
-                          reason: scopedPropertyIds.length === 0 ? "List a property first — tours are booked against a listing." : undefined,
-                          dataAttr: "tours-list-add",
-                        },
-                      ],
+                // Icon tile plus one line; the round + is the only create action (m-leasing empty card).
+                actions: [],
               }
         }
         onBulkClear={() => setSelectedIds(new Set())}
