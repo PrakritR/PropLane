@@ -117,3 +117,46 @@ export async function DELETE(req: Request) {
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 404 });
   return NextResponse.json({ ok: true });
 }
+
+/** Changing a link's terms replaces its URL; an already-shared URL never gains access. */
+export async function PATCH(req: Request) {
+  const userId = await sessionUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const body = await req.json().catch(() => ({}));
+  if (typeof body.id !== "string" || typeof body.workspaceId !== "string") {
+    return NextResponse.json({ error: "Link and workspace required." }, { status: 400 });
+  }
+  const db = createSupabaseServiceRoleClient();
+  const listing = await listInviteLinksForWorkspace(db, { actorUserId: userId, workspaceId: body.workspaceId });
+  if (!listing.ok) return NextResponse.json({ error: listing.error }, { status: listing.status });
+  const original = listing.links.find((link) => link.id === body.id);
+  if (!original || inviteLinkUnusableReason(original, new Date())) {
+    return NextResponse.json({ error: "That invite link is no longer active." }, { status: 409 });
+  }
+  const replacement = await mintInviteLink(db, {
+    actorUserId: userId,
+    kind: "manager",
+    workspaceId: body.workspaceId,
+    label: original.label ?? undefined,
+    assignedPropertyIds: Array.isArray(body.assignedPropertyIds) ? body.assignedPropertyIds : original.assignedPropertyIds,
+    houseScope: body.houseScope ?? original.houseScope,
+    teamRole: body.teamRole ?? original.teamRole,
+    propertyPermissions: body.propertyPermissions ?? original.propertyPermissions,
+    workspacePermissions: body.workspacePermissions ?? original.workspacePermissions,
+    replaceActive: false,
+  });
+  if (!replacement.ok) return NextResponse.json({ error: replacement.error }, { status: replacement.status });
+  // Keep the original deadline and remaining use budget. Never extend an invitation by editing it.
+  const maxUses = original.maxUses === null ? null : original.maxUses - original.usedCount;
+  const { error } = await db.from("manager_invite_links").update({ expires_at: original.expiresAt, max_uses: maxUses }).eq("id", replacement.link.id);
+  if (error) {
+    await revokeInviteLink(db, { actorUserId: userId, linkId: replacement.link.id });
+    return NextResponse.json({ error: "Could not preserve the invitation limits." }, { status: 500 });
+  }
+  const revoked = await revokeInviteLink(db, { actorUserId: userId, linkId: original.id });
+  if (!revoked.ok) {
+    await revokeInviteLink(db, { actorUserId: userId, linkId: replacement.link.id });
+    return NextResponse.json({ error: revoked.error }, { status: revoked.status ?? 409 });
+  }
+  return NextResponse.json({ link: { ...replacement.link, expiresAt: original.expiresAt, maxUses }, url: inviteLinkUrl(resolveAppOrigin(req), replacement.token) });
+}

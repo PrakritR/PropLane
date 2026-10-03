@@ -7,7 +7,7 @@ const applications = readFileSync("src/components/portal/pro-applications.tsx", 
 
 describe("Edit permissions is a popup", () => {
   it("the member ⋯ menu calls onEdit instead of opening a member page", () => {
-    expect(blocks).toContain('label: "Edit"');
+    expect(blocks).toContain('label: "Permissions"');
     expect(blocks).toContain("onSelect: m.onEdit");
     expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain("opens a sheet on this page — not a");
@@ -23,7 +23,7 @@ describe("Edit permissions is a popup", () => {
   it("pending invite Edit opens the member sheet, not a member page", () => {
     expect(panel).toContain("openMemberSheet(inv.id)");
     expect(panel).not.toContain("onOpen={(inv) => openTeamDetail(inv.id)}");
-    expect(blocks).toContain('label: "Edit"');
+    expect(blocks).toContain('label: "Permissions"');
     expect(blocks).toContain('dataAttr: "team-pending-edit"');
     expect(blocks).toContain('label: "Revoke"');
     expect(blocks).not.toContain('label: "Copy link"');

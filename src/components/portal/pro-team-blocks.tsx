@@ -10,8 +10,8 @@
  * not inside this block.
  */
 
-import type { ReactNode } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { MoreHorizontal, ChevronDown } from "lucide-react";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
@@ -21,7 +21,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
-import { cn } from "@/lib/utils";
+import { TEAM_ROLE_INVITE_OPTIONS, type TeamRoleId } from "@/lib/co-manager-team-roles";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 
 export type TeamMemberRow = {
   id: string;
@@ -40,6 +43,8 @@ export type TeamMemberRow = {
   /** Menu wording for the destructive action; "Disconnect" when absent. */
   removeLabel?: string;
   onEdit?: () => void;
+  onRoleChange?: (role: TeamRoleId) => Promise<void>;
+  houses?: { options: { value: string; label: string }[]; selected: string[]; all: boolean; onSave: (ids: string[], all: boolean) => Promise<void> };
   /** Promotes this member to main manager of one or more houses. */
   onTransfer?: () => void;
   onDisconnect?: () => void;
@@ -82,17 +87,23 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
   );
 }
 
-function shortDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+export function TeamRowValues({ row }: { row: TeamMemberRow }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(row.houses?.selected ?? []);
+  const [all, setAll] = useState(row.houses?.all ?? false);
+  return <div className="flex flex-col items-end text-sm">
+    {row.onRoleChange ? <DropdownMenu modal={false}><DropdownMenuTrigger disabled={busy} className="inline-flex min-h-8 items-center gap-1" aria-label={`Role for ${row.name}`}>{row.roleLabel ?? "Co-manager"}<ChevronDown className="size-3" /></DropdownMenuTrigger>
+      <DropdownMenuContent backdrop={false}>{TEAM_ROLE_INVITE_OPTIONS.map((option) => <DropdownMenuItem key={option.value} onSelect={() => { if (option.value === "custom") { row.onEdit?.(); return; } setBusy(true); void row.onRoleChange!(option.value as TeamRoleId).finally(() => setBusy(false)); }}>{option.value === "custom" ? "Custom…" : option.label}</DropdownMenuItem>)}</DropdownMenuContent>
+    </DropdownMenu> : <span>{row.role === "owner" ? "Owner" : row.roleLabel ?? "Co-manager"}</span>}
+    {row.houses ? <button type="button" className="inline-flex min-h-8 items-center gap-1 text-xs text-muted" onClick={() => { setSelected(row.houses!.selected); setAll(row.houses!.all); setOpen(true); }}>{row.propertiesLabel}<ChevronDown className="size-3" /></button> : <span className="text-xs text-muted">{row.propertiesLabel}</span>}
+    {row.houses ? <Modal title={`Houses · ${row.name}`} open={open} onClose={() => setOpen(false)}>
+      <label className="mb-4 flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={all} onChange={(event) => setAll(event.target.checked)} />All houses</label>
+      {!all ? <CheckboxMultiSelect label="Selected houses" options={row.houses.options} selected={selected} onChange={setSelected} /> : null}
+      <ModalFooter><Button disabled={!all && selected.length === 0} onClick={async () => { await row.houses!.onSave(all ? row.houses!.options.map((option) => option.value) : selected, all); setOpen(false); }}>Save</Button></ModalFooter>
+    </Modal> : null}
+  </div>;
 }
-
-const ROLE_PILL: Record<TeamMemberRow["role"], { label: string; className: string }> = {
-  owner: { label: "Owner", className: "bg-primary/10 text-primary" },
-  co_manager: { label: "Co-manager", className: "bg-[var(--secondary)] text-muted" },
-};
 
 function BlockShell({
   title,
@@ -121,75 +132,20 @@ function BlockShell({
   );
 }
 
-const MEMBER_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_44px] md:items-center md:gap-x-3";
-
-/**
- * `embedded` drops the card shell: the workspace card already is the card, and
- * its "Managers & permissions" header carries the title and Invite.
- */
 export function TeamMembersBlock({ members, embedded = false }: { members: TeamMemberRow[]; embedded?: boolean }) {
-  const columns = (
-    <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
-      <span>Member</span>
-      <span>Role</span>
-      <span>Houses</span>
-      <span>Joined</span>
-      <span />
-    </div>
-  );
-  const rows = (
-      <ul>
-        {members.map((m) => {
-          const pill = ROLE_PILL[m.role];
-          const pillLabel = m.role === "co_manager" ? (m.roleLabel ?? pill.label) : pill.label;
-          const items = ([
-            m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
-            m.onTransfer
-              ? { id: "transfer", label: "Transfer ownership", onSelect: m.onTransfer, dataAttr: "team-member-transfer" }
-              : null,
-            m.onDisconnect ? { id: "disconnect", label: m.removeLabel ?? "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
-          ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
-          return (
-            <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
-              <span className="flex min-w-0 items-center gap-2.5">
-                <InboxAvatar name={m.name} className="h-8 w-8 shrink-0 text-[11px]" />
-                <span className="min-w-0">
-                  <span className="block truncate text-[14px] font-semibold text-foreground">{m.name}</span>
-                  <span className="block truncate text-[12px] text-muted">{m.detail}</span>
-                  {m.note ? (
-                    <span className="mt-0.5 inline-flex rounded-full bg-[var(--status-pending-bg,rgba(163,74,6,0.12))] px-2 py-px text-[11px] font-semibold text-[var(--status-pending-fg)]" data-attr="team-member-note">
-                      {m.note}
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-              <span>
-                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", pill.className)}>{pillLabel}</span>
-              </span>
-              <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">{m.propertiesLabel}</span>
-              <span className="text-[12.5px] text-muted max-md:hidden">{shortDate(m.joinedAt)}</span>
-              <span className="ml-auto md:ml-0 md:justify-self-end">
-                <TeamRowMenu label={m.name} items={items} />
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-  );
-  if (embedded) {
-    return (
-      <div data-attr="team-members-block">
-        {columns}
-        {rows}
-      </div>
-    );
-  }
-  return (
-    <BlockShell title="Members" count={members.length} dataAttr="team-members-block">
-      {columns}
-      {rows}
-    </BlockShell>
-  );
+  const rows = <ul>{members.map((m) => {
+    const items = ([
+      m.onEdit ? { id: "edit", label: "Permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+      m.onTransfer ? { id: "transfer", label: "Transfer ownership", onSelect: m.onTransfer, dataAttr: "team-member-transfer" } : null,
+      m.onDisconnect ? { id: "disconnect", label: "Remove", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
+    ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
+    return <li key={m.id} className="grid grid-cols-[32px_minmax(0,1fr)_auto_32px] items-center gap-2 border-b border-border px-4 py-3 last:border-0" data-attr="team-member-row">
+      <InboxAvatar name={m.name} className="h-8 w-8 text-[11px]" />
+      <span className="min-w-0"><span className="block truncate text-[15px]">{m.name}</span><span className="block truncate text-xs text-muted">{m.detail}</span>{m.note ? <span className="text-xs text-muted" data-attr="team-member-note">{m.note}</span> : null}</span>
+      <TeamRowValues row={m} /><TeamRowMenu label={m.name} items={items} />
+    </li>;
+  })}</ul>;
+  return embedded ? <div data-attr="team-members-block">{rows}</div> : <BlockShell title="Managers" dataAttr="team-members-block">{rows}</BlockShell>;
 }
 
 export function TeamPendingInvitesBlock({
@@ -202,7 +158,9 @@ export function TeamPendingInvitesBlock({
   expiryLabel,
   roleLabel,
   embedded = false,
+  controls,
 }: {
+  controls?: (invite: AccountLinkInviteDto) => Pick<TeamMemberRow, "onRoleChange" | "houses">;
   invites: AccountLinkInviteDto[];
   /** Inside a workspace card: plain rows under the members, no card shell. */
   embedded?: boolean;
@@ -224,7 +182,7 @@ export function TeamPendingInvitesBlock({
           const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId) ?? "Invite";
           const items: TeamRowMenuItem[] = outgoing
             ? [
-                { id: "edit", label: "Edit", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
+                { id: "edit", label: "Permissions", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
                 { id: "revoke", label: "Revoke", onSelect: () => onRevoke(inv), destructive: true, dataAttr: "team-pending-revoke" },
               ]
             : [
@@ -239,10 +197,11 @@ export function TeamPendingInvitesBlock({
                   <span className="block truncate text-[14px] font-semibold text-foreground">{name}</span>
                   <span className="block truncate text-[12px] text-muted">
                     {outgoing ? "Invited" : `Invited you`}
-                    {roleLabel ? ` · ${roleLabel(inv)}` : ""} · {propertiesLabel(inv)} · {expiryLabel(inv.expiresAt)}
+                    {` · ${expiryLabel(inv.expiresAt)}`}
                   </span>
                 </span>
               </button>
+              <TeamRowValues row={{ id: inv.id, name, detail: "", role: "co_manager", roleLabel: roleLabel?.(inv), propertiesLabel: propertiesLabel(inv), joinedAt: null, onEdit: () => onOpen(inv), ...controls?.(inv) }} />
               <TeamRowMenu label={name} items={items} />
             </li>
           );
