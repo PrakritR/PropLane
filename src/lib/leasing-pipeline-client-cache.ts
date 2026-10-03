@@ -5,6 +5,7 @@
  */
 import {
   DEFAULT_LEASING_PIPELINE,
+  effectiveSharedRoomLeaseKind,
   normalizeLeasingPipelinePreferences,
   type LeasingPipelinePreferences,
 } from "@/lib/leasing-pipeline-preferences";
@@ -18,4 +19,14 @@ export function cacheLeasingPipelinePreferences(raw: unknown): LeasingPipelinePr
 
 export function readCachedLeasingPipelinePreferences(): LeasingPipelinePreferences {
   return cached;
+}
+
+/**
+ * Whether roommates in this shared room sign ONE joint lease: the room's own choice, else the
+ * workspace default (Settings -> Applications & leases, "Roommates in a shared room sign").
+ */
+export function sharedRoomIsOnJointLease(
+  room: { sharedRoomLeaseKind?: "property_default" | "individual" | "joint" | null } | null | undefined,
+): boolean {
+  return effectiveSharedRoomLeaseKind(room?.sharedRoomLeaseKind, cached) === "joint";
 }

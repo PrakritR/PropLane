@@ -5,7 +5,8 @@ import {
 import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
-import { resolvePropertyLeaseTemplateFromApplicationAnswers } from "@/lib/application-lease-template-routing";
+import { resolveApplicationForLeaseTemplate, resolveLeaseForApplicationTemplate } from "@/lib/application-lease-mapping";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import {
   createPropertyLeaseTemplate,
   readPropertyLeaseTemplates,
@@ -300,13 +301,23 @@ export function formatApplicationLeaseTermsLabel(terms: string[] | undefined): s
   return clean.join(" · ");
 }
 
-/** Pick the property lease template that best matches an applicant's lease-term choice. */
+/**
+ * Pick the property lease template an applicant gets.
+ *
+ * C2-CP9 (application first): the lease their application is mapped to always wins. An unmapped
+ * application (or one with no pinned template) falls back to the stay-kind default below,
+ * deterministically: short stays get the short-term lease, everything else the explicit
+ * `applicationLeaseTerms` match, else the long-term lease.
+ */
 export function resolvePropertyLeaseTemplateForApplication(
   sub: ManagerListingSubmissionV1,
-  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "customFieldAnswers">,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "applicationTemplateId">,
 ): PropertyLeaseTemplate | null {
-  const fromAnswer = resolvePropertyLeaseTemplateFromApplicationAnswers(sub, application);
-  if (fromAnswer) return fromAnswer;
+  const mapped = resolveLeaseForApplicationTemplate(
+    { applications: readPropertyApplicationTemplates(sub), leases: readPropertyLeaseTemplates(sub) },
+    application.applicationTemplateId,
+  );
+  if (mapped) return mapped;
 
   const templates = readPropertyLeaseTemplates(sub);
   if (templates.length === 0) return null;
@@ -346,6 +357,28 @@ export function resolvePropertyLeaseTemplateForApplication(
   }
 
   return longTermTemplate;
+}
+
+/**
+ * C2-CP9 (lease first): the application template a lease signer fills in. The lease they get (the
+ * stay-kind pick, exactly as for an applicant) maps to ONE application; an unmapped lease falls
+ * back to `defaultApplicationTemplateId` when the caller knows it, else null — and the caller then
+ * serves the first published form of the applicant's variant, as before. A mapped form that is not
+ * published cannot be served, so it also reads as null.
+ */
+export function applicationTemplateIdForLeaseFirstApplicant(
+  sub: ManagerListingSubmissionV1,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
+  defaultApplicationTemplateId?: string | null,
+): string | null {
+  const lease = resolvePropertyLeaseTemplateForApplication(sub, application);
+  const applications = readPropertyApplicationTemplates(sub);
+  const mapped = resolveApplicationForLeaseTemplate(
+    { applications, leases: readPropertyLeaseTemplates(sub) },
+    lease?.id,
+    defaultApplicationTemplateId,
+  );
+  return mapped && mapped.publishedQuestionConfig ? mapped.id : null;
 }
 
 export function applicationUsesBundleLeaseTemplate(
@@ -419,7 +452,7 @@ export type LeaseTemplateGenerateChoice = {
  */
 export function listLeaseTemplateGenerateChoices(
   sub: ManagerListingSubmissionV1,
-  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "applicationTemplateId">,
   leaseKind?: "individual" | "joint_bundle",
 ): LeaseTemplateGenerateChoice[] {
   const templates = readPropertyLeaseTemplates(sub);
@@ -432,6 +465,17 @@ export function listLeaseTemplateGenerateChoices(
       label: template.label.trim() || leaseTemplateScenarioLabel(scenario),
     };
   });
+
+  // C2-CP9: the lease this application is mapped to is always the first choice.
+  const mapped = resolveLeaseForApplicationTemplate(
+    { applications: readPropertyApplicationTemplates(sub), leases: templates },
+    application.applicationTemplateId,
+  );
+  if (mapped) {
+    const mappedIdx = rows.findIndex((r) => r.id === mapped.id);
+    if (mappedIdx > 0) rows.unshift(...rows.splice(mappedIdx, 1));
+    if (mappedIdx >= 0) return rows;
+  }
 
   const defaultScenario = resolveLeaseTemplateScenarioForApplication(application, leaseKind);
   for (const scenario of [defaultScenario, ...leaseTemplateScenarioFallbacks(defaultScenario)]) {
@@ -449,7 +493,7 @@ export function listLeaseTemplateGenerateChoices(
 /** Overlay the matched lease template onto legacy top-level lease fields for generation. */
 export function submissionWithLeaseTemplateForApplication(
   sub: ManagerListingSubmissionV1,
-  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "applicationTemplateId">,
 ): ManagerListingSubmissionV1 {
   const template = resolvePropertyLeaseTemplateForApplication(sub, application);
   if (!template) return sub;

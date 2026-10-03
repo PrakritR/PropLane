@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
 //
-// F-editor a/c/d: the property Add/Edit application editor's Sections-step
-// default-sections checklist, the footer-only commit contract, and the
-// Setup step's "Linked co-signer form" picker.
+// F-editor a/c + C2-CP8: the property Add/Edit application editor's Sections-step
+// default-sections checklist, the footer-only commit contract, and the absence of
+// a Settings step (workspace choices live in Settings -> Applications & leases).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { createPropertyApplicationTemplate, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
-import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -114,7 +113,7 @@ describe("F-editor c: footer-only commit", () => {
       />,
     );
     await waitWorkspace();
-    for (const railId of ["name", "sections", "setup"]) {
+    for (const railId of ["name", "sections"]) {
       jumpRail(railId);
       expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Upload PDF" })).toBeNull();
@@ -124,7 +123,7 @@ describe("F-editor c: footer-only commit", () => {
   });
 });
 
-describe("F009: Setup step's Linked co-signer form picker", () => {
+describe("C2-CP8: the application editor has no Settings step", () => {
   const OTHER_TEMPLATE: PropertyApplicationTemplate = {
     id: "app-tpl-cosigner-target",
     kind: "long-term",
@@ -134,8 +133,14 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
 
-  it("stores the picked template's id, and never offers the template being edited", async () => {
-    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+  it("lists only Application and Questions, and keeps the links workspace settings made on Save", async () => {
+    const base = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    const template: PropertyApplicationTemplate = {
+      ...base,
+      linkedCosignerApplicationTemplateId: OTHER_TEMPLATE.id,
+      linkedLeaseTemplateId: "lease-tpl-mapped",
+      usedForLeaseTemplateIds: ["lease-tpl-mapped"],
+    };
     const persist = vi.fn().mockResolvedValue(true);
     render(
       <ManagerApplicationQuestionsEditorModal
@@ -153,37 +158,19 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
       />,
     );
     await waitWorkspace();
-    jumpRail("setup");
-    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-sections"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Co-signer form" })).toBeNull();
+    expect(screen.queryByText("Signing order")).toBeNull();
+    expect(screen.queryByText("Used for leases")).toBeNull();
 
-    const picker = screen.getByRole("button", { name: "Co-signer form" });
-    fireEvent.click(picker);
-    const listbox = await screen.findByRole("listbox");
-    // The template being edited is never offered as its own co-signer form.
-    expect(screen.queryByText("Long-term application", { selector: '[role="listbox"] *' })).toBeNull();
-    const option = screen.getByText("Guest application");
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    void listbox;
-
+    jumpRail("sections");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
-    const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
-    expect(savedTemplate?.linkedCosignerApplicationTemplateId).toBe(OTHER_TEMPLATE.id);
-  });
-});
-
-describe("C2-R30-11 intake ↔ licensing Used for leases link", () => {
-  it("writes linkedApplicationTemplateId on leases selected in Used for leases", () => {
-    const intake = createPropertyApplicationTemplate({ kind: "long-term", label: "Intake form" });
-    const licensing = createPropertyLeaseTemplate({ kind: "long-term", label: "Licensing agreement" });
-    const templateId = intake.id;
-    const selectedLeases = new Set([licensing.id]);
-    const propertyLeaseTemplates = [licensing].map((lease) =>
-      selectedLeases.has(lease.id) ? { ...lease, linkedApplicationTemplateId: templateId } : lease,
-    );
-    expect(propertyLeaseTemplates[0]?.linkedApplicationTemplateId).toBe(templateId);
+    const saved = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
+    expect(saved?.linkedCosignerApplicationTemplateId).toBe(OTHER_TEMPLATE.id);
+    expect(saved?.linkedLeaseTemplateId).toBe("lease-tpl-mapped");
   });
 });

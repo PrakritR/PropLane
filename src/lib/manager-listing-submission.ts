@@ -47,6 +47,7 @@ import {
   type ListingFeeRow,
 } from "@/lib/listing-fees";
 import { persistListingServiceFeePayer } from "@/lib/payment-policy";
+import { collapseApplicationLeaseLinks } from "@/lib/application-lease-mapping";
 
 export type PaymentAtSigningOptionId =
   | "security_deposit"
@@ -1483,11 +1484,6 @@ export type ManagerCustomApplicationField = {
   required: boolean;
   /** Choices for `select` / `multi_select` fields; ignored for other types. Array order is display order. */
   options: string[];
-  /**
-   * Parallel to `options`: when set, picking this dropdown answer routes the
-   * applicant to that property lease template (C1-PIPE1 pipeline).
-   */
-  optionLeaseTemplateIds?: (string | null)[];
   /** Application section this question belongs to (RentalApplicationSectionId). Absent = Additional details. */
   section?: string;
   /** When set, this row customizes a built-in Axis application question. */
@@ -1607,11 +1603,6 @@ export function normalizeCustomApplicationFields(
         : undefined;
     const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     const flagged = o.flagged === true ? true : undefined;
-    const rawLeaseIds = o.optionLeaseTemplateIds;
-    const optionLeaseTemplateIds =
-      hasOptions && Array.isArray(rawLeaseIds)
-        ? rawLeaseIds.map((v) => (typeof v === "string" && v.trim() ? v.trim() : null))
-        : undefined;
     out.push({
       id,
       key,
@@ -1619,7 +1610,6 @@ export function normalizeCustomApplicationFields(
       type,
       required: o.required === true,
       options,
-      ...(optionLeaseTemplateIds?.length ? { optionLeaseTemplateIds } : {}),
       section,
       standardKey,
       description,
@@ -2073,13 +2063,30 @@ export type NormalizeManagerListingSubmissionOptions = {
   codeMatches?: boolean;
 };
 
+/**
+ * C2-CP9: an application never maps to two leases and a lease never to two applications. Every
+ * normalise (so every save, client and server) collapses stored legacy multi-links to one.
+ */
+function withSingleApplicationLeaseLinks(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  if (!sub.propertyApplicationTemplates?.length && !sub.propertyLeaseTemplates?.length) return sub;
+  const collapsed = collapseApplicationLeaseLinks(sub.propertyApplicationTemplates ?? [], sub.propertyLeaseTemplates ?? []);
+  if (!collapsed.changed) return sub;
+  return {
+    ...sub,
+    ...(sub.propertyApplicationTemplates ? { propertyApplicationTemplates: collapsed.applications } : {}),
+    ...(sub.propertyLeaseTemplates ? { propertyLeaseTemplates: collapsed.leases } : {}),
+  };
+}
+
 export function normalizeManagerListingSubmissionV1(
   sub: ManagerListingSubmissionV1,
   opts: NormalizeManagerListingSubmissionOptions = {},
 ): ManagerListingSubmissionV1 {
   // The rent-based lease charges that are still marked as defaults follow the rent this
   // listing holds NOW, so a rent typed after the listing was created reaches the lease.
-  return refreshMarkedLeaseChargeDefaults(normalizeManagerListingSubmissionV1Base(sub, opts));
+  return withSingleApplicationLeaseLinks(
+    refreshMarkedLeaseChargeDefaults(normalizeManagerListingSubmissionV1Base(sub, opts)),
+  );
 }
 
 function normalizeManagerListingSubmissionV1Base(

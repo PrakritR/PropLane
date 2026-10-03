@@ -259,7 +259,8 @@ and `tests/unit/application-fee-inline-checkout.test.ts`.
 
 **Pipeline order and lease signing fee** live on
 `manager_automation_settings.row_data.leasingPipeline`
-(`src/lib/leasing-pipeline-preferences.ts`): application↔lease order,
+(`src/lib/leasing-pipeline-preferences.ts`): application↔lease order (one
+value for the whole workspace, never per property or per template),
 required flags, and optional Stripe lease signing fee (each signer pays).
 Lease-first unlocks resident Lease before application approval; send-gate
 skips the approved-application check. Coverage:

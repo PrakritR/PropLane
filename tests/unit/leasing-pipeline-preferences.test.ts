@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LEASING_PIPELINE,
   effectiveLeaseSigningFeeCents,
+  effectiveSharedRoomLeaseKind,
   leaseSendRequiresApprovedApplication,
   leaseUnlocksWithoutApplicationApproval,
   loadLeasingPipelineStatesByManagerId,
@@ -52,6 +53,34 @@ describe("leasing-pipeline-preferences", () => {
         requireApplication: false,
       }),
     ).toBe(false);
+  });
+
+  it("the signing order and shared-room lease default come from the workspace even when a house override stored its own", () => {
+    const state = {
+      portfolio: normalizeLeasingPipelinePreferences({ pipelineOrder: "lease_then_application", sharedRoomLease: "joint" }),
+      byPropertyId: {
+        "prop-1": normalizeLeasingPipelinePreferences({
+          pipelineOrder: "application_then_lease",
+          sharedRoomLease: "individual",
+          leaseSigningFeeCents: 2500,
+          defaultLeaseTemplateId: "lease-1",
+        }),
+      },
+    };
+    const resolved = resolveLeasingPipelineForProperty(state, "prop-1");
+    expect(resolved.pipelineOrder).toBe("lease_then_application");
+    expect(resolved.sharedRoomLease).toBe("joint");
+    // The house still owns its own fee and default template.
+    expect(resolved.leaseSigningFeeCents).toBe(2500);
+    expect(resolved.defaultLeaseTemplateId).toBe("lease-1");
+  });
+
+  it("a shared room says Property default only when it follows the workspace", () => {
+    expect(effectiveSharedRoomLeaseKind("property_default", { sharedRoomLease: "joint" })).toBe("joint");
+    expect(effectiveSharedRoomLeaseKind(undefined, { sharedRoomLease: "joint" })).toBe("joint");
+    expect(effectiveSharedRoomLeaseKind("individual", { sharedRoomLease: "joint" })).toBe("individual");
+    expect(effectiveSharedRoomLeaseKind("joint", { sharedRoomLease: "individual" })).toBe("joint");
+    expect(normalizeLeasingPipelinePreferences({}).sharedRoomLease).toBe("individual");
   });
 
   it("treats unset signing fee as free", () => {
@@ -112,10 +141,10 @@ describe("leasing-pipeline-preferences", () => {
 
     const leaseFirstState = states.get("mgr-lease-first")!;
     expect(signingOrderForPipeline(leaseFirstState.portfolio)).toBe("lease_first");
-    // The per-property override wins over the manager's own portfolio default.
+    // The signing order is a workspace setting: a stored per-property order is ignored (C2-CP7).
     expect(
       signingOrderForPipeline(resolveLeasingPipelineForProperty(leaseFirstState, "prop-1")),
-    ).toBe("application_first");
+    ).toBe("lease_first");
     expect(
       signingOrderForPipeline(resolveLeasingPipelineForProperty(leaseFirstState, "some-other-property")),
     ).toBe("lease_first");

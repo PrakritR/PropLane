@@ -13,6 +13,7 @@
  * roommates from the application store; nothing here reads storage.
  */
 import { bedLabelForSlot } from "@/lib/shared-room-display";
+import { effectiveSharedRoomLeaseKind, type SharedRoomLeaseDefault } from "@/lib/leasing-pipeline-preferences";
 import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { formatRoomPriceAmount, roomResidentPriceForSlot } from "@/lib/room-pricing";
@@ -58,12 +59,16 @@ export function sharedRoomLeaseTerms(input: {
   propertyAddress: string;
   term?: string | null;
   residents: SharedRoomResident[];
+  /** Workspace default for a room that says "Property default" (Settings -> Applications & leases). Absent = individual. */
+  workspaceSharedRoomLease?: SharedRoomLeaseDefault;
 }): SharedRoomLeaseTerms | null {
   const { room } = input;
   if (!room) return null;
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   if (capacity < 2 || input.residents.length === 0) return null;
-  const joint = room.sharedRoomLeaseKind === "joint" && input.residents.length > 1;
+  const joint =
+    effectiveSharedRoomLeaseKind(room.sharedRoomLeaseKind, { sharedRoomLease: input.workspaceSharedRoomLease ?? "individual" }) === "joint" &&
+    input.residents.length > 1;
   const residents = (joint ? input.residents : input.residents.slice(0, 1)).map((r) => ({
     name: r.name.trim() || "Resident",
     bedLabel: r.slot != null ? bedLabelForSlot(r.slot) : "a bed",

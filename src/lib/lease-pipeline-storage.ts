@@ -16,7 +16,7 @@ import {
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
-import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
+import { cacheLeasingPipelinePreferences, readCachedLeasingPipelinePreferences, sharedRoomIsOnJointLease } from "@/lib/leasing-pipeline-client-cache";
 import { type DemoApplicantRow, type ManagerLeaseBucket, type ManagerLeaseTab } from "@/data/demo-portal";
 import {
   buildAiGeneratedLeaseHtml,
@@ -2486,9 +2486,10 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
         emit();
         return localSnapshot;
       }
-      const body = (await res.json()) as { rows?: unknown[] };
+      const body = (await res.json()) as { rows?: unknown[]; leasingPipeline?: unknown };
       if (generation !== leaseScopeGeneration) return [];
       if (!Array.isArray(body.rows)) throw new Error("Lease response is incomplete");
+      if (body.leasingPipeline) cacheLeasingPipelinePreferences(body.leasingPipeline);
       const fetched = filterLeasesForManager((body.rows ?? []).map(normalizeLeasePipelineRow), managerUserId);
       leasePipelineLastServerIds = new Set(fetched.map((row) => row.id));
       approvalSeedSyncAttempted = new Set();
@@ -3130,7 +3131,7 @@ function sharedRoomTermsForLeaseRow(
     };
   };
   const residents: SharedRoomResident[] = [residentFrom(ctx.application.fullLegalName || row.residentName, ctx.application)];
-  if (room.sharedRoomLeaseKind === "joint") {
+  if (sharedRoomIsOnJointLease(room)) {
     const groupId = row.jointRoomGroupId?.trim();
     if (groupId) {
       for (const sibling of readLeasePipeline(managerUserId ?? row.managerUserId)) {
@@ -3157,6 +3158,7 @@ function sharedRoomTermsForLeaseRow(
     propertyAddress: ctx.listingProperty?.address ?? ctx.submission?.address ?? "",
     term: ctx.application.leaseTerm,
     residents,
+    workspaceSharedRoomLease: readCachedLeasingPipelinePreferences().sharedRoomLease,
   });
 }
 

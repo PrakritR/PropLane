@@ -261,7 +261,7 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
     fireEvent.change(nameInput, { target: { value: "Fall 2026 Application" } });
 
     // The footer's commit button only renders on the LAST rail step.
-    jumpRail("setup");
+    jumpRail("sections");
     const addButton = await screen.findByRole("button", { name: "Create application" });
     await waitFor(() => expect(addButton).not.toBeDisabled());
     fireEvent.click(addButton);

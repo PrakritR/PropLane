@@ -53,7 +53,11 @@ export type PropertyLeaseTemplate = {
   listingSeedKey?: PropertyLeaseListingSeedKey;
   /** Application lease-term choices that route applicants to this template. */
   applicationLeaseTerms?: string[];
-  /** Application intake template paired with this lease. */
+  /**
+   * C2-CP9 (lease first): the ONE application this lease maps to. One application may serve many
+   * leases; a lease never maps to two. Set only from Settings -> Applications & leases.
+   * `null`/absent = unmapped, which falls back to the property's default application.
+   */
   linkedApplicationTemplateId?: string | null;
   /** Whether this lease is offered to applicants on this property. */
   offered?: boolean;
@@ -491,41 +495,4 @@ export function templateAppearsToBeExecutedLease(candidate: unknown): boolean {
   if (!candidate || typeof candidate !== "object") return false;
   const row = candidate as Record<string, unknown>;
   return Boolean(row.fullySignedAt) || Boolean(row.managerSignature) || Boolean(row.residentSignature) || Boolean(row.signatureName) || Boolean(row.signedAtIso);
-}
-
-/**
- * C2-R30-11 — the Intake form <-> Licensing agreement link, in both directions.
- *
- * A lease's `linkedApplicationTemplateId` is the source of truth (the lease form's
- * "Application" picker writes it; the application editor's "Used for leases" writes it for
- * every lease it selects). `PropertyApplicationTemplate.usedForLeaseTemplateIds` is only the
- * older mirror, honored for a lease that names no intake form of its own, so a link made
- * from either side shows on the other and Save never silently drops it.
- */
-export function leaseIdsUsingApplicationTemplate(
-  leases: readonly Pick<PropertyLeaseTemplate, "id" | "linkedApplicationTemplateId">[],
-  template: { id: string; usedForLeaseTemplateIds?: readonly string[] | null },
-): string[] {
-  const legacy = new Set(template.usedForLeaseTemplateIds ?? []);
-  return leases
-    .filter((lease) =>
-      lease.linkedApplicationTemplateId
-        ? lease.linkedApplicationTemplateId === template.id
-        : legacy.has(lease.id),
-    )
-    .map((lease) => lease.id);
-}
-
-/** Save from the application editor: the selected leases point at the intake form; leases it used to serve and no longer does are released. */
-export function linkLeasesToApplicationTemplate<T extends Pick<PropertyLeaseTemplate, "id" | "linkedApplicationTemplateId">>(
-  leases: readonly T[],
-  templateId: string,
-  selectedLeaseIds: Iterable<string>,
-): T[] {
-  const selected = new Set(selectedLeaseIds);
-  return leases.map((lease) => {
-    if (selected.has(lease.id)) return { ...lease, linkedApplicationTemplateId: templateId };
-    if (lease.linkedApplicationTemplateId === templateId) return { ...lease, linkedApplicationTemplateId: null };
-    return lease;
-  });
 }

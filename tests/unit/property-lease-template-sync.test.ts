@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultListingSubmission, normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
   addLeaseTemplateFromSeed,
   buildLeaseTemplateSeeds,
@@ -11,7 +11,7 @@ import {
 import { createPropertyLeaseTemplate, readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
-import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { createPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 describe("property lease template sync", () => {
   it("offers the long- and short-term defaults, and no bundle formats", () => {
@@ -62,29 +62,22 @@ describe("property lease template sync", () => {
     expect(legacyLabel?.listingSeedKey).toBe("primary");
   });
 
-  it("prefers dropdown answer routing over lease-term routing", () => {
+  it("an application's mapped lease wins over lease-term routing, an unmapped one keeps the term pick", () => {
     const primary = createPropertyLeaseTemplate({ kind: "long-term", label: "Term lease", listingSeedKey: "primary" });
-    const routed = createPropertyLeaseTemplate({ kind: "long-term", label: "Answer lease" });
+    const mappedLease = createPropertyLeaseTemplate({ kind: "long-term", label: "Mapped lease" });
+    const mappedApp = createPropertyApplicationTemplate({ kind: "long-term", label: "Mapped app" });
+    const looseApp = createPropertyApplicationTemplate({ kind: "long-term", label: "Loose app" });
     const sub = {
       ...createDefaultListingSubmission(),
-      propertyLeaseTemplates: [primary, routed],
-      customApplicationFields: normalizeCustomApplicationFields([
-        {
-          id: "pick",
-          key: "lease_route",
-          label: "Lease route",
-          type: "select",
-          required: true,
-          options: ["A", "B"],
-          optionLeaseTemplateIds: [primary.id, routed.id],
-        },
-      ]),
+      propertyLeaseTemplates: [primary, mappedLease],
+      propertyApplicationTemplates: [{ ...mappedApp, linkedLeaseTemplateId: mappedLease.id }, looseApp],
     };
-    const picked = resolvePropertyLeaseTemplateForApplication(sub, {
-      leaseTerm: "12-Month",
-      customFieldAnswers: [{ key: "lease_route", label: "Lease route", type: "select", value: "B" }],
-    });
-    expect(picked?.id).toBe(routed.id);
+    expect(
+      resolvePropertyLeaseTemplateForApplication(sub, { leaseTerm: "12-Month", applicationTemplateId: mappedApp.id })?.id,
+    ).toBe(mappedLease.id);
+    expect(
+      resolvePropertyLeaseTemplateForApplication(sub, { leaseTerm: "12-Month", applicationTemplateId: looseApp.id })?.id,
+    ).toBe(primary.id);
   });
 
   it("resolves short-term template for short-term applicants", () => {

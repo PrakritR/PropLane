@@ -13,6 +13,7 @@ import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { sharedRoomIsOnJointLease } from "@/lib/leasing-pipeline-client-cache";
 import { formatRoomPriceAmount, roomResidentPriceForSlot } from "@/lib/room-pricing";
 
 export type SharedRoomRoommate = {
@@ -72,7 +73,7 @@ export function sharedRoomCardFor(
   const taken = slots.filter((s) => s.holder && !(row.bucket === "approved" && Number(row.application?.residentSlot) === s.slot)).length + (row.bucket === "approved" ? 1 : 0);
   const slot = Number(row.application?.residentSlot);
   const hasSlot = Number.isInteger(slot) && slot > 0;
-  const joint = room.sharedRoomLeaseKind === "joint";
+  const joint = sharedRoomIsOnJointLease(room);
 
   const memberRows: DemoApplicantRow[] = [];
   if (group) {

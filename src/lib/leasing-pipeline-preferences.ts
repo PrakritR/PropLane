@@ -7,7 +7,9 @@
  * no-migration pattern as `applicationAutomation`.
  *
  * Decide defaults (captain "approved — build" without override):
- * - order scope: workspace default + optional house override
+ * - order scope: WORKSPACE ONLY (C2-CP7, captain Oct 3). A house override may still carry the
+ *   other fields (fee, default templates, requirements) but its `pipelineOrder` is ignored:
+ *   `resolveLeasingPipelineForProperty` always answers with the workspace order.
  * - listing application fee: ignored; Application system fee is the source of truth
  * - lease signing fee: each signer pays
  */
@@ -15,8 +17,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type PipelineOrder = "application_then_lease" | "lease_then_application";
 
+/** Workspace default for a shared room's lease when the room itself says "Property default" (C2-CP8). */
+export type SharedRoomLeaseDefault = "individual" | "joint";
+
 export type LeasingPipelinePreferences = {
+  /** Workspace-wide; one value for every property, application and lease (C2-CP7). Default application first. */
   pipelineOrder: PipelineOrder;
+  /** Workspace-wide: do roommates in a shared room each sign their own lease, or one joint lease? */
+  sharedRoomLease: SharedRoomLeaseDefault;
   requireApplication: boolean;
   requireLease: boolean;
   /** Cents; `0` = free (no Stripe gate). Null = not configured (treat as 0). */
@@ -29,6 +37,7 @@ export type LeasingPipelinePreferences = {
 
 export const DEFAULT_LEASING_PIPELINE: LeasingPipelinePreferences = {
   pipelineOrder: "application_then_lease",
+  sharedRoomLease: "individual",
   requireApplication: true,
   requireLease: true,
   leaseSigningFeeCents: null,
@@ -44,6 +53,22 @@ const ROW_DATA_BY_PROPERTY_KEY = "leasingPipelineByPropertyId";
 
 function normalizePipelineOrder(raw: unknown): PipelineOrder {
   return raw === "lease_then_application" ? "lease_then_application" : "application_then_lease";
+}
+
+function normalizeSharedRoomLease(raw: unknown): SharedRoomLeaseDefault {
+  return raw === "joint" ? "joint" : "individual";
+}
+
+/**
+ * The lease shape of a shared room: the room's own choice, else the workspace default.
+ * "Property default" (or no choice) is the only value that reads the workspace setting.
+ */
+export function effectiveSharedRoomLeaseKind(
+  roomKind: "property_default" | "individual" | "joint" | null | undefined,
+  prefs: Pick<LeasingPipelinePreferences, "sharedRoomLease">,
+): SharedRoomLeaseDefault {
+  if (roomKind === "joint" || roomKind === "individual") return roomKind;
+  return prefs.sharedRoomLease;
 }
 
 function normalizeOptionalId(raw: unknown): string | null {
@@ -66,6 +91,7 @@ export function normalizeLeasingPipelinePreferences(raw: unknown): LeasingPipeli
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   return {
     pipelineOrder: normalizePipelineOrder(row.pipelineOrder),
+    sharedRoomLease: normalizeSharedRoomLease(row.sharedRoomLease),
     requireApplication: row.requireApplication === false ? false : true,
     requireLease: row.requireLease === false ? false : true,
     leaseSigningFeeCents: normalizeLeaseSigningFeeCents(row.leaseSigningFeeCents),
@@ -113,14 +139,23 @@ export function normalizeLeasingPipelineByPropertyId(
   return out;
 }
 
-/** Property override wins; else workspace/portfolio default. */
+/**
+ * Property override wins for the per-house fields (fee, default templates, requirements); else
+ * the workspace/portfolio default. The signing order and the shared-room lease default are
+ * workspace-wide, so they ALWAYS come from the workspace row, whatever an old override stored.
+ */
 export function resolveLeasingPipelineForProperty(
   state: LeasingPipelineState,
   propertyId: string | null | undefined,
 ): LeasingPipelinePreferences {
   const id = propertyId?.trim() ?? "";
-  if (id && state.byPropertyId[id]) return state.byPropertyId[id];
-  return state.portfolio;
+  const override = id ? state.byPropertyId[id] : undefined;
+  if (!override) return state.portfolio;
+  return {
+    ...override,
+    pipelineOrder: state.portfolio.pipelineOrder,
+    sharedRoomLease: state.portfolio.sharedRoomLease,
+  };
 }
 
 /**

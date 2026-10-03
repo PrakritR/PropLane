@@ -97,7 +97,7 @@ describe("Edit application workspace chrome", () => {
 });
 
 describe("Edit / Add lease workspace chrome", () => {
-  it("opens the studio's 3-step Name → Form → Setup, live preview visible throughout, Save reachable from Setup", async () => {
+  it("opens the 2-step Lease → Document (no Settings step), live preview visible throughout, Save reachable from Document", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -111,7 +111,7 @@ describe("Edit / Add lease workspace chrome", () => {
     await screen.findByRole("dialog", { name: "New lease" });
     expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-rail-document"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
     // P005: Preview is no longer a 4th rail step — the same lease preview
     // (`sidePanel`) is a persistent side panel shown on every step instead.
     expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).toBeNull();
@@ -119,7 +119,7 @@ describe("Edit / Add lease workspace chrome", () => {
     expect(document.querySelector('[data-attr="property-lease-next"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="property-lease-add-save"]')).toBeNull();
 
-    jumpRail("setup");
+    jumpRail("document");
     expect(document.querySelector('[data-attr="property-lease-add-save"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="property-lease-html-preview"]')).not.toBeNull();
   });

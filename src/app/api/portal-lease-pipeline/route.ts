@@ -43,7 +43,7 @@ import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-temp
 import { hasBothLeaseSignatures, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { loadLeasingPipelineState, resolveLeasingPipelineForProperty } from "@/lib/leasing-pipeline-preferences";
+import { loadLeasingPipeline, loadLeasingPipelineState, resolveLeasingPipelineForProperty } from "@/lib/leasing-pipeline-preferences";
 import { buildLeaseFirstSigningHtml, resolveManagerFilledSigningAnswers, type LeaseFirstFeeContext } from "@/lib/leasing/lease-first-signing-document";
 import {
   projectLeasePipelineListRow,
@@ -408,7 +408,17 @@ export async function GET(req: Request) {
       projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record)) as LeasePipelineRow),
     );
 
-    return NextResponse.json({ rows });
+    // A manager's workspace leasing prefs ride along so the browser's sync helpers (send gate,
+    // shared-room lease shape) are right on every page, not only after Settings was opened.
+    let leasingPipeline: unknown;
+    if (ctx.user.role !== "admin" && ctx.user.role !== "resident") {
+      try {
+        leasingPipeline = await loadLeasingPipeline(ctx.db, ctx.user.id);
+      } catch {
+        leasingPipeline = undefined;
+      }
+    }
+    return NextResponse.json({ rows, ...(leasingPipeline ? { leasingPipeline } : {}) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load records.";
     return NextResponse.json({ error: message }, { status: 500 });

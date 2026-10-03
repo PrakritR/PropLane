@@ -293,13 +293,21 @@ export async function PATCH(req: Request) {
 
     let leasingPipeline: LeasingPipelinePreferences | undefined;
     if ("leasingPipeline" in body) {
+      const workspacePipeline = await loadLeasingPipeline(ctx.db, ownerUserId);
       const existingPipeline = propertyId
         ? resolveLeasingPipelineForProperty(await loadLeasingPipelineState(ctx.db, ownerUserId), propertyId)
-        : await loadLeasingPipeline(ctx.db, ownerUserId);
+        : workspacePipeline;
       const incoming = normalizeLeasingPipelinePreferences({
         ...existingPipeline,
         ...(body.leasingPipeline as Record<string, unknown>),
       });
+      // C2-CP7: the signing order (and the shared-room lease default) is chosen once per
+      // workspace. A property-scoped write can carry neither, so a stale client cannot give one
+      // house its own order.
+      if (propertyId) {
+        incoming.pipelineOrder = workspacePipeline.pipelineOrder;
+        incoming.sharedRoomLease = workspacePipeline.sharedRoomLease;
+      }
       const feeCheck = validateLeaseSigningFeeCents(incoming.leaseSigningFeeCents);
       if (!feeCheck.ok) {
         return NextResponse.json({ error: feeCheck.error }, { status: 400 });
