@@ -64,6 +64,7 @@ import {
   signerAppIdsForCosignerLookup,
 } from "@/lib/rental-application/application-list-grouping";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
+import { ResidentLeaseFirstGate } from "@/components/portal/resident-lease-first-gate";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
 import {
   isPropertyActiveForLeads,
@@ -82,8 +83,7 @@ import {
 } from "@/lib/rental-application/public-apply-session";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { findApplicationFeeCharge, type HouseholdCharge } from "@/lib/household-charges";
-import { ResidentLifecycleStatusPanel } from "@/components/portal/resident-lifecycle-status-panel";
-import { residentLifecycleInputFromApplicationRow } from "@/lib/resident-lifecycle-journey";
+import { ResidentApplicationStatusScreen } from "@/components/portal/resident-application-status-screen";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEMO_APPLICATION_SUBMITTED_EVENT,
@@ -922,7 +922,7 @@ export function ResidentApplicationsPanel({
     </Modal>
   );
 
-  const embeddedWizard = (
+  const applicationWizard = (
     <RentalApplicationWizard
       showToast={showToast}
       mode="portal"
@@ -932,6 +932,19 @@ export function ResidentApplicationsPanel({
       linkedPropertyId={applyTarget?.propertyId ?? demoApplyPropertyId}
     />
   );
+  // A lease-first home starts the lease (form first), not the application.
+  const embeddedWizard =
+    applyTarget && !demoMode ? (
+      <ResidentLeaseFirstGate
+        propertyId={applyTarget.propertyId}
+        listingRoomId={applyTarget.listingRoomId}
+        basePath={basePath}
+      >
+        {applicationWizard}
+      </ResidentLeaseFirstGate>
+    ) : (
+      applicationWizard
+    );
 
   const renderStandaloneApplySurface = () => {
     if (!applyMode || activeInProgressRow || !applyTarget) return null;
@@ -1031,8 +1044,11 @@ export function ResidentApplicationsPanel({
     const cosignerSubmissions = cosignerSubmissionsBySigner.get(signerKey) ?? [];
     return (
       <div className="space-y-4">
-        <ResidentLifecycleStatusPanel
-          input={residentLifecycleInputFromApplicationRow(row, residentEmail, basePath)}
+        <ResidentApplicationStatusScreen
+          row={row}
+          residentEmail={residentEmail}
+          residentUserId={sessionUserId ?? null}
+          basePath={basePath}
         />
         {row.application?.applyingAsGroup === "yes" && row.application?.groupRole === "first" ? (
           <GroupShareCallout
@@ -1263,6 +1279,28 @@ export function ResidentApplicationsPanel({
       </>
     );
   };
+
+  // One submitted application is one status screen, not a list of one: six
+  // steps, whose turn it is, what happens next. Several applications keep the list.
+  const soleApplication = sessionReady && rows.length === 1 ? rows[0] : null;
+  if (!applicationIdProp && !applyMode && soleApplication && soleApplication.application && !isInProgressApplicationRow(soleApplication)) {
+    return (
+      <>
+        <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav>
+          <div className="mx-auto w-full max-w-5xl">
+            <ResidentApplicationStatusScreen
+              row={soleApplication}
+              residentEmail={residentEmail}
+              residentUserId={sessionUserId ?? null}
+              basePath={basePath}
+            />
+          </div>
+          {withdrawModal}
+          {propertyPickerModal}
+        </ManagerPortalPageShell>
+      </>
+    );
+  }
 
   if (!applicationIdProp && !applyMode) {
     return (
