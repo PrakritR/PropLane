@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { PropertyServicesOffersPanel, offerPriceFact } from "@/components/portal/property-services-offers-panel";
 import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
