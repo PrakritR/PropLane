@@ -3642,7 +3642,8 @@ export function formatListingBasicsSummary(sub: ManagerListingSubmissionV1): str
   const pc = LISTING_PLACE_CATEGORY_OPTIONS.find((o) => o.id === sub.listingPlaceCategoryId)?.short;
   if (pc) chunks.push(pc);
   const st = LISTING_STORIES_OPTIONS.find((o) => o.id === sub.listingStoriesId)?.label;
-  if (st) chunks.push(st);
+  // The option label is the bare number ("3"); a lone number in a one-line summary reads as noise.
+  if (st) chunks.push(`${st} ${st === "1" ? "story" : "stories"}`);
   const tb = LISTING_TOTAL_BATH_OPTIONS.find((o) => o.id === sub.listingTotalBathroomsId)?.label;
   if (tb) chunks.push(tb);
   if (sub.houseSizeSqft) chunks.push(`${sub.houseSizeSqft.toLocaleString("en-US")} sq ft`);

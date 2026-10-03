@@ -39,6 +39,7 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { recordSections } from "@/lib/portals/record-sections";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
+import { useListingSigningContext, withListingSigningContext } from "@/hooks/use-listing-signing-context";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
@@ -422,12 +423,17 @@ function ManagerPropertyInlineDetails({
     ownerManagerUserId: row?.managerUserId,
     viewerManagerUserId: managerUserId,
   });
+  // Lease-first workspaces print "Sign lease", not "Apply" — resolved by the same rule as the public page.
+  const signingContext = useListingSigningContext({ listingId: row?.listingId });
   const previewProperty = useMemo(
     () =>
       mock
-        ? withListingContactWorkEmail(withListingContactSmsPhone(mock, contactSmsPhone), contactWorkEmail)
+        ? withListingSigningContext(
+            withListingContactWorkEmail(withListingContactSmsPhone(mock, contactSmsPhone), contactWorkEmail),
+            signingContext,
+          )
         : null,
-    [mock, contactSmsPhone, contactWorkEmail],
+    [mock, contactSmsPhone, contactWorkEmail, signingContext],
   );
   const rich = useMemo(() => (previewProperty ? getListingRichContent(previewProperty) : null), [previewProperty]);
   const hasPreview = Boolean(previewProperty && rich);
