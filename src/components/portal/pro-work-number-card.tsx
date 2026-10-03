@@ -9,7 +9,7 @@
  * the only entry to provisioning from Communication.
  */
 import { useEffect, useState } from "react";
-import { Copy, Check, RefreshCw } from "lucide-react";
+import { Copy, Check, Mail, Phone, RefreshCw } from "lucide-react";
 import {
   PortalInboxContactCard,
   type PortalInboxContactCardAction,
@@ -34,7 +34,7 @@ export function workNumberReadinessCaption(args: {
 }): string {
   if (!args.sendingAvailable) return "Texting is off for this deployment";
   if (!args.canSend) return "Finishing setup";
-  return args.carrierRegistered ? "Ready to send · carrier registered" : "Ready to send";
+  return "";
 }
 
 function useManagerWorkEmail(): { email: string | null; ready: boolean } {
@@ -172,23 +172,26 @@ export function ManagerWorkNumberCard() {
     if (phone) {
       const formatted = formatSmsPhoneLabel(phone) || phone;
       const sendReady = Boolean(status.canSend) && Boolean(status.sendingAvailable);
-      const caption = coManager
-        ? `${workspace?.ownerName?.trim() ? `${workspace.ownerName.trim()}'s workspace` : "Shared by your workspace"} · ${
-            sendReady ? "Ready to send" : "Finishing setup"
-          }`
-        : workNumberReadinessCaption({
-            canSend: Boolean(status.canSend),
-            sendingAvailable: Boolean(status.sendingAvailable),
-            carrierRegistered: status.number?.carrierRegistrationState === "registered",
-          });
+      const readiness = workNumberReadinessCaption({
+        canSend: Boolean(status.canSend),
+        sendingAvailable: Boolean(status.sendingAvailable),
+        carrierRegistered: status.number?.carrierRegistrationState === "registered",
+      });
+      const statusLine = sendReady
+        ? undefined
+        : coManager
+          ? "Finishing setup"
+          : readiness || undefined;
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="inline"
+          leading={<Phone className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-number-card"
           value={formatted}
           label={numberLabel}
-          note={sendReady ? undefined : caption}
-          noteTone={sendReady ? "muted" : "warn"}
+          note={statusLine}
+          noteTone="warn"
           actions={[
             copyIdentityAction({
               key: "copy",
@@ -252,10 +255,11 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="inline"
+          leading={<Mail className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-email-card"
           value={workEmail}
           label={emailLabel}
-          note="Ready to send"
           actions={[
             copyIdentityAction({
               key: "copy-email",
@@ -297,7 +301,10 @@ export function ManagerWorkNumberCard() {
   })();
 
   return (
-    <div className="shrink-0 space-y-2 px-3.5 pb-2 pt-3.5" data-attr="manager-work-identity">
+    <div
+      className="shrink-0 flex flex-col gap-0.5 border-b border-border/60 px-2.5 pb-1 pt-1.5 sm:px-3"
+      data-attr="manager-work-identity"
+    >
       {numberBox}
       {emailBox}
     </div>

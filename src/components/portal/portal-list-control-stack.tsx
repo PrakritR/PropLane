@@ -141,6 +141,7 @@ export function PortalListControlStack({
   variant = "stacked",
   actions,
   primary,
+  embedded = false,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -174,6 +175,8 @@ export function PortalListControlStack({
    * command bar now but the app bar.
    */
   primary?: ReactNode;
+  /** When true, render inside a parent card (Communication list header) — no nested bordered surface. */
+  embedded?: boolean;
 }) {
   assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
@@ -331,50 +334,79 @@ export function PortalListControlStack({
           // Sticky the whole command chrome (tabs + Settings/actions), not only the
           // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
+            !embedded &&
             "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
+          embedded && "border-t border-border/60",
           className,
         )}
         data-slot="portal-list-control-stack"
         data-variant="command"
-        data-sticky={stickyDestinations ? "" : undefined}
+        data-embedded={embedded ? "" : undefined}
+        data-sticky={stickyDestinations && !embedded ? "" : undefined}
       >
-        <div
-          className={cn(
-            "flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
-            // Phone rule (see `toolsJoinTabsOnPhone`): the utilities wrapper dissolves
-            // and the tabs strip + icons share one row — the tools exist ONCE in the DOM.
-            toolsJoinTabsOnPhone && "max-lg:flex-row max-lg:items-center max-lg:pr-1.5",
-          )}
-        >
-          {showDestinations ? (
-            <HorizontalScrollCapture
-              className={cn(
-                "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
-                showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
-                toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
-              )}
-            >
-              <div className="flex items-center gap-2" data-portal-list-destination-nav>
+        {embedded ? (
+          <HorizontalScrollCapture
+            className={cn(
+              "flex min-w-0 flex-row flex-nowrap items-center gap-1.5 overflow-x-auto px-1 py-1 sm:gap-2 sm:pr-1",
+              "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            )}
+            data-attr="portal-list-command-embedded-row"
+            {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+          >
+            {showDestinations ? (
+              <div className="flex shrink-0 items-center gap-2 py-0.5" data-portal-list-destination-nav>
                 {destinationContent}
-                {/* Chips ride in the scrolling strip on phones, beside search on desktop. */}
                 <span className="lg:hidden">{chipsNode}</span>
               </div>
-            </HorizontalScrollCapture>
-          ) : null}
-          {showToolRow || chipsNode ? (
-            <div
-              className={cn(
-                "flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0",
-                toolsJoinTabsOnPhone && "max-lg:contents",
-              )}
-              data-attr="portal-list-command-utilities"
-            >
-              {searchNode}
-              <span className="hidden lg:contents">{chipsNode}</span>
-              {controlsNode}
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+            {showToolRow || chipsNode ? (
+              <div
+                className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 sm:gap-1.5"
+                data-attr="portal-list-command-utilities"
+              >
+                {searchNode}
+                <span className="hidden lg:contents">{chipsNode}</span>
+                {controlsNode}
+              </div>
+            ) : null}
+          </HorizontalScrollCapture>
+        ) : (
+          <div
+            className={cn(
+              "flex min-w-0 flex-col lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
+              "rounded-xl border border-border bg-card shadow-sm",
+              toolsJoinTabsOnPhone && "max-lg:flex-row max-lg:items-center max-lg:pr-1.5",
+            )}
+          >
+            {showDestinations ? (
+              <HorizontalScrollCapture
+                className={cn(
+                  "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
+                  showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
+                  toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
+                )}
+              >
+                <div className="flex items-center gap-2" data-portal-list-destination-nav>
+                  {destinationContent}
+                  <span className="lg:hidden">{chipsNode}</span>
+                </div>
+              </HorizontalScrollCapture>
+            ) : null}
+            {showToolRow || chipsNode ? (
+              <div
+                className={cn(
+                  "flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0",
+                  toolsJoinTabsOnPhone && "max-lg:contents",
+                )}
+                data-attr="portal-list-command-utilities"
+              >
+                {searchNode}
+                <span className="hidden lg:contents">{chipsNode}</span>
+                {controlsNode}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     );
   }

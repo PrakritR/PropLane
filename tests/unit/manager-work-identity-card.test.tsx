@@ -119,6 +119,7 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("inbox@axis.housing");
     });
+    expect(screen.queryByText(/Ready to send/i)).toBeNull();
   });
 
   it("keeps a Set up work email box when the workspace has no address", async () => {

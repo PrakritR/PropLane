@@ -136,4 +136,26 @@ describe("inbox turn direction", () => {
     // A human-typed reply right after it stays an ordinary outbound bubble.
     expect(inboxTurnDirection(person, person.messages![0]!, 1, "sent")).toBe("outbound");
   });
+
+  it("renders legacy manager agent_notice paragraphs as system events", () => {
+    const notice = thread({
+      id: "agent_notice_fee",
+      from: "PropLane Assistant",
+      email: "",
+      folder: "inbox",
+      threadType: "agent_notice",
+      body: "Application fee created.",
+      messages: [
+        {
+          id: "legacy",
+          from: "PropLane Assistant",
+          body: "When: Aug 3\nWith: 5257 Brooklyn\nDetails: The $50 charge\nView it here: https://example.com",
+          at: "2026-08-03T17:31:00-07:00",
+        },
+      ],
+    });
+    const turn = notice.messages![0]!;
+    expect(inboxTurnDirection(notice, turn, 0, "inbox")).toBe("system");
+    expect(inboxTurnIsOutbound(notice, turn, 0, "inbox")).toBe(false);
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
-import { formatInboxStamp } from "@/lib/portal-inbox-storage";
+import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
@@ -23,7 +23,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -650,6 +650,8 @@ export type InboxBubbleMessage = {
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
   delivery?: "sending" | "sent" | "failed";
+  /** True when a later inbound turn or provider observation confirms read. */
+  readByRecipient?: boolean;
   /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
   channel?: InboxChannel;
   /**
@@ -1009,11 +1011,14 @@ export function InboxConversationRow({
   previewPrefix,
   channelBadge,
   trailing,
+  listVariant = "default",
 }: {
   name: string;
   subtitle?: string;
   preview: string;
   time: string;
+  /** Manager Communication list — avatar, name, preview, stamp; no property/category line. */
+  listVariant?: "default" | "manager";
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
   /**
@@ -1055,9 +1060,13 @@ export function InboxConversationRow({
   // A contact with no conversation yet says so quietly — muted italic — so the
   // placeholder does not read like a message somebody sent.
   const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
+  const managerList = listVariant === "manager";
+  const showMetaLine = !managerList && (address || category || recordChip);
   return (
     <div
-      className={`portal-inbox-row group flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
+      className={`portal-inbox-row group flex items-center gap-2 border-b border-border/50 px-3 transition-colors max-md:gap-1.5 max-md:px-2.5 ${
+        managerList ? "py-2.5 max-md:py-2" : "py-3 max-md:py-2.5"
+      } ${
         selected
           ? "portal-inbox-row--selected border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
@@ -1065,18 +1074,23 @@ export function InboxConversationRow({
     >
       {leading}
       <div className="flex min-w-0 flex-1 flex-col">
-      <button type="button" onClick={onOpen} title={subtitle || name} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-        <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
+      <button type="button" onClick={onOpen} title={managerList ? name : subtitle || name} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <span className="relative shrink-0">
+          <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
+          {managerList && unread ? (
+            <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card bg-primary" aria-hidden />
+          ) : null}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p
-              className={`flex min-w-0 items-center gap-1.5 truncate text-sm leading-tight ${
+              className={`min-w-0 truncate text-sm leading-tight ${
                 unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
               }`}
             >
-              {/* Unread lives beside the bold name — one glance, not a stray dot
-                  on the third line under the ⋯ menu (PLAN-0914-1135). */}
-              {unread ? <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Unread" /> : null}
+              {!managerList && unread ? (
+                <span className="mr-1.5 inline-block size-2 shrink-0 rounded-full bg-primary align-middle" aria-label="Unread" />
+              ) : null}
               <span className="truncate">{name}</span>
             </p>
             <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted">
@@ -1117,7 +1131,7 @@ export function InboxConversationRow({
       {/* Third line lives OUTSIDE the button: `recordChip` is a link, and an
           anchor nested inside a <button> is invalid HTML (and un-clickable in
           some browsers). Left-indented to align under the name, not the avatar. */}
-      {address || category || recordChip ? (
+      {showMetaLine ? (
         <div className="mt-1.5 flex items-center gap-2 pl-[52px] max-md:pl-[46px]">
           {address ? (
             <span className="flex min-w-0 items-center gap-1 text-xs text-muted/[0.78]"><House className="h-3 w-3 shrink-0" aria-hidden /><span className="truncate">{address}</span></span>
@@ -1163,11 +1177,14 @@ export function InboxListSegmentTabs({
   onChange,
   counts,
   interceptNavigation = false,
+  layout = "default",
 }: {
   commBase: string;
   value: InboxListSegment;
   onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
   counts?: { active?: number; archived?: number };
+  /** Manager list header — tabs size to content inside one embedded toolbar row. */
+  layout?: "default" | "inline";
   /**
    * Update client state instead of a full route navigation on a plain left
    * click (no modifier key, not opening in a new tab) — used by the manager
@@ -1208,7 +1225,7 @@ export function InboxListSegmentTabs({
         appearance="command"
         ariaLabel="Conversation folders"
         activeId={selected}
-        className="-mb-px w-full gap-1 border-0 bg-transparent p-0"
+        className={layout === "inline" ? "-mb-px w-auto shrink-0 gap-1 border-0 bg-transparent p-0" : "-mb-px w-full gap-1 border-0 bg-transparent p-0"}
         items={[
           {
             id: "active",
@@ -1255,7 +1272,10 @@ export function InboxBubble({
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
     const at = /^\d{4}-\d\d-\d\dT/.test(message.at) && !Number.isNaN(Date.parse(message.at))
-      ? formatInboxStamp(new Date(message.at)) : message.at;
+      ? formatInboxListNarrowTime(message.at)
+      : isCanonicalInboxStamp(message.at)
+        ? formatInboxListNarrowTime(message.at)
+        : message.at;
     const content = <>
       <Sparkles className="h-4 w-4 shrink-0 text-muted" aria-hidden />
       <span className="min-w-0 flex-1 truncate font-semibold" title={message.body}>{event.title}</span>
@@ -1275,10 +1295,21 @@ export function InboxBubble({
   const failed = message.delivery === "failed";
   const radius = inboxBubbleClusterRadius(alignEnd, cluster);
 
+  const readReceipt =
+    outbound &&
+    !sending &&
+    !failed &&
+    (message.delivery === "sent" || message.delivery === undefined) &&
+    (message.readByRecipient === true || (message.status?.toLowerCase().includes("read") ?? false));
+
   const metaCaption = (() => {
     if (failed) return "Couldn't send";
     if (sending) return "Sending…";
     if (message.status) return message.status;
+    if (outbound) {
+      const narrow = formatInboxListNarrowTime(message.at);
+      if (narrow) return narrow;
+    }
     return message.at;
   })();
 
@@ -1348,6 +1379,13 @@ export function InboxBubble({
           >
             {showChannel && channel ? <InboxChannelTag channel={channel} /> : null}
             <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{metaCaption}</span>
+            {outbound && !sending && !failed ? (
+              readReceipt ? (
+                <CheckCheck className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.2} aria-hidden />
+              ) : message.delivery === "sent" || message.delivery === undefined ? (
+                <Check className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.2} aria-hidden />
+              ) : null
+            ) : null}
           </span>
         ) : null}
       </div>

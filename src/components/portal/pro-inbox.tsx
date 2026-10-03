@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Eraser, Info, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Info, MailOpen, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -92,6 +92,7 @@ import {
   INBOX_THREAD_ICON_BTN,
   INBOX_THREAD_ICON_BTN_DANGER,
 } from "./portal-inbox-ui";
+import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
   useInboxRowSelection,
   sendManualScheduledMessageNow,
@@ -623,6 +624,26 @@ export const ManagerInbox = forwardRef<
     markReadSilent(id);
     showToast("Marked as read. Moves to Opened after refresh.");
   };
+
+  const markUnread = useCallback(
+    (id: string) => {
+      const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+      const thread = current.find((row) => row.id === id && row.folder === "inbox" && !row.unread);
+      if (!thread) return;
+      const changed = { ...thread, unread: true };
+      const next = current.map((row) => (row.id === id ? changed : row));
+      void upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [changed], next).then((ok) => {
+        if (!ok) showToast("Could not mark the conversation as unread. Try again.");
+      });
+      setLocal(next);
+      setRetainedIds((prev) => {
+        const copy = new Set(prev);
+        copy.delete(id);
+        return copy;
+      });
+    },
+    [showToast],
+  );
 
   const isUnreadInboxThread = (id: string) => {
     const thread = local.find((t) => t.id === id);
@@ -1464,14 +1485,19 @@ export const ManagerInbox = forwardRef<
     // only when the subject changes ("Re: Propert" three times shows it once).
     // Quoted Gmail/Outlook history is stripped so the bubble is the new text.
     let lastEmailSubject = "";
-    return inboxThreadMessages(activeThread).map((m, i) => {
+    const bubbles = inboxThreadMessages(activeThread).map((m, i) => {
       // Root direction follows the folder (a Sent thread we authored). Appended
       // messages default to outbound (a reply we sent), but a new message
       // delivered into this person-thread carries an explicit direction so an
       // inbound turn on our inbox copy renders inbound rather than as our reply.
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
-        m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
+        m.delivery ??
+        (pendingRoot && i === 0 && direction === "outbound"
+          ? ("sending" as const)
+          : direction === "outbound"
+            ? ("sent" as const)
+            : undefined);
       const fields = inboxEmailBubbleFields(
         {
           body: m.body,
@@ -1498,6 +1524,7 @@ export const ManagerInbox = forwardRef<
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });
+    return annotateInboxOutboundReadReceipts(bubbles);
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
   const latestInboundMessageText = useMemo(() => {
@@ -2444,6 +2471,19 @@ export const ManagerInbox = forwardRef<
         {/* One row of matching circular controls: call, open, edit, archive, delete. */}
         {threadContactActions}
         {threadContactEditButton}
+        {!activeIsAssistantThread ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Mark unread"
+          title="Mark unread"
+          data-attr="inbox-thread-mark-unread"
+          disabled={activeThread.folder !== "inbox" || activeThread.unread}
+          onClick={() => markUnread(activeThread.id)}
+        >
+          <MailOpen className="h-4 w-4" aria-hidden />
+        </button>
+        ) : null}
         {!activeIsAssistantThread ? (
         <button
           type="button"

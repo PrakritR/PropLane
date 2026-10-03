@@ -18,6 +18,18 @@ describe("Communication status and action parity", () => {
     for (const role of ["resident", "vendor"]) expect(read(`src/components/portal/${role}-communication.tsx`)).toContain("<CommunicationStatusFilterDraft");
   });
 
+  it("manager Communication list header is one card with embedded command row and slim rows", () => {
+    const unified = read("src/components/portal/pro-unified-inbox.tsx");
+    const commandStack = read("src/components/portal/portal-list-control-stack.tsx");
+    expect(unified).toContain('data-attr="communication-list-header-card"');
+    expect(unified).toContain("embedded");
+    expect(commandStack).toContain('data-attr="portal-list-command-embedded-row"');
+    expect(unified).toContain('listVariant="manager"');
+    expect(unified).toContain('layout="inline"');
+    expect(unified).not.toMatch(/InboxConversationRow[\s\S]*address=\{row\.address\}/);
+    expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
+  });
+
   it("vendor Communication matches manager's Active|Archived tab UI (captain, 2026-09-26) — resident stays Filter-only", () => {
     const vendor = read("src/components/portal/vendor-communication.tsx");
     const manager = read("src/components/portal/pro-communication.tsx");

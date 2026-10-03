@@ -6,7 +6,7 @@ import {
 } from "@/lib/communication-inbox-assistant";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { RESIDENT_AGENT_FROM_NAME } from "@/lib/agent/resident-inbox-agent-ids";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
 import {
   notePortalResponse,
   onPortalSessionViewerChange,
@@ -1040,6 +1040,21 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
  */
 export function formatInboxStamp(value: Date): string {
   return formatPacificDateTime(value);
+}
+
+/** Conversation list time column: time today, short date otherwise (Pacific). */
+export function formatInboxListNarrowTime(value: string | Date, now: Date = new Date()): string {
+  const ms =
+    value instanceof Date
+      ? value.getTime()
+      : parseInboxStampMs(value) ?? (Number.isNaN(Date.parse(value)) ? null : Date.parse(value));
+  if (ms == null || Number.isNaN(ms)) return typeof value === "string" ? value.trim() : "";
+  const todayKey = formatPacificDate(now, { year: "numeric", month: "2-digit", day: "2-digit" });
+  const dayKey = formatPacificDate(ms, { year: "numeric", month: "2-digit", day: "2-digit" });
+  if (dayKey === todayKey) {
+    return formatPacificDate(ms, { hour: "numeric", minute: "2-digit" });
+  }
+  return formatPacificDate(ms, { month: "short", day: "numeric" });
 }
 
 /** The exact shape {@link formatInboxStamp} produces: "Aug 3, 5:31 PM". */

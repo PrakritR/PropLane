@@ -369,7 +369,6 @@ export function ManagerCommunication({
         data-attr={communicationSettingsEntry.dataAttr}
         onClick={() => setCommunicationSettingsOpen(true)}
       />
-      {communicationNewMessageButton}
     </>
   );
 
@@ -421,6 +420,7 @@ export function ManagerCommunication({
         // The tools sit beside the list's own search, not in a bare pill row
         // above the split view (PLAN-0914-1345).
         listActions={communicationCommandActions}
+        listPrimary={communicationNewMessageButton}
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
         onArchivedViewChange={handleSegmentNavigate}

@@ -30,6 +30,7 @@ import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
@@ -37,7 +38,6 @@ import {
   InboxThreadEmpty,
   InboxThreadSkeleton,
   InboxTwoPane,
-  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import {
@@ -75,7 +75,6 @@ import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
-import { recordRoutePath } from "@/lib/portals/record-kinds";
 import { ResidentDirectChatPane } from "@/components/portal/pro-resident-detail-inbox";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -89,6 +88,7 @@ import {
   markPersistedInboxSourcesRead,
   reconcileObservedInboxReadRows,
   syncPersistedInboxFromServerWithStatus,
+  formatInboxListNarrowTime,
   type PersistedInboxSyncResult,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
@@ -162,26 +162,6 @@ function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
   };
 }
 
-function iosListTimestamp(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const dayDiff = Math.round(
-    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
-      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
-      86_400_000,
-  );
-  if (dayDiff === 0) {
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  }
-  if (dayDiff === 1) return "Yesterday";
-  if (dayDiff > 1 && dayDiff < 7) {
-    return d.toLocaleDateString(undefined, { weekday: "short" });
-  }
-  return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "2-digit" });
-}
-
 /** Desktop shows list + thread together; phones use list-then-thread navigation. */
 function inboxUsesDesktopSplit(): boolean {
   if (typeof window === "undefined") return true;
@@ -234,6 +214,7 @@ export function ManagerUnifiedInbox({
   onSearchQueryChange,
   listChrome = "internal",
   listActions,
+  listPrimary,
   onAddConversation,
   onApplicationsLoaded,
   onArchivedViewChange,
@@ -261,8 +242,10 @@ export function ManagerUnifiedInbox({
   onSearchQueryChange?: (value: string) => void;
   /** `external` — segment tabs + search live in {@link PortalListControlStack}. */
   listChrome?: "internal" | "external";
-  /** Icon tools drawn beside the internal search (filter · setup · settings · new message). */
+  /** Icon tools drawn beside the internal search (filter · settings). */
   listActions?: ReactNode;
+  /** Round primary compose control at the end of the command row. */
+  listPrimary?: ReactNode;
   /** Opens the new-message / compose flow when the list is empty on Active. */
   onAddConversation?: () => void;
   /** Rebuild the parent-owned contact directory after its source has completed. */
@@ -806,9 +789,17 @@ export function ManagerUnifiedInbox({
           : t.subject,
         preview: isPropLaneAssistantInboxThread(t)
           ? propLaneAssistantListPreview(t, listSegment)
-          : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+          : communicationInboxListPreview(
+              lastMsg?.body?.trim()
+                ? lastMsg.body
+                : lastMsg
+                  ? ""
+                  : (t.preview ?? ""),
+              listSegment,
+              80,
+            ),
         previewPrefix: lastOutbound ? "You: " : undefined,
-        time: t.time,
+        time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
         unreadCount: inboxThreadUnreadCount(t),
         // The house the server resolved the thread to be about — the same set
@@ -893,7 +884,7 @@ export function ManagerUnifiedInbox({
             : lastOutbound && lastMessage
               ? smsOutboundPreviewPrefix(lastMessage)
               : undefined,
-          time: lastMessage ? iosListTimestamp(lastMessage.createdAt) : "",
+          time: lastMessage ? formatInboxListNarrowTime(lastMessage.createdAt) : "",
           unread,
           sortMs: lastMessage ? Date.parse(lastMessage.createdAt) || 0 : 0,
         };
@@ -1380,44 +1371,53 @@ export function ManagerUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <ManagerWorkNumberCard />
-      {listChrome === "internal" ? (
-        <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <InboxListSegmentTabs
-            commBase={commBase}
-            value={listSegmentProp}
-            onChange={onArchivedViewChange}
-            counts={listSegmentCounts}
-            interceptNavigation
-          />
-          <div className="flex min-w-0 items-center gap-1">
-            <div className="relative min-w-0 flex-1">
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search contacts or messages"
-                className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-                data-attr="unified-inbox-search"
+      <div
+        className="mx-2 mb-2 mt-2 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:mx-3"
+        data-attr="communication-list-header-card"
+      >
+        <ManagerWorkNumberCard />
+        {listChrome === "internal" ? (
+          <PortalListControlStack
+            variant="command"
+            embedded
+            className="border-0 bg-transparent px-2 pb-2 pt-0 shadow-none sm:px-2.5"
+            destinationRow={
+              <InboxListSegmentTabs
+                commBase={commBase}
+                value={listSegmentProp}
+                onChange={onArchivedViewChange}
+                counts={listSegmentCounts}
+                interceptNavigation
+                layout="inline"
               />
-            </div>
-            {canDeleteAllArchived || listActions ? (
-              <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
-                {canDeleteAllArchived ? (
-                  <PortalIconAction
-                    icon={Trash2}
-                    label="Delete all archived"
-                    tone="danger"
-                    data-attr="unified-inbox-delete-all-archived"
-                    onClick={() => void bulk.handleDeleteAllArchived()}
-                  />
-                ) : null}
-                {listActions}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+            }
+            search={{
+              value: query,
+              onChange: setQuery,
+              placeholder: "Search contacts or messages",
+              ariaLabel: "Search contacts or messages",
+              dataAttr: "unified-inbox-search",
+            }}
+            actions={
+              canDeleteAllArchived || listActions ? (
+                <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+                  {canDeleteAllArchived ? (
+                    <PortalIconAction
+                      icon={Trash2}
+                      label="Delete all archived"
+                      tone="danger"
+                      data-attr="unified-inbox-delete-all-archived"
+                      onClick={() => void bulk.handleDeleteAllArchived()}
+                    />
+                  ) : null}
+                  {listActions}
+                </div>
+              ) : undefined
+            }
+            primary={listPrimary}
+          />
+        ) : null}
+      </div>
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!initialListReady ? (
           <CommunicationInboxInitialState
@@ -1457,21 +1457,14 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
+              listVariant="manager"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
-              subtitle={row.personEmail || row.subtitle}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
               unreadCount={row.unreadCount}
-              address={row.address}
-              category={row.category}
-              recordChip={
-                row.recordRef
-                  ? { label: row.recordRef.label, href: recordRoutePath("manager", row.recordRef.kind, row.recordRef.id) }
-                  : undefined
-              }
               selected={selectedKey === row.key}
               onOpen={() => {
                 explicitlyOpened.current = { key: row.key, context: selectionContext };

@@ -4,6 +4,35 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
+function isManagerAgentNoticeThread(thread: InboxThreadForTurns & { id?: string }): boolean {
+  const type = String(thread.threadType ?? thread.thread_type ?? "").trim();
+  if (type === "agent_notice") return true;
+  return Boolean(thread.id?.startsWith("agent_notice_"));
+}
+
+function isLegacyManagerAgentNoticeBody(body: string | null | undefined): boolean {
+  const text = String(body ?? "").trim();
+  if (!text) return false;
+  return (
+    /\bWhen:\s*/i.test(text) ||
+    /\bWith:\s*/i.test(text) ||
+    /\bDetails:\s*/i.test(text) ||
+    /View it here:/i.test(text)
+  );
+}
+
+function isManagerAgentNoticeTurn(
+  thread: InboxThreadForTurns & { id?: string },
+  message: InboxThreadMessage,
+): boolean {
+  if (message.automated) return true;
+  const extended = message as InboxThreadMessage & { noticeType?: string };
+  if (extended.noticeType) return true;
+  if (!isManagerAgentNoticeThread(thread)) return false;
+  if (!isPropLaneAssistantAuthor(message.from)) return false;
+  return isLegacyManagerAgentNoticeBody(message.body);
+}
+
 /** Shown as the other party on the resident / vendor assistant conversation. */
 export const PROPLANE_ASSISTANT_FROM = "PropLane Assistant";
 export const RESIDENT_AGENT_THREAD_TYPE = "resident_agent";
@@ -56,11 +85,12 @@ export function inboxThreadFolderForTurns(
 }
 
 export function inboxTurnDirection(
-  thread: InboxThreadForTurns,
+  thread: InboxThreadForTurns & { id?: string },
   message: InboxThreadMessage,
   index: number,
   folder: PersistedInboxThread["folder"],
 ): InboxTurnDirection {
+  if (isManagerAgentNoticeTurn(thread, message)) return "system";
   if (isPropLaneAssistantAuthor(message.from)) return "assistant";
   if (isConversationWithPropLaneAssistant(thread)) return "outbound";
   if (message.automated) return "system";
