@@ -45,7 +45,6 @@ import {
   PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
-  PortalSettingsToggle,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/pro-plan";
@@ -70,7 +69,6 @@ import { AssistantDisplaySetting } from "@/components/portal/assistant-display-s
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
