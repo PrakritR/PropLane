@@ -795,6 +795,16 @@ certificate page to `originalDataUrl` and `leaseSignedDocumentBytes` still
 hashes those bytes — a machine-derived document must never become the thing the
 parties execute. Do not move the parsed HTML into `generatedHtml`.
 
+**No verification checkboxes (Oct 2026).** The confirmation is recorded by the
+manager's own action, never by a tick: resident-wizard Create and document-import
+Create call `confirmUploadedLeaseOnCreate`, the review form's **Save terms** calls
+`confirmUploadedLeaseParseOnServer`. Both store the same confirmation bound to the
+digest of the PDF the manager saw. `leaseAwaitsUploadedLeaseReview` (the gate) still
+holds a lease when a required term (tenant, start, end, rent) is empty or the stored
+confirmation no longer binds to the document; a value the parser did not find stays
+empty. There is no amber per-field check, "I confirm" attestation, per-source-issue
+tick, or template "check every page" box.
+
 Three rules, each with a test that goes red if it is broken
 (`tests/unit/uploaded-lease-{extraction,proplane-format,confirm-gate,parse-server}.test.ts`):
 
