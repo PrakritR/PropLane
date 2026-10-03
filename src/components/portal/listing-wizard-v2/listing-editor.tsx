@@ -56,7 +56,7 @@ import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
-import { Bath, Building, Building2, DoorOpen, Home, Layers, LayoutGrid, MoreHorizontal, Plus, Store, Warehouse, type LucideIcon } from "lucide-react";
+import { Building, Building2, DoorOpen, Home, Layers, Store, Warehouse, type LucideIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +64,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRowMenu } from "@/components/portal/portal-row-menu";
 import { ListingMediaRow } from "@/components/portal/listing-room-editor/listing-media-row";
 import { applyRoomFurnitureItems, roomFurnitureItems, roomFurnishingLabel, ROOM_FURNITURE_ITEMS } from "@/lib/listing-room-editor";
 import {
@@ -1361,7 +1362,7 @@ function StepRooms({
     <StepColumn>
       <div className="pr9-top mb-3 flex items-center justify-between gap-2">
         <StepHeading title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`} />
-        <PortalPrimaryIconAction icon={Plus} label={wholePlace ? "Add bedroom" : "Add room"} onClick={addRoom} data-attr="listing-v2-add-room-icon" />
+        <PortalPrimaryIconAction label={wholePlace ? "Add bedroom" : "Add room"} onClick={addRoom} data-attr="listing-v2-add-room-icon" />
       </div>
 
       {rooms.map((room, i) => {
@@ -1389,28 +1390,47 @@ function StepRooms({
             facts={factsFor(room, i)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => {
-                      const idx = rooms.findIndex((r) => r.id === room.id);
-                      const copy = duplicateRoomEntry(room);
-                      writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
-                      setOpen(copy.id);
-                    }}>
-                      Duplicate
-                    </DropdownMenuItem>
-                    {canRemove ? (
-                      <DropdownMenuItem className="text-red-700" onClick={() => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); }}>
-                        Remove room
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-room-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-room-edit", onSelect: () => toggle(room.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-room-duplicate",
+                      onSelect: () => {
+                        if (rooms.length >= MAX_LISTING_ROOMS) {
+                          ui?.showToast("Maximum 20 rooms.");
+                          return;
+                        }
+                        const idx = rooms.findIndex((r) => r.id === room.id);
+                        const copy = duplicateRoomEntry(room);
+                        writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
+                        setOpen(copy.id);
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-room-delete",
+                      onSelect: () => {
+                        if (!canRemove) {
+                          ui?.showToast(
+                            rooms.length <= 1
+                              ? "Keep at least one room."
+                              : "Clear this room's details before deleting it.",
+                          );
+                          return;
+                        }
+                        writeRooms(rooms.filter((r) => r.id !== room.id));
+                        if (open === room.id) setOpen(null);
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}
@@ -1633,7 +1653,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     <StepColumn>
       <div className="pr9-top mb-3 flex items-center justify-between gap-2">
         <StepHeading title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`} />
-        <PortalPrimaryIconAction icon={Bath} label="Add bathroom" onClick={addBathroom} data-attr="listing-v2-add-bath-icon" />
+        <PortalPrimaryIconAction label="Add bathroom" onClick={addBathroom} data-attr="listing-v2-add-bath-icon" />
       </div>
 
       {baths.map((bath, i) => {
@@ -1661,36 +1681,47 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             facts={factsFor(bath)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-bath-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-bath-edit", onSelect: () => toggle(bath.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-bath-duplicate",
+                      onSelect: () => {
+                        if (baths.length >= MAX_LISTING_BATHROOMS) {
+                          ui?.showToast("Maximum 12 bathrooms.");
+                          return;
+                        }
                         const idx = baths.findIndex((b) => b.id === bath.id);
                         const copy = duplicateBathroomEntry(bath);
                         patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
                         setOpen(copy.id);
-                      }}
-                    >
-                      Duplicate
-                    </DropdownMenuItem>
-                    {canRemove ? (
-                      <DropdownMenuItem
-                        className="text-red-700"
-                        onClick={() => {
-                          patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
-                          if (open === bath.id) setOpen(null);
-                        }}
-                      >
-                        Remove bathroom
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-bath-delete",
+                      onSelect: () => {
+                        if (!canRemove) {
+                          ui?.showToast(
+                            baths.length <= 1
+                              ? "Keep at least one bathroom."
+                              : "Take this bathroom off its rooms and clear its details before deleting it.",
+                          );
+                          return;
+                        }
+                        patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
+                        if (open === bath.id) setOpen(null);
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}
@@ -1921,14 +1952,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
         <StepHeading title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm"
-              aria-label="Add shared space"
-              data-attr="listing-v2-add-space-icon"
-            >
-              <LayoutGrid className="h-5 w-5" aria-hidden />
-            </button>
+            <PortalPrimaryIconAction label="Add shared space" data-attr="listing-v2-add-space-icon" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {SHARED_SPACE_KIND_OPTIONS.map((opt) => (
@@ -1954,35 +1978,35 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             facts={factsFor(space)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => toggle(space.id)}>Edit</DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-space-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-space-edit", onSelect: () => toggle(space.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-space-duplicate",
+                      onSelect: () => {
                         const idx = spaces.findIndex((s) => s.id === space.id);
                         const copy = duplicateSharedSpaceEntry(space);
                         patch({ sharedSpaces: [...spaces.slice(0, idx + 1), copy, ...spaces.slice(idx + 1)] });
                         setOpen(copy.id);
-                      }}
-                    >
-                      Duplicate
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-red-700"
-                      onClick={() => {
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-space-delete",
+                      onSelect: () => {
                         patch({ sharedSpaces: spaces.filter((s) => s.id !== space.id) });
                         if (open === space.id) setOpen(null);
-                      }}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}
