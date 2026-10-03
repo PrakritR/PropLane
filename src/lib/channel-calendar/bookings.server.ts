@@ -49,6 +49,7 @@ function roomLabelFromSubmission(
 
 function normalizeRanges(imported: ChannelCalendarImportedRange[]): ManagerChannelBookingRange[] {
   return imported.map((r) => ({
+    sourceUid: r.sourceUid,
     start: r.start,
     end: r.end || r.start,
     summary: r.summary?.trim() || "Booked",

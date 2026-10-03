@@ -5,7 +5,6 @@ import {
   loadPropertyRecord,
 } from "@/lib/channel-calendar/sync.server";
 import {
-  importedRangesFromConnections,
   listingSubmissionFromProperty,
   roomUnavailableRangesForExport,
 } from "@/lib/channel-calendar/connections.server";
@@ -29,7 +28,7 @@ async function occupancyRangesForRoom(
   const { data } = await db
     .from("manager_application_records")
     .select(
-      "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket",
+      "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId",
     )
     .eq("manager_user_id", managerUserId)
     .eq("row_data->>bucket", "approved")
@@ -38,6 +37,7 @@ async function occupancyRangesForRoom(
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;
   for (const row of data ?? []) {
+    if (row.ical_connection) continue;
     const property = String(row.assigned_property_id || row.property_id || "").trim();
     if (property && property !== propertyId) continue;
     const choice = String(row.choice || row.preferred || "");
@@ -73,12 +73,6 @@ export async function GET(
     const record = await loadPropertyRecord(db, connection.property_id);
     const submission = listingSubmissionFromProperty(record?.property ?? null);
     const typedBlocks = roomUnavailableRangesForExport(submission, connection.room_id);
-    const { data: roomConnections } = await db
-      .from("external_calendar_connections")
-      .select("imported_ranges")
-      .eq("property_id", connection.property_id)
-      .eq("room_id", connection.room_id);
-    const importedFromConnections = importedRangesFromConnections(roomConnections ?? []);
     const occupancy = await occupancyRangesForRoom(
       db,
       connection.manager_user_id,
@@ -88,7 +82,7 @@ export async function GET(
     const ranges = exportBlockedRanges({
       leases: occupancy.leases,
       holds: occupancy.holds,
-      typedBlocks: [...typedBlocks, ...importedFromConnections],
+      typedBlocks,
     });
     const room = submission?.rooms.find((r) => r.id === connection.room_id);
     const calendarName = connection.label?.trim() || room?.name?.trim() || "PropLane calendar";
