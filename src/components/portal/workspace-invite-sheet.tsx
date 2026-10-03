@@ -28,7 +28,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
   WorkspacePermissionsFields,
-  RoleCapabilitiesList,
   CoManagerPermissionsEditor,
   WorkspaceGrantFields,
 } from "@/components/portal/workspace-permissions-fields";
@@ -461,7 +460,7 @@ export function WorkspaceInviteSheet({
   return (
     <Modal
       open={open}
-      title={`Invite to ${workspace.name}`}
+      title="Invite manager"
       onClose={onClose}
       panelClassName="max-w-2xl"
       dataAttr="workspace-invite-sheet"
@@ -492,7 +491,7 @@ export function WorkspaceInviteSheet({
               onClick={() => send()}
               data-attr="workspace-invite-send"
             >
-              Send
+              Send invite
             </Button>
           )}
         </ModalFooter>
@@ -500,7 +499,7 @@ export function WorkspaceInviteSheet({
     >
       <div className="space-y-4">
         <FieldSingleSelect
-          label="Channel"
+          label="Send via"
           value={channel}
           onChange={(next) => setChannel(next as "link" | "phone" | "email" | "code")}
           options={[
@@ -548,9 +547,7 @@ export function WorkspaceInviteSheet({
             <CoManagerPermissionsEditor hideRole value={customPermissions} onChange={changeCustomPermissions} />
             <WorkspaceGrantFields value={workspacePermissions} onChange={setWorkspacePermissions} />
           </>
-        ) : (
-          <RoleCapabilitiesList role={role} grant={effectivePermissions} />
-        )}
+        ) : null}
       </div>
     </Modal>
   );

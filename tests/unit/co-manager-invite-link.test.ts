@@ -173,7 +173,8 @@ describe("active invite link per workspace", () => {
       "utf8",
     );
     expect(source).toContain("workspace-invite-link-row");
-    expect(source).toContain("workspace-invite-links-heading");
+    expect(source).not.toContain("workspace-invite-links-heading");
+    expect(source).toContain("<TeamRowValues");
     expect(source).toContain("body.links");
     expect(source).toContain(".filter(isActive)");
     expect(source).toContain("workspace-invite-link-delete");

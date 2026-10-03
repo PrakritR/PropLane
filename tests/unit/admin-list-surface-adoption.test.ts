@@ -87,7 +87,7 @@ describe("admin Settings", () => {
     // scroll. One shape now serves both.
     expect(src).not.toContain("Admin keeps the legacy single-scroll settings composition");
     expect(src.match(/<ManagerPortalPageShell\b/g)?.length).toBe(1);
-    expect(src).toContain("PortalSettingsNav");
+    expect(src).toContain('aria-label="Settings sections"');
   });
 
   it("offers admin only the groups it actually has", () => {

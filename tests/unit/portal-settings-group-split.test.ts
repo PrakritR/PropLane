@@ -20,8 +20,8 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(groupFor("account")).toBe("Account");
   });
 
-  it("puts Workspaces on Account — the roster belongs to the login", () => {
-    expect(groupFor("workspaces")).toBe("Account");
+  it("puts Workspace under the active workspace", () => {
+    expect(groupFor("workspaces")).toBe("Workspace");
   });
 
   it("puts Communication on Workspace — it follows the top-left workspace", () => {
@@ -39,9 +39,9 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(src).not.toContain('id: "resident"');
   });
 
-  it("keeps Application form and Lease documents on Workspace — S014 correction (captain, 06:47): another worker's list-page gear removal assumed Settings still hosts this editing", () => {
-    expect(groupFor("applicationForm")).toBe("Workspace");
-    expect(groupFor("leaseDocuments")).toBe("Workspace");
+  it("removes property form and lease sections from workspace navigation", () => {
+    expect(groupFor("applicationForm")).toBeNull();
+    expect(groupFor("leaseDocuments")).toBeNull();
   });
 
   it("removed Services and Tasks from Settings, and Reminders and Notifications entirely", () => {
@@ -53,7 +53,8 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
 
   it("keeps Payments and Payouts on Workspace, and renames Spreadsheets to Integrations", () => {
     expect(groupFor("payments")).toBe("Workspace");
-    expect(groupFor("payouts")).toBe("Workspace");
+    expect(groupFor("payouts")).toBeNull();
+    expect(src).toContain('router.replace("/portal/profile?tab=payments")');
     expect(groupFor("spreadsheets")).toBe("Workspace");
     expect(src).toContain('label: "Integrations"');
   });
@@ -99,9 +100,9 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(src).toContain('router.replace("/portal/profile?tab=profile")');
   });
 
-  it("does NOT redirect Application form or Lease documents away — S014 kept both reachable", () => {
+  it("redirects retired property forms away from workspace settings", () => {
     const removedSetBlock = src.slice(src.indexOf("const REMOVED_SETTINGS_TAB_IDS"), src.indexOf("]);") + 3);
-    expect(removedSetBlock).not.toContain('"applicationForm"');
-    expect(removedSetBlock).not.toContain('"leaseDocuments"');
+    expect(removedSetBlock).toContain('"applicationForm"');
+    expect(removedSetBlock).toContain('"leaseDocuments"');
   });
 });

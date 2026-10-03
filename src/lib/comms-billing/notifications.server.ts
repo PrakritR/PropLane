@@ -88,6 +88,7 @@ export async function maybeNotifyCommsBudgetThreshold(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<void> {
+  await maybeNotifyRemainingCredit(db, managerUserId);
   if (!process.env.RESEND_API_KEY?.trim()) return;
   const { data: account, error } = await db.from("manager_comms_billing_accounts")
     .select("monthly_budget_cents").eq("manager_user_id", managerUserId).maybeSingle();
@@ -110,4 +111,27 @@ export async function clearCommsBillingPause(
     .update({ billing_paused_at: null, billing_pause_reason: null, updated_at: new Date().toISOString() })
     .eq("manager_user_id", managerUserId).eq("billing_pause_reason", "payment_failed");
   await notifyCommsBillingPaymentMethodUpdated(db, managerUserId);
+}
+
+/** Claimed once per low-balance episode. Refills rearm the alert. */
+async function maybeNotifyRemainingCredit(db: SupabaseClient, owner: string) {
+  const { data: account, error } = await db.from("manager_comms_billing_accounts")
+    .select("credit_alert_remaining_cents,credit_alert_notified_at").eq("manager_user_id", owner).maybeSingle();
+  if (error || account?.credit_alert_remaining_cents == null) return;
+  const { loadCommsPoolSnapshot } = await import("./pool.server");
+  const pool = await loadCommsPoolSnapshot(db, owner);
+  if (pool.remainingCents > account.credit_alert_remaining_cents) {
+    if (account.credit_alert_notified_at) await db.from("manager_comms_billing_accounts")
+      .update({ credit_alert_notified_at: null }).eq("manager_user_id", owner);
+    return;
+  }
+  if (account.credit_alert_notified_at || !process.env.RESEND_API_KEY?.trim()) return;
+  const email = await loadManagerEmail(db, owner);
+  if (!email) return;
+  const { data: claim, error: claimError } = await db.from("manager_comms_billing_accounts")
+    .update({ credit_alert_notified_at: new Date().toISOString() }).eq("manager_user_id", owner)
+    .is("credit_alert_notified_at", null).select("manager_user_id");
+  if (claimError || !claim?.length) return;
+  await sendManagerCommsBillingEmail({ to: email, subject: "PropLane — messaging credit is low",
+    text: `Your messaging credit is ${formatUsdFromCents(pool.remainingCents)}. Add credit in Settings → Billing & plan. No automatic charge has been made.` });
 }

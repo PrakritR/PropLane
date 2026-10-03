@@ -154,7 +154,7 @@ function selectRole(value: string) {
 }
 
 function selectChannel(value: "link" | "phone" | "email" | "code") {
-  fireEvent.click(screen.getByRole("button", { name: "Channel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send via" }));
   const option = document.querySelector(`[data-field-select-option-value="${value}"]`) as HTMLElement;
   tap(option);
 }
@@ -254,7 +254,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("email");
     fireEvent.change(recipientInput(), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() => expect(deliverManagerDirectoryMessage).toHaveBeenCalledTimes(1));
 
     const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
@@ -289,7 +289,7 @@ describe("WorkspaceInviteSheet", () => {
     selectChannel("email");
 
     const input = recipientInput();
-    const send = screen.getByRole("button", { name: "Send" });
+    const send = screen.getByRole("button", { name: "Send invite" });
     expect(send).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "just a name" } });
@@ -306,7 +306,7 @@ describe("WorkspaceInviteSheet", () => {
 
     const input = recipientInput();
     fireEvent.change(input, { target: { value: "PROPLANE-1A2B3C4D" } });
-    const send = screen.getByRole("button", { name: "Send" });
+    const send = screen.getByRole("button", { name: "Send invite" });
     expect(send).not.toBeDisabled();
     fireEvent.click(send);
 
@@ -339,7 +339,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("email");
     fireEvent.change(recipientInput(), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() => expect(deliverManagerDirectoryMessage).toHaveBeenCalledTimes(1));
 
     const [preview] = deliverManagerDirectoryMessage.mock.calls[0] as [
@@ -369,7 +369,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("email");
     fireEvent.change(recipientInput(), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await flushMicrotasks();
 
     const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
@@ -395,7 +395,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("phone");
     fireEvent.change(recipientInput(), { target: { value: "(206) 555-1212" } });
-    const send = screen.getByRole("button", { name: "Send" });
+    const send = screen.getByRole("button", { name: "Send invite" });
     expect(send).not.toBeDisabled();
     fireEvent.click(send);
 
@@ -431,7 +431,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("phone");
     fireEvent.change(recipientInput(), { target: { value: "2065551212" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
 
     await waitFor(() =>
       expect(showToast).toHaveBeenCalledWith(
@@ -468,7 +468,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("email");
     fireEvent.change(recipientInput(), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await flushMicrotasks();
 
     const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
@@ -497,7 +497,7 @@ describe("WorkspaceInviteSheet", () => {
 
     selectChannel("email");
     fireEvent.change(recipientInput(), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() =>
       expect(
         calls.some((c) => c.url === "/api/pro/invite-links/link-existing/link" && c.method === "POST"),

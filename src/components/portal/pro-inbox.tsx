@@ -2314,7 +2314,20 @@ export const ManagerInbox = forwardRef<
         : null,
     [activeThread, activeIsAssistantThread, filterContacts],
   );
-  const activeThreadPhone = activeSmsTarget?.phone?.trim() || "";
+  const managerRelationshipId = activeThreadContact?.role === "manager" && activeThreadContact.id.startsWith("rel-") ? activeThreadContact.id.slice(4) : null;
+  const [managerWorkContact, setManagerWorkContact] = useState<{ relationshipId: string; phone: string | null; email: string | null } | null>(null);
+  useEffect(() => {
+    if (!managerRelationshipId) return;
+    let cancelled = false;
+    void fetch(`/api/manager/work-contact?relationshipId=${encodeURIComponent(managerRelationshipId)}`, { credentials: "include" }).then((res) => res.ok ? res.json() : null).then((data) => {
+      if (!cancelled && data) setManagerWorkContact({ relationshipId: managerRelationshipId, phone: data.phone, email: data.email });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [managerRelationshipId]);
+  const relatedWorkContact = managerWorkContact?.relationshipId === managerRelationshipId ? managerWorkContact : null;
+  const activeThreadPhone = activeThreadContact?.role === "manager" ? relatedWorkContact?.phone ?? "" : activeSmsTarget?.phone?.trim() || "";
+  const activeThreadDisplayEmail = activeThreadContact?.role === "manager" ? relatedWorkContact?.email ?? "" : activeThread?.email?.trim() || "";
+
 
   const activeThreadSubtitle = (() => {
     if (!activeThread || activeIsAssistantThread) return undefined;
@@ -2341,12 +2354,12 @@ export const ManagerInbox = forwardRef<
       role,
       place,
       activeThreadPhone ? formatTourContactPhoneDisplay(activeThreadPhone) : null,
-      activeThread.email?.trim() || null,
+      activeThreadDisplayEmail || null,
     ].filter(Boolean) as string[];
     if (parts.length > 0) return parts.join(" · ");
     // Nothing known about them beyond the address they write from — better than
     // repeating the subject, which the open thread already shows.
-    return activeThread.email || activeThread.subject || undefined;
+    return activeThreadDisplayEmail || activeThread.subject || undefined;
   })();
 
   const activeResidentHref = (() => {
@@ -2704,8 +2717,8 @@ export const ManagerInbox = forwardRef<
         onClose={() => setThreadPhoneOpen(false)}
         initial={{
           name: activeThread?.from?.trim() || "",
-          phone: activeSmsTarget?.phone?.trim() || "",
-          email: activeThread?.email?.trim() || "",
+          phone: activeThreadPhone,
+          email: activeThreadDisplayEmail,
         }}
         onSave={(values) => void saveThreadContact(values)}
         saving={savingThreadPhone}

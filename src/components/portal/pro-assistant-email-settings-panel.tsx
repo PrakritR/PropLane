@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkIdentityRow } from "./work-identity-row";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -367,8 +368,7 @@ export function ManagerAssistantEmailChannelRow({
         {shared.map((entry) => {
           const address = entry.address?.trim() || "";
           return (
-            <ChannelRow
-              key={entry.workspaceId}
+            <WorkIdentityRow key={entry.workspaceId} label="Work email" value={address ? `${address} · Ready` : "Not set up"}><ChannelRow
               icon={Mail}
               channel={<>{address || "Work email"}</>}
               workspace={entry.workspaceName}
@@ -393,18 +393,9 @@ export function ManagerAssistantEmailChannelRow({
                 ) : undefined
               }
               dataAttr="channel-row-email"
-            />
+            /></WorkIdentityRow>
           );
         })}
-        {shared.some((e) => e.address) ? (
-          <div className="flex items-start gap-2 border-b border-border/70 px-4 py-3 text-sm text-foreground last:border-0">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-            <p>
-              Replies you send in Communication go out from the workspace owner&apos;s address
-              with your name on them.
-            </p>
-          </div>
-        ) : null}
       </>
     );
   }
@@ -532,8 +523,7 @@ export function ManagerAssistantEmailChannelRow({
         );
 
         return (
-          <ChannelRow
-            key={entry.workspaceId}
+          <WorkIdentityRow key={entry.workspaceId} label="Work email" value={address ? `${address} · ${workspaceEmailStatusLabel(address, status)}` : "Set up"}><ChannelRow
             icon={Mail}
             channel={channel}
             channelWrap={isRenaming}
@@ -553,7 +543,7 @@ export function ManagerAssistantEmailChannelRow({
               )
             }
             dataAttr="channel-row-email"
-          />
+          /></WorkIdentityRow>
         );
       })}
       {error ? (

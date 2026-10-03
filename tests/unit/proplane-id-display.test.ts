@@ -39,7 +39,7 @@ describe("PropLane ID display", () => {
   it("renders the id through the formatter on every profile surface", () => {
     for (const file of ID_SURFACES) {
       const source = readFileSync(file, "utf8");
-      const idRenders = source.match(/(?:value|idValue)=\{[^}]*(?:idValue|axisId)[^}]*\}/g) ?? [];
+      const idRenders = source.match(/(?:value|idValue)=\{[^}]*(?:idValue|axisId)[^}]*\}|\{formatProplaneIdForDisplay\(idValue\)\}/g) ?? [];
       expect(idRenders.length).toBeGreaterThan(0);
       for (const render of idRenders) {
         expect(render).toContain("formatProplaneIdForDisplay");

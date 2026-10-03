@@ -19,9 +19,18 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import { inviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
-import { cn } from "@/lib/utils";
+import type { PortalWorkspace } from "@/lib/workspaces/types";
+import { TeamRowValues } from "./pro-team-blocks";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { WorkspacePermissionsFields, CoManagerPermissionsEditor, WorkspaceGrantFields } from "./workspace-permissions-fields";
+import { normalizeCoManagerPermissions, type CoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import { stampTeamRolePermissions, type TeamRoleId } from "@/lib/co-manager-team-roles";
+import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 
 type SavedLink = {
+  propertyPermissions?: PropertyCoManagerPermissions;
+  workspacePermissions?: WorkspaceCoManagerGrant;
   id: string;
   label: string | null;
   teamRole?: string | null;
@@ -36,6 +45,7 @@ type SavedLink = {
 
 type Props = {
   workspaceId: string;
+  workspace?: PortalWorkspace;
   canManage: boolean;
   /** Bump after Copy and save so the list reloads. */
   refreshKey?: number;
@@ -43,23 +53,13 @@ type Props = {
   onEdit: () => void;
 };
 
-const ROW_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_44px] md:items-center md:gap-x-3";
-
-function linkTitle(link: SavedLink): string {
-  const trimmed = link.label?.trim();
-  if (trimmed) return trimmed;
-  const role = teamRoleListLabel(link.teamRole);
-  if (link.houseScope === "all") return `${role} · All houses`;
-  const n = link.assignedPropertyIds.length;
-  return `${role} · ${n === 1 ? "1 house" : `${n} houses`}`;
-}
-
 function isActive(link: SavedLink): boolean {
   return !inviteLinkUnusableReason(link, new Date());
 }
 
 export function WorkspaceInviteLinkStrip({
   workspaceId,
+  workspace,
   canManage,
   refreshKey = 0,
   onEdit,
@@ -69,6 +69,33 @@ export function WorkspaceInviteLinkStrip({
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+
+  const [editing, setEditing] = useState<SavedLink | null>(null);
+  const [editRole, setEditRole] = useState<TeamRoleId>("viewer");
+  const [editScope, setEditScope] = useState<"all" | "selected">("all");
+  const [editHouses, setEditHouses] = useState<string[]>([]);
+  const [editGrant, setEditGrant] = useState<CoManagerPermissions>({});
+  const [editWorkspace, setEditWorkspace] = useState<WorkspaceCoManagerGrant>({});
+  const openEditor = (link: SavedLink, custom = false) => {
+    setEditing(link); setEditRole(custom ? "custom" : (link.teamRole ?? "viewer") as TeamRoleId);
+    setEditScope(link.houseScope ?? "selected"); setEditHouses(link.assignedPropertyIds);
+    setEditGrant(normalizeCoManagerPermissions(link.propertyPermissions?.[link.assignedPropertyIds[0]]));
+    setEditWorkspace(link.workspacePermissions ?? {});
+  };
+  const updateLink = async (link: SavedLink, changes: Record<string, unknown>) => {
+    if (!canManage) return;
+    setBusyId(link.id);
+    try {
+      const res = await fetch("/api/pro/invite-links", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: link.id, workspaceId, ...changes }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not update invite link.");
+      setLinks((rows) => rows.map((row) => row.id === link.id ? data.link : row));
+      setUrls((current) => ({ ...current, [data.link.id]: data.url }));
+      setEditing(null);
+      showToast("Saved. Copy the replacement link; the previous URL is no longer active.");
+    } catch (error) { showToast(error instanceof Error ? error.message : "Could not update invite link."); }
+    finally { setBusyId(null); }
+  };
 
   const hydrate = useCallback(async () => {
     try {
@@ -170,19 +197,13 @@ export function WorkspaceInviteLinkStrip({
 
   return (
     <div data-attr="workspace-invite-link-strip">
-      <div
-        className="border-t border-border/60 px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
-        data-attr="workspace-invite-links-heading"
-      >
-        Invite links
-      </div>
       {links.map((link) => {
         const url = urls[link.id];
         const busy = busyId === link.id;
         return (
           <div
             key={link.id}
-            className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", ROW_GRID)}
+            className="grid grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-3 border-t border-border px-4 py-3"
             data-attr="workspace-invite-link-row"
             data-link-id={link.id}
           >
@@ -191,7 +212,7 @@ export function WorkspaceInviteLinkStrip({
                 <Link2 className="size-3.5" aria-hidden />
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-[14px] font-semibold text-foreground">{linkTitle(link)}</span>
+                <span className="block truncate text-[14px] font-semibold text-foreground">{link.label || "Invite link"}</span>
                 <span
                   className="block truncate font-mono text-[12px] text-muted"
                   data-attr="workspace-invite-link-url"
@@ -200,18 +221,11 @@ export function WorkspaceInviteLinkStrip({
                 </span>
               </span>
             </span>
-            <span>
-              <span
-                className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary"
-                data-attr="workspace-invite-link-status"
-              >
-                Active
-              </span>
-            </span>
-            <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">
-              Anyone with the link
-            </span>
-            <span className="text-[12.5px] text-muted max-md:hidden">—</span>
+            <TeamRowValues row={{ id: link.id, name: "Invite link", detail: "", role: "co_manager", roleLabel: teamRoleListLabel(link.teamRole), propertiesLabel: link.houseScope === "all" ? "All houses" : `${link.assignedPropertyIds.length} houses`, joinedAt: null,
+              onEdit: () => openEditor(link, true),
+              onRoleChange: async (role) => { await updateLink(link, { teamRole: role }); },
+              houses: workspace ? { options: workspace.propertyIds.map((id) => ({ value: id, label: workspace.propertyLabels?.[id] ?? id })), selected: link.assignedPropertyIds, all: link.houseScope === "all", onSave: async (ids, all) => { await updateLink(link, { assignedPropertyIds: ids, houseScope: all ? "all" : "selected" }); } } : undefined,
+            }} />
             <span className="ml-auto md:ml-0 md:justify-self-end">
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger
@@ -225,8 +239,8 @@ export function WorkspaceInviteLinkStrip({
                   <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
-                  <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => onEdit()}>
-                    Edit
+                  <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => workspace ? openEditor(link) : onEdit()}>
+                    Permissions
                   </DropdownMenuItem>
                   <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy(link)}>
                     Copy link
@@ -244,6 +258,11 @@ export function WorkspaceInviteLinkStrip({
           </div>
         );
       })}
+      <Modal title="Invite link permissions" open={editing !== null} onClose={() => setEditing(null)}>
+        <div className="space-y-4"><WorkspacePermissionsFields role={editRole} onRoleChange={(role) => { setEditRole(role); const grant = stampTeamRolePermissions(role); if (grant) setEditGrant(grant); }} houseScope={editScope} onHouseScopeChange={setEditScope} selectedHouseIds={editHouses} onSelectedHouseIdsChange={setEditHouses} workspace={workspace ? { name: workspace.name, houseCount: workspace.propertyIds.length } : null} houseOptions={(workspace?.propertyIds ?? []).map((id) => ({ value: id, label: workspace?.propertyLabels?.[id] ?? id }))} />
+        {editRole === "custom" ? <><CoManagerPermissionsEditor hideRole value={editGrant} onChange={setEditGrant} /><WorkspaceGrantFields value={editWorkspace} onChange={setEditWorkspace} /></> : null}</div>
+        <ModalFooter><Button disabled={busyId !== null || (editScope === "selected" && !editHouses.length)} onClick={async () => { if (!editing) return; const ids = editScope === "all" ? workspace?.propertyIds ?? [] : editHouses; await updateLink(editing, { teamRole: editRole, houseScope: editScope, assignedPropertyIds: ids, propertyPermissions: Object.fromEntries(ids.map((id) => [id, editGrant])), workspacePermissions: editWorkspace }); }}>Save</Button></ModalFooter>
+      </Modal>
     </div>
   );
 }

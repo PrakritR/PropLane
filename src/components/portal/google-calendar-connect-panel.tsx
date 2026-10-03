@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
+import { PortalSettingsRow } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -53,7 +55,7 @@ export function GoogleCalendarConnectPanel({
   showVendorPushToggle = false,
 }: {
   onConnectionChange?: () => void;
-  presentation?: "card" | "dialog";
+  presentation?: "card" | "dialog" | "row";
   apiBase?: string;
   showVendorPushToggle?: boolean;
 }) {
@@ -186,6 +188,14 @@ export function GoogleCalendarConnectPanel({
       setBusy(false);
     }
   };
+
+  if (presentation === "row") return <>
+    <PortalSettingsRow label={<span className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-blue-500" />Google Calendar</span>}>
+      <div className="flex items-center gap-2"><span className="hidden text-xs text-muted sm:inline">{status?.connected ? `Connected · ${status.email ?? ""}` : status ? "" : "Loading…"}</span>
+      <Button variant="ghost" disabled={busy || !status || (!status.connected && !status.configured)} onClick={status?.connected ? () => disconnect() : startConnect}>{status?.connected ? "Disconnect" : "Connect"}</Button></div>
+    </PortalSettingsRow>
+    {connectError ? <p role="alert" className="px-4 py-2 text-sm text-danger">{connectError}</p> : null}
+  </>;
 
   if (!status) {
     return inDialog ? <p className="text-sm text-muted">Loading…</p> : null;

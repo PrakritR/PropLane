@@ -1,10 +1,8 @@
 import "server-only";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
-import {
-  resolveListingCtaSmsPhone,
-  type ListingCtaManagerProfile,
-} from "@/lib/listing-cta-phone.server";
+import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type {
   ManagerBathroomSubmission,
   ManagerBundleRow,
@@ -35,7 +33,6 @@ import {
   type LeasingPipelineState,
   type SigningOrder,
 } from "@/lib/leasing-pipeline-preferences";
-import { resolveListingCtaEmailsByManager } from "@/lib/listing-cta-email.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -592,24 +589,24 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
     ),
   ];
   const managerEmailByUserId = new Map<string, string | null>();
-  const managerProfileByUserId = new Map<string, ListingCtaManagerProfile>();
-  // The public "Email" CTA target, resolved per owning manager. Only an address
-  // that can actually receive comes back, so a listing never advertises a
-  // mailbox that swallows a prospect's message.
-  const managerWorkEmailByUserId = await resolveListingCtaEmailsByManager(db, managerIds);
+
+  const workContacts = new Map<string, { phone: string | null; email: string | null }>();
+  await Promise.all([...new Map((data ?? []).filter((row) => row.manager_user_id).map((row) => [`${row.manager_user_id}:${row.workspace_id ?? ""}`, row])).entries()].map(async ([key, row]) => {
+    const [phone, email] = await Promise.all([
+      resolveActiveManagerSendNumber(db, row.manager_user_id!, row.workspace_id).catch(() => null),
+      resolveActiveManagerWorkEmail(db, row.manager_user_id!, row.workspace_id).catch(() => null),
+    ]);
+    workContacts.set(key, { phone, email });
+  }));
   if (managerIds.length > 0) {
     const { data: profiles, error: profileError } = await db
       .from("profiles")
-      .select("id, email, phone, phone_verified_at, sms_from_number")
+      .select("id, email")
       .in("id", managerIds);
     if (profileError) throw new Error(profileError.message);
     for (const profile of profiles ?? []) {
       managerEmailByUserId.set(profile.id, profile.email ?? null);
-      managerProfileByUserId.set(profile.id, {
-        phone: profile.phone ?? null,
-        phone_verified_at: profile.phone_verified_at ?? null,
-        sms_from_number: profile.sms_from_number ?? null,
-      });
+
     }
   }
 
@@ -624,24 +621,18 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
     // a multi-manager fleet cannot cross-route a prospect to the wrong phone.
     // Deliberately ignores any `contactSmsPhone` baked into the stored property
     // JSON — that blob is manager-editable and could point anywhere.
-    const contactSmsPhone =
-      resolveListingCtaSmsPhone(
-        row.manager_user_id ? managerProfileByUserId.get(row.manager_user_id) ?? null : null,
-      ) ?? undefined;
+    const workContact = workContacts.get(`${row.manager_user_id}:${row.workspace_id ?? ""}`);
+    const contactSmsPhone = workContact?.phone ?? undefined;
     const withOwner: MockProperty = {
       ...live,
       // The owning row, never manager-editable JSON, determines public ownership.
       managerUserId: row.manager_user_id ?? undefined,
-      managerContactEmail: row.manager_user_id
-        ? managerEmailByUserId.get(row.manager_user_id)?.trim() || undefined
-        : undefined,
+      managerContactEmail: workContact?.email ?? undefined,
       // Always overwrite (never merely default) so an unresolved manager drops
       // the stored number rather than publishing a stale one. Same rule for the
       // work email: the stored blob is manager-editable and could name anything.
       contactSmsPhone,
-      contactWorkEmail: row.manager_user_id
-        ? managerWorkEmailByUserId.get(row.manager_user_id)
-        : undefined,
+      contactWorkEmail: workContact?.email ?? undefined,
       workspaceId: row.workspace_id ? String(row.workspace_id) : null,
     };
     const dedupeKey = `${withOwner.buildingName}::${withOwner.address}`.trim().toLowerCase();

@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   CreditCard,
   KeyRound,
@@ -25,7 +27,6 @@ import { coercePhoneInput, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
-import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
 import { BookingsChannelSettings } from "@/components/portal/bookings-channel-settings";
@@ -40,10 +41,8 @@ import {
   PortalSettingsField,
   PortalSettingsGroup,
   PortalSettingsLinkRow,
-  PortalSettingsNav,
   PortalSettingsProfileHeader,
   PortalSettingsRow,
-  PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
   type PortalSettingsSaveState,
@@ -55,7 +54,6 @@ import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-s
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
-import { SettingsScopeBar } from "@/components/portal/settings-scope-bar";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
@@ -202,7 +200,7 @@ function ManagerMessagingSettingsPane() {
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
       <PortalTextNotificationsBlock
         dataAttrPrefix="manager"
-        title="Personal mobile"
+        title="Personal phone"
         description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
@@ -570,8 +568,9 @@ export function PortalProfileClient({
     if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
-  const settingsHome = searchParams.get("settingsHome") === "1" && variant === "manager";
-  const activeGroup = settingsHome ? null :
+  const settingsHome = (searchParams.get("settingsHome") === "1" || (!rawTab && searchParams.get("profileHome") !== "1" && !billingOverride)) && variant === "manager";
+  const profileHome = searchParams.get("profileHome") === "1" && variant === "manager";
+  const activeGroup = settingsHome || profileHome ? null :
     groups.find((g) => g.id === rawTab) ?? (billingOverride ? billingGroup : null) ?? null;
   // Desktop always shows a pane; with no tab selected it defaults to Profile.
   const paneGroup = activeGroup ?? (settingsHome ? groups.find((g) => g.id === "workspaces") : null) ?? groups[0];
@@ -599,7 +598,7 @@ export function PortalProfileClient({
       const params = new URLSearchParams(searchParams.toString());
       if (id) params.set(SETTINGS_TAB_PARAM, id);
       else params.delete(SETTINGS_TAB_PARAM);
-      if (id) params.delete("settingsHome");
+      if (id) { params.delete("settingsHome"); params.delete("profileHome"); }
       const query = params.toString();
       return query ? `${pathname}?${query}` : pathname;
     },
@@ -701,9 +700,15 @@ export function PortalProfileClient({
       window.history.back();
       return;
     }
-    window.history.pushState(null, "", urlForTab(null));
-  }, [urlForTab]);
-
+    if (variant === "manager" && !["profile", "security", "developer", "account"].includes(paneGroup.id)) {
+      router.back();
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    params.set("profileHome", "1");
+    window.history.replaceState(null, "", `${pathname}?${params}`);
+  }, [variant, paneGroup.id, router, searchParams, pathname]);
   // Reset scroll when the pane changes. On desktop the content column is its own
   // scroll container (independent of the rail), so resetting its `scrollTop` is
   // what lands a switched pane at the top; on mobile the whole shell scrolls, so
@@ -729,8 +734,8 @@ export function PortalProfileClient({
       case "payments":
         return (
           <>
-            <HubSettingsModulePane tab="payments" />
             <HubSettingsModulePane tab="payouts" />
+            <HubSettingsModulePane tab="payments" />
           </>
         );
       case "billing":
@@ -800,141 +805,54 @@ export function PortalProfileClient({
     }
   };
 
-  /*
-    One Settings shape for every portal.
-
-    Admin used to keep a legacy single scroll — every section stacked, nothing
-    grouped, no way to jump — while the manager had the grouped rail. There was
-    no reason for the difference beyond the order the two were written, so admin
-    now takes the same rail with the groups it actually has: no billing, no work
-    number, no API keys.
-  */
+  const personalIds = new Set(["profile", "security", "developer", "account", "preferences", "feedback"]);
+  const personalView = profileHome || (!settingsHome && personalIds.has(paneGroup.id));
+  const workspaceOrder = ["workspaces", "payments", "messaging", "spreadsheets", "billing"];
+  const visibleGroups = variant === "manager"
+    ? (personalView ? groups.filter((g) => personalIds.has(g.id)) : workspaceOrder.flatMap((id) => groups.filter((g) => g.id === id)))
+    : groups;
+  const limitedWorkspace = variant === "manager" && Boolean(workspaces?.active && !workspaces.active.owned && !workspaces.active.canManageMembers);
+  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "spreadsheets"].includes(id);
+  const switcher = variant === "manager" && !personalView ? <WorkspaceSwitcher variant="mobile" /> : null;
+  const pane = locked(paneGroup.id)
+    ? <PortalSettingsGroup><PortalSettingsRow label={<span className="flex items-center gap-2"><Lock className="h-4 w-4" />{paneGroup.label}</span>}><span className="text-[15px] text-muted">Read-only access</span></PortalSettingsRow></PortalSettingsGroup>
+    : renderPane(paneGroup.id);
+  const scopedPane = WORKSPACE_SCOPED_PANES.has(paneGroup.id) || WORKSPACE_ONLY_SCOPED_PANES.has(paneGroup.id)
+    ? <SettingsPropertyScopeProvider workspaceId={workspaces?.active?.id ?? scopeWorkspaceId} onWorkspaceIdChange={setScopeWorkspaceId} propertyIds={[]} onPropertyIdsChange={setScopePropertyIds} options={scopeOptions}>{pane}</SettingsPropertyScopeProvider>
+    : pane;
   return (
-    <ManagerPortalPageShell
-      title="Settings"
-      // Every pane names itself in the left rail (`PortalSettingsNav`) — a
-      // second, generic "Settings" header row above it is always redundant,
-      // not just for Billing's own compact plan status. Keep a semantic h1
-      // (sr-only) for a11y/SEO without the visual duplicate.
-      navigationProvidesTitle
-      // The mobile/native app bar already reads "Settings" — same as every
-      // other manager section, drop the duplicate in-page title on phones.
-      hideTitleOnMobileNav
-    >
-      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <div className="max-lg:hidden lg:w-[216px] lg:shrink-0">
-          {variant === "manager" && paneGroup.group === "Workspace" ? (
-            <div className="mb-3"><WorkspaceSwitcher /></div>
-          ) : null}
-          <PortalSettingsNav
-            className="w-full"
-            name={emptyToDash(fullName)}
-            email={initialEmail}
-            items={groups.map((g) => ({
-              id: g.id,
-              label: g.label,
-              icon: <g.icon className="h-4 w-4" />,
-              group: g.group,
-            }))}
-            activeId={paneGroup.id}
-            onSelect={openGroup}
-          />
-        </div>
-        <div
-          ref={contentColRef}
-          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
-        >
-          {(() => {
-            const workspaceScoped = WORKSPACE_SCOPED_PANES.has(paneGroup.id);
-            const workspaceOnlyScoped = WORKSPACE_ONLY_SCOPED_PANES.has(paneGroup.id);
-            const barred = workspaceScoped || workspaceOnlyScoped;
-            const accountTagged = ACCOUNT_TAG_PANES.has(paneGroup.id);
-            const deviceTagged = DEVICE_TAG_PANES.has(paneGroup.id);
-            const headerAction = barred ? (
-              <SettingsScopeBar variant={workspaceScoped ? "applies-to" : "applies-to-workspace-only"} />
-            ) : accountTagged ? (
-              <PortalSettingsScopeTag>Account</PortalSettingsScopeTag>
-            ) : deviceTagged ? (
-              <PortalSettingsScopeTag>Device</PortalSettingsScopeTag>
-            ) : null;
-            const body = (
-              <>
-                {activeGroup === null ? (
-                  <div className="space-y-5 lg:hidden">
-                    {settingsHome ? (
-                      <PortalDetailHeader
-                        title="Settings"
-                        onBack={() => router.back()}
-                        backLabel="Back"
-                        bare
-                        inlineActions
-                        dataAttrBack="settings-home-back"
-                      />
-                    ) : null}
-                    {variant === "manager" && settingsHome ? <WorkspaceSwitcher variant="mobile" /> : null}
-                    <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-                    {(["Account", "Workspace"] as const).map((group) => {
-                      const groupItems = groups.filter((item) => item.group === group);
-                      if (groupItems.length === 0) return null;
-                      return (
-                        <section key={group} className="space-y-2">
-                          <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
-                          <PortalSettingsGroup>
-                            {groupItems.map((g) => (
-                              <PortalSettingsLinkRow
-                                key={g.id}
-                                icon={<g.icon className="h-4 w-4" />}
-                                label={g.label}
-                                onClick={() => openGroup(g.id)}
-                                dataAttr={`settings-open-${g.id}`}
-                              />
-                            ))}
-                          </PortalSettingsGroup>
-                        </section>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="mb-4 lg:hidden">
-                    {variant === "manager" && paneGroup.group === "Workspace" ? (
-                      <div className="mb-2"><WorkspaceSwitcher variant="mobile" /></div>
-                    ) : null}
-                    <PortalDetailHeader
-                      title={activeGroup.label}
-                      onBack={backToRoot}
-                      backLabel="Settings"
-                      bare
-                      inlineActions
-                      actions={headerAction ?? undefined}
-                      dataAttrBack="settings-back-to-root"
-                    />
-                  </div>
-                )}
-                {headerAction ? (
-                  <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
-                    <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{paneGroup.label}</h2>
-                    {headerAction}
-                  </div>
-                ) : null}
-                <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-                  {renderPane(paneGroup.id)}
-                </PortalSettingsSections>
-              </>
-            );
-            return barred ? (
-              <SettingsPropertyScopeProvider
-                workspaceId={scopeWorkspaceId}
-                onWorkspaceIdChange={setScopeWorkspaceId}
-                propertyIds={scopePropertyIds}
-                onPropertyIdsChange={setScopePropertyIds}
-                options={scopeOptions}
-              >
-                {body}
-              </SettingsPropertyScopeProvider>
-            ) : (
-              body
-            );
-          })()}
+    <ManagerPortalPageShell title={personalView ? "Profile" : "Settings"} navigationProvidesTitle hideTitleOnMobileNav>
+      <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
+        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
+          {switcher ? <div className="mb-4">{switcher}</div> : null}
+          {visibleGroups.map((g) => <button key={g.id} type="button" onClick={() => openGroup(g.id)} aria-current={paneGroup.id === g.id ? "page" : undefined}
+            data-attr={`settings-nav-${g.id}`} className={`flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${paneGroup.id === g.id ? "bg-primary/10 text-primary" : "text-muted hover:bg-accent/40"}`}>
+            <g.icon className="h-4 w-4" /><span className="flex-1">{g.label}</span>{locked(g.id) ? <Lock className="h-3.5 w-3.5" /> : null}
+          </button>)}
+        </nav>
+        <div ref={contentColRef} className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
+          {activeGroup === null ? <div className="space-y-6 lg:hidden" data-attr={personalView ? "profile-home" : "settings-home"}>
+            <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => router.back()}><ChevronLeft className="h-6 w-6" /></button>
+            <h2 className="text-[30px] font-semibold tracking-tight">{personalView ? "Profile" : "Settings"}</h2>
+            {switcher}
+            {personalView ? <button type="button" data-attr="settings-open-profile" onClick={() => openGroup("profile")} className="block w-full text-left" aria-label="Open Profile">
+              <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} action={<ChevronRight className="h-4 w-4 text-muted" />} />
+            </button> : null}
+            <PortalSettingsGroup>{visibleGroups.filter((g) => !personalView || g.id !== "profile").map((g) =>
+              <PortalSettingsLinkRow key={g.id} icon={locked(g.id) ? <Lock className="h-4 w-4" /> : <g.icon className="h-4 w-4" />} label={g.label}
+                value={g.id === "billing" ? workspaces?.plan?.tier ?? undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
+            )}</PortalSettingsGroup>
+          </div> : <>
+            <div className="sticky top-0 z-20 mb-4 flex h-[52px] items-center justify-center bg-background/95 backdrop-blur lg:hidden">
+              <button type="button" onClick={backToRoot} aria-label="Back" data-attr="settings-back-to-root" className="absolute left-0 grid h-11 w-11 place-items-center"><ChevronLeft className="h-6 w-6" /></button>
+              <h2 className="max-w-[70%] truncate text-[17px] font-semibold">{paneGroup.label}</h2>
+            </div>
+            {switcher ? <div className="mb-6 lg:hidden">{switcher}</div> : null}
+          </>}
+          <div className={activeGroup === null ? "max-lg:hidden" : undefined}>
+            <h1 className="mb-6 hidden text-2xl font-semibold tracking-tight lg:block">{paneGroup.label}</h1>
+            <PortalSettingsSections key={personalView ? "account" : workspaces?.active?.id ?? "workspace"}>{scopedPane}</PortalSettingsSections>
+          </div>
         </div>
       </div>
     </ManagerPortalPageShell>

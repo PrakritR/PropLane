@@ -1,4 +1,5 @@
 "use client";
+import { PortalSettingsSection, PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
@@ -14,7 +15,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 import { WorkspaceInviteLinkStrip } from "@/components/portal/workspace-invite-link-strip";
 import {
@@ -1978,6 +1979,19 @@ export function ProAccountLinksPanel({
   );
   const publishedToTitle = usePublishTitleActions(titleControls, Boolean(bare) && !byWorkspace && !routeLinkId);
 
+  const workspaceRowControls = (inv: AccountLinkInviteDto, workspace: PortalWorkspace): Pick<TeamMemberRow, "onRoleChange" | "houses"> => {
+    if (!workspace.owned && !workspace.canManageMembers) return {};
+    return {
+      onRoleChange: async (role) => { await patchInvite(inv.id, { teamRole: role }, "Role saved."); },
+      houses: {
+        options: workspace.propertyIds.map((id) => ({ value: id, label: workspace.propertyLabels?.[id] ?? id })),
+        selected: inv.assignedPropertyIds,
+        all: inv.houseScope === "all",
+        onSave: async (ids, all) => { await patchInvite(inv.id, { assignedPropertyIds: ids, houseScope: all ? "all" : "selected" }, "Houses saved."); },
+      },
+    };
+  };
+
   // Settings → Workspaces: one "Managers & permissions" section per owned card.
   const workspaceTeamSection = (workspace: PortalWorkspace): ReactNode => {
     const belongs = (assigned: string[], grantWorkspaceId?: string | null) =>
@@ -2023,12 +2037,13 @@ export function ProAccountLinksPanel({
             ? "Had Add properties and Team before roles — review"
             : undefined,
         removeLabel: `Remove from ${workspace.name}`,
-        onEdit: () => setPermissionsMember(entry),
+        ...(entry.kind === "remote" ? workspaceRowControls(entry.invite, workspace) : {}),
+        onEdit: workspace.owned || workspace.canManageMembers ? () => setPermissionsMember(entry) : undefined,
         onTransfer: (() => {
           const target = findWorkspaceMemberForEntry(entry);
           return target ? () => setTransferTarget(target) : undefined;
         })(),
-        onDisconnect: () => openTeamRemovePreview([entry]),
+        onDisconnect: workspace.owned || workspace.canManageMembers ? () => openTeamRemovePreview([entry]) : undefined,
       })),
     ];
     const pending = useRemote
@@ -2037,21 +2052,8 @@ export function ProAccountLinksPanel({
     const loading = useRemote && !remoteLoaded && !loadError;
     return (
       <div data-attr="workspace-team" data-workspace-id={workspace.id}>
-        <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
-          <span className="inline-flex min-h-10 items-center gap-1.5 text-sm font-semibold text-primary">
-            <Users className="size-4" aria-hidden />
-            Members
-            <span className="rounded-full bg-primary/10 px-2 py-px text-[11px] font-semibold tabular-nums text-primary">{rows.length}</span>
-          </span>
-          <PortalIconAction
-            icon={UserPlus}
-            label={`Invite a manager to ${workspace.name}`}
-            className="min-h-9"
-            disabled={inviteLinkBlocked}
-            onClick={() => openLinkModal(workspace.id)}
-            data-attr="workspace-team-invite"
-          />
-        </div>
+        <PortalSettingsSection title="Managers" action={workspace.owned || workspace.canManageMembers ? <PortalPrimaryIconAction icon={UserPlus} label="Invite manager" disabled={inviteLinkBlocked} onClick={() => openLinkModal(workspace.id)} data-attr="workspace-team-invite" /> : undefined}>
+        <PortalSettingsGroup>
         {loading ? (
           <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading team">
             <div className="h-3 w-1/3 rounded-lg bg-[var(--secondary)]" />
@@ -2062,6 +2064,7 @@ export function ProAccountLinksPanel({
             <TeamMembersBlock embedded members={rows} />
             <TeamPendingInvitesBlock
               embedded
+              controls={(inv) => workspaceRowControls(inv, workspace)}
               invites={pending}
               roleLabel={(inv) => teamRoleListLabel(inv.teamRole)}
               propertiesLabel={(inv) => reachFor(inv.assignedPropertyIds, inv.houseScope)}
@@ -2071,14 +2074,10 @@ export function ProAccountLinksPanel({
               onDecline={(inv) => void respondInvite(inv.id, "reject")}
               onOpen={(inv) => openMemberSheet(inv.id)}
             />
-            {memberEntries.length === 0 && pending.length === 0 ? (
-              <p className="border-t border-border/60 px-4 py-2.5 text-sm text-muted" data-attr="workspace-team-empty">
-                Only you. Invite a manager to share this workspace.
-              </p>
-            ) : null}
             {(workspace.owned || workspace.canManageMembers) && !inviteLinkBlocked ? (
               <WorkspaceInviteLinkStrip
                 workspaceId={workspace.id}
+                workspace={workspace}
                 canManage
                 refreshKey={inviteLinksRefreshKey}
                 onEdit={() => openLinkModal(workspace.id)}
@@ -2086,6 +2085,7 @@ export function ProAccountLinksPanel({
             ) : null}
           </>
         )}
+        </PortalSettingsGroup></PortalSettingsSection>
       </div>
     );
   };

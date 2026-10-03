@@ -23,6 +23,9 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 
+const workPhone = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({ resolveActiveManagerSendNumber: workPhone }));
+vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({ resolveActiveManagerWorkEmail: async () => null }));
 import { getPublicListings } from "@/lib/public-listings.server";
 
 const CLAW_LINE = "+12053690702";
@@ -87,6 +90,7 @@ let priorClawFlag: string | undefined;
 
 beforeEach(() => {
   queryQueue.length = 0;
+  workPhone.mockImplementation(async (_db, id) => id === "mgr-alice" ? ALICE_WORK : BOB_WORK);
   priorVercelEnv = process.env.VERCEL_ENV;
   priorClawFlag = process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED;
   process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = "1";
@@ -127,7 +131,21 @@ describe("getPublicListings — CTA phone per listing", () => {
     expect(phones.get("Birch House")).toBe(BOB_WORK);
   });
 
+  it("uses each listing's workspace even when the owner is the same", async () => {
+    workPhone.mockImplementation(async (_db, _id, workspace) => workspace === "ws-a" ? ALICE_WORK : BOB_WORK);
+    queryQueue.push({ data: [
+      { ...listingRow("lst-a", "mgr-alice", "Alder Row"), workspace_id: "ws-a" },
+      { ...listingRow("lst-b", "mgr-alice", "Birch House"), workspace_id: "ws-b" },
+    ], error: null });
+    queryQueue.push({ data: [{ id: "mgr-alice", email: "private@example.com" }], error: null });
+    const rows = await getPublicListings();
+    expect(byBuilding(rows).get("Alder Row")).toBe(ALICE_WORK);
+    expect(byBuilding(rows).get("Birch House")).toBe(BOB_WORK);
+    expect(JSON.stringify(rows)).not.toContain("private@example.com");
+  });
+
   it("drops the CTA number when the manager has no usable work number", async () => {
+    workPhone.mockResolvedValue(null);
     process.env.VERCEL_ENV = "production";
     queryQueue.push({ data: [listingRow("lst-alice", "mgr-alice", "Alder Row")], error: null });
     queryQueue.push({

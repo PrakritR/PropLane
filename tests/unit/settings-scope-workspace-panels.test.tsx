@@ -150,10 +150,10 @@ describe("settings-bar workspace scopes Communication identity", () => {
     renderScoped("ws-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Channels")).toBeTruthy();
+      expect(screen.getByText("Work identity")).toBeTruthy();
     });
     // Each Channels row (number, email) names its workspace.
-    expect(screen.getAllByText("Ash Flats").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Work number Set up" })).toBeTruthy();
     expect(screen.queryByText("Portal header workspace")).toBeNull();
     expect(screen.queryByText(/\+1 \(206\) 555-0999/)).toBeNull();
 
@@ -174,17 +174,17 @@ describe("settings-bar workspace scopes Communication identity", () => {
     expect(emailGet).toBeTruthy();
   });
 
-  it("All workspaces keeps Channels unfiltered and omits workspaceId", async () => {
+  it("Unspecified scope uses the resolved active workspace and omits workspaceId", async () => {
     const fetchMock = messagingFetchMock();
     vi.stubGlobal("fetch", fetchMock);
     renderScoped("");
 
     await waitFor(() => {
-      expect(screen.getByText("Channels")).toBeTruthy();
+      expect(screen.getByText("Work identity")).toBeTruthy();
     });
-    expect(screen.getByText("All workspaces")).toBeTruthy();
-    expect(screen.getByText("Portal header workspace")).toBeTruthy();
-    expect(screen.getByText(/\+1 \(206\) 555-0999/)).toBeTruthy();
+    expect(screen.queryByText("All workspaces")).toBeNull();
+    expect(screen.queryByText("Portal header workspace")).toBeNull();
+    expect(screen.queryByText(/\+1 \(206\) 555-0999/)).toBeNull();
 
     const post = fetchMock.mock.calls.find(
       (call) =>

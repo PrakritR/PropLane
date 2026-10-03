@@ -28,15 +28,15 @@ describe("useListingContactSmsPhone", () => {
   });
 
   it("does not fall back to the shared work number when the server explicitly resolved no CTA phone", async () => {
-    // Production manager with no verified phone: `/api/manager/phone` returns
+    // Production manager with no verified phone: `/api/manager/messaging-number` returns
     // `listingCtaPhone: null`. Falling through to `workNumber` (always the
     // shared Claw agent line under the bridge) would text the platform line
     // instead of rendering the "Schedule a tour / apply online" web links.
     stubFetch((url) =>
-      url.startsWith("/api/manager/phone")
+      url.startsWith("/api/manager/messaging-number")
         ? {
             ok: true,
-            json: async () => ({ listingCtaPhone: null, workNumber: CLAW_DEFAULT_AGENT_PHONE }),
+            json: async () => ({ canSend: false, number: { phoneNumber: CLAW_DEFAULT_AGENT_PHONE } }),
           }
         : emptyCatalog,
     );
@@ -45,10 +45,10 @@ describe("useListingContactSmsPhone", () => {
     await waitFor(() => expect(result.current).toBeNull());
   });
 
-  it("still uses workNumber when the deploy predates listingCtaPhone (key absent, not null)", async () => {
+  it("uses the active workspace number when the channel can send", async () => {
     stubFetch((url) =>
-      url.startsWith("/api/manager/phone")
-        ? { ok: true, json: async () => ({ workNumber: MANAGER_PHONE }) }
+      url.startsWith("/api/manager/messaging-number")
+        ? { ok: true, json: async () => ({ canSend: true, workspaceNumber: { phoneNumber: MANAGER_PHONE } }) }
         : emptyCatalog,
     );
 
@@ -61,8 +61,8 @@ describe("useListingContactSmsPhone", () => {
     // A public-catalog miss (draft listing, or an owner with no verified phone)
     // must resolve to null, not to whoever happens to be signed in.
     const spy = stubFetch((url) =>
-      url.startsWith("/api/manager/phone")
-        ? { ok: true, json: async () => ({ listingCtaPhone: OTHER_MANAGER_PHONE }) }
+      url.startsWith("/api/manager/messaging-number")
+        ? { ok: true, json: async () => ({ canSend: true, number: { phoneNumber: OTHER_MANAGER_PHONE } }) }
         : emptyCatalog,
     );
 
@@ -71,13 +71,13 @@ describe("useListingContactSmsPhone", () => {
     );
 
     await waitFor(() => expect(result.current).toBeNull());
-    expect(spy.mock.calls.some(([input]) => String(input).startsWith("/api/manager/phone"))).toBe(false);
+    expect(spy.mock.calls.some(([input]) => String(input).startsWith("/api/manager/messaging-number"))).toBe(false);
   });
 
   it("uses the signed-in manager's own number when they own the listing", async () => {
     stubFetch((url) =>
-      url.startsWith("/api/manager/phone")
-        ? { ok: true, json: async () => ({ listingCtaPhone: MANAGER_PHONE }) }
+      url.startsWith("/api/manager/messaging-number")
+        ? { ok: true, json: async () => ({ canSend: true, number: { phoneNumber: MANAGER_PHONE } }) }
         : emptyCatalog,
     );
 

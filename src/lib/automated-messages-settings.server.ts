@@ -9,17 +9,29 @@ import {
 
 const ROW_DATA_KEY = "automatedMessages";
 
-/** Automated notices stay fixed. The manually sent listing intro is editable. */
+/** Account defaults, optionally overlaid by the event property's workspace.
+ * Legacy property-level overrides stay inactive: Communication edits a workspace. */
 export async function loadAutomatedMessageSettings(
   db: SupabaseClient,
   managerUserId: string,
+  scope?: { propertyId?: string | null; workspaceId?: string | null },
 ): Promise<AutomatedMessageSettings> {
-  const { data, error } = await db.from("manager_automation_settings")
-    .select("row_data").eq("manager_user_id", managerUserId).maybeSingle();
+  const { data, error } = await db.from("manager_automation_settings").select("row_data")
+    .eq("manager_user_id", managerUserId).maybeSingle();
   if (error) throw error;
-  const settings = normalizeAutomatedMessageSettings(data?.row_data?.[ROW_DATA_KEY]);
-  const listing = settings[LISTING_SHARED_TEMPLATE_KEY];
-  return listing ? { [LISTING_SHARED_TEMPLATE_KEY]: listing } : {};
+  const account = normalizeAutomatedMessageSettings(data?.row_data?.[ROW_DATA_KEY]);
+  let workspaceId = scope?.workspaceId?.trim();
+  if (!workspaceId && scope?.propertyId) {
+    const { data: property, error: propertyError } = await db.from("manager_property_records")
+      .select("workspace_id").eq("id", scope.propertyId).eq("manager_user_id", managerUserId).maybeSingle();
+    if (propertyError) throw propertyError;
+    workspaceId = property?.workspace_id;
+  }
+  if (!workspaceId) return account;
+  const { data: workspace, error: workspaceError } = await db.from("workspace_automation_settings")
+    .select("row_data").eq("workspace_id", workspaceId).eq("owner_user_id", managerUserId).maybeSingle();
+  if (workspaceError) throw workspaceError;
+  return { ...account, ...normalizeAutomatedMessageSettings(workspace?.row_data?.[ROW_DATA_KEY]) };
 }
 
 /** Merge one or more entries into the blob; sibling namespaces survive untouched. */

@@ -6,20 +6,13 @@ const blocks = readFileSync(resolve("src/components/portal/pro-team-blocks.tsx")
 const panel = readFileSync(resolve("src/components/portal/pro-account-links-panel.tsx"), "utf8");
 
 describe("Settings Team row actions", () => {
-  it("puts Edit and the workspace-named remove in a far-right ⋯ — Permissions opened the same page as Edit, and a bare Remove is gone", () => {
-    // The member sheet is the one editor (role, house scope, houses, Custom
-    // grid), so the row says "Edit"; the destructive item reads "Remove from
-    // <workspace>" from the card that owns the row and falls back to Disconnect
-    // (docs/agents/co-manager-access.md § Team).
-    expect(blocks).toContain('label: "Edit"');
-    expect(blocks).toContain('label: m.removeLabel ?? "Disconnect"');
+  it("puts Permissions, Transfer ownership and Remove in the far-right menu", () => {
+    expect(blocks).toContain('label: "Permissions"');
+    expect(blocks).toContain('label: "Remove"');
     expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
-    expect(blocks).not.toContain('label: "Permissions"');
-    expect(blocks).not.toContain('label: "Remove"');
     expect(blocks).toContain('data-attr="team-member-actions"');
-    expect(blocks).not.toContain("onAccess");
-    expect(blocks).not.toContain("onPermissions");
+    expect(blocks).toContain('DropdownMenuContent backdrop={false}');
   });
 
   it("labels the ⋯ menu's ownership-transfer item exactly \"Transfer ownership\" (workspace transfer, no trailing ellipsis)", () => {

@@ -24,7 +24,7 @@ let notifyNav: () => void = () => {};
 vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
   useSearchParams: () => new URLSearchParams(window.location.search),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -140,7 +140,7 @@ describe("manager settings categories", () => {
   beforeEach(() => {
     // jsdom has no layout, so the pane-change scroll reset is a no-op here.
     Element.prototype.scrollIntoView = vi.fn();
-    goto("");
+    goto("?profileHome=1");
     // `/api/auth/portal-roles` — what the Account pane's switch rows come from.
     vi.stubGlobal(
       "fetch",
@@ -160,16 +160,16 @@ describe("manager settings categories", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers every category from the root list and the desktop nav", async () => {
+  it.each([
+    ["?profileHome=1", ["profile", "security", "developer", "account"]],
+    ["?settingsHome=1", ["workspaces", "payments", "messaging", "spreadsheets", "billing"]],
+  ])("offers the matching root list and rail for %s", async (query, categories) => {
+    goto(query as string);
     renderSettings();
-
-    for (const id of CATEGORIES) {
+    for (const id of categories) {
       expect(document.querySelector(`[data-attr="settings-open-${id}"]`), `root row for ${id}`).toBeTruthy();
-      expect(document.querySelector(`[data-attr="settings-nav-${id}"]`), `desktop nav item for ${id}`).toBeTruthy();
+      expect(document.querySelector(`[data-attr="settings-nav-${id}"]`), `nav for ${id}`).toBeTruthy();
     }
-    // With no `?tab=`, the root list is what a phone shows and Profile is the
-    // pane a desktop defaults to.
-    expect(screen.getByText("Personal information")).toBeTruthy();
   });
 
   it.each([
@@ -265,7 +265,7 @@ describe("manager settings categories", () => {
     const popped: Array<() => void> = [];
     const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {
       popped.push(() => {
-        window.history.replaceState(null, "", "/portal/profile");
+        window.history.replaceState(null, "", "/portal/profile?profileHome=1");
         act(() => window.dispatchEvent(new PopStateEvent("popstate")));
         act(() => notifyNav());
       });
@@ -279,7 +279,7 @@ describe("manager settings categories", () => {
     fireEvent.click(back!);
     await settlePops();
     expect(backSpy).toHaveBeenCalledTimes(1);
-    expect(window.location.search).toBe("");
+    expect(window.location.search).toBe("?profileHome=1");
     expect(document.querySelector('[data-attr="settings-open-profile"]')).toBeTruthy();
 
     // A double tap inside that window must be a no-op: no second pop (which
@@ -294,7 +294,7 @@ describe("manager settings categories", () => {
     expect(backSpy).toHaveBeenCalledTimes(1);
     expect(pushSpy).not.toHaveBeenCalled();
     await settlePops();
-    expect(window.location.search).toBe("");
+    expect(window.location.search).toBe("?profileHome=1");
     expect(document.querySelector('[data-attr="settings-open-profile"]')).toBeTruthy();
   });
 });

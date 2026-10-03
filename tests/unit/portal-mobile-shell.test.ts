@@ -208,7 +208,7 @@ describe("portal mobile shell conventions", () => {
 
     const shellTag = PROFILE_SOURCE.match(/<ManagerPortalPageShell\b[\s\S]*?>/);
     expect(shellTag).not.toBeNull();
-    expect(shellTag?.[0]).toContain('title="Settings"');
+    expect(shellTag?.[0]).toContain('title={personalView ? "Profile" : "Settings"}');
     expect(shellTag?.[0]).toContain("hideTitleOnMobileNav");
   });
 
@@ -223,7 +223,7 @@ describe("portal mobile shell conventions", () => {
     // duplicated the bar. It now goes through the same shell the manager does,
     // so the page title comes from one place and `hideTitleOnMobileNav` (above)
     // is the only thing that decides whether a phone sees it.
-    expect(PROFILE_SOURCE).not.toContain("<h1");
+    expect(PROFILE_SOURCE).toContain('hidden text-2xl font-semibold tracking-tight lg:block');
     expect(PROFILE_SOURCE).not.toContain("PORTAL_PAGE_TITLE");
   });
 

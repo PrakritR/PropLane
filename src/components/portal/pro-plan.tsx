@@ -562,6 +562,11 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
     if (!sub) return;
     setAdjustBusy(true);
     try {
+      if (target === "free") {
+        setAdjustOpen(false);
+        openCancelModal();
+        return;
+      }
       if (!sub.stripeManaged) {
         setAdjustOpen(false);
         await startEmbeddedCheckout(target, billing);
@@ -706,7 +711,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
                   onClick={() => setAdjustOpen(true)}
                   data-attr="billing-adjust-plan"
                 >
-                  Adjust plan
+                  Change plan
                 </Button>
               )}
             </div>

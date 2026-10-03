@@ -73,23 +73,7 @@ export function isEmptyOverride(raw: unknown): boolean {
   return raw == null || (typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0);
 }
 
-/**
- * Fixed reminders (captain, 2026-09-27): "reminders always consistent for
- * everything… it should not all be customizable… remove adjustable
- * reminders." `rules` (timing/channel/template) and `quietHours` below now
- * answer with the built-in defaults ALWAYS — a stored property, workspace, or
- * account row is never consulted for either. Rows already saved are left
- * alone (`saveReminderSettings` still writes) so nothing is deleted; they are
- * simply no longer read by anything that decides what actually sends.
- *
- * `automationSendMode` is the one exception: "Resident & vendor messages need
- * my approval first" is the single reminder-related control the captain kept
- * (S020), so it alone still reads the real stored ACCOUNT value — never a
- * property or workspace override, which is exactly the "not all
- * customizable" simplification (one account-wide switch, not a per-house
- * one). `resolveAutomationSendModeForEvent` (`automation-send-mode.server.ts`)
- * is this field's one real reader.
- */
+/** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettings(
   db: SupabaseClient,
   managerUserId: string,
@@ -101,41 +85,32 @@ export async function loadReminderSettings(
     .maybeSingle();
   if (error) throw error;
   const stored = normalizeReminderSettings((data?.row_data as Record<string, unknown> | null)?.[ROW_DATA_KEY]);
-  return { ...DEFAULT_REMINDER_SETTINGS, automationSendMode: stored.automationSendMode };
+  return stored;
 }
 
-/**
- * Read rules for several managers at once.
- *
- * Fixed reminders (see {@link loadReminderSettings}): the reminder-timing
- * sweep is this function's only caller and never reads `automationSendMode`,
- * so every manager gets the same built-in defaults with no query at all.
- */
+/** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettingsForManagers(
-  _db: SupabaseClient,
+  db: SupabaseClient,
   managerUserIds: readonly string[],
 ): Promise<Map<string, ReminderSettings>> {
   const out = new Map<string, ReminderSettings>();
   const ids = [...new Set(managerUserIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return out;
+  const { data, error } = await db.from("manager_automation_settings").select("manager_user_id,row_data").in("manager_user_id", ids);
+  if (error) throw error;
   for (const id of ids) out.set(id, DEFAULT_REMINDER_SETTINGS);
+  for (const row of data ?? []) out.set(row.manager_user_id, normalizeReminderSettings(row.row_data?.[ROW_DATA_KEY]));
   return out;
 }
 
-/**
- * Reminder rules for one manager + one house.
- *
- * Fixed reminders (see {@link loadReminderSettings}): a house's own
- * `reminderRules` override is never consulted for `rules`/`quietHours` — every
- * property gets the same built-in defaults as the account. `automationSendMode`
- * is the account's real value regardless of `propertyId` (S020: one
- * account-wide approval switch, not a per-house one).
- */
+/** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettingsForProperty(
   db: SupabaseClient,
   managerUserId: string,
-  _propertyId: string | null,
+  propertyId: string | null,
 ): Promise<ReminderSettings> {
-  return loadReminderSettings(db, managerUserId);
+  const resolver = await loadReminderSettingsResolver(db, [managerUserId]);
+  return resolver.resolve(managerUserId, propertyId);
 }
 
 export type ReminderSettingsResolver = {
@@ -192,40 +167,41 @@ export async function loadReminderWorkspaceOverride(db: SupabaseClient, workspac
   return rows.get(workspaceId) ?? null;
 }
 
-/**
- * Batch resolver for the senders.
- *
- * Fixed reminders (see {@link loadReminderSettings}): resolution is no longer
- * house override → workspace row → account row → default — every row simply
- * gets the built-in defaults, so this issues no queries at all. Kept as a
- * batch resolver (rather than removed) so every sweep call site keeps its
- * existing `resolve(managerUserId, propertyId, workspaceId?)` shape.
- */
+/** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettingsResolver(
-  _db: SupabaseClient,
-  _managerUserIds: readonly string[],
+  db: SupabaseClient,
+  managerUserIds: readonly string[],
 ): Promise<ReminderSettingsResolver> {
-  return { resolve: () => DEFAULT_REMINDER_SETTINGS };
+  const ids = [...new Set(managerUserIds.filter(Boolean))];
+  if (!ids.length) return { resolve: () => DEFAULT_REMINDER_SETTINGS };
+  const [accounts, workspaceResult, propertyResult] = await Promise.all([
+    loadReminderSettingsForManagers(db, ids),
+    db.from("portal_workspaces").select("id,owner_user_id").in("owner_user_id", ids),
+    db.from("manager_property_records").select("id,manager_user_id,workspace_id").in("manager_user_id", ids),
+  ]);
+  if (workspaceResult.error) throw workspaceResult.error;
+  if (propertyResult.error) throw propertyResult.error;
+  const owners = new Map((workspaceResult.data ?? []).map((w) => [w.id, w.owner_user_id]));
+  const properties = new Map((propertyResult.data ?? []).map((p) => [p.id, p]));
+  const workspaceRules = await loadWorkspaceReminderRowsForWorkspaces(db, [...owners.keys()]);
+  return { resolve: (managerUserId, propertyId, explicitWorkspaceId) => {
+    const base = accounts.get(managerUserId) ?? DEFAULT_REMINDER_SETTINGS;
+    const property = propertyId ? properties.get(propertyId) : null;
+    const workspaceId = explicitWorkspaceId || (property?.manager_user_id === managerUserId ? property.workspace_id : null);
+    if (!workspaceId || owners.get(workspaceId) !== managerUserId) return base;
+    const raw = workspaceRules.get(workspaceId);
+    return raw ? mergeReminderSettingsOverride(base, raw) : base;
+  } };
 }
 
-/**
- * Reminder rules for one sweep row.
- *
- * Fixed reminders (see {@link loadReminderSettings}): always the built-in
- * defaults, regardless of any stored property, workspace, or account row.
- *
- * @deprecated Prefer {@link loadReminderSettingsResolver} — one batch load per
- * sweep, then `resolver.resolve(managerUserId, propertyId)` per row, rather
- * than one query pair per row. Kept only for a caller resolving a single row
- * outside a sweep's batch loop (a route's one-off read).
- */
+/** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function resolveReminderSettingsForRow(
-  _db: SupabaseClient,
+  db: SupabaseClient,
   _cache: SettingsScopeCache,
-  _managerUserId: string,
-  _propertyId: string | null,
+  managerUserId: string,
+  propertyId: string | null,
 ): Promise<ReminderSettings> {
-  return DEFAULT_REMINDER_SETTINGS;
+  return loadReminderSettingsForProperty(db, managerUserId, propertyId);
 }
 
 export type { SettingsScopeCache };

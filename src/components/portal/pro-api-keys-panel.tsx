@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, KeyRound, TriangleAlert, Webhook } from "lucide-react";
+import { Check, Copy, TriangleAlert, MoreHorizontal } from "lucide-react";
 
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import {
   PortalSettingsGroup,
@@ -17,6 +21,11 @@ import {
   type ApiKeyTransport,
 } from "@/lib/mcp/capabilities";
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/events";
+
+function SettingsActions({ label, actions }: { label: string; actions: { label: string; run: () => Promise<void>; danger?: boolean }[] }) {
+  const confirm = useConfirm();
+  return <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">{actions.map((action) => <DropdownMenuItem key={action.label} className={action.danger ? "text-danger" : undefined} onSelect={async () => { if (action.danger && !await confirm({ title: `${action.label} ${label}?`, confirmLabel: action.label })) return; await action.run(); }}>{action.label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+}
 
 type ApiKey = {
   id: string;
@@ -51,18 +60,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     return () => window.clearTimeout(timer);
   }, [copied]);
   return (
-    <Button
-      variant="outline"
-      className="h-9 min-h-0 shrink-0 px-3 text-[13px]"
-      data-attr={`api-key-copy-${label}`}
-      onClick={async () => {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-      }}
-    >
-      {copied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-      {copied ? "Copied" : "Copy"}
-    </Button>
+    <PortalIconAction icon={copied ? Check : Copy} label={copied ? "Copied" : `Copy ${label}`} data-attr={`api-key-copy-${label}`} onClick={async () => { await navigator.clipboard.writeText(value); setCopied(true); }} />
   );
 }
 
@@ -175,29 +173,6 @@ function ManagerWebhooksBlock() {
 
   return (
     <PortalSettingsGroup>
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Webhook className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">Webhooks</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted">
-            PropLane POSTs a signed event to your HTTPS endpoint when something happens. Events
-            carry ids and statuses only — read the details back through the API.
-          </p>
-        </div>
-        {adding ? null : (
-          <Button
-            variant="outline"
-            className="h-9 min-h-0 shrink-0 px-3 text-[13px]"
-            data-attr="webhook-add-open"
-            onClick={() => {
-              setAdding(true);
-              setFreshSecret(null);
-            }}
-          >
-            Add endpoint
-          </Button>
-        )}
-      </div>
 
       {error ? (
         <p role="alert" className="border-b border-border px-4 py-2 text-sm text-danger">
@@ -233,7 +208,7 @@ function ManagerWebhooksBlock() {
       ) : null}
 
       {adding ? (
-        <div className="space-y-4 border-b border-border p-4">
+        <PortalDialog open={adding} onClose={() => setAdding(false)} title="Add webhook endpoint" primaryAction={null}><div className="space-y-4">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-foreground">Endpoint URL</span>
             <input
@@ -286,7 +261,7 @@ function ManagerWebhooksBlock() {
               Cancel
             </Button>
           </div>
-        </div>
+        </div></PortalDialog>
       ) : null}
 
       {!loaded ? (
@@ -303,19 +278,16 @@ function ManagerWebhooksBlock() {
               <span className="text-xs text-muted" data-attr="webhook-row-value">
                 {hook.events.join(", ") || "No events"} · {hook.enabled ? "Enabled" : "Disabled"}
               </span>
-              <Button variant="outline" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-send-test" onClick={() => sendTest(hook.id)}>
-                Send test event
-              </Button>
-              <Button variant="outline" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-rotate-secret" onClick={() => rotate(hook.id)}>
-                Rotate secret
-              </Button>
-              <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-delete" onClick={() => remove(hook.id)}>
-                Delete
-              </Button>
+              <SettingsActions label={hook.url} actions={[
+                { label: "Send test event", run: () => sendTest(hook.id) },
+                { label: "Rotate secret", run: () => rotate(hook.id) },
+                { label: "Delete", run: () => remove(hook.id), danger: true },
+              ]} />
             </div>
           </PortalSettingsRow>
         ))
       )}
+      <button type="button" className="min-h-12 w-full px-4 text-left text-[15px] text-primary" onClick={() => { setAdding(true); setFreshSecret(null); }} aria-label="Add webhook endpoint" data-attr="webhook-add-open">+ Add webhook endpoint</button>
     </PortalSettingsGroup>
   );
 }
@@ -436,59 +408,16 @@ export function ManagerApiKeysPanel() {
   };
 
   return (
-    <PortalSettingsSection
-      title="API & MCP"
-      action={
-        creating ? null : (
-          <Button
-            variant="outline"
-            className="h-9 min-h-0 px-4 text-[13px]"
-            data-attr="api-key-create-open"
-            onClick={() => {
-              setCreating(true);
-              setFreshToken(null);
-            }}
-          >
-            Create API key
-          </Button>
-        )
-      }
-    >
+    <div className="space-y-6" data-attr="settings-api">
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}
 
-      <PortalSettingsGroup>
-        <div className="flex items-center gap-3 px-4 py-3">
-          <KeyRound className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden />
-          <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">MCP server</p><p className="mt-0.5 text-xs leading-relaxed text-muted">Paste this URL into Claude, Cursor, or another MCP client. You’ll sign in with PropLane and approve the connection in your browser.</p></div>
-        </div>
-        <div className="flex items-center gap-2 border-t border-border px-4 py-3"><code className="min-w-0 flex-1 truncate rounded-md bg-foreground/[0.03] px-2.5 py-2 font-mono text-xs text-foreground">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div>
-      </PortalSettingsGroup>
-
-      <ManagerWebhooksBlock />
-
-      {loaded && connections.length > 0 ? (
-        <PortalSettingsGroup>
-          <div className="border-b border-border px-4 py-3"><p className="text-sm font-medium text-foreground">Connected MCP clients</p><p className="mt-0.5 text-xs text-muted">Revoke a connection immediately if a client is no longer trusted.</p></div>
-          {connections.map((connection) => (
-            <PortalSettingsRow
-              key={connection.clientId}
-              label={connection.clientName || "MCP client"}
-            >
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-muted" data-attr="mcp-connection-row-value">
-                  Last used {formatWhen(connection.lastUsedAt)}
-                </span>
-                <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="mcp-connection-revoke" onClick={() => revokeMcpConnection(connection.clientId)}>Disconnect</Button>
-              </div>
-            </PortalSettingsRow>
-          ))}
-        </PortalSettingsGroup>
-      ) : null}
-
+      <PortalSettingsSection title="MCP server"><PortalSettingsGroup>
+        <PortalSettingsRow label="Server URL"><div className="flex min-w-0 items-center gap-2"><code className="max-w-[40vw] truncate text-xs">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div></PortalSettingsRow>
+      </PortalSettingsGroup></PortalSettingsSection>
       {freshToken ? (
         <PortalSettingsGroup className="border-primary/40">
           <div className="space-y-3 p-4">
@@ -532,7 +461,7 @@ export function ManagerApiKeysPanel() {
       ) : null}
 
       {creating ? (
-        <PortalSettingsGroup>
+        <PortalDialog open={creating} onClose={() => setCreating(false)} title="Create API key" primaryAction={null}>
           <div className="space-y-4 p-4">
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-foreground">Key name</span>
@@ -548,14 +477,14 @@ export function ManagerApiKeysPanel() {
             </label>
             <fieldset>
               <legend className="text-sm font-medium text-foreground">Product permissions</legend>
-              <p className="mt-1 text-xs leading-relaxed text-muted">Read looks up data. Write can only propose a change; a signed-in manager confirms each proposal in PropLane.</p>
+              
               <div className="mt-2.5 divide-y divide-border rounded-lg border border-border">
                 {API_KEY_PRODUCT_AREAS.map((area) => {
                   const read = selectedAreaScopes.includes(`${area.id}:read`);
                   const write = selectedAreaScopes.includes(`${area.id}:write`);
                   return (
                     <div key={area.id} className="flex items-center gap-3 px-3 py-2.5">
-                      <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">{area.label}</p><p className="mt-0.5 text-xs text-muted">{area.description}</p></div>
+                      <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">{area.label}</p></div>
                       <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
                         {(["read", "write"] as const).map((level) => (
                           <label key={level} className="flex cursor-pointer items-center gap-1.5 rounded-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-foreground/45">
@@ -607,26 +536,14 @@ export function ManagerApiKeysPanel() {
               </Button>
             </div>
           </div>
-        </PortalSettingsGroup>
+        </PortalDialog>
       ) : null}
 
-      <PortalSettingsGroup>
+      <PortalSettingsSection title="API keys"><PortalSettingsGroup>
         {!loaded ? (
           <p className="px-4 py-6 text-sm text-muted">Loading…</p>
         ) : keys.length === 0 ? (
-          <div className="flex items-start gap-3 px-4 py-6">
-            <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">No API keys yet</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                Create one to let your own agent read your portfolio.{" "}
-                <a href="/docs/mcp" className="text-primary hover:underline" target="_blank" rel="noreferrer">
-                  Read the setup guide
-                </a>
-                .
-              </p>
-            </div>
-          </div>
+          <p className="px-4 py-3 text-sm text-muted">No API keys yet</p>
         ) : (
           keys.map((key) => (
             <PortalSettingsRow
@@ -635,21 +552,36 @@ export function ManagerApiKeysPanel() {
             >
               <div className="flex shrink-0 items-center gap-2">
                 <span className="text-xs text-muted" data-attr="api-key-row-value">
-                  <span className="font-mono">{key.tokenPrefix}…</span> · {key.transport === "api" ? "REST API" : "MCP"}
+                  <span className="font-mono">{key.tokenPrefix}…</span> · {key.lastUsedAt ? `Used ${formatWhen(key.lastUsedAt)}` : "Never used"}
                 </span>
-                <Button
-                  variant="danger"
-                  className="h-9 min-h-0 px-3 text-[13px]"
-                  data-attr="api-key-revoke"
-                  onClick={() => revokeKey(key.id)}
-                >
-                  Revoke
-                </Button>
+                <SettingsActions label={key.name} actions={[{ label: "Revoke", run: () => revokeKey(key.id), danger: true }]} />
               </div>
             </PortalSettingsRow>
           ))
         )}
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+        <button type="button" className="min-h-12 w-full px-4 text-left text-[15px] text-primary" onClick={() => { setCreating(true); setFreshToken(null); }} aria-label="Create API key" data-attr="api-key-create-open">+ Create API key</button>
+      </PortalSettingsGroup></PortalSettingsSection>
+      <PortalSettingsSection title="Webhooks"><ManagerWebhooksBlock /></PortalSettingsSection>
+
+      {loaded && connections.length > 0 ? (
+        <PortalSettingsGroup>
+          <div className="border-b border-border px-4 py-3"><p className="text-sm font-medium text-foreground">Connected MCP clients</p></div>
+          {connections.map((connection) => (
+            <PortalSettingsRow
+              key={connection.clientId}
+              label={connection.clientName || "MCP client"}
+            >
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs text-muted" data-attr="mcp-connection-row-value">
+                  Last used {formatWhen(connection.lastUsedAt)}
+                </span>
+                <SettingsActions label={connection.clientName || "MCP client"} actions={[{ label: "Disconnect", run: () => revokeMcpConnection(connection.clientId), danger: true }]} />
+              </div>
+            </PortalSettingsRow>
+          ))}
+        </PortalSettingsGroup>
+      ) : null}
+
+    </div>
   );
 }

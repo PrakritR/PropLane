@@ -4,14 +4,10 @@
  * "Your property manager" — the card at the top of the resident's conversation
  * list. Shown above the list so it stays visible before a thread is opened.
  *
- * Two rows per manager: the phone, then the email. Each is whichever the
- * server resolved — the provisioned work channel when it exists, otherwise the
- * manager's own profile phone / account email — so the card no longer vanishes
- * for the common manager who has not set up a work line yet.
- *
- * It renders NOTHING when the resident has no reachable manager at all (no
- * lease yet, or a manager with no phone and no email anywhere). An absent card
- * is correct; a card with nothing to act on is not.
+ * Shows only the operational workspace work number and work email resolved
+ * by the server. Personal profile contact information is never a fallback.
+ * With neither channel configured, the card is absent.
+
  */
 import { Mail, MessageCircle, Phone } from "lucide-react";
 import {

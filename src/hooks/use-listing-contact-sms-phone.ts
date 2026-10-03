@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useEffect, useState } from "react";
 import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
@@ -9,23 +10,13 @@ async function contactSmsFromPublicCatalog(listingId: string): Promise<string | 
   return listingCtaSmsPhone((await publicListingContact(listingId))?.contactSmsPhone);
 }
 
-/**
- * The signed-in manager's own CTA number, already resolved server-side by
- * `resolveListingCtaSmsPhone` — production returns their verified personal
- * phone, dev/preview the shared Claw line. `workNumber` is the pre-split
- * fallback for a deploy whose API has not shipped `listingCtaPhone` yet, so it
- * is only consulted when the key is ABSENT: an explicit `null` means the server
- * decided this manager has no usable CTA number, and falling through to
- * `workNumber` there would text the shared Claw line instead of rendering the
- * web links.
- */
-async function ownManagerListingCtaPhone(): Promise<string | null> {
+/** The selected workspace’s operational work number, never a personal phone or shared platform line. */
+async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string | null> {
   try {
-    const res = await fetch("/api/manager/phone", { credentials: "include", cache: "no-store" });
+    const res = await fetch(`/api/manager/messaging-number${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { credentials: "include", cache: "no-store" });
     if (!res.ok) return null;
-    const data = (await res.json()) as { listingCtaPhone?: string | null; workNumber?: string | null };
-    const resolved = data && "listingCtaPhone" in data ? data.listingCtaPhone : data?.workNumber;
-    return listingCtaSmsPhone(resolved);
+    const data = (await res.json()) as { canSend?: boolean; number?: { phoneNumber?: string }; workspaceNumber?: { phoneNumber?: string } };
+    return data.canSend ? listingCtaSmsPhone(data.workspaceNumber?.phoneNumber ?? data.number?.phoneNumber) : null;
   } catch {
     return null;
   }
@@ -48,6 +39,8 @@ export function useListingContactSmsPhone(opts: {
   viewerManagerUserId?: string | null;
   enabled?: boolean;
 }): string | null {
+  const workspace = useWorkspaces();
+  const workspaceId = workspace?.workspaces.find((w) => opts.listingId && w.propertyIds.includes(opts.listingId))?.id ?? workspace?.active?.id;
   const [phone, setPhone] = useState<string | null>(null);
   const enabled = opts.enabled !== false;
   const listingId = opts.listingId?.trim() || null;
@@ -70,7 +63,7 @@ export function useListingContactSmsPhone(opts: {
       }
       const viewerIsOwner = !ownerId || (Boolean(viewerId) && ownerId === viewerId);
       if (viewerIsOwner) {
-        const own = await ownManagerListingCtaPhone();
+        const own = await ownManagerListingCtaPhone(workspaceId);
         if (!cancelled) setPhone(own);
         return;
       }
@@ -79,7 +72,7 @@ export function useListingContactSmsPhone(opts: {
     return () => {
       cancelled = true;
     };
-  }, [enabled, listingId, ownerId, viewerId]);
+  }, [enabled, listingId, ownerId, viewerId, workspaceId]);
 
   return phone;
 }

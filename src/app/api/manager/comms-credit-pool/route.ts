@@ -12,6 +12,7 @@ import {
 export const runtime = "nodejs";
 
 export type CommsCreditPoolSummary = {
+  purchases?: { id: string; creditCents: number; createdAt: string; status: string }[];
   poolEnabled: boolean;
   tier: string;
   allowanceCents: number;
@@ -88,7 +89,12 @@ export async function GET() {
     const enabledWorkspaces = workspaces.filter((w) => w.enabled);
     const fundsAllWorkspaces = enabledWorkspaces.length === workspaces.length && workspaces.length > 0;
     const pinnedWorkspaceId = !fundsAllWorkspaces && enabledWorkspaces.length === 1 ? enabledWorkspaces[0]!.workspaceId : null;
+    const { data: purchases, error: purchaseError } = await auth.db.from("comms_pool_credit_purchases")
+      .select("id,credit_cents,created_at,status").eq("funder_user_id", auth.userId)
+      .in("status", ["paid", "reversed"]).order("created_at", { ascending: false }).limit(50);
+    if (purchaseError) throw purchaseError;
     const summary: CommsCreditPoolSummary = {
+      purchases: (purchases ?? []).map(row => ({ id: row.id, creditCents: row.credit_cents, createdAt: row.created_at, status: row.status })),
       poolEnabled: isCommsCreditPoolEnabled(),
       tier: snapshot.tier,
       allowanceCents: snapshot.allowanceCents,

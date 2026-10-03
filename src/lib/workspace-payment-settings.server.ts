@@ -18,6 +18,7 @@ import { normalizeServiceFeeChoice, type ServiceFeePayer } from "@/lib/payment-p
  */
 export type WorkspacePaymentSettings = {
   serviceFeePayer: ServiceFeePayer | null;
+  defaultPaymentMethod?: "balance" | "ach";
   serviceFeeWaiverCode?: string;
   /**
    * Whether residents on this workspace may enroll in autopay at all — the
@@ -43,6 +44,7 @@ function readSettings(raw: unknown): WorkspacePaymentSettings {
         ? normalizeServiceFeeChoice(payer)
         : null,
     serviceFeeWaiverCode: code || undefined,
+    defaultPaymentMethod: record.defaultPaymentMethod === "balance" || record.defaultPaymentMethod === "ach" ? record.defaultPaymentMethod : undefined,
     autopayEnabled: typeof record.autopayEnabled === "boolean" ? record.autopayEnabled : undefined,
     autopayRetryEnabled: typeof record.autopayRetryEnabled === "boolean" ? record.autopayRetryEnabled : undefined,
   };
@@ -169,9 +171,11 @@ export async function saveWorkspacePaymentSettings(
   const payload =
     merged.serviceFeePayer === null &&
     merged.autopayEnabled === undefined &&
-    merged.autopayRetryEnabled === undefined
+    merged.autopayRetryEnabled === undefined &&
+    merged.defaultPaymentMethod === undefined
       ? null
       : {
+          ...(merged.defaultPaymentMethod ? { defaultPaymentMethod: merged.defaultPaymentMethod } : {}),
           ...(merged.serviceFeePayer ? { serviceFeePayer: merged.serviceFeePayer } : {}),
           ...(merged.serviceFeeWaiverCode ? { serviceFeeWaiverCode: merged.serviceFeeWaiverCode } : {}),
           ...(merged.autopayEnabled !== undefined ? { autopayEnabled: merged.autopayEnabled } : {}),

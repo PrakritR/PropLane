@@ -34,25 +34,25 @@ function evidence(name: string) {
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.confirm.mockResolvedValue(true); });
 afterEach(cleanup);
-it("offers one trash action for each owned card, including default; confirms and selects next after deleting active", async () => {
+it("offers a Danger zone on the active workspace only and selects next after deletion", async () => {
   mount();
-  expect(document.querySelectorAll('[data-attr="workspace-delete"]')).toHaveLength(2);
+  expect(document.querySelectorAll('[data-attr="workspace-delete"]')).toHaveLength(1);
   expect(screen.queryByText("Delete this workspace")).toBeNull();
   evidence("01-workspace-cards");
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   await waitFor(() => expect(mocks.context.select).toHaveBeenCalledWith("Second", { href: false }));
   expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Delete workspace?" }));
   expect(mocks.context.mutate).toHaveBeenCalledWith({ action: "delete", id: "Original", moveTo: undefined });
 });
 it("keeps an empty workspace when confirmation is cancelled", async () => {
   mocks.confirm.mockResolvedValue(false); mount();
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   await waitFor(() => expect(mocks.confirm).toHaveBeenCalled());
   expect(mocks.context.mutate).not.toHaveBeenCalled();
 });
 it("moves houses and deletes through one request to the selected owned destination", async () => {
   mount([workspace("Original", ["house-1"], true), workspace("Second"), workspace("Third")]);
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   const select = await screen.findByRole("button", { name: "Destination workspace" });
   fireEvent.click(select);
   const options = await screen.findAllByRole("option");
@@ -67,7 +67,7 @@ it("moves houses and deletes through one request to the selected owned destinati
 });
 it("explains the only populated workspace and opens add without deleting houses", async () => {
   mount([workspace("Original", ["house-1"], true)]);
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   await screen.findByText(/this is your only workspace/);
   expect(screen.queryByRole("button", { name: "Move and delete" })).toBeNull();
   evidence("03-only-populated-workspace");
@@ -77,7 +77,7 @@ it("explains the only populated workspace and opens add without deleting houses"
 });
 it("refreshes after removing the last active empty workspace and renders first-workspace state", async () => {
   const view = mount([workspace("Original", [], true)]);
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
   mocks.context.workspaces = []; mocks.context.active = null;
   view.rerender(<WorkspaceSettings />);
@@ -87,7 +87,7 @@ it("refreshes after removing the last active empty workspace and renders first-w
 it("shows failed deletion and preserves the move dialog for retry", async () => {
   mount([workspace("Original", ["house-1"], true), workspace("Second")]);
   mocks.context.mutate.mockRejectedValue(new Error("Move the properties out"));
-  fireEvent.click(screen.getByRole("button", { name: "Delete Original" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
   fireEvent.click(await screen.findByRole("button", { name: "Move and delete" }));
   await waitFor(() => expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Move the properties out"));
   expect(mocks.context.select).not.toHaveBeenCalled();
@@ -103,14 +103,29 @@ it("creates one named workspace from a single Save", async () => {
   await waitFor(() => expect(mocks.context.mutate).toHaveBeenCalledWith({ action: "create", id: undefined, name: "North homes" }));
   expect(mocks.context.mutate).toHaveBeenCalledTimes(1);
 });
-it("renders the team inside every owned card and never as a separate Team section", () => {
+it("renders only the active workspace and its team", () => {
   mount([workspace("Original", ["house-1"], true), workspace("Second"), { ...workspace("Shared"), owned: false }]);
   const sections = Array.from(document.querySelectorAll('[data-attr="workspace-team"]'));
-  expect(sections.map((el) => el.getAttribute("data-workspace-id"))).toEqual(["Original", "Second"]);
+  expect(sections.map((el) => el.getAttribute("data-workspace-id"))).toEqual(["Original"]);
   for (const el of sections) expect(el.closest('[data-attr="workspace-card"]')).not.toBeNull();
   expect(screen.queryByRole("heading", { name: "Team" })).toBeNull();
   expect(screen.queryByText("Team on this workspace")).toBeNull();
   expect(document.querySelector('[data-attr="workspace-manage-team"]')).toBeNull();
-  expect(document.querySelector('[data-attr="workspace-shared-access"]')).not.toBeNull();
+  expect(screen.queryByText("Second")).toBeNull();
   evidence("05-team-inside-cards");
+});
+
+it("shows read-only name and Leave for the active shared workspace", async () => {
+  mount([{ ...workspace("Shared"), owned: false }]);
+  expect(screen.queryByRole("button", { name: "Rename Shared" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Delete workspace" })).toBeNull();
+  const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ invites: [
+    { id: "other", workspaceId: "Other", direction: "incoming", status: "accepted" },
+    { id: "mine", workspaceId: "Shared", direction: "incoming", status: "accepted" },
+  ] }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+  vi.stubGlobal("fetch", fetchMock);
+  fireEvent.click(screen.getByRole("button", { name: "Leave workspace" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/pro/account-links/mine", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "revoke" }) })));
+  await waitFor(() => expect(mocks.context.refresh).toHaveBeenCalled());
+  vi.unstubAllGlobals();
 });

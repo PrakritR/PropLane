@@ -1,4 +1,5 @@
 "use client";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
@@ -65,6 +66,16 @@ export function ManagerOutgoingPaymentDetail({
   onPayModalOpenChange?: (open: boolean) => void;
 }) {
   const { showToast } = useAppUi();
+  const activeWorkspaceId = useWorkspaces()?.active?.id;
+  const [preferredMethod, setPreferredMethod] = useState<"balance" | "ach">("balance");
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    let active = true;
+    void fetch(`/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(activeWorkspaceId)}`, { credentials: "include" }).then(res => res.ok ? res.json() : null).then(body => {
+      if (active) setPreferredMethod(body?.workspacePaymentSettings?.[activeWorkspaceId]?.defaultPaymentMethod === "ach" ? "ach" : "balance");
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [activeWorkspaceId]);
   const payable = Boolean(row.workOrderId && row.bucket !== "paid");
   // C098: "Pay from balance" only exists once BOTH the per-workspace Connect
   // rollout (`WORKSPACE_CONNECT_ENABLED`, dark by default) and the underlying
@@ -93,8 +104,8 @@ export function ManagerOutgoingPaymentDetail({
   // but never override a method the manager already picked by hand.
   const userPickedRef = useRef(false);
   useEffect(() => {
-    if (balanceEligible && !userPickedRef.current) setPaymentMethod("balance");
-  }, [balanceEligible]);
+    if (!userPickedRef.current) setPaymentMethod(preferredMethod === "balance" && balanceEligible ? "balance" : defaultManagerVendorPayMethod(vendor) ?? "ach");
+  }, [balanceEligible, preferredMethod, vendor]);
   const [payConfirmOpenInternal, setPayConfirmOpenInternal] = useState(false);
   const payConfirmOpen = payModalOpen ?? payConfirmOpenInternal;
   const setPayConfirmOpen = onPayModalOpenChange ?? setPayConfirmOpenInternal;

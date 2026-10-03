@@ -21,7 +21,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
-import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
+import { loadWorkspaceIdForProperty } from "@/lib/workspace-payment-settings.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -29,6 +29,7 @@ import { applicationRowLinksResident } from "@/lib/resident-manager-scope";
 
 export type ResidentManagerContact = {
   managerUserId: string;
+  propertyId?: string | null;
   /**
    * Manager's display name, for the resident's contact card. The manager's id
    * is still withheld from the API response — a resident already sees this name
@@ -158,7 +159,8 @@ export async function resolveResidentManagerContacts(
     // One row per manager — a resident with several records under the same
     // manager needs that contact once, not once per record. Rows arrive
     // newest first, so the first is the one worth keeping.
-    if (!byManager.has(contact.managerUserId)) byManager.set(contact.managerUserId, contact);
+    const key = `${contact.managerUserId}:${contact.propertyId ?? ""}`;
+    if (!byManager.has(key)) byManager.set(key, contact);
   };
   const blank = (managerUserId: string): ResidentManagerContact => ({
     managerUserId,
@@ -190,6 +192,7 @@ export async function resolveResidentManagerContacts(
     const leaseEnd = text(application.leaseEnd) ?? text(rowData.leaseEnd);
     remember({
       ...blank(managerUserId),
+      propertyId: text(row.property_id),
       propertyLabel: propertyLabelOf(rowData, row.property_id),
       leaseStart,
       leaseEnd,
@@ -221,6 +224,7 @@ export async function resolveResidentManagerContacts(
       const leaseStart = text(application.leaseStart) ?? text(rowData.leaseStart) ?? text(row.occupancy_start);
       remember({
         ...blank(managerUserId),
+        propertyId: text(row.assigned_property_id) ?? text(row.property_id),
         propertyLabel: propertyLabelOf(rowData, row.assigned_property_id, row.property_id),
         leaseStart,
         status: classifyTenancy(leaseStart, null, nowMs),
@@ -248,19 +252,7 @@ export async function resolveResidentManagerContacts(
   return live.length > 0 ? live : all;
 }
 
-/**
- * The resolver plus the ways to reach each manager.
- *
- * A work number that cannot actually send is dropped rather than shown: the
- * resident would text it and hear nothing, which reads as being ignored. But
- * "no work channel yet" is NOT "unreachable" — most managers put a phone and an
- * email on their profile long before they provision a work line. But a profile
- * phone is a personal line, and this resolver also serves applicants the
- * manager has not accepted, so the profile fallback is OPT-IN: only a manager
- * who turned on "Share my profile phone and email" in Communication settings
- * has those channels shown. Off (the default), only provisioned work channels
- * are disclosed, and a contact with neither is dropped.
- */
+/** Resolve only operational workspace work channels; personal profile fields are never disclosed. */
 export async function resolveResidentManagerPhones(
   db: SupabaseClient,
   args: { residentUserId?: string | null; residentEmail?: string | null; nowMs?: number },
@@ -268,37 +260,28 @@ export async function resolveResidentManagerPhones(
   const contacts = await resolveResidentManagerContacts(db, args);
   const withChannels = await Promise.all(
     contacts.map(async (contact) => {
-      const [workPhone, workEmail, profileRow, settings] = await Promise.all([
-        resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
-        resolveActiveManagerWorkEmail(db, contact.managerUserId).catch(() => null),
+      const workspaceId = contact.propertyId ? await loadWorkspaceIdForProperty(db, contact.managerUserId, contact.propertyId).catch(() => null) : null;
+      const [workPhone, workEmail, profileRow] = await Promise.all([
+        resolveActiveManagerSendNumber(db, contact.managerUserId, workspaceId).catch(() => null),
+        resolveActiveManagerWorkEmail(db, contact.managerUserId, workspaceId).catch(() => null),
         Promise.resolve(
-          db.from("profiles").select("full_name, phone, email").eq("id", contact.managerUserId).maybeSingle(),
+          db.from("profiles").select("full_name").eq("id", contact.managerUserId).maybeSingle(),
         )
           .then((res) => res.data)
           .catch(() => null),
-        loadManagerAutomationSettings(db, contact.managerUserId).catch(() => null),
       ]);
       const profile = (profileRow ?? null) as { full_name?: unknown; phone?: unknown; email?: unknown } | null;
-      // A failed settings read stays closed: nothing personal is shown by accident.
-      const shareProfile = settings?.shareProfileContactWithoutWorkChannel === true;
-      const profilePhone = shareProfile ? text(profile?.phone) : null;
-      const accountEmail = shareProfile ? (text(profile?.email)?.toLowerCase() ?? null) : null;
-      // `profiles.phone` is free-form trimmed text (`PATCH /api/profile` never
-      // normalizes it), yet this value is interpolated verbatim into a
-      // `tel:`/`sms:` href. Normalize through the codebase's one E.164
-      // normalizer before it ever reaches the card; a value that cannot be
-      // normalized is dropped rather than emitted as a broken link.
-      const phone = normalizeE164(workPhone) ?? normalizeE164(profilePhone);
-      const email = text(workEmail)?.toLowerCase() ?? accountEmail;
+      const phone = normalizeE164(workPhone);
+      const email = text(workEmail)?.toLowerCase() ?? null;
       return {
         ...contact,
         // An absent name is not an error — the card simply leads with the
         // number, as it did before there was a name to show.
         managerName: text(profile?.full_name),
         phone,
-        phoneKind: phone ? (normalizeE164(workPhone) ? "work" : "profile") : null,
+        phoneKind: phone ? "work" : null,
         email,
-        emailKind: email ? (text(workEmail) ? "work" : "account") : null,
+        emailKind: email ? "work" : null,
       } satisfies ResidentManagerContact;
     }),
   );

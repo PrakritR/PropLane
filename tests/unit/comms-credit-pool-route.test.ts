@@ -21,6 +21,11 @@ vi.mock("@/lib/comms-billing/pool.server", () => ({
 
 import { GET, PATCH } from "@/app/api/manager/comms-credit-pool/route";
 
+function purchaseDb() {
+  const query = { select: vi.fn(() => query), eq: vi.fn(() => query), in: vi.fn(() => query), order: vi.fn(() => query), limit: vi.fn(async () => ({ data: [], error: null })) };
+  return { from: vi.fn(() => query) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
@@ -68,7 +73,7 @@ describe("GET /api/manager/comms-credit-pool with the pool flag explicitly off",
 describe("GET /api/manager/comms-credit-pool with the pool flag unset (default ON)", () => {
   it("loads the real snapshot through auth, same as an explicit '1'", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", undefined);
-    mocks.auth.mockResolvedValue({ userId: "owner-1", db: {} });
+    mocks.auth.mockResolvedValue({ userId: "owner-1", db: purchaseDb() });
     mocks.loadSnapshot.mockResolvedValue({
       tier: "pro",
       allowanceCents: 2500,
@@ -87,14 +92,14 @@ describe("GET /api/manager/comms-credit-pool with the pool flag unset (default O
     const body = await res.json();
     expect(body.poolEnabled).toBe(true);
     expect(mocks.auth).toHaveBeenCalledTimes(1);
-    expect(mocks.loadSnapshot).toHaveBeenCalledWith({}, "owner-1");
+    expect(mocks.loadSnapshot).toHaveBeenCalledWith(expect.objectContaining({ from: expect.any(Function) }), "owner-1");
   });
 });
 
 describe("GET /api/manager/comms-credit-pool with the pool flag on", () => {
   it("loads the real snapshot through auth as before", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
-    mocks.auth.mockResolvedValue({ userId: "owner-1", db: {} });
+    mocks.auth.mockResolvedValue({ userId: "owner-1", db: purchaseDb() });
     mocks.loadSnapshot.mockResolvedValue({
       tier: "pro",
       allowanceCents: 2500,
@@ -113,12 +118,12 @@ describe("GET /api/manager/comms-credit-pool with the pool flag on", () => {
     const body = await res.json();
     expect(body.poolEnabled).toBe(true);
     expect(mocks.auth).toHaveBeenCalledTimes(1);
-    expect(mocks.loadSnapshot).toHaveBeenCalledWith({}, "owner-1");
+    expect(mocks.loadSnapshot).toHaveBeenCalledWith(expect.objectContaining({ from: expect.any(Function) }), "owner-1");
   });
 
   it("falls back to poolEnabled:false when the pool schema is not deployed yet, instead of a 503 error banner", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
-    mocks.auth.mockResolvedValue({ userId: "owner-1", db: {} });
+    mocks.auth.mockResolvedValue({ userId: "owner-1", db: purchaseDb() });
     const missingTableError = { code: "42P01", message: 'relation "public.comms_account_pools" does not exist' };
     mocks.loadSnapshot.mockRejectedValue(missingTableError);
     mocks.isMissingPoolSchemaError.mockReturnValueOnce(true);

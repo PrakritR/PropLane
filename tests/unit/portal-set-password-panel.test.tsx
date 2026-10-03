@@ -9,7 +9,7 @@
 // `identities` / `app_metadata.providers` only say which providers are linked — a
 // passwordless account can still carry an `email` identity.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const rpc = vi.fn();
 const updateUser = vi.fn();
@@ -58,6 +58,15 @@ function currentPasswordField() {
   return document.getElementById("portal-old-password");
 }
 
+async function openPassword() {
+  const trigger = await screen.findByRole("button", { name: /^(Set|Change) password$/ });
+  await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(trigger);
+}
+function submitPassword() {
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^(Set|Update) password$/ }));
+}
+
 beforeEach(() => {
   rpc.mockReset();
   updateUser.mockReset();
@@ -85,7 +94,7 @@ describe("Login & security for an account with NO password (Google/Apple only)",
 
   it("drops the meaningless 'forgot your current password' reset escape hatch", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Set password" });
+    await openPassword();
 
     expect(screen.queryByText(/forgot your current password/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /send a reset link/i })).toBeNull();
@@ -93,11 +102,11 @@ describe("Login & security for an account with NO password (Google/Apple only)",
 
   it("sets the password without asking Supabase to verify one that does not exist", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Set password" });
+    await openPassword();
 
     type("portal-new-password", "brand-new-password");
     type("portal-confirm-password", "brand-new-password");
-    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
+    submitPassword();
 
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ password: "brand-new-password" }));
     expect(signInWithPassword).not.toHaveBeenCalled();
@@ -105,35 +114,37 @@ describe("Login & security for an account with NO password (Google/Apple only)",
 
   it("still enforces the same strength and confirmation rules", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Set password" });
+    await openPassword();
 
     type("portal-new-password", "short");
     type("portal-confirm-password", "short");
-    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
-    await waitFor(() => expect(toasts.at(-1)).toMatch(/at least 8 characters/i));
+    submitPassword();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/at least 8 characters/i));
     expect(updateUser).not.toHaveBeenCalled();
 
     type("portal-new-password", "long-enough-password");
     type("portal-confirm-password", "different-password-x");
-    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
-    await waitFor(() => expect(toasts.at(-1)).toMatch(/do not match/i));
+    submitPassword();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/do not match/i));
     expect(updateUser).not.toHaveBeenCalled();
   });
 
   it("switches to the update flow once a password exists, without a reload", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Set password" });
+    await openPassword();
     expect(currentPasswordField()).toBeNull();
 
     type("portal-new-password", "brand-new-password");
     type("portal-confirm-password", "brand-new-password");
-    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
+    submitPassword();
 
+    await waitFor(() => expect(toasts.at(-1)).toMatch(/password set/i));
     // The transition itself: label, the reappearing Current password field, and the
     // reset escape hatch all come back.
-    expect(await screen.findByRole("button", { name: "Update password" })).toBeTruthy();
+    await openPassword();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Update password" })).toBeTruthy();
     expect(currentPasswordField()).not.toBeNull();
-    expect(screen.getByText(/forgot your current password/i)).toBeTruthy();
+    expect(screen.getByText(/send a reset link to your email/i)).toBeTruthy();
     expect(toasts.at(-1)).toMatch(/password set/i);
   });
 });
@@ -144,31 +155,32 @@ describe("Login & security for an account that already HAS a password", () => {
   it("is unchanged: update label, Current password field, reset link", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
 
-    expect(await screen.findByRole("button", { name: "Update password" })).toBeTruthy();
+    await openPassword();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Update password" })).toBeTruthy();
     expect(currentPasswordField()).not.toBeNull();
-    expect(screen.getByText(/forgot your current password/i)).toBeTruthy();
+    expect(screen.getByText(/send a reset link to your email/i)).toBeTruthy();
   });
 
   it("still refuses to update without the current password", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Update password" });
+    await openPassword();
 
     type("portal-new-password", "brand-new-password");
     type("portal-confirm-password", "brand-new-password");
-    fireEvent.click(screen.getByRole("button", { name: "Update password" }));
+    submitPassword();
 
-    await waitFor(() => expect(toasts.at(-1)).toMatch(/enter your current password/i));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/enter your current password/i));
     expect(updateUser).not.toHaveBeenCalled();
   });
 
   it("verifies the current password before changing it", async () => {
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
-    await screen.findByRole("button", { name: "Update password" });
+    await openPassword();
 
     type("portal-old-password", "the-old-password");
     type("portal-new-password", "brand-new-password");
     type("portal-confirm-password", "brand-new-password");
-    fireEvent.click(screen.getByRole("button", { name: "Update password" }));
+    submitPassword();
 
     await waitFor(() =>
       expect(signInWithPassword).toHaveBeenCalledWith({ email: EMAIL, password: "the-old-password" }),
@@ -184,7 +196,8 @@ describe("on /demo", () => {
 
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
 
-    expect(await screen.findByRole("button", { name: "Update password" })).toBeTruthy();
+    await openPassword();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Update password" })).toBeTruthy();
     expect(currentPasswordField()).not.toBeNull();
     // The demo sandbox never makes the authed call at all.
     expect(rpc).not.toHaveBeenCalled();
@@ -222,7 +235,8 @@ describe("when the server cannot answer", () => {
     rpc.mockResolvedValue({ data: null, error: { message: "boom" } });
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
 
-    expect(await screen.findByRole("button", { name: "Update password" })).toBeTruthy();
+    await openPassword();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Update password" })).toBeTruthy();
     expect(currentPasswordField()).not.toBeNull();
   });
 
@@ -230,7 +244,7 @@ describe("when the server cannot answer", () => {
     rpc.mockReturnValue(new Promise(() => {}));
     render(<PortalChangePasswordPanel accountEmail={EMAIL} />);
 
-    expect(screen.queryByRole("button", { name: /password/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /password/i }).hasAttribute("disabled")).toBe(true);
     expect(currentPasswordField()).toBeNull();
     expect(screen.getByText("Loading…")).toBeTruthy();
   });
