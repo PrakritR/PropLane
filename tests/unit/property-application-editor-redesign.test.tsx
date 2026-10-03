@@ -55,7 +55,7 @@ describe("F003: Sections step default-sections checklist", () => {
     );
     await waitWorkspace();
 
-    // Sections step (rail id "name") shows the checklist.
+    jumpRail("sections");
     const propertyRow = document.querySelector('[data-attr="application-sections-checklist-property"]') as HTMLInputElement | null;
     expect(propertyRow).not.toBeNull();
     expect(propertyRow!.checked).toBe(true);
@@ -63,9 +63,7 @@ describe("F003: Sections step default-sections checklist", () => {
     fireEvent.click(propertyRow!);
     expect(propertyRow!.checked).toBe(false);
 
-    // The Form step (rail id "sections") no longer shows "Property information".
-    jumpRail("sections");
-    expect(screen.queryByText("Property information")).toBeNull();
+    expect(document.querySelector('[data-attr="application-section-toggle-property"]')).toBeNull();
     expect(document.querySelector('[data-attr="application-section-toggle-household"]')).not.toBeNull();
   });
 
@@ -88,6 +86,7 @@ describe("F003: Sections step default-sections checklist", () => {
     );
     await waitWorkspace();
 
+    jumpRail("sections");
     const personalRow = document.querySelector('[data-attr="application-sections-checklist-personal"]') as HTMLInputElement | null;
     expect(personalRow).not.toBeNull();
     expect(personalRow!.checked).toBe(true);
@@ -156,7 +155,7 @@ describe("F009: Setup step's Linked co-signer form picker", () => {
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    const picker = screen.getByRole("button", { name: "If a co-signer is planned, they fill in" });
+    const picker = screen.getByRole("button", { name: "Co-signer form" });
     fireEvent.click(picker);
     const listbox = await screen.findByRole("listbox");
     // The template being edited is never offered as its own co-signer form.

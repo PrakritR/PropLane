@@ -127,11 +127,14 @@ export function ApplicationSectionPreviewPane({
   section,
   fields,
   applicationPreviewPropertyId,
+  stepPosition,
 }: {
   section: RentalApplicationSection | null;
   fields: ResolvedApplicationField[];
   /** Resolved by `resolveApplicationPreviewPropertyId` — may be "" (unresolved); never blocks rendering. */
   applicationPreviewPropertyId?: string;
+  /** Static wizard position label — not clickable step tabs (C2-L11-7). */
+  stepPosition?: { index: number; total: number } | null;
 }) {
   return (
     <div
@@ -140,7 +143,13 @@ export function ApplicationSectionPreviewPane({
     >
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
-        <h3 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h3>
+        {stepPosition && stepPosition.index > 0 ? (
+          <p className="text-xs text-muted" data-attr="application-preview-step-label">
+            Step {stepPosition.index} of {stepPosition.total} · {section?.title ?? "Application"}
+          </p>
+        ) : (
+          <h3 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h3>
+        )}
       </div>
       {fields.length === 0 ? (
         <p className="text-sm text-muted" data-attr="application-preview-empty">
@@ -329,6 +338,7 @@ export function ApplicationFormBuilder({
   canMoveField,
   canEditBuiltIn,
   blockedCustomTypes = [],
+  onAddSection,
 }: {
   applicationFields: ResolvedApplicationField[];
   disabledFields: ResolvedApplicationField[];
@@ -347,6 +357,8 @@ export function ApplicationFormBuilder({
   canMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => boolean;
   canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
   blockedCustomTypes?: readonly ManagerCustomApplicationFieldType[];
+  /** Full-width footer row to enable another default section (Questions step). */
+  onAddSection?: () => void;
 }) {
   const sectionsToRender = activeSectionId
     ? RENTAL_APPLICATION_SECTIONS.filter((section) => section.id === activeSectionId)
@@ -432,6 +444,16 @@ export function ApplicationFormBuilder({
           </section>
         );
       })}
+      {onAddSection && !activeSectionId ? (
+        <button
+          type="button"
+          className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-dashed border-border bg-card text-sm font-semibold text-primary"
+          data-attr="application-add-section"
+          onClick={onAddSection}
+        >
+          + Add section
+        </button>
+      ) : null}
     </div>
   );
 }
