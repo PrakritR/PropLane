@@ -11,6 +11,7 @@ vi.mock("@/components/ui/modal", () => ({
         {footer}
       </div>
     ) : null,
+  MODAL_HEADER_CLOSE_CLASS: "",
   ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false }));
@@ -61,11 +62,11 @@ describe("PayoutWithdrawSheet — amount step", () => {
   it("disables Continue below the $1 minimum and above the available balance", () => {
     render(<PayoutWithdrawSheet {...baseProps()} />);
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "0.50" } });
-    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Withdraw \$/ })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "5000.00" } });
-    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Withdraw \$/ })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "25.00" } });
-    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Withdraw \$/ })).not.toBeDisabled();
   });
 
   it("disables Instant and states the reason when the amount exceeds the Instant cap", () => {
@@ -105,7 +106,7 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       ),
     ).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Withdraw \$/ }));
     await vi.waitFor(() =>
       expect(onSuccess).toHaveBeenCalledWith({ payoutId: "po_1", amountCents: 428_000, method: "standard" }),
     );
@@ -128,10 +129,10 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
     );
     const onSuccess = vi.fn();
     render(<PayoutWithdrawSheet {...baseProps({ onSuccess })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Withdraw \$/ }));
     await screen.findByText("Balance changed — try again.");
     expect(onSuccess).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Confirm withdrawal" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Withdraw \$/ })).toBeInTheDocument();
   });
 
   it("sends the picked destination's real id as destinationId, never the synthetic fallback id", async () => {
@@ -146,7 +147,7 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       ),
     );
     render(<PayoutWithdrawSheet {...baseProps({ accounts: [realAccount] })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Withdraw \$/ }));
     await vi.waitFor(() =>
       expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1),
     );

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { computeInstantPayoutFeeCents } from "@/lib/stripe-payouts";
 
@@ -131,10 +131,10 @@ export function PayoutWithdrawSheet({
   }
 
   return (
-    <Modal open={open} title="Withdraw" onClose={onClose} panelClassName="max-w-md" footer={<ModalFooter><Button type="button" onClick={confirmWithdrawal} disabled={continueDisabled || !account} data-attr="withdraw-confirm">Confirm withdrawal</Button></ModalFooter>}>
+    <PortalDialog open={open} title="Withdraw" onClose={onClose} primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account, dataAttr: "withdraw-confirm" }}>
       <div className="space-y-4">
         <label className="block text-sm font-medium">Amount
-          <input inputMode="decimal" value={amountInput} onChange={(event) => setAmountInput(event.target.value)} aria-label="Amount" data-attr="withdraw-amount-input" className="mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2" />
+          <Input inputMode="decimal" value={amountInput} onChange={(event) => setAmountInput(event.target.value)} aria-label="Amount" data-attr="withdraw-amount-input" className="mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2" />
         </label>
         <div className="flex justify-between text-sm"><span>Available</span><button type="button" onClick={() => setAmountInput((availableCents / 100).toFixed(2))} aria-label="Max" data-attr="withdraw-max" className="text-primary">{formatMoney(availableCents, currency)}</button></div>
         <FieldSingleSelect label="To" value={account?.id ?? ""} onChange={setAccountId} options={accounts.map((item) => ({ value: item.id, label: `${item.label} ····${item.last4}` }))} />
@@ -147,6 +147,6 @@ export function PayoutWithdrawSheet({
         {belowMinimum ? <p role="alert" className="text-sm text-danger">Enter at least $1.00.</p> : null}
         {error ? <p className="text-sm text-danger" role="alert" data-attr="withdraw-error">{error}</p> : null}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
