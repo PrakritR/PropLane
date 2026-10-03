@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
 import { PortalSettingsSection, PortalSettingsGroup, PortalSettingsRow } from "./portal-settings-ui";
 
 /**
@@ -76,6 +77,8 @@ function WorkspaceCard({ workspace, canManage, atWorkspaceCap, onRename, onDelet
       })}
       {!workspace.propertyIds.length ? <PortalSettingsRow label="No properties" /> : null}
     </PortalSettingsGroup></PortalSettingsSection>
+    {/* C2-CP7–CP9: the workspace's one signing order and its application ↔ lease map. */}
+    <WorkspaceApplicationsLeasesSettings />
     {workspace.owned && plan ? <PlanCard plan={plan} /> : null}
     {workspace.owned ? <PortalSettingsGroup>
       <button type="button" className="flex min-h-12 w-full items-center gap-2 px-4 text-left text-[15px] font-semibold text-primary disabled:opacity-50" disabled={atWorkspaceCap} onClick={onNew} data-attr="workspace-new">
