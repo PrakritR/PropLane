@@ -55,10 +55,9 @@ describe("AddWorkspace editor shells (source)", () => {
     }
   });
 
-  it("suggestion + opens the new-promotion workspace on Content instead of immediately seeding a row", () => {
+  it("the Promotion tab has no Suggested promotions block — the round + adds one (studio)", () => {
     const panel = src("src/components/portal/pro-property-promotion-panel.tsx");
-    expect(panel).not.toMatch(/addDefaultPromotionPreset\(/);
-    expect(panel).toContain('setNewPromotionStepId("content")');
+    expect(panel).not.toContain("<PromotionDefaultSuggestions");
     expect(panel).toContain("setShowNewModal(true)");
   });
 
