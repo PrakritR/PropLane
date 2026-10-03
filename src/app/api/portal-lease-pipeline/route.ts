@@ -705,8 +705,14 @@ export async function POST(req: Request) {
       const sub = rawSubmission as ManagerListingSubmissionV1;
       const pipelineState = await loadLeasingPipelineState(ctx.db, managerUserId);
       const pipelinePrefs = resolveLeasingPipelineForProperty(pipelineState, propertyId);
-      const templateId = pipelinePrefs.defaultLeaseTemplateId;
       const templates = readPropertyLeaseTemplates(sub);
+      // C2-CP9 (lease first): the lease the resident picked (one of the lease types
+      // offered) is the lease they sign, so the application mapped from it is the one
+      // they get. Only a published template of THIS property counts; otherwise the
+      // property's default lease, as before.
+      const pickedId = (row.leaseTemplateId ?? "").trim();
+      const picked = pickedId ? templates.find((t) => t.id === pickedId && t.publishedQuestionConfig) : undefined;
+      const templateId = picked?.id ?? pipelinePrefs.defaultLeaseTemplateId;
       const template = templateId ? templates.find((t) => t.id === templateId) : undefined;
       const publishedConfig = template?.publishedQuestionConfig;
       if (!template || !publishedConfig) {
