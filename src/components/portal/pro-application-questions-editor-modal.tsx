@@ -72,6 +72,14 @@ import {
 } from "@/lib/rental-application/application-question-packs";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import {
+  isCosignerApplicationTemplate,
+  leaseIdForApplication,
+  mappableLeaseTemplates,
+  mappingTargetError,
+  setMappingTarget,
+  type MappingSigningOrder,
+} from "@/lib/application-lease-mapping";
+import {
   applicationDraftReviewFingerprint,
   applicationFormVariantForTemplate,
   applicationTemplateQuestionPublishGate,
@@ -101,6 +109,9 @@ import {
 } from "@/lib/rental-application/workspace-application-form";
 
 /** Question sections start collapsed; managers expand the ones they need. */
+/** Select value standing for "no link" (a select option cannot carry null). */
+const NO_LINK = "__none__";
+
 function collapsedApplicationSections(): Set<string> {
   return new Set();
 }
@@ -222,6 +233,7 @@ export function ManagerApplicationQuestionsEditorModal({
   templateEditorMode,
   applicationTemplate = null,
   templates,
+  signingOrder,
   onPersistSubmission,
   onDelete,
   canDelete = false,
@@ -251,6 +263,12 @@ export function ManagerApplicationQuestionsEditorModal({
   templateEditorMode?: "add" | "edit";
   applicationTemplate?: PropertyApplicationTemplate | null;
   templates?: PropertyApplicationTemplate[];
+  /**
+   * The workspace signing order (Settings -> Applications & leases). Application first puts a
+   * "Lease" row on the first step; lease first leaves the mapping to the lease popup. Absent
+   * (not loaded yet) = no mapping row.
+   */
+  signingOrder?: MappingSigningOrder;
   onPersistSubmission?: (
     merged: ManagerListingSubmissionV1,
     opts: { message: string },
@@ -332,12 +350,19 @@ export function ManagerApplicationQuestionsEditorModal({
   // point at whatever template actually gets created.
   const [addModeTemplateId, setAddModeTemplateId] = useState<string | null>(null);
   const [startFrom, setStartFrom] = useState<PropertyFormStartFrom>("proplane");
+  // The first step's per-template links. Held here (also for a template that is not saved yet) and
+  // written with the template on Save; `initialLinks` is what the row showed on open, so a Save
+  // that did not touch a row never rewrites its stored link.
+  const [linkedLeaseId, setLinkedLeaseId] = useState<string | null>(null);
+  const [linkedCosignerId, setLinkedCosignerId] = useState<string | null>(null);
+  const initialLinksRef = useRef<{ lease: string | null; cosigner: string | null }>({ lease: null, cosigner: null });
   const [copyFromApplicationId, setCopyFromApplicationId] = useState<string | null>(null);
   const [questionsMobileSectionId, setQuestionsMobileSectionId] = useState<RentalApplicationSectionId>("personal");
   const replaceApplicationFileRef = useRef<HTMLInputElement>(null);
   const [routingLeaseTemplates, setRoutingLeaseTemplates] = useState<PropertyLeaseTemplate[]>([]);
   const [routingApplicationTemplates, setRoutingApplicationTemplates] = useState<PropertyApplicationTemplate[]>([]);
   const formSetup = usePropertyFormSetupSettings(applicationPreviewPropertyId);
+  const leaseCatalog = useMemo(() => readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(sub)), [sub]);
 
   useEffect(() => {
     if (!open) {
@@ -379,6 +404,13 @@ export function ManagerApplicationQuestionsEditorModal({
       applicationTemplate?.publishedQuestionConfig?.importProvenance?.sourceName;
     setStartFrom(importName ? "upload" : "proplane");
     setCopyFromApplicationId(null);
+    const initialLease = applicationTemplate
+      ? leaseIdForApplication({ applications: templates ?? [], leases: leaseCatalog }, applicationTemplate.id)
+      : null;
+    const initialCosigner = applicationTemplate?.linkedCosignerApplicationTemplateId ?? null;
+    initialLinksRef.current = { lease: initialLease, cosigner: initialCosigner };
+    setLinkedLeaseId(initialLease);
+    setLinkedCosignerId(initialCosigner);
     setQuestionsMobileSectionId("personal");
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
@@ -397,13 +429,24 @@ export function ManagerApplicationQuestionsEditorModal({
     setPendingImportCompareOpen(false);
     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
     setAddModeTemplateId(templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null);
-    const synced = syncPropertyLeaseTemplatesFromListing(sub);
-    setRoutingLeaseTemplates(readPropertyLeaseTemplates(synced));
+    setRoutingLeaseTemplates(leaseCatalog);
     setRoutingApplicationTemplates(readPropertyApplicationTemplates(sub));
-  }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
+  }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId, templates, leaseCatalog]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
+
+  // First-step link rows. A co-signer form maps to nothing and has no co-signer of its own.
+  const leaseRowOptions = mappableLeaseTemplates(leaseCatalog).map((lease) => ({ value: lease.id, label: lease.label }));
+  const cosignerFormOptions = (templates ?? [])
+    .filter((template) => template.id !== applicationTemplate?.id && (isCosignerApplicationTemplate(template) || template.id === linkedCosignerId))
+    .map((template) => ({ value: template.id, label: template.label }));
+  const linkRowsAvailable = isTemplateEditor && !isBulkSave && variant !== "cosigner";
+  const showLeaseRow =
+    linkRowsAvailable &&
+    signingOrder === "application_then_lease" &&
+    (leaseRowOptions.length > 0 || linkedLeaseId !== null);
+  const showCosignerRow = linkRowsAvailable && (cosignerFormOptions.length > 0 || linkedCosignerId !== null);
 
   // The real Applications tab (`pro-property-application-questions-panel.tsx`)
   // always opens this modal with a `templateEditorMode` — every row is a
@@ -839,6 +882,31 @@ export function ManagerApplicationQuestionsEditorModal({
             disabledSectionIds: [...disabledSectionIds],
           },
         });
+      }
+      // The first step's links ride with the template (also a brand-new one): the same
+      // `setMappingTarget` path Settings used, so an application still carries ONE lease.
+      const savedTemplateId =
+        templateEditorMode === "add" ? nextTemplates[nextTemplates.length - 1]?.id : applicationTemplate?.id;
+      if (savedTemplateId && variant !== "cosigner") {
+        if (showLeaseRow && linkedLeaseId !== initialLinksRef.current.lease) {
+          const mapped = setMappingTarget(
+            "application_then_lease",
+            { applications: nextTemplates, leases: leaseCatalog },
+            savedTemplateId,
+            linkedLeaseId,
+          );
+          if (!mapped.ok) {
+            setSaving(false);
+            setSaveError(mapped.error);
+            return;
+          }
+          nextTemplates = mapped.applications;
+        }
+        if (showCosignerRow && linkedCosignerId !== initialLinksRef.current.cosigner) {
+          nextTemplates = updatePropertyApplicationTemplate(nextTemplates, savedTemplateId, {
+            linkedCosignerApplicationTemplateId: linkedCosignerId,
+          });
+        }
       }
       // Template edits must not mutate the listing-wide legacy triplet. That
       // triplet remains the fallback for templates created before versioning.
@@ -1674,6 +1742,49 @@ export function ManagerApplicationQuestionsEditorModal({
                       options={copyApplicationOptions}
                       placeholder="Choose an application"
                       onChange={(next) => setCopyFromApplicationId(next || null)}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {showLeaseRow ? (
+                  <PropertyFormWizardRow label="Lease">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Lease"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={linkedLeaseId ?? NO_LINK}
+                      dataAttr="application-lease-link"
+                      options={[{ value: NO_LINK, label: "Not mapped" }, ...leaseRowOptions]}
+                      onChange={(next) => {
+                        const target = next === NO_LINK ? null : next;
+                        const problem = mappingTargetError("application_then_lease", { applications: templates ?? [], leases: leaseCatalog }, target);
+                        if (problem) {
+                          setSaveError(problem);
+                          return;
+                        }
+                        setSaveError(null);
+                        setLinkedLeaseId(target);
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {showCosignerRow ? (
+                  <PropertyFormWizardRow label="Co-signer form">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Co-signer form"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={linkedCosignerId ?? NO_LINK}
+                      dataAttr="application-cosigner-form-link"
+                      options={[{ value: NO_LINK, label: "Property default" }, ...cosignerFormOptions]}
+                      onChange={(next) => {
+                        setLinkedCosignerId(next === NO_LINK ? null : next);
+                        setDirty(true);
+                      }}
                     />
                   </PropertyFormWizardRow>
                 ) : null}

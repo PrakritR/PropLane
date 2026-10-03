@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { BlockedDatesSection } from "@/components/portal/listing-room-editor/blocked-dates-section";
 import { RoomBathroomFields } from "@/components/portal/listing-room-editor/room-bathroom-fields";
 import { SharedRoomConfigRows } from "@/components/portal/listing-room-editor/shared-room-config-rows";
@@ -56,7 +56,7 @@ import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
-import { Bath, Building, Building2, DoorOpen, Home, Layers, LayoutGrid, MoreHorizontal, Plus, Store, Warehouse, type LucideIcon } from "lucide-react";
+import { Building, Building2, DoorOpen, Home, Layers, Store, Warehouse, type LucideIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +64,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRowMenu } from "@/components/portal/portal-row-menu";
 import { ListingMediaRow } from "@/components/portal/listing-room-editor/listing-media-row";
 import { applyRoomFurnitureItems, roomFurnitureItems, roomFurnishingLabel, ROOM_FURNITURE_ITEMS } from "@/lib/listing-room-editor";
 import {
@@ -105,6 +106,8 @@ import {
   isBathroomSlotRemovable,
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
+  roomOfferedLeaseTerms,
+  roomOfferedLeaseTermsFromPick,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -1059,6 +1062,63 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  * a room's description starts from another room's, and it is a one-time copy
  * (see `copyRoomDescriptionFrom`), never a standing link.
  */
+/** The lease types a room can be limited to, with the wording the Leases offered row uses. */
+const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = [
+  { value: LONG_TERM_LEASE_TERM, label: "Long-term" },
+  { value: SHORT_TERM_LEASE_TERM, label: "Short term" },
+  { value: CUSTOM_LEASE_TERM, label: "Custom" },
+  { value: "Month-to-Month", label: "Month-to-month" },
+];
+
+/** Captain, Oct 3: a room always offers the four lease types to pick from; Custom explains itself. */
+const ROOM_LEASE_TERM_PICKS = ROOM_LEASE_TERM_LABELS.map((o) =>
+  o.value === CUSTOM_LEASE_TERM ? { ...o, info: "Starts any day of the month" } : o,
+);
+
+/**
+ * One patch for a room's Leases offered pick: a type the listing does not offer yet is
+ * switched on for the listing too (or an applicant could never choose it), and the room
+ * stores a restriction only when it offers fewer types than the listing.
+ */
+export function roomLeasesOfferedPatch(
+  sub: ManagerListingSubmissionV1,
+  picked: readonly string[],
+): { listing: Partial<ManagerListingSubmissionV1> | null; offeredLeaseTerms: string[] | undefined } {
+  const listingTerms = listingPricingLeaseTabs(sub);
+  const missing = picked.filter((t) => !listingTerms.includes(t));
+  let listing: Partial<ManagerListingSubmissionV1> | null = null;
+  let nextListingTerms = listingTerms;
+  if (missing.length > 0) {
+    const shortTerm = Boolean(sub.shortTermRentalsAllowed) || missing.includes(SHORT_TERM_LEASE_TERM);
+    let allowed = [...(sub.allowedLeaseTerms ?? []), ...missing.filter((t) => t !== SHORT_TERM_LEASE_TERM)];
+    allowed = Array.from(new Set(allowed));
+    allowed = syncShortTermLeaseTermInAllowed(allowed, shortTerm);
+    listing = { shortTermRentalsAllowed: shortTerm, allowedLeaseTerms: allowed, leaseTermsBody: formatLeaseTermsBodyFromAllowed(allowed) };
+    nextListingTerms = listingPricingLeaseTabs({ ...sub, ...listing });
+  }
+  return { listing, offeredLeaseTerms: roomOfferedLeaseTermsFromPick(picked, nextListingTerms) };
+}
+
+/** The listing's own lease types a room can be limited to (never Airbnb; legacy fixed lengths read as Long-term). */
+function roomLeaseTermChoices(sub: ManagerListingSubmissionV1): { value: string; label: string }[] {
+  const offered = listingPricingLeaseTabs(sub);
+  return ROOM_LEASE_TERM_LABELS.filter((o) => offered.includes(o.value));
+}
+
+/** "Long-term, Short term" when the room restricts its lease types, "" when it follows the listing. */
+export function roomLeaseTermsFact(sub: ManagerListingSubmissionV1, room: ManagerRoomSubmission): string {
+  if (!room.offeredLeaseTerms?.length) return "";
+  const choices = roomLeaseTermChoices(sub);
+  const own = roomOfferedLeaseTerms(
+    room,
+    choices.map((c) => c.value),
+  );
+  return choices
+    .filter((c) => own.includes(c.value))
+    .map((c) => c.label)
+    .join(", ");
+}
+
 export function ListingRoomEditorBody({
   sub,
   room,
@@ -1069,6 +1129,7 @@ export function ListingRoomEditorBody({
   onPatchBathrooms,
   onGoToBathrooms,
   onRoom,
+  onLeasesOffered,
   storiesId,
   sameAsOptions,
   sameAsValue,
@@ -1084,6 +1145,8 @@ export function ListingRoomEditorBody({
   onPatchBathrooms: (bathrooms: ManagerBathroomSubmission[]) => void;
   onGoToBathrooms: () => void;
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
+  /** Leases offered: a pick may also switch a lease type on for the listing (one patch). */
+  onLeasesOffered?: (picked: string[]) => void;
   storiesId: string | undefined;
   sameAsOptions: readonly { value: string; label: string }[];
   sameAsValue: string;
@@ -1102,6 +1165,12 @@ export function ListingRoomEditorBody({
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
   const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
   const furnItems = roomFurnitureItems(room);
+  const leaseChoices = ROOM_LEASE_TERM_PICKS;
+  // A room that does not restrict shows every lease type the listing offers ticked.
+  const leaseSelected = room.offeredLeaseTerms?.length
+    ? [...room.offeredLeaseTerms]
+    : roomOfferedLeaseTerms(room, roomLeaseTermChoices(sub).map((c) => c.value));
+  const customOffered = leaseSelected.includes(CUSTOM_LEASE_TERM);
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
     <span className="inline-flex items-center gap-1.5">
@@ -1145,10 +1214,60 @@ export function ListingRoomEditorBody({
           options={ROOM_FURNITURE_ITEMS.map((v) => ({ value: v, label: v }))}
           selected={furnItems}
           selectionTriggerLabel={roomFurnishingLabel(furnItems)}
-          emptyLabel="Unfurnished"
+          emptyLabel="Not furnished"
           onChange={(next) => onRoom(applyRoomFurnitureItems(room, next))}
         />
       </FactRow>
+      <FactRow label="Leases offered">
+        <CheckboxMultiSelect
+          hideLabel
+          label={`Leases offered for ${who}`}
+          variant="cell"
+          className="min-w-[150px] max-w-[240px]"
+          options={leaseChoices}
+          selected={leaseSelected}
+          emptyLabel="All lease types"
+          dataAttr="listing-v2-room-leases-offered"
+          onChange={(next) =>
+            onLeasesOffered
+              ? onLeasesOffered(next)
+              : onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(next, roomLeaseTermChoices(sub).map((c) => c.value)) })
+          }
+        />
+      </FactRow>
+      {/* Prorated rent only matters when a lease can start any day — shown iff Custom is offered. */}
+      {customOffered ? (
+        <FactRow label="Prorated rent">
+          <FieldSingleSelect
+            hideLabel
+            label={`Prorated rent for ${who}`}
+            variant="cell"
+            wrapperClassName="min-w-[170px] max-w-[240px]"
+            value={room.prorateMethod === "daily_rate" ? "daily_rate" : "auto"}
+            options={[
+              { value: "auto", label: "By days in the month" },
+              { value: "daily_rate", label: "By a daily rate" },
+            ]}
+            dataAttr="listing-v2-room-prorate"
+            onChange={(v) => onRoom({ prorateMethod: v === "daily_rate" ? "daily_rate" : "auto" })}
+          />
+        </FactRow>
+      ) : null}
+      {customOffered && room.prorateMethod === "daily_rate" ? (
+        <FactRow label="Daily rent">
+          <Input
+            aria-label={`Daily rent for ${who}`}
+            inputMode="decimal"
+            className="w-[140px] text-right"
+            value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
+            placeholder="$0"
+            onChange={(e) => {
+              const n = Number(e.target.value.replace(/[^0-9.]/g, ""));
+              onRoom({ dailyRentRate: Number.isFinite(n) && n > 0 ? n : undefined });
+            }}
+          />
+        </FactRow>
+      ) : null}
 
       <MoreRows dataAttr="listing-v2-room-more">
         <FactRow label="Room amenities">
@@ -1314,24 +1433,27 @@ function StepRooms({
     const bst = roomBathroomState(sub, room.id);
     const bath = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
     const furn = roomFurnishingLabel(roomFurnitureItems(room));
+    const leasesFact = roomLeaseTermsFact(sub, room);
     return (
       <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
         {!wholePlace ? <span>{residents} residents</span> : null}
         <span>{floorShown}</span>
         {bath ? <span>{bath}</span> : null}
         <span>{furn}</span>
+        {leasesFact ? <span>{leasesFact}</span> : null}
       </span>
     );
   };
 
   const summaryFor = (room: ManagerRoomSubmission) => {
     const residents = room.occupancyCapacity ?? 1;
-    const furnishing = room.furnishing || "";
+    // What is ticked, never an old preset phrase (nothing ticked = "Not furnished").
+    const furnLabel = roomFurnishingLabel(roomFurnitureItems(room));
     const beds = room.beds ?? [];
-    const bedText = isFurnished(furnishing) && beds.length > 0 ? bedsLine(beds).toLowerCase() : "";
+    const bedText = roomFurnitureItems(room).length > 0 && beds.length > 0 ? bedsLine(beds).toLowerCase() : "";
     const floorShown = room.floor || groundFloor || "Floor not set";
     const parts = wholePlace
-      ? [floorShown, furnishingSummary(furnishing), bedText]
+      ? [floorShown, furnLabel, bedText]
       : [
           `${residents} ${residents === 1 ? "resident" : "residents"}`,
           floorShown,
@@ -1340,7 +1462,7 @@ function StepRooms({
             const label = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
             return label === "No bath" ? "" : label;
           })(),
-          furnishingSummary(furnishing),
+          furnLabel,
           bedText,
         ];
     return parts.filter(Boolean).join(" · ");
@@ -1351,7 +1473,7 @@ function StepRooms({
       ui?.showToast("Maximum 20 rooms.");
       return;
     }
-    const id = `room-${Date.now()}`;
+    const id = `room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const blank: ManagerRoomSubmission = { ...emptyRoom(rooms.length), id, name: "", occupancyCapacity: 1 };
     writeRooms([...rooms, blank]);
     setOpen(id);
@@ -1361,7 +1483,7 @@ function StepRooms({
     <StepColumn>
       <div className="pr9-top mb-3 flex items-center justify-between gap-2">
         <StepHeading title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`} />
-        <PortalPrimaryIconAction icon={Plus} label={wholePlace ? "Add bedroom" : "Add room"} onClick={addRoom} data-attr="listing-v2-add-room-icon" />
+        <PortalPrimaryIconAction label={wholePlace ? "Add bedroom" : "Add room"} onClick={addRoom} data-attr="listing-v2-add-room-icon" />
       </div>
 
       {rooms.map((room, i) => {
@@ -1389,28 +1511,47 @@ function StepRooms({
             facts={factsFor(room, i)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => {
-                      const idx = rooms.findIndex((r) => r.id === room.id);
-                      const copy = duplicateRoomEntry(room);
-                      writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
-                      setOpen(copy.id);
-                    }}>
-                      Duplicate
-                    </DropdownMenuItem>
-                    {canRemove ? (
-                      <DropdownMenuItem className="text-red-700" onClick={() => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); }}>
-                        Remove room
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-room-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-room-edit", onSelect: () => toggle(room.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-room-duplicate",
+                      onSelect: () => {
+                        if (rooms.length >= MAX_LISTING_ROOMS) {
+                          ui?.showToast("Maximum 20 rooms.");
+                          return;
+                        }
+                        const idx = rooms.findIndex((r) => r.id === room.id);
+                        const copy = duplicateRoomEntry(room);
+                        writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
+                        setOpen(copy.id);
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-room-delete",
+                      onSelect: () => {
+                        if (!canRemove) {
+                          ui?.showToast(
+                            rooms.length <= 1
+                              ? "Keep at least one room."
+                              : "Clear this room's details before deleting it.",
+                          );
+                          return;
+                        }
+                        writeRooms(rooms.filter((r) => r.id !== room.id));
+                        if (open === room.id) setOpen(null);
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}
@@ -1428,6 +1569,11 @@ function StepRooms({
                 onPatchBathrooms={(bathrooms) => patch({ bathrooms })}
                 onGoToBathrooms={onGoToBathrooms}
                 onRoom={(p) => writeRoom(room.id, p)}
+                onLeasesOffered={(picked) => {
+                  const { listing, offeredLeaseTerms } = roomLeasesOfferedPatch(sub, picked);
+                  const nextRooms = rooms.map((r) => (r.id === room.id ? { ...r, offeredLeaseTerms } : r));
+                  patch(listing ? { ...listing, rooms: nextRooms } : { rooms: nextRooms });
+                }}
                 storiesId={sub.listingStoriesId}
                 sameAsOptions={sameAsOptions(room)}
                 sameAsValue={sameAsValue(room)}
@@ -1623,7 +1769,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
       ui?.showToast("Maximum 12 bathrooms.");
       return;
     }
-    const id = `bath-${Date.now()}`;
+    const id = `bath-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const blank = writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full");
     patch({ bathrooms: [...baths, blank] });
     setOpen(id);
@@ -1633,7 +1779,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     <StepColumn>
       <div className="pr9-top mb-3 flex items-center justify-between gap-2">
         <StepHeading title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`} />
-        <PortalPrimaryIconAction icon={Bath} label="Add bathroom" onClick={addBathroom} data-attr="listing-v2-add-bath-icon" />
+        <PortalPrimaryIconAction label="Add bathroom" onClick={addBathroom} data-attr="listing-v2-add-bath-icon" />
       </div>
 
       {baths.map((bath, i) => {
@@ -1661,36 +1807,47 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             facts={factsFor(bath)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-bath-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-bath-edit", onSelect: () => toggle(bath.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-bath-duplicate",
+                      onSelect: () => {
+                        if (baths.length >= MAX_LISTING_BATHROOMS) {
+                          ui?.showToast("Maximum 12 bathrooms.");
+                          return;
+                        }
                         const idx = baths.findIndex((b) => b.id === bath.id);
                         const copy = duplicateBathroomEntry(bath);
                         patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
                         setOpen(copy.id);
-                      }}
-                    >
-                      Duplicate
-                    </DropdownMenuItem>
-                    {canRemove ? (
-                      <DropdownMenuItem
-                        className="text-red-700"
-                        onClick={() => {
-                          patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
-                          if (open === bath.id) setOpen(null);
-                        }}
-                      >
-                        Remove bathroom
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-bath-delete",
+                      onSelect: () => {
+                        if (!canRemove) {
+                          ui?.showToast(
+                            baths.length <= 1
+                              ? "Keep at least one bathroom."
+                              : "Take this bathroom off its rooms and clear its details before deleting it.",
+                          );
+                          return;
+                        }
+                        patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
+                        if (open === bath.id) setOpen(null);
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}
@@ -1921,14 +2078,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
         <StepHeading title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm"
-              aria-label="Add shared space"
-              data-attr="listing-v2-add-space-icon"
-            >
-              <LayoutGrid className="h-5 w-5" aria-hidden />
-            </button>
+            <PortalPrimaryIconAction label="Add shared space" data-attr="listing-v2-add-space-icon" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {SHARED_SPACE_KIND_OPTIONS.map((opt) => (
@@ -1954,35 +2104,35 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             facts={factsFor(space)}
             headerEnd={
               <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
-                      <MoreHorizontal className="h-5 w-5" aria-hidden />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => toggle(space.id)}>Edit</DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
+                <PortalRowMenu
+                  label={label}
+                  dataAttr="listing-v2-space-menu"
+                  triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" iconClassName="h-5 w-5"
+                  items={[
+                    { id: "edit", label: "Edit", dataAttr: "listing-v2-space-edit", onSelect: () => toggle(space.id) },
+                    {
+                      id: "duplicate",
+                      label: "Duplicate",
+                      dataAttr: "listing-v2-space-duplicate",
+                      onSelect: () => {
                         const idx = spaces.findIndex((s) => s.id === space.id);
                         const copy = duplicateSharedSpaceEntry(space);
                         patch({ sharedSpaces: [...spaces.slice(0, idx + 1), copy, ...spaces.slice(idx + 1)] });
                         setOpen(copy.id);
-                      }}
-                    >
-                      Duplicate
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-red-700"
-                      onClick={() => {
+                      },
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      dataAttr: "listing-v2-space-delete",
+                      onSelect: () => {
                         patch({ sharedSpaces: spaces.filter((s) => s.id !== space.id) });
                         if (open === space.id) setOpen(null);
-                      }}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      },
+                    },
+                  ]}
+                />
               </div>
             }
             open={isOpen}

@@ -18,6 +18,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { persistManagerListingSubmission, type ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
 
+
 function offerCadence(offer: ManagerListingServiceOption): ServiceBillingCadence {
   return offer.billingCadence ?? "per_request";
 }
@@ -42,7 +43,7 @@ type Props = {
   showToast: (m: string) => void;
 };
 
-/** Property Services catalog — studio property-tabs header (Services section tab + search + +). */
+/** Property Services catalog — one list (captain, Oct 3: requests and add-ons are the same thing); studio header: Services section tab + search + +. */
 export function PropertyServicesOffersPanel({
   sub,
   saveTarget,
@@ -61,10 +62,12 @@ export function PropertyServicesOffersPanel({
   const offers = sub.serviceRequestOptions ?? [];
   const q = query.trim().toLowerCase();
 
-  const filtered = useMemo(() => {
-    if (!q) return offers;
-    return offers.filter((o) => (o.name ?? "").toLowerCase().includes(q));
-  }, [offers, q]);
+  // One list: a per-request service and a monthly add-on are the same kind of
+  // offer; the row's price fact says how it is billed.
+  const filtered = useMemo(
+    () => offers.filter((o) => !q || (o.name ?? "").toLowerCase().includes(q)),
+    [offers, q],
+  );
 
   const openAdd = () => {
     const row = createManagerListingServiceOption();
@@ -93,9 +96,6 @@ export function PropertyServicesOffersPanel({
     showToast("Service deleted.");
     onUpdated();
   };
-
-  const entityLabelFor = (offer: ManagerListingServiceOption) =>
-    offerCadence(offer) === "per_request" ? "request service" : "add-on";
 
   return (
     <div data-ps40-page="services" data-attr="property-services-catalog">
@@ -130,7 +130,7 @@ export function PropertyServicesOffersPanel({
       <PortalRecordListSurface
         isEmpty={filtered.length === 0}
         emptyCard={{
-          title: "No services yet",
+          title: q ? "No matches" : "No services yet",
           section: "services",
         }}
       >
@@ -189,7 +189,7 @@ export function PropertyServicesOffersPanel({
           setEditOpen(false);
         }}
         showToast={showToast}
-        entityLabel={editing ? entityLabelFor(editing) : "service"}
+        entityLabel="service"
       />
     </div>
   );

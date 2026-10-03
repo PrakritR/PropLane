@@ -12,7 +12,7 @@ import {
   readExtraListings,
 } from "@/lib/demo-property-pipeline";
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms, roomOffersLeaseTerm } from "@/lib/manager-listing-submission";
 import {
   applicationHoldsRoomPublicly,
   executedApplicationIdsForManager,
@@ -109,6 +109,12 @@ type RoomAvailabilityOptions = {
   leaseEnd?: string | null;
   excludeApplicationId?: string | null;
   includeUnavailable?: boolean;
+  /**
+   * The lease term the applicant (or manager) picked. When set, a room that
+   * restricts the lease types it is offered on (`offeredLeaseTerms`) and does not
+   * list this one is left out. Unset keeps every room, as before.
+   */
+  leaseTerm?: string | null;
 };
 
 
@@ -555,7 +561,9 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
     const sub = normalizeManagerListingSubmissionV1(selected.listingSubmission);
     const configuredRooms = sub.rooms.filter((room) => room.name.trim());
     if (!isEntireHomeListing(sub) && configuredRooms.length > 0) {
-      const roomRows = configuredRooms.filter((room) =>
+      const roomRows = configuredRooms
+        .filter((room) => roomOffersLeaseTerm(room, options.leaseTerm))
+        .filter((room) =>
         options.includeUnavailable ||
         isRoomChoiceAvailable(`${selected.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`, room.availability, options),
       );
@@ -702,7 +710,8 @@ export function firstChoiceRoomOptions(
   if (keep) {
     const canonical = canonicalRoomChoiceValue(keep);
     if (canonical && !rooms.some((r) => canonicalRoomChoiceValue(r.value) === canonical)) {
-      const extra = getRoomOptionsForProperty(propertyId, { ...options, includeUnavailable: true }).find(
+      // The applicant's own earlier pick stays selectable even if it does not offer this term.
+      const extra = getRoomOptionsForProperty(propertyId, { ...options, includeUnavailable: true, leaseTerm: undefined }).find(
         (r) => canonicalRoomChoiceValue(r.value) === canonical,
       );
       if (extra) rooms.push(extra);

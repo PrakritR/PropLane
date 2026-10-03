@@ -15,7 +15,6 @@ import {
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyLeaseTemplateInlinePreview } from "@/components/portal/property-lease-template-inline-preview";
 import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-form-template-preview-modal";
-import { withPropertyApplicationTemplatesExplicit } from "@/lib/property-application-templates";
 import {
   openPropertyFormTemplateInNewTab,
   readSoloPropertyFormTemplateId,
@@ -56,6 +55,7 @@ import {
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { withPropertyApplicationTemplatesExplicit, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
@@ -202,6 +202,7 @@ export function ManagerPropertyLeasePanel({
   const persistTemplates = async (
     nextTemplates: PropertyLeaseTemplate[],
     extra?: Partial<Pick<ManagerListingSubmissionV1, "allowedLeaseTerms">>,
+    applications?: PropertyApplicationTemplate[],
   ) => {
     if (!managerUserId) return false;
 
@@ -232,7 +233,9 @@ export function ManagerPropertyLeasePanel({
     }
 
     if (!saveTarget) return false;
-    const next = { ...syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates), ...extra };
+    const withLeases = { ...syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates), ...extra };
+    // Lease first: the lease popup's Application row also scrubs a stale legacy claim off the applications.
+    const next = applications ? withPropertyApplicationTemplatesExplicit(withLeases, applications) : withLeases;
     return persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next);
   };
 
@@ -689,6 +692,8 @@ export function ManagerPropertyLeasePanel({
         templates={templates}
         propertyHint={propertyHint}
         propertyId={propertyId ?? bulkPropertyIds[0] ?? null}
+        signingOrder={formSetup.loaded ? formSetup.leasingPipeline.pipelineOrder : undefined}
+        bulk={bulkPropertyIds.length > 0}
         demoMode={demoMode}
         canDelete={formMode === "edit"}
         onClose={() => {
@@ -702,14 +707,8 @@ export function ManagerPropertyLeasePanel({
         onDelete={
           editingTemplateId ? () => handleDelete(editingTemplateId) : undefined
         }
-        onSave={async (nextTemplates, nextApplications) => {
-          let merged = syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates);
-          if (nextApplications) {
-            merged = withPropertyApplicationTemplatesExplicit(merged, nextApplications);
-          }
-          if (!saveTarget || !managerUserId) return false;
-          const ok = await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, merged);
-          if (!ok) {
+        onSave={async (nextTemplates, extra) => {
+          if (!(await persistTemplates(nextTemplates, undefined, extra?.applications))) {
             showToast("Could not save lease.");
             return false;
           }

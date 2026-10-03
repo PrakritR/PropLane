@@ -17,6 +17,8 @@
  *   room override, through one shared helper.
  */
 
+import { roomFurnishingLabel, roomFurnitureItems } from "@/lib/listing-room-editor";
+import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -128,7 +130,12 @@ export function ListingPreviewPanel({
         {sub.buildingName?.trim() || sub.address?.trim() || "Untitled listing"}
       </h4>
       <p className="text-[11.5px] text-muted">
-        {[sub.address, sub.city, sub.state, sub.zip].filter(Boolean).join(", ")}
+        {/* The stored address often already carries city/state/ZIP — never print them twice. */}
+        {[listingSubmissionStreetLine(sub) || sub.address, sub.city, [sub.state, sub.zip].filter(Boolean).join(" ")]
+          .map((part) => (part ?? "").trim())
+          .filter(Boolean)
+          // Skip any piece the line already says (a ZIP or city inside the stored street).
+          .reduce((line, part) => (line.toLowerCase().includes(part.toLowerCase()) ? line : line ? `${line}, ${part}` : part), "")}
       </p>
       <Facts
         rows={[
@@ -190,7 +197,7 @@ export function RoomPreviewPanel({
           ["Floor", room.floor?.trim() || "—"],
           ["Bathroom", access],
           ...(room.sizeSqft ? ([["Size", `${room.sizeSqft} sq ft`]] as [string, string][]) : []),
-          ["Furnishing", room.furnishing?.trim() || "Not stated"],
+          ["Furnishing", roomFurnishingLabel(roomFurnitureItems(room))],
         ]}
       />
       {amenities.length > 0 ? <PanelNote title="Room amenities">{sentenceList(amenities)}</PanelNote> : null}

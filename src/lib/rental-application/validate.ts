@@ -20,6 +20,7 @@ import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
+  roomOffersLeaseTerm,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {
@@ -255,6 +256,21 @@ export function validateStandardWizardStep(
     if (fieldEnabled("roomChoice3") && r3 && ((r3Room && r3Room === r1Room) || (r3Room && r3Room === r2Room) || r3 === r1 || r3 === r2)) {
       e.roomChoice3 = "Third choice must differ from your other choices.";
     }
+    // A room limited to other lease types cannot be taken on the chosen one.
+    // Same message for any of the three ranked picks; first choice wins the slot.
+    const roomOffersChosenTerm = (choice: string): boolean => {
+      if (!choice || !listingSub || !f.leaseTerm.trim()) return true;
+      const id = parseRoomChoiceValue(choice).listingRoomId;
+      const row = id ? listingSub.rooms.find((room) => room.id === id) : undefined;
+      return roomOffersLeaseTerm(row, f.leaseTerm);
+    };
+    const roomNotOfferedMessage = "That room isn't offered on this lease type. Choose another room or lease type.";
+    if (fieldEnabled("roomChoice2") && !f.bundleId.trim() && !roomOffersChosenTerm(r2)) {
+      e.roomChoice2 ??= roomNotOfferedMessage;
+    }
+    if (fieldEnabled("roomChoice3") && !f.bundleId.trim() && !roomOffersChosenTerm(r3)) {
+      e.roomChoice3 ??= roomNotOfferedMessage;
+    }
     if (fieldEnabled("roomChoice1") && r1 && !f.bundleId.trim()) {
       const parsed = parseRoomChoiceValue(r1);
       const room = parsed.listingRoomId && listingSub
@@ -263,6 +279,8 @@ export function validateStandardWizardStep(
       const slot = f.residentSlot ?? parsed.residentSlot;
       if (byRoom && (parsed.propertyId !== f.propertyId || !room)) {
         e.roomChoice1 = "Choose an available room.";
+      } else if (room && !roomOffersChosenTerm(r1)) {
+        e.roomChoice1 = roomNotOfferedMessage;
       } else if (room && normalizeRoomOccupancyCapacity(room.occupancyCapacity) >= 2 && !slot) {
         e.roomChoice1 = "Choose which resident you are applying as.";
       } else if (

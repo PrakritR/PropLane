@@ -31,6 +31,8 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     fullPortalAccess: false,
     managerSubscriptionTier,
     pipelineOrder: "application_then_lease",
+    hasLeaseFirstDraft: false,
+    leaseFirstPendingLeaseId: null,
   };
 }
 
@@ -181,23 +183,42 @@ async function loadResidentLeaseFirstDraft(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   email: string,
   managerUserId?: string | null,
-): Promise<{ managerUserId: string; propertyId: string | null } | null> {
+): Promise<{
+  managerUserId: string;
+  propertyId: string | null;
+  /** The lease-first lease still waiting on the resident's own signature, if any. */
+  pendingLeaseId: string | null;
+} | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;
+  // Scoped to the caller's own email (and the pinned manager when there is one) — the
+  // resident can only ever see their own lease-first lease, never another's.
   let query = db
     .from("portal_lease_pipeline_records")
-    .select("row_data, manager_user_id, property_id")
+    .select("id, row_data, manager_user_id, property_id")
     .eq("resident_email", normalizedEmail);
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
   const { data } = await query.order("updated_at", { ascending: false });
+  let first: { managerUserId: string; propertyId: string | null } | null = null;
+  let pendingLeaseId: string | null = null;
   for (const record of data ?? []) {
     const row = record.row_data as Record<string, unknown> | null;
     if (row?.leaseFirst !== true) continue;
     const mgr = typeof record.manager_user_id === "string" ? record.manager_user_id.trim() : "";
     if (!mgr) continue;
-    return { managerUserId: mgr, propertyId: typeof record.property_id === "string" ? record.property_id : null };
+    if (!first) {
+      first = {
+        managerUserId: mgr,
+        propertyId: typeof record.property_id === "string" ? record.property_id : null,
+      };
+    }
+    const resident = row.residentSignature as Record<string, unknown> | null | undefined;
+    const residentSigned = Boolean(resident?.name && resident?.signedAtIso);
+    if (!residentSigned && !pendingLeaseId && typeof record.id === "string") {
+      pendingLeaseId = record.id;
+    }
   }
-  return null;
+  return first ? { ...first, pendingLeaseId } : null;
 }
 
 export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
@@ -328,10 +349,11 @@ const loadResidentPortalAccessStateCached = cache(
     // application and no tour, so without this lookup they would resolve to
     // no manager at all and stay locked out of the exact lease their invite
     // was just created to unlock.
-    const leaseFirstDraft =
-      !hasSubmittedApplication && !leaseAccessUnlocked
-        ? await loadResidentLeaseFirstDraft(db, email, managerUserId)
-        : null;
+    // Loaded whether or not an application exists: a resident who started a lease-first
+    // home may also have an in-progress application row, and the lease still unlocks.
+    const leaseFirstDraft = !leaseAccessUnlocked
+      ? await loadResidentLeaseFirstDraft(db, email, managerUserId)
+      : null;
     const isPreLeaseResident =
       roleOk &&
       !leaseAccessUnlocked &&
@@ -369,6 +391,8 @@ const loadResidentPortalAccessStateCached = cache(
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
       pipelineOrder,
+      hasLeaseFirstDraft: Boolean(leaseFirstDraft),
+      leaseFirstPendingLeaseId: leaseFirstDraft?.pendingLeaseId ?? null,
     };
   },
 );

@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -18,6 +19,7 @@ import {
   Table2,
   UserRound,
   Wallet,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +62,6 @@ import {
   unionLabeledPropertyOptions,
 } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
-import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
@@ -181,6 +182,7 @@ export type SettingsGroupId =
   | "leaseDocuments"
   | "payments"
   | "payouts"
+  | "applicationsLeases"
   | "spreadsheets";
 
 type SettingsGroup = {
@@ -192,16 +194,9 @@ type SettingsGroup = {
 };
 
 function ManagerMessagingSettingsPane() {
-  const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
   return (
     <>
-      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
-      <PortalTextNotificationsBlock
-        dataAttrPrefix="manager"
-        title="Personal phone"
-        description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
-        onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
-      />
+      <ManagerMessagingSettingsPanel />
       <PortalSettingsSection title="Automation">
         <AutoSendAiDraftsRow />
       </PortalSettingsSection>
@@ -524,7 +519,7 @@ export function PortalProfileClient({
       list.push({
         id: "messaging",
         label: "Communication",
-        description: "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
+        description: "Your work number and work email, and what PropLane sends.",
         icon: MessagesSquare,
         group: "Workspace",
       });
@@ -532,6 +527,8 @@ export function PortalProfileClient({
     if (variant === "manager") {
       list.push(
         { id: "payments", label: "Balance & payouts", description: "PropLane balance, bank accounts, and withdrawals.", icon: Wallet, group: "Workspace" },
+        // Captain, Oct 3: the workspace's signing order and lease defaults are their own section.
+        { id: "applicationsLeases", label: "Applications & leases", description: "Signing order and lease defaults for this workspace.", icon: ClipboardList, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
@@ -774,6 +771,8 @@ export function PortalProfileClient({
         );
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+      case "applicationsLeases":
+        return variant === "manager" ? <WorkspaceApplicationsLeasesSettings /> : null;
       case "applicationForm":
         // Kept per the S014 correction (captain, 06:47): the Applications
         // list-page gear was removed by another worker on the assumption
@@ -792,11 +791,11 @@ export function PortalProfileClient({
   // Settings row, and this nav carries both groups. PROFILE is the account
   // (never workspace-dependent); WORKSPACE follows the workspace selected in the
   // sidebar switcher, whose name is shown read-only above its rows.
-  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "messaging", "spreadsheets"];
+  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "applicationsLeases", "messaging", "spreadsheets"];
   const profileGroups = groups.filter((g) => g.group === "Profile");
   const workspaceGroups = WORKSPACE_GROUP_ORDER.flatMap((id) => groups.filter((g) => g.id === id));
   const limitedWorkspace = variant === "manager" && Boolean(workspaces?.active && !workspaces.active.owned && !workspaces.active.canManageMembers);
-  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "spreadsheets"].includes(id);
+  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "applicationsLeases", "spreadsheets"].includes(id);
   // Panes whose content is the selected workspace's: remount when the sidebar switches it.
   const followsWorkspace = (id: string) => [...WORKSPACE_GROUP_ORDER, "billing"].includes(id);
   const paneTitle = paneGroup.id === "workspaces" ? "Workspace settings" : paneGroup.label;

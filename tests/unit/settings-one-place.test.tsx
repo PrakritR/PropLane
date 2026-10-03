@@ -82,6 +82,7 @@ describe("Settings is one place", () => {
       "settings-workspace-name",
       "settings-nav-workspaces",
       "settings-nav-payments",
+      "settings-nav-applicationsLeases",
       "settings-nav-messaging",
       "settings-nav-spreadsheets",
     ]);

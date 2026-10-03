@@ -641,6 +641,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           templateEditorMode={editorMode}
           applicationTemplate={editingTemplate}
           templates={templates}
+          signingOrder={formSetup.loaded ? formSetup.leasingPipeline.pipelineOrder : undefined}
           onPersistSubmission={persistSubmission}
           canDelete={editorMode === "edit"}
           onDelete={

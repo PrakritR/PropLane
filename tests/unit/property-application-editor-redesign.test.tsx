@@ -173,7 +173,10 @@ describe("C2-CP8: the application editor has no Settings step", () => {
     expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-rail-sections"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
-    expect(screen.queryByRole("button", { name: "Co-signer form" })).toBeNull();
+    // The co-signer link is a row on this first step (Settings no longer carries it); the signing
+    // order stays a workspace setting, and with no order loaded there is no Lease row.
+    expect(screen.getByRole("button", { name: "Co-signer form" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Lease" })).toBeNull();
     expect(screen.queryByText("Signing order")).toBeNull();
     expect(screen.queryByText("Used for leases")).toBeNull();
 

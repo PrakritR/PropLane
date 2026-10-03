@@ -123,6 +123,53 @@ export type MappingEditResult =
   | { ok: true; applications: PropertyApplicationTemplate[]; leases: PropertyLeaseTemplate[] }
   | { ok: false; error: string };
 
+/** Why `targetId` cannot be chosen under `order` (null = it can). Shared by Settings-free callers: the template popups. */
+export function mappingTargetError(
+  order: MappingSigningOrder,
+  catalog: MappingCatalog,
+  targetId: string | null,
+): string | null {
+  if (!targetId) return null;
+  if (order === "lease_then_application") {
+    const application = catalog.applications.find((candidate) => candidate.id === targetId);
+    return !application || isCosignerApplicationTemplate(application) ? "That application is not available." : null;
+  }
+  const lease = catalog.leases.find((candidate) => candidate.id === targetId);
+  return !lease || isAddendumLeaseTemplate(lease) ? "That lease is not available." : null;
+}
+
+/** The two scalar fields an application stores for its ONE lease (application first). */
+export function leaseLinkFields(targetId: string | null): Pick<PropertyApplicationTemplate, "linkedLeaseTemplateId" | "usedForLeaseTemplateIds"> {
+  return { linkedLeaseTemplateId: targetId, usedForLeaseTemplateIds: targetId ? [targetId] : undefined };
+}
+
+/**
+ * The popup path (lease first): point the lease `leaseId` at ONE application (or none). Unlike
+ * `setMappingTarget` the lease need not be in the catalog yet, so a lease that has not been saved
+ * can carry its choice until its first save. `applications` is the catalog with every legacy claim
+ * on this lease scrubbed (so a cleared choice cannot resurrect), or null when nothing needed changing.
+ */
+export function applicationLinkForLease(
+  catalog: MappingCatalog,
+  leaseId: string,
+  target: string | readonly string[] | null,
+):
+  | { ok: true; linkedApplicationTemplateId: string | null; applications: PropertyApplicationTemplate[] | null }
+  | { ok: false; error: string } {
+  const targets = target == null ? [] : typeof target === "string" ? [target] : cleanIds(target);
+  if (targets.length > 1) return { ok: false, error: "A lease can only use one application." };
+  const targetId = targets[0]?.trim() || null;
+  const error = mappingTargetError("lease_then_application", catalog, targetId);
+  if (error) return { ok: false, error };
+  let scrubbed = false;
+  const applications = catalog.applications.map((row) => {
+    if (!cleanIds(row.usedForLeaseTemplateIds).includes(leaseId)) return row;
+    scrubbed = true;
+    return { ...row, usedForLeaseTemplateIds: cleanIds(row.usedForLeaseTemplateIds).filter((id) => id !== leaseId) };
+  });
+  return { ok: true, linkedApplicationTemplateId: targetId, applications: scrubbed ? applications : null };
+}
+
 /**
  * Point ONE dependent row at ONE target (or clear it with `null`). Handing it several targets is
  * refused, never truncated: an application can never map to two leases (application first) and a
@@ -150,35 +197,22 @@ export function setMappingTarget(
     if (!application || isCosignerApplicationTemplate(application)) {
       return { ok: false, error: "That application cannot be mapped to a lease." };
     }
-    if (targetId) {
-      const lease = catalog.leases.find((candidate) => candidate.id === targetId);
-      if (!lease || isAddendumLeaseTemplate(lease)) return { ok: false, error: "That lease is not available." };
-    }
+    const error = mappingTargetError(order, catalog, targetId);
+    if (error) return { ok: false, error };
     return {
       ok: true,
-      applications: catalog.applications.map((row) =>
-        row.id === dependentId
-          ? { ...row, linkedLeaseTemplateId: targetId, usedForLeaseTemplateIds: targetId ? [targetId] : undefined }
-          : row,
-      ),
+      applications: catalog.applications.map((row) => (row.id === dependentId ? { ...row, ...leaseLinkFields(targetId) } : row)),
       leases: [...catalog.leases],
     };
   }
   const lease = catalog.leases.find((candidate) => candidate.id === dependentId);
   if (!lease || isAddendumLeaseTemplate(lease)) return { ok: false, error: "That lease cannot be mapped to an application." };
-  if (targetId) {
-    const application = catalog.applications.find((candidate) => candidate.id === targetId);
-    if (!application || isCosignerApplicationTemplate(application)) return { ok: false, error: "That application is not available." };
-  }
+  const link = applicationLinkForLease(catalog, dependentId, targetId);
+  if (!link.ok) return link;
   return {
     ok: true,
-    // The lease's own link is now the answer; an application's legacy list must stop claiming this lease.
-    applications: catalog.applications.map((row) =>
-      cleanIds(row.usedForLeaseTemplateIds).includes(dependentId)
-        ? { ...row, usedForLeaseTemplateIds: cleanIds(row.usedForLeaseTemplateIds).filter((id) => id !== dependentId) }
-        : row,
-    ),
-    leases: catalog.leases.map((row) => (row.id === dependentId ? { ...row, linkedApplicationTemplateId: targetId } : row)),
+    applications: link.applications ?? [...catalog.applications],
+    leases: catalog.leases.map((row) => (row.id === dependentId ? { ...row, linkedApplicationTemplateId: link.linkedApplicationTemplateId } : row)),
   };
 }
 

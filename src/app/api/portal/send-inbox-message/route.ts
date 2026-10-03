@@ -225,7 +225,10 @@ export async function POST(req: Request) {
     };
 
     const threadId = String(body.threadId ?? "").trim();
-    const senderEmail = String(user.email ?? body.fromEmail ?? "portal@example.com").trim().toLowerCase();
+    // The sender address is the authenticated account's, never the request body's
+    // (`body.fromEmail` is accepted for old clients but no longer read): sender identity,
+    // like the From header and the SMS line, is derived server-side.
+    const senderEmail = String(user.email ?? "portal@example.com").trim().toLowerCase();
     const subject = String(body.subject ?? "").trim();
     const rawText = String(body.text ?? "").trim();
     const sendId = typeof body.sendId === "string" ? body.sendId.trim().toLowerCase() : "";
@@ -911,7 +914,7 @@ export async function POST(req: Request) {
     let emailResults = new Map<string, { sent: boolean; resendId: string | null }>();
 
     if (emailToSend.length > 0) {
-      const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${fromName}</p>`;
+      const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
       // Per-recipient sends carrying the signed Reply-To + threading anchor.
       // Inbox already written — email stays best-effort, soft-failing per recipient.
       emailResults = await sendPortalConversationEmails({

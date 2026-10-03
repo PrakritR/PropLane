@@ -13,12 +13,19 @@ export function resolveResidentPortalNavStage(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "pipelineOrder">>,
+    Partial<
+      Pick<ResidentPortalAccessState, "isBookingResidency" | "pipelineOrder" | "hasLeaseFirstDraft">
+    >,
 ): ResidentPortalNavStage {
   if (access.leaseAccessUnlocked) return "post_lease";
   if (access.applicationApproved) return "post_approval_pre_lease";
   // Lease-first: unlock Lease (and docs) before an approved application.
   if (access.pipelineOrder === "lease_then_application") return "post_approval_pre_lease";
+  // A lease-first lease of their own unlocks Lease on its own: the resident who started a
+  // lease-first home opens it and signs there. STAGE_UNLOCKED_SECTIONS and
+  // RESIDENT_BOTTOM_NAV_PRIMARY both key on the stage returned here, so the sidebar, the
+  // phone bar, the server guard and the client guard cannot disagree about it.
+  if (access.hasLeaseFirstDraft === true) return "post_approval_pre_lease";
   // A booking-created resident has neither row — checked before the ordinary
   // application-submitted branch since they never submitted one.
   if (access.isBookingResidency) return "booking_residency";
@@ -156,7 +163,10 @@ export function isResidentPathAllowedForAccess(
   access: Pick<
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
-  >,
+  > &
+    Partial<
+      Pick<ResidentPortalAccessState, "isBookingResidency" | "pipelineOrder" | "hasLeaseFirstDraft">
+    >,
 ): boolean {
   const stage = resolveResidentPortalNavStage(access);
   if (pathname === "/resident/profile" || pathname.startsWith("/resident/profile/")) return true;
@@ -175,6 +185,20 @@ export function isResidentPathAllowedForAccess(
   }
 
   return residentSectionUnlockedForStage(section, stage);
+}
+
+/**
+ * Lease-first: the Application section waits on the lease. While the resident's lease-first
+ * lease still needs their signature (and the workspace really is lease-first), the Application
+ * pages send them to that lease; once they have signed, the application mapped from it is next.
+ * Returns the lease id to send them to, or null when Application is theirs to open.
+ */
+export function residentLeaseFirstApplicationRedirectLeaseId(
+  access: Partial<Pick<ResidentPortalAccessState, "pipelineOrder" | "leaseFirstPendingLeaseId" | "leaseAccessUnlocked">>,
+): string | null {
+  if (access.leaseAccessUnlocked === true) return null;
+  if (access.pipelineOrder !== "lease_then_application") return null;
+  return access.leaseFirstPendingLeaseId?.trim() || null;
 }
 
 export function residentNavLockReason(

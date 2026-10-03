@@ -73,13 +73,21 @@ import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import { managerSectionAllowedForTier, residentSectionAllowedForManagerTier } from "@/lib/manager-access";
 import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
-import { isResidentPathAllowedForAccess } from "@/lib/resident-portal-nav";
+import {
+  isResidentPathAllowedForAccess,
+  residentLeaseFirstApplicationRedirectLeaseId,
+} from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { RESIDENT_PAYMENTS_LEGACY_TABS } from "@/lib/portals/resident-sections";
 import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
-import { legacyManagerPortalSectionPath, parseApplicationDetailTab, parseResidentMoveInTab } from "@/lib/portal-detail-routes";
+import {
+  legacyManagerPortalSectionPath,
+  parseApplicationDetailTab,
+  parseResidentMoveInTab,
+  residentLeaseDetailHref,
+} from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
@@ -437,6 +445,15 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/applications/pending`);
   }
   if (kind === "resident" && section === "applications") {
+    // Lease-first: the lease is signed before the application, so the Application pages send the
+    // resident to the lease they still owe a signature on. The id comes from the resident's own
+    // lease rows (email-scoped in loadResidentPortalAccessState), never from the URL.
+    const leaseFirstLeaseId = residentAccess
+      ? residentLeaseFirstApplicationRedirectLeaseId(residentAccess)
+      : null;
+    if (leaseFirstLeaseId) {
+      redirect(residentLeaseDetailHref(def.basePath, "pending", leaseFirstLeaseId));
+    }
     const RESIDENT_APP_BUCKETS = ["pending", "approved", "rejected"] as const;
     if (!tabParts?.length) {
       redirect(`${def.basePath}/applications/pending`);

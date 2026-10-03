@@ -19,7 +19,10 @@ export function ResidentPreApplicationGuard({
     | "hasCompletedApplicationSubmission"
     | "hasTourLink"
     | "isPreLeaseResident"
-  >;
+  > &
+    Partial<
+      Pick<ResidentPortalAccessState, "isBookingResidency" | "pipelineOrder" | "hasLeaseFirstDraft">
+    >;
   /** @deprecated Pass `access` instead */
   isPreApplicationResident?: boolean;
   leaseAccessUnlocked?: boolean;

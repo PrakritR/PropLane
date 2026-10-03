@@ -17,6 +17,7 @@ export function PortalRecordDetailPage({
   title,
   subtitle,
   avatarName,
+  leading,
   backHref,
   backLabel,
   hideBackText = false,
@@ -47,6 +48,8 @@ export function PortalRecordDetailPage({
   title: string;
   subtitle?: string;
   avatarName?: string;
+  /** A record tile beside the title (the property's round house glyph). */
+  leading?: ReactNode;
   backHref?: string;
   backLabel?: string;
   hideBackText?: boolean;
@@ -92,6 +95,7 @@ export function PortalRecordDetailPage({
         title={title}
         subtitle={subtitle}
         avatarName={avatarName}
+        leading={leading}
         onBack={hideBack || !backHref ? undefined : () => navigate(backHref)}
         backLabel={backLabel ?? "Back"}
         hideBackText={hideBackText}

@@ -192,7 +192,9 @@ describe("listed Preview header actions — source", () => {
     );
     expect(footerMemo).toContain("PortalAdaptiveActionRow");
     expect(footerMemo).not.toContain("maxVisible");
-    expect(footerMemo).not.toContain("alwaysVisible");
+    // Studio header (captain, Oct 3): the outlined Edit is pinned first, never moved to the end.
+    expect(footerMemo.indexOf('id: "edit-listing"')).toBeLessThan(footerMemo.indexOf('id: "send-listing"'));
+    expect(footerMemo).toMatch(/id: "edit-listing",[\s\S]{0,200}alwaysVisible: true/);
     expect(footerMemo).toContain('setPendingDestructiveAction("delete-listed")');
     expect(footerMemo).not.toContain('showToast("Coming soon")');
   });

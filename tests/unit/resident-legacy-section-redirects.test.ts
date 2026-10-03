@@ -39,6 +39,9 @@ const residentAccess = {
   hasSubmittedApplication: false,
   hasCompletedApplicationSubmission: false,
   hasTourLink: false,
+  pipelineOrder: "application_then_lease",
+  hasLeaseFirstDraft: false,
+  leaseFirstPendingLeaseId: null as string | null,
 };
 
 vi.mock("@/lib/auth/effective-session", () => ({
@@ -149,5 +152,50 @@ describe("resident legacy section redirects resolve before the stage guard", () 
     // legacy alias, so a pre-approval resident is still sent home.
     Object.assign(residentAccess, { hasSubmittedApplication: false, hasCompletedApplicationSubmission: false });
     expect(await redirectTargetFor("lease")).toBe("/resident/applications/apply");
+  });
+});
+
+describe("lease-first: Application sends the resident to the lease they still owe a signature on", () => {
+  beforeEach(() => {
+    Object.assign(residentAccess, {
+      applicationApproved: false,
+      leaseAccessUnlocked: false,
+      leaseSigned: false,
+      hasSubmittedApplication: true,
+      hasCompletedApplicationSubmission: false,
+      hasTourLink: false,
+      pipelineOrder: "lease_then_application",
+      hasLeaseFirstDraft: true,
+      leaseFirstPendingLeaseId: "lease_first_abc",
+    });
+  });
+
+  it("redirects every Application page to the pending lease while it is unsigned", async () => {
+    expect(await redirectTargetFor("applications")).toBe("/resident/lease/pending/lease_first_abc");
+    expect(await redirectTargetFor("applications", ["pending"])).toBe("/resident/lease/pending/lease_first_abc");
+    expect(await redirectTargetFor("applications", ["pending", "app-1"])).toBe(
+      "/resident/lease/pending/lease_first_abc",
+    );
+  });
+
+  it("lets the resident open Lease itself (no bounce home)", async () => {
+    // Reaching the panel means no redirect was thrown; the stubbed panel render is not under test.
+    await expect(renderPortalSection("resident", "lease", ["pending", "lease_first_abc"])).resolves.toBeDefined();
+  });
+
+  it("once the lease is signed, Application is the resident's again", async () => {
+    Object.assign(residentAccess, { leaseFirstPendingLeaseId: null });
+    expect(await redirectTargetFor("applications")).toBe("/resident/applications/pending");
+  });
+
+  it("application-first workspaces are untouched", async () => {
+    Object.assign(residentAccess, {
+      pipelineOrder: "application_then_lease",
+      hasLeaseFirstDraft: false,
+      leaseFirstPendingLeaseId: null,
+    });
+    expect(await redirectTargetFor("applications")).toBe("/resident/applications/pending");
+    // Lease is still locked until approval.
+    expect(await redirectTargetFor("lease")).toBe("/resident/dashboard");
   });
 });

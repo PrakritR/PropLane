@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 const showToast = vi.fn();
 
@@ -108,21 +108,35 @@ function stubPanelFetches(
   );
 }
 
+/** Waits until the panel has finished loading (its work-number read has landed and the loading line is gone). */
+async function panelSettled(container: HTMLElement) {
+  await waitFor(() => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/manager/messaging-number"))).toBe(true);
+    expect(container.textContent ?? "").not.toContain("Loading…");
+  });
+}
+
 /**
  * PLAN-0920-1530: the work number and work email each appear exactly once now
  * — on their Channels row in `pro-messaging-settings-panel.tsx`. The
  * standalone copy controls this panel used to render (`Copy work number` /
- * `Copy work email`) are gone; only the audience fact ("Who can email the
- * assistant") that has no other home moved here.
+ * `Copy work email`) are gone.
+ *
+ * Captain, Oct 3: the "Reminders and messages" entry row ("Edit reminder
+ * timing and automated messages") is gone too. Reminder timing is fixed
+ * (docs/agents/automated-communication.md), so the row only linked to a
+ * removed Settings tab.
  */
 describe("CommunicationSettingsPanel", () => {
-  it("no longer renders the work number or work email copy controls", async () => {
+  it("renders no Reminders and messages row and no copy controls", async () => {
     stubPanelFetches(readyNumber, readyEmail);
-    render(<CommunicationSettingsPanel />);
+    const { container } = render(<CommunicationSettingsPanel />);
+    await panelSettled(container);
 
-    // "Auto-send AI drafts" moved to the central Reminders hub (C111); this
-    // panel's own load-anchor is the reminders/messages link row it left behind.
-    expect(await screen.findByText("Edit reminder timing and automated messages")).toBeTruthy();
+    expect(screen.queryByText("Reminders and messages")).toBeNull();
+    expect(screen.queryByText("Edit reminder timing and automated messages")).toBeNull();
+    expect(container.querySelector('[data-attr="communication-open-reminders-hub"]')).toBeNull();
     expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
@@ -130,26 +144,26 @@ describe("CommunicationSettingsPanel", () => {
 
   it("does not expose personal contact fallback settings when work email is ready", async () => {
     stubPanelFetches(readyNumber, readyEmail);
-    render(<CommunicationSettingsPanel />);
+    const { container } = render(<CommunicationSettingsPanel />);
+    await panelSettled(container);
 
-    expect(await screen.findByText("Reminders and messages")).toBeTruthy();
     expect(screen.queryByText("Who can email the assistant")).toBeNull();
     expect(screen.queryByText(/Share my profile phone and email/)).toBeNull();
   });
 
   it("does not expose work email audience status in automation settings", async () => {
     stubPanelFetches(readyNumber, { ...readyEmail, state: "assigned_plan_hold", canUse: false });
-    render(<CommunicationSettingsPanel />);
+    const { container } = render(<CommunicationSettingsPanel />);
+    await panelSettled(container);
 
-    expect(await screen.findByText("Reminders and messages")).toBeTruthy();
     expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 
   it("omits the row when the work email status could not be read", async () => {
     stubPanelFetches(readyNumber, null);
-    render(<CommunicationSettingsPanel />);
+    const { container } = render(<CommunicationSettingsPanel />);
+    await panelSettled(container);
 
-    await screen.findByText("Edit reminder timing and automated messages");
     expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 });

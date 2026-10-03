@@ -145,6 +145,8 @@ export function ResidentAutopayCard({
         <FieldSingleSelect
           label="Autopay"
           hideLabel
+          // A compact control on the right, like the studio — not a full-width bar.
+          wrapperClassName="w-28 shrink-0"
           value={state.enabled ? "on" : "off"}
           options={[
             { value: "on", label: "On" },

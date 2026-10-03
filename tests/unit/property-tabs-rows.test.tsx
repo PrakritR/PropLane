@@ -40,11 +40,13 @@ describe("Services tab rows (studio-redesign property-tabs)", () => {
     expect(row.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
     expect(row.querySelector('[data-attr="record-row-facts"]')!.textContent).toContain("$40 · Per request");
     expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
+    // One list (captain, Oct 3): the monthly add-on sits beside the per-request service, no Add-ons tab;
+    // the header carries the Services section tab and no settings gear.
     expect(within(container).getByRole("button", { name: "Services" })).toBeTruthy();
     expect(within(container).queryByRole("button", { name: "Service settings" })).toBeNull();
-    const rows = container.querySelectorAll(".portal-property-row");
-    expect(rows.length).toBe(2);
-    expect([...rows].some((r) => r.textContent?.includes("Turned off"))).toBe(true);
+    expect(within(container).queryByRole("button", { name: /Add-ons/ })).toBeNull();
+    const rows = [...container.querySelectorAll(".portal-property-row")].map((r) => r.textContent ?? "");
+    expect(rows.some((t) => t.includes("Turned off"))).toBe(true);
   });
 
   it("price fact never invents a price", () => {

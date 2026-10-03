@@ -8,10 +8,14 @@
  * (never client math — `leaseSigningFeeCents` is the server's own resolved
  * amount). Studio spec: the swap happens even when a listing also charges an
  * application fee — one fee concept in that row.
+ *
+ * Captain (2026-10-03): the apply door is split by term - "Apply long term" always,
+ * "Apply short term" only when the listing offers short stays.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
+import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 
@@ -84,12 +88,12 @@ function stickyBar() {
 }
 
 describe("public listing price card and sticky bar — signingOrder", () => {
-  it("says Apply for an application-first listing (today's copy, unchanged)", () => {
+  it("says Apply long term for an application-first listing", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
     const apply = priceCard().querySelector('[data-attr="listing-web-apply"]');
     expect(apply).not.toBeNull();
-    expect(apply!.textContent).toBe("Apply");
-    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
+    expect(apply!.textContent).toBe("Apply long term");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply long term");
   });
 
   it("says Sign lease on both the price card and the sticky bar for a lease-first listing", () => {
@@ -99,8 +103,8 @@ describe("public listing price card and sticky bar — signingOrder", () => {
         rich={rich()}
       />,
     );
-    expect(priceCard().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease");
-    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease");
+    expect(priceCard().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
   });
 
   it("swaps Application fee for Lease fee when lease-first and no fee is charged up front", () => {
@@ -130,7 +134,7 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     const card = priceCard();
     expect(card.textContent).not.toContain("Application fee");
     expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')!.textContent).toContain("$100");
-    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease");
+    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Sign lease long term");
   });
 
   it("reads None on the Lease fee row when the lease-signing fee is unset (0)", () => {
@@ -143,5 +147,28 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     const dueAtSigning = priceCard().querySelector('[data-attr="listing-price-due-at-signing"]');
     expect(dueAtSigning).not.toBeNull();
     expect(dueAtSigning!.textContent).toContain("None");
+  });
+
+  it("offers Apply short term only when the listing offers short stays, never a separate booking link", () => {
+    render(<ListingDetailSections property={property()} rich={rich()} />);
+    expect(priceCard().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
+    expect(priceCard().querySelector('a[href*="/rent/stay"]')).toBeNull();
+    cleanup();
+
+    const offering = property({
+      id: "prop-short-stays",
+      adminPublishLive: true,
+      listingSubmission: { v: 1, shortTermRentalsAllowed: true, shortTermDailyCost: "85" },
+    } as unknown as Partial<MockProperty>);
+    cachePublicExtraListings([offering], { silent: true });
+    render(<ListingDetailSections property={offering} rich={rich()} />);
+    const card = priceCard();
+    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply long term");
+    const short = card.querySelector('[data-attr="listing-web-apply-short"]') as HTMLAnchorElement | null;
+    expect(short).not.toBeNull();
+    expect(short!.textContent).toBe("Apply short term");
+    expect(short!.getAttribute("href")).toContain("rentalType=short_term");
+    expect(card.textContent).not.toContain("Book a short stay");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply-short"]')!.textContent).toBe("Apply short term");
   });
 });

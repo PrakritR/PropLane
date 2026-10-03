@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   FIELD_SELECT_CHEVRON_CELL_CLASS,
@@ -51,6 +51,8 @@ export type CheckboxMultiSelectOption = {
   disabled?: boolean;
   /** Shown under the label — why a disabled option cannot be picked yet. */
   hint?: string;
+  /** An (i) beside the label; the text is its tooltip and accessible description. */
+  info?: string;
   /** A red dot after the label (a wizard step that still needs something). */
   attention?: boolean;
 };
@@ -233,6 +235,11 @@ export function CheckboxMultiSelect({
         />
         <span className="leading-snug text-foreground">
           {opt.label}
+          {opt.info ? (
+            <span className="ml-1.5 inline-flex align-middle text-muted" title={opt.info} aria-label={opt.info} role="img">
+              <Info className="size-3.5" strokeWidth={2} aria-hidden />
+            </span>
+          ) : null}
           {opt.hint ? <span className="mt-0.5 block text-xs text-muted">{opt.hint}</span> : null}
         </span>
       </label>
