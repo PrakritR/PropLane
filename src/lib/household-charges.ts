@@ -14,6 +14,7 @@ import {
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
 import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
+import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -1706,9 +1707,35 @@ function resolveRowSubmissionRoom(
   const propertyId =
     row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
   const prop = getPropertyById(propertyId);
-  const sub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
-  if (!sub) return { sub: null, room: null, prop: prop ?? null };
-  return { sub, room: roomForRow(sub, row, prop?.unitLabel), prop: prop ?? null };
+  const baseSub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
+  if (!baseSub) return { sub: null, room: null, prop: prop ?? null };
+  return {
+    sub: withRoomTermFeesForRow(baseSub, row, prop?.unitLabel),
+    room: roomForRow(baseSub, row, prop?.unitLabel),
+    prop: prop ?? null,
+  };
+}
+
+/**
+ * The listing as THIS row's room bills it: the room's month-to-month / custom start surcharges and its
+ * Lease fee for the row's lease term (`room-term-fees.ts`). The lease document and the lease billing
+ * snapshot apply the same overlay, so the document, the signing total and this ledger read one set of numbers.
+ */
+function withRoomTermFeesForRow<T extends ManagerListingSubmissionV1>(
+  sub: T,
+  row: Pick<DemoApplicantRow, "assignedRoomChoice" | "application" | "manualResidentDetails" | "signedMonthlyRent">,
+  unitLabel: string | null | undefined,
+): T {
+  return submissionWithApplicationRoomFees(
+    sub,
+    {
+      roomChoices: [row.assignedRoomChoice, row.application?.roomChoice1],
+      unitLabel: unitLabel ?? row.manualResidentDetails?.roomNumber,
+      signedMonthlyRent: row.signedMonthlyRent,
+      bundleId: bundleIdForApplication(row.application),
+    },
+    { leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+  ) as T;
 }
 
 /** The tenancy facts the surcharge presets are conditional on, read off the row. */
@@ -4154,10 +4181,11 @@ export function recordApprovedApplicationCharges(
   if (row.application?.rentalType === "airbnb") return false;
 
   const prop = getPropertyById(propertyId);
-  const sub =
+  const baseSub =
     prop?.listingSubmission?.v === 1
       ? normalizeManagerListingSubmissionV1(prop.listingSubmission as ManagerListingSubmissionV1)
       : null;
+  const sub = baseSub ? withRoomTermFeesForRow(baseSub, row, prop?.unitLabel) : null;
 
   // The resident's browser doesn't have the manager's listing catalog, so getPropertyById()
   // returns null there. Without the listing we can't determine proration method or daily rates,

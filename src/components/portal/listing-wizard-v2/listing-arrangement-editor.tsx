@@ -145,6 +145,7 @@ export function ArrangementPriceEditor({
             onPatch={(feePatch) => writeRow(count, feePatch)}
             showMonthToMonth={false}
             showCustomStart={false}
+            scope="short"
           />
         </>
       );

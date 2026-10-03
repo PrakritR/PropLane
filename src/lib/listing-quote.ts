@@ -44,7 +44,7 @@ import {
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
+import { resolveTermFeesFromRow } from "@/lib/room-term-fees";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -298,23 +298,20 @@ export function buildListingQuote(
     oneTime.push(fee);
   }
 
-  const applicationFee = parseMoneyAmount(
-    arrangementRow?.applicationFee?.trim()
-      ? arrangementRow.applicationFee
-      : listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard", leaseTerm),
-  );
+  /*
+   * The same resolver the generated lease reads (`room-term-fees.ts`): Application fee and
+   * Lease fee are set per step, the start surcharges follow the lease's start.
+   */
+  const termFees = resolveTermFeesFromRow({ sub, row: arrangementRow, leaseTerm });
+  const applicationFee = termFees.applicationFee;
   if (applicationFee > 0) {
     applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });
   }
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge) {
-    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
-  }
-  if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {
-    monthlyRent += parseMoneyAmount(arrangementRow.customStartSurcharge);
-  }
+  if (!isStay && startKind === "m2m") monthlyRent += termFees.monthToMonthSurcharge;
+  if (!isStay && startKind === "cst") monthlyRent += termFees.customStartSurcharge;
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
     0,
@@ -378,7 +375,7 @@ export function buildListingQuote(
       dueAtSigning: isPaymentDueAtSigning(sub, key, leaseTerm, roomId),
     });
   }
-  const leaseFeeAmt = parseMoneyAmount(arrangementRow?.leaseFee ?? "");
+  const leaseFeeAmt = termFees.leaseFee;
   if (leaseFeeAmt > 0) {
     signingLines.push({
       key: "arrangement_lease_fee",
