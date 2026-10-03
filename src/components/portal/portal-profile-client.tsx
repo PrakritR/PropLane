@@ -28,6 +28,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { BookingsChannelSettings } from "@/components/portal/bookings-channel-settings";
 import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
@@ -835,6 +836,7 @@ export function PortalProfileClient({
             <PortalSettingsSection title="Google Calendar">
               <GoogleCalendarConnectPanel presentation="card" />
             </PortalSettingsSection>
+            <BookingsChannelSettings />
             <ManagerSheetLinkPanel />
           </>
         ) : null;
