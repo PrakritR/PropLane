@@ -286,6 +286,8 @@ function moneyOrNull(raw: string): number | null {
 }
 
 export type BuildRowContext = {
+  /** A manager may record a walk-in visitor with only their name. */
+  allowContactless?: boolean;
   userId: string | null;
   propertyLabelFor: (propertyId: string) => string | undefined;
   /** Today's timestamp — injectable so the parity test is deterministic. */
@@ -444,7 +446,7 @@ export function buildManualResidentRow(
 /** A prospect: a pending, manager-added row so they show in Residents › Potential. */
 export function buildProspectRow(form: AddPersonForm, ctx: BuildRowContext): BuildRowResult {
   if (!form.name.trim()) return { ok: false, error: "Enter the prospect's name." };
-  if (!form.email.trim() && !form.phone.trim()) return { ok: false, error: "Enter an email or a phone so you can reach them." };
+  if (!ctx.allowContactless && !form.email.trim() && !form.phone.trim()) return { ok: false, error: "Enter an email or a phone so you can reach them." };
   const axisId = `PROPLANE-${(ctx.idSuffix ?? (() => Date.now().toString(36).toUpperCase().slice(-8)))()}`;
   const propLabel = form.propertyId ? (ctx.propertyLabelFor(form.propertyId) ?? form.propertyId) : "—";
   const placement = form.propertyId

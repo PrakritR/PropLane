@@ -68,6 +68,8 @@ export type CommitResidentOptions = {
 };
 
 export type CommitContext = {
+  /** Canonical Pacific slot window supplied by the tour availability picker. */
+  tourWindow?: { start: string; end: string };
   userId: string | null;
   executedLeaseKeys: { axisIds: Set<string>; emails: Set<string> };
   propertyLabelFor: (propertyId: string) => string | undefined;
@@ -264,7 +266,7 @@ export async function commitProspect(built: DemoApplicantRow, form: AddPersonFor
   // Same email already in Residents (a prospect who asked twice, an applicant
   // who then booked a tour): link the tour to them instead of a second row.
   const email = built.email?.trim().toLowerCase();
-  const existing = email ? readManagerApplicationRows().find((r) => r.email?.trim().toLowerCase() === email) : undefined;
+  const existing = readManagerApplicationRows().find((r) => r.id === built.id || (email && r.email?.trim().toLowerCase() === email));
   let row = built;
   if (existing) {
     row = existing;
@@ -281,9 +283,9 @@ export async function commitProspect(built: DemoApplicantRow, form: AddPersonFor
 
   let tourId: string | null = null;
   if (form.tourFormat !== "none" && form.tourDate && form.tourStart && ctx.userId) {
-    const start = combineLocalDateTime(form.tourDate, form.tourStart);
+    const start = ctx.tourWindow?.start ?? combineLocalDateTime(form.tourDate, form.tourStart);
     const durationMs = Math.max(15, Number(form.tourDurationMinutes) || 30) * 60 * 1000;
-    const end = new Date(Date.parse(start) + durationMs).toISOString();
+    const end = ctx.tourWindow?.end ?? new Date(Date.parse(start) + durationMs).toISOString();
     const label = form.propertyId ? ctx.propertyLabelFor(form.propertyId) : undefined;
     const roomLabel = row.manualResidentDetails?.roomNumber ?? built.manualResidentDetails?.roomNumber;
     if (!form.propertyId) {
