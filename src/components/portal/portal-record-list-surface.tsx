@@ -164,7 +164,12 @@ export function PortalRecordListSurface({
       <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
         {listControls ? (
-          <div className="mb-3 flex items-center justify-end" data-attr="portal-list-controls-row">
+          // A whole header card (Move-in, House details) spans the row, left-justified
+          // like every list; a small Group/Sort menu still sits at the right.
+          <div
+            className="mb-3 flex items-center justify-end [&>[data-slot=portal-list-control-stack]]:w-full [&>[data-slot=portal-list-control-stack]]:flex-1"
+            data-attr="portal-list-controls-row"
+          >
             {listControls}
           </div>
         ) : null}

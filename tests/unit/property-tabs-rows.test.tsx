@@ -40,8 +40,10 @@ describe("Services tab rows (studio-redesign property-tabs)", () => {
     expect(row.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
     expect(row.querySelector('[data-attr="record-row-facts"]')!.textContent).toContain("$40 · Per request");
     expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
-    fireEvent.click(within(container).getByRole("button", { name: /Add-ons/ }));
-    expect(container.querySelector(".portal-property-row")!.textContent).toContain("Turned off");
+    // One list (captain, Oct 3): the monthly add-on sits beside the per-request service, no tabs.
+    expect(within(container).queryByRole("button", { name: /Add-ons/ })).toBeNull();
+    const rows = [...container.querySelectorAll(".portal-property-row")].map((r) => r.textContent ?? "");
+    expect(rows.some((t) => t.includes("Turned off"))).toBe(true);
   });
 
   it("price fact never invents a price", () => {

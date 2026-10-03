@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { CircleSlash, CreditCard, Settings, Wrench } from "lucide-react";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -20,7 +19,6 @@ import {
 } from "@/lib/manager-listing-submission";
 import { persistManagerListingSubmission, type ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
 
-type ServiceTab = "requests" | "addons";
 
 function offerCadence(offer: ManagerListingServiceOption): ServiceBillingCadence {
   return offer.billingCadence ?? "per_request";
@@ -46,7 +44,7 @@ type Props = {
   showToast: (m: string) => void;
 };
 
-/** Property Services catalog — Requests vs Add-ons tabs (C2-PRC9). */
+/** Property Services catalog — one list (captain, Oct 3: requests and add-ons are the same thing). */
 export function PropertyServicesOffersPanel({
   sub,
   saveTarget,
@@ -55,7 +53,6 @@ export function PropertyServicesOffersPanel({
   onUpdated,
   showToast,
 }: Props) {
-  const [tab, setTab] = useState<ServiceTab>("requests");
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -66,32 +63,22 @@ export function PropertyServicesOffersPanel({
   const offers = sub.serviceRequestOptions ?? [];
   const q = query.trim().toLowerCase();
 
-  const filtered = useMemo(() => {
-    const cadenceFilter: ServiceBillingCadence = tab === "requests" ? "per_request" : "monthly";
-    return offers.filter((o) => {
-      const cad = offerCadence(o);
-      const inTab =
-        tab === "requests"
-          ? cad === "per_request"
-          : cad === "monthly" || cad === "one_time";
-      if (!inTab) return false;
-      if (!q) return true;
-      return (o.name ?? "").toLowerCase().includes(q);
-    });
-  }, [offers, tab, q]);
-
-  const requestCount = offers.filter((o) => offerCadence(o) === "per_request").length;
-  const addonCount = offers.filter((o) => offerCadence(o) !== "per_request").length;
+  // One list: a per-request service and a monthly add-on are the same kind of
+  // offer; the row's price fact says how it is billed.
+  const filtered = useMemo(
+    () => offers.filter((o) => !q || (o.name ?? "").toLowerCase().includes(q)),
+    [offers, q],
+  );
 
   const openAdd = () => {
     const row = createManagerListingServiceOption();
-    row.billingCadence = tab === "requests" ? "per_request" : "monthly";
+    row.billingCadence = "per_request";
     setEditing(row);
     setIsNew(true);
     setEditOpen(true);
   };
 
-  const addLabel = tab === "requests" ? "request service" : "add-on";
+  const addLabel = "Add service";
 
   const openEdit = (offer: ManagerListingServiceOption) => {
     setEditing(offer);
@@ -118,19 +105,6 @@ export function PropertyServicesOffersPanel({
       <PortalListControlStack
         className="plp-header-card mb-2 max-lg:mb-1.5"
         variant="command"
-        destinationRow={
-          <LocalDestinationNav
-            items={[
-              { id: "requests", label: "Requests", count: requestCount },
-              { id: "addons", label: "Add-ons", count: addonCount },
-            ]}
-            activeId={tab}
-            onChange={(id) => setTab(id as ServiceTab)}
-            ariaLabel="Service types"
-            appearance="command"
-          />
-        }
-        activeDestinationId={tab}
         search={{
           value: query,
           onChange: setQuery,
@@ -157,7 +131,7 @@ export function PropertyServicesOffersPanel({
       <PortalRecordListSurface
         isEmpty={filtered.length === 0}
         emptyCard={{
-          title: tab === "requests" ? "No request services yet" : "No add-ons yet",
+          title: q ? "No matches" : "No services yet",
           section: "services",
         }}
       >
