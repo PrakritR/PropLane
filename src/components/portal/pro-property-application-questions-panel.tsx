@@ -1,7 +1,7 @@
 "use client";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp, Signature, MoreHorizontal, Copy, Pencil, Eye, ExternalLink, Trash2 } from "lucide-react";
+import { Check, CreditCard, FileUp, Signature, MoreHorizontal, Copy, Pencil, Eye, Trash2 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -529,7 +529,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 <DropdownMenuContent align="end" data-attr="property-application-row-actions">
                   <DropdownMenuItem onSelect={() => openEditApplication(template)}><Pencil aria-hidden />Edit</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => openEditApplication(template)}><Eye aria-hidden />Preview</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}><ExternalLink aria-hidden />Open in new tab</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void duplicateTemplate(template)}><Copy aria-hidden />Duplicate</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => {

@@ -59,6 +59,7 @@ import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-se
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 async function sha256Text(value: string): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure import review is unavailable.");
@@ -155,6 +156,8 @@ export function PropertyLeaseFormModal({
   const [error, setError] = useState<string | null>(null);
   /** Which applicant lease-term choices route to this lease ("Applies to"). */
   const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
+  const [linkedApplicationTemplateId, setLinkedApplicationTemplateId] = useState<string | null>(null);
+  const [offered, setOffered] = useState(true);
   // F-editor d/F015: another of this property's lease templates whose form is
   // the co-signer/guarantor addendum — see `PropertyLeaseTemplate.linkedGuarantorLeaseTemplateId`.
   const [linkedGuarantorTemplateId, setLinkedGuarantorTemplateId] = useState<string | null>(null);
@@ -279,6 +282,8 @@ export function PropertyLeaseFormModal({
       setLabel(template.label);
       setKind(templateKind);
       setApplicationLeaseTerms([...(template.applicationLeaseTerms ?? [])]);
+      setLinkedApplicationTemplateId(template.linkedApplicationTemplateId ?? null);
+      setOffered(template.offered !== false);
       setDocumentMode(documentModeFromLease(templateSource, templateKind));
       setDraft(templateDraftFields);
       setHtmlOverride(template.leaseTemplateHtmlOverride?.trim() ?? "");
@@ -301,6 +306,8 @@ export function PropertyLeaseFormModal({
     }
     setAddModeLeaseTemplateId(makePropertyLeaseTemplateId());
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
+    setLinkedApplicationTemplateId(null);
+    setOffered(true);
     setKind("long-term");
     setDocumentMode("proplane_long_term");
     const applied = applyPropertyLeaseDocumentMode("proplane_long_term");
@@ -540,6 +547,8 @@ export function PropertyLeaseFormModal({
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
           leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
           linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
+          linkedApplicationTemplateId,
+          offered,
         };
         const next = [...(templates ?? []), created];
         if (!(await Promise.resolve(onSave(next)))) return;
@@ -565,6 +574,8 @@ export function PropertyLeaseFormModal({
         kind,
         applicationLeaseTerms,
         linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
+        linkedApplicationTemplateId,
+        offered,
         ...leaseFields,
       });
       if (!(await Promise.resolve(onSave(next)))) return;
@@ -1029,12 +1040,33 @@ export function PropertyLeaseFormModal({
         </StepColumn>
       ) : null}
       {stepId === "setup" ? (
-        <StepColumn>
+      <StepColumn>
           <StepHeading title="Settings" />
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
             <div>
+              <PanelSection title="Application">
+                <FieldSingleSelect
+                  label="Application used"
+                  labelClassName={WIZARD_LABEL_CLASS}
+                  value={linkedApplicationTemplateId ?? "__none__"}
+                  dataAttr="lease-setup-application-template"
+                  options={[
+                    { value: "__none__", label: "Property default" },
+                    ...readPropertyApplicationTemplates(sub).map((application) => ({ value: application.id, label: application.label })),
+                  ]}
+                  onChange={(next) => setLinkedApplicationTemplateId(next === "__none__" ? null : next)}
+                />
+              </PanelSection>
+              <PanelSection title="Offered">
+                <ToggleRow
+                  label="Offer this lease to applicants"
+                  checked={offered}
+                  dataAttr="lease-setup-offered"
+                  onChange={setOffered}
+                />
+              </PanelSection>
               {/* F015: another of this property's OWN lease templates — never itself. */}
               <PanelSection title="Linked co-signer / guarantor addendum">
                 <FieldSingleSelect

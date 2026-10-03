@@ -53,6 +53,10 @@ export type PropertyLeaseTemplate = {
   listingSeedKey?: PropertyLeaseListingSeedKey;
   /** Application lease-term choices that route applicants to this template. */
   applicationLeaseTerms?: string[];
+  /** Application intake template paired with this lease. */
+  linkedApplicationTemplateId?: string | null;
+  /** Whether this lease is offered to applicants on this property. */
+  offered?: boolean;
   leaseConfigMode: "standard" | "custom";
   leaseCustomKind: "terms" | "document" | "builder";
   customLeaseTerms: string;
@@ -193,6 +197,7 @@ export function createPropertyLeaseTemplate(args: {
     leaseTemplateHtmlOverride: "",
     listingSeedKey: args.listingSeedKey,
     applicationLeaseTerms: args.applicationLeaseTerms?.length ? [...args.applicationLeaseTerms] : undefined,
+    offered: true,
     createdAt: stamp,
     updatedAt: stamp,
   };
@@ -230,6 +235,7 @@ function normalizeTemplate(row: PropertyLeaseTemplate & { kind: string }): Prope
   return {
     ...row,
     kind: normalizeLeaseTemplateKind(row.kind),
+    offered: row.offered !== false,
     leaseTemplateHtmlOverride:
       typeof row.leaseTemplateHtmlOverride === "string" ? row.leaseTemplateHtmlOverride : "",
     leaseTemplateImportReview,
