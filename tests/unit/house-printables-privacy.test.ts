@@ -63,7 +63,8 @@ describe("the public/private split is total", () => {
     expect(page.quietHours).toBe("11 PM – 7 AM");
     expect(page.rules.map((l) => l.label)).toContain("Smoking");
     expect(page.rules.map((l) => l.label)).toContain("Kitchen & dining");
-    expect(page.trash.map((l) => l.label)).toEqual(["Trash day", "Recycling & compost", "Professional cleaning"]);
+    // C2-RE12: Trash & cleaning no longer carries Recycling & compost.
+    expect(page.trash.map((l) => l.label)).toEqual(["Trash day", "Professional cleaning"]);
     // The bin's location and the between-cleanings chores are for residents, not passers-by.
     expect(rendered).not.toContain("SECRET-trash-binLocation");
     expect(rendered).not.toContain("SECRET-trash-betweenCleanings");
