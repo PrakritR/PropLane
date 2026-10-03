@@ -79,8 +79,76 @@ export async function findVendorAgentSessionByThread(db: Db, inboxThreadId: stri
   return (data as VendorAgentSessionRow | null) ?? null;
 }
 
+/**
+ * Keep the sessions whose job belongs to `workspaceId`. A session has no
+ * workspace column; its job's house does. A job whose house is unknown is kept
+ * (nothing places it elsewhere) - one that is known to sit in ANOTHER workspace
+ * is not, so a vendor's text on workspace B's line never lands on their
+ * workspace-A job.
+ */
+async function sessionsInWorkspace(
+  db: Db,
+  sessions: VendorAgentSessionRow[],
+  workspaceId: string | null | undefined,
+): Promise<VendorAgentSessionRow[]> {
+  const workspace = workspaceId?.trim();
+  if (!workspace || sessions.length === 0) return sessions;
+  const workOrderIds = [...new Set(sessions.map((session) => session.work_order_id).filter(Boolean))] as string[];
+  if (workOrderIds.length === 0) return sessions;
+  const { data: orders, error: ordersError } = await db
+    .from("portal_work_order_records")
+    .select("id, property_id, assigned_property_id, row_data")
+    .in("id", workOrderIds);
+  if (ordersError) throw new Error("Vendor session lookup unavailable.");
+  const houseByOrder = new Map<string, string>();
+  for (const order of (orders ?? []) as { id: string; property_id?: unknown; assigned_property_id?: unknown; row_data?: unknown }[]) {
+    const rowData = (order.row_data && typeof order.row_data === "object" ? order.row_data : {}) as Record<string, unknown>;
+    const house = String(order.assigned_property_id ?? order.property_id ?? rowData.propertyId ?? "").trim();
+    if (house) houseByOrder.set(String(order.id), house);
+  }
+  const houseIds = [...new Set(houseByOrder.values())];
+  const { data: houses, error: housesError } = houseIds.length
+    ? await db.from("manager_property_records").select("id, workspace_id").in("id", houseIds)
+    : { data: [], error: null };
+  if (housesError) throw new Error("Vendor session lookup unavailable.");
+  const workspaceByHouse = new Map<string, string>(
+    ((houses ?? []) as { id: string; workspace_id?: unknown }[]).map((house) => [String(house.id), String(house.workspace_id ?? "").trim()]),
+  );
+  return sessions.filter((session) => {
+    const house = session.work_order_id ? houseByOrder.get(session.work_order_id) : undefined;
+    const sessionWorkspace = house ? workspaceByHouse.get(house) : undefined;
+    return !sessionWorkspace || sessionWorkspace === workspace;
+  });
+}
+
+/**
+ * Ids of the vendor sessions bound to `phoneE164` on one work line: the owner
+ * whose number was texted, narrowed to that line's workspace. STOP sent to one
+ * workspace's number must not unbind the vendor's jobs for any other.
+ */
+export async function vendorSessionIdsOnLine(
+  db: Db,
+  phoneE164: string,
+  managerUserId: string,
+  workspaceId?: string | null,
+): Promise<string[]> {
+  const { data, error } = await db
+    .from("agent_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("kind", "vendor_work_order")
+    .eq("vendor_phone_e164", phoneE164)
+    .eq("landlord_id", managerUserId);
+  if (error) throw new Error("Vendor session lookup unavailable.");
+  return (await sessionsInWorkspace(db, (data ?? []) as VendorAgentSessionRow[], workspaceId)).map((session) => session.id);
+}
+
 /** Newest active-ish session for a phone number — how inbound SMS finds its conversation. */
-export async function findVendorAgentSessionByPhone(db: Db, phoneE164: string, managerUserId?: string): Promise<VendorAgentSessionRow | null> {
+export async function findVendorAgentSessionByPhone(
+  db: Db,
+  phoneE164: string,
+  managerUserId?: string,
+  workspaceId?: string | null,
+): Promise<VendorAgentSessionRow | null> {
   let query = db
     .from("agent_sessions")
     .select(SESSION_COLUMNS)
@@ -90,10 +158,10 @@ export async function findVendorAgentSessionByPhone(db: Db, phoneE164: string, m
 ;
   if (managerUserId) query = query.eq("landlord_id", managerUserId);
   const { data, error } = await query.order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(workspaceId?.trim() ? 100 : 1);
   if (error) throw new Error("Vendor session lookup unavailable.");
-  return (data as VendorAgentSessionRow | null) ?? null;
+  const rows = await sessionsInWorkspace(db, (data ?? []) as VendorAgentSessionRow[], workspaceId);
+  return rows[0] ?? null;
 }
 
 export type VendorInboundSessionResolution =
@@ -105,15 +173,18 @@ export type VendorInboundSessionResolution =
  * A vendor phone can have several job-bound sessions. When the text names a
  * WO reference, resolve only among those sessions instead of blindly choosing
  * the newest job. Unknown/cross-manager references share one generic reply.
+ * `workspaceId` is the workspace of the work line the text arrived on: with it,
+ * only that workspace's jobs are candidates.
  */
 export async function resolveVendorAgentSessionForInbound(
   db: Db,
   phoneE164: string,
   inboundText: string,
   managerUserId?: string,
+  workspaceId?: string | null,
 ): Promise<VendorInboundSessionResolution> {
   if (resolveWorkOrderReference(inboundText).length === 0) {
-    const session = await findVendorAgentSessionByPhone(db, phoneE164, managerUserId);
+    const session = await findVendorAgentSessionByPhone(db, phoneE164, managerUserId, workspaceId);
     return session ? { kind: "session", session, reference: null } : { kind: "unknown_phone" };
   }
 
@@ -128,7 +199,7 @@ export async function resolveVendorAgentSessionForInbound(
   const { data, error } = await query.order("updated_at", { ascending: false })
     .limit(100);
   if (error) throw new Error("Vendor session lookup unavailable.");
-  const sessions = (data ?? []) as VendorAgentSessionRow[];
+  const sessions = await sessionsInWorkspace(db, (data ?? []) as VendorAgentSessionRow[], workspaceId);
   if (sessions.length === 0) return { kind: "unknown_phone" };
 
   const workOrderIds = [...new Set(sessions.map((session) => session.work_order_id).filter(Boolean))] as string[];

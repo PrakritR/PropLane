@@ -8,7 +8,11 @@
  */
 import { after } from "next/server";
 import twilio from "twilio";
-import { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
+import {
+  resolveVendorAgentSessionForInbound,
+  runVendorAgentSessionTurn,
+  vendorSessionIdsOnLine,
+} from "@/lib/agent/vendor-agent.server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 import { rateLimit } from "@/lib/rate-limit";
@@ -122,6 +126,11 @@ export async function POST(req: Request) {
     if (!current.current) return twiml();
 
     if (controlKeyword === "STOP") {
+      // STOP was sent to ONE work line. The vendor's carrier-level opt-out below
+      // is theirs, but the jobs it unbinds are the ones on the line they texted -
+      // not their jobs for every other workspace. A number we cannot place keeps
+      // the old, broad behavior (honouring a STOP too widely is the safe error).
+      const stopLine = to ? await resolveOwnedWorkNumber(db, to) : null;
       const { data: sessions, error: sessionReadError } = await db
         .from("agent_sessions")
         .select("vendor_user_id")
@@ -136,11 +145,22 @@ export async function POST(req: Request) {
           .in("id", vendorIds);
         if (profileError) return new Response("Vendor control state unavailable", { status: 503 });
       }
-      const { error: unbindError } = await db
+      let unbindQuery = db
         .from("agent_sessions")
         .update({ vendor_phone_e164: null, updated_at: new Date().toISOString() })
         .eq("kind", "vendor_work_order")
         .eq("vendor_phone_e164", from);
+      if (stopLine) {
+        let lineSessionIds: string[];
+        try {
+          lineSessionIds = await vendorSessionIdsOnLine(db, from, stopLine.managerId, stopLine.workspaceId);
+        } catch {
+          return new Response("Vendor control state unavailable", { status: 503 });
+        }
+        if (lineSessionIds.length === 0) return twiml();
+        unbindQuery = unbindQuery.in("id", lineSessionIds);
+      }
+      const { error: unbindError } = await unbindQuery;
       if (unbindError) return new Response("Vendor control state unavailable", { status: 503 });
       return twiml();
     }
@@ -187,7 +207,7 @@ export async function POST(req: Request) {
     }).catch((e) => console.warn("twilio sms inbound usage not recorded", inboundMessageSid, e instanceof Error ? e.message : String(e)));
   }
 
-  const sessionResolution = await resolveVendorAgentSessionForInbound(db, from, body, managerId);
+  const sessionResolution = await resolveVendorAgentSessionForInbound(db, from, body, managerId, ownedNumber.workspaceId);
   if (sessionResolution.kind === "unknown_phone") {
     // Silent drop: replying to unknown numbers turns us into an SMS echo
     // service and a cost amplifier. Nothing actionable to audit either.

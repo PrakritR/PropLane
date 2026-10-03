@@ -867,7 +867,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
 
   // The destination work number scopes vendor sessions before a prospect fallback.
   const { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } = await import("@/lib/agent/vendor-agent.server");
-  const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId);
+  const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId, workspaceId);
   mark(`vendor:${vendor.kind}`);
   if (vendor.kind !== "unknown_phone") {
     await projectClassifiedInbound(db, {

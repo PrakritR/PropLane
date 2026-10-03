@@ -124,7 +124,7 @@ describe("/api/webhooks/twilio/sms", () => {
     const { client } = mockDb();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
     mocks.resolveOwnedWorkNumber.mockImplementation(async (_db: unknown, to: string) =>
-      to === WORK_NUMBER ? { managerId: "mgr-a", messagingServiceSid: "MG1" } : null,
+      to === WORK_NUMBER ? { managerId: "mgr-a", workspaceId: "ws-a", messagingServiceSid: "MG1" } : null,
     );
     vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({
       kind: "session",
@@ -189,6 +189,8 @@ describe("/api/webhooks/twilio/sms", () => {
       "+12065550001",
       "cual es el codigo del porton?",
       "mgr-a",
+      // The work line's workspace narrows the vendor's job match (S8).
+      "ws-a",
     );
     expect(runVendorAgentSessionTurn).toHaveBeenCalledWith(
       expect.anything(),
