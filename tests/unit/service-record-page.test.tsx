@@ -122,7 +122,7 @@ describe("service record page (work order)", () => {
       </AppUiProvider>,
     );
     fireEvent.click(document.querySelector('[data-attr="record-header-action-assign-vendor"]')!);
-    expect(screen.getByRole("heading", { name: "Assign to" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Assign" })).toBeInTheDocument(); // services-0930 popup title
   });
 
   it("never shows Coming soon on the record page", () => {

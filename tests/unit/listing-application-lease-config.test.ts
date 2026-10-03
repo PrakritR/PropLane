@@ -221,6 +221,6 @@ describe("lease generation with custom config", () => {
     ctx.application.leaseTerm = "Month-to-Month";
     const html = generatedLeaseHtml(ctx);
     expect(html).toContain("Shared room addendum");
-    expect(html).toContain("joint lease");
+    expect(html).toContain("Your space"); // C2-SR11 shared clause set (joint wording needs 2+ signers)
   });
 });
