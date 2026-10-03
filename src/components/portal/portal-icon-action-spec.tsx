@@ -17,7 +17,7 @@ export function portalIconActionSpec({ id, label, icon, onClick, disabled, tone,
 }): PortalAdaptiveAction {
   return {
     id, tone,
-    node: <PortalIconAction ring ringPrimary={tone === "primary"} icon={icon} label={label} tone={tone} disabled={disabled} data-attr={dataAttr} onClick={() => { onClick(); }} />,
-    menuItem: <DropdownMenuItem disabled={disabled} className={tone === "danger" ? "text-red-600" : undefined} data-attr={dataAttr} onSelect={() => { onClick(); }}>{label}</DropdownMenuItem>,
+    node: <PortalIconAction ring ringPrimary={tone === "primary"} icon={icon} label={label} tone={tone} disabled={disabled} data-attr={dataAttr} onClick={onClick} />,
+    menuItem: <DropdownMenuItem disabled={disabled} className={tone === "danger" ? "text-red-600" : undefined} data-attr={dataAttr} onSelect={() => onClick()}>{label}</DropdownMenuItem>,
   };
 }
