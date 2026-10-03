@@ -19,7 +19,8 @@ describe("calendar views", () => {
   });
 
   it("counts tours and tasks apart from the same planned list the grid draws", () => {
-    expect(src).toContain('plannedInWeek.filter((meeting) => meeting.kind !== "task").length');
+    // The counts follow the range the view shows (day / week / month), C2-CALP1.
+    expect(src).toContain('plannedInRange.filter((meeting) => meeting.kind !== "task").length');
     expect(src).toContain("return { all: tours + tasks + services, tours, tasks, bookings: 0, services };");
   });
 

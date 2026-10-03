@@ -99,6 +99,7 @@ import {
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { TourRescheduleTimePickerFields } from "@/components/portal/tour-reschedule-time-picker-fields";
+import { TourRescheduleContextCard, TourReschedulePreviewCard } from "@/components/portal/tour-reschedule-panels";
 import { rescheduleSlotKeyToStartIso } from "@/lib/tour-reschedule-slot-picker";
 import { slotKeyForInstant } from "@/lib/tour-slot-math";
 
@@ -865,6 +866,32 @@ export function ManagerTours({
     });
   }, [buildRescheduleNotifyContext, rescheduleTimePicker, showToast]);
 
+  /** The first tour in the picker, as the guest will be told about it once the pick is made. */
+  const reschedulePickerPreview = useMemo(() => {
+    if (!rescheduleTimePicker) return null;
+    const row = rescheduleTimePicker.rows[0];
+    if (!row) return null;
+    const key = rescheduleTimePicker.slotKeys[row.id];
+    const newStartIso = key ? rescheduleSlotKeyToStartIso(key) : null;
+    if (!newStartIso) return { row, newStartIso: null, subject: TOUR_RESCHEDULED_TENANT_SUBJECT, body: "" };
+    const times: TourRescheduleTimes = {
+      newStartIso,
+      newEndIso: tourEndIsoFromStart(newStartIso, row),
+      previousStartIso: row.startIso,
+      previousEndIso: row.endIso,
+    };
+    const ctx = buildRescheduleNotifyContext(row, times);
+    const previous = { startIso: times.previousStartIso, endIso: times.previousEndIso };
+    return {
+      row,
+      newStartIso,
+      subject: TOUR_RESCHEDULED_TENANT_SUBJECT,
+      body: isPendingInquiry(row)
+        ? buildTourRescheduleConfirmRequestBody(ctx, previous)
+        : buildTourRescheduledTenantBody(ctx, previous),
+    };
+  }, [buildRescheduleNotifyContext, rescheduleTimePicker]);
+
   const openGuestMessage = useCallback(
     (row: ManagerTourRow) => {
       const email = row.guestEmail?.trim() ?? "";
@@ -1522,6 +1549,18 @@ export function ManagerTours({
           }
           onClose={() => setRescheduleTimePicker(null)}
           dense
+          contextPanel={reschedulePickerPreview ? <TourRescheduleContextCard row={reschedulePickerPreview.row} /> : undefined}
+          preview={
+            reschedulePickerPreview ? (
+              <TourReschedulePreviewCard
+                row={reschedulePickerPreview.row}
+                newStartIso={reschedulePickerPreview.newStartIso}
+                subject={reschedulePickerPreview.subject}
+                body={reschedulePickerPreview.body}
+              />
+            ) : null
+          }
+          previewLabel="UPDATED TOUR"
           footer={
             <ModalFooter className="w-full justify-between gap-2">
               <span aria-hidden className="shrink-0" />
@@ -1536,7 +1575,6 @@ export function ManagerTours({
               </Button>
             </ModalFooter>
           }
-          panelClassName="max-w-md"
         >
           <div className="max-h-[min(60vh,24rem)] space-y-4 overflow-y-auto">
             {rescheduleTimePicker.rows.map((row) => (
