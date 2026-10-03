@@ -207,7 +207,7 @@ export function PropertyServicesOffersPanel({
           setEditOpen(false);
         }}
         showToast={showToast}
-        entityLabel={tab === "requests" ? "request service" : "add-on"}
+        entityLabel="service"
       />
     </div>
   );
