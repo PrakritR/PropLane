@@ -244,6 +244,22 @@ export function resolveAdminPropertyRowPreview(row: AdminPropertyRow): MockPrope
     const hit = readAllExtraListings().find((p) => p.id === row.listingId);
     if (hit) return hit;
   }
+  // A saved draft carries its whole submission on the row. Dropping it here made
+  // the preview fall back to the bundled sample listing (6 rooms, a Movie
+  // theater, $775 rents) for a draft that has 2 unpriced rooms.
+  if (row.submission) {
+    const listingId = row.listingId ?? `preview-${row.adminRefId}`;
+    return buildMockPropertyFromDraft(
+      {
+        ...row,
+        id: row.adminRefId,
+        submittedAt: new Date().toISOString(),
+        submission: row.submission,
+        submittedByUserId: row.managerUserId ?? LEGACY_MANAGER_SCOPE_USER_ID,
+      },
+      listingId,
+    );
+  }
   return buildMockPropertyFromAdminRow(row, row.listingId ?? `preview-${row.adminRefId}`);
 }
 
