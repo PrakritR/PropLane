@@ -13,12 +13,11 @@ export function ImportedLeasePlacementReviewModal({
   onClose: () => void;
   onConfirm: () => Promise<void> | void;
 }) {
-  const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   if (!row) return null;
 
   const confirm = async () => {
-    if (!acknowledged || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
       await onConfirm();
@@ -37,7 +36,7 @@ export function ImportedLeasePlacementReviewModal({
       primaryAction={{
         label: "Confirm reviewed lease",
         onClick: confirm,
-        disabled: !acknowledged || busy,
+        disabled: busy,
         loading: busy,
         dataAttr: "imported-lease-placement-confirm",
       }}
@@ -71,15 +70,9 @@ export function ImportedLeasePlacementReviewModal({
             )}
           </section>
         </div>
-        <label className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={(event) => setAcknowledged(event.target.checked)}
-            className="mt-1"
-          />
-          <span>I compared the complete converted source with this final placement lease, reviewed the separately appended PropLane Terms Rider, and accept any differences or conflicts shown above.</span>
-        </label>
+        <p className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm text-foreground">
+          Compare the original PDF with the final placement lease (including the PropLane Terms Rider) before confirming.
+        </p>
         {busy ? <p role="status" className="text-sm">Saving the reviewed version…</p> : null}
       </div>
     </PortalDialog>

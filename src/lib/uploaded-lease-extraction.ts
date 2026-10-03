@@ -709,6 +709,33 @@ export function uploadedLeaseReviewIsConfirmed(parse: UploadedLeaseParse | null 
   return !uploadedLeaseNeedsManagerConfirmation(parse);
 }
 
+/** Terms mapped onto the lease record that must be filled before send. */
+export const UPLOADED_LEASE_SEND_REQUIRED_FIELD_KEYS: readonly UploadedLeaseFieldKey[] = [
+  "tenantName",
+  "leaseStart",
+  "leaseEnd",
+  "monthlyRent",
+];
+
+function uploadedLeaseEffectiveTerm(parse: UploadedLeaseParse, key: UploadedLeaseFieldKey): string {
+  const field = parse.fields.find((f) => f.key === key);
+  if (field) return resolvedFieldValue(field, parse.review).value.trim();
+  const override = parse.review.overrides?.[key];
+  return typeof override === "string" ? override.trim() : "";
+}
+
+/** True when a parsed upload still lacks a required mapped term (empty stays empty). */
+export function uploadedLeaseRequiredMappedTermsMissing(
+  parse: UploadedLeaseParse | null | undefined,
+): boolean {
+  if (!parse) return false;
+  if (parse.status === "pending") return true;
+  for (const key of UPLOADED_LEASE_SEND_REQUIRED_FIELD_KEYS) {
+    if (!uploadedLeaseEffectiveTerm(parse, key)) return true;
+  }
+  return false;
+}
+
 /** One conversion policy for the review surface, confirmation, and send gate. */
 export function uploadedLeaseConversionBlocker(
   parse: UploadedLeaseParse | null | undefined,

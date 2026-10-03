@@ -11,6 +11,7 @@ import {
   uploadedLeaseConversionBlocker,
   uploadedLeaseSourceIssueKey,
   resolvedFieldValue,
+  uploadedLeaseRequiredMappedTermsMissing,
   uploadedLeaseReviewIsConfirmed,
   uploadedLeaseWasNeverRead,
   type UploadedLeaseField,
@@ -47,8 +48,8 @@ async function sha256Html(html: string): Promise<string> {
 const STATUS_COPY: Record<UploadedLeaseField["status"], { label: string; tone: string; help: string }> = {
   extracted: {
     label: "Extracted",
-    tone: "border-amber-300 text-amber-700 dark:text-amber-400",
-    help: "Read from the document. Check it against the original.",
+    tone: "border-border text-muted-foreground",
+    help: "Read from the document.",
   },
   ambiguous: {
     label: "Conflicting",
@@ -199,46 +200,35 @@ export function UploadedLeaseReviewModal({
     () => ({ ...(parse.review.overrides ?? {}) }),
   );
   const [note, setNote] = useState(parse.review.note ?? "");
-  // Seeded from "is the review settled for THIS record", never from the bare
-  // stored confirmation. A superseded confirmation — including the legacy
-  // `record_unknown` cohort, which is every confirmation predating the
-  // fingerprint field — must open UNTICKED, or the re-acknowledgement that
-  // `confirmedRecordFingerprint` exists to force is satisfied by one Confirm
-  // click with nothing re-affirmed.
-  const [attested, setAttested] = useState(confirmed);
   const [tab, setTab] = useState<"terms" | "document">("terms");
   const [convertedDraft, setConvertedDraft] = useState<string | null>(null);
-  const [resolvedIssueKeys, setResolvedIssueKeys] = useState<string[]>([]);
   const [useConverted, setUseConverted] = useState(() => effectiveLeaseDocumentMode(row) === "imported-converted");
   const [documentSubject, setDocumentSubject] = useState(`${parse.sourceSha256 ?? "legacy"}:${row.id}`);
   const nextDocumentSubject = `${parse.sourceSha256 ?? "legacy"}:${row.id}`;
   if (documentSubject !== nextDocumentSubject) {
     setDocumentSubject(nextDocumentSubject);
     setConvertedDraft(null);
-    setResolvedIssueKeys([]);
     setUseConverted(true);
   }
   const [mobileDocumentTab, setMobileDocumentTab] = useState<"original" | "converted">("converted");
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  // Reset everything the manager staged whenever what they are attesting to
-  // changes. Done during render (React's documented "adjust state when props
-  // change" pattern) rather than in an effect on purpose: an effect runs after
-  // paint, so the stronger attestation would render ticked for a frame before
-  // clearing — on the gate whose entire job is to stop an un-agreed
-  // attestation. React re-runs this component immediately without committing.
   const subject = attestationSubject(parse, row);
-  const [attestedSubject, setAttestedSubject] = useState(subject);
-  if (attestedSubject !== subject) {
-    setAttestedSubject(subject);
-    setAttested(confirmed);
-    // `drafts` are submitted by `onConfirm` as overrides and badged "Manager
-    // entered", so carrying them would attribute a value to the manager that
-    // they never typed for this document; `note` is recorded as part of the
-    // confirmation. Both re-seed from the new parse, exactly like mount.
+  const [draftSubject, setDraftSubject] = useState(subject);
+  if (draftSubject !== subject) {
+    setDraftSubject(subject);
     setDrafts({ ...(parse.review.overrides ?? {}) });
     setNote(parse.review.note ?? "");
   }
+
+  const parseWithDrafts = useMemo(
+    () => ({
+      ...parse,
+      review: { ...parse.review, overrides: { ...(parse.review.overrides ?? {}), ...drafts } },
+    }),
+    [parse, drafts],
+  );
+  const requiredTermsMissing = uploadedLeaseRequiredMappedTermsMissing(parseWithDrafts);
 
   /** Kept visible in every confirmed state — the confirmation happened, whatever else changed. */
   const confirmationAttribution = `Confirmed${parse.review.confirmedByName ? ` by ${parse.review.confirmedByName}` : ""}${
@@ -252,7 +242,10 @@ export function UploadedLeaseReviewModal({
   const convertedHtml = parse.status === "failed" && convertedDraft
     ? `<html><body><h1>Reviewed lease transcription</h1>${convertedDraft.split(/\n\s*\n/).map((paragraph) => `<p>${paragraph.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char).replace(/\n/g, "<br>")}</p>`).join("")}</body></html>`
     : convertedDraft ?? convertedBaseline;
-  const conversionBlocker = uploadedLeaseConversionBlocker(parse, resolvedIssueKeys);
+  // Saving is the acknowledgement of every source-page issue listed above: the receipt the server
+  // checks still names each one, but there is no checkbox per issue.
+  const shownIssueKeys = (parse.sourceIssues ?? []).map(uploadedLeaseSourceIssueKey);
+  const conversionBlocker = uploadedLeaseConversionBlocker(parse, shownIssueKeys);
   const conversionAvailable = !conversionBlocker && Boolean(parse.sections.length || (parse.status === "failed" && convertedDraft?.trim()));
   const viewedRecordFingerprint = leaseRecordFingerprint(leaseRecordTerms(row));
 
@@ -273,7 +266,7 @@ export function UploadedLeaseReviewModal({
           useConverted,
           convertedHtml: sanitizedHtml,
           convertedHtmlSha256,
-          resolvedSourceIssueCodes: resolvedIssueKeys,
+          resolvedSourceIssueCodes: shownIssueKeys,
           expectedRevision: row.reviewRevision,
           viewedSourceSha256: parse.sourceSha256 ?? undefined,
           viewedConvertedHtmlSha256: convertedHtmlSha256,
@@ -314,23 +307,6 @@ export function UploadedLeaseReviewModal({
     [parse, drafts, row],
   );
 
-  /**
-   * Untick when the manager's OWN edits change which statement they are being
-   * asked to sign — the checkbox reads "The terms above are correct" with no
-   * disagreements and "I accept the differences listed above" with them, and a
-   * tick on the first must never be counted as agreement to the second.
-   *
-   * Deliberately separate from `attestationSubject`: that value also drives the
-   * `setDrafts` / `setNote` re-seed, so folding drafts into it would wipe the
-   * manager's typing on every keystroke. This one resets ONLY `attested`.
-   */
-  const attestationWording = mismatches.length > 0 ? "accepts-differences" : "terms-correct";
-  const [attestedWording, setAttestedWording] = useState(attestationWording);
-  if (attestedWording !== attestationWording) {
-    setAttestedWording(attestationWording);
-    setAttested(confirmed);
-  }
-
   if (parse.status !== "parsed") {
     // A read that is still running has no result to attest to, and confirming
     // now would make the parse that lands a moment later unstorable — leaving
@@ -354,9 +330,9 @@ export function UploadedLeaseReviewModal({
         }
       : null;
     const confirmAction = {
-      label: "Confirm and allow signing",
+      label: "Save and allow signing",
       onClick: confirmReview,
-      disabled: !attested || (useConverted && !conversionAvailable),
+      disabled: useConverted && !conversionAvailable,
       dataAttr: "uploaded-lease-confirm",
     };
     // Nothing left to attest to (still reading, or already confirmed): the
@@ -414,44 +390,28 @@ export function UploadedLeaseReviewModal({
             <div className="space-y-3" data-attr="uploaded-lease-manual-transcription">
               <label className="block font-semibold" htmlFor="uploaded-lease-transcription">Transcribe the unreadable pages</label>
               <textarea id="uploaded-lease-transcription" rows={10} value={convertedDraft ?? ""}
-                onChange={(event) => { setConvertedDraft(event.target.value); setAttested(false); }}
+                onChange={(event) => setConvertedDraft(event.target.value)}
                 className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
-              {parse.sourceIssues.filter((issue) => issue.code === "unreadable_page").map((issue, index) => {
-                const key = uploadedLeaseSourceIssueKey(issue);
-                return <label key={`${key}-${index}`} className="flex items-start gap-2">
-                  <input type="checkbox" checked={resolvedIssueKeys.includes(key)} onChange={(event) => {
-                    setResolvedIssueKeys((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key));
-                    setAttested(false);
-                  }} />
-                  <span>Page {issue.pageNumber}: I transcribed this page and compared it with the original PDF.</span>
-                </label>;
-              })}
-              <label className="flex items-start gap-2"><input type="checkbox" checked={useConverted}
-                disabled={!conversionAvailable} onChange={(event) => { setUseConverted(event.target.checked); setAttested(false); }} />
-                <span>Use the reviewed transcription as the signable lease</span></label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={useConverted}
+                  disabled={!conversionAvailable}
+                  onChange={(event) => setUseConverted(event.target.checked)}
+                />
+                <span>Use the reviewed transcription as the signable lease</span>
+              </label>
             </div>
           ) : null}
           {confirmError ? <p role="alert">{confirmError}</p> : null}
           {stillReading || confirmed ? null : (
-            <>
-              <label className="flex items-start gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={attested}
-                  data-attr="uploaded-lease-attest"
-                  onChange={(e) => setAttested(e.target.checked)}
-                />
-                <span>I have read the original PDF myself and it is the lease I intend to send for signature.</span>
-              </label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder="Optional note recorded with your confirmation"
-                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
-              />
-            </>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Optional note recorded with your confirmation"
+              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+            />
           )}
         </div>
       </PortalDialog>
@@ -469,9 +429,9 @@ export function UploadedLeaseReviewModal({
         confirmed
           ? { label: "Done", onClick: onClose }
           : {
-              label: "Confirm and allow signing",
+              label: "Save terms",
               onClick: confirmReview,
-              disabled: !attested || (useConverted && !conversionAvailable),
+              disabled: requiredTermsMissing || (useConverted && !conversionAvailable),
               dataAttr: "uploaded-lease-confirm",
             }
       }
@@ -511,7 +471,7 @@ export function UploadedLeaseReviewModal({
         )}
         {parse.sourceIssues?.length ? (
           <section
-            className="rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+            className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm text-foreground"
             data-attr="uploaded-lease-source-issues"
           >
             <p className="font-semibold">Source pages need a closer read</p>
@@ -524,26 +484,16 @@ export function UploadedLeaseReviewModal({
               ))}
             </ul>
             <p className="mt-2">
-              Compare each page with the original PDF before confirming. The extracted wording stays editable, and the original remains unchanged.
+              The extracted wording stays editable, and the original remains unchanged.
             </p>
           </section>
         ) : null}
-        {!confirmed ? parse.sourceIssues?.map((issue, index) => {
-          const key = uploadedLeaseSourceIssueKey(issue);
-          return <label key={`${key}-${index}`} className="flex items-start gap-2 rounded-xl border border-amber-300 px-4 py-3 text-sm" data-attr="uploaded-lease-resolve-source-issue">
-            <input type="checkbox" checked={resolvedIssueKeys.includes(key)} onChange={(event) => {
-              setResolvedIssueKeys((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key));
-              setAttested(false);
-            }} className="mt-1" />
-            <span>Page {issue.pageNumber ?? "source"}: I compared this issue with the original and accounted for it in the converted lease.</span>
-          </label>;
-        }) : null}
         {supersededCause ? (
           <p
-            className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+            className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm text-foreground"
             data-attr="uploaded-lease-superseded"
           >
-            <strong className="font-semibold">Needs confirming again.</strong>{" "}
+            <strong className="font-semibold">Save the terms again.</strong>{" "}
             {confirmationAttribution}{" "}
             {/*
               Two different facts, and only one of them is "the record changed".
@@ -554,8 +504,8 @@ export function UploadedLeaseReviewModal({
               what the gate does.
             */}
             {supersededCause === "record_changed"
-              ? "The lease record has changed since, so the differences below are not the ones that were accepted."
-              : "PropLane cannot tell which record it was confirmed against, so the differences below have to be accepted again."}
+              ? "The lease record has changed since, so the differences below are not the ones that were saved."
+              : "PropLane cannot tell which record it was confirmed against, so the differences below are saved again with this document."}
             {needsMoveBackFirst ? ` ${LEASE_MOVE_BACK_TO_REVIEW_MESSAGE}` : ""}
           </p>
         ) : confirmed && sendable ? (
@@ -572,10 +522,9 @@ export function UploadedLeaseReviewModal({
             {confirmationAttribution}
           </p>
         ) : (
-          <p className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-            <strong className="font-semibold">Not signable yet.</strong> Every value below was read by machine.
-            Blanks are deliberate — PropLane leaves a term empty rather than guessing it. Check them against the
-            original PDF, fill in what is missing, then confirm.
+          <p className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm text-foreground">
+            <strong className="font-semibold">Review imported terms.</strong> Values came from the PDF; blanks were not guessed.
+            Fill required terms, then save.
           </p>
         )}
 
@@ -606,7 +555,7 @@ export function UploadedLeaseReviewModal({
             </ul>
             <p className="mt-2">
               Check you uploaded the right PDF onto the right lease. Correct a value below if the document is right
-              and PropLane misread it; otherwise upload the correct document. Confirming sends this document, as it
+              and PropLane misread it; otherwise upload the correct document. Saving sends this document, as it
               is, to {row.residentEmail || "the resident"} for signature.
             </p>
           </div>
@@ -747,10 +696,7 @@ export function UploadedLeaseReviewModal({
                     className="h-[52vh]"
                     html={convertedHtml}
                     baselineHtml={convertedBaseline}
-                    onChange={(next) => {
-                      setConvertedDraft(next);
-                      setAttested(false);
-                    }}
+                    onChange={(next) => setConvertedDraft(next)}
                     showPersistBar={false}
                   />
                 ) : (
@@ -775,29 +721,13 @@ export function UploadedLeaseReviewModal({
         ) : null}
 
         {confirmed ? null : (
-          <>
-            <label className="flex items-start gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={attested}
-                data-attr="uploaded-lease-attest"
-                onChange={(e) => setAttested(e.target.checked)}
-              />
-              <span>
-                {mismatches.length > 0
-                  ? `I have compared this against the original PDF. I accept the differences listed above, and this is the ${useConverted ? "converted lease" : "original PDF"} I intend to send for signature.`
-                  : `I have compared this against the original PDF. The terms above are correct and this is the ${useConverted ? "converted lease" : "original PDF"} I intend to send for signature.`}
-              </span>
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              placeholder="Optional note recorded with your confirmation"
-              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
-            />
-          </>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Optional note recorded with your confirmation"
+            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+          />
         )}
       </div>
     </PortalDialog>

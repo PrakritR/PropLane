@@ -37,7 +37,7 @@ import {
   sendLeaseToResident,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
-import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { confirmUploadedLeaseOnCreate, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { uploadApplicationPhoto } from "@/components/marketing/application-photo-field";
 import { createManualPlannedTourClient } from "@/lib/manual-planned-tour.client";
 import { createScheduledWorkTask, scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
@@ -121,6 +121,8 @@ async function fileLeaseForAddResident(
   if (form.leaseDocument === "draft" && form.leaseFile) {
     const uploaded = await uploadAndParseLeasePdf(leaseId, form.leaseFile, managerUserId);
     if (!uploaded.ok) return { leaseId, error: uploaded.error ?? "The draft lease PDF could not be filed." };
+    // Create is the confirmation of the uploaded lease; no separate review step.
+    await confirmUploadedLeaseOnCreate(leaseId, managerUserId);
     return { leaseId };
   }
 

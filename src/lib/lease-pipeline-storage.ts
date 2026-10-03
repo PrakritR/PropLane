@@ -95,6 +95,7 @@ import {
   pendingUploadedLeaseParse,
   unreadUploadedLeaseParse,
   uploadedLeaseNeedsManagerConfirmation,
+  uploadedLeaseRequiredMappedTermsMissing,
   uploadedLeaseConversionBlocker,
   type UploadedLeaseFieldKey,
   type UploadedLeaseParse,
@@ -296,11 +297,17 @@ export { leaseAllowsManagerDocumentEdits } from "@/lib/lease-execution-evidence"
  * waiting to be sent.
  */
 export function leaseAwaitsUploadedLeaseReview(row: LeasePipelineRow): boolean {
-  return uploadedLeaseNeedsManagerConfirmation(row.uploadedLeaseParse);
+  const parse = row.uploadedLeaseParse;
+  if (!parse) return false;
+  // (a) A required mapped term is still empty — the parser leaves it empty rather than guessing.
+  if (uploadedLeaseRequiredMappedTermsMissing(parse)) return true;
+  // (b) The manager's Create / Save terms action is the confirmation, but it only counts while
+  // it binds to the document digest the manager saw. Saving again re-confirms.
+  return uploadedLeaseNeedsManagerConfirmation(parse);
 }
 
 export const UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE =
-  "Review the imported lease and confirm it before sending it for signature.";
+  "Save the imported lease's terms (tenant, start, end, rent) before sending it for signature.";
 
 /**
  * Terms the uploaded document states that disagree with this lease record.
@@ -599,7 +606,7 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
     const parse = row.uploadedLeaseParse;
     if (
       !parse ||
-      uploadedLeaseConversionBlocker(parse, parse?.review.resolvedSourceIssueCodes ?? []) ||
+      uploadedLeaseConversionBlocker(parse, parse.review.resolvedSourceIssueCodes ?? []) ||
       !parse.review.confirmedConvertedHtmlSha256 ||
       !row.generatedHtml
     ) {

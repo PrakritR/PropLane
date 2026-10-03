@@ -24,6 +24,7 @@ import {
   pendingUploadedLeaseParse,
   UNREAD_UPLOADED_LEASE_REASON,
   unreadUploadedLeaseParse,
+  uploadedLeaseNeedsManagerConfirmation,
   uploadedLeaseReviewIsConfirmed,
   uploadedLeaseWasNeverRead,
 } from "@/lib/uploaded-lease-extraction";
@@ -73,7 +74,14 @@ function storedRow(): LeasePipelineRow | undefined {
   return readLeasePipeline(MANAGER_ID).find((r) => r.id === ROW_ID);
 }
 
-describe("an imported lease is not signable until a manager confirms it", () => {
+const REQUIRED_TERM_OVERRIDES = {
+  tenantName: "Dana Whitfield",
+  leaseStart: "March 1, 2026",
+  leaseEnd: "February 28, 2027",
+  monthlyRent: "$2,150.00",
+} as const;
+
+describe("an imported lease is not signable until required terms are filled", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     window.localStorage.clear();
@@ -81,14 +89,14 @@ describe("an imported lease is not signable until a manager confirms it", () => 
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
   });
 
-  it("refuses to send a parsed-but-unconfirmed lease to the resident", async () => {
+  it("refuses to send a parsed lease while required mapped terms are still empty", async () => {
     seedDemoLeasePipeline([uploadedRow({ uploadedLeaseParse: parseFixture() })], MANAGER_ID);
     expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(true);
 
     const result = await sendLeaseToResident(ROW_ID, MANAGER_ID);
 
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/confirm it before sending/i);
+    expect(result.error).toMatch(/save the imported lease/i);
     expect(storedRow()?.status).toBe("Manager Review");
     expect(storedRow()?.sentToResidentAt ?? null).toBeNull();
   });
@@ -105,13 +113,43 @@ describe("an imported lease is not signable until a manager confirms it", () => 
     expect(storedRow()?.status).toBe("Manager Review");
   });
 
+  it("keeps an unsaved reading blocked even with every required term filled: Save terms is the confirmation", async () => {
+    const parse = parseFixture();
+    seedDemoLeasePipeline(
+      [uploadedRow({ uploadedLeaseParse: { ...parse, review: { ...parse.review, overrides: { ...REQUIRED_TERM_OVERRIDES } } } })],
+      MANAGER_ID,
+    );
+    expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(true);
+    expect((await sendLeaseToResident(ROW_ID, MANAGER_ID)).ok).toBe(false);
+
+    // Saving (no checkbox, no attestation argument) records the confirmation.
+    expect(confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" }).ok).toBe(true);
+    expect(storedRow()?.uploadedLeaseParse?.review.status).toBe("confirmed");
+    expect(storedRow()?.uploadedLeaseParse?.review.confirmedDocumentSha256).toBe("c".repeat(64));
+    expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(false);
+  });
+
+  it("still blocks a saved reading when a required term is missing", async () => {
+    seedDemoLeasePipeline([uploadedRow({ uploadedLeaseParse: parseFixture() })], MANAGER_ID);
+    expect(
+      confirmUploadedLeaseParse(ROW_ID, {
+        managerUserId: MANAGER_ID,
+        confirmedByName: "Pat Manager",
+        overrides: { tenantName: "Dana Whitfield", leaseStart: "March 1, 2026" },
+      }).ok,
+    ).toBe(true);
+    expect(uploadedLeaseNeedsManagerConfirmation(storedRow()!.uploadedLeaseParse)).toBe(false);
+    expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(true);
+    expect((await sendLeaseToResident(ROW_ID, MANAGER_ID)).ok).toBe(false);
+  });
+
   it("sends once a manager has confirmed", async () => {
     seedDemoLeasePipeline([uploadedRow({ uploadedLeaseParse: parseFixture() })], MANAGER_ID);
 
     const confirmed = confirmUploadedLeaseParse(ROW_ID, {
       managerUserId: MANAGER_ID,
       confirmedByName: "Pat Manager",
-      overrides: { securityDeposit: "$3,000.00" },
+      overrides: { ...REQUIRED_TERM_OVERRIDES, securityDeposit: "$3,000.00" },
       note: "Checked against the PDF.",
     });
     expect(confirmed.ok).toBe(true);
@@ -160,7 +198,7 @@ describe("an imported lease is not signable until a manager confirms it", () => 
     const result = await sendLeaseToResident(ROW_ID, MANAGER_ID);
 
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/confirm it before sending/i);
+    expect(result.error).toMatch(/save the imported lease/i);
     expect(storedRow()?.status).toBe("Manager Review");
     expect(storedRow()?.sentToResidentAt ?? null).toBeNull();
   });
@@ -169,7 +207,11 @@ describe("an imported lease is not signable until a manager confirms it", () => 
     seedDemoLeasePipeline([uploadedRow()], MANAGER_ID);
 
     expect(
-      confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" }).ok,
+      confirmUploadedLeaseParse(ROW_ID, {
+        managerUserId: MANAGER_ID,
+        confirmedByName: "Pat Manager",
+        overrides: { ...REQUIRED_TERM_OVERRIDES },
+      }).ok,
     ).toBe(true);
     expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(false);
 
@@ -286,7 +328,11 @@ describe("a confirmation is bound to the document it was made against", () => {
   it("stamps the reviewed document's digest at confirm time", () => {
     seedDemoLeasePipeline([uploadedRow({ uploadedLeaseParse: parseFixture() })], MANAGER_ID);
 
-    confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" });
+    confirmUploadedLeaseParse(ROW_ID, {
+      managerUserId: MANAGER_ID,
+      confirmedByName: "Pat Manager",
+      overrides: { ...REQUIRED_TERM_OVERRIDES },
+    });
 
     expect(storedRow()?.uploadedLeaseParse?.review.confirmedDocumentSha256).toBe("c".repeat(64));
     expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(false);
@@ -294,7 +340,11 @@ describe("a confirmation is bound to the document it was made against", () => {
 
   it("reverts to needs-review when the parse it confirmed describes different bytes", async () => {
     seedDemoLeasePipeline([uploadedRow({ uploadedLeaseParse: parseFixture() })], MANAGER_ID);
-    confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" });
+    confirmUploadedLeaseParse(ROW_ID, {
+      managerUserId: MANAGER_ID,
+      confirmedByName: "Pat Manager",
+      overrides: { ...REQUIRED_TERM_OVERRIDES },
+    });
 
     const confirmed = storedRow()!.uploadedLeaseParse!;
     seedDemoLeasePipeline(
@@ -303,6 +353,7 @@ describe("a confirmation is bound to the document it was made against", () => {
     );
 
     expect(storedRow()?.uploadedLeaseParse?.review.status).toBe("confirmed");
+    expect(uploadedLeaseNeedsManagerConfirmation(storedRow()!.uploadedLeaseParse)).toBe(true);
     expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(true);
     expect((await sendLeaseToResident(ROW_ID, MANAGER_ID)).ok).toBe(false);
   });
@@ -331,9 +382,13 @@ describe("a confirmation is bound to the document it was made against", () => {
       MANAGER_ID,
     );
 
-    expect(confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" }).ok).toBe(
-      true,
-    );
+    expect(
+      confirmUploadedLeaseParse(ROW_ID, {
+        managerUserId: MANAGER_ID,
+        confirmedByName: "Pat Manager",
+        overrides: { ...REQUIRED_TERM_OVERRIDES },
+      }).ok,
+    ).toBe(true);
     expect(leaseAwaitsUploadedLeaseReview(storedRow()!)).toBe(false);
     expect((await sendLeaseToResident(ROW_ID, MANAGER_ID)).ok).toBe(true);
   });

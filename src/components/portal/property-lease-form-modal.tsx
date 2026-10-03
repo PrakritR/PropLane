@@ -212,8 +212,6 @@ export function PropertyLeaseFormModal({
   const [importSource, setImportSource] = useState<
     Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage" | "sectionCount"> | null
   >(null);
-  const [importSourceReviewed, setImportSourceReviewed] = useState(false);
-  const [transcribedUnreadableSourcePages, setTranscribedUnreadableSourcePages] = useState(false);
   const unreadableSourcePage = Boolean(importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page"));
   const importIssueSummary = useMemo(
     () => summarizeImportIssues(importSource?.sourceIssues ?? []),
@@ -362,8 +360,6 @@ export function PropertyLeaseFormModal({
         },
         sectionCount: parseLeaseHtmlSections(template.leaseTemplateHtmlOverride ?? "").filter((s) => s.id !== "lease-document-header").length,
       } : null);
-      setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
-      setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
       setLinkedGuarantorTemplateId(template.linkedGuarantorLeaseTemplateId ?? null);
       setPendingLeaseImport(null);
       setPendingLeaseImportCompareOpen(false);
@@ -387,8 +383,6 @@ export function PropertyLeaseFormModal({
     setDraft((d) => ({ ...d, ...applied.draftFields }));
     setHtmlOverride("");
     setImportSource(null);
-    setImportSourceReviewed(false);
-    setTranscribedUnreadableSourcePages(false);
     setLinkedGuarantorTemplateId(null);
     setPendingLeaseImport(null);
     setPendingLeaseImportCompareOpen(false);
@@ -415,8 +409,6 @@ export function PropertyLeaseFormModal({
     setError(null);
     setHtmlOverride("");
     setImportSource(null);
-    setImportSourceReviewed(false);
-    setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
     setPendingLeaseImport(null);
     setPendingLeaseImportCompareOpen(false);
@@ -488,8 +480,6 @@ export function PropertyLeaseFormModal({
           // document (and is parsed) only after save, same as before.
           setHtmlOverride("");
           setImportSource(null);
-          setImportSourceReviewed(false);
-          setTranscribedUnreadableSourcePages(false);
           setImportReviewError(null);
           setPendingLeaseImport(null);
           setPendingLeaseImportCompareOpen(false);
@@ -546,8 +536,6 @@ export function PropertyLeaseFormModal({
       coverage: p.coverage,
       sectionCount: p.sections.length,
     });
-    setImportSourceReviewed(false);
-    setTranscribedUnreadableSourcePages(false);
     setImportReviewError(null);
     setDraft((d) => ({ ...d, leaseTemplateDocUrl: p.docUrl, leaseTemplateDocName: p.fileName }));
     if (!p.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(p.html);
@@ -583,8 +571,7 @@ export function PropertyLeaseFormModal({
   /** Why the converted document can't be saved yet, or null. */
   const importReviewBlocker = (resolvedHtml: string | null | undefined): string | null => {
     if (documentMode !== "upload" || !resolvedHtml || !importSource) return null;
-    if (unreadableSourcePage && !transcribedUnreadableSourcePages) return "Type in every unreadable page, then check the box.";
-    if (!importSourceReviewed) return "Check every page against the original PDF, then check the box.";
+    // Saving the template IS the confirmation: no box to tick.
     return null;
   };
 
@@ -646,7 +633,7 @@ export function PropertyLeaseFormModal({
 
     const trimmedLabel = label.trim() || typeMeta?.defaultLabel || "Lease";
     let leaseTemplateImportReview = template?.leaseTemplateImportReview;
-    if (documentMode === "upload" && resolvedHtml && importSource && importSourceReviewed) {
+    if (documentMode === "upload" && resolvedHtml && importSource) {
       try {
         leaseTemplateImportReview = {
           sourceSha256: importSource.sourceSha256,
@@ -654,7 +641,7 @@ export function PropertyLeaseFormModal({
           reviewedAtIso: new Date().toISOString(),
           templateVersion: `${template?.id ?? "new"}@${(template?.updatedAt ?? new Date().toISOString())}`,
           issueCodes: importSource.sourceIssues.map((issue) => issue.code),
-          resolvedIssueCodes: unreadableSourcePage && transcribedUnreadableSourcePages ? ["unreadable_page"] : [],
+          resolvedIssueCodes: unreadableSourcePage ? ["unreadable_page"] : [],
           extractedCharacters: importSource.coverage.extractedCharacters,
           representedCharacters: importSource.coverage.representedCharacters,
         };
@@ -909,8 +896,8 @@ export function PropertyLeaseFormModal({
 
   const workspaceDraft = useWorkspaceDraft({
     scope: `property-lease:${propertyId ?? sub.address ?? "property"}:${mode}:${template?.id ?? "new"}`,
-    open, value: { label, kind, documentMode, draft, applicationLeaseTerms, linkedGuarantorTemplateId, linkedApplicationTemplateId, applicationLinkTouched, htmlOverride, sectionsUploadFileName, importSource, importSourceReviewed, transcribedUnreadableSourcePages, pendingLeaseImport, stepIdx, addModeLeaseTemplateId },
-    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setDocumentMode(saved.documentMode); setDraft(saved.draft); setApplicationLeaseTerms(saved.applicationLeaseTerms); setLinkedGuarantorTemplateId(saved.linkedGuarantorTemplateId); setLinkedApplicationTemplateId(saved.linkedApplicationTemplateId ?? null); setApplicationLinkTouched(Boolean(saved.applicationLinkTouched)); setHtmlOverride(saved.htmlOverride); setSectionsUploadFileName(saved.sectionsUploadFileName); setImportSource(saved.importSource); setImportSourceReviewed(saved.importSourceReviewed); setTranscribedUnreadableSourcePages(saved.transcribedUnreadableSourcePages); setPendingLeaseImport(saved.pendingLeaseImport); setStepIdx(saved.stepIdx); setAddModeLeaseTemplateId(saved.addModeLeaseTemplateId); },
+    open, value: { label, kind, documentMode, draft, applicationLeaseTerms, linkedGuarantorTemplateId, linkedApplicationTemplateId, applicationLinkTouched, htmlOverride, sectionsUploadFileName, importSource, pendingLeaseImport, stepIdx, addModeLeaseTemplateId },
+    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setDocumentMode(saved.documentMode); setDraft(saved.draft); setApplicationLeaseTerms(saved.applicationLeaseTerms); setLinkedGuarantorTemplateId(saved.linkedGuarantorTemplateId); setLinkedApplicationTemplateId(saved.linkedApplicationTemplateId ?? null); setApplicationLinkTouched(Boolean(saved.applicationLinkTouched)); setHtmlOverride(saved.htmlOverride); setSectionsUploadFileName(saved.sectionsUploadFileName); setImportSource(saved.importSource); setPendingLeaseImport(saved.pendingLeaseImport); setStepIdx(saved.stepIdx); setAddModeLeaseTemplateId(saved.addModeLeaseTemplateId); },
   });
 
   if (!open) return null;
@@ -1206,37 +1193,18 @@ export function PropertyLeaseFormModal({
           ) : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
-              {importSource ? (
-                // Light tokens only: the portal is light-themed, so `dark:`
-                // variants (OS-driven) painted this box brown on dark-mode Macs.
-                <section className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm leading-relaxed text-amber-950" data-attr="property-lease-import-review">
-                  <p className="font-semibold">Check against the original PDF</p>
+              {importSource && (importIssueSummary.length > 0 || importReviewError) ? (
+                <section className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm leading-relaxed text-foreground" data-attr="property-lease-import-review">
                   {importIssueSummary.length ? (
-                    <ul className="mt-1 space-y-0.5">
+                    <ul className="space-y-0.5">
                       {importIssueSummary.map((issue) => (
                         <li key={issue.key}>
                           {issue.label}
-                          {issue.pages ? <span className="text-amber-900/70"> · {issue.pages}</span> : null}
+                          {issue.pages ? <span className="text-muted-foreground"> · {issue.pages}</span> : null}
                         </li>
                       ))}
                     </ul>
                   ) : null}
-                  <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium">
-                    <input
-                      type="checkbox"
-                      className="mt-1 size-4 shrink-0 accent-primary"
-                      checked={unreadableSourcePage ? transcribedUnreadableSourcePages : importSourceReviewed}
-                      onChange={(event) => {
-                        if (unreadableSourcePage) setTranscribedUnreadableSourcePages(event.target.checked);
-                        setImportSourceReviewed(event.target.checked);
-                        setImportReviewError(null);
-                      }}
-                      data-attr="property-lease-import-confirm"
-                    />
-                    {unreadableSourcePage
-                      ? "I typed in every unreadable page"
-                      : "I checked every page against the original"}
-                  </label>
                   {importReviewError ? <p role="alert" className="mt-1.5 text-rose-700">{importReviewError}</p> : null}
                 </section>
               ) : null}
@@ -1292,8 +1260,6 @@ export function PropertyLeaseFormModal({
                           detectedFieldCount={importSource.sectionCount}
                           onChange={(next) => {
                             setHtmlOverride(next);
-                            setImportSourceReviewed(false);
-                            setTranscribedUnreadableSourcePages(false);
                           }}
                         />
                       ) : (
@@ -1303,8 +1269,6 @@ export function PropertyLeaseFormModal({
                           baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
                           onChange={(next) => {
                             setHtmlOverride(next);
-                            setImportSourceReviewed(false);
-                            setTranscribedUnreadableSourcePages(false);
                           }}
                           showPersistBar={false}
                         />

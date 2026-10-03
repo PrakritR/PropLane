@@ -108,49 +108,37 @@ describe("the review names what the document disagrees with", () => {
     expect(document.body.querySelector('[data-attr="uploaded-lease-mismatch-monthlyRent"]')).not.toBeNull();
   });
 
-  it("asks the manager to accept the differences, not merely that the terms are correct", () => {
+  it("does not ask for a separate attestation checkbox when terms disagree", () => {
     renderModal(parseOf(WRONG_PARTY_PAGES));
 
-    expect(shownText()).toContain("I accept the differences listed above");
-    expect(shownText()).not.toContain("The terms above are correct");
+    expect(attestBox()).toBeNull();
+    expect(shownText()).toContain("Review imported terms");
+    expect(document.body.querySelector('[data-attr="uploaded-lease-confirm"]')).not.toBeNull();
   });
 
   it("says nothing when the document agrees with the record", () => {
     renderModal(parseOf(RIGHT_PARTY_PAGES));
 
     expect(panel()).toBeNull();
-    expect(shownText()).toContain("The terms above are correct");
+    expect(shownText()).toContain("Review imported terms");
   });
 
-  /**
-   * The manager's OWN typing can change which statement they are signing. A
-   * tick on "The terms above are correct" must not be counted as agreement to
-   * "I accept the differences listed above" — and the reset must not wipe their
-   * typing, which is why it is separate from the document-identity reset.
-   */
-  it("unticks when the manager's own edit introduces a disagreement", () => {
+  it("updates the mismatch panel when the manager edits a disagreeing term", () => {
     renderModal(parseOf(RIGHT_PARTY_PAGES));
-
-    fireEvent.click(attestBox()!);
-    expect(attestBox()!.checked).toBe(true);
-    expect(shownText()).toContain("The terms above are correct");
 
     fireEvent.change(rentInput()!, { target: { value: "$4,000.00" } });
 
-    expect(shownText()).toContain("I accept the differences listed above");
-    expect(attestBox()!.checked).toBe(false);
-    // ...and the value they typed survives the reset.
+    expect(panel()).not.toBeNull();
     expect(rentInput()!.value).toBe("$4,000.00");
   });
 
-  it("keeps the tick while edits do not change which statement is being signed", () => {
+  it("keeps edited values while correcting a term to match the record", () => {
     renderModal(parseOf(RIGHT_PARTY_PAGES));
 
-    fireEvent.click(attestBox()!);
     fireEvent.change(rentInput()!, { target: { value: "$1,050.00" } });
 
-    // Still agreeing, so still the same statement — do not clear it under them.
-    expect(attestBox()!.checked).toBe(true);
+    expect(panel()).toBeNull();
+    expect(rentInput()!.value).toBe("$1,050.00");
   });
 
   it("clears a term from the warning as soon as the manager corrects it", () => {
@@ -164,13 +152,7 @@ describe("the review names what the document disagrees with", () => {
     expect(panel()!.textContent).toContain("Shivansh Nikhra");
   });
 
-  /**
-   * The tick is a legal statement about a specific set of differences. Letting
-   * it survive a change in that set would silently upgrade "I accept these
-   * differences" into "the terms are correct" — the same class of bug as the
-   * failed→parsed carryover, one level up.
-   */
-  it("unticks the attestation when the set of differences changes", () => {
+  it("refreshes the mismatch panel when the record side changes under review", () => {
     const { rerender } = render(
       <UploadedLeaseReviewModal
         open
@@ -181,11 +163,8 @@ describe("the review names what the document disagrees with", () => {
       />,
     );
 
-    fireEvent.click(attestBox()!);
-    expect(attestBox()!.checked).toBe(true);
+    expect(panel()).not.toBeNull();
 
-    // The record was corrected under the open review — the document now names
-    // the right tenant, so the manager is being asked the STRONGER question.
     rerender(
       <UploadedLeaseReviewModal
         open
@@ -196,7 +175,8 @@ describe("the review names what the document disagrees with", () => {
       />,
     );
 
-    expect(attestBox()!.checked).toBe(false);
+    expect(panel()).not.toBeNull();
+    expect(panel()!.textContent).toContain("Monthly rent");
   });
 });
 
@@ -353,42 +333,47 @@ describe("unsaved typing never settles the review", () => {
     // ...but nothing was saved, so the review is still unsettled: Confirm stays
     // reachable and the modal does not claim the lease is sendable.
     expect(document.body.querySelector('[data-attr="uploaded-lease-confirm"]')).not.toBeNull();
-    expect(attestBox()).not.toBeNull();
+    expect(attestBox()).toBeNull();
     expect(document.body.querySelector('[data-attr="uploaded-lease-superseded"]')).not.toBeNull();
     expect(shownText()).not.toContain("can be sent for signature");
   });
 
-  it("opens unticked, with Confirm disabled, for a confirmation that names no record", () => {
+  it("keeps save disabled while required terms are missing on a superseded review", () => {
     const parse = supersededParse(null);
     renderModal(parse, rowWith(parse));
 
     expect(shownText()).toContain("cannot tell which record it was confirmed against");
-    expect(attestBox()!.checked).toBe(false);
     const confirmButton = document.body.querySelector<HTMLButtonElement>(
       '[data-attr="uploaded-lease-confirm"]',
     );
     expect(confirmButton!.disabled).toBe(true);
 
-    fireEvent.click(attestBox()!);
+    fireEvent.change(rentInput()!, { target: { value: "$1,050.00" } });
+    fireEvent.change(
+      document.body.querySelector<HTMLInputElement>('[data-attr="uploaded-lease-field-tenantName"]')!,
+      { target: { value: "Diego Morales" } },
+    );
+    fireEvent.change(
+      document.body.querySelector<HTMLInputElement>('[data-attr="uploaded-lease-field-leaseStart"]')!,
+      { target: { value: "March 1, 2026" } },
+    );
+    fireEvent.change(
+      document.body.querySelector<HTMLInputElement>('[data-attr="uploaded-lease-field-leaseEnd"]')!,
+      { target: { value: "February 28, 2027" } },
+    );
     expect(
       document.body.querySelector<HTMLButtonElement>('[data-attr="uploaded-lease-confirm"]')!.disabled,
     ).toBe(false);
   });
 
-  it("opens unticked, with Confirm disabled, when the record has changed since", () => {
+  it("keeps save disabled when the record changed until required terms are filled", () => {
     const parse = supersededParse("Someone Else~~~99.00");
     renderModal(parse, rowWith(parse));
 
     expect(shownText()).toContain("The lease record has changed since");
-    expect(attestBox()!.checked).toBe(false);
     expect(
       document.body.querySelector<HTMLButtonElement>('[data-attr="uploaded-lease-confirm"]')!.disabled,
     ).toBe(true);
-
-    fireEvent.click(attestBox()!);
-    expect(
-      document.body.querySelector<HTMLButtonElement>('[data-attr="uploaded-lease-confirm"]')!.disabled,
-    ).toBe(false);
   });
 });
 
@@ -402,13 +387,12 @@ describe("an upload nobody has read says so", () => {
     expect(shownText()).not.toContain("could not be structured");
   });
 
-  it("offers a way through — read it, or attest to having read it yourself", () => {
+  it("offers a way through — read it now without a separate attestation checkbox", () => {
     renderModal(unreadUploadedLeaseParse("lease.pdf"));
 
     expect(document.body.querySelector('[data-attr="uploaded-lease-retry-read"]')?.textContent).toContain(
       "Read it now",
     );
-    expect(attestBox()).not.toBeNull();
-    expect(shownText()).toContain("I have read the original PDF myself");
+    expect(attestBox()).toBeNull();
   });
 });

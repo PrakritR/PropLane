@@ -269,7 +269,9 @@ export function leaseMismatchAcknowledgementGap(
   parse: UploadedLeaseParse | null | undefined,
   record: LeaseRecordTerms,
 ): LeaseAcknowledgementGap | null {
-  if (!parse || !uploadedLeaseReviewIsConfirmed(parse)) return "unconfirmed";
+  if (!parse) return null;
+  if (leaseDocumentMismatches(parse, record).length === 0) return null;
+  if (!uploadedLeaseReviewIsConfirmed(parse)) return "unconfirmed";
   const stored = parse.review.confirmedRecordFingerprint;
   if (!stored) return "record_unknown";
   return stored === leaseRecordFingerprint(record) ? null : "record_changed";

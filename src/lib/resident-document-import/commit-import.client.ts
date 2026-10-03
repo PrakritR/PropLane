@@ -9,7 +9,7 @@ import {
   syncLeasePipelineFromApplications,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
-import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { confirmUploadedLeaseOnCreate, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { recordApprovedApplicationCharges } from "@/lib/household-charges";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import {
@@ -71,6 +71,8 @@ export async function commitResidentDocumentImport(args: {
       leaseId = ensured.row.id;
       const uploaded = await uploadAndParseLeasePdf(ensured.row.id, args.file, args.managerUserId);
       if (!uploaded.ok) return { ok: false, error: uploaded.error ?? "Could not upload the lease PDF." };
+      // Create is the confirmation of the uploaded lease; no separate review step.
+      await confirmUploadedLeaseOnCreate(ensured.row.id, args.managerUserId);
     }
   } else if (args.review.kind === "lease") {
     syncLeasePipelineFromApplications(args.managerUserId);

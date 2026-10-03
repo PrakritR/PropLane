@@ -146,7 +146,18 @@ describe("sendLeaseToResident sends a lease attached from the library / an uploa
     // (`leaseAwaitsUploadedLeaseReview`) that already correctly applies to
     // every upload; satisfy it here so this test isolates the document-
     // presence bug fix specifically.
-    expect(confirmUploadedLeaseParse(ROW_ID, { managerUserId: MANAGER_ID, confirmedByName: "Pat Manager" }).ok).toBe(true);
+    expect(
+      confirmUploadedLeaseParse(ROW_ID, {
+        managerUserId: MANAGER_ID,
+        confirmedByName: "Pat Manager",
+        overrides: {
+          tenantName: "Jordan Lee",
+          leaseStart: "March 1, 2026",
+          leaseEnd: "February 28, 2027",
+          monthlyRent: "$2,150.00",
+        },
+      }).ok,
+    ).toBe(true);
 
     const result = await sendLeaseToResident(ROW_ID, MANAGER_ID);
 

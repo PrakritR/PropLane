@@ -11,11 +11,16 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { track } from "@/lib/analytics/track-client";
 import {
+  confirmUploadedLeaseParseOnServer,
+  leaseRecordTerms,
   managerAttachLibraryLeaseDocument,
   managerUploadLeasePdf,
+  persistLeaseRowToServerAwait,
   readLeasePipeline,
   saveUploadedLeaseParse,
+  syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
+import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
 import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import {
   failedUploadedLeaseParse,
@@ -169,4 +174,36 @@ export async function retryUploadedLeaseParse(
   const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
   if (!saved.ok) return { ok: false, error: saved.error ?? "The imported reading could not be stored." };
   return { ok: true, parse };
+}
+
+/**
+ * The manager's Create action IS the confirmation of an uploaded lease: there is
+ * no checkbox. Records the same server-issued confirmation the review form's
+ * "Save terms" records (bound to the digest of the PDF just read and the record
+ * as it stands), so the send gate (`leaseSendGateBlocker`) keeps checking the
+ * required terms and that binding. A parse that did not succeed is left for the
+ * review form; a failure here never undoes the create.
+ */
+export async function confirmUploadedLeaseOnCreate(
+  rowId: string,
+  managerUserId?: string | null,
+  confirmedByName?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (isDemoModeActive()) return { ok: true };
+  const row = readLeasePipeline(managerUserId).find((r) => r.id === rowId);
+  const parse = row?.uploadedLeaseParse;
+  if (!row || !parse || parse.status !== "parsed" || !parse.sourceSha256) return { ok: true };
+  const persisted = await persistLeaseRowToServerAwait(row);
+  if (!persisted.ok) return { ok: false, error: persisted.error };
+  await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => undefined);
+  const fresh = readLeasePipeline(managerUserId).find((r) => r.id === rowId) ?? row;
+  return confirmUploadedLeaseParseOnServer(rowId, {
+    managerUserId,
+    confirmedByName,
+    useConverted: false,
+    expectedRevision: fresh.reviewRevision,
+    viewedSourceSha256: fresh.uploadedLeaseParse?.sourceSha256 ?? parse.sourceSha256,
+    viewedConvertedHtmlSha256: null,
+    viewedRecordFingerprint: leaseRecordFingerprint(leaseRecordTerms(fresh)),
+  });
 }

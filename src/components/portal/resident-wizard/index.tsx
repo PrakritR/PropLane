@@ -242,16 +242,12 @@ export function AddResidentWizard({
         const merged = mergeParsedFields(kind === "application" ? parsed : parsesRef.current.application, kind === "lease" ? parsed : parsesRef.current.lease);
         const mapped = mapParsedFieldsToAddResidentForm({ fields: merged, parse: parsed, leaseTermPresetValues: derived.leaseTermPresetValues });
         const marks: Record<string, FieldMarkKind> = { ...prev.marks };
-        const fromFile = (k: string) => {
-          const conf = parsed.fields.find((f) => f.key === k)?.confidence;
-          return conf === "low" ? "check" : "fromFile";
-        };
+        const fromFile = () => "fromFile" as const;
         const contactFill = fillOnlyBlank(
           { name: prev.name, email: prev.email, phone: prev.phone, propertyId: prev.propertyId, roomId: prev.roomId, leaseTerm: prev.leaseTerm, moveInDate: prev.moveInDate, moveOutDate: prev.moveOutDate, rent: prev.rent, utilities: prev.utilities, moveInFee: prev.moveInFee, securityDeposit: prev.securityDeposit },
           { name: mapped.name, email: mapped.email, phone: mapped.phone, propertyId: mapped.propertyId, roomId: mapped.roomId, leaseTerm: mapped.leaseTerm, moveInDate: mapped.moveInDate, moveOutDate: mapped.moveOutDate, rent: mapped.rent, utilities: mapped.utilities, moveInFee: mapped.moveInFee, securityDeposit: mapped.securityDeposit },
         );
-        const keyMap: Record<string, string> = { name: "tenantName", email: "tenantEmail", phone: "tenantPhone", propertyId: "propertyId", roomId: "roomId", leaseTerm: "leaseTerm", moveInDate: "leaseStart", moveOutDate: "leaseEnd", rent: "monthlyRent", utilities: "monthlyUtilities", moveInFee: "moveInFee", securityDeposit: "securityDeposit" };
-        for (const k of contactFill.filledKeys) marks[k] = fromFile(keyMap[k] ?? k);
+        for (const k of contactFill.filledKeys) marks[k] = fromFile();
         let application = prev.application;
         let appFilled = 0;
         if (kind === "application") {
@@ -266,8 +262,7 @@ export function AddResidentWizard({
           ? prev.documents
           : [...prev.documents, { id: `${Date.now()}-${file.name}`, file, kind: kind === "lease" ? (prev.leaseDocument === "draft" ? "lease_draft" : "lease_signed") : "application", note: `read · filled ${kind === "lease" ? "Lease" : "Contact + Application"}` }];
         const filled = contactFill.filledKeys.length + appFilled;
-        const lowCount = Object.values(marks).filter((m) => m === "check").length;
-        setStrip({ kind: "read", summary: `Read ${file.name} · ${filled} ${filled === 1 ? "field" : "fields"} filled${lowCount ? ` · ${lowCount} to check` : ""}`, canUndo: true });
+        setStrip({ kind: "read", summary: `Read ${file.name} · ${filled} ${filled === 1 ? "field" : "fields"} filled`, canUndo: true });
         return {
           ...prev,
           ...contactFill.next,

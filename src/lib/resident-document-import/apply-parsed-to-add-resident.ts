@@ -96,7 +96,7 @@ export type ParsedFillMark = "fromFile" | "check";
 export type ParsedApplicationFill = {
   /** Applicant answers, keyed by the applicant wizard's own form keys. */
   answers: Partial<Record<ApplicantDocumentFieldKey, string>>;
-  /** One mark per filled key: "check" when the parser was not confident. */
+  /** One "from file" mark per filled key. */
   marks: Record<string, ParsedFillMark>;
 };
 
@@ -113,9 +113,8 @@ function normalizeYesNo(raw: string): string | undefined {
 
 /**
  * Map the parsed application fields onto the Application step, marking each
- * one. A low-confidence value is still filled — the manager sees it with an
- * amber "check" mark instead of a blue "from file" — so the review is one
- * glance rather than a hunt through the PDF.
+ * one "from file". Every found value is filled the same way; a value the
+ * parser did not find stays empty. There is no per-field "check" verification.
  */
 export function mapParsedFieldsToApplicationAnswers(
   fields: readonly { key: string; value: string; confidence: ParsedFieldConfidence }[],
@@ -133,7 +132,7 @@ export function mapParsedFieldsToApplicationAnswers(
     else if (YES_NO_KEYS.includes(key)) value = normalizeYesNo(value);
     if (!value) continue;
     answers[key] = value;
-    marks[key] = f.confidence === "low" ? "check" : "fromFile";
+    marks[key] = "fromFile";
   }
   return { answers, marks };
 }
