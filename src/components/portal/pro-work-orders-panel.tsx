@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Wrench } from "lucide-react";
+import { Mail, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -56,7 +56,7 @@ import { buildWorkOrderCompletedNotice } from "@/lib/resident-service-notices";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
 import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
 import { ServiceQuoteCompareSection } from "@/components/portal/service-quote-compare-section";
@@ -1473,19 +1473,21 @@ export function ManagerWorkOrdersPanel({
     // "Schedule" has nothing left to do once the work is completed — dropped rather
     // than shown as a dead "Coming soon" action (docs/agents/record-page.md § Known gap).
     const headerActions = sections.headerActions.filter((action) => {
+      if (action.id === "assign-vendor" && serviceNext?.key === "assign") return false;
       if (action.id === "schedule") {
         if (routeWorkOrder.bucket === "completed") return false;
-        // C247: nothing to schedule a visit for until a vendor is assigned — offering it
-        // on an unassigned open service was a dead click. A service already past "open"
-        // (e.g. re-confirming a scheduled visit) always has an assignee already.
+        if (serviceNext?.key === "schedule") return false;
         if (routeWorkOrder.bucket === "open") {
           return Boolean(routeWorkOrder.vendorId || routeWorkOrder.vendorName);
         }
         return true;
       }
-      if (action.id === "close") return routeWorkOrder.bucket === "scheduled";
-      // Only a completed service with an assigned vendor can be reviewed — the
-      // server re-derives the same eligibility, this just avoids a dead click.
+      if (action.id === "close") {
+        if (serviceNext?.key === "mark-done" || serviceNext?.key === "approve-pay" || serviceNext?.key === "pay") {
+          return false;
+        }
+        return routeWorkOrder.bucket === "scheduled";
+      }
       if (action.id === "review") {
         return routeWorkOrder.bucket === "completed" && Boolean(routeWorkOrder.vendorUserId);
       }
@@ -1577,6 +1579,17 @@ export function ManagerWorkOrdersPanel({
                   { label: "Details", value: routeWorkOrder.description || "—" },
                   { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
                   { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
+                  {
+                    label: "Progress",
+                    value: (
+                      <ServiceWorkflowStepper
+                        steps={managerServiceWorkflowSteps(routeWorkOrder, {
+                          bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
+                          acceptedBid: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).find((b) => b.status === "accepted"),
+                        })}
+                      />
+                    ),
+                  },
                 ],
               },
               {
@@ -1590,15 +1603,9 @@ export function ManagerWorkOrdersPanel({
               },
             ],
           })}
-          <div className="px-3 pb-4 sm:px-4">
-            <ServiceWorkflowStepper
-              steps={managerServiceWorkflowSteps(routeWorkOrder, {
-                bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
-                acceptedBid: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).find((b) => b.status === "accepted"),
-              })}
-            />
+          <div className="space-y-3 px-3 pb-8 sm:px-4">
             {resolveWorkOrderAssignee(routeWorkOrder) ? (
-              <p className="mt-2 text-xs text-muted">
+              <p className="text-xs text-muted">
                 Assigned to{" "}
                 <span className="font-medium text-foreground">
                   {resolveWorkOrderAssignee(routeWorkOrder)?.name}
@@ -1607,7 +1614,7 @@ export function ManagerWorkOrdersPanel({
             ) : null}
             {routeWorkOrder.automationStatus === "vendor_marked_done" ? (
               <div
-                className="mt-4 rounded-xl border border-border bg-accent/20 px-3 py-3"
+                className="rounded-xl border border-border bg-accent/20 px-3 py-3"
                 data-svc-invoice
               >
                 <p className="text-sm font-semibold text-foreground">Invoice to approve</p>
@@ -1630,16 +1637,8 @@ export function ManagerWorkOrdersPanel({
                 ) : null}
               </div>
             ) : null}
+            <PortalTableDetailActions>{workOrderDetailActions(routeWorkOrder)}</PortalTableDetailActions>
           </div>
-          {/*
-            The full action set (Schedule visit / Confirm time / Edit / Auto-schedule /
-            Approve & pay / Mark complete / Delete, gated by bucket and automation state)
-            has no 1:1 mapping onto the registry's four generic header icons, so it stays
-            here, inline, rather than fighting the ONE title-row actions slot the header
-            icons already claim (`PortalRecordActions` publishes a single slot; a second
-            publisher — e.g. the `footer` prop — silently overwrites the first).
-          */}
-          <PortalTableDetailActions>{workOrderDetailActions(routeWorkOrder)}</PortalTableDetailActions>
         </>
       );
     return (
@@ -1664,11 +1663,27 @@ export function ManagerWorkOrdersPanel({
                   onClick={() => runServicePrimary(serviceNext.key)}
                 />
               ) : null}
+              <PortalIconAction
+                ring
+                icon={Mail}
+                label="Message"
+                data-attr="record-header-action-message"
+                onClick={() =>
+                  navigate(
+                    workOrderDetailHref(
+                      listBasePath ?? "/portal",
+                      routeWorkOrder.bucket,
+                      routeWorkOrder.id,
+                      "communication",
+                    ),
+                  )
+                }
+              />
               <PortalRecordHeaderIconActions actions={headerActions} onAction={onHeaderAction} />
             </div>
           </PortalRecordActions>
           <PortalRecordSectionChrome
-            sections={{ ...sections, headerActions }}
+            sections={{ ...sections, headerActions: [] }}
             recordId={routeWorkOrder.id}
             activeId={activeTab}
             title={routeWorkOrder.title}
@@ -1676,7 +1691,6 @@ export function ManagerWorkOrdersPanel({
             backHref={backHref}
             backLabel="All services"
             ariaLabel="Service sections"
-            onHeaderAction={onHeaderAction}
           >
             {ownContent}
           </PortalRecordSectionChrome>
