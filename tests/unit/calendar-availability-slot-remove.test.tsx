@@ -172,15 +172,16 @@ describe("availability week actions (PLAN-0916-1034, consolidated PLAN-0920-1058
     const menuTrigger = toolbar?.querySelector('[data-slot="calendar-week-actions"] [data-attr="calendar-availability-menu"]');
     expect(menuTrigger).toBeTruthy();
     fireEvent.keyDown(menuTrigger!, { key: "ArrowDown" });
-    expect(await screen.findByText("Copy previous week")).toBeTruthy();
+    expect(await screen.findByText("Add availability")).toBeTruthy();
+    expect(screen.getByText("Copy previous week")).toBeTruthy();
     expect(screen.getByText("Clear week")).toBeTruthy();
     // No `otherProperties` in this render, so the "copy to houses" row reads
     // its disabled-reason label rather than "Copy to houses" — same data-attr.
     expect(screen.getByText("Add another house to copy availability")).toBeTruthy();
 
-    // "Add availability" is its own primary, next to (not inside) the menu.
-    const addAction = toolbar?.querySelector('[data-slot="calendar-week-add-action"] [data-attr="calendar-create-block"]');
+    // Round + opens New tour / New task / New service (Add availability lives in the clock menu).
+    const addAction = toolbar?.querySelector('[data-attr="calendar-create-menu"]');
     expect(addAction).toBeTruthy();
-    expect(addAction?.getAttribute("aria-label")).toBe("Add availability");
+    expect(addAction?.getAttribute("aria-label")).toBe("Add");
   });
 });
