@@ -68,7 +68,15 @@ export function propertyRowStreet(row: Pick<AdminPropertyRow, "address" | "submi
   const sub = row.submission;
   const address = dedupeAddressSegments((row.address ?? "").trim());
   if (sub) {
-    const stripped = listingSubmissionStreetLine({ ...sub, address });
+    let stripped = listingSubmissionStreetLine({ ...sub, address });
+    // A stored address whose tail is spelled differently from the city/state/ZIP
+    // fields ("WA" vs "Washington", a missing ZIP) would otherwise keep the city
+    // and print it twice beside the locality. Cut at the city.
+    const city = (sub.city ?? "").trim();
+    if (stripped && city) {
+      const at = stripped.toLowerCase().indexOf(`, ${city.toLowerCase()}`);
+      if (at > 0) stripped = stripped.slice(0, at).trim();
+    }
     if (stripped) return stripped;
   }
   return address.split(",")[0]?.trim() ?? address;

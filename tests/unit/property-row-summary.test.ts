@@ -163,3 +163,16 @@ describe("property row title and address lines (PLAN-0914-1345)", () => {
     ).toEqual({ baths: 1.5, rooms: 2, residents: null });
   });
 });
+
+describe("propertyRowStreet — city spelled differently in the stored address", () => {
+  it("never prints the city twice", () => {
+    const row = {
+      buildingName: "Alder Row",
+      address: "230 Alder Row, Seattle, Washington 98144",
+      zip: "98144",
+      neighborhood: "Beacon Hill",
+      submission: { city: "Seattle", state: "WA", zip: "98144" } as never,
+    };
+    expect(propertyRowAddressLine(row)).toBe("230 Alder Row · Seattle, WA 98144 · Beacon Hill");
+  });
+});

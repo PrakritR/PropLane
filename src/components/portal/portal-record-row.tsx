@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Bath, DoorOpen, UserRound, Wrench, type LucideIcon } from "lucide-react";
+import { DoorOpen, UserRound, Wrench, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { usePortalListGroupFlushRow } from "@/components/portal/portal-list-group";
@@ -224,23 +224,21 @@ export function PortalPropertyRecordRow({
         <span className="truncate">{title}</span>
       </p>
       {address ? <p className="text-[13px] leading-relaxed text-muted md:truncate">{address}</p> : null}
-      {facts ? (
+      {/* One fact line, like the studio: state facts first, then rooms and residents. */}
+      {facts || (meta && (meta.rooms || meta.residents)) ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
           {facts}
+          {meta && (meta.rooms || meta.residents) ? (
+            <span className="contents" data-attr="property-row-meta">
+              {meta.rooms ? (
+                <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
+              ) : null}
+              {meta.residents ? (
+                <span className="inline-flex items-center gap-1"><UserRound className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Residents</span>{meta.residents} {meta.residents === 1 ? "resident" : "residents"}</span>
+              ) : null}
+            </span>
+          ) : null}
         </div>
-      ) : null}
-      {meta && (meta.baths || meta.rooms || meta.residents) ? (
-        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
-          {meta.baths ? (
-            <span className="inline-flex items-center gap-1"><Bath className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bathrooms</span>{meta.baths}</span>
-          ) : null}
-          {meta.rooms ? (
-            <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
-          ) : null}
-          {meta.residents ? (
-            <span className="inline-flex items-center gap-1"><UserRound className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Residents</span>{meta.residents} {meta.residents === 1 ? "resident" : "residents"}</span>
-          ) : null}
-        </p>
       ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
       {badgeContent || trailingContent ? (

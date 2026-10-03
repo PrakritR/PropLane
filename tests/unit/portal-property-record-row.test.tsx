@@ -11,7 +11,7 @@ import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/properties/all" }));
 
 describe("PortalPropertyRecordRow", () => {
-  it("draws bath / room / resident glyphs — never bedrooms", () => {
+  it("draws room / resident glyphs on the one fact line — never bedrooms or a bare bath count (studio row)", () => {
     const { container } = render(
       <PortalPropertyRecordRow
         title="41932 Paseo Padre Pkwy"
@@ -26,7 +26,7 @@ describe("PortalPropertyRecordRow", () => {
     expect(container.querySelector("svg.lucide-chevron-right")).toBeNull();
     const meta = container.querySelector('[data-attr="property-row-meta"]')!;
     expect(meta.textContent).not.toContain("Bedrooms");
-    expect(meta.textContent).toContain("Bathrooms1");
+    expect(meta.textContent).not.toContain("Bathrooms");
     expect(meta.textContent).toContain("2 rooms");
     expect(meta.textContent).toContain("Residents3");
   });
