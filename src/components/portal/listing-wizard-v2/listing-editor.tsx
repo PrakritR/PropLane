@@ -1883,7 +1883,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   };
 
   const addSpace = (kind?: ManagerSharedSpaceSubmission["spaceKind"]) => {
-    const id = `space-${Date.now()}`;
+    const id = `space-${spaces.length + 1}-${Math.random().toString(36).slice(2, 9)}`;
     const blank: ManagerSharedSpaceSubmission = {
       id,
       name: kind ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",

@@ -109,7 +109,7 @@ describe("rooms as cards", () => {
     expect(screen.getByRole("button", { name: "Furnished for Room A" })).toBeTruthy();
   });
 
-  it("a room's Bathroom row is 'Add a bathroom first' with no bathrooms, and an access-kind pick once there is one", () => {
+  it("a room's Bathroom row is '+ Add bathroom' with none, then links a bathroom once one exists", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
     openCard("Room A");
@@ -119,8 +119,11 @@ describe("rooms as cards", () => {
     fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bath-icon"]')!);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
     openCard("Room A");
-    pick("Bathroom for Room A", "hall");
-    const bath = seen.at(-1)!.bathrooms![0]!;
+    const bathId = seen.at(-1)!.bathrooms![0]!.id;
+    pick("Bathroom for Room A", bathId);
+    pick("Bathroom access for Room A", "private");
+    pick("Bathroom location for Room A", "hall");
+    const bath = seen.at(-1)!.bathrooms!.find((b) => b.id === bathId)!;
     expect(bath.assignedRoomIds).toContain("r1");
     expect(bath.accessKindByRoomId?.r1).toBe("hall");
   });

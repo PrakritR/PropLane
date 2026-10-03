@@ -34,11 +34,17 @@ import type {
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { setHouseInfoValue, type HouseInfoSectionId, type HouseInfoV1 } from "@/lib/house-info";
 import { copyRoomBathroomLinkFrom } from "@/lib/listing-room-editor/bathroom-link";
+import {
+  PropertySubmissionAmenitiesEditor,
+  PropertySubmissionFactsEditor,
+} from "@/components/portal/property-house-submission-house-tab";
 
 export type HouseDetailsEditorTarget =
   | { kind: "room"; roomId: string }
   | { kind: "bath"; bathId: string }
   | { kind: "space"; spaceId: string }
+  | { kind: "facts" }
+  | { kind: "amenities" }
   | { kind: "info"; sectionId: HouseInfoSectionId }
   | { kind: "managerNotes" };
 
@@ -98,6 +104,8 @@ export function PropertyHouseDetailsEditorModal({
     if (target.kind === "room") return room?.name.trim() || "Room";
     if (target.kind === "bath") return bath?.name.trim() || "Bathroom";
     if (target.kind === "space") return space?.name.trim() || "Shared space";
+    if (target.kind === "facts") return "Property facts";
+    if (target.kind === "amenities") return "Amenities";
     if (target.kind === "managerNotes") return "Manager notes";
     return "House details";
   }, [target, room, bath, space]);
@@ -232,6 +240,20 @@ export function PropertyHouseDetailsEditorModal({
             onOpenRoom={onOpenLinkedRoom}
           />
         </div>
+      ) : null}
+
+      {target.kind === "facts" ? (
+        <PropertySubmissionFactsEditor
+          sub={draftSub}
+          onPatch={(patch) => setDraftSub((prev) => ({ ...prev, ...patch }))}
+        />
+      ) : null}
+
+      {target.kind === "amenities" ? (
+        <PropertySubmissionAmenitiesEditor
+          sub={draftSub}
+          onPatch={(patch) => setDraftSub((prev) => ({ ...prev, ...patch }))}
+        />
       ) : null}
 
       {target.kind === "space" && space ? (

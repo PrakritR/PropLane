@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Bath, BedDouble, Home, LayoutGrid, Lock, Printer } from "lucide-react";
+import { BedDouble, Building2, Home, Lock, Sparkles } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
@@ -29,12 +35,21 @@ import { sharedSpaceAccessTriggerLabel } from "@/lib/listing-shared-space-access
 import { SHARED_SPACE_KIND_OPTIONS } from "@/data/manager-listing-presets";
 import {
   duplicateRoomEntry,
+  duplicateSharedSpaceEntry,
   emptyBathroom,
   emptyRoom,
+  emptySharedSpace,
   isEntireHomeListing,
   isRoomSlotRemovable,
+  type ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
 import { duplicateBathroomInSubmission } from "@/lib/listing-room-editor/bathroom-link";
+import { encodeSharedSpaceEveryone } from "@/lib/listing-shared-space-access";
+import {
+  propertyAmenitiesSummary,
+  propertyFactsSummary,
+} from "@/components/portal/property-house-submission-house-tab";
+import { floorLevelSelectOptions } from "@/data/manager-listing-presets";
 
 type SavePayload = {
   sub: ManagerListingSubmissionV1;
@@ -177,6 +192,104 @@ export function PropertyHouseDetailsListPanel({
     persistSub({ ...sub, bathrooms: baths.filter((b) => b.id !== bathId) }, "Bathroom removed.");
   };
 
+  const duplicateSpace = (spaceId: string) => {
+    const list = sub.sharedSpaces ?? [];
+    const source = list.find((s) => s.id === spaceId);
+    if (!source) return;
+    persistSub({ ...sub, sharedSpaces: [...list, duplicateSharedSpaceEntry(source)] }, "Shared space duplicated.");
+  };
+
+  const removeSpace = (spaceId: string) => {
+    const list = sub.sharedSpaces ?? [];
+    persistSub({ ...sub, sharedSpaces: list.filter((s) => s.id !== spaceId) }, "Shared space removed.");
+  };
+
+  const addSharedSpace = (kind?: ManagerSharedSpaceSubmission["spaceKind"]) => {
+    const list = sub.sharedSpaces ?? [];
+    const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
+    const next = {
+      ...emptySharedSpace(list.length),
+      name: kind ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",
+      spaceKind: kind,
+      location: groundFloor,
+      roomAccessIds: encodeSharedSpaceEveryone(),
+    };
+    if (!persistSub({ ...sub, sharedSpaces: [...list, next] }, "Shared space added.")) return;
+    openEditor({ kind: "space", spaceId: next.id });
+  };
+
+  const filteredRooms = useMemo(
+    () =>
+      rooms.filter((room, i) => {
+        const label = room.name.trim() || `Room ${i + 1}`;
+        const bst = roomBathroomState(sub, room.id);
+        const facts = `${label} ${bst.mode} ${roomFurnishingLabel(roomFurnitureItems(room))}`;
+        return matches(facts);
+      }),
+    [rooms, sub, matches],
+  );
+
+  const filteredBaths = useMemo(
+    () =>
+      baths.filter((bath, i) => {
+        const label = bath.name.trim() || `Bathroom ${i + 1}`;
+        return matches(`${label} ${bath.location || ""}`);
+      }),
+    [baths, matches],
+  );
+
+  const filteredSpaces = useMemo(
+    () =>
+      spaces.filter((space, i) => {
+        const label = space.name.trim() || `Shared space ${i + 1}`;
+        const kind = SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label ?? "";
+        const access = sharedSpaceAccessTriggerLabel(space.roomAccessIds, rooms.map((r) => r.id));
+        return matches(`${label} ${kind} ${space.location} ${access}`);
+      }),
+    [spaces, rooms, matches],
+  );
+
+  const filteredInfo = useMemo(
+    () =>
+      infoSections.filter((spec) => {
+        const count = houseInfoSectionCount(houseInfo, spec);
+        return matches(`${spec.label} ${count.filled} ${count.total}`);
+      }),
+    [infoSections, houseInfo, matches],
+  );
+
+  const tabHasRows =
+    activeTab === "rooms"
+      ? rooms.length > 0
+      : activeTab === "baths"
+        ? baths.length > 0
+        : activeTab === "spaces"
+          ? spaces.length > 0
+          : activeTab === "info"
+            ? infoSections.length > 0
+            : activeTab === "house"
+              ? true
+              : activeTab === "manager";
+
+  const visibleRowCount =
+    activeTab === "rooms"
+      ? filteredRooms.length
+      : activeTab === "baths"
+        ? filteredBaths.length
+        : activeTab === "spaces"
+          ? filteredSpaces.length
+          : activeTab === "info"
+            ? filteredInfo.length
+            : activeTab === "house"
+              ? (matches("Rules") ? 1 : 0) +
+                (matches(`Property facts ${propertyFactsSummary(sub)}`) ? 1 : 0) +
+                (matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? 1 : 0)
+              : activeTab === "manager"
+                ? 1
+                : 0;
+
+  const searchNoMatches = Boolean(query.trim()) && tabHasRows && visibleRowCount === 0;
+
   const searchPlaceholder =
     activeTab === "baths"
       ? "Search bathrooms"
@@ -195,7 +308,22 @@ export function PropertyHouseDetailsListPanel({
       ? <PortalPrimaryIconAction label="Add room" onClick={addRoom} data-attr="property-house-details-add-room" />
       : activeTab === "baths"
         ? <PortalPrimaryIconAction label="Add bathroom" onClick={addBathroom} data-attr="property-house-details-add-bath" />
-        : null;
+        : activeTab === "spaces"
+          ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <PortalPrimaryIconAction label="Add shared space" data-attr="property-house-details-add-space" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SHARED_SPACE_KIND_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt.id} onClick={() => addSharedSpace(opt.id)}>
+                    {opt.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+          : null;
 
   const rulesSpec = HOUSE_INFO_SECTIONS.find((s) => s.id === "rules");
 
@@ -233,28 +361,32 @@ export function PropertyHouseDetailsListPanel({
           />
         }
         isEmpty={
-          activeTab === "rooms"
+          searchNoMatches ||
+          (activeTab === "rooms"
             ? rooms.length === 0
             : activeTab === "baths"
               ? baths.length === 0
               : activeTab === "spaces"
                 ? spaces.length === 0
-                : false
+                : false)
         }
-        emptyCard={{
-          title: activeTab === "rooms" ? "No rooms yet" : activeTab === "baths" ? "No bathrooms yet" : "Nothing here yet",
-          section: "house-details",
-        }}
+        emptyCard={
+          searchNoMatches
+            ? {
+                title: "No matches",
+                section: "house-details",
+                tone: "muted",
+                clear: { label: "Clear search", onClick: () => setQuery(""), dataAttr: "property-house-details-search-clear" },
+              }
+            : {
+                title: activeTab === "rooms" ? "No rooms yet" : activeTab === "baths" ? "No bathrooms yet" : "Nothing here yet",
+                section: "house-details",
+              }
+        }
       >
         {activeTab === "rooms"
-          ? rooms
-              .filter((room, i) => {
-                const label = room.name.trim() || `Room ${i + 1}`;
-                const bst = roomBathroomState(sub, room.id);
-                const facts = `${label} ${bst.mode} ${roomFurnishingLabel(roomFurnitureItems(room))}`;
-                return matches(facts);
-              })
-              .map((room, i) => {
+          ? filteredRooms.map((room) => {
+                const i = rooms.indexOf(room);
                 const label = room.name.trim() || `Room ${i + 1}`;
                 const bst = roomBathroomState(sub, room.id);
                 const residents = room.occupancyCapacity ?? 1;
@@ -292,7 +424,8 @@ export function PropertyHouseDetailsListPanel({
           : null}
 
         {activeTab === "baths"
-          ? baths.map((bath, i) => {
+          ? filteredBaths.map((bath) => {
+              const i = baths.indexOf(bath);
               const label = bath.name.trim() || `Bathroom ${i + 1}`;
               return (
                 <PortalPropertyRecordRow
@@ -319,7 +452,8 @@ export function PropertyHouseDetailsListPanel({
           : null}
 
         {activeTab === "spaces"
-          ? spaces.map((space, i) => {
+          ? filteredSpaces.map((space) => {
+              const i = spaces.indexOf(space);
               const label = space.name.trim() || `Shared space ${i + 1}`;
               const kind = SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label ?? "";
               const access = sharedSpaceAccessTriggerLabel(space.roomAccessIds, rooms.map((r) => r.id));
@@ -333,7 +467,11 @@ export function PropertyHouseDetailsListPanel({
                   actions={
                     <RowActionsMenu
                       label={label}
-                      items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "space", spaceId: space.id }) }]}
+                      items={[
+                        { id: "duplicate", label: "Duplicate", onSelect: () => duplicateSpace(space.id) },
+                        { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "space", spaceId: space.id }) },
+                        { id: "delete", label: "Delete", danger: true, onSelect: () => removeSpace(space.id) },
+                      ]}
                     />
                   }
                 />
@@ -342,7 +480,7 @@ export function PropertyHouseDetailsListPanel({
           : null}
 
         {activeTab === "info"
-          ? infoSections.map((spec) => {
+          ? filteredInfo.map((spec) => {
               const count = houseInfoSectionCount(houseInfo, spec);
               return (
                 <PortalPropertyRecordRow
@@ -364,6 +502,45 @@ export function PropertyHouseDetailsListPanel({
 
         {activeTab === "house" ? (
           <>
+            {matches(`Property facts ${propertyFactsSummary(sub)}`) ? (
+              <PortalPropertyRecordRow
+                title="Property facts"
+                summary={propertyFactsSummary(sub)}
+                onOpen={() => openEditor({ kind: "facts" })}
+                dataAttr="property-house-details-facts-row"
+                facts={[
+                  <PortalRowFact key="kind" icon={Building2} srLabel="Type">
+                    {propertyFactsSummary(sub).split(" · ")[0]}
+                  </PortalRowFact>,
+                ]}
+                actions={
+                  <RowActionsMenu
+                    label="Property facts"
+                    items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "facts" }) }]}
+                  />
+                }
+              />
+            ) : null}
+            {matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? (
+              <PortalPropertyRecordRow
+                title="Amenities"
+                summary={propertyAmenitiesSummary(sub)}
+                onOpen={() => openEditor({ kind: "amenities" })}
+                dataAttr="property-house-details-amenities-row"
+                facts={[
+                  <PortalRowFact key="amen" icon={Sparkles} srLabel="Amenities">
+                    {propertyAmenitiesSummary(sub)}
+                  </PortalRowFact>,
+                ]}
+                actions={
+                  <RowActionsMenu
+                    label="Amenities"
+                    items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "amenities" }) }]}
+                  />
+                }
+              />
+            ) : null}
+            {matches("Rules") ? (
             <PortalPropertyRecordRow
               title="Rules"
               summary={
@@ -380,6 +557,7 @@ export function PropertyHouseDetailsListPanel({
                 />
               }
             />
+            ) : null}
           </>
         ) : null}
 

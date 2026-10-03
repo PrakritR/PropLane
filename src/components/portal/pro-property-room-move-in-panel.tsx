@@ -112,6 +112,7 @@ export function ManagerPropertyRoomMoveInPanel({
   const [houseVideo, setHouseVideo] = useState(sub.houseMoveInVideoDataUrl ?? null);
   const [copyingToRooms, setCopyingToRooms] = useState(false);
   const [moveTab, setMoveTab] = useState<"house" | "rooms">("house");
+  const [moveQuery, setMoveQuery] = useState("");
   const [moveEditorOpen, setMoveEditorOpen] = useState(false);
   const [moveEditorTarget, setMoveEditorTarget] = useState<MoveInEditorTarget | null>(null);
   const [houseInfoDraft, setHouseInfoDraft] = useState<HouseInfoV1>(() => normalizeHouseInfo(sub.houseInfo));
@@ -195,6 +196,12 @@ export function ManagerPropertyRoomMoveInPanel({
     if (wifi.trim()) parts.push("Wi-Fi");
     return parts.length ? parts.join(" · ") : "Nothing added yet";
   };
+
+  const moveMatches = (text: string) =>
+    !moveQuery.trim() || text.toLowerCase().includes(moveQuery.trim().toLowerCase());
+
+  const houseRowSummary = moveRowSummary(houseInstructions, housePhotos, houseVideo);
+  const houseRowVisible = moveMatches(`The whole house ${houseRowSummary}`);
 
   const saveMoveHouse = (payload: {
     houseInfo: HouseInfoV1;
@@ -333,19 +340,58 @@ export function ManagerPropertyRoomMoveInPanel({
               activeDestinationId={activeMoveTab}
               destinationAriaLabel="Move-in"
               search={{
-                value: "",
-                onChange: () => {},
+                value: moveQuery,
+                onChange: setMoveQuery,
                 placeholder: "Search move-in",
                 ariaLabel: "Search move-in",
                 dataAttr: "property-move-in-search",
               }}
             />
           }
+          isEmpty={
+            Boolean(moveQuery.trim()) &&
+            ((activeMoveTab === "house" && !houseRowVisible) ||
+              (activeMoveTab === "rooms" &&
+                roomIndices.every((index) => {
+                  const room = sub.rooms[index]!;
+                  const label = room.name.trim() || `Room ${index + 1}`;
+                  const summary = moveRowSummary(
+                    room.moveInInstructions ?? "",
+                    room.moveInPhotoDataUrls ?? [],
+                    room.moveInVideoDataUrl ?? null,
+                  );
+                  const capacity = room.occupancyCapacity ?? 1;
+                  const roomHit = moveMatches(`${label} ${summary}`);
+                  if (roomHit) return false;
+                  if (capacity < 2) return true;
+                  for (let slot = 0; slot < capacity; slot += 1) {
+                    const entry = room.moveInResidentDetails?.[slot];
+                    const residentLabel = `${label} · Resident ${slot + 1}`;
+                    const residentSummary = moveRowSummary(
+                      entry?.moveInInstructions ?? "",
+                      entry?.moveInPhotoDataUrls ?? [],
+                      entry?.moveInVideoDataUrl ?? null,
+                    );
+                    if (moveMatches(`${residentLabel} ${residentSummary}`)) return false;
+                  }
+                  return true;
+                })))
+          }
+          emptyCard={
+            moveQuery.trim()
+              ? {
+                  title: "No matches",
+                  section: "move-in",
+                  tone: "muted",
+                  clear: { label: "Clear search", onClick: () => setMoveQuery(""), dataAttr: "property-move-in-search-clear" },
+                }
+              : undefined
+          }
         >
-          {activeMoveTab === "house" ? (
+          {activeMoveTab === "house" && houseRowVisible ? (
             <PortalPropertyRecordRow
               title="The whole house"
-              summary={moveRowSummary(houseInstructions, housePhotos, houseVideo)}
+              summary={houseRowSummary}
               onOpen={() => openMoveEditor({ kind: "house" })}
               dataAttr="property-move-in-house-row"
               actions={
@@ -362,15 +408,18 @@ export function ManagerPropertyRoomMoveInPanel({
                 const room = sub.rooms[index]!;
                 const label = room.name.trim() || `Room ${index + 1}`;
                 const capacity = room.occupancyCapacity ?? 1;
-                const rows = [
+                const roomSummary = moveRowSummary(
+                  room.moveInInstructions ?? "",
+                  room.moveInPhotoDataUrls ?? [],
+                  room.moveInVideoDataUrl ?? null,
+                );
+                const rows: ReactNode[] = [];
+                if (moveMatches(`${label} ${roomSummary}`)) {
+                rows.push(
                   <PortalPropertyRecordRow
                     key={room.id}
                     title={label}
-                    summary={moveRowSummary(
-                      room.moveInInstructions ?? "",
-                      room.moveInPhotoDataUrls ?? [],
-                      room.moveInVideoDataUrl ?? null,
-                    )}
+                    summary={roomSummary}
                     onOpen={() => openMoveEditor({ kind: "room", roomId: room.id })}
                     dataAttr={`property-move-in-room-row-${room.id}`}
                     actions={
@@ -380,20 +429,23 @@ export function ManagerPropertyRoomMoveInPanel({
                       />
                     }
                   />,
-                ];
+                );
+                }
                 if (capacity >= 2) {
                   for (let slot = 0; slot < capacity; slot += 1) {
                     const entry = room.moveInResidentDetails?.[slot];
                     const residentLabel = `${label} · Resident ${slot + 1}`;
+                    const residentSummary = moveRowSummary(
+                      entry?.moveInInstructions ?? "",
+                      entry?.moveInPhotoDataUrls ?? [],
+                      entry?.moveInVideoDataUrl ?? null,
+                    );
+                    if (!moveMatches(`${residentLabel} ${residentSummary}`)) continue;
                     rows.push(
                       <PortalPropertyRecordRow
                         key={`${room.id}-resident-${slot}`}
                         title={residentLabel}
-                        summary={moveRowSummary(
-                          entry?.moveInInstructions ?? "",
-                          entry?.moveInPhotoDataUrls ?? [],
-                          entry?.moveInVideoDataUrl ?? null,
-                        )}
+                        summary={residentSummary}
                         onOpen={() => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot })}
                         dataAttr={`property-move-in-resident-row-${room.id}-${slot}`}
                         actions={
