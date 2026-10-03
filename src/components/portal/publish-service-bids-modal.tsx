@@ -6,6 +6,7 @@ import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PreviewPanel } from "@/components/portal/add-workspace/parts";
+import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -123,6 +124,26 @@ export function PublishServiceBidsModal({
       }}
       dismissBlocked={busy}
       title="Publish to local vendors"
+      contextPanel={row ? <PopupSubjectCard title={row.title} lines={[area, trade]} /> : undefined}
+      previewLabel="Vendors will see"
+      preview={row ? (
+        <PreviewPanel
+          title="What vendors see"
+          name={row.title}
+          sub={area}
+          facts={[
+            { label: "Trade", value: trade },
+            { label: "Area", value: area },
+            { label: "Budget", value: budget.trim() ? `$${budget.trim()}` : "Open" },
+            { label: "Photos", value: sharePhotos && photoCount > 0 ? String(photoCount) : "None" },
+          ]}
+          creates={[
+            { tone: "yes", text: "General area and distance only — no street address" },
+            { tone: "yes", text: "Resident name and entry notes stay hidden until hire" },
+            { tone: "no", text: "Nothing is approved until you hire a quote" },
+          ]}
+        />
+      ) : undefined}
       primaryAction={{
         label: busy ? "Sending…" : "Publish",
         onClick: () => void submit(),
@@ -131,7 +152,7 @@ export function PublishServiceBidsModal({
       }}
     >
       {row ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,280px)]">
+        <div>
           <div className="space-y-4">
             <div>
               <span className={MODAL_FIELD_LABEL_CLASS}>Trade</span>
@@ -212,22 +233,6 @@ export function PublishServiceBidsModal({
               {includeRoster && rosterIds.length ? ` · ${rosterIds.length} on your roster` : ""})
             </p>
           </div>
-          <PreviewPanel
-            title="What vendors see"
-            name={row.title}
-            sub={area}
-            facts={[
-              { label: "Trade", value: trade },
-              { label: "Area", value: area },
-              { label: "Budget", value: budget.trim() ? `$${budget.trim()}` : "Open" },
-              { label: "Photos", value: sharePhotos && photoCount > 0 ? String(photoCount) : "None" },
-            ]}
-            creates={[
-              { tone: "yes", text: "General area and distance only — no street address" },
-              { tone: "yes", text: "Resident name and entry notes stay hidden until hire" },
-              { tone: "no", text: "Nothing is approved until you hire a quote" },
-            ]}
-          />
         </div>
       ) : null}
     </PortalDialog>

@@ -316,6 +316,8 @@ export function VendorQuoteWizard({
       current={step}
       onJump={setStep}
       onClose={() => { workspaceDraft.preserve(); (resetAndClose)(); }}
+      keepsDraft
+      onDiscardDraft={workspaceDraft.clear}
       dirty={Boolean(jobId || when || labor || materials || note)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose what you typed?"

@@ -13,8 +13,7 @@ function pickWorkspaceStep(targetLabel: string) {
   const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
   const option = [...listbox.querySelectorAll('[role="option"]')].find((o) => o.textContent?.includes(targetLabel));
   expect(option).toBeTruthy();
-  fireEvent.pointerDown(option!, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(option!, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.click(option!);
 }
 
 describe("workspace navigation", () => {
@@ -24,6 +23,33 @@ describe("workspace navigation", () => {
     pickWorkspaceStep("Review");
     expect(onJump).toHaveBeenCalledWith(1);
     expect(screen.getByRole("button", { name: "Contact" }).getAttribute("aria-current")).toBe("step");
+  });
+
+  it("the phone step list is a bottom sheet: step name and count on the trigger, a check, red dot and ring in the list, N to finish only there", () => {
+    const onJump = vi.fn();
+    render(
+      <StepRail
+        steps={[{ id: "a", label: "Resident" }, { id: "b", label: "Home", attention: 1 }, { id: "c", label: "Lease" }, { id: "d", label: "Review", attention: 1 }]}
+        current={2}
+        onJump={onJump}
+        visited={new Set(["a", "c"])}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Jump to step" });
+    expect(trigger.textContent).toContain("Lease");
+    expect(trigger.textContent).toContain("Step 3 of 4");
+    expect(screen.queryByText("2 to finish")).toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getByText("2 to finish")).toBeTruthy();
+    const options = [...document.querySelectorAll('[data-wizard-step-sheet] [role="option"]')];
+    expect(options).toHaveLength(4);
+    expect(options[0]!.querySelector("svg")).toBeTruthy(); // finished: a check
+    expect(options[1]!.textContent).toContain("Needs something"); // red dot
+    expect(options[2]!.textContent).toContain("Here"); // the one you are on
+    expect(options[2]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(options[1]!);
+    expect(onJump).toHaveBeenCalledWith(1);
+    expect(document.querySelector("[data-wizard-step-sheet]")).toBeNull();
   });
 
   it("changing the anchored step picker keeps the workspace and typed fields mounted", () => {

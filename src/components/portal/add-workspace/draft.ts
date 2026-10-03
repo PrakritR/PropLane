@@ -24,8 +24,10 @@ export function useWorkspaceDraft<T>({ scope: formScope, actor, open = true, val
   const scope = `${actorId ?? "signed-out"}:${formScope}`;
   const preserved = useRef(false);
   const latest = useRef({ scope, open, value, restore });
-  latest.current = { scope, open, value, restore };
   const cleared = useRef(false);
+  useEffect(() => {
+    latest.current = { scope, open, value, restore };
+  });
   useEffect(() => {
     if (!open || !actorId) return;
     cleared.current = false;
@@ -38,7 +40,7 @@ export function useWorkspaceDraft<T>({ scope: formScope, actor, open = true, val
   }, [scope, open, actorId]);
   return {
     hasDraft: Boolean(actorId && drafts.has(scope)),
-    preserve: () => { if (actorId) { drafts.set(scope, latest.current.value); preserved.current = true; } },
+    preserve: () => { if (actorId && !cleared.current) { drafts.set(scope, latest.current.value); preserved.current = true; } },
     clear: () => { cleared.current = true; drafts.delete(scope); },
   };
 }

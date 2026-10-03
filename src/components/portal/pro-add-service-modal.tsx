@@ -630,6 +630,8 @@ export function ManagerAddServiceModal({
         setStepIdx(index);
       }}
       onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
+      keepsDraft
+      onDiscardDraft={workspaceDraft.clear}
       dirty={Boolean(propertyId || roomChoice || residentEmail || addTask || form.description.trim() || photos.length)}
       discardTitle="Discard this service?"
       assistantContext="Log a service. Assignment messages send when you assign someone."

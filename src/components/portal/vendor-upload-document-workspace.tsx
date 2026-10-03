@@ -117,6 +117,8 @@ export function VendorUploadDocumentWorkspace({
       current={step}
       onJump={setStep}
       onClose={() => { workspaceDraft.preserve(); (resetAndClose)(); }}
+      keepsDraft
+      onDiscardDraft={workspaceDraft.clear}
       dirty={Boolean(kind || file)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose the file?"

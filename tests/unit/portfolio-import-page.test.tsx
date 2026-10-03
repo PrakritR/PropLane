@@ -32,10 +32,13 @@ describe("route", () => {
 });
 
 describe("PortfolioImportUploadStep", () => {
-  it("shows the file kinds, the dropzone, and disables Read files until a file is picked", () => {
+  it("starts from one upload icon (no drop box, no format chips) and disables Read files until a file is picked", () => {
     render(<PortfolioImportUploadStep uploading={false} error={null} onSubmit={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getByText("Import your portfolio")).toBeTruthy();
-    expect(screen.getByText("Drop files here")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start from a file" })).toBeTruthy();
+    expect(screen.queryByText("Drop files here")).toBeNull();
+    expect(screen.queryByText(/up to 50 files/)).toBeNull();
+    expect(document.querySelector('[data-attr="portfolio-import-dropzone"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Read files" })).toBeDisabled();
   });
 
@@ -50,6 +53,14 @@ describe("PortfolioImportUploadStep", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0]).toEqual([file]);
     expect(onSubmit.mock.calls[0][1]).toBe("2 buildings");
+  });
+
+  it("names the limit only when a file is turned away", () => {
+    render(<PortfolioImportUploadStep uploading={false} error={null} onSubmit={vi.fn()} onBack={vi.fn()} />);
+    const input = document.querySelector('[data-attr="portfolio-import-file-input"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["x"], "photo.png", { type: "image/png" })] } });
+    expect(screen.getByRole("alert").textContent).toContain("photo.png");
+    expect(screen.getByRole("button", { name: "Read files" })).toBeDisabled();
   });
 
   it("shows the server's error message and lets the manager retry", () => {

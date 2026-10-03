@@ -26,10 +26,10 @@ export function WizardSelect({ required, ...props }: Parameters<typeof FieldSing
   const id = useId();
   const isRequired = required ?? /\*\s*$/.test(props.label);
   const label = props.label.replace(/\s*\*\s*$/, "");
-  return <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={isRequired} data-wizard-empty={!props.value}>
+  return <div data-wizard-picker="" data-wizard-field={id} data-wizard-label={label} data-wizard-required={isRequired} data-wizard-empty={!props.value}>
     <FieldSingleSelect {...props} label={label}
       labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1", props.labelClassName)}
-      wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:border-b max-sm:border-border/60 max-sm:py-2", props.wrapperClassName)}
+      wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:py-2", props.wrapperClassName)}
       triggerClassName={cn("max-sm:w-auto max-sm:max-w-[60%] max-sm:justify-end max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none", props.triggerClassName)}
     />
     <WizardFieldError id={id} />
@@ -39,7 +39,7 @@ export function WizardSelect({ required, ...props }: Parameters<typeof FieldSing
 /** Pick-several follows the same label/value row as a single pick on a phone. */
 export function WizardMultiSelect({ required = false, ...props }: Parameters<typeof CheckboxMultiSelect>[0] & { required?: boolean }) {
   const id = useId();
-  return <div data-wizard-field={id} data-wizard-label={props.label} data-wizard-required={required} data-wizard-empty={props.selected.length === 0} className="max-sm:border-b max-sm:border-border/60 max-sm:py-2 [&>div:first-child]:max-sm:flex [&>div:first-child]:max-sm:min-h-10 [&>div:first-child]:max-sm:items-center [&>div:first-child]:max-sm:gap-3 [&>div:first-child>button]:max-sm:ml-auto [&>div:first-child>button]:max-sm:w-auto [&>div:first-child>button]:max-sm:max-w-[60%] [&>div:first-child>button]:max-sm:border-0 [&>div:first-child>button]:max-sm:bg-transparent [&>div:first-child>button]:max-sm:shadow-none">
+  return <div data-wizard-picker="" data-wizard-field={id} data-wizard-label={props.label} data-wizard-required={required} data-wizard-empty={props.selected.length === 0} className="max-sm:py-2 [&>div:first-child]:max-sm:flex [&>div:first-child]:max-sm:min-h-10 [&>div:first-child]:max-sm:items-center [&>div:first-child]:max-sm:gap-3 [&>div:first-child>button]:max-sm:ml-auto [&>div:first-child>button]:max-sm:w-auto [&>div:first-child>button]:max-sm:max-w-[60%] [&>div:first-child>button]:max-sm:border-0 [&>div:first-child>button]:max-sm:bg-transparent [&>div:first-child>button]:max-sm:shadow-none">
     <CheckboxMultiSelect labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1")} {...props} />
     <WizardFieldError id={id} />
   </div>;
@@ -91,6 +91,7 @@ export function WizardChip({ children, tone = "info" }: { children: ReactNode; t
 export function WizardRow({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 | 3 }) {
   return (
     <div
+      data-wizard-row=""
       className={cn(
         "grid gap-3",
         cols === 2 && "sm:grid-cols-2",

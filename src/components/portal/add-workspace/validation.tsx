@@ -44,3 +44,10 @@ export function missingWizardFields(root: HTMLElement | null): MissingWizardFiel
   }
   return [...missing.values()];
 }
+
+/** One line for the footer: the first thing missing, and how many more. "Full name (+4 more)". */
+export function summarizeMissingFields(fields: readonly Pick<MissingWizardField, "label">[]): string {
+  if (!fields.length) return "";
+  const [first, ...rest] = fields;
+  return rest.length ? `${first!.label} (+${rest.length} more)` : first!.label;
+}

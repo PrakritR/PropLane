@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { readSavedWizardDraft, useWizardDraft } from "@/hooks/use-wizard-draft";
 import { AddWorkspace } from "@/components/portal/add-workspace";
 import { isoWindowFromSlotKey, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { DateField } from "@/components/ui/date-field";
@@ -69,8 +70,31 @@ export function ScheduleTourSimpleModal({
   const [slotHosts, setSlotHosts] = useState<SlotHosts>({});
   const [availability, setAvailability] = useState<"idle" | "loading" | "error">("idle");
 
+  // The x keeps an unfinished tour: the answers wait under this key until the tour is added or discarded.
+  const draftKey = prefill ? null : "add-tour";
+  const tourDirty = Boolean(form.name || form.email || form.phone || form.tourNotes || slotKey);
+  const draftValue = useMemo(() => ({ form, current, selectedDateStr, slotKey }), [form, current, selectedDateStr, slotKey]);
+  const { discard: discardDraft } = useWizardDraft(open ? draftKey : null, draftValue, tourDirty);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Closed: forget the live copy. What the x kept is in the draft store and comes back on open.
+      setForm({ ...emptyAddPersonForm("prospect"), propertyId: "" });
+      setSlotKey(null);
+      setCurrent(0);
+      return;
+    }
+    const saved = readSavedWizardDraft<{ form: AddPersonForm; current: number; selectedDateStr: string; slotKey: string | null }>(draftKey);
+    if (saved) {
+      setForm(saved.form);
+      setSlotKey(saved.slotKey);
+      setSelectedDateStr(saved.selectedDateStr);
+      setSlotHosts({});
+      setCurrent(saved.current);
+      setError("");
+      savedVisitor.current = null;
+      return;
+    }
     setForm({ ...emptyAddPersonForm("prospect"), propertyId: defaultPropertyId ?? "" });
     setSlotKey(null);
     setSelectedDateStr(prefill?.dateStr || todayLocalDateStr());
@@ -207,6 +231,7 @@ export function ScheduleTourSimpleModal({
       } catch { showToast("Tour scheduled, but the confirmation could not be sent."); }
     }
     showToast(outcome.notes.length ? `Tour scheduled. ${outcome.notes.join(" · ")}.` : "Tour scheduled.");
+    discardDraft();
     onAdded(outcome);
     onClose();
     } catch { setError("Could not add the tour. Try again."); }
@@ -218,7 +243,7 @@ export function ScheduleTourSimpleModal({
   if (!open) return null;
   return (
     <AddWorkspace title="Add tour" steps={steps} current={current} onJump={jump} onClose={onClose}
-      dirty={Boolean(form.propertyId || form.name)} assistantContext="Add tour" assistantScopeKey="schedule-tour-wizard"
+      dirty={Boolean(form.propertyId || form.name)} keepsDraft={draftKey != null} onDiscardDraft={discardDraft} assistantContext="Add tour" assistantScopeKey="schedule-tour-wizard"
       lastLabel="Add tour" busy={busy} onFinish={handleSchedule} onBeforeNext={() => { if (issues[current]) { setError(issues[current]); return false; } return true; }}
       finishCount={issues.filter(Boolean).length} dataAttrPrefix="schedule-tour-simple" finishDataAttr="schedule-tour-simple-submit"
       railHeader={<div className="rounded-2xl border border-dashed border-border p-6 text-center font-semibold">Contact and tour</div>}
@@ -277,7 +302,6 @@ export function ScheduleTourSimpleModal({
           <div className="mt-3">
             <span className="mb-1.5 block text-[12.5px] font-bold text-foreground">
               Open times · Pacific time
-              <span className="text-red-600">*</span>
             </span>
             {!form.propertyId ? (
               <p className="text-sm text-muted">Pick a property to see open times.</p>

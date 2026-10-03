@@ -136,7 +136,7 @@ import {
   ManagerResidentUploadModal,
   type ResidentUploadDocKind,
 } from "@/components/portal/manager-resident-upload-modal";
-import { ManagerResidentLeaseSigners } from "@/components/portal/manager-resident-lease-signers";
+import { LeaseSignersCard } from "@/components/portal/lease-signers-card";
 import {
   ManagerResidentDocumentsPanel,
   type ManagerResidentDocTabId,
@@ -3681,7 +3681,7 @@ export function ManagerResidents({
                               />
                               {residentLease ? (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                  <ManagerResidentLeaseSigners row={residentLease} />
+                                  <LeaseSignersCard row={residentLease} />
                                   <LeaseDocumentPreview
                                     row={residentLease}
                                     flow

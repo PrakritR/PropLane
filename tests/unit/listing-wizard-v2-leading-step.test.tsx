@@ -45,7 +45,7 @@ describe("ListingEditorV2 without a leading step (Add property)", () => {
     expect(labels).toEqual(LISTING_V2_STEPS.map((s) => `listing-v2-rail-${s.id}`));
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
     expect(screen.queryByTestId("switcher")).toBeNull();
-    expect(screen.getByText(/Step 1 of \d/).textContent).toMatch(/^Step 1 of /);
+    expect(screen.getAllByText(/Step 1 of \d/)[0]!.textContent).toMatch(/^Step 1 of /); // the footer; the phone step picker repeats it
   });
 });
 
@@ -58,7 +58,7 @@ describe("ListingEditorV2 with the import's Upload step", () => {
     expect(labels).toHaveLength(LISTING_V2_STEPS.length + 1);
     expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).toContain("Copy of Sales.xlsx · 6 found");
     expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
-    expect(screen.getByText(/^Step 2 of /)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Step 2 of /).length).toBeGreaterThan(0);
     expect(screen.getByTestId("switcher")).toBeInTheDocument();
   });
 

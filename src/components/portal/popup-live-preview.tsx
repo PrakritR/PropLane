@@ -18,3 +18,28 @@ export function PopupMessagePreview({ subject, body, recipient, channel, sendAt 
     <div className="whitespace-pre-wrap break-words p-4 text-sm">{body || "No message"}</div>
   </article>;
 }
+
+/** A review as the vendor's profile will show it: the stars and the words, as typed. */
+export function PopupReviewPreview({ stars, body, subject }: { stars: number; body: string; subject?: string }) {
+  const n = Math.max(0, Math.min(5, Math.round(stars)));
+  return <article className="overflow-hidden rounded-xl border border-border bg-card" data-attr="popup-review-preview">
+    <div className="space-y-1 border-b border-border p-4">
+      {subject ? <p className="text-xs text-muted">{subject}</p> : null}
+      <p className="text-lg tracking-wide text-amber-500" role="img" aria-label={`${n} of 5 stars`}>{"★".repeat(n)}<span className="text-border">{"★".repeat(5 - n)}</span></p>
+    </div>
+    <div className={`whitespace-pre-wrap break-words p-4 text-sm ${body.trim() ? "" : "text-muted"}`}>{body.trim() || "Your review shows here"}</div>
+  </article>;
+}
+
+/** Who a single-record form is about: a tile with initials, a name and up to three plain lines. */
+export function PopupSubjectCard({ title, lines = [], initials }: { title: string; lines?: ReadonlyArray<string | null | undefined>; initials?: string }) {
+  const tile = initials ?? title.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]!.toUpperCase()).join("");
+  const shown = lines.filter((line): line is string => Boolean(line && line.trim())).slice(0, 3);
+  return <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-3.5" data-attr="popup-subject-card">
+    <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-primary/10 text-[13px] font-extrabold text-primary" aria-hidden>{tile || "·"}</span>
+    <div className="min-w-0">
+      <p className="break-words text-[14.5px] font-bold leading-tight text-foreground">{title}</p>
+      {shown.map((line, index) => <p key={index} className="mt-1 break-words text-[12.5px] text-muted">{line}</p>)}
+    </div>
+  </div>;
+}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { FileText, MessageSquareText, Upload, type LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -24,11 +26,16 @@ import { PromotionUploadComposer } from "@/components/portal/promotion-upload-co
 import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
 import { Input, Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizard-draft-memory";
 
-const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
-  { id: "flyer", label: "Flyer" },
-  { id: "text", label: "Text" },
-  { id: "upload", label: "Upload your own" },
+/** Where the x parks an unfinished promotion (flyer and post kinds; a picked upload file is not kept). */
+const PROMOTION_DRAFT_KEY = "new-promotion";
+type KeptPromotion = { kind: PromotionAssetKind; stepIdx: number; draft: PromotionDraft };
+
+const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; icon: LucideIcon }[] = [
+  { id: "flyer", label: "Flyer", icon: FileText },
+  { id: "text", label: "Post or blurb", icon: MessageSquareText },
+  { id: "upload", label: "Upload your own", icon: Upload },
 ];
 
 type FlyerContentField = Exclude<keyof PromotionDraft, "propertyKey" | "images">;
@@ -137,6 +144,23 @@ export function PromotionNewModal({
 
   useEffect(() => {
     if (!open) return;
+    // The x kept an unfinished promotion: pick it up where it was left (consumed here, so a
+    // promotion that is then generated never leaves a stale copy behind).
+    const kept = initialStepId ? undefined : readWizardDraft<KeptPromotion>(PROMOTION_DRAFT_KEY);
+    clearWizardDraft(PROMOTION_DRAFT_KEY);
+    if (kept) {
+      setKind(kept.kind);
+      setStepIdx(kept.stepIdx);
+      setDraft(kept.draft);
+      // The baseline stays the seed the modal opened with, so the kept edits still count as typed content.
+      setFlyerBase(draft);
+      setFlyerBaseProperty(kept.draft.propertyKey);
+      setTextDirty(false);
+      setUploadFile(null);
+      setUploadFileName(null);
+      setUploadError(null);
+      return;
+    }
     setKind(initialKind);
     setStepIdx(initialStepId === "content" ? 1 : initialStepId === "preview" ? 2 : 0);
     setFlyerBase(draft);
@@ -230,6 +254,11 @@ export function PromotionNewModal({
         ? textDirty || flyerContentChanged(draft, flyerBase)
         : Boolean(uploadFile);
 
+  const keepAndClose = () => {
+    if (kind !== "upload" && leavingDirty) writeWizardDraft<KeptPromotion>(PROMOTION_DRAFT_KEY, { kind, stepIdx, draft });
+    onClose();
+  };
+
   const preview = kind === "flyer" ? <PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded />
     : kind === "upload" ? <PromotionUploadPreview file={uploadFile} /> : <PromotionPostPreview draft={draft} options={textPreview} />;
 
@@ -241,7 +270,9 @@ export function PromotionNewModal({
       steps={workspaceSteps}
       current={current}
       onJump={setStepIdx}
-      onClose={onClose}
+      onClose={keepAndClose}
+      keepsDraft={kind !== "upload"}
+      onDiscardDraft={() => clearWizardDraft(PROMOTION_DRAFT_KEY)}
       dirty={leavingDirty}
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
@@ -258,8 +289,26 @@ export function PromotionNewModal({
       {stepId === "kind" ? (
         <StepColumn>
           <StepHeading title="Kind" />
-          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3">
-            {PROMOTION_KIND_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={kind === option.id} disabled={flyerBusy || textBusy || uploadBusy} onClick={() => void requestSwitch(option.id)} data-attr="promotion-new-kind" className={`min-h-24 rounded-xl border p-3 text-sm font-semibold ${kind === option.id ? "border-primary bg-primary/5 text-primary" : "border-border bg-card"}`}>{option.label}</button>)}
+          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3 max-sm:grid-cols-1">
+            {PROMOTION_KIND_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              const on = kind === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={flyerBusy || textBusy || uploadBusy}
+                  onClick={() => void requestSwitch(option.id)}
+                  data-attr="promotion-new-kind"
+                  className={cn("flex min-h-24 flex-col items-start justify-between gap-3 rounded-xl border p-3 text-left text-sm font-bold transition max-sm:min-h-20", on ? "border-primary bg-primary/[0.06] text-primary ring-1 ring-primary" : "border-border bg-card text-foreground hover:bg-accent/40")}
+                >
+                  <Icon className="size-5" strokeWidth={1.75} aria-hidden />
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
           {!hidePropertyPicker ? (
             <WizardSelect

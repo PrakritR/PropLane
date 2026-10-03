@@ -26,9 +26,11 @@ import {
   StepRail,
   type StepRailItem,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { Trash2 } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
-import { WizardInvalidFields, missingWizardFields } from "./validation";
+import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
 
 export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
 
@@ -59,7 +61,9 @@ export function AddWorkspace({
   onBeforeNext,
   busy = false,
   onFinish,
-  saveState = "Not saved yet",
+  saveState,
+  keepsDraft = false,
+  onDiscardDraft,
   dataAttrPrefix = "add-workspace",
   finishDataAttr,
   finishCount,
@@ -69,6 +73,7 @@ export function AddWorkspace({
   headerActions,
   skipOffPath = false,
   numberedSteps = false,
+  reviewEditLinks = true,
 }: {
   title: string;
   subtitle?: string;
@@ -101,6 +106,14 @@ export function AddWorkspace({
   busy?: boolean;
   onFinish: () => void;
   saveState?: ReactNode;
+  /**
+   * The x keeps what was typed: no Discard confirm, and the header says "Draft saved".
+   * The caller keeps the answers (`useWizardDraft`) and restores them when the same
+   * form opens again.
+   */
+  keepsDraft?: boolean;
+  /** With `keepsDraft`: forget the draft and close. Drawn as a Discard draft icon beside Ask PropLane. */
+  onDiscardDraft?: () => void;
   dataAttrPrefix?: string;
   /** Override the last-step button's data-attr (legacy Save selectors). */
   finishDataAttr?: string;
@@ -123,6 +136,11 @@ export function AddWorkspace({
   skipOffPath?: boolean;
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
   numberedSteps?: boolean;
+  /**
+   * The Review step gets an Edit link per section above its body. A Review that already draws its own
+   * Edit on every section card (Add resident) passes false so the link is not offered twice.
+   */
+  reviewEditLinks?: boolean;
 }) {
   const confirm = useConfirm();
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
@@ -140,6 +158,22 @@ export function AddWorkspace({
     [steps, finishCount],
   );
   const last = steps.length - 1;
+  const discardDraft = useCallback(() => {
+    if (busy || !onDiscardDraft) return;
+    void confirm({
+      title: discardTitle,
+      description: discardBody,
+      confirmLabel: "Discard",
+      note: null,
+      tone: "danger",
+      guard: "tap",
+      dataAttr: `${dataAttrPrefix}-discard-draft`,
+    }).then((ok) => {
+      if (!ok) return;
+      onDiscardDraft();
+      onClose();
+    });
+  }, [busy, confirm, dataAttrPrefix, discardBody, discardTitle, onClose, onDiscardDraft]);
   const nextPath = skipOffPath
     ? nextOnPathIndex(steps, current)
     : current < last
@@ -155,7 +189,7 @@ export function AddWorkspace({
   const close = useCallback(() => {
     if (busy) return;
     if (onRequestClose && !onRequestClose()) return;
-    if (!dirty) {
+    if (!dirty || keepsDraft) {
       onClose();
       return;
     }
@@ -170,14 +204,14 @@ export function AddWorkspace({
     }).then((ok) => {
       if (ok) onClose();
     });
-  }, [busy, confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
+  }, [busy, confirm, dataAttrPrefix, dirty, discardBody, discardTitle, keepsDraft, onClose, onRequestClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (event.defaultPrevented) return;
       if (document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`)) return;
-      if (document.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]')) return;
+      if (document.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"], [data-wizard-step-sheet]')) return;
       event.preventDefault();
       close();
     };
@@ -186,7 +220,7 @@ export function AddWorkspace({
   }, [close]);
 
   useEffect(() => {
-    const label = missingWizardFields(workspaceRef.current).map((field) => field.label).join(", ");
+    const label = summarizeMissingFields(missingWizardFields(workspaceRef.current));
     setReadiness((previous) => previous === label ? previous : label);
   }, [children, current]);
 
@@ -236,24 +270,27 @@ export function AddWorkspace({
           if (target.validity.valid) target.removeAttribute("aria-invalid");
           setValidationError(null);
           const missing = missingWizardFields(workspaceRef.current);
-          setReadiness(missing.map((field) => field.label).join(", "));
+          setReadiness(summarizeMissingFields(missing));
           setInvalidFields((previous) => new Set(missing.filter((field) => previous.has(field.id)).map((field) => field.id)));
         }
       }}>
       <ListingWorkspace
         title={title}
         subtitle={subtitle}
-        saveState={saveState}
+        saveState={saveState ?? (keepsDraft && dirty ? "Draft saved" : "Not saved yet")}
         onClose={close}
         closeDisabled={busy}
         onContinue={isLast ? finish : goNext}
         headerAside={
           <>
             {headerActions}
+            {keepsDraft && dirty && onDiscardDraft ? (
+              <PortalIconAction icon={Trash2} label="Discard draft" ring disabled={busy} onClick={discardDraft} data-attr={`${dataAttrPrefix}-discard-draft-icon`} />
+            ) : null}
             <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
         }
-        rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} visited={visitedSteps} />}
+        rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} visited={visitedSteps} todoCount={openCount} />}
         railHeader={
           <>
             {railHeader}
@@ -300,7 +337,7 @@ export function AddWorkspace({
                 aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
                 data-attr={`${dataAttrPrefix}-next`}
                 aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:opacity-45"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted"
               >
                 Continue
               </button>
@@ -311,7 +348,7 @@ export function AddWorkspace({
         <div className="mb-5 flex gap-1" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
         </div>
-        {(steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
+        {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
           {steps.filter((step) => step.id !== "review" && step.id !== "preview").map((step) => <button key={step.id} type="button" onClick={() => onJump(steps.indexOf(step))} className="min-h-11 text-sm font-semibold text-primary">Edit {step.label}</button>)}
         </nav> : null}
         {children}

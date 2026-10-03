@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
 import { Button } from "@/components/ui/button";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
@@ -247,7 +248,25 @@ export function ManagerAddPaymentModal({
     mintChargeId();
   };
 
+  // The x keeps an unfinished charge; only adding it (or Discard draft) forgets it.
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `charge:${initialApplicationId ?? initialPropertyId ?? "new"}`,
+    open,
+    value: { stepIdx, propertyId, residentApplicationId, preset, chargeTitle, amount, dueIso, bucket },
+    restore: (saved) => {
+      setStepIdx(saved.stepIdx);
+      setPropertyId(saved.propertyId);
+      setResidentApplicationId(saved.residentApplicationId);
+      setPreset(saved.preset);
+      setChargeTitle(saved.chargeTitle);
+      setAmount(saved.amount);
+      setDueIso(saved.dueIso);
+      setBucket(saved.bucket);
+    },
+  });
+
   const handleClose = () => {
+    workspaceDraft.preserve();
     reset();
     onClose();
   };
@@ -320,6 +339,7 @@ export function ManagerAddPaymentModal({
         await restoreFutureRemindersForPendingCharge(result.id).catch(() => undefined);
       }
 
+      workspaceDraft.clear();
       reset();
       onSubmitted();
       if (skipMessage) {
@@ -410,6 +430,8 @@ export function ManagerAddPaymentModal({
             }
             return true;
           }}
+          keepsDraft
+          onDiscardDraft={workspaceDraft.clear}
           dirty={Boolean(propertyId || residentApplicationId || amount.trim())}
           discardTitle="Discard this charge?"
           assistantContext="Add a resident charge on Incoming."

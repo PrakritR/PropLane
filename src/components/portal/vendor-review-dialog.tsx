@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PopupReviewPreview, PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { VendorReviewStarPicker } from "@/components/portal/vendor-review-stars";
 import { canEditVendorReview, VENDOR_REVIEW_BODY_MAX_LENGTH, type VendorReview } from "@/lib/vendor-reviews";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -93,6 +94,9 @@ export function VendorReviewDialog({
       onClose={onClose}
       title={existing ? "Review" : "Leave a review"}
       dataAttr="vendor-review-dialog"
+      contextPanel={<PopupSubjectCard title={row.vendorName || row.title} lines={[row.vendorName ? row.title : null, existing ? "Already reviewed" : "Completed service"]} />}
+      previewLabel="Review preview"
+      preview={<PopupReviewPreview stars={stars} body={notes} subject={row.title} />}
       primaryAction={
         readOnly
           ? null
@@ -106,7 +110,6 @@ export function VendorReviewDialog({
       }
     >
       <div className="space-y-4">
-        {row.vendorName ? <p className="text-sm text-muted">{row.vendorName} · {row.title}</p> : null}
         {readOnly ? (
           <p className="text-sm text-muted">The fourteen-day editing window has ended.</p>
         ) : null}

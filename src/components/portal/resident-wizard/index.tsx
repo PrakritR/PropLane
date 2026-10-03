@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { readSavedWizardDraft, useWizardDraft } from "@/hooks/use-wizard-draft";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import {
   diffResidentEdit,
@@ -116,7 +117,12 @@ export function AddResidentWizard({
   };
 }) {
   const { showToast } = useAppUi();
+  // The x keeps what was typed: an add (not an edit, not a prefilled one) saves its answers
+  // under the door's name and opens on them again.
+  const draftKey = mode !== "edit" && !initialForm ? `add-resident:${mode}:${initialKind}` : null;
+  const [savedDraft] = useState(() => readSavedWizardDraft<{ form: AddPersonForm; stepIdx: number }>(draftKey));
   const [form, setForm] = useState<AddPersonForm>(() => {
+    if (savedDraft) return savedDraft.form;
     const kind = initialForm?.kind ?? (mode === "tour" ? "prospect" : initialKind);
     const blank = emptyAddPersonForm(kind);
     if (initialForm) {
@@ -124,7 +130,7 @@ export function AddResidentWizard({
     }
     return { ...blank, propertyId: defaultPropertyId ?? "" };
   });
-  const [stepIdx, setStepIdx] = useState(0);
+  const [stepIdx, setStepIdx] = useState(savedDraft?.stepIdx ?? 0);
   const [strip, setStrip] = useState<FileStripState>({ kind: "blank" });
   const [busy, setBusy] = useState(false);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
@@ -133,6 +139,8 @@ export function AddResidentWizard({
   const parsesRef = useRef<{ application: ParsedResidentDocument | null; lease: ParsedResidentDocument | null }>({ application: null, lease: null });
   const undoRef = useRef<AddPersonForm | null>(null);
 
+  const draftValue = useMemo(() => ({ form, stepIdx }), [form, stepIdx]);
+  const { discard: discardDraft } = useWizardDraft(draftKey, draftValue, draftKey != null && addPersonFormIsDirty(form));
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
   const derived = useResidentWizardDerived(form, propertyTick, patch, { editing: mode === "edit" });
   const stepIds: readonly string[] =
@@ -484,12 +492,13 @@ export function AddResidentWizard({
       }
       if (problems.length) showToast(`${who} added, but: ${problems.join(" · ")}`);
       setPreview(null);
+      discardDraft();
       onAdded(outcome);
       onClose();
     } finally {
       setBusy(false);
     }
-  }, [assignee, busy, executedLeaseKeys, form, goTo, managerUserId, mode, onAdded, onClose, propertyOptions, showToast]);
+  }, [assignee, busy, executedLeaseKeys, form, discardDraft, goTo, managerUserId, mode, onAdded, onClose, propertyOptions, showToast]);
 
   const onFinish = useCallback(() => {
     if (todo.length) {
@@ -547,6 +556,9 @@ export function AddResidentWizard({
       onJump={setStepIdx}
       onClose={onClose}
       dirty={addPersonFormIsDirty(form)}
+      reviewEditLinks={false}
+      keepsDraft={draftKey != null}
+      onDiscardDraft={discardDraft}
       discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
       assistantContext={workspaceTitle}
       assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}

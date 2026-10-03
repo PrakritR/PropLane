@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { computeInstantPayoutFeeCents } from "@/lib/stripe-payouts";
@@ -133,7 +135,30 @@ export function PayoutWithdrawSheet({
   }
 
   return (
-    <PortalDialog open={open} title="Withdraw" onClose={onClose} primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account, dataAttr: "withdraw-confirm" }}>
+    <PortalDialog
+      open={open}
+      title="Withdraw"
+      onClose={onClose}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Available", value: formatMoney(availableCents, currency) }, { label: "To", value: account ? `${account.label} ····${account.last4}` : "No account" }]} />}
+      previewLabel="Withdrawal preview"
+      preview={
+        <PreviewPanel
+          title="Withdrawal"
+          name={formatMoney(amountCents, currency)}
+          sub={account ? `${account.label} ····${account.last4}` : "To your bank"}
+          facts={[
+            { label: "Amount", value: amountCents > 0 ? formatMoney(amountCents, currency) : "Not set" },
+            { label: "Speed", value: method === "instant" ? "Instant" : "Standard" },
+            { label: "Arrives", value: method === "instant" ? "Within 30 minutes" : "1–2 business days" },
+            { label: method === "instant" ? "Bank receives" : "Fee", value: method === "instant" ? formatMoney(netCents, currency) : "Free" },
+          ]}
+          creates={[
+            { tone: overBalance || belowMinimum ? "warn" : "yes", text: overBalance ? "Amount is more than is available" : belowMinimum ? "Withdrawals start at $1.00" : "Leaves your PropLane balance" },
+            { tone: "no", text: "A receipt is emailed to you" },
+          ]}
+        />
+      }
+      primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account, dataAttr: "withdraw-confirm" }}>
       <div className="space-y-4">
         <label className="block text-sm font-medium">Amount
           <Input inputMode="decimal" value={amountInput} onChange={(event) => setAmountInput(event.target.value)} aria-label="Amount" data-attr="withdraw-amount-input" className="mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2" />

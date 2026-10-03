@@ -102,6 +102,7 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { expenseTaxStatusLabel, isCategoryDeductible, SYSTEM_CHART_ACCOUNTS } from "@/lib/reports/categories";
 import { cn } from "@/lib/utils";
+import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizard-draft-memory";
 import { centsToUsd, dollarsToCents } from "@/lib/reports/money";
 import {
   MANAGER_VENDORS_EVENT,
@@ -445,6 +446,9 @@ function defaultFilters(): ReportFilterState {
   };
 }
 
+const EXPENSE_DRAFT_KEY = "add-expense";
+const INCOME_DRAFT_KEY = "add-income";
+
 type ExpenseDraft = {
   id?: string;
   categoryCode: string;
@@ -781,6 +785,7 @@ export function ManagerFinancesPanel({
       return;
     }
     showToast("Income saved.");
+    clearWizardDraft(INCOME_DRAFT_KEY);
     setIncomeModal(false);
     void loadTable();
   }
@@ -817,6 +822,7 @@ export function ManagerFinancesPanel({
       return;
     }
     showToast(editingId ? "Expense updated." : "Expense saved.");
+    if (!editingId) clearWizardDraft(EXPENSE_DRAFT_KEY);
     setExpenseModal(false);
     if (expenseDraft.expenseDate) {
       setFilters((current) => ({ ...current, ...expandDateFilterToInclude(current, expenseDraft.expenseDate) }));
@@ -995,22 +1001,39 @@ export function ManagerFinancesPanel({
     activeDefaultSort.dir,
   ]);
 
+  /** The x keeps an unfinished Add expense / Add income; saving it (or Discard draft) forgets it. */
+  function closeExpense() {
+    const dirty = Boolean(expenseDraft.amount.trim() || expenseDraft.memo.trim() || expenseDraft.vendorId || expenseDraft.propertyId);
+    if (!expenseDraft.id && dirty) writeWizardDraft(EXPENSE_DRAFT_KEY, { draft: expenseDraft, step: expenseStepIdx });
+    setExpenseModal(false);
+  }
+
+  function closeIncome() {
+    const dirty = Boolean(incomeDraft.amount.trim() || incomeDraft.description.trim() || incomeDraft.propertyId);
+    if (dirty) writeWizardDraft(INCOME_DRAFT_KEY, { draft: incomeDraft, step: incomeStepIdx });
+    setIncomeModal(false);
+  }
+
   function openAddIncome() {
-    setIncomeDraft({
-      categoryCode: "other_income",
-      amount: "",
-      postedDate: pacificCalendarDateYmd(),
-      description: "",
-      propertyId: filters.propertyId,
-    });
-    setIncomeStepIdx(0);
+    const kept = readWizardDraft<{ draft: IncomeDraft; step: number }>(INCOME_DRAFT_KEY);
+    setIncomeDraft(
+      kept?.draft ?? {
+        categoryCode: "other_income",
+        amount: "",
+        postedDate: pacificCalendarDateYmd(),
+        description: "",
+        propertyId: filters.propertyId,
+      },
+    );
+    setIncomeStepIdx(kept?.step ?? 0);
     setFinanceStepError(null);
     setIncomeModal(true);
   }
 
   function openAddExpense() {
-    setExpenseDraft(blankExpenseDraft(filters.propertyId));
-    setExpenseStepIdx(0);
+    const kept = readWizardDraft<{ draft: ExpenseDraft; step: number }>(EXPENSE_DRAFT_KEY);
+    setExpenseDraft(kept?.draft ?? blankExpenseDraft(filters.propertyId));
+    setExpenseStepIdx(kept?.step ?? 0);
     setFinanceStepError(null);
     setExpenseModal(true);
   }
@@ -1259,7 +1282,9 @@ export function ManagerFinancesPanel({
             setFinanceStepError(null);
             setExpenseStepIdx(index);
           }}
-          onClose={() => setExpenseModal(false)}
+          onClose={closeExpense}
+          keepsDraft={!expenseDraft.id}
+          onDiscardDraft={() => clearWizardDraft(EXPENSE_DRAFT_KEY)}
           dirty={Boolean(expenseDraft.amount.trim() || expenseDraft.memo.trim() || expenseDraft.vendorId || expenseDraft.propertyId)}
           discardTitle="Discard this expense?"
           assistantContext="Add an expense on Finances."
@@ -1404,7 +1429,9 @@ export function ManagerFinancesPanel({
             setFinanceStepError(null);
             setIncomeStepIdx(index);
           }}
-          onClose={() => setIncomeModal(false)}
+          onClose={closeIncome}
+          keepsDraft
+          onDiscardDraft={() => clearWizardDraft(INCOME_DRAFT_KEY)}
           dirty={Boolean(incomeDraft.amount.trim() || incomeDraft.description.trim() || incomeDraft.propertyId)}
           discardTitle="Discard this income?"
           assistantContext="Add income on Finances."

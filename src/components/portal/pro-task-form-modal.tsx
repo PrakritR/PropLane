@@ -21,6 +21,7 @@ import {
 } from "@/components/portal/pro-legacy-service-intake-form";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizard-draft-memory";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { compactTaskPropertyLabel } from "@/lib/manager-task-display";
 import {
@@ -185,6 +186,10 @@ const EMPTY_FORM = {
   attachmentsText: "",
 };
 
+/** Where an unfinished Add parks its answers when the x closes it. */
+const TASK_DRAFT_KEY = "add-task";
+type TaskDraftMemory = { form: typeof EMPTY_FORM; assignee: WorkAssignee | null; roomValue: string; stepIdx: number };
+
 /** A general (non-tour) task has no duration field of its own — this is the
  * form's own default, `EMPTY_FORM.durationMinutes`, used to size a suggested
  * start into a start/end pair. */
@@ -212,8 +217,11 @@ export function ManagerTaskFormModal({
   const [hydrated, setHydrated] = useState(false);
   /** The row Add created on its first valid write; later writes patch it. */
   const createdIdRef = useRef<string | null>(null);
+  /** True once the autosave has written the Add as a real row — then there is no draft to discard. */
+  const [rowCreated, setRowCreated] = useState(false);
   const composePrefillRef = useRef<ManagerComposePrefill | null>(null);
   const changedRef = useRef(false);
+  const discardedDraftRef = useRef(false);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [existingChecklist, setExistingChecklist] = useState<ManagerTaskChecklistItem[]>([]);
   const [comments, setComments] = useState<ManagerTaskComment[]>([]);
@@ -281,11 +289,22 @@ export function ManagerTaskFormModal({
 
   useEffect(() => {
     if (!open) {
+      // The x keeps an unfinished Add: park it for the next time the form opens. A task the
+      // autosave already wrote is a real row, so it needs no draft.
+      if (!editingId) {
+        if (!discardedDraftRef.current && !createdIdRef.current && (form.title.trim() || form.guestName.trim() || form.propertyId)) {
+          writeWizardDraft(TASK_DRAFT_KEY, { form, assignee, roomValue: selectedRoomValue, stepIdx });
+        } else {
+          clearWizardDraft(TASK_DRAFT_KEY);
+        }
+      }
+      discardedDraftRef.current = false;
       setForm(EMPTY_FORM);
       setAssignee(null);
       setSelectedRoomValue("");
       setHydrated(false);
       createdIdRef.current = null;
+      setRowCreated(false);
       composePrefillRef.current = null;
       changedRef.current = false;
       setStepIdx(0);
@@ -317,6 +336,13 @@ export function ManagerTaskFormModal({
       }
     }
     if (!editingId) {
+      const saved = readWizardDraft<TaskDraftMemory>(TASK_DRAFT_KEY);
+      if (saved) {
+        setForm(saved.form);
+        setAssignee(saved.assignee);
+        setSelectedRoomValue(saved.roomValue);
+        setStepIdx(saved.stepIdx);
+      }
       setHydrated(true);
       return;
     }
@@ -532,6 +558,7 @@ export function ManagerTaskFormModal({
       } else {
         const created = await createManagerTask(managerUserId, input);
         createdIdRef.current = created.id;
+        setRowCreated(true);
       }
       changedRef.current = true;
       reapplyManagerTasksToCalendar(managerUserId);
@@ -611,6 +638,14 @@ export function ManagerTaskFormModal({
       onJump={setStepIdx}
       onClose={handleClose}
       dirty={Boolean(form.title.trim() || form.guestName.trim() || form.propertyId)}
+      keepsDraft={!editingId}
+      onDiscardDraft={
+        !editingId && !rowCreated
+          ? () => {
+              discardedDraftRef.current = true;
+            }
+          : undefined
+      }
       discardTitle={editingId ? "Discard these edits?" : "Discard this task?"}
       assistantContext={editingId ? "Edit task" : "Add task"}
       assistantScopeKey={editingId ? "edit-task" : "add-task"}

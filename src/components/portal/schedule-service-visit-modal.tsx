@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
+import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { cn } from "@/lib/utils";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -180,6 +183,12 @@ export function ScheduleServiceVisitModal({
     return unit ? `${row.propertyName} · ${unit}` : row.propertyName;
   }, [row]);
 
+  const visitWhen = useMemo(() => {
+    const iso = fromDatetimeLocalValue(visitLocal);
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }, [visitLocal]);
+
   const onConfirm = async () => {
     if (!row || !managerUserId || !authReady) return;
     const iso = fromDatetimeLocalValue(visitLocal);
@@ -232,6 +241,27 @@ export function ScheduleServiceVisitModal({
         if (!busy) onClose();
       }}
       dismissBlocked={busy}
+      contextPanel={row ? <PopupSubjectCard title={row.title} lines={[propertyLine, row.residentName?.trim() ? `Resident: ${row.residentName.trim()}` : null]} /> : undefined}
+      previewLabel="Visit preview"
+      preview={
+        row ? (
+          <PreviewPanel
+            title="Service visit"
+            name={visitWhen || "Pick a time"}
+            sub={assignee?.name ?? "Unassigned"}
+            facts={[
+              { label: "Arrives", value: visitWhen || "Not set", warn: !visitWhen },
+              { label: "Takes", value: DURATIONS.find((d) => d.value === durationMinutes)?.label ?? `${durationMinutes} minutes` },
+              { label: "Assigned to", value: assignee?.name ?? "Not set", warn: !assignee },
+              { label: "Where", value: propertyLine || "Not set" },
+            ]}
+            creates={[
+              { tone: visitWhen && assignee ? "yes" : "warn", text: visitWhen && assignee ? "The visit goes on the calendar" : "Pick a time and who takes it" },
+              { tone: "no", text: assignee?.type === "vendor" ? "The vendor is told" : "The resident is told" },
+            ]}
+          />
+        ) : undefined
+      }
       primaryAction={{
         label: "Schedule visit",
         onClick: onConfirm,
@@ -242,14 +272,6 @@ export function ScheduleServiceVisitModal({
     >
       {row ? (
         <div className="space-y-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">{row.title}</p>
-            {propertyLine ? <p className="mt-0.5 text-xs text-muted">{propertyLine}</p> : null}
-            {row.residentName?.trim() ? (
-              <p className="mt-0.5 text-xs text-muted">Resident: {row.residentName.trim()}</p>
-            ) : null}
-          </div>
-
           <WorkAssignmentPicker
             kind="maintenance"
             value={assignee}
@@ -291,10 +313,12 @@ export function ScheduleServiceVisitModal({
             </label>
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-muted">Duration</span>
-              <Select
+              <FieldSingleSelect
+                label="Duration"
+                hideLabel
                 value={String(durationMinutes)}
-                onChange={(e) => {
-                  const next = Number(e.target.value) || 60;
+                onChange={(value) => {
+                  const next = Number(value) || 60;
                   setDurationMinutes(next);
                   if (suggestSource === null) return;
                   void askSuggestion(next).then((suggestion) => {
@@ -307,14 +331,9 @@ export function ScheduleServiceVisitModal({
                   });
                 }}
                 disabled={busy}
-                data-attr="schedule-service-visit-duration"
-              >
-                {DURATIONS.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </Select>
+                options={DURATIONS.map((d) => ({ value: String(d.value), label: d.label }))}
+                dataAttr="schedule-service-visit-duration"
+              />
             </label>
           </div>
         </div>

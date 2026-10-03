@@ -119,6 +119,8 @@ export function PropertyApplicationFormModal({
       current={current}
       onJump={setStepIdx}
       onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
+      keepsDraft
+      onDiscardDraft={workspaceDraft.clear}
       dirty={Boolean(label.trim())}
       discardTitle="Discard this application?"
       assistantContext={workspaceTitle}

@@ -35,6 +35,15 @@ them; do not invent a variant.
 - Footer and dialog buttons sit **side by side on one row**; never stack them.
 - Raw `<select>`/`Select` is never used for a pick — `FieldSingleSelect` /
   `CheckboxMultiSelect`.
+- Phone: the step name is a button ("Resident - Step 1 of 7") that opens a bottom sheet of the steps
+  (`WizardStepSheet`): a check for a finished step, a red dot for one that still needs something, a ring
+  for the one you are on, and the "N to finish" count only there. Pickers sit as label-left, value-right
+  rows in one rounded card (`data-wizard-picker`, `globals.css`); free text stays stacked. New property
+  keeps its live panel as a fixed column from 1200px and as an eye in the header below it
+  (`ListingWorkspace previewInEye`).
+- The x keeps what was typed ("Draft saved") on every Add door: pass `keepsDraft` + `onDiscardDraft` to
+  `AddWorkspace` and keep the answers in memory (`useWizardDraft`, `useWorkspaceDraft`,
+  `wizard-draft-memory.ts`). Only finishing the add, or the Discard draft icon, forgets them.
 - A refusal that has a fix offers the fix in place (e.g. "Workspace is full" lists the drafts
   with a delete on each), not only a link away.
 

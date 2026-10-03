@@ -50,7 +50,7 @@ export function PortalSignOutButton({ className, onSignedOut, dataAttr, onReques
 
   const requestSignOut = async () => {
     if (busy) return;
-    const answer = confirm({ title: "Sign out", description: "Your session on this device will end.", note: "Your account and saved records stay in PropLane.", confirmLabel: "Sign out", tone: "danger", dataAttr: "portal-sign-out-confirm" });
+    const answer = confirm({ title: "Sign out", description: "Your session on this device will end.", note: "Your account and saved records stay in PropLane.", confirmLabel: "Sign out", tone: "danger", guard: "tap", dataAttr: "portal-sign-out-confirm" });
     onRequestConfirm?.();
     if (await answer) await signOut();
   };

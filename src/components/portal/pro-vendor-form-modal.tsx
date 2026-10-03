@@ -941,6 +941,8 @@ export function ManagerVendorFormModal({
           current={current}
           onJump={setStepIdx}
           onClose={() => { workspaceDraft.preserve(); (() => { if (!submitRef.current) onClose(); })(); }}
+          keepsDraft
+          onDiscardDraft={workspaceDraft.clear}
           dirty={Boolean(draft.name.trim() || draft.email.trim() || draft.phone.trim())}
           discardTitle={mode === "edit" ? "Discard these edits?" : "Discard this vendor?"}
           assistantContext={title}

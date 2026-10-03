@@ -7,7 +7,9 @@ import { HOUSEHOLD_CHARGES_EVENT } from "@/lib/household-charges";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import type { ReportResult } from "@/lib/reports/types";
-import { cn } from "@/lib/utils";
+import { Receipt } from "lucide-react";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 
 export function ManagerFinancesActivity({ direction, userId }: { direction?: "in" | "out"; userId?: string | null }) {
   const params = useSearchParams();
@@ -43,10 +45,46 @@ export function ManagerFinancesActivity({ direction, userId }: { direction?: "in
   return <div data-attr="finances-activity">
     <Input aria-label="Search activity" placeholder="Search" value={search} onChange={e => setSearch(e.target.value)} />
     {dir || month || category ? <div className="py-3 text-sm">Showing: {[dir && (dir === "in" ? "In" : "Out"), /^\d{4}-\d{2}$/.test(month) ? new Date(`${month}-01T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" }) : month, category].filter(Boolean).join(" · ")} · <button type="button" className="text-primary" onClick={() => setClearedFilter(filterKey)}>Clear</button></div> : null}
-    {error ? <p role="alert" className="py-6">{error}</p> : !report ? <p role="status" className="py-6">Loading activity…</p> : rows.length === 0 ? <p className="py-6 text-muted">No entries found.</p> : <div className="divide-y divide-border">{rows.map(row => <div key={String(row.id)} className="flex items-center gap-3 py-4">
-      <time className="grid size-12 shrink-0 place-items-center rounded-lg bg-accent text-xs tabular-nums" dateTime={String(row.date)}>{String(row.date).slice(5)}</time>
-      <div className="min-w-0 flex-1"><div className="truncate font-medium">{String(row.who || row.description)}</div><div className="truncate text-sm">{[row.description, row.property].filter(Boolean).join(" · ")}</div><div className="text-xs text-muted">{String(row.category)} · {String(row.source)}</div></div>
-      <div className={cn("shrink-0 font-semibold tabular-nums", Number(row.amountCents) > 0 && "text-emerald-600")}>{Number(row.amountCents) > 0 ? "+" : ""}{String(row.amount)}{typeof row.runningBalanceCents === "number" ? <span className="mt-1 block text-xs font-normal text-muted">Balance {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(row.runningBalanceCents / 100)}</span> : null}</div>
-    </div>)}</div>}
+    {error ? <p role="alert" className="py-6">{error}</p> : !report ? <p role="status" className="py-6">Loading activity…</p> : (
+      <PortalRecordListSurface
+        isEmpty={rows.length === 0}
+        empty={<p className="py-6 text-muted">No entries found.</p>}
+        dataAttr="finances-activity-list"
+      >
+        {rows.map((row) => {
+          const cents = Number(row.amountCents);
+          const date = ledgerDateTile(String(row.date));
+          const balance = typeof row.runningBalanceCents === "number" ? `${USD.format(row.runningBalanceCents / 100)} balance` : undefined;
+          return (
+            <PortalPropertyRecordRow
+              key={String(row.id)}
+              title={String(row.who || row.description)}
+              address={[row.description, row.property].filter(Boolean).join(" · ") || undefined}
+              leading={
+                <span className="grid h-12 w-14 place-items-center rounded-[10px] bg-primary/10 text-center leading-none text-primary" data-attr="finances-activity-date">
+                  <span className="text-[10px] font-bold uppercase tracking-wide">{date.month}</span>
+                  <span className="-mt-1 text-[17px] font-extrabold tabular-nums">{date.day}</span>
+                </span>
+              }
+              facts={<PortalRowFact icon={Receipt}>{[row.category, row.source].filter(Boolean).join(" · ")}</PortalRowFact>}
+              amount={`${cents > 0 ? "+" : ""}${String(row.amount)}`}
+              amountTone={cents > 0 ? "ok" : undefined}
+              amountSubLabel={balance}
+              dataAttr="finances-activity-row"
+            />
+          );
+        })}
+      </PortalRecordListSurface>
+    )}
   </div>;
+}
+
+const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+/** "2026-09-22" -> { month: "Sep", day: "22" }, read as a calendar date (no timezone shift). */
+function ledgerDateTile(iso: string): { month: string; day: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return { month: "", day: iso.slice(5) };
+  const month = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1, 12)).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return { month, day: String(Number(match[3])) };
 }

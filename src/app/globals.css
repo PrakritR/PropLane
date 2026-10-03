@@ -3939,3 +3939,31 @@ html[data-communication-surface] .portal-communication-inbox .portal-list-page-b
 .plp-step-enter-back {
   animation: plp-step-enter-back 180ms ease-out;
 }
+
+/*
+ * Wizard pickers on a phone: label on the left, value on the right, and a run of
+ * consecutive pickers reads as ONE rounded card with hairline dividers. Free-text
+ * fields stay stacked above their input. `data-wizard-picker` is set by
+ * WizardSelect / WizardMultiSelect; `data-wizard-row` is WizardRow's grid, whose
+ * row gap the second and later pickers close up.
+ */
+@media (max-width: 639px) {
+  [data-wizard-picker] {
+    padding-inline: 0.75rem;
+    border: 1px solid var(--border);
+    border-top-width: 0;
+    background: var(--card);
+  }
+  [data-wizard-picker]:not([data-wizard-picker] + [data-wizard-picker]) {
+    border-top-width: 1px;
+    border-top-left-radius: 1rem;
+    border-top-right-radius: 1rem;
+  }
+  [data-wizard-picker]:not(:has(+ [data-wizard-picker])) {
+    border-bottom-left-radius: 1rem;
+    border-bottom-right-radius: 1rem;
+  }
+  [data-wizard-row] > [data-wizard-picker] + [data-wizard-picker] {
+    margin-top: -0.75rem;
+  }
+}

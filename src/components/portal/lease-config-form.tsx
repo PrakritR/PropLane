@@ -465,7 +465,7 @@ function CustomTermsField({
     <>
       {wizard ? (
         <p className="text-xs font-semibold text-muted">
-          Custom clauses <span className="text-rose-600">*</span>
+          Custom clauses
         </p>
       ) : (
         <label className={fieldLabelClass} htmlFor="property-lease-custom-clauses">
@@ -515,7 +515,7 @@ function PdfUploadField({
     <div>
       {wizard ? (
         <p className="text-xs font-semibold text-muted">
-          Lease template <span className="text-rose-600">*</span>
+          Lease template
         </p>
       ) : (
         <label className={fieldLabelClass}>Lease template (PDF)</label>
