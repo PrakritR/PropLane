@@ -71,10 +71,10 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps 
   const isPhone = useSyncExternalStore(subscribe, () => window.innerWidth < 640, () => false);
   const occupancySpan = isPhone ? 3 : 14;
   const guests = entries.filter(entry => entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry)));
-  const [chosenView, setChosenView] = useState<BookingCalendarView | null>(null);
-  const view = chosenView ?? savedView;
+  const [chosenView, setChosenView] = useState<{ scope: string; view: BookingCalendarView } | null>(null);
+  const view = chosenView?.scope === scope ? chosenView.view : savedView;
   const [anchor, setAnchor] = useState(() => dateKey(today));
-  const changeView = (value: BookingCalendarView) => { setChosenView(value); try { localStorage.setItem(scope, value); } catch {} };
+  const changeView = (value: BookingCalendarView) => { setChosenView({ scope, view: value }); try { localStorage.setItem(scope, value); } catch {} };
   const days = occupancyMode ? Array.from({ length: occupancySpan }, (_, i) => addDaysToDateKey(anchor, i)) : calendarRange(view, anchor);
   const actualView = occupancyMode ? "week" : view;
   const todayKey = dateKey(today);
@@ -91,7 +91,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps 
     <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
       {empty ? <div data-attr="bookings-empty-houses-banner" className="flex items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
       <div className="max-w-full overflow-x-auto" data-attr="bookings-calendar-scroll"><div style={{ minWidth: `calc(9rem + ${days.length * colWidth}px)` }}>
-        <div className="flex"><div className={labelClass}>Room</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => <button type="button" key={day} aria-label={`Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => actualView === "year" ? drill(day) : props.onOpenDay?.(day)} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`}><span className="text-[10px] uppercase text-muted">{dateLabel(day, actualView === "year" ? { year: "numeric" } : { weekday: "short" })}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full ${day === todayKey ? "bg-primary text-white" : ""}`}>{dateLabel(day, actualView === "year" ? { month: "short" } : { day: "numeric" })}</strong></button>)}</div></div>
+        <div className="flex"><div className={labelClass}>Room</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => <button type="button" key={day} data-attr={`portfolio-booking-day-${day}`} aria-label={`Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => actualView === "year" ? drill(day) : props.onOpenDay?.(day)} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`}><span className="text-[10px] uppercase text-muted">{dateLabel(day, actualView === "year" ? { year: "numeric" } : { weekday: "short" })}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full ${day === todayKey ? "bg-primary text-white" : ""}`}>{dateLabel(day, actualView === "year" ? { month: "short" } : { day: "numeric" })}</strong></button>)}</div></div>
         {actualView === "day" ? <div className="p-3 text-sm">{guests.filter(e => propertyIds.includes(e.propertyId) && bookingActiveOn(e, anchor)).length} staying · {guests.filter(e => propertyIds.includes(e.propertyId) && e.start === anchor).length} check-ins · {guests.filter(e => propertyIds.includes(e.propertyId) && bookingCheckout(e) === anchor).length} check-outs</div> : null}
         {propertyIds.map(propertyId => {
           const mine = entries.filter(entry => entry.propertyId === propertyId);

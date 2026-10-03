@@ -153,4 +153,20 @@ describe("BookingsPortfolioTimeline", () => {
     expect(screen.getByText("1 staying · 1 check-ins · 1 check-outs")).toBeTruthy();
   });
 
+  it("omits cancelled stays from every calendar view and preserves empty rooms", () => {
+    render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[bookingEntry({ bookingStatus: "cancelled" })]} today={TODAY} />);
+    for (const value of ["day", "week", "month", "year"]) {
+      fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value } });
+      expect(document.querySelector('[data-attr="bookings-calendar-bar"]')).toBeNull();
+      expect(screen.getByText("No bookings in this range")).toBeTruthy();
+      expect(screen.getByText("Room 1")).toBeTruthy();
+    }
+  });
+  it("does not leak a workspace preference into a property's page", () => {
+    const mounted = render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="workspace" />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "year" } });
+    mounted.rerender(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="property:prop-a" />);
+    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("month");
+  });
+
 });
