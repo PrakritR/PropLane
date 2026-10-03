@@ -21,7 +21,7 @@ import {
 } from "@/lib/payment-policy";
 import {
   persistManagerListingSubmission,
-  type ManagerPropertySaveTarget,
+  type ManagerPricingSaveTarget,
 } from "@/lib/manager-property-save-target";
 type WorkspacePaymentPublic = {
   serviceFeePayer?: ServiceFeePayer | null;
@@ -41,7 +41,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   sub: ManagerListingSubmissionV1;
-  saveTarget: ManagerPropertySaveTarget;
+  saveTarget: ManagerPricingSaveTarget;
   managerUserId: string;
   propertyLabel: string;
   onSaved: () => void;

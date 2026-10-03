@@ -81,7 +81,16 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   (`manager-house-properties-panel.tsx`) with Edit / Delete.
   Migration: `…_manager_property_records_draft_status.sql` adds `'draft'` to the
   status CHECK.
-- **The wizard is the only editor of a draft.** The drafts row (bucket 5) hides
+- **Publish needs a rent, and a draft prices its rooms on its own Pricing tab.**
+  The wizard has no rent field (pricing left the rail), so a draft's detail page
+  offers `preview · pricing · activity`; Pricing saves through the `draft` save
+  target (`ManagerPricingSaveTarget` → `updateManagerPropertyDraftSubmission`, same
+  id, still `status: "draft"`, never `listing`). A Publish refused for a missing
+  rent shows "Set rent in Pricing" (`ListingEditorV2.onOpenPricing`): the work is
+  saved, then the host opens that tab. A missing lease type is fixed on Rooms
+  (Leases offered), so it still jumps there. Each requirement must stay settable
+  where its refusal sends the manager: `tests/unit/publish-requirements-reachable.test.tsx`.
+- **The wizard is the only editor of a draft** (Pricing above is the one exception). The drafts row (bucket 5) hides
   every detail panel that persists through `houseSaveTarget` (House details,
   Application questions, Lease) — a draft is absent from the extras catalog, so
   those panels would resolve to `{mode: "listing"}` and their save would mirror

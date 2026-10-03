@@ -65,7 +65,7 @@ import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults"
 import { propertyPricingRoomSummary } from "@/lib/property-pricing-summary";
 import {
   persistManagerListingSubmission,
-  type ManagerPropertySaveTarget,
+  type ManagerPricingSaveTarget,
 } from "@/lib/manager-property-save-target";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 
@@ -79,7 +79,7 @@ type Props = {
   onClose: () => void;
   subject: PropertyPricingSubject;
   sub: ManagerListingSubmissionV1;
-  saveTarget: ManagerPropertySaveTarget;
+  saveTarget: ManagerPricingSaveTarget;
   managerUserId: string;
   propertyLabel: string;
   onSaved: () => void;

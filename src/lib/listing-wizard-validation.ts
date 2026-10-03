@@ -87,13 +87,17 @@ function listingHasRentForAllowedTerm(sub: ManagerListingSubmissionV1, term: str
   return sub.rooms.some((room) => roomMonthlyRentForTerm(room, term) > 0);
 }
 
+/** The two reasons Publish can refuse for pricing. Lease type is set on Rooms (Leases offered); rent is set on the property's Pricing tab. */
+export const PUBLISH_BLOCKER_LEASE_TYPE = "Choose a lease type before publishing.";
+export const PUBLISH_BLOCKER_RENT = "Add a rent before publishing.";
+
 /** V2 listing publish — offered lease types must carry a real price (pricing moved off the wizard rail, studio redesign 0929). */
 export function listingV2PublishPricingBlocker(
   sub: ManagerListingSubmissionV1,
   rawDefaults?: unknown,
 ): string | null {
   const allowed = resolveAllowedLeaseTerms(sub);
-  if (allowed.length === 0) return "Choose a lease type before publishing.";
+  if (allowed.length === 0) return PUBLISH_BLOCKER_LEASE_TYPE;
   if (allowed.some((term) => listingHasRentForAllowedTerm(sub, term))) return null;
 
   const defaults = normalizeWorkspacePricingDefaults(rawDefaults);
@@ -107,7 +111,7 @@ export function listingV2PublishPricingBlocker(
   if (normalized.entireHomeOffered && entireHomeMonthlyRentAmount(normalized) <= 0 && (defaults.rentWhole ?? 0) > 0) {
     return null;
   }
-  return "Add a rent before publishing.";
+  return PUBLISH_BLOCKER_RENT;
 }
 
 export function listingBathroomNameKey(bathId: string): string {

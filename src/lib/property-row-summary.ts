@@ -174,7 +174,7 @@ export function propertyRowDetail(
   return [
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
     baths ? `${baths} ba` : "",
-    residents ? `${residents} residents` : "",
+    residents ? `${residents} ${residents === 1 ? "resident" : "residents"}` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)
@@ -193,7 +193,7 @@ export function propertyRowSummary(
     propertyRowRentLabel(row),
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
     baths ? `${baths} ba` : "",
-    residents ? `${residents} residents` : "",
+    residents ? `${residents} ${residents === 1 ? "resident" : "residents"}` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)

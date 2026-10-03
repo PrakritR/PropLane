@@ -589,6 +589,15 @@ export function ManagerProperties({
             onDraftsChanged={() => {
               void refreshPending();
             }}
+            onOpenPricing={(id) => {
+              // Publish needs a rent and the wizard has none to type: the work is
+              // saved, so open that draft on its Pricing tab.
+              dismissFirstListingWizard();
+              lastSavedDraftIdRef.current = null;
+              void refreshPending().then(() => {
+                router.push(propertyDetailHref(basePath, "drafts", id, "pricing"), { scroll: false });
+              });
+            }}
             onSaved={(_sub, savedId) => {
               // The editor saves on ✕ (and on Review Save / Publish), never on a
               // typing timer. A save never closes it. The id is kept for when the

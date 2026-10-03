@@ -145,7 +145,7 @@ import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTa
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
-import { listingV2PublishPricingBlocker } from "@/lib/listing-wizard-validation";
+import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
@@ -1436,7 +1436,7 @@ function StepRooms({
     const leasesFact = roomLeaseTermsFact(sub, room);
     return (
       <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
-        {!wholePlace ? <span>{residents} residents</span> : null}
+        {!wholePlace ? <span>{residents === 1 ? "1 resident" : `${residents} residents`}</span> : null}
         <span>{floorShown}</span>
         {bath ? <span>{bath}</span> : null}
         <span>{furn}</span>
@@ -3089,9 +3089,17 @@ export function ListingEditorV2({
   initialStep,
   contact,
   workspacePricingDefaults,
+  onOpenPricing,
 }: {
   submission: ManagerListingSubmissionV1;
   workspacePricingDefaults?: WorkspacePricingDefaults;
+  /**
+   * Rent is not a wizard field: it is set on the property's Pricing tab. When the
+   * host can take the manager there (it saves first), a Publish refused for a
+   * missing rent offers that door instead of sending them to a step that has no
+   * rent to type. Without it the refusal keeps its old Rooms jump.
+   */
+  onOpenPricing?: () => void | Promise<void>;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
   propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
@@ -3128,8 +3136,11 @@ export function ListingEditorV2({
   contact?: ListingContactDoors;
 }) {
   const [publishError, setPublishError] = useState<string | null>(null);
+  /** Where the refusal is fixed, when that is not a step of this wizard. */
+  const [publishFix, setPublishFix] = useState<"pricing" | null>(null);
   useEffect(() => {
     setPublishError(null);
+    setPublishFix(null);
   }, [submission]);
 
   const [step, setStep] = useState(() => listingV2StepIndex(initialStep));
@@ -3160,14 +3171,18 @@ export function ListingEditorV2({
   };
 
   const publishBlocker = () => {
-    const focus = (stepId: ListingV2StepId, selector: string, message: string) => ({ stepId, selector, message });
+    const focus = (stepId: ListingV2StepId, selector: string, message: string, fix: "pricing" | null = null) => ({ stepId, selector, message, fix });
     if (!submission.address.trim()) return focus("basics", 'input[autocomplete="street-address"]', "Add a street address before publishing.");
     if (!submission.city.trim()) return focus("basics", '[data-wizard-field="city"]', "Add a city before publishing.");
     if (!validateStateAbbrev(submission.state).ok) return focus("basics", '[data-wizard-field="state"]', "Add a valid two-letter state before publishing.");
     if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
     if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
     const pricingBlock = listingV2PublishPricingBlocker(submission, workspacePricingDefaults ?? {});
-    if (pricingBlock) return focus("rooms", '[data-attr="listing-v2-rooms"]', pricingBlock);
+    if (pricingBlock) {
+      // A missing rent is satisfied on Pricing, never on Rooms; a missing lease type is Rooms' "Leases offered".
+      const priceFix = pricingBlock !== PUBLISH_BLOCKER_RENT || !onOpenPricing ? null : "pricing";
+      return focus("rooms", '[data-attr="listing-v2-rooms"]', pricingBlock, priceFix);
+    }
     if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) {
       return focus("basics", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");
     }
@@ -3178,11 +3193,14 @@ export function ListingEditorV2({
     const blocker = publishBlocker();
     if (blocker) {
       setPublishError(blocker.message);
+      setPublishFix(blocker.fix);
+      if (blocker.fix === "pricing") return false;
       goTo(LISTING_V2_STEPS.findIndex((candidate) => candidate.id === blocker.stepId));
       requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(blocker.selector)?.focus()));
       return false;
     }
     setPublishError(null);
+    setPublishFix(null);
     return (await onPublish()) !== false;
   };
 
@@ -3326,6 +3344,20 @@ export function ListingEditorV2({
           {publishError || actionError ? (
             <p role="alert" className="basis-full text-[13px] font-semibold text-destructive" data-testid="listing-v2-persistence-error">
               {publishError ?? actionError}
+              {publishError && publishFix === "pricing" && onOpenPricing ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onOpenPricing()}
+                    data-attr="listing-v2-open-pricing"
+                    className="font-bold text-primary underline underline-offset-2 disabled:opacity-45"
+                  >
+                    Set rent in Pricing
+                  </button>
+                </>
+              ) : null}
             </p>
           ) : null}
           <div className="flex items-center gap-2.5">

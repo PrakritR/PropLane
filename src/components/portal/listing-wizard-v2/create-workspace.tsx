@@ -108,6 +108,7 @@ export function CreateWorkspace({
   propertyCount = 0,
   initialSubmission = null,
   initialDraftId = null,
+  onOpenPricing,
 }: {
   onClose: () => void;
   /** The blank listing was saved (X or autosave) — before any file is involved. */
@@ -123,6 +124,8 @@ export function CreateWorkspace({
   /** Resuming a draft the manager started earlier. */
   initialSubmission?: ManagerListingSubmissionV1 | null;
   initialDraftId?: string | null;
+  /** Publish was refused for a missing rent: the work is saved, go set it on the property's Pricing tab. */
+  onOpenPricing?: (propertyId: string) => void;
 }) {
   const [read, setRead] = useState<ImportReadState>({ kind: "empty" });
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -390,6 +393,7 @@ export function CreateWorkspace({
           onSaved?.(sub, savedId);
         }}
         onPublished={onPublished}
+        onOpenPricing={onOpenPricing}
         initialSubmission={initialSubmission}
         initialDraftId={initialDraftId}
         showToast={showToast}
@@ -434,6 +438,7 @@ export function CreateWorkspace({
           setSelectedKey(remaining[0]!.key);
           setPhase("import");
         }}
+        onOpenPricing={onOpenPricing}
         initialSubmission={selected.submission}
         initialDraftId={selected.draftId}
         showToast={showToast}

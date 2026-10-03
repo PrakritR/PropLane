@@ -746,6 +746,11 @@ function ManagerPropertyInlineDetails({
         onAutosaved: () => {
           onUpdated();
         },
+        onOpenPricing: (id: string) => {
+          setListingEditorOpen(false);
+          onUpdated();
+          detailRouter.push(propertyDetailHref(propertiesBase, "all", id, "pricing"), { scroll: false });
+        },
         showToast,
         skuTier,
         userId: managerUserId,
@@ -782,6 +787,12 @@ function ManagerPropertyInlineDetails({
           },
           onSaved: () => onUpdated(),
           onAutosaved: () => onUpdated(),
+          // Publish needs a rent and the wizard has none to type: Pricing is a tab of this draft.
+          onOpenPricing: (id: string) => {
+            setDraftEditorOpen(false);
+            onUpdated();
+            detailRouter.push(propertyDetailHref(propertiesBase, "all", id, "pricing"), { scroll: false });
+          },
           showToast,
           skuTier,
           userId: managerUserId,
@@ -801,11 +812,15 @@ function ManagerPropertyInlineDetails({
   // every stage.
   const availableTabs = useMemo<PropertyDetailTabId[]>(
     () =>
-      bucket === 3 || bucket === 5
-        ? ["preview", "activity"]
-        : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info", "activity"]
-          : ["preview", "house-details", "move-in", "application", "lease", "pricing", "activity"],
+      bucket === 5
+        ? // A draft prices its rooms here, before it publishes: Publish needs a rent and
+          // the wizard has no rent field (docs/agents/property-drafts.md).
+          ["preview", "pricing", "activity"]
+        : bucket === 3
+          ? ["preview", "activity"]
+          : bucket === 2 && listingId
+            ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info", "activity"]
+            : ["preview", "house-details", "move-in", "application", "lease", "pricing", "activity"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
@@ -1349,6 +1364,16 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
+      {activeDetailTab === "pricing" && bucket === 5 && row?.adminRefId && managerUserId ? (
+        <PropertyPricingPanel
+          submission={managerSubmission}
+          saveTarget={{ mode: "draft", saveId: row.adminRefId }}
+          managerUserId={managerUserId}
+          propertyLabel={propertyShareLabel}
+          onUpdated={onUpdated}
+          showToast={showToast}
+        />
+      ) : null}
       {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 && houseSaveTarget && managerUserId ? (
         <PropertyPricingPanel
           submission={managerSubmission}

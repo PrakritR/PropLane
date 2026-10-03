@@ -8,7 +8,7 @@ import {
   updatePendingManagerProperty,
   updatePendingManagerPropertyOnServer,
 } from "@/lib/demo-property-pipeline";
-import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
+import { updateManagerPropertyDraftSubmission, updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import { collectLinkedPropertyIds } from "@/lib/manager-portfolio-access";
 import { parseMonthlyRent } from "@/lib/listings-search";
 import {
@@ -30,6 +30,17 @@ export type ManagerPropertySaveTarget = {
   mode: "pending" | "listing" | "requestChange";
   saveId: string;
 };
+
+/**
+ * A saved draft. Only the Pricing tab saves through it: a draft is edited by the
+ * wizard everywhere else, and a `listing` target on a draft would mirror it as
+ * live. It is a separate type so no panel that takes `ManagerPropertySaveTarget`
+ * can be handed one by accident.
+ */
+export type ManagerDraftSaveTarget = { mode: "draft"; saveId: string };
+
+/** What the Pricing tab and its popups persist through: a property's target, or a draft's. */
+export type ManagerPricingSaveTarget = ManagerPropertySaveTarget | ManagerDraftSaveTarget;
 
 function submissionForListedEdit(p: MockProperty): ManagerListingSubmissionV1 {
   if (p.listingSubmission) return normalizeManagerListingSubmissionV1(p.listingSubmission);
@@ -90,10 +101,13 @@ export function applicationConfigFieldsFromSubmission(sub: ManagerListingSubmiss
 }
 
 export function persistManagerListingSubmission(
-  saveTarget: ManagerPropertySaveTarget,
+  saveTarget: ManagerPricingSaveTarget,
   managerUserId: string,
   next: ManagerListingSubmissionV1,
 ): boolean {
+  if (saveTarget.mode === "draft") {
+    return updateManagerPropertyDraftSubmission(saveTarget.saveId, managerUserId, next);
+  }
   if (saveTarget.mode === "pending") {
     return updatePendingManagerProperty(saveTarget.saveId, next, managerUserId);
   }

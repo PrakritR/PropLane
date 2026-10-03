@@ -774,6 +774,36 @@ export async function saveManagerPropertyDraftToServer(
 }
 
 /**
+ * Write a new submission onto an EXISTING draft in place — the Pricing tab of a
+ * draft saves through this. Same record id, same wizard resume point, still
+ * `status: "draft"`: it never publishes and never re-keys. The local row is
+ * updated first (the tab re-reads it on the pipeline event) and mirrored to the
+ * server the way `updateRequestChangeProperty` mirrors its row.
+ */
+export function updateManagerPropertyDraftSubmission(
+  draftId: string,
+  forManagerUserId: string | null,
+  input: ManagerPropertyDraftInput,
+): boolean {
+  const id = draftId.trim();
+  if (!id) return false;
+  const side = readSide(forManagerUserId);
+  const idx = side.drafts.findIndex((r) => r.adminRefId === id);
+  if (idx === -1) return false;
+  const prev = side.drafts[idx]!;
+  const owner = prev.managerUserId ?? forManagerUserId ?? LEGACY_MANAGER_SCOPE_USER_ID;
+  const row = submissionToDraftAdminRow(input, owner, id, {
+    stepIndex: prev.draftStepIndex,
+    maxStepReached: prev.draftMaxStepReached,
+    provisionalId: prev.draftIdProvisional === true,
+  });
+  const drafts = side.drafts.map((r, i) => (i === idx ? row : r));
+  writeSideStorage({ ...side, drafts }, forManagerUserId);
+  mirrorAdminPropertyRecord({ id, managerUserId: owner, status: "draft", rowData: row });
+  return true;
+}
+
+/**
  * Clone a listing into a NEW draft. Never overwrites the source id, never publishes.
  */
 export async function duplicateManagerPropertyDraftToServer(

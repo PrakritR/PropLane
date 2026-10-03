@@ -110,6 +110,7 @@ export function ListingWizardV2({
   onDirtyChange,
   flushRef,
   initialStep,
+  onOpenPricing,
 }: {
   onClose: () => void;
   /** After a flush save (X or debounce). `savedId` is the record written. */
@@ -149,6 +150,12 @@ export function ListingWizardV2({
   flushRef?: MutableRefObject<(() => Promise<boolean>) | null>;
   /** Open the editor on this listing step (Import jumping to Rooms / Review). */
   initialStep?: ListingV2StepId;
+  /**
+   * Rent is set on the property's Pricing tab, not in this wizard. When Publish is
+   * refused for a missing rent the editor offers "Set rent in Pricing": the work is
+   * saved, then this receives the record id and takes the manager to that tab.
+   */
+  onOpenPricing?: (propertyId: string) => void;
 }) {
   const { saveDraft, publish, busy: persistenceBusy } = useListingPersistence({
     userId,
@@ -211,6 +218,8 @@ export function ListingWizardV2({
     ),
   );
   const stepRef = useRef(listingV2StepIndex(initialStep));
+  /** The record the last save wrote — a brand-new wizard has no id until its first save. */
+  const savedIdRef = useRef<string | null>(initialDraftId?.trim() || null);
   // Preparation uploads media before the persistence hook starts its own busy
   // state. Guard the entire lifecycle so two fast clicks cannot prepare stale
   // snapshots and resurrect a draft after a publish.
@@ -310,6 +319,7 @@ export function ListingWizardV2({
         return false;
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+      if (result.id?.trim()) savedIdRef.current = result.id.trim();
       setActionError(null);
       setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
       onSaved?.(prepared.submission, result.id);
@@ -364,6 +374,21 @@ export function ListingWizardV2({
     }),
     [contactPhone, contactEmail, openContactSettings],
   );
+
+  const openPricing = useCallback(async () => {
+    // Pricing is another page, so the work is saved first (the flush the X does).
+    const ok = await runLifecycle(() => persist(submissionRef.current, stepRef.current));
+    if (!ok) {
+      showToast?.("Could not save. Nothing was kept.");
+      return;
+    }
+    const id = editListingId?.trim() || savedIdRef.current;
+    if (!id) {
+      showToast?.("Could not save. Nothing was kept.");
+      return;
+    }
+    onOpenPricing?.(id);
+  }, [editListingId, onOpenPricing, persist, runLifecycle, showToast]);
 
   const handleClose = useCallback(
     async (stepIndex: number) => {
@@ -423,6 +448,7 @@ export function ListingWizardV2({
         actionError={actionError}
         contact={contact}
         workspacePricingDefaults={workspacePricingDefaults}
+        onOpenPricing={onOpenPricing ? openPricing : undefined}
         onPublish={() =>
           runLifecycle(async () => {
             const filled = applyWorkspaceDefaultsOnPublish(

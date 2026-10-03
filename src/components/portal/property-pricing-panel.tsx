@@ -18,7 +18,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { persistManagerListingSubmission, type ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
+import { persistManagerListingSubmission, type ManagerPricingSaveTarget } from "@/lib/manager-property-save-target";
 import {
   propertyPricingBundleSummary,
   propertyPricingRoomAmount,
@@ -50,7 +50,7 @@ type PricingTab = "rooms" | "bundles" | "whole";
 
 type Props = {
   submission: ManagerListingSubmissionV1;
-  saveTarget: ManagerPropertySaveTarget;
+  saveTarget: ManagerPricingSaveTarget;
   managerUserId: string;
   propertyLabel: string;
   onUpdated: () => void;
