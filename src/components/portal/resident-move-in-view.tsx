@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Circle } from "lucide-react";
+import { Check, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
@@ -35,8 +35,8 @@ function DetailField({ label, value }: { label: string; value: string | null | u
   if (!value?.trim()) return null;
   return (
     <div>
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">{label}</p>
-      <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   );
 }
@@ -81,18 +81,18 @@ function useMoveInChecklist(basePath: string): { chargesSettled: MoveInChecklist
 }
 
 function MoveInChecklistRow({ label, status, href }: { label: string; status: MoveInChecklistStatus; href: string }) {
-  const Icon = status ? CheckCircle2 : Circle;
+  const Icon = status ? Check : Circle;
   return (
     <Link
       href={href}
-      className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 hover:border-primary/30"
+      className="flex items-center justify-between gap-3 border-t border-border px-4 py-3.5 first:border-t-0 hover:bg-accent/40"
       data-attr="move-in-checklist-row"
     >
-      <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <Icon className={cn("size-4 shrink-0", status ? "text-primary" : "text-muted")} aria-hidden />
+      <span className="flex items-center gap-2.5 text-sm text-foreground">
+        <Icon className={cn("size-4 shrink-0", status ? "text-primary" : "text-muted/60")} strokeWidth={status ? 2.25 : 1.75} aria-hidden />
         {label}
       </span>
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+      <span className="text-[11px] font-bold uppercase tracking-[0.05em] text-muted">
         {status === null ? "Checking…" : status ? "Done" : "Not yet"}
       </span>
     </Link>
@@ -108,7 +108,7 @@ function MoveInChecklistRow({ label, status, href }: { label: string; status: Mo
 function MoveInChecklist({ basePath, leaseSigned }: { basePath: string; leaseSigned: boolean }) {
   const { chargesSettled, inspectionDone } = useMoveInChecklist(basePath);
   return (
-    <div className="space-y-2" data-attr="move-in-checklist">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card" data-attr="move-in-checklist">
       <MoveInChecklistRow label="Lease signed" status={leaseSigned} href={`${basePath}/lease`} />
       <MoveInChecklistRow label="Move-in charges paid" status={chargesSettled} href={`${basePath}/payments`} />
       <MoveInChecklistRow label="Move-in inspection photographed" status={inspectionDone} href={`${basePath}/inspections/move-in`} />
@@ -122,8 +122,8 @@ function PlacementTabContent({ resolved, basePath, leaseSigned }: { resolved: Re
       <div className="grid gap-4 sm:grid-cols-3">
         <DetailField label="Assigned room" value={resolved.roomLabel} />
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Property</p>
-          <p className="mt-1 text-sm font-medium text-foreground">{resolved.propertyLabel}</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Property</p>
+          <p className="mt-1 text-sm font-semibold text-foreground">{resolved.propertyLabel}</p>
           {resolved.addressLine ? <p className="mt-0.5 text-xs text-muted">{resolved.addressLine}</p> : null}
         </div>
         <DetailField label="Move-in date" value={resolved.earliestMoveInDateLabel ?? "Not set yet"} />

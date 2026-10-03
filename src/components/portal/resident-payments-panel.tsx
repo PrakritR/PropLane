@@ -24,7 +24,6 @@ import {
   PORTAL_INLINE_STATUS_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
-  formatCompactChargeLine,
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
@@ -76,7 +75,6 @@ import {
 } from "@/lib/payment-policy";
 import { nativePlatformRequestHeaders } from "@/lib/platform/native-client";
 import {
-  chargesSupportPlatformCheckout,
   filterChargesForPayMethod,
   isPayableHouseholdCharge,
   residentPaymentMethodsForSurface,
@@ -194,6 +192,13 @@ const RENT_REPORTING_STATUS_LABELS: Record<string, string> = {
 };
 
 /** "Sep 5 · August rent · on time" from a raw submission row. */
+/** "Due Oct 1, 2026" for an upcoming date; special labels ("Card declined. Pay again") read as they are. */
+function residentChargeListMeta(row: HouseholdCharge): string {
+  const label = residentChargeListDueLabel(row);
+  const isDate = /^[A-Z][a-z]{2,8}\.? \d{1,2}(, \d{4})?$/.test(label);
+  return isDate && row.status !== "paid" ? `Due ${label}` : label;
+}
+
 function rentReportingLastReportLabel(submission: RentReportingLastSubmission): string {
   const [yearRaw, monthRaw] = submission.period.split("-").map(Number);
   const monthLabel = new Date(Date.UTC(yearRaw ?? new Date().getUTCFullYear(), (monthRaw ?? 1) - 1, 1)).toLocaleString(
@@ -451,11 +456,6 @@ export function ResidentPaymentsPanel({
   const unpaidPayableCharges = useMemo(
     () => charges.filter((c) => isPayableHouseholdCharge(c)),
     [charges],
-  );
-
-  const platformCheckoutAvailable = useMemo(
-    () => chargesSupportPlatformCheckout(unpaidPayableCharges),
-    [unpaidPayableCharges],
   );
 
   const managerStripeConnectBlocked = useMemo(
@@ -1258,9 +1258,7 @@ export function ResidentPaymentsPanel({
           showPropertyInMeta ? row.propertyLabel : null,
           moveInGroup
             ? `${residentChargeListDueLabel(row)} · ${moveInGroupItemCountLabel(moveInGroup)}`
-            : formatCompactChargeLine(row.title || "Charge", row.balanceLabel, residentChargeListDueLabel(row), {
-                omitBalance: true,
-              }),
+            : residentChargeListMeta(row),
         ]
           .filter(Boolean)
           .join(" · "),
@@ -1327,6 +1325,62 @@ export function ResidentPaymentsPanel({
     </div>
   );
 
+  const paymentsCards = email && paymentsUnlocked ? (
+    <div className="mb-3 space-y-3">
+      <ResidentAutopayCard
+        onManagePaymentMethods={() => router.push("/resident/settings")}
+        onPayChargeNow={(chargeId) => openPayConfirm([chargeId], paymentMethod)}
+      />
+      {bucket === "pending" && rentReporting && (rentReporting.addonAvailable || rentReporting.upgradeRequired) ? (
+        <div className="rounded-2xl border border-border bg-card px-4 py-3.5" data-attr="resident-rent-reporting-card">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm font-bold text-foreground">Report my rent to credit bureaus</span>
+            {rentReporting.upgradeRequired ? (
+              <Link href="/pricing" className="text-sm font-semibold text-primary hover:underline" data-attr="resident-rent-reporting-upgrade">
+                Upgrade
+              </Link>
+            ) : (
+              <FieldSingleSelect
+                label="Report my rent to credit bureaus"
+                hideLabel
+                variant="cell"
+                wrapperClassName="w-28"
+                value={rentReporting.status === "active" ? "on" : "off"}
+                onChange={(next) => void rentReportingToggle(next)}
+                disabled={rentReportingBusy}
+                options={[
+                  { value: "on", label: "On" },
+                  { value: "off", label: "Off" },
+                ]}
+                dataAttr="resident-rent-reporting-toggle"
+              />
+            )}
+          </div>
+          {rentReporting.status === "active" ? (
+            <div className="mt-3 space-y-2 border-t border-border pt-3">
+              {rentReporting.reportedAs ? (
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm text-muted">Reported as</span>
+                  <span className="text-sm font-medium text-foreground">{rentReporting.reportedAs}</span>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted">Last report</span>
+                <span className="text-sm font-medium text-foreground" data-attr="resident-rent-reporting-last-report">
+                  {rentReporting.lastSubmission ? rentReportingLastReportLabel(rentReporting.lastSubmission) : "Not sent yet"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted">Bureaus</span>
+                <span className="text-sm font-medium text-foreground">{rentReporting.bureaus}</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   const paymentsBody = (
     <div className={paymentsLockedEmpty ? "space-y-0" : undefined}>
       {!paymentsUnlocked ? (
@@ -1342,57 +1396,6 @@ export function ResidentPaymentsPanel({
         <PortalDataTableEmpty icon="payment" message="No charges yet." variant="stacked" />
       ) : (
         <>
-          <ResidentAutopayCard
-            onManagePaymentMethods={() => router.push("/resident/settings")}
-            onPayChargeNow={(chargeId) => openPayConfirm([chargeId], paymentMethod)}
-          />
-          {bucket === "pending" && rentReporting && (rentReporting.addonAvailable || rentReporting.upgradeRequired) ? (
-            <div className="mb-4 rounded-xl border border-border bg-card p-4" data-attr="resident-rent-reporting-card">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm font-semibold text-foreground">Report my rent to credit bureaus</span>
-                {rentReporting.upgradeRequired ? (
-                  <Link href="/pricing" className="text-sm font-semibold text-primary hover:underline" data-attr="resident-rent-reporting-upgrade">
-                    Upgrade
-                  </Link>
-                ) : (
-                  <FieldSingleSelect
-                    label="Report my rent to credit bureaus"
-                    hideLabel
-                    variant="cell"
-                    wrapperClassName="w-28"
-                    value={rentReporting.status === "active" ? "on" : "off"}
-                    onChange={(next) => void rentReportingToggle(next)}
-                    disabled={rentReportingBusy}
-                    options={[
-                      { value: "on", label: "On" },
-                      { value: "off", label: "Off" },
-                    ]}
-                    dataAttr="resident-rent-reporting-toggle"
-                  />
-                )}
-              </div>
-              {rentReporting.status === "active" ? (
-                <div className="mt-3 space-y-2 border-t border-border pt-3">
-                  {rentReporting.reportedAs ? (
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-sm text-muted">Reported as</span>
-                      <span className="text-sm font-medium text-foreground">{rentReporting.reportedAs}</span>
-                    </div>
-                  ) : null}
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-muted">Last report</span>
-                    <span className="text-sm font-medium text-foreground" data-attr="resident-rent-reporting-last-report">
-                      {rentReporting.lastSubmission ? rentReportingLastReportLabel(rentReporting.lastSubmission) : "Not sent yet"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-muted">Bureaus</span>
-                    <span className="text-sm font-medium text-foreground">{rentReporting.bureaus}</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
           {showBulkCheckoutBar && checkout ? (
             <div className="mb-4 rounded-xl border border-border bg-card p-3 sm:p-4">
               {renderCheckoutBlock(
@@ -1745,12 +1748,10 @@ export function ResidentPaymentsPanel({
             Your property manager is still finishing PropLane payment setup, so bank and card checkout
             is not available yet. Message your manager in Communication if you need help.
           </div>
-        ) : platformCheckoutAvailable ? (
-          <p className="mb-3 px-1 text-sm text-muted" data-attr="resident-payments-platform-copy">
-            Pay rent through PropLane secure checkout — bank transfer, card, Apple Pay, or Google Pay.
-          </p>
         ) : null}
-        {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}<PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
+        {paymentsCards}
+        {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
+        <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>
 
       {paymentModals}

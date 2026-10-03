@@ -72,6 +72,17 @@ function listingFromPrice(rich: ListingRichContent): string {
   return formatMoneyInLabel(rich.startingRentLabel?.trim() || rich.priceRangeLabel.replace(/^\s*base rent\s*/i, ""));
 }
 
+/** Legacy `homeStructureNote` rows sometimes left a bare story count between middots — label it for display. */
+function formatPropertyLayoutQuickFact(value: string): string {
+  return value.replace(
+    / · (\d+) · (?=\d+(?:\.\d+)?\s*bath)/i,
+    (_, n: string) => ` · ${n} ${n === "1" ? "story" : "stories"} · `,
+  );
+}
+
+/** Proportional figures — `tabular-nums` / `tnum` widens commas and reads as "$1 , 000". */
+const listingMoneyClass = "font-bold tracking-tight text-foreground";
+
 function propertyDisplayLabel(property: MockProperty): string | null {
   return property.buildingName?.trim() || property.title?.trim() || property.address?.trim() || null;
 }
@@ -181,25 +192,25 @@ function PriceCard({
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
       <p className="text-xs font-semibold text-muted">Base rent from</p>
-      <p className="mt-0.5 text-3xl font-bold tracking-tight text-foreground tabular-nums">{from}</p>
+      <p className={`mt-0.5 text-3xl ${listingMoneyClass}`}>{from}</p>
       {estimated || breakdownLines.length > 0 || showDueAtSigning ? (
         <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
           {estimated ? (
             <div className="flex items-baseline justify-between gap-3 py-2">
               <dt className="text-muted">Est. with utilities</dt>
-              <dd className="font-bold tabular-nums text-foreground">{estimated}</dd>
+              <dd className={listingMoneyClass}>{estimated}</dd>
             </div>
           ) : null}
           {breakdownLines.map((line) => (
             <div key={line.label} className="flex items-baseline justify-between gap-3 py-2">
               <dt className="text-muted">{line.label}</dt>
-              <dd className="font-bold tabular-nums text-foreground">{formatMoneyInLabel(line.value)}</dd>
+              <dd className={listingMoneyClass}>{formatMoneyInLabel(line.value)}</dd>
             </div>
           ))}
           {showDueAtSigning ? (
             <div className="flex items-baseline justify-between gap-3 py-2" data-attr="listing-price-due-at-signing">
               <dt className="text-muted">Lease fee</dt>
-              <dd className="font-bold tabular-nums text-foreground">{(property.leaseSigningFeeCents ?? 0) > 0 ? formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0) : "None"}</dd>
+              <dd className={listingMoneyClass}>{(property.leaseSigningFeeCents ?? 0) > 0 ? formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0) : "None"}</dd>
             </div>
           ) : null}
         </dl>
@@ -380,7 +391,15 @@ export function ListingDetailSections({
   return (
     <ListingPreviewNewTabContext.Provider value={embeddedPreview}>
       <ListingSidebarRenterCtasContext.Provider value>
-        <div className="@container min-w-0 max-w-full bg-background text-foreground" data-listing-sections-root data-manager-listing-preview={managerPreviewChrome ? "" : undefined}>
+        <div
+          className={`@container min-w-0 max-w-full bg-background text-foreground ${
+            managerPreviewChrome
+              ? "[&_[data-attr=listing-key-facts]_p]:[font-variant-numeric:normal]"
+              : ""
+          }`}
+          data-listing-sections-root
+          data-manager-listing-preview={managerPreviewChrome ? "" : undefined}
+        >
           <div
             className={`mx-auto flex min-w-0 max-w-6xl flex-col px-4 ${
               embeddedPreview
@@ -440,7 +459,9 @@ export function ListingDetailSections({
             <ListingContactCard property={property} className="mt-3 lg:hidden" />
 
             <div
-              className="mt-6 grid min-w-0 gap-8 lg:mt-8 @min-[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] @min-[900px]:gap-10"
+              className={`mt-6 grid min-w-0 gap-8 lg:mt-8 @min-[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] @min-[900px]:gap-10 ${
+                managerPreviewChrome && hidePortalSubnav ? "max-lg:scroll-mt-1" : ""
+              }`}
               data-listing-about-grid
             >
               <div className="min-w-0">
@@ -459,6 +480,11 @@ export function ListingDetailSections({
                       title="About this home"
                       collapseOnMobile={false}
                       dataAttrToggle="listing-overview-toggle"
+                      className={
+                        managerPreviewChrome && hidePortalSubnav
+                          ? "max-lg:!scroll-mt-[calc(var(--listing-sticky-stack,3.25rem)+0.75rem)]"
+                          : ""
+                      }
                     >
                       {hasAbout ? <AboutBody rich={rich} /> : null}
                       {quickFacts.length > 0 ? (
@@ -470,7 +496,9 @@ export function ListingDetailSections({
                             >
                               <dt className="text-muted">{q.label}</dt>
                               <dd className="min-w-0 text-pretty break-words font-semibold leading-relaxed text-foreground">
-                                {q.value}
+                                {q.label.trim().toLowerCase() === "property & layout"
+                                  ? formatPropertyLayoutQuickFact(q.value)
+                                  : q.value}
                               </dd>
                             </div>
                           ))}

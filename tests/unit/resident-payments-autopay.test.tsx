@@ -54,16 +54,17 @@ describe("ResidentAutopayCard", () => {
     expect(container.querySelector('[data-attr="resident-autopay-method"]')).not.toBeInTheDocument();
   });
 
-  it("shows the locked control instead of the toggle when there is no saved method", async () => {
+  it("keeps the switch and asks for a payment method when there is none saved", async () => {
     vi.stubGlobal(
       "fetch",
       mockFetchOnce({ ...BASE_GET_RESPONSE, hasSavedMethod: false, savedMethods: [], defaultMethod: null }),
     );
     const onManage = vi.fn();
     const { container } = render(<ResidentAutopayCard onManagePaymentMethods={onManage} onPayChargeNow={() => {}} />);
-    const addFirst = await screen.findByText("Add a bank or card first");
-    expect(container.querySelector('[data-attr="resident-autopay-toggle"]')).not.toBeInTheDocument();
-    fireEvent.click(addFirst);
+    const add = await screen.findByText("Add payment method");
+    expect(screen.getByText("None saved")).toBeInTheDocument();
+    expect(byAttr(container, "resident-autopay-toggle")).toHaveTextContent("Off");
+    fireEvent.click(add);
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 

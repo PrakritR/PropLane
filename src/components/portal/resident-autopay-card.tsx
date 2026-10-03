@@ -131,69 +131,77 @@ export function ResidentAutopayCard({
   if (loading || !state) return null;
   if (!state.managerAllowsAutopay) return null;
 
+  const method = state.savedMethods.find((m) => m.id === (state.paymentMethodId ?? state.defaultMethod?.id ?? "")) ?? state.defaultMethod;
+
   return (
     <section
-      className="space-y-3 rounded-2xl border border-border bg-card px-4 py-4"
+      className="rounded-2xl border border-border bg-card px-4 py-3.5"
       data-testid="resident-autopay-card"
       data-attr="resident-autopay-card"
       data-jr-autopay
     >
-      <h3 className="text-sm font-semibold text-foreground">Autopay</h3>
-
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-foreground">Autopay</span>
-        {!state.hasSavedMethod && !state.enabled ? (
-          <button
-            type="button"
-            onClick={onManagePaymentMethods}
-            data-attr="resident-autopay-add-method"
-            className="text-sm font-semibold text-primary hover:underline"
-          >
-            Add a bank or card first
-          </button>
-        ) : (
+        <h3 className="text-sm font-bold text-foreground">Autopay</h3>
+        <FieldSingleSelect
+          label="Autopay"
+          hideLabel
+          value={state.enabled ? "on" : "off"}
+          options={[
+            { value: "on", label: "On" },
+            { value: "off", label: "Off" },
+          ]}
+          onChange={(next) => {
+            const enabled = next === "on";
+            // On with no saved method asks for one first.
+            if (enabled && !state.hasSavedMethod) {
+              onManagePaymentMethods();
+              return;
+            }
+            setState((prev) => (prev ? { ...prev, enabled } : prev));
+            void save({ enabled });
+          }}
+          disabled={saving}
+          dataAttr="resident-autopay-toggle"
+        />
+      </div>
+
+      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+        <span className="text-sm text-muted">Pays with</span>
+        {state.enabled && state.hasSavedMethod ? (
           <FieldSingleSelect
-            label="Autopay"
+            label="Pays with"
             hideLabel
-            value={state.enabled ? "on" : "off"}
-            options={[
-              { value: "on", label: "On" },
-              { value: "off", label: "Off" },
-            ]}
+            value={state.paymentMethodId ?? state.defaultMethod?.id ?? ""}
+            options={methodOptions}
+            placeholder="Select…"
             onChange={(next) => {
-              const enabled = next === "on";
-              setState((prev) => (prev ? { ...prev, enabled } : prev));
-              void save({ enabled });
+              setState((prev) => (prev ? { ...prev, paymentMethodId: next } : prev));
+              void save({ paymentMethodId: next });
             }}
             disabled={saving}
-            dataAttr="resident-autopay-toggle"
+            dataAttr="resident-autopay-method"
           />
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground" data-attr="resident-autopay-method-label">
+            {method?.label ?? "None saved"}
+          </span>
         )}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onManagePaymentMethods}
+          data-attr="resident-autopay-add-method"
+        >
+          {state.hasSavedMethod ? "Change" : "Add payment method"}
+        </Button>
       </div>
 
       {state.enabled ? (
         <>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-foreground">Pays with</span>
-            <FieldSingleSelect
-              label="Pays with"
-              hideLabel
-              value={state.paymentMethodId ?? state.defaultMethod?.id ?? ""}
-              options={methodOptions}
-              placeholder="Select…"
-              onChange={(next) => {
-                setState((prev) => (prev ? { ...prev, paymentMethodId: next } : prev));
-                void save({ paymentMethodId: next });
-              }}
-              disabled={saving}
-              dataAttr="resident-autopay-method"
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-foreground">Runs</span>
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+            <span className="text-sm text-muted">Runs</span>
             <FieldSingleSelect
               label="Runs"
               hideLabel
@@ -210,9 +218,9 @@ export function ResidentAutopayCard({
           </div>
 
           {state.nextScheduledCharge ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-foreground">Next payment</span>
-              <span className="text-sm font-semibold text-foreground" data-attr="resident-autopay-next-charge">
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+              <span className="text-sm text-muted">Next payment</span>
+              <span className="text-sm font-bold text-foreground" data-attr="resident-autopay-next-charge">
                 {state.nextScheduledCharge}
               </span>
             </div>
@@ -222,7 +230,7 @@ export function ResidentAutopayCard({
 
       {state.failedRun ? (
         <div
-          className="space-y-2 rounded-xl border border-[color-mix(in_srgb,var(--status-overdue-fg)_30%,transparent)] bg-[var(--status-overdue-bg)] px-3 py-3"
+          className="mt-3 space-y-2 rounded-xl border border-[color-mix(in_srgb,var(--status-overdue-fg)_30%,transparent)] bg-[var(--status-overdue-bg)] px-3 py-3"
           data-testid="resident-autopay-failed-banner"
         >
           <div className="flex items-center justify-between gap-2">

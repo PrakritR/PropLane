@@ -625,9 +625,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   tour: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Communication. "Prospect", "Slot"
-    // and "Follow-up" fold into Overview's own fact cards.
-    ownGroups: [{ label: "Tour", ids: [{ id: "overview", label: "Overview" }] }],
+    // Studio CX-RC6 (Tour and Communication): the first section is the Tour itself (Tour and
+    // Prospect fact cards); Communication follows. Its route id stays `overview`.
+    ownGroups: [{ label: "Tour", ids: [{ id: "overview", label: "Tour" }] }],
     headerActions: [
       { id: "confirm", label: "Confirm", icon: CheckCircle2 },
       { id: "reschedule", label: "Reschedule", icon: RefreshCw },
