@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { activeWorkspaceIdentity } from "@/lib/workspaces/selection";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
@@ -23,8 +24,20 @@ import {
   propertyPricingWholeHouseSummary,
   roomPricingSourceLabel,
 } from "@/lib/property-pricing-summary";
-import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
+import { resetRoomToWorkspaceDefault } from "@/lib/property-pricing-publish";
+import {
+  normalizeWorkspacePricingDefaults,
+  type WorkspacePricingDefaults,
+} from "@/lib/workspace-pricing-defaults";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { MoreHorizontal } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings } from "lucide-react";
 
@@ -47,8 +60,36 @@ export function PropertyPricingPanel({
   propertyLabel,
   onUpdated,
   showToast,
-  workspacePricingDefaults = {},
+  workspacePricingDefaults: workspacePricingDefaultsProp,
 }: Props) {
+  const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
+    () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
+  );
+  const [workspacePayment, setWorkspacePayment] = useState<{ serviceFeePayer?: string | null } | null>(
+    null,
+  );
+
+  const loadWorkspace = useCallback(async () => {
+    const wsId = activeWorkspaceIdentity()?.id;
+    if (!wsId) return;
+    const res = await fetch(
+      `/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(wsId)}`,
+      { cache: "no-store" },
+    );
+    const data = await res.json();
+    const row = data.workspacePaymentSettings?.[wsId];
+    if (row?.pricingDefaults) setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(row.pricingDefaults));
+    if (row) setWorkspacePayment({ serviceFeePayer: row.serviceFeePayer });
+  }, []);
+
+  useEffect(() => {
+    if (workspacePricingDefaultsProp && Object.keys(workspacePricingDefaultsProp).length > 0) {
+      setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp));
+      return;
+    }
+    void loadWorkspace();
+  }, [loadWorkspace, workspacePricingDefaultsProp]);
+
   const sub = useMemo(() => normalizeManagerListingSubmissionV1(submission), [submission]);
   const [tab, setTab] = useState<PricingTab>("rooms");
   const [query, setQuery] = useState("");
@@ -173,6 +214,10 @@ export function PropertyPricingPanel({
               const meta = sub.roomPricingMeta?.[room.id];
               const source = roomPricingSourceLabel(meta);
               const summary = propertyPricingRoomSummary(room, sub, meta);
+              const canReset =
+                meta?.priceSource === "default" ||
+                meta?.priceSource === "own" ||
+                room.monthlyRent > 0;
               return (
                 <PortalPropertyRecordRow
                   key={room.id}
@@ -182,6 +227,36 @@ export function PropertyPricingPanel({
                   amount={propertyPricingRoomAmount(room)}
                   onOpen={() => openSubject({ kind: "room", roomId: room.id })}
                   dataAttr="property-pricing-room-row"
+                  actions={
+                    canReset
+                      ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              type="button"
+                              className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
+                              aria-label={`Actions for ${room.name.trim() || "Room"}`}
+                            >
+                              <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  const next = resetRoomToWorkspaceDefault(sub, room.id, workspacePricingDefaults);
+                                  if (!next) {
+                                    showToast("No workspace default for this room.");
+                                    return;
+                                  }
+                                  persist(next);
+                                  showToast("Room reset to workspace default.");
+                                }}
+                              >
+                                Reset to default
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )
+                      : undefined
+                  }
                 />
               );
             })
@@ -228,6 +303,7 @@ export function PropertyPricingPanel({
         propertyLabel={propertyLabel}
         onSaved={onUpdated}
         showToast={showToast}
+        workspacePayment={workspacePayment}
       />
 
       {subject ? (
@@ -244,6 +320,7 @@ export function PropertyPricingPanel({
           propertyLabel={propertyLabel}
           onSaved={onUpdated}
           showToast={showToast}
+          workspacePricingDefaults={workspacePricingDefaults}
         />
       ) : null}
     </div>

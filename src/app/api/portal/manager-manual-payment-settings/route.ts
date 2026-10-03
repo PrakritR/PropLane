@@ -30,6 +30,7 @@ import {
   workspaceAutopayEnabled,
   workspaceAutopayRetryEnabled,
 } from "@/lib/workspace-payment-settings.server";
+import { countWorkspacePropertiesWithOwnPricing } from "@/lib/property-pricing-override-count.server";
 import { normalizeWorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { assertManualPaymentSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 import {
@@ -168,6 +169,10 @@ export async function GET(req: Request) {
       const workspaceSettings = await loadWorkspacePaymentSettings(ctx.db, ctx.userId);
       source = workspaceSettings[workspaceId]?.serviceFeePayer != null ? "workspace" : "account";
     }
+    const ownPricingPropertyCount =
+      workspaceId
+        ? await countWorkspacePropertiesWithOwnPricing(ctx.db, ctx.userId, workspaceId)
+        : undefined;
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       /* Payment setup is answered per workspace; the modal reads this to show
@@ -175,6 +180,7 @@ export async function GET(req: Request) {
       workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId),
       ...(propertyServiceFeePayers ? { propertyServiceFeePayers } : {}),
       ...(source ? { source } : {}),
+      ...(ownPricingPropertyCount !== undefined ? { ownPricingPropertyCount } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

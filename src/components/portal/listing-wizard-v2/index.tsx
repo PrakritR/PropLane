@@ -53,6 +53,12 @@ import {
 } from "@/lib/manager-listing-draft-autosave";
 import { track } from "@/lib/analytics/track-client";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
+import { applyWorkspaceDefaultsOnPublish } from "@/lib/property-pricing-publish";
+import {
+  normalizeWorkspacePricingDefaults,
+  type WorkspacePricingDefaults,
+} from "@/lib/workspace-pricing-defaults";
+import { activeWorkspaceIdentity } from "@/lib/workspaces/selection";
 
 export { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 
@@ -174,6 +180,21 @@ export function ListingWizardV2({
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   useEffect(() => {
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
+  }, []);
+
+  const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>({});
+  useEffect(() => {
+    const wsId = activeWorkspaceIdentity()?.id;
+    if (!wsId) return;
+    void fetch(`/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(wsId)}`, {
+      cache: "no-store",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        const pd = data.workspacePaymentSettings?.[wsId]?.pricingDefaults;
+        setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(pd));
+      })
+      .catch(() => {});
   }, []);
 
   const submissionRef = useRef(submission);
@@ -401,8 +422,17 @@ export function ListingWizardV2({
         initialStep={initialStep}
         actionError={actionError}
         contact={contact}
+        workspacePricingDefaults={workspacePricingDefaults}
         onPublish={() =>
           runLifecycle(async () => {
+            const filled = applyWorkspaceDefaultsOnPublish(
+              submissionRef.current,
+              workspacePricingDefaults,
+            );
+            if (filled.filledRooms.length > 0 || filled.filledWholeHouse) {
+              setSubmission(filled.submission);
+              submissionRef.current = filled.submission;
+            }
             const prepared = await persistSubmission(submissionRef.current, { validateWaiverCode: true });
             if (!prepared.ok) {
               setActionError(prepared.message);

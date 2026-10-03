@@ -125,6 +125,7 @@ import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { propertyPricingPublishBlocker } from "@/lib/property-pricing-publish";
+import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import {
   BathroomCoveragePanel,
@@ -2821,8 +2822,10 @@ export function ListingEditorV2({
   basicsLead,
   initialStep,
   contact,
+  workspacePricingDefaults,
 }: {
   submission: ManagerListingSubmissionV1;
+  workspacePricingDefaults?: WorkspacePricingDefaults;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
   propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
@@ -2900,7 +2903,7 @@ export function ListingEditorV2({
     if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
     if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
     if (resolveAllowedLeaseTerms(submission).length === 0) return focus("pricing", '[data-attr="lease-type"] button, [data-attr="lease-type"]', "Choose a lease type before publishing.");
-    const pricingBlock = propertyPricingPublishBlocker(submission, {});
+    const pricingBlock = propertyPricingPublishBlocker(submission, workspacePricingDefaults ?? {});
     if (pricingBlock) return focus("pricing", '[data-attr="property-pricing"]', pricingBlock);
     if (!hasOfferedListingRent(submission)) return focus("pricing", '[aria-label^="Rent"]', "Add a rent before publishing.");
     if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) return focus("pricing", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");

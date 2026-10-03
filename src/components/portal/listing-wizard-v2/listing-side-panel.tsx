@@ -270,6 +270,7 @@ export function PricingReceiptPanel({
   onLeaseTermChange,
   leaseTerms,
   lockLeaseTerm = false,
+  plainReceipt = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -280,6 +281,8 @@ export function PricingReceiptPanel({
   leaseTerms: string[];
   /** When true, the lease type follows the active pricing tab instead of a separate picker. */
   lockLeaseTerm?: boolean;
+  /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
+  plainReceipt?: boolean;
 }) {
   const quote = useMemo(() => buildListingQuote(sub, { roomId, leaseTerm }), [sub, roomId, leaseTerm]);
   const rooms = sub.rooms ?? [];
@@ -358,7 +361,9 @@ export function PricingReceiptPanel({
             </button>
           </div>
         ) : null}
-        <p className="pt-1 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
+        {plainReceipt ? null : (
+          <p className="pt-1 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
+        )}
         {quote.signingLines.map((line) => (
           <PanelLine
             key={line.key}

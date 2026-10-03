@@ -171,7 +171,7 @@ export function ServiceOfferingEditModal({
   const workspaceTitle = isNew ? `Add ${entityLabel}` : `Edit ${entityLabel}`;
   const workspaceSteps: AddWorkspaceStep[] = [
     { id: "details", label: "Details", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Name this request" },
-    { id: "price", label: "Price", summary: draft.price.trim() || "No price yet" },
+    { id: "price", label: "Pricing", summary: draft.price.trim() || "No price yet" },
     { id: "preview", label: "Preview", summary: draft.available ? "Available" : "Unavailable" },
   ];
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
@@ -242,7 +242,7 @@ export function ServiceOfferingEditModal({
       ) : null}
       {stepId === "price" ? (
         <StepColumn>
-          <StepHeading title="Price" />
+          <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-muted">Pricing</p>
           <ServiceOfferingFields row={draft} onPatch={patch} parts="price" />
         </StepColumn>
       ) : null}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { MoneyInput } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalSettingsGroup, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { ownValuesOnPropertiesLabel } from "@/components/portal/settings-scope-bar";
 import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
@@ -19,19 +20,25 @@ export function WorkspacePricingDefaultsPanel({ workspaceId }: { workspaceId: st
   const [draft, setDraft] = useState<WorkspacePricingDefaults>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [ownCount, setOwnCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!workspaceId) {
       setDraft({});
+      setOwnCount(0);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/portal/manager-manual-payment-settings", { cache: "no-store" });
+      const res = await fetch(
+        `/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { cache: "no-store" },
+      );
       const data = await res.json();
       const row = (data.workspacePaymentSettings?.[workspaceId] ?? {}) as WorkspacePaymentPublic;
       setDraft(normalizeWorkspacePricingDefaults(row.pricingDefaults));
+      setOwnCount(typeof data.ownPricingPropertyCount === "number" ? data.ownPricingPropertyCount : 0);
     } finally {
       setLoading(false);
     }
@@ -54,6 +61,7 @@ export function WorkspacePricingDefaultsPanel({ workspaceId }: { workspaceId: st
         }),
       });
       setDraft(patch);
+      void load();
     } finally {
       setSaving(false);
     }
@@ -61,7 +69,12 @@ export function WorkspacePricingDefaultsPanel({ workspaceId }: { workspaceId: st
 
   const field = (key: keyof WorkspacePricingDefaults, label: string) => (
     <div className="flex items-center justify-between gap-3 border-b border-border py-3 last:border-0">
-      <span className="text-sm font-semibold text-foreground">{label}</span>
+      <div className="min-w-0">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        {ownCount > 0 ? (
+          <p className="mt-0.5 text-[12px] font-semibold text-muted">{ownValuesOnPropertiesLabel(ownCount)}</p>
+        ) : null}
+      </div>
       <MoneyInput
         label={label}
         value={draft[key] ? String(draft[key]) : ""}
@@ -76,15 +89,20 @@ export function WorkspacePricingDefaultsPanel({ workspaceId }: { workspaceId: st
 
   return (
     <div data-ps30-defaults>
-    <PortalSettingsSection title="Defaults for properties">
-      <PortalSettingsGroup>
-        {field("rentPrivate", "Private room /mo")}
-        {field("rentShared2", "Shared by 2 / resident")}
-        {field("rentShared3", "Shared by 3+ / resident")}
-        {field("rentWhole", "Whole house /mo")}
-        {field("nightly", "Nightly rate")}
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+      <PortalSettingsSection title="Defaults for properties">
+        {loading ? (
+          <p className="text-sm font-semibold text-muted">Loading defaults…</p>
+        ) : (
+          <PortalSettingsGroup>
+            {field("rentPrivate", "Private room /mo")}
+            {field("rentShared2", "Shared by 2 / resident")}
+            {field("rentShared3", "Shared by 3+ / resident")}
+            {field("rentWhole", "Whole house /mo")}
+            {field("nightly", "Nightly rate")}
+          </PortalSettingsGroup>
+        )}
+        {saving ? <p className="mt-2 text-[12px] font-semibold text-muted">Saving…</p> : null}
+      </PortalSettingsSection>
     </div>
   );
 }
