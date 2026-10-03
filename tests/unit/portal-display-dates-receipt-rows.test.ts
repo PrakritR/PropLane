@@ -10,7 +10,8 @@ describe("portal list dates — rent receipts", () => {
       "utf8",
     );
     expect(source).toContain("formatPortalListDate");
-    expect(source).toMatch(/meta:\s*formatPortalListDate\(row\.date\)/);
+    // The Payments tab appends the amount to the formatted date; the date is never raw ISO.
+    expect(source).toMatch(/meta:\s*paymentsTab\s*\?\s*`\$\{formatPortalListDate\(row\.date\)\} · \$\{row\.amount\}`\s*:\s*formatPortalListDate\(row\.date\)/);
   });
 
   it("documents-download-all-modal formats receipt row labels", () => {

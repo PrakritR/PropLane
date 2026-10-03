@@ -59,14 +59,16 @@ export function PropertyMoveInEditorModal({
   const [video, setVideo] = useState(houseVideo);
   const [roomDraft, setRoomDraft] = useState<ManagerRoomSubmission | null>(room);
 
+  // ✕ and Esc close and keep the draft (ui-page-structure.md § Pop-ups), so the
+  // working copy re-seeds only when the target or the saved values change —
+  // not every time the popup reopens.
   useEffect(() => {
-    if (!open) return;
     setDraftInfo(houseInfo);
     setInstr(houseInstructions);
     setPhotos(housePhotos);
     setVideo(houseVideo);
     setRoomDraft(room);
-  }, [open, houseInfo, houseInstructions, housePhotos, houseVideo, room, target]);
+  }, [houseInfo, houseInstructions, housePhotos, houseVideo, room, target]);
 
   if (!target) return null;
 
@@ -85,7 +87,6 @@ export function PropertyMoveInEditorModal({
       panelClassName="max-w-3xl"
       footer={
         <ModalFooter className="w-full gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
             type="button"
             variant="primary"

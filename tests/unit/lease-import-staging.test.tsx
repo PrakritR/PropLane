@@ -33,8 +33,19 @@ vi.mock("@/lib/lease-template-storage", async (importOriginal) => {
 const parseUploadedLeasePdf = vi.fn();
 vi.mock("@/lib/lease-template-parse.client", () => ({ parseUploadedLeasePdf: (...args: unknown[]) => parseUploadedLeasePdf(...args) }));
 
+// Redesign (studio-redesign-0929, property-lease-apps): a new lease picks "Upload PDF"
+// in the "Start from" row (which reveals the strip); a saved lease re-imports through
+// the row's Replace action (hidden input).
+async function chooseUploadPdf() {
+  const trigger = document.querySelector('[data-attr="property-form-start-from"]') as HTMLElement;
+  expect(trigger).not.toBeNull();
+  fireEvent.click(trigger);
+  fireEvent.click(await screen.findByText("Upload PDF"));
+}
+
 function pickLeaseFile(dataAttr = "property-lease-name-upload") {
-  const input = document.querySelector(`[data-attr="${dataAttr}"] input[type="file"]`) as HTMLInputElement;
+  const input = (document.querySelector(`[data-attr="${dataAttr}"] input[type="file"]`) ??
+    document.querySelector('[data-attr="property-lease-replace-upload-input"]')) as HTMLInputElement;
   expect(input).not.toBeNull();
   const file = new File(["%PDF-1.4"], "lease.pdf", { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
@@ -79,6 +90,7 @@ describe("F016: lease upload stages a diff before applying", () => {
       />,
     );
     await screen.findByRole("dialog", { name: "New lease" });
+    await chooseUploadPdf();
 
     pickLeaseFile();
     await waitFor(() => expect(parseUploadedLeasePdf).toHaveBeenCalled());

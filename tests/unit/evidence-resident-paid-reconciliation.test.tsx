@@ -130,7 +130,14 @@ vi.mock("@/lib/resident-lease-upload", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/resident-lease-upload")>();
   return { ...actual, readUploadedOwnLeases: () => [], syncUploadedOwnLeasesFromServer: () => Promise.resolve([]) };
 });
-vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => null }));
+// The Documents panel's lease list reads the resident's `profiles` row; the real
+// client never returns null, so the stub answers that read with no row.
+vi.mock("@/lib/supabase/browser", () => {
+  const query: Record<string, unknown> = {};
+  for (const name of ["select", "eq"]) query[name] = () => query;
+  query.maybeSingle = () => Promise.resolve({ data: null, error: null });
+  return { createSupabaseBrowserClient: () => ({ from: () => query }) };
+});
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/demo/demo-session")>();
   return { ...actual, isDemoModeActive: () => false };

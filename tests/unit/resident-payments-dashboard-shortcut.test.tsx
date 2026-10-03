@@ -117,7 +117,8 @@ describe("resident Payments — dashboard pay shortcut (C248)", () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.querySelector('[data-attr="resident-payments-confirm-pay"]')).toBeTruthy();
+    // C2-RJ11: the pay sheet is one step — it opens straight onto the amount and checkout.
+    await waitFor(() => expect(dialog.textContent).toContain("Amount due"));
     await waitFor(() => expect(replaced).toContain("/resident/payments"));
   });
 

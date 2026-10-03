@@ -108,3 +108,12 @@ describe("manager move-in panel", () => {
     expect(view).toContain('data-attr="resident-move-in-room-section"');
   });
 });
+
+describe("move-in editor popup closes with ✕ / Esc and keeps its draft", () => {
+  it("has no dismiss-only Cancel button and does not re-seed the draft on reopen", () => {
+    const modal = readFileSync("src/components/portal/property-move-in-editor-modal.tsx", "utf8");
+    expect(modal).not.toMatch(/>\s*Cancel\s*</);
+    expect(modal).toContain("property-move-in-save");
+    expect(modal).not.toMatch(/\[open, houseInfo/);
+  });
+});
