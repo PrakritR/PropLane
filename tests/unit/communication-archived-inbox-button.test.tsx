@@ -114,12 +114,11 @@ describe("Communication archived chrome", () => {
     }
   });
 
-  it("manager work-number card has no phone glyph or megaphone", () => {
+  // The studio's work-number line leads with a phone glyph (communication-0928 plc-id).
+  it("manager work-number card has no megaphone", () => {
     const source = readFileSync("src/components/portal/pro-work-number-card.tsx", "utf8");
     expect(source).not.toContain("Megaphone");
     expect(source).not.toContain("Tell residents");
-    expect(source).not.toMatch(/import \{[^}]*\bPhone\b[^}]*\} from "lucide-react"/);
-    expect(source).not.toMatch(/<Phone[\s/>]/);
     expect(source).toContain("manager-work-email-copy");
     expect(source).toContain("manager-work-number-setup");
     expect(source).toContain("Set up work number");

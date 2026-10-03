@@ -21,6 +21,7 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
   mergeInboxRowsWithLocalTrash: (rows: unknown[]) => rows,
   countUnopenedPersistedInbox: () => 0,
+  formatInboxListNarrowTime: () => "",
   beginInboxMutation: () => {},
   endInboxMutation: () => {},
   appendPersistedInboxThread: () => {},

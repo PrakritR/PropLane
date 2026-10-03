@@ -50,7 +50,7 @@ function ContactIdentityRow({
   value: string;
   label: string;
   note?: string;
-  noteTone?: "muted" | "warn";
+  noteTone?: "muted" | "warn" | "fact";
   actions?: PortalInboxContactCardAction[];
 }) {
   return (
@@ -59,11 +59,15 @@ function ContactIdentityRow({
       <div className="min-w-0 flex-1">
         <p
           className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold tabular-nums text-foreground"
-          title={note && noteTone === "warn" ? `${label}: ${value} — ${note}` : `${label}: ${value}`}
+          title={note && noteTone !== "muted" ? `${label}: ${value} — ${note}` : `${label}: ${value}`}
         >
           <span className="truncate">{value}</span>
           {note && noteTone === "warn" ? (
             <span className="shrink-0 text-xs font-normal text-[var(--status-pending-fg)]">{note}</span>
+          ) : note && noteTone === "fact" ? (
+            // A plain fact on the value's own line (which home this number is for),
+            // never a muted sentence underneath it.
+            <span className="min-w-0 truncate text-xs font-normal text-muted">{note}</span>
           ) : null}
         </p>
       </div>
@@ -122,9 +126,12 @@ export function PortalInboxContactCard({
   value: string;
   /** What the value is — "Your work number", "Your property manager". */
   label: string;
-  /** Readiness or tenancy note, folded onto the label line rather than its own. */
+  /**
+   * Readiness or tenancy note. `warn` and `fact` show inline on the value's line;
+   * `muted` stays in the tooltip only (no subtext).
+   */
   note?: string;
-  noteTone?: "muted" | "warn";
+  noteTone?: "muted" | "warn" | "fact";
   actions?: PortalInboxContactCardAction[];
   /**
    * Second identity on the same card (work email under the work number).

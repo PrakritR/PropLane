@@ -122,9 +122,9 @@ export function ResidentManagerNumberCard() {
         const email = contact.email?.trim() || null;
         const name = contact.managerName?.trim() || null;
         const label = name ? `${name} · Your property manager` : "Your property manager";
-        const note = multiple
-          ? [contact.propertyLabel, managerContactCaption(contact, true)].filter(Boolean).join(" · ")
-          : undefined;
+        // Several homes: each number names its property inline so the resident
+        // can tell them apart (the lease timing stays in the tooltip).
+        const note = multiple ? contact.propertyLabel?.trim() || managerContactCaption(contact, true) || undefined : undefined;
         const avatar = name ? (
           <InboxAvatar name={name} className="h-9 w-9 text-[12px]" />
         ) : null;
@@ -140,6 +140,7 @@ export function ResidentManagerNumberCard() {
               value={phoneLabel}
               label={label}
               note={note}
+              noteTone="fact"
               leading={
                 avatar ?? (
                   <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
@@ -168,6 +169,7 @@ export function ResidentManagerNumberCard() {
             value={email}
             label={label}
             note={note}
+            noteTone="fact"
             leading={avatar ?? MAIL_GLYPH}
             actions={[emailAction(email)]}
           />
