@@ -83,7 +83,7 @@ export function ShortStayBookingClient() {
     const choice = `${propertyId}${LISTING_ROOM_CHOICE_SEP}${displayRoom.id}`;
     const occ = occupancyRooms.find((row) => row.roomChoice === choice);
     return occ?.spans ?? [];
-  }, [displayRoom?.id, occupancyRooms, propertyId]);
+  }, [displayRoom, occupancyRooms, propertyId]);
 
   const calendarSpans = useMemo(() => publicSpansToCalendarSpans(blockedSpans), [blockedSpans]);
 
