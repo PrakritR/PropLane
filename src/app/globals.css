@@ -3967,3 +3967,12 @@ html[data-communication-surface] .portal-communication-inbox .portal-list-page-b
     margin-top: -0.75rem;
   }
 }
+
+/*
+ * Schibsted Grotesk's tabular figures also make "," and "." full figure width,
+ * so "$1,050.00" read as "$1 , 050 . 00" wherever `tabular-nums` was used.
+ * Keep the digits lining but proportional — money reads as one word.
+ */
+:root .tabular-nums {
+  font-variant-numeric: lining-nums proportional-nums;
+}
