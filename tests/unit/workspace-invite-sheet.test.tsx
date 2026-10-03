@@ -450,11 +450,11 @@ describe("WorkspaceInviteSheet", () => {
     await waitFor(() => expect(roleTrigger().textContent).toContain("Custom"));
     await flushMicrotasks();
 
-    const addPropertiesCheckbox = document.querySelector(
-      '[data-attr="team-grant-add-properties"]',
-    ) as HTMLInputElement;
-    expect(addPropertiesCheckbox).toBeTruthy();
-    fireEvent.click(addPropertiesCheckbox);
+    const addPropertiesYes = document.querySelector(
+      '[data-attr="team-grant-add-properties-yes"]',
+    ) as HTMLButtonElement;
+    expect(addPropertiesYes).toBeTruthy();
+    fireEvent.click(addPropertiesYes);
     await flushMicrotasks();
 
     // Toggling the workspace grant alone never mints.
