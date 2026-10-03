@@ -62,7 +62,6 @@ import {
   unionLabeledPropertyOptions,
 } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
-import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
@@ -195,16 +194,9 @@ type SettingsGroup = {
 };
 
 function ManagerMessagingSettingsPane() {
-  const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
   return (
     <>
-      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
-      <PortalTextNotificationsBlock
-        dataAttrPrefix="manager"
-        title="Personal phone"
-        description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
-        onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
-      />
+      <ManagerMessagingSettingsPanel />
       <PortalSettingsSection title="Automation">
         <AutoSendAiDraftsRow />
       </PortalSettingsSection>
@@ -527,7 +519,7 @@ export function PortalProfileClient({
       list.push({
         id: "messaging",
         label: "Communication",
-        description: "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
+        description: "Your work number and work email, and what PropLane sends.",
         icon: MessagesSquare,
         group: "Workspace",
       });

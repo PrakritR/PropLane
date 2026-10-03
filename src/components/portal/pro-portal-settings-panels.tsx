@@ -1632,27 +1632,23 @@ export function CommunicationSettingsPanel({
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
+  // Captain, Oct 3: the "Reminders and messages" entry row left Communication
+  // (reminder timing is fixed; "What PropLane sends" is the read-only map).
+  // What stays here is the work-number hint, and only while it applies.
+  const showSmsHint = anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone));
+  if (!showSmsHint) return null;
+
   return (
     <PortalSettingsSection
       title="Automation"
       action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
     >
       <ManagerSmsWorkNumberHint
-        show={anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone))}
+        show
         phone={smsSetup?.phone ?? null}
         canSend={smsSetup?.canSend === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
-      <div className="mt-6 space-y-3">
-        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Reminders and messages</p>
-        <PortalSettingsGroup>
-          <PortalSettingsLinkRow
-            label="Edit reminder timing and automated messages"
-            href={managerSettingsProfilePath("automation")}
-            dataAttr="communication-open-reminders-hub"
-          />
-        </PortalSettingsGroup>
-      </div>
     </PortalSettingsSection>
   );
 }

@@ -22,11 +22,21 @@ import { resolveWorkspaceWorkEmail } from "@/lib/manager-assistant-email/manager
 export async function resolveManagerOutboundFrom(
   db: SupabaseClient,
   managerUserId: string | null | undefined,
+  /**
+   * The house the message is about. Its workspace's work email wins over the
+   * request's (or the owner's default) workspace, so mail about a house leaves
+   * on the same workspace identity its texts already do (`resolveOwnerSendNumberRow`).
+   * Server-resolved by callers from the row they authorized; never a request-body value.
+   */
+  opts: { propertyId?: string | null } = {},
 ): Promise<string | null> {
   const id = managerUserId?.trim();
   if (!id) return null;
   try {
-    const workspace = await resolveWorkspaceWorkEmail(db, id);
+    const houseWorkspaceId = await workspaceIdForProperty(db, opts.propertyId);
+    const workspace = houseWorkspaceId
+      ? await resolveWorkspaceWorkEmail(db, id, houseWorkspaceId)
+      : await resolveWorkspaceWorkEmail(db, id);
     const address = workspace?.address?.trim();
     if (!address) return null;
 
@@ -37,6 +47,21 @@ export async function resolveManagerOutboundFrom(
     // something the recipient reads as gibberish.
     if (name && !/["<>\r\n]/.test(name)) return `${name} <${address}>`;
     return address;
+  } catch {
+    return null;
+  }
+}
+
+/** The workspace that holds a house, or null when unknown (callers then keep the active workspace). */
+async function workspaceIdForProperty(
+  db: SupabaseClient,
+  propertyId: string | null | undefined,
+): Promise<string | null> {
+  const id = propertyId?.trim();
+  if (!id) return null;
+  try {
+    const { data } = await db.from("manager_property_records").select("workspace_id").eq("id", id).maybeSingle();
+    return String((data as { workspace_id?: string | null } | null)?.workspace_id ?? "").trim() || null;
   } catch {
     return null;
   }
@@ -55,8 +80,9 @@ export function sharedPortalFromAddress(): string {
 export async function managerOutboundFromHeader(
   db: SupabaseClient,
   managerUserId: string | null | undefined,
+  opts: { propertyId?: string | null } = {},
 ): Promise<string> {
-  return (await resolveManagerOutboundFrom(db, managerUserId)) ?? sharedPortalFromAddress();
+  return (await resolveManagerOutboundFrom(db, managerUserId, opts)) ?? sharedPortalFromAddress();
 }
 
 export function fromHeaderDisplayName(from: string): string {

@@ -52,7 +52,6 @@ export function PortalTextNotificationsBlock({
   demo = false,
   title = "Text notifications",
   description = "Verify your mobile number to get maintenance and message updates by text.",
-  onVerified,
   compact = false,
 }: {
   /** Kebab prefix for data-attr hooks, e.g. "resident" / "vendor". */
@@ -62,7 +61,6 @@ export function PortalTextNotificationsBlock({
   demo?: boolean;
   title?: string;
   description?: string;
-  onVerified?: (settings: TextNotificationSettings) => void;
 }) {
   const { showToast } = useAppUi();
   const [settings, setSettings] = useState<TextNotificationSettings | null>(() =>
@@ -88,9 +86,8 @@ export function PortalTextNotificationsBlock({
       setCodeInput("");
       setPhoneInput("");
       setError(null);
-      onVerified?.(next);
     },
-    [onVerified, settings],
+    [settings],
   );
 
   useEffect(() => {

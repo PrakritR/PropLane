@@ -202,7 +202,18 @@ export async function GET(req: Request) {
     ]);
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
     const managerSmsFromNumber = String(workNumber?.phone_number ?? "").trim();
-    const from = await managerOutboundFromHeader(db, managerId);
+    // From is the work email of the workspace that holds the charge's house (the same line its
+    // texts leave on), memoized per house so a large portfolio costs one lookup per property.
+    const fromByProperty = new Map<string, Promise<string>>();
+    const fromFor = (propertyId: string | null | undefined): Promise<string> => {
+      const key = propertyId?.trim() ?? "";
+      let pending = fromByProperty.get(key);
+      if (!pending) {
+        pending = managerOutboundFromHeader(db, managerId, { propertyId: key || null });
+        fromByProperty.set(key, pending);
+      }
+      return pending;
+    };
 
     // A house with its own payment-automation settings gets its own cadence and
     // channels; an un-customized house falls through workspace then account
@@ -307,7 +318,7 @@ export async function GET(req: Request) {
         managerName,
         managerSmsFromNumber,
         apiKey: apiKey ?? "",
-        from,
+        from: await fromFor(current[0]!.charge.propertyId),
         subject: message.subject,
         text: message.body,
         html: reminderHtmlFromText(message.body),
@@ -423,7 +434,7 @@ export async function GET(req: Request) {
                 managerName,
                 managerSmsFromNumber,
                 apiKey: apiKey ?? "",
-                from,
+                from: await fromFor(charge.propertyId),
                 subject: noticeSubject,
                 text: noticeText,
                 html: reminderHtmlFromText(noticeText),

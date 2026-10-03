@@ -225,7 +225,10 @@ export async function POST(req: Request) {
     };
 
     const threadId = String(body.threadId ?? "").trim();
-    const senderEmail = String(user.email ?? body.fromEmail ?? "portal@example.com").trim().toLowerCase();
+    // The sender address is the authenticated account's, never the request body's
+    // (`body.fromEmail` is accepted for old clients but no longer read): sender identity,
+    // like the From header and the SMS line, is derived server-side.
+    const senderEmail = String(user.email ?? "portal@example.com").trim().toLowerCase();
     const subject = String(body.subject ?? "").trim();
     const rawText = String(body.text ?? "").trim();
     const sendId = typeof body.sendId === "string" ? body.sendId.trim().toLowerCase() : "";
