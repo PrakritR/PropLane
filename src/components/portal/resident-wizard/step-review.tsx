@@ -4,6 +4,11 @@ import { useMemo } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MessageStep, ReviewCard, WizardChip, WizardLine, WizardSection, type MessageDraft } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
+import {
+  residentEditReviewLines,
+  snapshotResidentEditBaseline,
+  type ResidentEditBaseline,
+} from "@/lib/resident-edit-stage";
 import { alsoCreates, formatMoney, monthKeyLabel, paymentSchedulePreview, thingsToFinish, type AddPersonForm } from "./state";
 
 function moneyOr0(raw: string): number {
@@ -18,15 +23,27 @@ export function ReviewStep({
   propertyLabel,
   goTo,
   mode = "person",
+  editBaseline,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
   derived: ResidentWizardDerived;
   propertyLabel: string | null;
   goTo: (stepId: string) => void;
-  mode?: "person" | "tour" | "application";
+  mode?: "person" | "tour" | "application" | "edit";
+  editBaseline?: ResidentEditBaseline;
 }) {
-  const todo = useMemo(() => thingsToFinish(form, mode), [form, mode]);
+  const todo = useMemo(() => (mode === "edit" ? [] : thingsToFinish(form, mode)), [form, mode]);
+  const editLines = useMemo(() => {
+    if (mode !== "edit" || !editBaseline) return [];
+    return residentEditReviewLines(
+      editBaseline,
+      snapshotResidentEditBaseline({
+        ...form,
+        application: form.application as Record<string, unknown>,
+      }),
+    );
+  }, [editBaseline, form, mode]);
   const prospect = form.kind === "prospect" && mode !== "application";
   const applicationMode = mode === "application";
   const missing = (step: string) => todo.some((t) => t.step === step);
@@ -48,6 +65,17 @@ export function ReviewStep({
   return (
     <StepColumn>
       <StepHeading title="Review" />
+      {mode === "edit" ? (
+        <WizardSection title="Changes" dataAttr="residents-wizard-review-edits">
+          {editLines.length === 0 ? (
+            <WizardLine label="Nothing changed yet" />
+          ) : (
+            editLines.map((line) => (
+              <WizardLine key={line.label} label={line.label} control={<span className="text-[13px] font-semibold">{line.before} → {line.after}</span>} />
+            ))
+          )}
+        </WizardSection>
+      ) : null}
       {todo.length ? (
         <WizardSection title={`${todo.length} ${todo.length === 1 ? "thing" : "things"} to finish`} chip={<WizardChip tone="warn">before adding</WizardChip>} dataAttr="residents-wizard-review-todo">
           {todo.map((t, i) => (

@@ -11,6 +11,13 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
+import {
+  diffResidentEdit,
+  residentEditRequiresVoidConfirm,
+  type ResidentEditBaseline,
+  type ResidentEditStage,
+} from "@/lib/resident-edit-stage";
 import { FolderOpen } from "lucide-react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -74,6 +81,7 @@ export function AddResidentWizard({
   defaultPropertyId,
   initialForm,
   onSaveEdit,
+  editContext,
 }: {
   onClose: () => void;
   /** The row landed (and whatever else the wizard created). */
@@ -92,7 +100,13 @@ export function AddResidentWizard({
   mode?: "person" | "tour" | "application" | "edit";
   defaultPropertyId?: string;
   initialForm?: AddPersonForm;
-  onSaveEdit?: (form: AddPersonForm) => Promise<void>;
+  onSaveEdit?: (form: AddPersonForm, options?: { voidSentLeases?: boolean }) => Promise<void>;
+  editContext?: {
+    stage: ResidentEditStage;
+    baseline: ResidentEditBaseline;
+    signedAtIso?: string | null;
+    onRequestNewTerms?: () => void;
+  };
 }) {
   const { showToast } = useAppUi();
   const [form, setForm] = useState<AddPersonForm>(() => {
@@ -108,6 +122,7 @@ export function AddResidentWizard({
   const [busy, setBusy] = useState(false);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [preview, setPreview] = useState<{ row: DemoApplicantRow; subject: string; body: string } | null>(null);
+  const [voidSentLeaseOpen, setVoidSentLeaseOpen] = useState(false);
   const parsesRef = useRef<{ application: ParsedResidentDocument | null; lease: ParsedResidentDocument | null }>({ application: null, lease: null });
   const undoRef = useRef<AddPersonForm | null>(null);
 
@@ -133,6 +148,22 @@ export function AddResidentWizard({
     const missing = (id: string) => todo.some((t) => t.step === id);
     const rent = moneyOr0(form.rent);
     const paidMonths = Object.values(form.paymentMarks).filter((m) => m.status === "paid").length;
+    if (mode === "edit") {
+      const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
+      const chargeCount = Object.keys(form.paymentMarks).length;
+      const changed = editContext
+        ? diffResidentEdit(editContext.baseline, { ...form, application: form.application as Record<string, unknown> }).any
+        : false;
+      return [
+        { id: "contact", label: "Resident", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
+        { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
+        { id: "application", label: "Application", summary: appFilled || "On file" },
+        { id: "lease", label: "Lease", incomplete: missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Rent not set" },
+        { id: "payments", label: "Payments", summary: chargeCount ? `${paidMonths} paid · ${chargeCount - paidMonths} unpaid` : "No charges yet" },
+        { id: "documents", label: "Documents", summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
+        { id: "review", label: "Review", summary: changed ? "Changes to save" : "Nothing changed" },
+      ];
+    }
     if (mode === "application") {
       const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
       return [
@@ -161,7 +192,29 @@ export function AddResidentWizard({
       { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form), summary: form.documents.length ? `${form.documents.length} attached` : alsoCreates(form, "documents") ? "None attached" : "Off this add" },
       { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
     ];
-  }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb, mode]);
+  }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb, mode, editContext]);
+
+  const runSaveEdit = useCallback(() => {
+    if (!onSaveEdit) return;
+    setBusy(true);
+    void onSaveEdit(form, { voidSentLeases: true }).finally(() => {
+      setBusy(false);
+      setVoidSentLeaseOpen(false);
+    });
+  }, [form, onSaveEdit]);
+
+  const trySaveEdit = useCallback(() => {
+    if (!onSaveEdit) return;
+    if (editContext) {
+      const diff = diffResidentEdit(editContext.baseline, { ...form, application: form.application as Record<string, unknown> });
+      if (residentEditRequiresVoidConfirm(editContext.stage, diff)) {
+        setVoidSentLeaseOpen(true);
+        return;
+      }
+    }
+    setBusy(true);
+    void onSaveEdit(form).finally(() => setBusy(false));
+  }, [editContext, form, onSaveEdit]);
 
   /* ─────────── files ─────────── */
 
@@ -489,20 +542,21 @@ export function AddResidentWizard({
       assistantContext={workspaceTitle}
       assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
       railHeader={railHeader}
-      sidePanel={<ResidentSidePanel form={form} derived={derived} propertyLabel={propertyLabel} mode={mode === "edit" ? "person" : mode} />}
+      sidePanel={
+        <ResidentSidePanel
+          form={form}
+          derived={derived}
+          propertyLabel={propertyLabel}
+          mode={mode === "edit" ? "edit" : mode}
+          editStage={editContext?.stage}
+          editBaseline={editContext?.baseline}
+        />
+      }
       lastLabel={mode === "edit" ? "Save resident" : workspaceTitle}
       lastDisabled={mode === "edit" ? !form.name.trim() : todo.length > 0}
       finishCount={mode === "edit" ? 0 : todo.length}
       busy={busy}
-      onFinish={
-        mode === "edit"
-          ? () => {
-              if (!onSaveEdit) return;
-              setBusy(true);
-              void onSaveEdit(form).finally(() => setBusy(false));
-            }
-          : onFinish
-      }
+      onFinish={mode === "edit" ? trySaveEdit : onFinish}
       skipOffPath={mode === "person" || mode === "edit"}
       dataAttrPrefix={mode === "tour" ? "tour-wizard" : mode === "application" ? "application-wizard" : "residents-wizard"}
       overlay={
@@ -535,11 +589,42 @@ export function AddResidentWizard({
       {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
       {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
       {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
-      {stepId === "lease" ? <LeaseStep form={form} patch={patch} derived={derived} onPickLeasePdf={onPickLeasePdf} busy={busy} /> : null}
+      {stepId === "lease" ? (
+        <LeaseStep
+          form={form}
+          patch={patch}
+          derived={derived}
+          onPickLeasePdf={onPickLeasePdf}
+          busy={busy}
+          editStage={editContext?.stage}
+          signedAtIso={editContext?.signedAtIso}
+          onRequestNewTerms={editContext?.onRequestNewTerms}
+        />
+      ) : null}
       {stepId === "payments" ? <PaymentsStep form={form} patch={patch} derived={derived} /> : null}
       {stepId === "documents" ? <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} /> : null}
       {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} managerUserId={managerUserId} assignee={assignee} onAssignee={setAssignee} /> : null}
-      {stepId === "review" ? <ReviewStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} goTo={goTo} mode={mode === "edit" ? "person" : mode} /> : null}
+      {stepId === "review" ? (
+        <ReviewStep
+          form={form}
+          patch={patch}
+          derived={derived}
+          propertyLabel={propertyLabel}
+          goTo={goTo}
+          mode={mode === "edit" ? "edit" : mode}
+          editBaseline={editContext?.baseline}
+        />
+      ) : null}
+      <ConfirmDeleteModal
+        open={voidSentLeaseOpen}
+        busy={busy}
+        title="Void the sent lease?"
+        confirmLabel="Void and save"
+        dataAttr="residents-edit-void-sent-confirm"
+        onClose={() => !busy && setVoidSentLeaseOpen(false)}
+        onConfirm={runSaveEdit}
+        description="Changing these terms voids the lease already sent for signature. A new draft will be created for you to resend."
+      />
     </AddWorkspace>
   );
 }

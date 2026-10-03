@@ -11,10 +11,13 @@ import {
   WizardChip,
   WizardField,
   WizardLine,
+  WizardLockedField,
   WizardRow,
   WizardSection,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
+import { isResidentEditFieldLocked, type ResidentEditStage } from "@/lib/resident-edit-stage";
+import { Button } from "@/components/ui/button";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { openResidentSlotsForApplicationRow } from "@/lib/manager-applications-storage";
@@ -37,12 +40,18 @@ export function LeaseStep({
   derived,
   onPickLeasePdf,
   busy,
+  editStage,
+  signedAtIso,
+  onRequestNewTerms,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
   derived: ResidentWizardDerived;
   onPickLeasePdf: (file: File) => void;
   busy: boolean;
+  editStage?: ResidentEditStage;
+  signedAtIso?: string | null;
+  onRequestNewTerms?: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const clearMark = (key: string) => {
@@ -51,21 +60,29 @@ export function LeaseStep({
     delete next[key];
     return next;
   };
-  const money = (key: "rent" | "utilities" | "moveInFee" | "securityDeposit" | "otherFeeAmount", label: string, placeholder: string, required = false) => (
-    <WizardField label={label} required={required} mark={<FieldMark kind={form.marks[key]} />}>
-      <span className="relative block">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted">$</span>
-        <Input
-          inputMode="decimal"
-          className="pl-6"
-          value={form[key]}
-          onChange={(e) => patch({ [key]: e.target.value, marks: clearMark(key) } as Partial<AddPersonForm>)}
-          placeholder={placeholder}
-          data-attr={`residents-wizard-${key}`}
-        />
-      </span>
-    </WizardField>
-  );
+  const movedOutLock = editStage === "moved_out";
+  const lockTip = movedOutLock ? "Locked — this resident has moved out" : "Locked by the signed lease";
+  const lock = (key: string) => editStage != null && isResidentEditFieldLocked(editStage, key);
+  const money = (key: "rent" | "utilities" | "moveInFee" | "securityDeposit" | "otherFeeAmount", label: string, placeholder: string, required = false) => {
+    if (lock(key)) {
+      return <WizardLockedField label={label} value={form[key] ? `$${form[key]}` : "—"} lockTip={lockTip} />;
+    }
+    return (
+      <WizardField label={label} required={required} mark={<FieldMark kind={form.marks[key]} />}>
+        <span className="relative block">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted">$</span>
+          <Input
+            inputMode="decimal"
+            className="pl-6"
+            value={form[key]}
+            onChange={(e) => patch({ [key]: e.target.value, marks: clearMark(key) } as Partial<AddPersonForm>)}
+            placeholder={placeholder}
+            data-attr={`residents-wizard-${key}`}
+          />
+        </span>
+      </WizardField>
+    );
+  };
   // Rent per resident (PLAN-0920-0631): when the chosen room prices per
   // resident, Add resident asks the SAME "Rent for this resident" pick
   // approval does. Resolved locally (not through `derived`, which only
@@ -118,34 +135,62 @@ export function LeaseStep({
   return (
     <StepColumn>
       <StepHeading title="The lease" />
+      {editStage === "signed" && signedAtIso ? (
+        <WizardSection title="Signed" dataAttr="residents-wizard-lease-signed">
+          <WizardLine
+            label={`Signed ${signedAtIso.slice(0, 10)}`}
+            control={
+              onRequestNewTerms ? (
+                <Button type="button" onClick={onRequestNewTerms} data-attr="residents-wizard-new-terms">
+                  New terms
+                </Button>
+              ) : null
+            }
+          />
+        </WizardSection>
+      ) : null}
       <WizardSection title="Term" dataAttr="residents-wizard-lease-term">
         <WizardRow cols={3}>
           <div>
-            <WizardSelect
-              label="Lease term *"
-              value={termSelectValue}
-              onChange={(selected) => {
-                if (selected === RESIDENT_LEASE_TERM_CUSTOM) {
-                  patch({ leaseTermCustomMode: true, leaseTerm: derived.leaseTermPresetValues.includes(form.leaseTerm) ? "" : form.leaseTerm });
-                  return;
-                }
-                patch({ leaseTermCustomMode: false, leaseTerm: selected, marks: clearMark("leaseTerm") });
-              }}
-              options={derived.leaseTermOptions.some((o) => o.value === RESIDENT_LEASE_TERM_CUSTOM) ? derived.leaseTermOptions : [...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom" }]}
-              placeholder="Select…"
-              dataAttr="residents-wizard-lease-term-select"
-            />
-            {termSelectValue === RESIDENT_LEASE_TERM_CUSTOM ? (
-              <Input className="mt-2" value={form.leaseTerm} onChange={(e) => patch({ leaseTerm: e.target.value })} placeholder="e.g. 9 months" data-attr="residents-wizard-lease-term-custom" />
-            ) : null}
+            {lock("leaseTerm") ? (
+              <WizardLockedField label="Lease term" value={form.leaseTerm || "—"} lockTip={lockTip} />
+            ) : (
+              <>
+                <WizardSelect
+                  label="Lease term *"
+                  value={termSelectValue}
+                  onChange={(selected) => {
+                    if (selected === RESIDENT_LEASE_TERM_CUSTOM) {
+                      patch({ leaseTermCustomMode: true, leaseTerm: derived.leaseTermPresetValues.includes(form.leaseTerm) ? "" : form.leaseTerm });
+                      return;
+                    }
+                    patch({ leaseTermCustomMode: false, leaseTerm: selected, marks: clearMark("leaseTerm") });
+                  }}
+                  options={derived.leaseTermOptions.some((o) => o.value === RESIDENT_LEASE_TERM_CUSTOM) ? derived.leaseTermOptions : [...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom" }]}
+                  placeholder="Select…"
+                  dataAttr="residents-wizard-lease-term-select"
+                />
+                {termSelectValue === RESIDENT_LEASE_TERM_CUSTOM ? (
+                  <Input className="mt-2" value={form.leaseTerm} onChange={(e) => patch({ leaseTerm: e.target.value })} placeholder="e.g. 9 months" data-attr="residents-wizard-lease-term-custom" />
+                ) : null}
+              </>
+            )}
           </div>
-          <WizardField label="Move-in" required mark={<FieldMark kind={form.marks.moveInDate} />}>
-            <Input type="date" className="portal-modal-date-input" value={form.moveInDate} onChange={(e) => patch({ moveInDate: e.target.value, marks: clearMark("moveInDate") })} data-attr="residents-wizard-move-in" />
-          </WizardField>
-          {!derived.isMonthToMonth || derived.isAirbnb ? (
-            <WizardField label="Move-out" required={derived.isAirbnb} mark={<FieldMark kind={form.marks.moveOutDate} />}>
-              <Input type="date" className="portal-modal-date-input" value={form.moveOutDate} onChange={(e) => patch({ moveOutDate: e.target.value, marks: clearMark("moveOutDate") })} data-attr="residents-wizard-move-out" />
+          {lock("moveInDate") ? (
+            <WizardLockedField label="Move-in" value={form.moveInDate || "—"} lockTip={lockTip} />
+          ) : (
+            <WizardField label="Move-in" required mark={<FieldMark kind={form.marks.moveInDate} />}>
+              <Input type="date" className="portal-modal-date-input" value={form.moveInDate} onChange={(e) => patch({ moveInDate: e.target.value, marks: clearMark("moveInDate") })} data-attr="residents-wizard-move-in" />
             </WizardField>
+          )}
+          {!derived.isMonthToMonth || derived.isAirbnb ? (
+            lock("moveOutDate") && !movedOutLock ? (
+              <WizardLockedField label="Move-out" value={form.moveOutDate || "—"} lockTip={lockTip} />
+            ) : (
+              <WizardField label="Move-out" required={derived.isAirbnb} mark={<FieldMark kind={form.marks.moveOutDate} />}>
+                <Input type="date" className="portal-modal-date-input" value={form.moveOutDate} onChange={(e) => patch({ moveOutDate: e.target.value, marks: clearMark("moveOutDate") })} data-attr="residents-wizard-move-out" />
+              </WizardField>
+            )
           ) : null}
         </WizardRow>
       </WizardSection>

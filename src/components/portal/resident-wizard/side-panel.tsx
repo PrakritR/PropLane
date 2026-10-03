@@ -4,6 +4,12 @@ import { useMemo } from "react";
 import { resolveManualResidentAssignment } from "@/lib/rental-application/placement-values";
 import { resolveResidentOnboardingStage } from "@/lib/resident-onboarding/resolve-onboarding-stage";
 import { PreviewPanel, type CreatesItem } from "@/components/portal/add-workspace/parts";
+import {
+  diffResidentEdit,
+  residentEditSaveWill,
+  type ResidentEditBaseline,
+  type ResidentEditStage,
+} from "@/lib/resident-edit-stage";
 import type { ResidentWizardDerived } from "./derived";
 import { alsoCreates, formatMoney, monthKeyLabel, paymentSchedulePreview, type AddPersonForm } from "./state";
 
@@ -17,11 +23,15 @@ export function ResidentSidePanel({
   derived,
   propertyLabel,
   mode = "person",
+  editStage,
+  editBaseline,
 }: {
   form: AddPersonForm;
   derived: ResidentWizardDerived;
   propertyLabel: string | null;
-  mode?: "person" | "tour" | "application";
+  mode?: "person" | "tour" | "application" | "edit";
+  editStage?: ResidentEditStage;
+  editBaseline?: ResidentEditBaseline;
 }) {
   const prospect = form.kind === "prospect" && mode !== "application";
   const rent = moneyOr0(form.rent);
@@ -65,6 +75,36 @@ export function ResidentSidePanel({
           { label: "Screening", value: "Available once saved" },
         ]}
         creates={creates}
+      />
+    );
+  }
+
+  if (mode === "edit" && editStage && editBaseline) {
+    const diff = diffResidentEdit(editBaseline, {
+      ...form,
+      application: form.application as Record<string, unknown>,
+    });
+    const will = residentEditSaveWill(editStage, diff, form.moveOutDate);
+    const creates: CreatesItem[] = will.map((row) => ({
+      tone: row.tone === "ok" ? "yes" : row.tone === "warn" ? "warn" : "no",
+      text: row.text,
+    }));
+    const unpaid = due.reduce((n, r) => n + r.total, 0);
+    return (
+      <PreviewPanel
+        title="Resident preview"
+        name={form.name.trim() || "Resident"}
+        sub={[form.email.trim(), form.phone.trim()].filter(Boolean).join(" · ") || "email not set"}
+        facts={[
+          { label: "Property", value: propertyLabel ?? "—" },
+          { label: "Rent", value: rent ? `${formatMoney(rent)} / ${derived.isShortTerm ? "night" : "mo"}` : "—" },
+          { label: "Move-in", value: form.moveInDate || "—" },
+          { label: "Move-out", value: form.moveOutDate || "—" },
+          { label: "Stage", value: editStage.replace(/_/g, " ") },
+          { label: "Balance", value: unpaid ? formatMoney(unpaid) : formatMoney(0) },
+        ]}
+        creates={creates}
+        createsHeading="Save will"
       />
     );
   }
