@@ -634,8 +634,8 @@ export function ManagerMessagingSettingsPanel({
   if (isCoManager) {
     const workspacePhone = status.workspaceNumber?.phoneNumber?.trim() || "";
     return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
-      <WorkIdentityRow label="Work number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.canSend ? "Ready" : "Not ready"}` : "Not set up"}>
-        <PortalSettingsField label="Number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
+      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.canSend ? "Ready" : "Not ready"}` : "Not set up"}>
+        <PortalSettingsField label="Workspace number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
         <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
         {workspacePhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone)}>Copy number</Button> : null}
       </WorkIdentityRow>
