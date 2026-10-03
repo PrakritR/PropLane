@@ -78,7 +78,10 @@ import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
 } from "@/lib/resident-detail-subsection-tabs";
-import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-detail-subsection-chrome";
+import {
+  ResidentDetailCommandToolbar,
+  ResidentDetailSubsectionChrome,
+} from "@/components/portal/resident-detail-subsection-chrome";
 import {
   ProPortalSettingsModal,
   type ManagerPortalSettingsTab,
@@ -351,6 +354,7 @@ const residentsSettingsEntry = getSettingsEntryPoint("residents");
 const leasesSettingsEntry = getSettingsEntryPoint("leases");
 const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 const paymentsSettingsEntry = getSettingsEntryPoint("payments");
+const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 function residentRoomRentSuffix(
   room: { monthlyRent?: number; shortTermRent?: string },
@@ -3620,10 +3624,18 @@ export function ManagerResidents({
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
                                 sectionToolbar={
-                                  <ManagerResidentSectionToolbar
-                                    actions={residentSectionHeaderActions}
-                                    onAction={onResidentSectionHeaderAction}
-                                  />
+                                  <>
+                                    <ManagerResidentSectionToolbar
+                                      actions={residentSectionHeaderActions}
+                                      onAction={onResidentSectionHeaderAction}
+                                    />
+                                    <ResidentDetailCommandToolbar
+                                      onSettings={() => openResidentDetailSettings("tours")}
+                                      settingsLabel={toursSettingsEntry.label}
+                                      settingsDataAttr={toursSettingsEntry.dataAttr}
+                                      onEdit={() => onResidentSectionHeaderAction("add-tour")}
+                                    />
+                                  </>
                                 }
                                 buildTourListHref={
                                   selected

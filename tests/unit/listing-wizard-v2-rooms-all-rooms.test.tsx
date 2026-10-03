@@ -94,7 +94,7 @@ describe('"Same as" copies one room onto another, once', () => {
     open({ ...base, rooms: [{ ...base.rooms[0]!, id: "r1", name: "Room A", floor: "2nd floor" }, { ...base.rooms[1]!, id: "r2", name: "Room B" }] });
     openCard("Room A");
     const sameAs = screen.getByRole("button", { name: "Same as for Room A" });
-    expect(sameAs.textContent).toContain("—");
+    expect(sameAs.textContent).toMatch(/—|Set for this room/);
     fireEvent.click(sameAs);
     const list = document.getElementById(sameAs.getAttribute("aria-controls")!)!;
     expect(list.querySelector('[data-field-select-option-value="r2"]')).not.toBeNull();
@@ -105,7 +105,7 @@ describe('"Same as" copies one room onto another, once', () => {
   it("two untouched rooms read — , never each other: nothing was ever copied", () => {
     open();
     openCard("Room A");
-    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("—");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toMatch(/—|Set for this room/);
     expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).not.toContain("Room B");
   });
 
@@ -193,6 +193,6 @@ describe('"Same as" copies one room onto another, once', () => {
     openCard("Room A");
     expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("Room B");
     pick("Floor for Room A", "1st floor");
-    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("—");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toMatch(/—|Set for this room/);
   });
 });

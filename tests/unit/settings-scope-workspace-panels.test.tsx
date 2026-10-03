@@ -153,7 +153,7 @@ describe("settings-bar workspace scopes Communication identity", () => {
       expect(screen.getByText("Work identity")).toBeTruthy();
     });
     // Each Channels row (number, email) names its workspace.
-    expect(screen.getByRole("button", { name: "Work number Set up" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="channel-row-number-empty"]')).toBeTruthy();
     expect(screen.queryByText("Portal header workspace")).toBeNull();
     expect(screen.queryByText(/\+1 \(206\) 555-0999/)).toBeNull();
 

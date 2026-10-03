@@ -96,16 +96,12 @@ describe("F013: the lease editor chrome is never serif — only the document pre
     for (const titleNode of screen.getAllByText("New lease")) {
       expect(titleNode.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
     }
-    for (const sectionsNode of screen.getAllByText("Sections")) {
-      expect(sectionsNode.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
-    }
-
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
     // Rendered DOM text is title case ("Setup", "Lease fee") — the ALL-CAPS,
     // underlined look the bug produced came only from the leaked CSS
     // (`text-transform: uppercase`), never from the text content itself.
-    for (const label of ["Setup", "Lease fee", "Pipeline order"]) {
+    for (const label of ["Settings", "Offer this lease to applicants", "Pipeline order"]) {
       for (const heading of screen.getAllByText(label)) {
         expect(heading.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
       }

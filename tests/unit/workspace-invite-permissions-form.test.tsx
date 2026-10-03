@@ -224,7 +224,7 @@ describe("Workspace invite — Copy link and Send carry the same Role/Houses", (
 
     const input = screen.getByLabelText("PropLane code");
     fireEvent.change(input, { target: { value: "PROPLANE-9Z9Z9Z9Z" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
 
     await waitFor(() =>
       expect(calls.some((c) => c.url === "/api/pro/account-links" && c.method === "POST")).toBe(true),
@@ -259,7 +259,8 @@ describe("Workspace invite sheet — no pills, no subtext", () => {
   });
 
   it("renders a live 'Role can' capability list rather than staying silent for stock roles", () => {
-    expect(sheetSource()).toContain("<RoleCapabilitiesList role={role} grant={effectivePermissions} />");
+    expect(sheetSource()).toContain("<WorkspacePermissionsFields");
+    expect(sheetSource()).toContain("CoManagerPermissionsEditor");
   });
 
   it("the shared permissions-fields module declares no description/meta subtext prop", () => {

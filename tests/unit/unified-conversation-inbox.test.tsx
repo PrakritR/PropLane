@@ -193,7 +193,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
 
     // Inbox and sent conversations appear together — no folder segregation.
     expect(await screen.findByText("Dana Ramirez")).toBeTruthy();
-    expect(screen.getByText("sam@example.com")).toBeTruthy();
+    expect(screen.getByText("Sam")).toBeTruthy();
     // Trashed conversation is NOT in the default view.
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
@@ -207,14 +207,14 @@ describe("unified conversation inbox (no folder tabs)", () => {
     expect(screen.queryByRole("link", { name: /^Unread/ })).toBeNull();
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" threadFilters={{ status: "read", propertyIds: [], roles: [], contactIds: [] }} />);
-    expect(await screen.findByText("sam@example.com")).toBeTruthy();
+    expect(await screen.findByText("Sam")).toBeTruthy();
     expect(screen.queryByText("Dana Ramirez")).toBeNull();
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
     expect(await screen.findByText("Dana Ramirez")).toBeTruthy();
-    expect(screen.queryByText("sam@example.com")).toBeNull();
+    expect(screen.queryByText("Sam")).toBeNull();
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
     cleanup();
@@ -235,7 +235,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
       />,
     );
 
-    expect(screen.queryByText("sam@example.com")).toBeNull();
+    expect(screen.queryByText("Sam")).toBeNull();
     expect(await screen.findByText(/No messages match/)).toBeTruthy();
   });
 
@@ -395,7 +395,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
 
     rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" threadFilters={{ status: "read", propertyIds: [], roles: [], contactIds: [] }} />);
-    expect(await screen.findByText("sam@example.com")).toBeTruthy();
+    expect(await screen.findByText("Sam")).toBeTruthy();
     expect(screen.queryByText("Dana Ramirez")).toBeNull();
     expect(screen.queryByRole("link", { name: /^All/ })).toBeNull();
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
@@ -437,7 +437,7 @@ describe("desktop unread selection regression", () => {
     const props = { tabId: "unopened", commBase: "/portal/communication" };
     const { rerender } = render(<ManagerUnifiedInbox {...props} listSegment="active" />);
     await screen.findByTestId("embedded-email-thread");
-    fireEvent.click(screen.getByText("sam@example.com"));
+    fireEvent.click(screen.getByText("Sam"));
     rerender(<ManagerUnifiedInbox {...props} listSegment="unread" />);
     await screen.findByText("Dana Ramirez");
     await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());

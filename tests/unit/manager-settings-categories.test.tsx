@@ -46,6 +46,11 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
+  useModalPresentation: () => "dialog",
+}));
+
 // Panels the Settings layout only slots in; their internals are covered by
 // their own suites. Stubbed so this test fails on composition, not on fetch.
 vi.mock("@/components/portal/pro-plan", () => ({

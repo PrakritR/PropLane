@@ -47,7 +47,7 @@ describe("Vendors section (Teams page removed)", () => {
 describe("Calendar and Bookings are separate sidebar entries", () => {
   it("lists Calendar and Bookings under Operations", () => {
     const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(group?.sections).toEqual(["vendors", "tasks", "calendar", "bookings", "communication"]);
+    expect(group?.sections).toEqual(["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"]);
   });
 
   it("Calendar is schedule-only — no in-page tabs", () => {

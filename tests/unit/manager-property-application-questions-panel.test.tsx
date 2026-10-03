@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addApplicationTemplateFromSeed } from "@/lib/property-application-template-sync";
@@ -20,6 +21,21 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
   usePathname: () => "/portal/properties/all/mgr-house-1",
 }));
+vi.mock("@/components/confirm-dialog", () => ({
+  useConfirm: () => () => Promise.resolve(true),
+}));
+vi.mock("@/lib/property-form-setup-settings.client", () => ({
+  usePropertyFormSetupSettings: () => ({
+    loaded: true,
+    applicationSettings: { applicationFeeCents: 0 },
+    leasingPipeline: {
+      defaultApplicationTemplateId: null,
+      pipelineOrder: "application_then_lease",
+    },
+  }),
+}));
+
+afterEach(cleanup);
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
   it("property tab shows per-template action menus and Application automation", () => {
@@ -69,9 +85,10 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
   it("opening a fallback application in bulk does not overwrite selected properties", async () => {
     persistSubmission.mockClear();
+    const sub = createDefaultListingSubmission();
     render(
       <ManagerPropertyApplicationQuestionsPanel
-        sub={createDefaultListingSubmission()}
+        sub={sub}
         saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
         propertyIds={["mgr-house-1", "mgr-house-2"]}
         managerUserId="mgr-1"
@@ -79,9 +96,13 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
         showToast={() => {}}
       />,
     );
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
-    expect(screen.getByTestId("application-editor-modal")).toBeTruthy();
+    const user = userEvent.setup();
+    const rowTitle = screen
+      .getAllByText("Long-term application")
+      .find((el) => el.className.includes("font-semibold"));
+    expect(rowTitle).toBeTruthy();
+    await user.click(rowTitle!);
+    await waitFor(() => expect(screen.getByTestId("application-editor-modal")).toBeTruthy());
     expect(persistSubmission).not.toHaveBeenCalled();
   });
 });

@@ -27,6 +27,7 @@ import {
   type StepRailItem,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import { WizardInvalidFields, missingWizardFields } from "./validation";
 
 export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
@@ -123,7 +124,7 @@ export function AddWorkspace({
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
   numberedSteps?: boolean;
 }) {
-  void dirty; void discardTitle; void discardBody;
+  const confirm = useConfirm();
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
   const [readiness, setReadiness] = useState("");
   const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
@@ -154,8 +155,21 @@ export function AddWorkspace({
   const close = useCallback(() => {
     if (busy) return;
     if (onRequestClose && !onRequestClose()) return;
-    onClose();
-  }, [busy, onClose, onRequestClose]);
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    void confirm({
+      title: discardTitle,
+      description: discardBody,
+      confirmLabel: "Discard",
+      note: null,
+      tone: "danger",
+      dataAttr: `${dataAttrPrefix}-discard`,
+    }).then((ok) => {
+      if (ok) onClose();
+    });
+  }, [busy, confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

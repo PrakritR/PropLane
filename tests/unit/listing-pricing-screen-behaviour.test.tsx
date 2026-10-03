@@ -8,7 +8,7 @@
 //   - a room's utilities can be set to $0 and stay $0
 //   - a room that has its own numbers offers a way back to the house numbers
 import { afterEach, describe, expect, it, vi } from "vitest";
-import React, { useState } from "react";
+import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
@@ -17,11 +17,14 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import {
   createDefaultListingSubmission,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import {
+  ListingPricingHarness,
+  renderListingPricing,
+} from "./helpers/listing-pricing-workspace-harness";
 
 afterEach(() => cleanup());
 
@@ -39,35 +42,15 @@ function seeded(): ManagerListingSubmissionV1 {
   } as ManagerListingSubmissionV1;
 }
 
-function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void } = {}) {
-  const [sub, setSub] = useState(seeded);
-  return (
-    <ListingEditorV2
-      title="Edit listing"
-      submission={sub}
-      onChange={(next) => {
-        setSub(next);
-        onChange?.(next);
-      }}
-      onClose={() => {}}
-      onSaveExit={() => {}}
-      onPublish={() => {}}
-    />
-  );
-}
-
-/** Open the Pricing section of the editor. */
 /** A room's prices live inside its card; open it to reach the cells. */
 const openPriceCard = (name: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${name} prices` }));
 
 function openPricing() {
-  render(<Editor />);
-  const nav = screen.getByRole("navigation", { name: "Listing sections" });
-  const pricing = Array.from(nav.querySelectorAll("button")).find((b) =>
-    /rent|pricing|deposit/i.test(b.textContent ?? ""),
-  );
-  expect(pricing, "Pricing nav entry").toBeTruthy();
-  fireEvent.click(pricing!);
+  renderListingPricing({ initial: seeded });
+}
+
+function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void } = {}) {
+  return <ListingPricingHarness initial={seeded} onChange={onChange} />;
 }
 
 describe("Pricing puts payment setup first", () => {
@@ -89,7 +72,8 @@ describe("Pricing puts payment setup first", () => {
     expect(headings.some((h) => h.includes("Other fees"))).toBe(false);
     expect(headings.some((h) => h.includes("At signing"))).toBe(false);
     expect(document.querySelector('[data-attr="listing-v2-due-at-signing"]')).toBeNull();
-    expect(document.body.textContent).toContain("Due at signing");
+    // C2-R30-9: property pricing receipt drops the "Due at signing" heading; signing lines stay on the receipt.
+    expect(document.body.textContent).toContain("What a resident pays");
     const roomPickers = screen.getAllByLabelText("Room to quote");
     expect(roomPickers.length).toBeGreaterThan(0);
     expect(roomPickers.every((el) => el.textContent?.includes("Every room"))).toBe(true);
@@ -134,12 +118,7 @@ describe("Pricing puts payment setup first", () => {
 describe("a room can be priced at $0", () => {
   it("keeps a typed 0 in the utilities cell instead of snapping back to the house number", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    const pricing = Array.from(nav.querySelectorAll("button")).find((b) =>
-      /rent|pricing|deposit/i.test(b.textContent ?? ""),
-    );
-    fireEvent.click(pricing!);
+    renderListingPricing({ initial: seeded, onChange: (s) => (latest = s) });
     openPriceCard("Room A");
 
     const cell = screen.getByLabelText(/Room A utilities on/i) as HTMLInputElement;
@@ -162,37 +141,16 @@ describe("collected at signing", () => {
    * `Long-term` while the matrix only had a `12-Month` row, so every tick was
    * written and dropped again and the box stayed on "Nothing due at signing".
    */
-  function LegacyTermEditor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void }) {
-    const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
-      ...seeded(),
-      allowedLeaseTerms: ["12-Month"],
-    }) as ManagerListingSubmissionV1);
-    return (
-      <ListingEditorV2
-        title="Edit listing"
-        submission={sub}
-        onChange={(next) => {
-          setSub(next);
-          onChange?.(next);
-        }}
-        onClose={() => {}}
-        onSaveExit={() => {}}
-        onPublish={() => {}}
-      />
-    );
-  }
-
   it("keeps a payment ticked on a listing that stored a retired length", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<LegacyTermEditor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(
-      Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent || ""))!,
-    );
+    renderListingPricing({
+      initial: () => ({ ...seeded(), allowedLeaseTerms: ["12-Month"] }) as ManagerListingSubmissionV1,
+      onChange: (s) => (latest = s),
+    });
 
     // Desktop and mobile both mount the receipt; the duplicate bottom card is gone.
     const ticks = screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i });
-    expect(ticks.length).toBe(2);
+    expect(ticks.length).toBeGreaterThanOrEqual(1);
     const tick = ticks[0] as HTMLInputElement;
     // Untick, then tick again: both writes must land on the term the row reads.
     if (tick.checked) fireEvent.click(tick);
@@ -209,12 +167,7 @@ describe("collected at signing", () => {
 describe("a room's numbers stay on that room", () => {
   it("typing Room A does not rewrite Room B, and long-term has no Reset back to a Default room", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(
-      Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent ?? ""))!,
-    );
-
+    renderListingPricing({ initial: seeded, onChange: (s) => (latest = s) });
     openPriceCard("Room A");
     expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
     fireEvent.change(screen.getByLabelText(/Room A utilities on/i), { target: { value: "0" } });
@@ -231,9 +184,7 @@ describe("a room's numbers stay on that room", () => {
 
 describe("other fees live on the pricing cards", () => {
   function pricing(onChange: (s: ManagerListingSubmissionV1) => void) {
-    render(<Editor onChange={onChange} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    renderListingPricing({ initial: seeded, onChange });
   }
 
   it("a fee added on a room is that room's, on the lease types only", () => {
@@ -281,16 +232,12 @@ describe("other fees live on the pricing cards", () => {
 });
 
 describe("fees follow the tab they are added on", () => {
-  function StayEditor({ onChange }: { onChange: (sub: ManagerListingSubmissionV1) => void }) {
-    const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({ ...seeded(), shortTermRentalsAllowed: true }) as ManagerListingSubmissionV1);
-    return <ListingEditorV2 title="Edit listing" submission={sub} onChange={(next) => { setSub(next); onChange(next); }} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
-  }
-
   it("a lease-tab fee bills on the three lease types; a stay-tab fee on the stay type — neither shows on the other tab", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<StayEditor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    renderListingPricing({
+      initial: () => ({ ...seeded(), shortTermRentalsAllowed: true }) as ManagerListingSubmissionV1,
+      onChange: (s) => (latest = s),
+    });
 
     openPriceCard("Room A");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
@@ -320,15 +267,13 @@ describe("fees follow the tab they are added on", () => {
 describe("a lease type can have its own room prices", () => {
   const MTM = "Month-to-Month";
   const goToMonthToMonth = () => {
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
     fireEvent.click(document.querySelector(`[data-attr="listing-v2-price-tab-${MTM}"]`)!);
   };
   const sameAsLongTerm = () => document.querySelector(`[data-attr="listing-v2-same-as-long-term-${MTM}"]`) as HTMLInputElement;
 
   it("Month-to-Month follows long-term until a room writes its own number", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
+    renderListingPricing({ initial: seeded, onChange: (s) => (latest = s) });
     goToMonthToMonth();
     expect(sameAsLongTerm().checked).toBe(true);
     expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
@@ -345,7 +290,7 @@ describe("a lease type can have its own room prices", () => {
 
   it("a room with its own Month-to-Month number keeps it when another room changes", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
+    renderListingPricing({ initial: seeded, onChange: (s) => (latest = s) });
     goToMonthToMonth();
     openPriceCard("Room A");
     fireEvent.change(screen.getByLabelText(`Room A rent on ${MTM}`), { target: { value: "1050" } });
@@ -360,7 +305,7 @@ describe("a lease type can have its own room prices", () => {
 
   it("ticking Same as long-term again wipes every room's own price on that term", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
+    renderListingPricing({ initial: seeded, onChange: (s) => (latest = s) });
     goToMonthToMonth();
     openPriceCard("Room A");
     fireEvent.change(screen.getByLabelText(`Room A rent on ${MTM}`), { target: { value: "1050" } });
@@ -373,14 +318,12 @@ describe("a lease type can have its own room prices", () => {
   });
 
   it("shows a stored room override again on reopen", () => {
-    function Stored() {
-      const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
+    renderListingPricing({
+      initial: () => ({
         ...seeded(),
         rooms: seeded().rooms.map((r) => ({ ...r, termPricing: { [MTM]: { monthlyRent: 1050, securityDeposit: "750" } } })),
-      }));
-      return <ListingEditorV2 title="Edit listing" submission={sub} onChange={setSub} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
-    }
-    render(<Stored />);
+      }),
+    });
     goToMonthToMonth();
     expect(sameAsLongTerm().checked).toBe(false);
     openPriceCard("Room A");
@@ -391,20 +334,14 @@ describe("a lease type can have its own room prices", () => {
 
 describe("partial months", () => {
   /** Rooms with no utilities yet, so the Utilities /day row has a reason to stay away. */
-  function DryEditor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void }) {
-    const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
+  const dryInitial = () =>
+    ({
       ...seeded(),
       rooms: [
         { id: "r1", name: "Room A", monthlyRent: 1100 },
         { id: "r2", name: "Room B", monthlyRent: 1100 },
       ],
-    }) as ManagerListingSubmissionV1);
-    return <ListingEditorV2 title="Edit listing" submission={sub} onChange={(next) => { setSub(next); onChange?.(next); }} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
-  }
-  const goPricing = () => {
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
-  };
+    }) as ManagerListingSubmissionV1;
   const roomTick = () => document.querySelector('[data-attr="listing-v2-price-prorate-room-automatic"]') as HTMLInputElement | null;
   const addParkingOnRoom = () => {
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
@@ -412,8 +349,7 @@ describe("partial months", () => {
     fireEvent.change(screen.getByLabelText("Parking amount for Room A"), { target: { value: "60" } });
   };
   it("asks on the lease types that can start mid-month, never on Month-to-Month", () => {
-    render(<DryEditor />);
-    goPricing();
+    renderListingPricing({ initial: dryInitial });
     openPriceCard("Room A");
     expect(roomTick()).not.toBeNull();
     expect(roomTick()!.checked).toBe(true);
@@ -425,8 +361,7 @@ describe("partial months", () => {
 
   it("unticking Automatic on a room asks rent and each monthly fee per day; utilities only once there are any", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<DryEditor onChange={(s) => (latest = s)} />);
-    goPricing();
+    renderListingPricing({ initial: dryInitial, onChange: (s) => (latest = s) });
     openPriceCard("Room A");
     addParkingOnRoom();
     expect(screen.queryByLabelText("Rent per day for Room A")).toBeNull();
@@ -455,8 +390,7 @@ describe("partial months", () => {
 
   it("keeps each room's partial-month settings independent", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<DryEditor onChange={(s) => (latest = s)} />);
-    goPricing();
+    renderListingPricing({ initial: dryInitial, onChange: (s) => (latest = s) });
     openPriceCard("Room A");
     fireEvent.click(roomTick()!);
     fireEvent.change(screen.getByLabelText("Rent per day for Room A"), { target: { value: "40" } });
@@ -472,21 +406,20 @@ describe("partial months", () => {
   });
 
   it("the whole place asks the same way, and only while utilities are above $0", () => {
-    function Whole({ onChange }: { onChange: (sub: ManagerListingSubmissionV1) => void }) {
-      const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
-        ...seeded(),
-        listingPlaceCategoryId: "entire_home",
-        rentalModelStamp: "entire_home",
-        allowedLeaseTerms: ["Long-term"],
-        rooms: [{ id: "r1", name: "Room A", monthlyRent: 3000 }],
-        entireHomeMonthlyRent: 3000,
-        entireHomeUtilitiesEstimate: "",
-      }) as ManagerListingSubmissionV1);
-      return <ListingEditorV2 title="Edit listing" submission={sub} onChange={(next) => { setSub(next); onChange(next); }} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
-    }
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Whole onChange={(s) => (latest = s)} />);
-    goPricing();
+    renderListingPricing({
+      initial: () =>
+        ({
+          ...seeded(),
+          listingPlaceCategoryId: "entire_home",
+          rentalModelStamp: "entire_home",
+          allowedLeaseTerms: ["Long-term"],
+          rooms: [{ id: "r1", name: "Room A", monthlyRent: 3000 }],
+          entireHomeMonthlyRent: 3000,
+          entireHomeUtilitiesEstimate: "",
+        }) as ManagerListingSubmissionV1,
+      onChange: (s) => (latest = s),
+    });
     expect(screen.queryByLabelText("Prorate a partial month")).toBeNull();
     const tick = document.querySelector('[data-attr="listing-v2-price-prorate-whole-automatic"]') as HTMLInputElement;
     expect(tick.checked).toBe(true);

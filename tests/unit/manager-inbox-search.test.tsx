@@ -280,7 +280,7 @@ describe("manager inbox search", () => {
     // Positive control FIRST: the live row really is on screen, so the
     // absences below mean "not offered on this screen" rather than "the search
     // returned nothing and there was never anything to act on".
-    expect(screen.getAllByText("Roof leak in unit 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Dana Ramirez").length).toBeGreaterThan(0);
 
     // The rows on screen are live inbox/sent messages, so the trash-only
     // Restore / Delete-forever actions must not be reachable. Search results
@@ -359,8 +359,8 @@ describe("manager inbox search", () => {
 
     rerender(<ManagerInbox tabId="sent" embeddedInCommunication externalTitleActions suppressCompose />);
     expect(screen.queryByText(/messages matching/)).toBeNull();
-    expect(screen.getAllByText("Re: roof repair scheduled").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Roof leak in unit 2")).toBeNull();
+    expect(screen.getAllByText("sam@example.com").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Dana Ramirez")).toBeNull();
   });
 
   it("clears back to the plain tab list", () => {
@@ -371,7 +371,7 @@ describe("manager inbox search", () => {
     fireEvent.click(screen.getByLabelText("Clear search"));
     expect(screen.queryByText(/messages matching/)).toBeNull();
     // Back to Unopened: the unread inbox thread, and not the sent one.
-    expect(screen.getAllByText("Roof leak in unit 2").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Re: roof repair scheduled")).toBeNull();
+    expect(screen.getAllByText("Dana Ramirez").length).toBeGreaterThan(0);
+    expect(screen.queryByText("sam@example.com")).toBeNull();
   });
 });

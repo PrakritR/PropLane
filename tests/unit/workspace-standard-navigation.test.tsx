@@ -7,14 +7,21 @@ import { ListingWorkspace, StepRail } from "@/components/portal/listing-wizard-v
 
 afterEach(cleanup);
 
+function pickWorkspaceStep(targetLabel: string) {
+  const trigger = document.querySelector('[data-attr="workspace-step-picker"]') as HTMLElement;
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+  const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+  const option = [...listbox.querySelectorAll('[role="option"]')].find((o) => o.textContent?.includes(targetLabel));
+  expect(option).toBeTruthy();
+  fireEvent.pointerDown(option!, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option!, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
 describe("workspace navigation", () => {
   it("routes the compact jump control through the same controlled step callback", () => {
     const onJump = vi.fn();
     render(<StepRail steps={[{ id: "contact", label: "Contact" }, { id: "review", label: "Review", attention: 1 }]} current={0} onJump={onJump} />);
-    fireEvent.click(screen.getByRole("button", { name: "Jump to step" }));
-    const option = screen.getByRole("option", { name: "Review · needs attention" });
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    pickWorkspaceStep("Review");
     expect(onJump).toHaveBeenCalledWith(1);
     expect(screen.getByRole("button", { name: "Contact" }).getAttribute("aria-current")).toBe("step");
   });
@@ -29,10 +36,7 @@ describe("workspace navigation", () => {
     render(<Harness />);
     const input = screen.getByRole("textbox", { name: "Retained name" });
     fireEvent.change(input, { target: { value: "Casey" } });
-    fireEvent.click(screen.getByRole("button", { name: "Jump to step" }));
-    const option = screen.getByRole("option", { name: "Two" });
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    pickWorkspaceStep("Two");
     expect(screen.getByRole("textbox", { name: "Retained name" })).toBe(input);
     expect((input as HTMLInputElement).value).toBe("Casey");
     expect(screen.getByRole("button", { name: "Two" }).getAttribute("aria-current")).toBe("step");

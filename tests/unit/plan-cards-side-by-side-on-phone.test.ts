@@ -41,7 +41,7 @@ describe("plan cards on the pricing page (PRP-314 → C178)", () => {
 
   it("the Adjust plan sheet lists both paid tiers as rows, not a card grid", () => {
     const source = readFileSync("src/components/portal/pro-plan-adjust-sheet.tsx", "utf8");
-    expect(source).toContain('(["pro", "business"] as const)');
+    expect(source).toContain('(["free", "pro", "business"] as const)');
     expect(source).not.toContain("billing-plan-scroller");
   });
 });

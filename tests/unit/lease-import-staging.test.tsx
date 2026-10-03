@@ -17,7 +17,10 @@ vi.mock("next/navigation", () => ({
 }));
 if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
 
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false, DEMO_MANAGER_USER_ID: "demo-manager" }));
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => false,
+}));
 
 vi.mock("@/lib/lease-template-storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/lease-template-storage")>();

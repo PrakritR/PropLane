@@ -600,7 +600,7 @@ describe("editing an existing listing", () => {
     };
   }
 
-  it("persists pricing edits when Review & submit is clicked", async () => {
+  it("persists pricing edits when Continue advances to Review", async () => {
     SESSION_USER_ID = "supabase-user-1";
     const listingId = `mgr-edit-save-${MANAGER_ID}`;
     const initial = validEditSubmission();
@@ -626,7 +626,7 @@ describe("editing an existing listing", () => {
     });
 
     fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "7" } });
-    fireEvent.click(screen.getByRole("button", { name: /review & submit/i }));
+    fireEvent.click(document.querySelector('[data-attr="listing-wizard-continue"]')!);
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Changes saved."));
     await waitFor(() => {

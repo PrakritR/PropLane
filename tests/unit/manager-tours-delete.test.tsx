@@ -200,7 +200,7 @@ describe("deleting a tour from the Tours list", () => {
     openRowMenu("Heh · Tue, Sep 15, 10:00 AM – 11:00 AM");
     await clickDeleteInMenu();
     await findConfirm();
-    fireEvent.click(screen.getByRole("button", { name: "Keep tour" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(document.querySelector('[data-attr="tours-delete-confirm"]')).toBeNull());
     expect(deletePlanned).not.toHaveBeenCalled();
   });

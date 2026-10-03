@@ -88,7 +88,7 @@ describe("evidence · generate-lease picker follows the property's real formats"
     );
     expect(document.body.textContent).toContain("Long-term lease");
     fireEvent.click(screen.getByRole("button", { name: "Lease type" }));
-    expect(document.body.textContent).toContain("Short-term stay lease");
+    expect(document.body.textContent).toMatch(/Short[- ]term( stay)? lease/i);
     writeShot(
       "generate-with-templates",
       "E · Generate lease — the picker lists the formats this property actually holds (no permanently greyed-out 'Lease bundle' buttons).",

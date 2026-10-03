@@ -142,7 +142,7 @@ import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTa
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
-import { propertyPricingPublishBlocker } from "@/lib/property-pricing-publish";
+import { listingV2PublishPricingBlocker } from "@/lib/listing-wizard-validation";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
@@ -2511,7 +2511,8 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
  * and next to the receipt. A manager setting a deposit can now see what it does
  * to the move-in total without leaving the field.
  */
-function StepPricing({
+/** Property Payments tab and unit tests — pricing left the listing wizard rail (studio redesign 0929). */
+export function ListingPricingWorkspace({
   sub,
   patch,
   defaults,
@@ -2659,6 +2660,13 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
       state: rooms.length > 0 && withPhotos.length === rooms.length ? "done" : "warn",
     },
     { id: "description", label: "Description written", state: sub.houseOverview.trim() ? "done" : "todo" },
+    ...(sub.serviceFeePayer === "proplane" && !isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode)
+      ? [{
+          id: "processing",
+          label: "Add a promo code so PropLane can cover processing",
+          state: "warn" as const,
+        }]
+      : []),
   ];
 }
 
@@ -2999,7 +3007,7 @@ export function ListingEditorV2({
     if (!validateStateAbbrev(submission.state).ok) return focus("basics", '[data-wizard-field="state"]', "Add a valid two-letter state before publishing.");
     if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
     if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
-    const pricingBlock = propertyPricingPublishBlocker(submission, workspacePricingDefaults ?? {});
+    const pricingBlock = listingV2PublishPricingBlocker(submission, workspacePricingDefaults ?? {});
     if (pricingBlock) return focus("rooms", '[data-attr="listing-v2-rooms"]', pricingBlock);
     if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) {
       return focus("basics", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");

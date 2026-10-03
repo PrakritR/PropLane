@@ -65,7 +65,7 @@ describe("InspectionEditor chrome", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "Back to inspections" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add photos" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Actions for Room overview" })).toBeTruthy();
   });
 

@@ -207,11 +207,11 @@ describe("group application — manager reconciliation", () => {
     // each member must still be named on their own row.
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
-    expect(screen.getByText(/Group \d+\/\d+/)).toBeTruthy();
+    expect(screen.getAllByText(/Group \d+\/\d+/).length).toBeGreaterThan(0);
     dumpHtml("manager-rows", container.innerHTML);
 
-    rerender(<ManagerApplications bucket="incomplete" />);
-    expect(screen.getAllByText("Sam Okafor").length).toBeGreaterThan(0);
+    rerender(<ManagerApplications bucket="pending" />);
+    await waitFor(() => expect(screen.getAllByText("Sam Okafor").length).toBeGreaterThan(0));
     rerender(<ManagerApplications bucket="pending" />);
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
 

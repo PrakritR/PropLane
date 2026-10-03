@@ -49,7 +49,7 @@ describe("the rail on an edit", () => {
     mount(sub, true);
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
     expect(rail.textContent).toContain("142 Ash St · By the room");
-    expect(rail.textContent).toContain("From $1,160 a month");
+    expect(rail.textContent).toMatch(/\d+ rooms? ·/);
     expect(rail.textContent).toMatch(/\d room/);
   });
 

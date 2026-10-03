@@ -14,6 +14,7 @@ vi.mock("@/hooks/use-resident-manager-contacts", () => ({ useResidentManagerCont
 vi.mock("@/lib/portal-inbox-storage", async (original) => ({
   ...await original<typeof import("@/lib/portal-inbox-storage")>(),
   loadPersistedInbox: () => rows,
+  syncPersistedInbox: async () => rows,
   syncPersistedInboxFromServer: async () => rows,
   syncPersistedInboxFromServerWithStatus: async () => ({ rows, ok: true }),
   inboxThreadMessages: () => [],
@@ -32,44 +33,52 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => vi.
 import { ResidentCommunication } from "@/components/portal/resident-communication";
 import { VendorCommunication } from "@/components/portal/vendor-communication";
 afterEach(cleanup);
+
+async function waitForInboxReady() {
+  await waitFor(() => expect(screen.getByText(/Unread body/)).toBeTruthy());
+}
+
 describe.each([ResidentCommunication, VendorCommunication])("status filtering", (Component) => {
   it("filters read and unread, and resets to all live conversations", async () => {
     render(<Component />);
+    await waitForInboxReady();
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "read" } });
-    await waitFor(() => expect(screen.getByText("Read subject")).toBeTruthy());
-    expect(screen.queryByText("Unread subject")).toBeNull();
-    expect(screen.queryByText("Archived subject")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Read body/)).toBeTruthy());
+    expect(screen.queryByText(/Unread body/)).toBeNull();
+    expect(screen.queryByText(/Archived body/)).toBeNull();
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "unread" } });
-    await waitFor(() => expect(screen.getByText("Unread subject")).toBeTruthy());
-    expect(screen.queryByText("Read subject")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Unread body/)).toBeTruthy());
+    expect(screen.queryByText(/Read body/)).toBeNull();
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "active" } });
-    await waitFor(() => expect(screen.getByText("Unread subject")).toBeTruthy());
-    expect(screen.getByText("Read subject")).toBeTruthy();
-    expect(screen.queryByText("Archived subject")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Unread body/)).toBeTruthy());
+    expect(screen.getByText(/Read body/)).toBeTruthy();
+    expect(screen.queryByText(/Archived body/)).toBeNull();
   });
 });
 
 describe("resident reaches an archived conversation through the Status filter (no tab)", () => {
   it("has no Active|Archived tab and lists Archived among the Status options", async () => {
     render(<ResidentCommunication />);
+    await waitForInboxReady();
     expect(screen.queryByRole("link", { name: "Archived" })).toBeNull();
     const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
     expect(options).toContain("Archived");
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "archived" } });
     fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
-    await waitFor(() => expect(screen.getByText("Archived subject")).toBeTruthy());
-    expect(screen.queryByText("Unread subject")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Archived body/)).toBeTruthy());
+    expect(screen.queryByText(/Unread body/)).toBeNull();
   });
 });
 
 describe("vendor reaches an archived conversation through the Active|Archived tab (captain, 2026-09-26: matches manager)", () => {
   it("has no Archived option in the Status filter, only the tab", async () => {
     render(<VendorCommunication />);
+    await waitForInboxReady();
     const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
     expect(options).not.toContain("Archived");
     fireEvent.click(screen.getByRole("link", { name: "Archived" }));
     fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
-    await waitFor(() => expect(screen.getByText("Archived subject")).toBeTruthy());
-    expect(screen.queryByText("Unread subject")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Archived body/)).toBeTruthy());
+    expect(screen.queryByText(/Unread body/)).toBeNull();
   });
 });

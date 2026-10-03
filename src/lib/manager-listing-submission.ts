@@ -3663,9 +3663,9 @@ export function isBathroomSlotRemovable(bath: ManagerBathroomSubmission): boolea
     /^Bathroom \d+$/.test(name);
   return (
     defaultName &&
-    !bath.location.trim() &&
-    !bath.amenitiesText.trim() &&
-    bath.photoDataUrls.length === 0 &&
+    !(bath.location ?? "").trim() &&
+    !(bath.amenitiesText ?? "").trim() &&
+    (bath.photoDataUrls ?? []).length === 0 &&
     !bath.videoDataUrl &&
     (bath.assignedRoomIds ?? []).length === 0 &&
     !bath.allResidents

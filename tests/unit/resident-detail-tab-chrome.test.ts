@@ -69,7 +69,7 @@ describe("resident detail tab chrome", () => {
         `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,
         "utf8",
       ),
-    ).toContain("RESIDENT_DETAIL_TOUR_BUCKET_TABS");
+    ).toContain("RESIDENT_TOUR_TABS");
   });
 
   it("shared subsection chrome uses equal-width destination nav", () => {
@@ -118,15 +118,16 @@ describe("resident detail tab chrome", () => {
       `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,
       "utf8",
     );
-    expect(tours).toContain("onSettings={onSettings}");
-    expect(tours).toContain("editDisabled=");
+    // Studio-redesign 0929 (resident-record): Filter · Settings · Edit live in
+    // `ManagerResidentSectionToolbar` via `sectionToolbar`, not inline chrome.
+    expect(tours).toContain("sectionToolbar");
+    expect(residents).toContain("ManagerResidentSectionToolbar");
 
     const inspections = readFileSync(
       `${process.cwd()}/src/components/portal/inspections-panel.tsx`,
       "utf8",
     );
-    expect(inspections).toContain("ResidentDetailSubsectionChrome");
-    expect(inspections).toContain("editDisabled={embeddedEditDisabled}");
     expect(inspections).toContain("data-attr=\"inspection-embedded-empty\"");
+    expect(inspections).toContain("data-attr=\"inspection-embedded-continue\"");
   });
 });

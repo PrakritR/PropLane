@@ -21,6 +21,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   deleteChannelCalendarConnection: () => Promise.resolve(),
 }));
 
+import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
@@ -54,7 +55,10 @@ function open(onSave = vi.fn(() => Promise.resolve())) {
 }
 
 describe("Add booking — new resident phone", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    clearAllWorkspaceDrafts();
+  });
 
   it("renders a phone field alongside name and email", () => {
     const { view } = open();
