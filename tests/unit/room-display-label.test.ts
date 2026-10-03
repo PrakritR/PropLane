@@ -5,5 +5,6 @@ describe("roomDisplayLabel", () => {
   it("labels a bare number", () => { expect(roomDisplayLabel("2")).toBe("Room 2"); });
   it("never prints a stored propertyId::roomId key", () => { expect(roomDisplayLabel("mgr-test-magnolia::room-2")).toBe("Room 2"); });
   it("handles the piped application shape", () => { expect(roomDisplayLabel("Magnolia|mgr-test-magnolia::room-3")).toBe("Room 3"); });
+  it("does not prefix a unit or studio name with Room", () => { expect(roomDisplayLabel("Unit 3")).toBe("Unit 3"); expect(roomDisplayLabel("Studio")).toBe("Studio"); expect(roomDisplayLabel("12A")).toBe("Room 12A"); });
   it("is empty for nothing and the em dash", () => { expect(roomDisplayLabel("")).toBe(""); expect(roomDisplayLabel("—")).toBe(""); expect(roomDisplayLabel(null)).toBe(""); });
 });

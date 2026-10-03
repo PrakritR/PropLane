@@ -18,5 +18,9 @@ export function roomDisplayLabel(roomNumber: string | null | undefined): string 
   // "room-2" / "room_2" are ids, not labels; "Room 2" and "2" are already fine.
   const bare = afterScope.replace(/^room[-_\s]*/i, "").trim();
   if (!bare) return afterScope;
-  return /^room\b/i.test(afterScope) || /^room[-_]/i.test(afterScope) ? `Room ${bare}` : `Room ${afterScope}`;
+  if (/^room\b/i.test(afterScope) || /^room[-_]/i.test(afterScope)) return `Room ${bare}`;
+  // A name that is already a place ("Unit 3", "Studio", "Suite 4B") is not a room number:
+  // prefixing it printed "Room Unit 3" / "Room Studio" on payment and inspection rows.
+  if (/^[A-Za-z]{3,}/.test(afterScope)) return afterScope;
+  return `Room ${afterScope}`;
 }
