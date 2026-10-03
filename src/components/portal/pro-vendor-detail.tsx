@@ -21,7 +21,7 @@ import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
