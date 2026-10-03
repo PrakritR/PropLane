@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 // Only the two entry points the component reads: a declared room list for
 // "prop-a", nothing declared for "prop-b" (so it exercises the "no declared
@@ -35,6 +35,18 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+
+
+// studio-redesign standard (ui-page-structure.md § Reference implementations): a pick is a
+// FieldSingleSelect dropdown, never a native <select>. The view switch is a listbox button.
+const viewButton = () => screen.getByRole("button", { name: "Calendar view" });
+const viewValue = () => viewButton().textContent?.trim().toLowerCase();
+function pickView(value: string) {
+  if (viewButton().getAttribute("aria-expanded") !== "true") fireEvent.click(viewButton());
+  const option = within(screen.getByRole("listbox")).getByText(value[0]!.toUpperCase() + value.slice(1));
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+}
 
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -119,15 +131,15 @@ describe("BookingsPortfolioTimeline", () => {
 
     expect(document.querySelector('[data-attr="bookings-empty-houses-banner"]')).toBeTruthy();
     expect(screen.getByText("No houses yet")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Calendar view" })).toBeTruthy();
+    expect(viewButton()).toBeTruthy();
   });
   it("keeps empty room rows while changing to year and drilling into a month", () => {
     render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "year" } });
+    pickView("year");
     expect(screen.getByText("Room 1")).toBeTruthy();
     expect(screen.getByText("No bookings in this range")).toBeTruthy();
     fireEvent.click(screen.getByTitle("Room 1 · February: 0% occupied"));
-    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("month");
+    expect(viewValue()).toBe("month");
     expect(screen.getByText("February 2026")).toBeTruthy();
   });
 
@@ -135,11 +147,11 @@ describe("BookingsPortfolioTimeline", () => {
     const prior = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
     const mounted = render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="phone-test" />);
-    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("week");
-    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "day" } });
+    expect(viewValue()).toBe("week");
+    pickView("day");
     mounted.unmount();
     render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="phone-test" />);
-    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("day");
+    expect(viewValue()).toBe("day");
     Object.defineProperty(window, "innerWidth", { configurable: true, value: prior });
   });
   it("Day keeps checkout and arrival together with real night labels", () => {
@@ -147,7 +159,7 @@ describe("BookingsPortfolioTimeline", () => {
       bookingEntry({ start: "2026-09-08", end: "2026-09-09", summary: "Leaving" }),
       bookingEntry({ start: "2026-09-10", end: "2026-09-13", summary: "Arriving" }),
     ]} today={TODAY} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "day" } });
+    pickView("day");
     expect(screen.getByText("Checks out today")).toBeTruthy();
     expect(screen.getByText("Checks in today")).toBeTruthy();
     expect(screen.getByText("1 staying · 1 check-ins · 1 check-outs")).toBeTruthy();
@@ -156,7 +168,7 @@ describe("BookingsPortfolioTimeline", () => {
   it("omits cancelled stays from every calendar view and preserves empty rooms", () => {
     render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[bookingEntry({ bookingStatus: "cancelled" })]} today={TODAY} />);
     for (const value of ["day", "week", "month", "year"]) {
-      fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value } });
+      pickView(value);
       expect(document.querySelector('[data-attr="bookings-calendar-bar"]')).toBeNull();
       expect(screen.getByText("No bookings in this range")).toBeTruthy();
       expect(screen.getByText("Room 1")).toBeTruthy();
@@ -164,9 +176,9 @@ describe("BookingsPortfolioTimeline", () => {
   });
   it("does not leak a workspace preference into a property's page", () => {
     const mounted = render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="workspace" />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "year" } });
+    pickView("year");
     mounted.rerender(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="property:prop-a" />);
-    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("month");
+    expect(viewValue()).toBe("month");
   });
 
 });

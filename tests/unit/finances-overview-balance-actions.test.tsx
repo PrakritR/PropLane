@@ -16,8 +16,9 @@ function setup(enabled: boolean, fail = false) {
 describe("Finances simplified overview", () => {
   it("shows the four balances from server responses", async () => {
     setup(true); expect(await screen.findByText("Held deposits")).toBeTruthy();
-    expect(screen.getByText("$45.00")).toBeTruthy(); expect(screen.getByText("$9.00")).toBeTruthy();
-    expect(screen.getByText("$123.00")).toBeTruthy(); expect(screen.getByText("$4.00")).toBeTruthy(); expect(screen.getByText("2 bills")).toBeTruthy();
+    // Overview tiles are whole dollars (commit 2e8b13336, studio "$7,700"); exact cents stay in Activity.
+    expect(screen.getByText("$45")).toBeTruthy(); expect(screen.getByText("$9")).toBeTruthy();
+    expect(screen.getByText("$123")).toBeTruthy(); expect(screen.getByText("$4")).toBeTruthy(); expect(screen.getByText("2 bills")).toBeTruthy();
   });
   it("routes unpaid bills to the one Outgoing list", async () => {
     setup(true); expect((await screen.findByRole("link", { name: /To pay/ })).getAttribute("href")).toBe("/portal/outgoing/to-pay");
@@ -30,7 +31,7 @@ describe("Finances simplified overview", () => {
     for (const name of ["Pay vendors", "Plan & credit", "Recent activity", "Coming up", "Expenses by category", "By property"]) expect(screen.queryByText(name)).toBeNull();
   });
   it("does not invent an available balance when the balance ledger is disabled", async () => {
-    setup(false); await screen.findByText("Held deposits"); expect(screen.queryByText("$123.00")).toBeNull();
+    setup(false); await screen.findByText("Held deposits"); expect(screen.queryByText("$123")).toBeNull();
   });
   it("shows failed ledger reads as errors, never zero totals", async () => {
     setup(true, true); expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Ledger unavailable");
