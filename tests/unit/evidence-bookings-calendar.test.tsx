@@ -5,7 +5,7 @@
  * the "Link Airbnb" modal, and dumps the markup for screenshotting.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 // PARTIAL mock: every export the calendar's import chain reaches must be
@@ -61,6 +61,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
         ],
       },
     ]),
+  fetchChannelCalendarConnections: () => Promise.resolve([]),
   fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
 }));
@@ -147,17 +148,15 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
       await Promise.resolve();
       await Promise.resolve();
     });
-    // Both channels on one screen. PRP-333 split the single grid into buckets,
-    // so they now land in different tabs by date rather than side by side: the
-    // Airbnb import (Aug 18-22) is Upcoming and the PropLane lease (Aug 4-12)
-    // is in-house on the pinned clock. The month grid no longer prints a
-    // channel name per cell (PLAN-0920-1058, area 1e: names belong on the day
-    // page, not 30 identical cells) — the guarantee here is that the Airbnb
-    // stay is still counted in that day's occupancy, not silently dropped.
-    // "Not available" occupies a bed but is not a check-in (PLAN-0922-1904).
+    // C2-CAL2 moves occupancy into the property's strip and draws each stay
+    // once as a bar; date headers no longer carry per-day capacity counts.
+    const bars = [...document.querySelectorAll('[data-attr="bookings-calendar-bar"]')];
+    expect(bars.some(bar => bar.textContent?.includes("Cv Ponce"))).toBe(true);
+    expect(bars.some(bar => bar.getAttribute("aria-label")?.includes("Airbnb"))).toBe(true);
+    expect(document.querySelector('[title="100% occupied"]')).toBeTruthy();
     const airbnbDay = document.querySelector('[data-attr="portfolio-booking-day-2026-08-18"]');
-    expect(airbnbDay?.textContent).toContain("1/1");
-    expect(airbnbDay?.textContent ?? "").not.toMatch(/\d+\s+in/);
+    expect(airbnbDay).toBeTruthy();
+    expect(airbnbDay?.textContent).not.toContain("1/1");
     fireEvent.click(document.querySelector('button[data-attr="bookings-bucket-inhouse"]')!);
     await act(async () => {
       await Promise.resolve();
@@ -173,7 +172,8 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
       view.container.innerHTML,
     );
 
-    fireEvent.click(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')!);
+    fireEvent.keyDown(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')!, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Link calendars" }));
     await act(async () => {
       await Promise.resolve();
     });

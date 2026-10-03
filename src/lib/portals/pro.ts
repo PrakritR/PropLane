@@ -58,7 +58,7 @@ export const proPortal: PortalDefinition = {
       tabs: [],
     },
     {
-      // Channel + PropLane stays across the portfolio — separate from the schedule grid.
+      // Calendar, Stays and Occupancy use the bookings registry, separate from the schedule grid.
       section: "bookings",
       label: "Bookings",
       tabs: [],

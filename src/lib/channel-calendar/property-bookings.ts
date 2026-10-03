@@ -21,6 +21,14 @@ export type BookingSource = "airbnb" | "booking_com" | "proplane" | "hold" | "bl
 
 export type PropertyBookingEntry = {
   source: BookingSource;
+  bookingStatus?: "hold" | "confirmed" | "cancelled";
+  rate?: number;
+  rateBasis?: "daily" | "weekly" | "monthly";
+  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
+  sourceUid?: string;
+  connectionId?: string;
+  lastSyncedAt?: string | null;
+  applicationId?: string;
   propertyId: string;
   propertyLabel: string;
   /** "" when the stay is the whole home rather than one room. */
@@ -53,6 +61,11 @@ export type PropertyBookingEntry = {
 
 /** A manager's explicit closed range. `checkOut` is exclusive: the day is free again. */
 export type RoomDateBlock = {
+  openEnded?: boolean;
+  bookingStatus?: "hold" | "confirmed" | "cancelled";
+  rate?: number;
+  rateBasis?: "daily" | "weekly" | "monthly";
+  stayDetails?: PropertyBookingEntry["stayDetails"];
   id: string;
   propertyId: string;
   /** "" = every room / the whole home. */
@@ -142,7 +155,7 @@ export function roomBlockEntries(
   const out: PropertyBookingEntry[] = [];
   for (const block of blocks) {
     const start = normalizeBookingDateKey(block.checkIn);
-    const end = normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
+    const end = block.openEnded ? (openEndedBookingHorizonKey() > start ? openEndedBookingHorizonKey() : start) : normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
     if (!start || !end || end < start) continue;
     out.push({
       source: "block",
@@ -153,7 +166,12 @@ export function roomBlockEntries(
       summary: roomBlockSummary(block),
       start,
       end,
-      statusLabel: block.residentName?.trim() ? "Held" : "Blocked",
+      statusLabel: block.bookingStatus === "cancelled" ? "Cancelled" : block.bookingStatus === "confirmed" ? "Confirmed" : block.residentName?.trim() ? "Hold" : "Blocked",
+      bookingStatus: block.bookingStatus,
+      ...(block.openEnded ? { openEnded: true } : {}),
+      rate: block.rate,
+      rateBasis: block.rateBasis,
+      stayDetails: block.stayDetails,
       blockId: block.id,
       reason: block.reason,
       ...(block.residentName?.trim() ? { residentName: block.residentName.trim() } : {}),
@@ -181,6 +199,7 @@ export function bookingConflictsFor(
 ): PropertyBookingEntry[] {
   return entries.filter(
     (entry) =>
+      entry.bookingStatus !== "cancelled" &&
       entry.propertyId === candidate.propertyId &&
       (!entry.roomId || !candidate.roomId || entry.roomId === candidate.roomId) &&
       // An open-ended stay has no last night: it takes every night from its start.
@@ -231,6 +250,7 @@ export function applicationHoldEntries(
     if (!roomId && !property.entireHomeListing) continue;
     out.push({
       source: "hold",
+      applicationId: row.id,
       propertyId,
       propertyLabel: property.label,
       roomId,
@@ -307,6 +327,9 @@ export function airbnbBookingEntries(
           roomId: room.roomId,
           roomLabel: room.roomLabel,
           summary: range.summary,
+          sourceUid: range.sourceUid,
+          connectionId: room.connectionId,
+          lastSyncedAt: room.lastSyncedAt,
           start,
           end: normalizeBookingDateKey(range.end) || start,
         });

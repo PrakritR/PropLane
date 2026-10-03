@@ -1,10 +1,12 @@
 import { after } from "next/server";
+import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
 import {
   isManagerScopedScheduleRecordType,
   managerScheduleRecordIdOwnedByUser,
   vendorScheduleRecordTypes,
   ROOM_DATE_BLOCK_RECORD_TYPE,
+  CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
 } from "@/lib/portal-schedule-record-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
@@ -48,8 +50,9 @@ function roomDateBlockField(row: RoomDateBlockRow, key: string): string {
  * (PLAN-0920-1058, area 1e; docs/agents/shared-room-capacity.md's 409
  * contract for a different table). The client already screens against every
  * booking source it can see (`bookingConflictsFor`); this is the authoritative
- * re-check against every OTHER manager-made hold on the same room, run from a
- * fresh read at write time so two concurrent saves cannot both win.
+ * re-check against every OTHER manager-made hold on the same room. This
+ * read-check-write is not database serialization; concurrent writes still need
+ * the room-capacity transaction before the last-bed guarantee can be claimed.
  */
 async function roomDateBlockOverlapConflict(args: {
   db: Parameters<typeof syncManagerAvailabilityToGoogleCalendar>[0];
@@ -68,7 +71,7 @@ async function roomDateBlockOverlapConflict(args: {
     .eq("manager_user_id", managerUserId)
     .eq("property_id", propertyId)
     .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
-  if (error || !data) return null;
+  if (error || !data) return "Could not verify room availability. Try again.";
   for (const row of data as RoomDateBlockRow[]) {
     if (String(row.id ?? "") === recordId) continue;
     const otherRoomId = roomDateBlockField(row, "roomId");
@@ -301,6 +304,19 @@ const route = createJsonRecordRoute({
     return managerScoped ? { ...record, manager_user_id: user.id } : record;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    if (String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) {
+      // Eligibility comes from the persisted stay, never the replacement body's dates.
+      const priorType = String(existing?.record_type ?? "");
+      if (!existing || (priorType !== ROOM_DATE_BLOCK_RECORD_TYPE && priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE)) {
+        return { handled: true, error: "Only an existing manager booking can be cancelled.", status: 409 };
+      }
+      const start = roomDateBlockField(existing, "checkIn");
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      if (priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE && (!start || start <= today || isImportedChannelBlock({ reason: roomDateBlockField(existing, "reason") }))) {
+        return { handled: true, error: "Only upcoming manager bookings can be cancelled.", status: 409 };
+      }
+      return { handled: false };
+    }
     if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
       const conflict = await roomDateBlockOverlapConflict({
         db,

@@ -39,6 +39,7 @@ export type ChannelCalendarConnectionRow = {
 };
 
 export type ManagerChannelBookingRange = {
+  sourceUid?: string;
   start: string;
   end: string;
   summary: string;

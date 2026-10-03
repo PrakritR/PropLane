@@ -14,8 +14,9 @@ import { RecordActionMenu } from "@/components/ui/record-action-menu";
  */
 export function BookingsRowOverflow({
   label,
+  onView,
   onEditDates,
-  editDatesLabel = "Edit dates",
+  editDatesLabel = "Edit",
   onMoveRoom,
   onMessage,
   onCopyLink,
@@ -24,6 +25,7 @@ export function BookingsRowOverflow({
   children,
 }: {
   label: string;
+  onView?: () => void;
   /** Present only for a block-sourced booking — the only kind this screen can actually edit —
    *  or, with `editDatesLabel` overridden, a jump to the Lease/listing record that owns it. */
   onEditDates?: () => void;
@@ -46,6 +48,7 @@ export function BookingsRowOverflow({
         clear: () => {},
         actions: (
           <>
+            {onView ? <Button type="button" variant="outline" data-record-action-id="view" onClick={onView}>View</Button> : null}
             {onEditDates ? (
               <Button type="button" variant="outline" data-attr="bookings-row-edit-dates" data-record-action-id="edit-dates" onClick={onEditDates}>
                 {editDatesLabel}
@@ -58,7 +61,7 @@ export function BookingsRowOverflow({
             ) : null}
             {onMessage ? (
               <Button type="button" variant="outline" data-attr="bookings-row-message" data-record-action-id="message" onClick={onMessage}>
-                {`Message ${label}`}
+                Message
               </Button>
             ) : null}
             {onCopyLink ? (

@@ -1,22 +1,24 @@
 "use client";
 
 import type { ComponentProps, ReactNode } from "react";
-import { Tag } from "lucide-react";
+import { CalendarDays, CircleCheck, Globe } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
+  addDaysToDateKey,
   bookingEntryKey,
-  bookingOpenTarget,
   bookingSourceLabel,
   formatBookingStayRange,
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { bookingRateLabel, bookingStatusLabel, canCancelBooking } from "@/lib/channel-calendar/booking-presentation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function guestName(entry: PropertyBookingEntry): string {
@@ -40,9 +42,7 @@ export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): s
  * already its source fact. No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
-  if (entry.source === "block") return "";
-  const status = entry.statusLabel?.trim() ?? "";
-  return status && status !== "Confirmed" ? status : "";
+  return bookingStatusLabel(entry);
 }
 
 /**
@@ -55,6 +55,7 @@ export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
 export function ManagerBookingsListView({
   entries,
   loading = false,
+  showStayDetails = false,
   bucket,
   selectedKeys,
   onToggleSelected,
@@ -63,10 +64,10 @@ export function ManagerBookingsListView({
   bulkActions,
   emptyCard,
   basePath = "/portal",
-  showToast,
 }: {
   entries: PropertyBookingEntry[];
   loading?: boolean;
+  showStayDetails?: boolean;
   bucket: ManagerBookingListBucketId;
   selectedKeys: ReadonlySet<string>;
   onToggleSelected: (key: string, selected: boolean) => void;
@@ -80,15 +81,6 @@ export function ManagerBookingsListView({
 }) {
   const navigate = usePortalNavigate();
 
-  const copyLink = async (entry: PropertyBookingEntry) => {
-    const href = bookingRecordHref(basePath, bookingEntryKey(entry));
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}${href}`);
-      showToast?.("Link copied.");
-    } catch {
-      showToast?.("Could not copy the link.");
-    }
-  };
 
   return (
     <PortalRecordListSurface
@@ -109,45 +101,36 @@ export function ManagerBookingsListView({
           const key = bookingEntryKey(entry);
           const name = guestName(entry);
           const subtitle = [
-            formatBookingStayRange(entry.start, entry.end, entry.openEnded),
             entry.roomLabel,
             entry.propertyLabel,
           ]
             .filter(Boolean)
             .join(" · ");
-          const isBlock = entry.source === "block" && Boolean(entry.blockId);
           const href = bookingRecordHref(basePath, key);
           const status = bookingRowStatusFact(entry);
           // A signed lease's dates belong to the Lease record, and a channel
           // import is owned by Airbnb — the same jump the record page's header
           // icon takes, reached here from the row's own ⋯ (PLAN-0920-1058, area 1c).
-          const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
+
           return (
             <BookingsRowOverflow
               key={key}
               label={name}
-              onEditDates={
-                isBlock && onEditBlock
-                  ? () => onEditBlock(entry)
-                  : openTarget
-                    ? () => navigate(openTarget.href)
-                    : undefined
-              }
-              editDatesLabel={openTarget?.label}
-              onMoveRoom={isBlock && onEditBlock ? () => onEditBlock(entry) : undefined}
+              onView={() => navigate(href)}
+              onEditDates={entry.source !== "airbnb" && entry.source !== "booking_com" ? () => onEditBlock ? onEditBlock(entry) : navigate(href) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
-              onCopyLink={() => void copyLink(entry)}
-              onCancel={isBlock && onDeleteBlock ? () => onDeleteBlock(entry) : undefined}
+              onCancel={canCancelBooking(entry) && onDeleteBlock ? () => onDeleteBlock(entry) : undefined}
             >
               <PortalApplicantRecordRow
                 name={name}
                 address={subtitle}
+                amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={Tag} srLabel="Source">
-                      {bookingRowSourceLabel(entry.source)}
-                    </PortalRowFact>
-                    {status ? <span data-attr="booking-row-status">{status}</span> : null}
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
+                    {showStayDetails ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
+                    {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
                   </>
                 }
                 checked={selectedKeys.has(key)}

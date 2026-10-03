@@ -60,7 +60,7 @@ function propertyDayOccupiedBeds(
   propertyId: string,
   capacities: OccupancyCapacities,
 ): OccupancyDayCell {
-  const propertyEntries = entries.filter((entry) => entry.propertyId === propertyId);
+  const propertyEntries = entries.filter((entry) => entry.propertyId === propertyId && entry.bookingStatus !== "cancelled");
   const dayBookings = bookingEntriesForDayKey(propertyEntries, dayKey);
   const total = Math.max(1, capacities.bedsTotal(propertyId));
   const countable = dayBookings.filter((entry) => {

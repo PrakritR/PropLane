@@ -16,7 +16,7 @@ export async function fetchRoomExportCalendarUrl(input: {
   roomId: string;
   roomLabel?: string;
 }): Promise<string> {
-  const origin = encodeURIComponent(apiOrigin());
+  const origin = apiOrigin();
   const params = new URLSearchParams({
     propertyId: input.propertyId,
     roomId: input.roomId,

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
+import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
@@ -16,13 +18,16 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import { Button } from "@/components/ui/button";
-import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { BookingsCalendarKey, BookingsOccupancyPanel } from "@/components/portal/bookings-portfolio-timeline";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
   bookingEntryKey,
+  bookingSourceLabel,
   bookingsForListBucket,
   countBookingsByListBucket,
   filterBookingsBySearch,
@@ -56,8 +61,12 @@ const BOOKING_BUCKET_LABELS = MANAGER_BOOKING_BUCKETS.map((id) => ({
   label: MANAGER_BOOKING_BUCKET_LABELS[id],
 }));
 
+function staySource(entry: PropertyBookingEntry): string {
+  return entry.stayDetails?.source || (entry.source === "proplane" ? "Tenant" : entry.source === "hold" ? "Application" : entry.source === "block" ? entry.residentName ? "Direct" : "Blocked" : bookingSourceLabel(entry.source));
+}
+
 function isListBucket(bucket: ManagerBookingBucketId): bucket is ManagerBookingListBucketId {
-  return bucket !== "calendar";
+  return bucket === "upcoming" || bucket === "inhouse" || bucket === "past";
 }
 
 type BookingsWorkspaceProps = {
@@ -105,17 +114,18 @@ function useBookingsWorkspace({
   selectedDayKey,
 }: BookingsWorkspaceProps) {
   const { showToast } = useAppUi();
-  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
   const [sheet, setSheet] = useState<{
     open: boolean;
     dayKey: string | null;
     editingBlock: PropertyBookingEntry | null;
   }>({ open: false, dayKey: null, editingBlock: null });
   const [calendarsOpen, setCalendarsOpen] = useState(false);
+  const [cancelEntry, setCancelEntry] = useState<PropertyBookingEntry | null>(null);
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -172,7 +182,7 @@ function useBookingsWorkspace({
         showToast(`Held for ${draft.residentName} — ${invite.error}`);
         return { message: `Booking added, but the invite didn’t go out: ${invite.error}` };
       }
-      showToast(draft.residentName ? `Held for ${draft.residentName}.` : "Dates blocked.");
+      showToast(draft.bookingStatus === "cancelled" ? "Booking cancelled." : draft.id ? "Booking saved." : draft.residentName ? `Held for ${draft.residentName}.` : "Dates blocked.");
     },
     [userId, showToast, propertyOptions],
   );
@@ -189,25 +199,6 @@ function useBookingsWorkspace({
     [showToast],
   );
 
-  const deleteBlockEntry = useCallback(
-    async (entry: PropertyBookingEntry) => {
-      if (!entry.blockId) return;
-      if (
-        !(await confirm({
-          title: "Delete hold",
-          description: `Delete ${entry.summary || "this hold"}?`,
-          confirmLabel: "Delete",
-          tone: "danger",
-          dataAttr: "bookings-delete-block-confirm",
-        }))
-      ) {
-        return;
-      }
-      await removeBlock(entry.blockId);
-    },
-    [confirm, removeBlock],
-  );
-
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
   const counts = useMemo(() => {
@@ -217,14 +208,17 @@ function useBookingsWorkspace({
       inhouse: listCounts.inhouse,
       past: listCounts.past,
       calendar: 0,
+      occupancy: 0,
+      stays: entries.filter((entry) => entry.bookingStatus !== "cancelled").length,
     };
   }, [entries, todayKey]);
 
   const listBucket = isListBucket(bucket) ? bucket : "upcoming";
   const listEntries = useMemo(() => {
+    if (bucket === "stays") return filterBookingsBySearch(entries.filter((entry) => entry.bookingStatus !== "cancelled" && (!sourceFilter || staySource(entry) === sourceFilter)), listSearch).sort((a, b) => a.start.localeCompare(b.start));
     if (!isListBucket(bucket)) return [];
     return filterBookingsBySearch(bookingsForListBucket(entries, listBucket, todayKey), listSearch);
-  }, [bucket, entries, listBucket, listSearch, todayKey]);
+  }, [bucket, entries, listBucket, listSearch, sourceFilter, todayKey]);
 
   const { selectedIds, setSelectedIds } = usePortalRowSelection(bucket);
 
@@ -234,20 +228,20 @@ function useBookingsWorkspace({
         id,
         label,
         // The calendar is a view, not a bucket — a "0" beside it reads as empty.
-        count: id === "calendar" ? undefined : counts[id],
+        count: id === "calendar" || id === "occupancy" ? undefined : counts[id],
       })),
     [counts],
   );
 
   const propertyFilterSheet = showPropertyFilter ? (
       <PortalFilterSortSheet
-        activeCount={portalFilterActiveCount([propertyFilters])}
+        activeCount={portalFilterActiveCount([propertyFilters, bucket === "stays" ? sourceFilter : ""])}
         compactPanel
         commandStripTrigger
         dropdownAlign="start"
-        filterFieldCount={1}
+        filterFieldCount={bucket === "stays" ? 2 : 1}
         mobileFlushBody
-        onReset={() => setPropertyFilters([])}
+        onReset={() => { setPropertyFilters([]); setSourceFilter(""); }}
         dataAttr="bookings-filter-sheet-open"
       >
         <ApplicationFilterSortFields
@@ -256,6 +250,7 @@ function useBookingsWorkspace({
           onPropertyFiltersChange={setPropertyFilters}
           dataAttr="bookings-filter-property"
         />
+        {bucket === "stays" ? <PortalFormSingleSelect label="Source" value={sourceFilter} onChange={setSourceFilter} options={[{ value: "", label: "All sources" }, ...["Tenant", "Direct", "Airbnb", "Booking.com", "Application", "Blocked"].map((value) => ({ value, label: value }))]} dataAttr="bookings-filter-source" /> : null}
       </PortalFilterSortSheet>
     ) : null;
 
@@ -393,7 +388,7 @@ function useBookingsWorkspace({
       }
       activeDestinationId={bucket}
       destinationAriaLabel="Booking views"
-      search={{
+      search={bucket === "occupancy" ? undefined : {
         value: listSearch,
         onChange: setListSearch,
         placeholder: "Search bookings",
@@ -403,18 +398,22 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
-          <PortalIconAction
-            icon={CalendarSync}
-            label="Link calendars"
-            data-attr="portfolio-bookings-link-airbnb"
-            disabled={linkDisabled}
-            onClick={() => setCalendarsOpen(true)}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalIconAction icon={CalendarSync} label="Calendars" data-attr="portfolio-bookings-link-airbnb" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem disabled={linkDisabled} onSelect={() => setCalendarsOpen(true)}>
+                <CalendarSync aria-hidden /> Link calendars
+              </DropdownMenuItem>
+              <BookingsCalendarKey />
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       }
       primary={
         <PortalPrimaryIconAction
-          label={portalListAddPrimaryLabel("booking")}
+          label={portalListAddPrimaryLabel(bucket === "stays" ? "stay" : "booking")}
           disabled={linkDisabled}
           data-attr="bookings-block-dates-open"
           onClick={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
@@ -425,7 +424,9 @@ function useBookingsWorkspace({
   );
 
   const content =
-    bucket === "calendar" ? (
+    bucket === "occupancy" ? (
+      loading || !authReady ? <div role="status" className="p-6 text-sm">Loading bookings…</div> : <BookingsOccupancyPanel propertyIds={scopedPropertyIds} entries={entries} today={startOfLocalDay(new Date())} onOpenDay={goToDayPage} roomFilterId={roomFilterId} onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })} />
+    ) : bucket === "calendar" ? (
       <ManagerPortfolioBookingsCalendar
         propertyIds={scopedPropertyIds}
         showToast={showToast}
@@ -437,6 +438,9 @@ function useBookingsWorkspace({
         emptyMessage={emptyMessage}
         variant="standalone"
         calendarOnly
+        preferenceKey={showPropertyFilter ? "workspace" : propertyIds[0]}
+        onAddBooking={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
+        onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
         searchQuery={listSearch}
@@ -446,6 +450,7 @@ function useBookingsWorkspace({
         entries={listEntries}
         loading={!authReady || loading}
         bucket={listBucket}
+        showStayDetails={bucket === "stays"}
         selectedKeys={selectedIds}
         onToggleSelected={(key, selected) => {
           setSelectedIds((prev) => {
@@ -456,13 +461,13 @@ function useBookingsWorkspace({
           });
         }}
         onEditBlock={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
-        onDeleteBlock={(entry) => void deleteBlockEntry(entry)}
+        onDeleteBlock={setCancelEntry}
         bulkActions={listBulkActions}
         basePath={basePath ?? "/portal"}
         showToast={showToast}
         emptyCard={
           propertyFilters.length > 0 || roomFilterId || listSearch.trim()
-            ? {
+            || (bucket === "stays" && sourceFilter) ? {
                 title: portalEmptyNoMatchTitle("bookings", listSearch),
                 section: "bookings",
                 tone: "muted",
@@ -471,13 +476,14 @@ function useBookingsWorkspace({
                   onClick: () => {
                     setPropertyFilters([]);
                     setListSearch("");
+                    setSourceFilter("");
                     onRoomFilterIdChange?.("");
                   },
                   dataAttr: "bookings-empty-clear-filters",
                 },
               }
             : {
-                title: portalEmptyCopy(`bookings.${listBucket}`).title,
+                title: bucket === "stays" ? "No stays match" : portalEmptyCopy(`bookings.${listBucket}`).title,
                 section: "bookings",
                 sibling: basePath
                   ? portalEmptySibling(
@@ -505,8 +511,10 @@ function useBookingsWorkspace({
 
   const modals = (
     <>
+      {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} /> : null}
+      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} /> : null}
       <BookingsBlockDatesModal
-        open={sheet.open}
+        open={sheet.open && !sheet.editingBlock}
         onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}
         propertyOptions={propertyOptions}
         initialPropertyId={
@@ -521,6 +529,7 @@ function useBookingsWorkspace({
         onDeleteBlock={removeBlock}
       />
       <ChannelCalendarLinkModal
+        entries={rawEntries}
         open={calendarsOpen}
         onClose={() => setCalendarsOpen(false)}
         propertyIds={propertyIds}
@@ -636,6 +645,7 @@ export function ManagerBookings({
         entries={rawEntries}
         loading={entriesLoading}
         residentOptions={residentOptions}
+        propertyOptions={propertyOptions}
         onSaveBlock={saveBlock}
         onRemoveBlock={removeBlock}
         showToast={showToast}

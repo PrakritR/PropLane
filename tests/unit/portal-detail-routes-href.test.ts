@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   applicationListHref,
+  managerBookingListHref,
+  parseManagerBookingBucket,
   legacyManagerPortalSectionPath,
   managerDocumentsApplicationDetailHref,
   managerDocumentsApplicationsListHref,
@@ -16,6 +18,13 @@ import {
 
 describe("portal-detail-routes href helpers", () => {
   const base = "/portal";
+
+  it("routes Stays and Occupancy as booking views rather than record ids", () => {
+    for (const view of ["stays", "occupancy"] as const) {
+      expect(parseManagerBookingBucket(view)).toBe(view);
+      expect(managerBookingListHref(base, view)).toBe(`/portal/bookings/${view}`);
+    }
+  });
 
   it("builds property stage list URLs from the portal root", () => {
     expect(propertyListHref(base, "drafts")).toBe("/portal/properties/drafts");

@@ -34,6 +34,12 @@ const FIELD_LINK = "text-xs font-semibold normal-case tracking-normal text-prima
 export const NEW_RESIDENT_CHOICE = "__new__";
 
 export type BlockDatesDraft = {
+  openEnded?: boolean;
+  isBookingResidency?: boolean;
+  bookingStatus?: PropertyBookingEntry["bookingStatus"];
+  rate?: number;
+  rateBasis?: PropertyBookingEntry["rateBasis"];
+  stayDetails?: PropertyBookingEntry["stayDetails"];
   id?: string;
   propertyId: string;
   roomId: string;
@@ -127,6 +133,7 @@ export function BookingsBlockDatesModal({
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [reason, setReason] = useState("");
+  const [stayDetails, setStayDetails] = useState<NonNullable<PropertyBookingEntry["stayDetails"]>>({});
   const [residentChoice, setResidentChoice] = useState("");
   const [newResidentName, setNewResidentName] = useState("");
   const [newResidentEmail, setNewResidentEmail] = useState("");
@@ -146,6 +153,7 @@ export function BookingsBlockDatesModal({
     setCheckIn(initialDayKey ?? "");
     setCheckOut(initialDayKey ? addDaysToDateKey(initialDayKey, 1) : "");
     setReason("");
+    setStayDetails(editingBlock?.stayDetails ?? {});
     setResidentChoice("");
     setNewResidentName("");
     setNewResidentEmail("");
@@ -247,6 +255,11 @@ export function BookingsBlockDatesModal({
         checkIn,
         checkOut,
         reason,
+        stayDetails,
+        bookingStatus: editingBlock?.bookingStatus,
+        rate: editingBlock?.rate,
+        rateBasis: editingBlock?.rateBasis,
+        isBookingResidency: editingBlock?.isBookingResidency,
         ...resident,
         // Editing an existing block never re-invites — only a fresh "+ New
         // resident" save on a brand-new hold does.
@@ -456,6 +469,12 @@ export function BookingsBlockDatesModal({
         </div>
 
         <div hidden={stepId !== "when"}>
+          <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source}>{source}</option>)}</Select></div>
+            <label><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>
+            {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value}>{value}</option>)}</Select></div>)}
+            {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })} /></label>)}
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-in">

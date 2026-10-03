@@ -207,3 +207,22 @@ describe("saveRoomDateBlock propagates the server's 409 refusal", () => {
     ).rejects.toThrow("Could not block those dates.");
   });
 });
+
+describe("booking cancellation server eligibility", () => {
+  it("checks persisted dates and refuses channel stays, missing stays and in-house bookings", async () => {
+    const atomicWrite = routeMocks.config!.atomicWrite as AtomicWrite;
+    const record = { id: "block", record_type: "cancelled_room_date_block", row_data: { checkIn: "2099-01-01" } };
+    for (const existing of [null, { record_type: "room_date_block", row_data: { checkIn: "2000-01-01" } }, { record_type: "room_date_block", row_data: { checkIn: "2099-01-01", reason: "Airbnb" } }, { record_type: "event", row_data: { checkIn: "2099-01-01" } }]) {
+      const result = await atomicWrite({ user: { id: "manager" }, record, existing });
+      expect(result.status).toBe(409);
+    }
+    expect(await atomicWrite({ user: { id: "manager" }, record, existing: { record_type: "room_date_block", row_data: { checkIn: "2099-01-01", reason: "Guest" } } })).toEqual({ handled: false });
+  });
+
+  it("refuses a save when availability cannot be read", async () => {
+    const builder = { eq: () => builder, then: (resolve: (value: unknown) => void) => resolve({ data: null, error: { message: "offline" } }) };
+    const result = await (routeMocks.config!.atomicWrite as AtomicWrite)({ db: { from: () => ({ select: () => builder }) }, user: { id: "manager" }, record: { id: "block", record_type: "room_date_block", property_id: "p1", row_data: { roomId: "r1", checkIn: "2099-01-01", checkOut: "2099-01-03" } } });
+    expect(result.status).toBe(409);
+    expect(result.error).toContain("Could not verify");
+  });
+});

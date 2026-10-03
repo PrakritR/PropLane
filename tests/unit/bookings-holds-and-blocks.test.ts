@@ -139,7 +139,7 @@ describe("roomBlockEntries", () => {
       [{ id: "b", propertyId: PROPERTY.id, roomId: "room-a", checkIn: "2026-09-10", checkOut: "2026-09-12", reason: "Until lease signs", residentName: " Maya Zuneh ", residentEmail: "maya@example.com", createdAt: "" }],
       { propertyLabelForId: () => PROPERTY.label, roomLabelForId: roomLabel },
     );
-    expect(entry).toMatchObject({ source: "block", summary: "Maya Zuneh", statusLabel: "Held", residentName: "Maya Zuneh", reason: "Until lease signs" });
+    expect(entry).toMatchObject({ source: "block", summary: "Maya Zuneh", statusLabel: "Hold", residentName: "Maya Zuneh", reason: "Until lease signs" });
     expect(bookingVisualSource(entry!)).toBe("hold");
     // No one named → the reason, then the word "Blocked", and the grey block colour.
     expect(roomBlockSummary({ reason: "  ", residentName: "" })).toBe("Blocked");

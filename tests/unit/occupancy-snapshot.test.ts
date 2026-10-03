@@ -26,6 +26,13 @@ const entry = (over: Partial<PropertyBookingEntry>): PropertyBookingEntry => ({
 });
 
 describe("occupancyForDay", () => {
+  it("cancelled stays reserve no bed and create no arrival or departure", () => {
+    const cancelled = entry({ source: "block", bookingStatus: "cancelled" });
+    for (const date of [cancelled.start, cancelled.end, "2026-10-01"]) {
+      expect(occupancyForDay([cancelled], date, ["p1"], capacities)).toEqual({ occupied: 0, total: 3, checkIns: 0, checkOuts: 0 });
+    }
+  });
+
   it("Sep 29 cell matches the day header — one bed of three", () => {
     const cell = occupancyForDay([entry({})], "2026-09-29", ["p1"], capacities);
     expect(cell).toEqual({ occupied: 1, total: 3, checkIns: 0, checkOuts: 0 });

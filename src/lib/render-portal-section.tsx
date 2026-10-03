@@ -1263,6 +1263,7 @@ export async function renderPortalSection(
           managerOwnerSubscriptionTier,
         );
       }
+      // Stays and Occupancy share the same booking data and authorization as Calendar.
       if (MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
         if (tabParts.length > 1) notFound();
         const bucket = parseManagerBookingBucket(segmentRaw);

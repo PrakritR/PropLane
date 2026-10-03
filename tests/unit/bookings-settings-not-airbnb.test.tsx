@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchChannelCalendarConnections: () => Promise.resolve([]),
   fetchManagerChannelBookings: () => Promise.resolve([]),
   fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
@@ -66,7 +67,7 @@ function stubFetch() {
 }
 
 describe("Bookings → Settings", () => {
-  it("Link calendars still opens the Link calendars dialog", async () => {
+  it("calendar popover opens the Connect Airbnb editor", async () => {
     stubFetch();
     const view = render(
       <AppUiProvider>
@@ -75,10 +76,14 @@ describe("Bookings → Settings", () => {
     );
     await settle();
 
-    fireEvent.click(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')!);
+    fireEvent.pointerDown(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')!, { button: 0, ctrlKey: false });
+    await settle();
+    const linkCalendars = Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent?.includes("Link calendars"));
+    expect(linkCalendars).toBeTruthy();
+    fireEvent.click(linkCalendars!);
     await settle();
 
-    expect(document.body.textContent ?? "").toContain("Link calendars");
+    expect(document.body.textContent ?? "").toContain("Connect Airbnb");
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();

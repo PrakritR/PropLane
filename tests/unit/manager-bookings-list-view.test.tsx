@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
@@ -10,7 +10,9 @@ vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate })
 
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-01T12:00:00Z")); });
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   navigate.mockClear();
 });
@@ -90,18 +92,18 @@ describe("ManagerBookingsListView", () => {
 
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Sep 20–22 hold" }), { key: "ArrowDown" });
     const blockMenu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
-    expect(blockMenu.textContent).toContain("Edit dates");
-    expect(blockMenu.textContent).toContain("Move room");
+    expect(blockMenu.textContent).toContain("Edit");
+    expect(blockMenu.textContent).not.toContain("Move room");
     expect(blockMenu.textContent).toContain("Cancel booking");
-    expect(blockMenu.textContent).not.toContain("View");
+    expect(blockMenu.textContent).toContain("View");
     expect(blockMenu.textContent).not.toContain("Blocked");
     fireEvent.keyDown(document.body, { key: "Escape" });
 
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Ada Lovelace" }), { key: "ArrowDown" });
     const stayMenu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
-    expect(stayMenu.textContent).toContain("Message Ada Lovelace");
-    expect(stayMenu.textContent).toContain("Copy link");
-    expect(stayMenu.textContent).not.toContain("Edit dates");
+    expect(stayMenu.textContent).toContain("Message");
+    expect(stayMenu.textContent).not.toContain("Copy link");
+    expect(stayMenu.textContent).toContain("Edit");
     expect(stayMenu.textContent).not.toContain("Cancel booking");
   });
 
@@ -133,18 +135,18 @@ describe("ManagerBookingsListView", () => {
     expect(signed.textContent).toContain("Room 1");
     expect(signed.textContent).toContain("4709A 8th Ave NE");
     const signedFacts = signed.querySelector("[data-attr='record-row-facts']")!;
-    expect(signedFacts.textContent).toContain("PropLane");
-    expect(signed.querySelector("[data-attr='booking-row-status']")?.textContent).toBe("Signed");
+    expect(signedFacts.textContent).toContain("Confirmed");
+    expect(signedFacts.textContent).toContain("Sep 20");
 
     expect(cards[1]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Airbnb");
     expect(cards[1]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
 
     // A block's source fact says "Block"; it never repeats "Blocked" as a state.
-    expect(cards[2]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Block");
+    expect(cards[2]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Hold");
     expect(cards[2]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
 
     // Confirmed is the default and says nothing.
     expect(cards[3]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
-    expect(view.container.textContent).not.toContain("Confirmed");
+    expect(view.container.textContent).toContain("Confirmed");
   });
 });

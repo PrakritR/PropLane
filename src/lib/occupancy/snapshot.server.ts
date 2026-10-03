@@ -145,6 +145,8 @@ function roomDateBlockFromRecord(row: { id?: unknown; property_id?: unknown; row
     checkIn,
     checkOut,
     reason: str(data.reason),
+    openEnded: data.openEnded === true,
+    bookingStatus: data.bookingStatus === "confirmed" ? "confirmed" : "hold",
     ...(str(data.residentName) ? { residentName: str(data.residentName) } : {}),
     ...(str(data.residentEmail) ? { residentEmail: str(data.residentEmail) } : {}),
     ...(str(data.residentPhone) ? { residentPhone: str(data.residentPhone) } : {}),

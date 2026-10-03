@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
-  ArrowLeftRight,
   Bell,
   Calendar,
   Camera,
@@ -665,22 +664,10 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   booking: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Booking", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "guest", label: "Guest" },
-      { id: "charges", label: "Charges" },
-    ] }],
-    // "Record payment" is dropped by the page itself when this booking has no
-    // charge path yet — never shown as a dead "Coming soon" action
-    // (docs/agents/record-page.md § Known gap carve-out for this one id).
-    headerActions: [
-      { id: "edit-dates", label: "Edit dates", icon: Pencil },
-      { id: "move-room", label: "Move room", icon: ArrowLeftRight },
-      { id: "record-payment", label: "Record payment", icon: CreditCard },
-      { id: "cancel", label: "Cancel", icon: XCircle, tone: "danger" },
-    ],
-    hasDocuments: true,
-    hasActivity: true,
+    ownGroups: [{ label: "Booking", ids: [{ id: "overview", label: "Overview" }] }],
+    headerActions: [{ id: "edit", label: "Edit booking", icon: Pencil }, { id: "message", label: "Message", icon: Mail }, { id: "download", label: "Download", icon: Download }],
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => genericHref(ctx.basePath ?? "/portal", "bookings"),
   },
   document: {

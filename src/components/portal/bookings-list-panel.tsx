@@ -1,22 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Tag } from "lucide-react";
+import { CalendarDays, CircleCheck } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
-import { bookingRowSourceLabel, bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
+import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
+  addDaysToDateKey,
   bookingEntryKey,
   bookingsForListTab,
   formatBookingStayRange,
   type BookingsListTabId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { bookingRateLabel } from "@/lib/channel-calendar/booking-presentation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 
@@ -41,7 +43,6 @@ function guestName(entry: PropertyBookingEntry): string {
 export function ManagerBookingsListPanel({
   entries,
   basePath = "/portal",
-  showToast,
 }: {
   entries: PropertyBookingEntry[];
   basePath?: string;
@@ -66,15 +67,6 @@ export function ManagerBookingsListPanel({
     [entries, todayKey],
   );
 
-  const copyLink = async (entry: PropertyBookingEntry) => {
-    const href = bookingRecordHref(basePath, bookingEntryKey(entry));
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}${href}`);
-      showToast?.("Link copied.");
-    } catch {
-      showToast?.("Could not copy the link.");
-    }
-  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
@@ -103,7 +95,6 @@ export function ManagerBookingsListPanel({
           const key = bookingEntryKey(entry);
           const name = guestName(entry);
           const subtitle = [
-            formatBookingStayRange(entry.start, entry.end, entry.openEnded),
             entry.roomLabel,
             entry.propertyLabel,
           ]
@@ -116,7 +107,8 @@ export function ManagerBookingsListPanel({
               key={key}
               label={name}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
-              onCopyLink={() => void copyLink(entry)}
+              onView={() => navigate(href)}
+              onEditDates={entry.source !== "airbnb" && entry.source !== "booking_com" ? () => navigate(href) : undefined}
             >
               {/* The overflow provides the row's ⋯; the card draws it in the
                   selection slot (a no-op onSelectedChange), so there is one
@@ -124,12 +116,11 @@ export function ManagerBookingsListPanel({
               <PortalApplicantRecordRow
                 name={name}
                 address={subtitle}
+                amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={Tag} srLabel="Source">
-                      {bookingRowSourceLabel(entry.source)}
-                    </PortalRowFact>
-                    {status ? <span data-attr="booking-row-status">{status}</span> : null}
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                   </>
                 }
                 onSelectedChange={() => {}}

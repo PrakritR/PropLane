@@ -11,6 +11,7 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => {
 });
 
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchChannelCalendarConnections: vi.fn(async () => []),
   fetchManagerChannelBookings: vi.fn(async () => []),
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),
   fetchRoomExportCalendarUrl: vi.fn(async () => "https://proplane.ai/api/calendar/export/token.ics"),
@@ -21,37 +22,24 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
-import { fetchRoomExportCalendarUrl } from "@/lib/channel-calendar/client";
+import { saveChannelCalendarConnection } from "@/lib/channel-calendar/client";
 
 afterEach(() => cleanup());
 
 describe("ChannelCalendarLinkModal", () => {
-  it("lists Airbnb and Booking.com only and shows Link & sync in the Link card", async () => {
-    render(
-      <ChannelCalendarLinkModal
-        open
-        onClose={() => {}}
-        propertyIds={["p1"]}
-        propertyOptions={[{ id: "p1", label: "4709A" }]}
-        showToast={() => {}}
-      />,
-    );
-    const trigger = document.querySelector('[data-attr="channel-calendar-link-provider"]') as HTMLElement;
-    expect(trigger).toBeTruthy();
-    fireEvent.click(trigger);
-    const listbox = screen.getByRole("listbox");
-    expect(
-      [...listbox.querySelectorAll("[role='option']")].map((o) => o.textContent?.replace(/^✓/, "")),
-    ).toEqual(["Airbnb", "Booking.com"]);
-    expect(document.querySelector('[data-attr="channel-calendar-link-import-url"]')).toBeTruthy();
-    await waitFor(() => {
-      expect(fetchRoomExportCalendarUrl).toHaveBeenCalled();
-      expect(document.querySelector('[data-attr="channel-calendar-proplane-export"]')).toBeTruthy();
-    });
-    expect(screen.getByText("Link & sync")).toBeTruthy();
-    expect(screen.getByText("Done")).toBeTruthy();
-    expect(screen.queryByText("Save & sync")).toBeNull();
-    expect(document.querySelector('[data-attr="channel-calendar-sync-all"]')).toBeNull();
+  it("walks House, Rooms and Review and rejects malformed links before save", async () => {
+    render(<ChannelCalendarLinkModal open onClose={() => {}} entries={[]} propertyIds={["p1"]} propertyOptions={[{ id: "p1", label: "4709A" }]} showToast={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Continue").closest("button")?.disabled).toBe(false));
+    fireEvent.click(screen.getByText("Continue"));
+    const input = screen.getByRole("textbox", { name: "Room 2 Airbnb calendar link" });
+    fireEvent.change(input, { target: { value: "https://example.com/feed" } });
+    expect(screen.getByText("Continue").closest("button")?.disabled).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain("valid Airbnb");
+    expect(saveChannelCalendarConnection).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "https://www.airbnb.com/calendar/ical/123.ics" } });
+    fireEvent.click(screen.getByText("Continue"));
+    expect(screen.getByText("Ready to connect")).toBeTruthy();
+    expect(screen.getByText("Save & sync")).toBeTruthy();
   });
 
   it("Escape closes only the open provider dropdown, not the whole Link calendars modal (C090/C092)", async () => {
@@ -60,7 +48,7 @@ describe("ChannelCalendarLinkModal", () => {
       <ChannelCalendarLinkModal
         open
         onClose={onClose}
-        propertyIds={["p1"]}
+        entries={[]} propertyIds={["p1"]}
         propertyOptions={[{ id: "p1", label: "4709A" }]}
         showToast={() => {}}
       />,
@@ -74,7 +62,7 @@ describe("ChannelCalendarLinkModal", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
     // ...but the modal underneath it must not have been dismissed too.
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText("Link & sync")).toBeTruthy();
+    expect(screen.getByText("Continue")).toBeTruthy();
 
     // With no dropdown open, Escape still closes the modal as normal.
     fireEvent.keyDown(document, { key: "Escape" });
@@ -85,6 +73,7 @@ describe("ChannelCalendarLinkModal", () => {
     const props = {
       open: true,
       onClose: () => {},
+      entries: [],
       propertyIds: ["p1"],
       propertyOptions: [{ id: "p1", label: "4709A" }],
       showToast: () => {},
