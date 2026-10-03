@@ -60,6 +60,8 @@ const KIND_TO_CATEGORY: Record<HouseholdChargeKind, string> = {
   early_move_out_fee: "other_income",
   security_deposit: "security_deposit_liability",
   move_in_fee: "other_income",
+  // Non-refundable and earned by the manager: income, never a liability (unlike security_deposit).
+  lease_fee: "other_income",
   other_cost: "other_income",
   payment_at_signing: "other_income",
   work_order_charge: "other_income",

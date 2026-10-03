@@ -157,6 +157,11 @@ export function paymentAtSigningPriceLabel(sub: ListingSigningComputationInput):
 export type LeaseSigningAmounts = {
   securityDeposit: number;
   moveInFee: number;
+  /**
+   * The placement's Lease fee (the one resolver). Always collected at signing, like the one-time fees:
+   * it is not a tick on the listing. A waived fee arrives as 0.
+   */
+  leaseFee?: number;
   monthlyRent: number;
   monthlyUtilities: number;
   proratedRent?: number;
@@ -190,6 +195,7 @@ export function computeLeasePaymentAtSigning(
   const legacyFallback = () =>
     amounts.securityDeposit +
     amounts.moveInFee +
+    (amounts.leaseFee ?? 0) +
     (amounts.customOneTimeFees ?? 0) +
     (amounts.otherSigningCost ?? 0);
 
@@ -216,6 +222,7 @@ export function computeLeasePaymentAtSigning(
         : amounts.monthlyUtilities;
     sum += util;
   }
+  sum += amounts.leaseFee ?? 0;
   sum += amounts.customOneTimeFees ?? 0;
   sum += amounts.otherSigningCost ?? 0;
   return sum;

@@ -79,7 +79,7 @@ function applicant(propertyId: string, email: string, shortTerm: boolean): DemoA
 
 const leaseFees = (email: string) =>
   readHouseholdCharges().filter(
-    (c) => c.residentEmail.toLowerCase() === email.toLowerCase() && c.kind === "other_cost" && c.title === "Lease fee",
+    (c) => c.residentEmail.toLowerCase() === email.toLowerCase() && c.kind === "lease_fee" && c.title === "Lease fee",
   );
 
 beforeEach(() => {
@@ -105,7 +105,10 @@ describe("the room's Lease fee, per term, through the ledger and the lease snaps
 
     // The lease prints what the ledger bills: the snapshot owes the same one-time fee at signing.
     const snapshot = buildLeaseBillingSnapshot(row, MANAGER_ID);
-    expect(Object.values(snapshot.oneTimeCustomFeeBalances ?? {})).toContain(100);
+    expect(snapshot.leaseFee).toBe(100);
+    expect(snapshot.leaseFeeDue).toBe(100);
+    // ...and it is counted once: as the lease fee, never also as a generic one-time fee.
+    expect(Object.values(snapshot.oneTimeCustomFeeBalances ?? {})).not.toContain(100);
   });
 
   it("bills the short-term Lease fee, not the long-term one, on a short stay", () => {
@@ -178,7 +181,7 @@ describe("the Lease fee billed is the fee of the lease actually signed (its room
     expect(charges).toHaveLength(1);
     expect(charges[0]?.amountLabel).toBe("$250.00");
     const snapshot = buildLeaseBillingSnapshot(row, MANAGER_ID);
-    expect(Object.values(snapshot.oneTimeCustomFeeBalances ?? {})).toContain(250);
+    expect(snapshot.leaseFeeDue).toBe(250);
   });
 
   it("a month-to-month lease bills the long-term Lease fee, never the short-term one", () => {

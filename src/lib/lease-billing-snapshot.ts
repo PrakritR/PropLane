@@ -1,4 +1,9 @@
 import { resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
+import {
+  isRoomLeaseFeeRowId,
+  leaseFeeDollarsFromOverlaidSubmission,
+  readLeaseFeeWaiver,
+} from "@/lib/lease-at-signing";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   type HouseholdCharge,
@@ -50,6 +55,10 @@ export type LeaseBillingSnapshot = {
   holdingDeposit?: { amount: number; amountDue: number; received: number };
   moveInFee: number;
   moveInFeeDue?: number;
+  /** The placement's Lease fee (the one resolver); 0 when it has none or a manager waived it. */
+  leaseFee?: number;
+  /** What the lease fee still collects: 0 once paid or waived. Counted in `dueAtSigning`. */
+  leaseFeeDue?: number;
   otherCostLabel: string;
   otherCostAmount: number;
   otherCostDue?: number;
@@ -79,6 +88,7 @@ export type LeaseBillingSnapshot = {
 const SIGNING_CHARGE_KINDS: HouseholdChargeKind[] = [
   "security_deposit",
   "move_in_fee",
+  "lease_fee",
   "application_fee",
   "holding_deposit",
   "stay_total",
@@ -136,6 +146,7 @@ const MOVE_IN_FEE_KINDS = new Set<HouseholdChargeKind>(["move_in_fee"]);
 const BEFORE_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
   ...SECURITY_DEPOSIT_KINDS,
   ...MOVE_IN_FEE_KINDS,
+  "lease_fee",
   "stay_total",
   "first_month_rent",
   "prorated_rent",
@@ -333,6 +344,18 @@ export function buildLeaseBillingSnapshot(
     Math.max(0, securityDeposit - (holdingDeposit?.amount ?? 0)),
   );
   const moveInFeeDue = remainingForKind("move_in_fee", moveInFee);
+  // The Lease fee: its own charge kind (a pre-lease_fee charge billed it as a one-time `other_cost` line
+  // carrying the room's lease-fee id, which still counts as the same fee). Waived = never owed.
+  const leaseFeeWaived = readLeaseFeeWaiver(applicant.application) !== null;
+  const leaseFeeAmount = leaseFeeWaived ? 0 : leaseFeeDollarsFromOverlaidSubmission(sub);
+  const leaseFeeCharges = placementCharges.filter(
+    (c) => c.kind === "lease_fee" || (c.kind === "other_cost" && isRoomLeaseFeeRowId(c.customFeeId)),
+  );
+  const leaseFeeDue = leaseFeeWaived
+    ? 0
+    : leaseFeeCharges.length
+      ? leaseFeeCharges.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
+      : leaseFeeAmount;
   const otherCostCharges = placementCharges.filter((c) => c.kind === "other_cost" && !c.customFeeId);
   const otherCostDue = otherCostCharges.length
     ? otherCostCharges.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
@@ -353,6 +376,7 @@ export function buildLeaseBillingSnapshot(
   const customOneTimeFeesDue = (sub?.customFees ?? []).reduce((sum, fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
     if (presetId && presetId !== "custom") return sum;
+    if (isRoomLeaseFeeRowId(fee.id)) return sum; // counted once, as `leaseFeeDue`
     if (!isShortTerm && fee.frequency !== "one-time") return sum;
     if (!feeAppliesToResidentSlot(fee as ListingFeeRow, residentSlot)) return sum;
     return sum + (oneTimeCustomFeeBalances[fee.id] ?? parseMoneyLabel(isShortTerm ? fee.shortTermAmount ?? "0" : fee.amount ?? "0"));
@@ -457,7 +481,7 @@ export function buildLeaseBillingSnapshot(
   );
 
   const totalBeforeCheckIn = pricing.stayKind === "short"
-    ? firstPeriodRentDue + firstPeriodUtilitiesDue + depositCollectionDue + moveInFeeDue + otherCostDue + customOneTimeFeesDue
+    ? firstPeriodRentDue + firstPeriodUtilitiesDue + depositCollectionDue + moveInFeeDue + leaseFeeDue + otherCostDue + customOneTimeFeesDue
     : undefined;
 
   let dueAtSigning: number;
@@ -467,6 +491,7 @@ export function buildLeaseBillingSnapshot(
       {
         securityDeposit: depositCollectionDue,
         moveInFee: moveInFeeDue,
+        leaseFee: leaseFeeDue,
         monthlyRent: firstPeriodRentDue,
         monthlyUtilities: firstPeriodUtilitiesDue,
         firstPeriodFees: firstPeriodFeesDue,
@@ -488,6 +513,7 @@ export function buildLeaseBillingSnapshot(
         {
           securityDeposit: depositCollectionDue,
           moveInFee: moveInFeeDue,
+          leaseFee: leaseFeeDue,
           monthlyRent,
           monthlyUtilities,
           proratedRent: resolvedProratedRent,
@@ -515,6 +541,8 @@ export function buildLeaseBillingSnapshot(
     holdingDeposit,
     moveInFee,
     moveInFeeDue,
+    leaseFee: leaseFeeAmount,
+    leaseFeeDue,
     otherCostLabel: placement.otherCostLabel,
     otherCostAmount: placement.otherCostAmount,
     otherCostDue,

@@ -37,7 +37,10 @@ function buildOrMatcher(expr: string): (row: Row) => boolean {
     // purpose: the value itself may contain dots (an email address).
     const eqMatch = clause.match(/^(\w+)\.eq\.(.*)$/);
     if (eqMatch) {
-      const [, col, val] = eqMatch;
+      const [, col, raw] = eqMatch;
+      // `orFilterForIdentity` double-quotes its values (and backslash-escapes `"` / `\`): read them back.
+      const quoted = raw.match(/^"(.*)"$/);
+      const val = quoted ? quoted[1]!.replace(/\\(["\\])/g, "$1") : raw;
       return (row: Row) => String(row[col] ?? "") === val;
     }
     throw new Error(`fake-supabase-tables: unhandled or() clause: ${clause}`);

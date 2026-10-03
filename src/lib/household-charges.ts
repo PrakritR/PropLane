@@ -50,7 +50,13 @@ import {
   type RentDueDayMode,
   type ResidentAcceptedPaymentMethod,
 } from "@/lib/payment-policy";
-import { residentChargeMoment, shouldRetainResidentPaymentSchedule } from "@/lib/current-resident";
+import { residentChargeMoment, residentTenancyEnded, shouldRetainResidentPaymentSchedule } from "@/lib/current-resident";
+import {
+  chargeKindDueAtSigning,
+  isRoomLeaseFeeRowId,
+  leaseFeeDollarsFromOverlaidSubmission,
+  readLeaseFeeWaiver,
+} from "@/lib/lease-at-signing";
 import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -135,6 +141,12 @@ export type HouseholdChargeKind =
   | "early_move_out_fee"
   | "security_deposit"
   | "move_in_fee"
+  /**
+   * The stay type's own Lease fee (the one placement resolver, `listing-placement-standard-fees.ts`),
+   * billed with the other at-signing charges when the lease is SENT. Income, never a liability
+   * (unlike `security_deposit`); a manager can waive it per resident/lease.
+   */
+  | "lease_fee"
   | "other_cost"
   | "payment_at_signing"
   | "work_order_charge"
@@ -192,6 +204,16 @@ export type HouseholdCharge = {
   acceptedPaymentMethodsSnapshot?: ResidentAcceptedPaymentMethod[];
   /** When true, lease signing stays disabled until this line is paid */
   blocksLeaseUntilPaid: boolean;
+  /**
+   * Stamped when the charge is created from the lease: this line is collected BEFORE the resident
+   * signs (the listing's "payment at signing" set + the lease fee + one-time fees). While any such
+   * line is unpaid the server refuses the resident's signature (`lease-at-signing.ts`).
+   */
+  dueAtSigning?: boolean;
+  /** Set when a manager waived this charge (status becomes `cancelled`); the audit of who and why. */
+  waivedAt?: string;
+  waivedByUserId?: string;
+  waiverReason?: string;
   /** When this charge was created from a manager work order pass-through */
   workOrderId?: string;
   recurringRentProfileId?: string;
@@ -898,6 +920,7 @@ const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
   "prorated_last_month_fee",
   "security_deposit",
   "move_in_fee",
+  "lease_fee",
   "other_cost",
   "stay_total",
 ]);
@@ -984,6 +1007,7 @@ function chargeBusinessKey(charge: HouseholdCharge): string {
     charge.kind === "prorated_last_month_utilities" ||
     charge.kind === "security_deposit" ||
     charge.kind === "move_in_fee" ||
+    charge.kind === "lease_fee" ||
     charge.kind === "other_cost" ||
     charge.kind === "stay_total"
   )) {
@@ -1420,6 +1444,7 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
       return "Before approval";
     case "security_deposit":
     case "move_in_fee":
+    case "lease_fee":
       return "Before lease signing";
     case "stay_total":
       return "Before check-in";
@@ -1479,6 +1504,8 @@ function chargeTitle(kind: HouseholdChargeKind): string {
       return "Security deposit";
     case "move_in_fee":
       return "Move-in cost";
+    case "lease_fee":
+      return "Lease fee";
     case "other_cost":
       return "Other cost";
     case "payment_at_signing":
@@ -1513,6 +1540,8 @@ function submissionAmount(sub: ManagerListingSubmissionV1, kind: HouseholdCharge
       return sub.securityDeposit;
     case "move_in_fee":
       return sub.moveInFee;
+    case "lease_fee":
+      return "$0";
     case "other_cost":
       return "$0";
     case "payment_at_signing":
@@ -3537,7 +3566,10 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
 
 /** Custom fees the manager set to bill once (frequency "one-time"). */
 function oneTimeCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
-  return genuinelyCustomFees(sub).filter((fee) => listingFeeCadence(fee) === "one-time");
+  // The overlay's `room_lease_fee:` row is the Lease fee, billed as its own `lease_fee` charge below.
+  return genuinelyCustomFees(sub).filter(
+    (fee) => listingFeeCadence(fee) === "one-time" && !isRoomLeaseFeeRowId(fee.id),
+  );
 }
 
 type ApprovedChargeDraft = {
@@ -3912,6 +3944,9 @@ function buildApprovedStandardChargeDrafts(
         : undefined,
   );
   pushDraft("move_in_fee", moveInFee, chargeTitle("move_in_fee"));
+  if (readLeaseFeeWaiver(row.application) === null) {
+    pushDraft("lease_fee", leaseFeeDollarsFromOverlaidSubmission(sub), chargeTitle("lease_fee"), "Before lease signing");
+  }
 
   const otherCostAmount = parseMoneyAmount(row.application?.managerOtherCostAmount ?? "");
   if (otherCostAmount > 0) {
@@ -4004,6 +4039,15 @@ function syncPendingApprovedChargesFromListing(
               amount: shortMoveIn,
               title: chargeTitle("move_in_fee"),
               dueDateLabel: "Before check-in",
+            });
+          }
+          const shortLeaseFee = leaseFeeDollarsFromOverlaidSubmission(sub);
+          if (shortLeaseFee > 0 && readLeaseFeeWaiver(row.application) === null) {
+            out.push({
+              kind: "lease_fee",
+              amount: shortLeaseFee,
+              title: chargeTitle("lease_fee"),
+              dueDateLabel: "Before lease signing",
             });
           }
           const otherCostAmount = parseMoneyAmount(row.application?.managerOtherCostAmount ?? "");
@@ -4184,7 +4228,19 @@ export function recordApprovedApplicationCharges(
   row: DemoApplicantRow,
   managerUserId: string | null,
   force = false,
-  opts: { leaseExecuted?: boolean; moveInAtResidentSign?: boolean; recurringProfileOnly?: boolean } = {},
+  opts: {
+    leaseExecuted?: boolean;
+    moveInAtResidentSign?: boolean;
+    recurringProfileOnly?: boolean;
+    /**
+     * The lease was just SENT and nobody has signed: post ONLY the lines collected at signing (the lease
+     * fee, the deposit/move-in/first month the listing ticks, the one-time fees), each stamped
+     * `dueAtSigning`, so the resident pays them before the Sign action unlocks. The rest of the schedule
+     * still waits for the executed lease. Re-running it after the lease is signed changes nothing: the
+     * lines are keyed by application and kind.
+     */
+    atSigningOnly?: boolean;
+  } = {},
 ): boolean {
   // Default false is fail-closed on purpose, and it degrades safely: a caller
   // that omits it stops REGENERATING, it never deletes. Existing charges are
@@ -4248,8 +4304,11 @@ export function recordApprovedApplicationCharges(
   // who wants money down before signature enters a holding fee, which is
   // manager-added, works at any stage, and already credits against the deposit.
   const chargeMoment = residentChargeMoment(row, { leaseExecuted });
+  // A SENT lease obliges: the at-signing lines may be posted for anyone with a live application row
+  // (approved, or still reading pending while the lease is out) — never an ended tenancy or a billing hold.
+  const atSigningOnly = Boolean(opts.atSigningOnly && !leaseExecuted && !residentTenancyEnded(row));
   const canPostMoveInSchedule =
-    chargeMoment === "signed" || (moveInAtResidentSign && row.bucket === "approved");
+    chargeMoment === "signed" || (moveInAtResidentSign && row.bucket === "approved") || atSigningOnly;
   if (!canPostMoveInSchedule) return wroteApplicationFee;
 
   if (opts.recurringProfileOnly) {
@@ -4377,6 +4436,13 @@ export function recordApprovedApplicationCharges(
   const existingKeys = new Set(rows.map((charge) => chargeBusinessKey(charge)));
   const created: HouseholdCharge[] = [];
   const bundleGroupCtx = resolveBundleGroupChargeContext(row);
+  // A waived Lease fee is never billed, and one already billed the old way (a one-time `other_cost`
+  // line carrying the room's lease-fee id) is never billed a second time as a `lease_fee`.
+  const leaseFeeWaived = readLeaseFeeWaiver(row.application) !== null;
+  const legacyLeaseFeeKept = rows.some(
+    (charge) =>
+      charge.applicationId === applicationId && charge.kind === "other_cost" && isRoomLeaseFeeRowId(charge.customFeeId),
+  );
 
   const pushCharge = (
     kind: HouseholdChargeKind,
@@ -4390,6 +4456,15 @@ export function recordApprovedApplicationCharges(
     const split = applyBundleGroupSplit(amount, title, bundleGroupCtx);
     const finalAmount = split.amount;
     if (!(finalAmount > 0)) return;
+    // Collected before the resident signs? Decided once from the listing's per-lease-type ticks.
+    const dueAtSigning = chargeKindDueAtSigning(kind, {
+      sub,
+      leaseTerm: row.application?.rentalType === "short_term"
+        ? stayPlacementLeaseTerm(row.application?.leaseTerm)
+        : row.application?.leaseTerm,
+      roomId: room?.id ?? null,
+    });
+    if (atSigningOnly && !dueAtSigning) return;
     const label = moneyAmountLabel(Number(finalAmount.toFixed(2)));
     const charge: HouseholdCharge = ({
       // A custom fee needs its OWN id per fee — approvedChargeId keys only on (app, kind),
@@ -4410,6 +4485,7 @@ export function recordApprovedApplicationCharges(
       status: "pending",
       blocksLeaseUntilPaid,
       dueDateLabel,
+      ...(dueAtSigning ? { dueAtSigning: true } : {}),
       ...(customFeeId ? { customFeeId } : {}),
       ...split.split,
     });
@@ -4489,6 +4565,9 @@ export function recordApprovedApplicationCharges(
           : undefined,
     );
     pushCharge("move_in_fee", shortMoveIn, chargeTitle("move_in_fee"), false, "Before check-in");
+    if (!leaseFeeWaived && !legacyLeaseFeeKept) {
+      pushCharge("lease_fee", leaseFeeDollarsFromOverlaidSubmission(sub), chargeTitle("lease_fee"), false, "Before lease signing");
+    }
 
     const otherCostAmount = parseMoneyAmount(row.application?.managerOtherCostAmount ?? "");
     if (otherCostAmount > 0) {
@@ -4501,6 +4580,7 @@ export function recordApprovedApplicationCharges(
     // the rate). A fee set only on the long-term side (no shortTermAmount) never bills here.
     if (allowListingDefaults) {
       for (const fee of genuinelyCustomFees(sub)) {
+        if (isRoomLeaseFeeRowId(fee.id)) continue; // the Lease fee is its own `lease_fee` charge
         const amt = parseMoneyAmount(fee.shortTermAmount ?? "");
         if (amt > 0)
           pushCharge("other_cost", amt, fee.label?.trim() || chargeTitle("other_cost"), false, "Before check-in", fee.id);
@@ -4691,6 +4771,9 @@ export function recordApprovedApplicationCharges(
         : undefined,
   );
   pushCharge("move_in_fee", moveInFee, chargeTitle("move_in_fee"), false, "Before move-in");
+  if (!leaseFeeWaived && !legacyLeaseFeeKept) {
+    pushCharge("lease_fee", leaseFeeDollarsFromOverlaidSubmission(sub), chargeTitle("lease_fee"), false, "Before lease signing");
+  }
 
   const otherCostAmount = parseMoneyAmount(row.application?.managerOtherCostAmount ?? "");
   if (otherCostAmount > 0) {
@@ -5304,7 +5387,7 @@ export function householdChargeManagerBucket(c: HouseholdCharge): ManagerPayment
 }
 
 function managerChargeStatusLabel(c: HouseholdCharge, bucket: ManagerPaymentBucket): string {
-  if (c.status === "cancelled") return "Cancelled";
+  if (c.status === "cancelled") return c.waivedAt ? "Waived" : "Cancelled";
   if (c.status === "refunded") return "Refunded";
   if (bucket === "paid") return "Paid";
   return bucket === "overdue" ? "Overdue" : "Pending";

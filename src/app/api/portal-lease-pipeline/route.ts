@@ -40,7 +40,12 @@ import { ACTIVE_PDF_MESSAGE, assertSafePdfForImport, parsePdfForImport, UnsafePd
 import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-template-storage";
-import { hasBothLeaseSignatures, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import {
+  hasBothLeaseSignatures,
+  residentHasSignedLease,
+  residentReturnedSignedPdfToManager,
+  type LeasePipelineRow,
+} from "@/lib/lease-pipeline-storage";
 import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 import {
   projectLeasePipelineListRow,
@@ -49,6 +54,8 @@ import {
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { AT_SIGNING_UNPAID_CODE, AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
+import { checkResidentAtSigningGate } from "@/lib/lease-at-signing.server";
 import { buildDurableLeaseTransitionEnvelope, leaseEventForTransition } from "@/lib/domain-action-events.server";
 import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
 
@@ -1117,6 +1124,37 @@ export async function POST(req: Request) {
         );
         if (signatureRefusal) {
           return NextResponse.json({ error: signatureRefusal }, { status: 409 });
+        }
+
+        // The at-signing payment gate (captain, 2026-10-03): a resident's signature is recorded only
+        // once every charge due at signing — the lease fee, the deposit, the move-in fee and the other
+        // one-time lines — is PAID. Paid is written by the Stripe webhook, never by this body, so a
+        // client that claims it has paid, or simply skips the payment step, is refused here.
+        if (
+          ctx.user.role === "resident" &&
+          // Either signature representation counts (the object, or the legacy name + date pair), and so does
+          // returning the lease signed on paper: all of them wait for the same payment.
+          ((!residentHasSignedLease(storedRow) && residentHasSignedLease(normalized as unknown as LeasePipelineRow)) ||
+            (!residentReturnedSignedPdfToManager(storedRow) &&
+              residentReturnedSignedPdfToManager(normalized as unknown as LeasePipelineRow)))
+        ) {
+          const gate = await checkResidentAtSigningGate(ctx.db, {
+            lease: storedRow,
+            residentUserId: ctx.user.id,
+            residentEmail: ctx.user.email ?? "",
+          });
+          if (!gate.ok) {
+            return NextResponse.json(
+              { error: "We couldn't confirm your payment just now. Try again in a moment.", code: "AT_SIGNING_UNVERIFIED" },
+              { status: 503 },
+            );
+          }
+          if (gate.unpaid.length > 0) {
+            return NextResponse.json(
+              { error: AT_SIGNING_UNPAID_MESSAGE, code: AT_SIGNING_UNPAID_CODE, unpaidCents: gate.unpaidCents },
+              { status: 402 },
+            );
+          }
         }
 
         // Whose signature it is, which the refusal above deliberately does not judge. From the

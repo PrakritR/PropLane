@@ -32,6 +32,7 @@ const CHARGE_KINDS = [
   "early_move_out_fee",
   "security_deposit",
   "move_in_fee",
+  "lease_fee",
   "other_cost",
   "payment_at_signing",
   "work_order_charge",

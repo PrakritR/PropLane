@@ -59,7 +59,11 @@ export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonl
   return [...found.values()];
 }
 
-/** True once the application carries any tenancy charge (an application fee alone is not one). */
+/**
+ * True once the application carries any tenancy charge (an application fee alone is not one). The lines
+ * created when the lease was SENT (`dueAtSigning`: the lease fee, deposit, move-in fee) are the start of the
+ * schedule, not all of it, so they alone do not mean the executed lease has been billed.
+ */
 export function applicationHasTenancyCharges(applicationId: string, managerUserId: string | null): boolean {
   const key = normalizeApplicationAxisId(applicationId);
   return readChargesForManager(managerUserId).some(
@@ -67,8 +71,50 @@ export function applicationHasTenancyCharges(applicationId: string, managerUserI
       charge.applicationId &&
       normalizeApplicationAxisId(charge.applicationId) === key &&
       charge.kind !== "application_fee" &&
-      charge.kind !== "holding_deposit",
+      charge.kind !== "holding_deposit" &&
+      charge.dueAtSigning !== true,
   );
+}
+
+/** True once the application carries any line collected at signing (stamped when the lease is sent). */
+export function applicationHasAtSigningCharges(applicationId: string, managerUserId: string | null): boolean {
+  const key = normalizeApplicationAxisId(applicationId);
+  return readChargesForManager(managerUserId).some(
+    (charge) =>
+      charge.dueAtSigning === true &&
+      charge.applicationId &&
+      normalizeApplicationAxisId(charge.applicationId) === key,
+  );
+}
+
+/**
+ * The moment a lease is SENT: create the charges the resident pays before they can sign — the lease fee,
+ * the deposit and move-in fee (and first month's rent) the listing collects at signing, and the one-time
+ * fees. Each is stamped `dueAtSigning`, so the server refuses the signature until they are paid. Safe to
+ * call repeatedly: lines are keyed by application and kind, and nothing is touched once the lease is signed.
+ */
+export async function createAtSigningChargesForSentLease(
+  lease: LeasePipelineRow,
+  managerUserId: string | null,
+): Promise<ExecutedLeaseChargesResult> {
+  if (lease.status !== "Resident Signature Pending" || lease.residentSignature) {
+    return { ok: false, reason: "The lease is not waiting on the resident's signature." };
+  }
+  if (lease.pendingRenewal) return { ok: false, reason: "A renewal applies its own terms." };
+  const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
+  if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
+
+  let changed = false;
+  for (const app of apps) {
+    if (recordApprovedApplicationCharges(app, managerUserId, false, { leaseExecuted: false, atSigningOnly: true })) {
+      changed = true;
+    }
+  }
+  if (changed && !isDemoModeActive()) {
+    // Write through before returning so the resident's lease page already shows the payment.
+    await mirrorHouseholdChargesToServerAwait().catch(() => false);
+  }
+  return { ok: true, created: changed, applications: apps.length };
 }
 
 /**
@@ -122,6 +168,23 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
     try {
       const now = Date.now();
       for (const lease of readLeasePipeline(managerUserId)) {
+        // A lease sent by a path that did not create its at-signing lines (another session, an agent) gets
+        // them here, so the resident is never offered a signature that skips the payment.
+        if (lease.status === "Resident Signature Pending" && !lease.residentSignature && !lease.pendingRenewal) {
+          const sentKey = `sent:${lease.id}`;
+          if (!handled.has(sentKey)) {
+            const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
+            if (sentApps.length > 0 && sentApps.every((app) => applicationHasAtSigningCharges(app.id, managerUserId))) {
+              handled.add(sentKey);
+            } else if (sentApps.length > 0) {
+              const triedSent = (attempts.get(sentKey) ?? 0) + 1;
+              attempts.set(sentKey, triedSent);
+              const sent = await createAtSigningChargesForSentLease(lease, managerUserId).catch(() => null);
+              if (triedSent >= MAX_ATTEMPTS || (sent && sent.ok)) handled.add(sentKey);
+            }
+          }
+          continue;
+        }
         if (lease.status !== "Fully Signed" || lease.pendingRenewal || handled.has(lease.id)) continue;
         const signedAt = Date.parse(lease.fullySignedAt ?? "");
         if (!Number.isFinite(signedAt) || now - signedAt > WATCH_WINDOW_MS) continue;

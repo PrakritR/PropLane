@@ -4278,6 +4278,15 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   }
   raw[idx] = updated;
   write(raw, managerUserId);
+  // Sending a lease is the moment the at-signing charges (lease fee, deposit, move-in fee, …) come into
+  // being, so the resident's first screen is the payment that unlocks their signature. A failure here never
+  // un-sends the lease: the manager's session also catches any sent lease that still lacks them.
+  try {
+    const { createAtSigningChargesForSentLease } = await import("@/lib/lease-signing-charges.client");
+    await createAtSigningChargesForSentLease(updated, managerUserId ?? updated.managerUserId ?? null);
+  } catch {
+    // best effort — see above
+  }
   return { ok: true };
 }
 

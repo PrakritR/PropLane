@@ -91,7 +91,7 @@ export function leaseSendTermsEqual(a: LeaseSendTerms, b: LeaseSendTerms): boole
 /* ───────────────────────────── payments schedule ───────────────────────────── */
 
 export type LeaseSendScheduleRow = {
-  key: "deposit" | "move_in_fee" | "first_month" | "utilities" | "monthly_rent";
+  key: "deposit" | "move_in_fee" | "lease_fee" | "first_month" | "utilities" | "monthly_rent";
   label: string;
   amount: number;
 };
@@ -125,6 +125,7 @@ export function leaseSendSchedule(
   const out: LeaseSendScheduleRow[] = [];
   if (snap.securityDeposit > 0) out.push({ key: "deposit", label: "Deposit", amount: snap.securityDeposit });
   if (snap.moveInFee > 0) out.push({ key: "move_in_fee", label: "Move-in fee", amount: snap.moveInFee });
+  if ((snap.leaseFee ?? 0) > 0) out.push({ key: "lease_fee", label: "Lease fee", amount: snap.leaseFee! });
   const prorated = snap.firstPeriodRentDue ?? snap.proratedRent ?? 0;
   if (prorated > 0) {
     out.push({ key: "first_month", label: "First month (prorated)", amount: prorated });

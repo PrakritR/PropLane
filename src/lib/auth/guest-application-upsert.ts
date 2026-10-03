@@ -215,6 +215,7 @@ export async function prepareGuestApplicationUpsert(
             managerUtilitiesOverride: params.existing.application.managerUtilitiesOverride,
             managerSecurityDepositOverride: params.existing.application.managerSecurityDepositOverride,
             managerMoveInFeeOverride: params.existing.application.managerMoveInFeeOverride,
+            managerLeaseFeeWaiver: params.existing.application.managerLeaseFeeWaiver,
             managerOtherCostLabel: params.existing.application.managerOtherCostLabel,
             managerOtherCostAmount: params.existing.application.managerOtherCostAmount,
           }

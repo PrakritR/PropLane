@@ -13,6 +13,10 @@ import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
 import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-signing-fee-card";
+import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
+import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
+import { usePortalSession } from "@/hooks/use-portal-session";
+import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
 import {
@@ -253,6 +257,18 @@ export function ResidentLeasePanel({
   const residentAlreadySigned = Boolean(pipelineRow?.residentSignature);
 
   /**
+   * Pay first, then sign. Everything due at signing (the lease fee, deposit, move-in fee and the other
+   * one-time lines) is ONE Stripe payment, and Sign stays off until the Stripe webhook has marked every
+   * line paid. The server refuses the signature too, so this is the convenience, not the lock.
+   */
+  const portalSession = usePortalSession();
+  const awaitingSignature = Boolean(
+    pipelineRow && pipelineRow.status === "Resident Signature Pending" && !residentAlreadySigned,
+  );
+  const atSigning = useResidentAtSigning(awaitingSignature ? pipelineRow : null, email ?? "", portalSession.userId);
+  const signBlocked = awaitingSignature && atSigning.blocked;
+
+  /**
    * Signing fee. The plan's order is form → sign → pay, so a signature is never
    * blocked on payment; the fee becomes the one remaining step afterwards, and
    * the lease is not complete from the resident's side until it is settled.
@@ -350,6 +366,10 @@ export function ResidentLeasePanel({
     if (!email || leaseFullyExecuted) return;
     if (pipelineRow?.bucket !== "resident") {
       showToast("Signing opens when your manager sends the lease to you for resident signature.");
+      return;
+    }
+    if (signBlocked) {
+      showToast(AT_SIGNING_UNPAID_MESSAGE);
       return;
     }
     if (!leaseDocumentLoaded) {
@@ -460,9 +480,9 @@ export function ResidentLeasePanel({
                 <PortalIconAction icon={Send} label="Send to manager" onClick={onSendToManager} />
                 <PortalIconAction
                   icon={PenLine}
-                  label={leaseDocumentLoaded ? "Sign lease" : "Loading lease…"}
+                  label={!leaseDocumentLoaded ? "Loading lease…" : signBlocked ? "Pay to sign" : "Sign lease"}
                   tone="primary"
-                  disabled={!leaseDocumentLoaded}
+                  disabled={!leaseDocumentLoaded || signBlocked}
                   data-attr="resident-sign-lease"
                   onClick={() => onSignLease()}
                 />
@@ -501,8 +521,24 @@ export function ResidentLeasePanel({
       />
     ) : null;
 
+  const atSigningCard =
+    awaitingSignature && atSigning.charges.length > 0 ? (
+      <ResidentSignAndPayMoveIn
+        email={email ?? ""}
+        signed={false}
+        mode="at-signing"
+        charges={atSigning.charges}
+        onCheckoutComplete={() => {
+          void atSigning.waitForSettled().then((settled) => {
+            showToast(settled ? "Payment received. You can sign now." : "Payment submitted. Signing opens when it clears.");
+          });
+        }}
+      />
+    ) : null;
+
   const leaseDetailBody = documentView || pipelineRow ? (
     <div className="px-3 pb-6 pt-2 sm:px-4 text-left">
+      {atSigningCard ? <div className="mb-3">{atSigningCard}</div> : null}
       {signingFeeCard ? <div className="mb-3">{signingFeeCard}</div> : null}
       {documentView ? (
         <ResidentLeaseBareDocumentPreview
@@ -661,6 +697,7 @@ export function ResidentLeasePanel({
             activeDestinationId={bucket}
             destinationAriaLabel="Lease status"
           />
+          {atSigningCard ? <div className="mb-3 max-lg:mb-2.5">{atSigningCard}</div> : null}
           {signingFeeCard ? <div className="mb-3 max-lg:mb-2.5">{signingFeeCard}</div> : null}
           {renewalStatus.kind !== "none" ? (
             <div
@@ -774,7 +811,21 @@ export function ResidentLeasePanel({
       { id: "move-in", label: "Move-in", value: pipelineRow?.application?.leaseStart ?? "—" },
     ],
     overviewNeeds: [
-      ...(!residentSigned ? [{ id: "sign", title: "Sign your lease", detail: managerSigned ? "Manager signed" : "Awaiting your signature", onClick: () => onSignLease() }] : []),
+      ...(!residentSigned
+        ? [
+            signBlocked
+              ? {
+                  id: "pay-to-sign",
+                  title: `Pay $${(atSigning.totalCents / 100).toFixed(2)} to sign`,
+                  detail: "Lease fee and move-in costs",
+                  onClick: () =>
+                    portalNavigate(
+                      residentLeaseDetailHref(basePath, activeBucket, leaseDetailId ?? "", "lease-document"),
+                    ),
+                }
+              : { id: "sign", title: "Sign your lease", detail: managerSigned ? "Manager signed" : "Awaiting your signature", onClick: () => onSignLease() },
+          ]
+        : []),
       // Sign first, pay after: an unpaid fee is what keeps the lease from being
       // finished on the resident's side, so it stays on the needs list.
       ...(signingFeeDue
@@ -881,8 +932,8 @@ export function ResidentLeasePanel({
       {showSigningWorkflowActions && !residentAlreadySigned ? (
         <ResidentLeaseSignStickyBar
           onSign={() => onSignLease()}
-          disabled={!leaseDocumentLoaded}
-          label={leaseDocumentLoaded ? "Sign lease" : "Loading lease…"}
+          disabled={!leaseDocumentLoaded || signBlocked}
+          label={!leaseDocumentLoaded ? "Loading lease…" : signBlocked ? "Pay to sign" : "Sign lease"}
         />
       ) : null}
     </>

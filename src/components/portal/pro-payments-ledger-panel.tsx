@@ -40,8 +40,13 @@ import {
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Bell, BadgeCheck, CalendarDays, HandCoins, RotateCcw, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { Ban, Bell, BadgeCheck, CalendarDays, HandCoins, RotateCcw, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
+import {
+  leaseIdForLeaseFeeCharge,
+  reinstateLeaseFeeForLease,
+  waiveLeaseFeeForLease,
+} from "@/lib/lease-fee-waiver.client";
 import type { RecordSections } from "@/lib/portals/record-sections";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
@@ -329,6 +334,10 @@ export function ManagerPaymentsLedgerPanel({
   const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
   const [takePaymentRow, setTakePaymentRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  // Lease fee waiver: the row being waived (or restored) and the reason the manager types.
+  const [waiveRow, setWaiveRow] = useState<{ row: DemoManagerPaymentLedgerRow; restore: boolean } | null>(null);
+  const [waiveReason, setWaiveReason] = useState("");
+  const [waiveBusy, setWaiveBusy] = useState(false);
   const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
   const [offlineNote, setOfflineNote] = useState("");
@@ -1302,6 +1311,15 @@ export function ManagerPaymentsLedgerPanel({
       const paid = isPaidRow(row);
       const canEdit = Boolean(row.householdChargeId && !paid) && rowEditable(row);
 
+      // A lease fee can be waived for this resident until it is paid; a waived one can be restored.
+      if (row.chargeKind === "lease_fee" && row.householdChargeId) {
+        const leaseFee = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
+        if (leaseFee?.status === "cancelled" && leaseFee.waivedAt) {
+          actions.push({ id: "restore-lease-fee", label: "Restore lease fee", icon: RotateCcw });
+        } else if (!paid) {
+          actions.push({ id: "waive-lease-fee", label: "Waive lease fee", icon: Ban });
+        }
+      }
       if (!paid) {
         if (row.householdChargeId) {
           actions.push({ id: "take-payment", label: "Take payment", icon: HandCoins });
@@ -2256,6 +2274,37 @@ export function ManagerPaymentsLedgerPanel({
       />
     ) : null}
       {takePaymentRow?.householdChargeId ? <ManagerTakePaymentDialog key={takePaymentRow.householdChargeId} chargeId={takePaymentRow.householdChargeId} onClose={() => setTakePaymentRow(null)} onSubmitted={() => { setTakePaymentRow(null); onRowsChanged?.(); showToast("Payment submitted. Status updates when confirmed."); }} /> : null}
+      <PortalDialog
+        open={Boolean(waiveRow)}
+        title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}
+        onClose={() => setWaiveRow(null)}
+        primaryAction={{
+          label: waiveBusy ? "Saving…" : waiveRow?.restore ? "Restore" : "Waive",
+          onClick: async () => {
+            const target = waiveRow;
+            if (!target?.row.householdChargeId || waiveBusy) return;
+            const charge = readHouseholdCharges().find((item) => item.id === target.row.householdChargeId);
+            const leaseId = charge ? leaseIdForLeaseFeeCharge(charge, managerUserId) : null;
+            if (!leaseId) { showToast("This lease fee is not linked to a lease yet."); return; }
+            setWaiveBusy(true);
+            const result = target.restore
+              ? await reinstateLeaseFeeForLease(leaseId)
+              : await waiveLeaseFeeForLease(leaseId, waiveReason);
+            setWaiveBusy(false);
+            if (!result.ok) { showToast(result.error); return; }
+            setWaiveRow(null);
+            onRowsChanged?.();
+            showToast(target.restore ? "Lease fee restored." : "Lease fee waived.");
+          },
+        }}
+      >
+        {waiveRow?.restore ? null : (
+          <label className="block text-sm" data-attr="waive-lease-fee-reason">
+            Reason
+            <Input value={waiveReason} maxLength={300} onChange={(event) => setWaiveReason(event.target.value)} />
+          </label>
+        )}
+      </PortalDialog>
       <PortalDialog open={Boolean(offlineRow)} title="Mark paid offline" onClose={() => setOfflineRow(null)} primaryAction={{ label: "Mark paid", onClick: async () => {
         if (!offlineRow?.householdChargeId) { showToast("This payment cannot be recorded offline."); return; }
         const paidAt = offlineDate === new Date().toLocaleDateString("en-CA") ? new Date().toISOString() : `${offlineDate}T12:00:00`;
@@ -2349,6 +2398,8 @@ export function ManagerPaymentsLedgerPanel({
               openReminderPreview(detailRow);
               return;
             }
+            if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
+            if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
             if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
             if (actionId === "mark-paid") { setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }

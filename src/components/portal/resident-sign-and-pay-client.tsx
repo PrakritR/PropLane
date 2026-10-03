@@ -15,6 +15,8 @@ import {
 import { buildResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
 import { HOUSEHOLD_CHARGES_EVENT, recordApprovedApplicationCharges } from "@/lib/household-charges";
 import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
+import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
+import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
@@ -34,6 +36,10 @@ export function ResidentSignAndPayClient() {
     [email],
   );
   const residentSigned = Boolean(pipelineRow?.residentSignature?.signedAtIso || pipelineRow?.signedAtIso);
+  // Pay first: everything due at signing is one Stripe payment, and Sign stays off until the webhook
+  // has marked every line paid. A lease that is already signed has nothing left to gate.
+  const atSigning = useResidentAtSigning(residentSigned ? null : pipelineRow, email, session.userId);
+  const signBlocked = !residentSigned && atSigning.blocked;
 
   const loadDocument = useCallback(async () => {
     if (!email || !pipelineRow) {
@@ -70,6 +76,10 @@ export function ResidentSignAndPayClient() {
 
   const onSign = async () => {
     if (!email || !pipelineRow || !consent) return;
+    if (signBlocked) {
+      showToast(AT_SIGNING_UNPAID_MESSAGE);
+      return;
+    }
     setSigning(true);
     try {
       const hash = await sha256HexFromUtf8(leaseBody);
@@ -111,6 +121,19 @@ export function ResidentSignAndPayClient() {
         />
         {loadingDoc ? <p className="mt-2 text-xs font-semibold text-muted">Loading lease…</p> : null}
       </section>
+      {!residentSigned && atSigning.charges.length > 0 ? (
+        <ResidentSignAndPayMoveIn
+          email={email}
+          signed={false}
+          mode="at-signing"
+          charges={atSigning.charges}
+          onCheckoutComplete={() => {
+            void atSigning.waitForSettled().then((settled) => {
+              showToast(settled ? "Payment received. You can sign now." : "Payment submitted. Signing opens when it clears.");
+            });
+          }}
+        />
+      ) : null}
       <section className="rounded-2xl border border-border bg-card p-4">
         <label className="block text-sm font-bold text-foreground">
           Type your full name
@@ -128,10 +151,12 @@ export function ResidentSignAndPayClient() {
           type="button"
           className="mt-4 min-h-11"
           onClick={() => void onSign()}
-          disabled={!typedName.trim() || !consent || signing || loadingDoc || !pipelineRow}
+          disabled={!typedName.trim() || !consent || signing || loadingDoc || !pipelineRow || signBlocked}
+          data-attr="resident-sign-and-pay-sign"
         >
           Sign
         </Button>
+
         {documentHash ? (
           <p className="mt-2 text-xs font-semibold text-muted">Document SHA-256: {documentHash}</p>
         ) : null}

@@ -29,6 +29,10 @@ const managerMayFileLeaseUnderProperty = vi.fn(async () => ({ ok: true, allowed:
   | { ok: true; allowed: boolean; propertyExists: boolean }
   | { ok: false; error: string });
 
+/** The resident's charge records, as the signing gate reads them (`portal_household_charge_records`). */
+let CHARGES: Array<{ id: string; status: string; row_data: Record<string, unknown> }> = [];
+let PAYABLE_IN_PROPLANE = true;
+
 let PROFILE: { email: string; role: string | null } | null = null;
 let PROFILE_ROLES: string[] = [];
 let PORTAL_ROLES: string[] = [];
@@ -92,6 +96,10 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerCanAccessLeaseRecord: (...a: unknown[]) => managerCanAccessLeaseRecord(...(a as [])),
   managerMayFileLeaseUnderProperty: (...a: unknown[]) => managerMayFileLeaseUnderProperty(...(a as [])),
 }));
+vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
+  enrichHouseholdChargesFromPropertyRecords: async (_db: unknown, charges: Array<Record<string, unknown>>) =>
+    charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: PAYABLE_IN_PROPLANE, managerStripeConnectReadySnapshot: true })),
+}));
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: (...a: unknown[]) => autoFileLeaseDocument(...(a as [])),
 }));
@@ -132,6 +140,8 @@ function makeDb() {
         },
         order: () => builder,
         or: () => {
+          // The at-signing gate's read of the resident's own charges.
+          if (table === "portal_household_charge_records") return Promise.resolve({ data: CHARGES, error: null });
           orFiltered = true;
           return builder;
         },
@@ -182,6 +192,8 @@ function asResident() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  CHARGES = [];
+  PAYABLE_IN_PROPLANE = true;
   SELECTS.length = 0;
   VISIBLE_TO_RESIDENT = true;
   RECORD_EXISTS = true;
@@ -958,6 +970,119 @@ describe("portal-lease-pipeline resident — signature write guards (PRP-251)", 
 
     expect(res.status).toBe(409);
     expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Pay at signing (captain, 2026-10-03): the signature is recorded only once every charge due at signing is
+ * PAID. `paid` is written by the Stripe webhook, so a client that skips or fakes the payment step is refused
+ * by the route, whatever the page showed.
+ */
+describe("portal-lease-pipeline resident — signing waits for the at-signing payment", () => {
+  const awaitingResident = {
+    ...DEFAULT_STORED_ROW_DATA,
+    generatedHtml: "<p>Manager's lease v1</p>",
+    bucket: "resident",
+    status: "Resident Signature Pending",
+    propertyId: "prop-1",
+    managerSignature: { role: "manager", name: "Property Manager", signedAtIso: "2026-05-01T00:00:00Z" },
+  };
+  const charge = (id: string, kind: string, status: string, amount = "$300.00") => ({
+    id,
+    status,
+    row_data: {
+      id,
+      kind,
+      status,
+      applicationId: APPLICATION_ID,
+      residentEmail: RESIDENT_EMAIL,
+      residentUserId: RESIDENT_ID,
+      propertyId: "prop-1",
+      propertyLabel: "Cascade Lofts",
+      managerUserId: OWNER_MANAGER,
+      title: kind,
+      amountLabel: amount,
+      balanceLabel: status === "paid" ? "$0.00" : amount,
+      dueAtSigning: true,
+    },
+  });
+  const sign = (extra: Record<string, unknown> = {}) =>
+    post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Manager's lease v1</p>",
+        residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-05-02T00:00:00Z" },
+        signatureName: "Resident",
+        signedAtIso: "2026-05-02T00:00:00Z",
+        ...extra,
+      },
+    });
+
+  beforeEach(() => {
+    asResident();
+    STORED.row_data = { ...awaitingResident };
+  });
+
+  it("refuses the signature with 402 while the lease fee or deposit is unpaid, and writes nothing", async () => {
+    CHARGES = [charge("fee", "lease_fee", "pending"), charge("dep", "security_deposit", "pending", "$500.00")];
+    const res = await sign();
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({ code: "AT_SIGNING_UNPAID", unpaidCents: 80_000 });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses the legacy name + date signature pair too, not only the signature object", async () => {
+    CHARGES = [charge("fee", "lease_fee", "pending")];
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Manager's lease v1</p>",
+        signatureName: "Resident",
+        signedAtIso: "2026-05-02T00:00:00Z",
+      },
+    });
+    expect(res.status).toBe(402);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("a clearing bank transfer is not a paid charge", async () => {
+    CHARGES = [charge("fee", "lease_fee", "paid"), charge("dep", "security_deposit", "processing", "$500.00")];
+    expect((await sign()).status).toBe(402);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("records the signature once the webhook has marked every line paid", async () => {
+    CHARGES = [charge("fee", "lease_fee", "paid"), charge("dep", "security_deposit", "paid", "$500.00")];
+    const res = await sign();
+    expect(res.status).toBe(200);
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("a waived (cancelled) lease fee does not block", async () => {
+    CHARGES = [charge("fee", "lease_fee", "cancelled"), charge("dep", "security_deposit", "paid", "$500.00")];
+    expect((await sign()).status).toBe(200);
+  });
+
+  it("does not trap a resident whose manager collects offline", async () => {
+    PAYABLE_IN_PROPLANE = false;
+    CHARGES = [charge("fee", "lease_fee", "pending")];
+    expect((await sign()).status).toBe(200);
+  });
+
+  it("a post-signing line (no dueAtSigning stamp) never blocks the signature", async () => {
+    const rent = charge("rent", "first_month_rent", "pending", "$1,100.00");
+    delete (rent.row_data as Record<string, unknown>).dueAtSigning;
+    CHARGES = [rent];
+    expect((await sign()).status).toBe(200);
+  });
+
+  it("does not gate a lease with no at-signing charges (nothing was created)", async () => {
+    CHARGES = [];
+    expect((await sign()).status).toBe(200);
   });
 });
 

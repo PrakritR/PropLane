@@ -97,6 +97,12 @@ export type RentalWizardFormState = {
   residentSlot?: number;
   managerSecurityDepositOverride: string;
   managerMoveInFeeOverride: string;
+  /**
+   * Set when a manager waives THIS resident's lease fee: the fee is not charged and drops out of the
+   * at-signing total. Manager-owned like the overrides above, so a resident's own application write
+   * never sets or clears it. Who, when and why — the audit.
+   */
+  managerLeaseFeeWaiver?: { waivedAtIso: string; waivedByUserId: string; reason: string } | null;
   managerOtherCostLabel: string;
   managerOtherCostAmount: string;
   fullLegalName: string;

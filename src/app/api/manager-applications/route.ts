@@ -1312,6 +1312,7 @@ export async function POST(req: Request) {
                 managerUtilitiesOverride: existing.application.managerUtilitiesOverride,
                 managerSecurityDepositOverride: existing.application.managerSecurityDepositOverride,
                 managerMoveInFeeOverride: existing.application.managerMoveInFeeOverride,
+                managerLeaseFeeWaiver: existing.application.managerLeaseFeeWaiver,
                 managerOtherCostLabel: existing.application.managerOtherCostLabel,
                 managerOtherCostAmount: existing.application.managerOtherCostAmount,
               }

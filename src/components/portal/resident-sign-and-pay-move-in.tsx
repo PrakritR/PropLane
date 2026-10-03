@@ -42,7 +42,29 @@ type CheckoutState = {
   totalCents?: number;
 };
 
-export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; signed: boolean }) {
+/**
+ * The one sign-and-pay payment.
+ *
+ * `mode="move-in"` (default) is the original after-signing card: the resident's move-in group.
+ * `mode="at-signing"` is the same card moved in FRONT of the signature: the lease fee, deposit, move-in fee
+ * and other lines collected at signing (`charges`, from `useResidentAtSigning`), paid in ONE Stripe checkout
+ * for exactly their sum. The Sign action stays off until the Stripe webhook has marked every one paid;
+ * `onCheckoutComplete` only starts the wait for that, it never unlocks anything itself.
+ */
+export function ResidentSignAndPayMoveIn({
+  email,
+  signed,
+  mode = "move-in",
+  charges: atSigningCharges,
+  onCheckoutComplete,
+}: {
+  email: string;
+  signed: boolean;
+  mode?: "move-in" | "at-signing";
+  charges?: HouseholdCharge[];
+  onCheckoutComplete?: () => void;
+}) {
+  const atSigning = mode === "at-signing";
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<ResidentAxisPaymentMethod>("card");
@@ -64,21 +86,29 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
   }, []);
 
   const moveInGroup = useMemo(() => {
+    if (atSigning) return null;
     const pending = readChargesForResident(email, null).filter((c) => isPayableHouseholdCharge(c));
     const groups = buildMoveInChargeGroups(pending);
     return groups[0] ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick refreshes charge reads
-  }, [email, signed, tick]);
+  }, [email, signed, tick, atSigning]);
 
   useEffect(() => {
-    if (!signed) return;
+    if (!signed || atSigning) return;
     void syncHouseholdChargesFromServer(true, { skipReconcile: true });
-  }, [signed]);
+  }, [signed, atSigning]);
 
-  const payableIds = useMemo(
-    () => (moveInGroup ? filterChargesForPayMethod(moveInGroup.items).map((c) => c.id) : []),
-    [moveInGroup],
+  // The lines this payment settles: the at-signing set as given, or the move-in group.
+  const items = useMemo<HouseholdCharge[]>(
+    () => (atSigning ? atSigningCharges ?? [] : moveInGroup?.items ?? []),
+    [atSigning, atSigningCharges, moveInGroup],
   );
+
+  const payableItems = useMemo(
+    () => filterChargesForPayMethod(items).filter((c) => c.status === "pending" || c.status === "failed"),
+    [items],
+  );
+  const payableIds = useMemo(() => payableItems.map((c) => c.id), [payableItems]);
 
   const loadCheckout = useCallback(
     async (chargeIds: string[], method: ResidentAxisPaymentMethod) => {
@@ -135,7 +165,9 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
     [],
   );
 
-  if (!signed) {
+  if (atSigning && items.length === 0) return null;
+
+  if (!atSigning && !signed) {
     return (
       <section className="rounded-2xl border border-border bg-card p-4" data-jr-sp-pay>
         <h2 className="text-sm font-bold text-foreground">Move-in costs</h2>
@@ -144,7 +176,7 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
     );
   }
 
-  if (!moveInGroup) {
+  if (!atSigning && !moveInGroup) {
     return (
       <section className="rounded-2xl border border-border bg-card p-4" data-jr-sp-pay>
         <h2 className="text-sm font-bold text-foreground">Move-in costs</h2>
@@ -154,22 +186,37 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
   }
 
   const feeCents = (checkout?.processingFeeCents ?? 0) > 0 ? checkout!.processingFeeCents! : 0;
-  const totalCents =
-    checkout?.totalCents ??
-    moveInGroup.items.reduce((sum, c) => sum + centsFromLabel(c.balanceLabel), 0) + feeCents;
+  // The itemized lines ARE the amount: the subtotal is their sum, and the Stripe session is created from
+  // the very same charges, so what is shown is what is charged (plus a processing fee, shown on its own).
+  const subtotalCents = (atSigning ? payableItems : items).reduce((sum, c) => sum + centsFromLabel(c.balanceLabel), 0);
+  const totalCents = checkout?.totalCents ?? subtotalCents + feeCents;
+  const allClearing = items.length > 0 && items.every((c) => c.status === "processing");
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-4" data-jr-sp-pay>
-      <h2 className="text-sm font-bold text-foreground">Move-in costs</h2>
-      <ul className="mt-3 divide-y divide-border rounded-xl border border-border">
-        {moveInGroup.items.map((item: HouseholdCharge) => (
+    <section
+      className="rounded-2xl border border-border bg-card p-4"
+      data-jr-sp-pay
+      data-attr={atSigning ? "resident-at-signing-pay" : undefined}
+    >
+      <h2 className="text-sm font-bold text-foreground">{atSigning ? "Pay before you sign" : "Move-in costs"}</h2>
+      <ul className="mt-3 divide-y divide-border rounded-xl border border-border" data-attr="resident-at-signing-lines">
+        {items.map((item: HouseholdCharge) => (
           <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
             <span className="truncate text-sm font-semibold text-foreground">{item.title}</span>
-            <span className="shrink-0 text-sm font-bold tabular-nums">{item.balanceLabel}</span>
+            <span className="shrink-0 text-sm font-bold tabular-nums">
+              {atSigning && item.status === "processing" ? "Clearing" : item.balanceLabel}
+            </span>
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-sm font-bold text-foreground tabular-nums">Total {formatUsd(totalCents)}</p>
+      {atSigning ? (
+        <p className="mt-3 text-sm font-semibold text-foreground tabular-nums" data-attr="resident-at-signing-subtotal">
+          Charges {formatUsd(subtotalCents)}
+        </p>
+      ) : null}
+      <p className="mt-1 text-sm font-bold text-foreground tabular-nums" data-attr="resident-at-signing-total">
+        Total {formatUsd(totalCents)}
+      </p>
       <p className="mt-1 text-xs font-semibold text-muted">
         {feeCents > 0 ? `Processing fee ${formatUsd(feeCents)}` : "Processing fee: None"}
       </p>
@@ -200,12 +247,14 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
       ) : null}
       {checkout?.clientSecret ? (
         <div className="mt-3 min-h-[min(50vh,22rem)] overflow-hidden rounded-2xl border border-border bg-card">
-          <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
+          <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} onComplete={onCheckoutComplete} />
         </div>
       ) : (
         <Button
           type="button"
           className="mt-4 min-h-11"
+          disabled={allClearing}
+          data-attr={atSigning ? "resident-at-signing-pay-button" : undefined}
           onClick={() => {
             if (payableIds.length === 0) {
               showToast("Nothing to pay.");
@@ -214,7 +263,7 @@ export function ResidentSignAndPayMoveIn({ email, signed }: { email: string; sig
             void loadCheckout(payableIds, paymentMethod);
           }}
         >
-          Pay {formatUsd(totalCents)}
+          {allClearing ? "Bank transfer clearing" : `Pay ${formatUsd(totalCents)}`}
         </Button>
       )}
     </section>

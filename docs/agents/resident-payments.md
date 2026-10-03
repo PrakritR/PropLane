@@ -271,8 +271,8 @@ on a listing that lets none, or a room the listing lacks falls back); the body
 never carries an amount. The Stripe session and the paid household charge record
 the room, lease type and chain level the amount was computed for (`fee_room_id`
 / `fee_lease_term` / `fee_source`, `applicationFeeBasis`); a room or term change
-AFTER paying does not re-charge or refund. The lease fee is billed once at
-signing as a one-time fee. Coverage: `tests/unit/application-fee-by-room.test.ts`,
+AFTER paying does not re-charge or refund. The lease fee is its own charge kind
+(`lease_fee`, see "Lease fee and pay-at-signing" below). Coverage: `tests/unit/application-fee-by-room.test.ts`,
 `tests/unit/manager-application-settings.test.ts`,
 `tests/unit/application-fee-inline-checkout.test.ts`,
 `tests/unit/term-fees-consumers.test.ts`, `tests/unit/term-fees-application-fee.test.ts`,
@@ -518,6 +518,7 @@ Only two moments create money, and **approval is not one of them**:
 | --- | --- |
 | Application submitted | the `application_fee`, and nothing else |
 | Approved, lease unsigned | **nothing** — an approval is a decision, not a bill |
+| Lease sent, unsigned | **only the lines due at signing** (lease fee, deposit, move-in fee, one-time fees, first month if ticked) — see "Lease fee and pay-at-signing" |
 | Lease executed | the whole schedule (deposit, first/prorated rent, utilities, move-in and one-time fees, and the recurring rent profile) |
 
 `recordApprovedApplicationCharges` is named for the moment it was ORIGINALLY
@@ -568,6 +569,44 @@ The rules that hold it closed:
 
 Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 `tests/unit/current-resident.test.ts`.
+
+## Lease fee and pay-at-signing (captain, 2026-10-03)
+
+**Sending a lease creates the at-signing charges, and the resident pays them BEFORE they can sign.** This
+supersedes "sign first, pay after" for these lines (the workspace-level `leaseSigningFee` card is separate
+and unchanged).
+
+- **`lease_fee` is a charge kind** (`HouseholdChargeKind`), income (`other_income`), never a liability. Its
+  amount is the placement resolver's (`listing-placement-standard-fees.ts`, read off the
+  `submissionWithApplicationRoomFees` overlay's `room_lease_fee:` row), so the quote, the lease document, the
+  billing snapshot (`leaseFee` / `leaseFeeDue`, counted once in `dueAtSigning`) and the charge agree. The
+  overlay row is never also billed as a generic one-time `other_cost`; a legacy paid `other_cost` "Lease fee"
+  stays and is not billed again.
+- **What is "at signing" is stamped on the charge** (`dueAtSigning`), once, by `chargeKindDueAtSigning`
+  (`lease-at-signing.ts`): the listing's per-lease-type ticks (the quote's `isPaymentDueAtSigning`), plus the
+  lease fee and the one-time fees, which are always collected then. `sendLeaseToResident` calls
+  `createAtSigningChargesForSentLease` (`recordApprovedApplicationCharges(..., { atSigningOnly: true })`);
+  `watchExecutedLeaseCharges` catches a lease sent by another path. The rest of the schedule still waits for
+  the executed lease, and re-running it creates nothing twice (lines are keyed by application and kind).
+- **One Stripe payment for the exact sum**: `ResidentSignAndPayMoveIn mode="at-signing"` lists the unpaid
+  at-signing charges and runs the existing `/api/stripe/household-charge-checkout` on exactly those ids.
+  Charges is the sum of the lines; the processing fee, when the resident bears it, is shown on its own.
+- **Signing waits for the webhook**: `/api/portal-lease-pipeline` refuses a resident's signature (or returned
+  signed PDF) with 402 `AT_SIGNING_UNPAID` while any of their at-signing lines is not `paid`
+  (`checkResidentAtSigningGate`). Only the Stripe webhook / server verify writes `paid`; a clearing bank
+  transfer (`processing`) still blocks. The gate fails closed (503) if it cannot read the charges, and counts
+  only lines the resident can pay in PropLane, so a manager who collects offline is not trapped. The page's
+  disabled Sign is the convenience (`useResidentAtSigning`), the route is the lock.
+- **Waiver** (`/api/manager/lease-fee-waivers`, `lease-fee-waiver.server.ts`): a manager waives the lease fee
+  for ONE lease (reason audited in `audit_log`). The unpaid `lease_fee` charge becomes `cancelled` with
+  `waivedAt/By/Reason`, the lease's application copy and the manager's application row carry
+  `managerLeaseFeeWaiver` (manager-owned: a resident's application write preserves it), and the generator
+  and snapshot skip the fee, so it drops out of the at-signing total. Refused (409) once paid; reversible with
+  PATCH `{ action: "revoke" }`; a stale mirror cannot un-cancel a waived charge. UI: Payments -> the lease fee
+  row -> "Waive lease fee" / "Restore lease fee".
+
+Coverage: `tests/unit/lease-fee-at-signing.test.ts`, `tests/unit/lease-fee-at-signing-server.test.ts`,
+`tests/unit/resident-at-signing-pay.test.tsx`, `tests/unit/room-term-fees-ledger.test.ts`.
 
 **A migrated month covers the generator.** A migrated rent charge
 (`migrationSourceId` set, `kind: "rent"`, and a `rentMonth`) is all-in —

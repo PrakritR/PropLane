@@ -366,6 +366,8 @@ export async function POST(req: Request) {
       const existingPropertyById = new Map<string, string | null>();
       const existingLedgerFingerprintById = new Map<string, string>();
       const existingResidentVisibleAtById = new Map<string, string>();
+      // A lease fee a manager WAIVED (cancelled with `waivedAt`): only the waiver route reverses it.
+      const existingWaivedIds = new Set<string>();
       if (chargeIds.length > 0) {
         const { data: existingRows, error: existingRowsError } = await db
           .from("portal_household_charge_records")
@@ -386,6 +388,9 @@ export async function POST(req: Request) {
             );
             const stamped = (row.row_data as { residentVisibleAt?: unknown }).residentVisibleAt;
             if (typeof stamped === "string" && stamped) existingResidentVisibleAtById.set(id, stamped);
+            if (row.status === "cancelled" && (row.row_data as { waivedAt?: unknown }).waivedAt) {
+              existingWaivedIds.add(id);
+            }
           }
         }
       }
@@ -445,6 +450,9 @@ export async function POST(req: Request) {
         if (previousStatusById.get(id) === "paid" && (typeof c.status !== "string" || c.status !== "paid")) {
           continue;
         }
+        // A WAIVER IS STICKY too: a stale tab still holding the pending lease fee must not bring it back.
+        // Restoring is a deliberate manager action through /api/manager/lease-fee-waivers.
+        if (existingWaivedIds.has(id) && c.status !== "cancelled") continue;
         const clientPropertyId = typeof c.propertyId === "string" ? c.propertyId : null;
         const existingOwner = existingOwnerById.get(id) ?? null;
         let managerUserId: string | null;
