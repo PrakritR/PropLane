@@ -190,7 +190,7 @@ export function ModalShell({
 
   const contentA11y = {
     "aria-label": ariaLabel,
-    "aria-labelledby": ariaLabelledBy,
+    ...(ariaLabelledBy !== undefined ? { "aria-labelledby": ariaLabelledBy } : {}),
     "aria-describedby": ariaDescribedBy,
     "aria-busy": ariaBusy,
     "data-attr": dataAttr,
@@ -375,7 +375,6 @@ function ModalPanelInner({
         <div className="flex items-center justify-between gap-3">
           <TitlePrimitive asChild>
             <h3
-              id="modal-title"
               className={cn(
                 "min-w-0 flex-1 font-semibold leading-tight text-foreground",
                 "text-[19px] font-extrabold tracking-tight",
@@ -410,7 +409,7 @@ function ModalPanelInner({
         )}
       >
         <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] lg:block">
-          {contextPanel ?? (typeof title === "string" ? <div className="rounded-xl border border-border bg-card p-4 text-sm font-semibold">{title}</div> : null)}
+          {contextPanel}
         </aside>
         <div
           data-popup-form=""

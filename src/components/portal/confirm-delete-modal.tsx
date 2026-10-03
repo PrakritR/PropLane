@@ -58,7 +58,6 @@ export function ConfirmDeleteModal({
       title={title}
       tone={tone === "danger" ? "danger" : "default"}
       dismissBlocked={busy}
-      contextPanel={<div className="rounded-xl border border-border bg-card p-4 text-sm font-semibold">{title}</div>}
       previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
       preview={<div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>}
       primaryAction={{

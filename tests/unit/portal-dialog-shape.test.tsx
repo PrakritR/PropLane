@@ -51,7 +51,7 @@ describe("PortalDialog footer shape", () => {
         <p>Body</p>
       </PortalDialog>,
     );
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", { name: "Record payment" });
     const buttons = Array.from(dialog.querySelectorAll("button")).filter(
       (b) => b.getAttribute("aria-label") !== "Close",
     );
