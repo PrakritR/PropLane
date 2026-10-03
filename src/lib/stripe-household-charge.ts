@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { residentConnectApplicationFeeCents, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { finalizeShortStayAfterPayment } from "@/lib/short-stay-booking.server";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
@@ -201,6 +202,7 @@ async function markOneHouseholdChargePaid(
     stripePaymentStatus: string;
     /** Distinguishes the transition id between session- and PI-driven marks for the same charge. */
     transitionSuffix: string;
+    paidAmountCents?: number;
   },
 ): Promise<{ marked: boolean; alreadyPaid: boolean; charge?: HouseholdCharge }> {
   const { data: row, error } = await db
@@ -232,11 +234,16 @@ async function markOneHouseholdChargePaid(
     return { marked: false, alreadyPaid: false };
   }
 
+  const faceCents = householdChargeAmountCents(charge);
+  const paidAmountCents =
+    opts.paidAmountCents && opts.paidAmountCents > 0 ? opts.paidAmountCents : faceCents > 0 ? faceCents : undefined;
+
   const nextCharge: HouseholdCharge = {
     ...charge,
     status: "paid",
     paidAt: now,
     balanceLabel: "$0.00",
+    ...(paidAmountCents ? { paidAmountCents } : {}),
   };
 
   const { error: upsertErr } = await db.from("portal_household_charge_records").upsert(
@@ -258,6 +265,13 @@ async function markOneHouseholdChargePaid(
     { onConflict: "id" },
   );
   if (upsertErr) return { marked: false, alreadyPaid: false };
+
+  const rowData = nextCharge as HouseholdCharge & { shortStayBookingId?: string; agreementSha256?: string };
+  if (rowData.shortStayBookingId) {
+    await finalizeShortStayAfterPayment(db, rowData).catch((err) => {
+      console.error("[stripe-household-charge] short-stay finalize failed", err);
+    });
+  }
 
   await syncLedgerPaymentEntry(db, nextCharge, now, opts.stripeReference);
   const managerUserId = charge.managerUserId?.trim() || opts.expectedManagerUserId || "";
@@ -319,12 +333,17 @@ export async function markHouseholdChargePaidFromStripeSession(
   let marked = 0;
   let alreadyPaid = false;
 
+  const sessionPaidCents = typeof session.amount_total === "number" && session.amount_total > 0 ? session.amount_total : undefined;
+  const perChargePaidCents =
+    sessionPaidCents && idsToMark.length === 1 ? sessionPaidCents : undefined;
+
   for (const chargeId of idsToMark) {
     const result = await markOneHouseholdChargePaid(db, chargeId, {
       expectedManagerUserId,
       stripeReference: session.id,
       stripePaymentStatus: session.payment_status,
       transitionSuffix: session.id,
+      paidAmountCents: perChargePaidCents,
     });
     if (result.marked) {
       marked += 1;

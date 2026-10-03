@@ -6,7 +6,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { getPublicListings } from "@/lib/public-listings.server";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
-import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
+import {
+  CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
+  ROOM_DATE_BLOCK_RECORD_TYPE,
+  roomDateBlockRecordId,
+} from "@/lib/portal-schedule-record-scope";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { resolveStayPricing } from "@/lib/room-pricing";
@@ -102,6 +106,9 @@ export async function createShortStayBooking(
     return { ok: false, status: 422, error: "This stay cannot be priced online yet." };
   }
 
+  const HOLD_MINUTES = 15;
+  const holdExpiresAt = new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString();
+
   const bookingUid = randomUUID().replace(/-/g, "").slice(0, 12);
   const bookingId = roomDateBlockRecordId(managerUserId, `stay_${bookingUid}`);
   const now = new Date().toISOString();
@@ -124,6 +131,7 @@ export async function createShortStayBooking(
       screeningConsent: input.screeningConsent ? "yes" : "no",
       agreementSha256: input.agreementSha256,
       guests: String(guests),
+      holdExpiresAt,
     },
     createdAt: now,
     startsAt: `${input.checkIn}T00:00:00`,
@@ -222,4 +230,120 @@ export async function createShortStayBooking(
     chargeIds: [chargeId],
     checkoutUrl: checkout.url,
   };
+}
+
+export async function releaseShortStayHold(
+  db: SupabaseClient,
+  bookingId: string,
+): Promise<void> {
+  const { data } = await db
+    .from("portal_schedule_records")
+    .select("row_data, manager_user_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  const row = data?.row_data as { bookingStatus?: string; stayDetails?: { holdExpiresAt?: string } } | null;
+  if (!row || row.bookingStatus === "confirmed" || row.bookingStatus === "cancelled") return;
+  const holdExpiresAt = row.stayDetails?.holdExpiresAt;
+  if (holdExpiresAt && Date.now() < Date.parse(holdExpiresAt)) return;
+  const now = new Date().toISOString();
+  await db.from("portal_schedule_records").upsert(
+    {
+      id: bookingId,
+      manager_user_id: data?.manager_user_id,
+      record_type: CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
+      row_data: { ...row, bookingStatus: "cancelled", reason: "Payment not completed" },
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
+}
+
+export async function finalizeShortStayAfterPayment(
+  db: SupabaseClient,
+  charge: HouseholdCharge & { shortStayBookingId?: string; agreementSha256?: string },
+): Promise<void> {
+  const bookingId = charge.shortStayBookingId?.trim();
+  if (!bookingId) return;
+
+  const { data: blockRow } = await db
+    .from("portal_schedule_records")
+    .select("row_data, manager_user_id, property_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (!blockRow) return;
+  const block = blockRow.row_data as Record<string, unknown> | null;
+  if (!block) return;
+
+  const now = new Date().toISOString();
+  const nextBlock = {
+    ...block,
+    bookingStatus: "confirmed",
+    reason: "Short-stay confirmed",
+    stayDetails: {
+      ...(typeof block.stayDetails === "object" && block.stayDetails ? block.stayDetails : {}),
+      paidAt: now,
+      householdChargeId: charge.id,
+    },
+  };
+
+  await db.from("portal_schedule_records").upsert(
+    {
+      id: bookingId,
+      manager_user_id: blockRow.manager_user_id,
+      property_id: blockRow.property_id,
+      record_type: ROOM_DATE_BLOCK_RECORD_TYPE,
+      row_data: nextBlock,
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
+
+  const managerUserId = String(blockRow.manager_user_id ?? charge.managerUserId ?? "").trim();
+  const propertyId = String(blockRow.property_id ?? charge.propertyId ?? "").trim();
+  const guestEmail = charge.residentEmail.trim().toLowerCase();
+  const guestName = charge.residentName?.trim() || "Guest";
+  if (!managerUserId || !propertyId || !guestEmail.includes("@")) return;
+
+  const agreementSha256 =
+    (typeof (block.stayDetails as { agreementSha256?: string } | undefined)?.agreementSha256 === "string"
+      ? (block.stayDetails as { agreementSha256: string }).agreementSha256
+      : charge.agreementSha256) ?? "";
+
+  const checkIn = String(block.checkIn ?? "").trim();
+  const checkOut = String(block.checkOut ?? "").trim();
+  const roomId = String(block.roomId ?? "").trim();
+  const leaseId = `stay-lease-${bookingId.replace(/[^a-z0-9]/gi, "").slice(0, 24)}`;
+
+  const pipelineRow = {
+    id: leaseId,
+    axisId: leaseId,
+    status: "Fully Signed",
+    bucket: "signed",
+    residentEmail: guestEmail,
+    residentName: guestName,
+    propertyId,
+    managerUserId,
+    rentalType: "short_term",
+    leaseStart: checkIn,
+    leaseEnd: checkOut,
+    signedRentLabel: charge.amountLabel,
+    fullySignedAt: now,
+    residentSignature: { name: guestName, signedAtIso: now, documentSha256: agreementSha256 },
+    managerSignature: { name: "PropLane", signedAtIso: now, documentSha256: agreementSha256 },
+    documentSha256: agreementSha256,
+    roomId,
+    shortStayBookingId: bookingId,
+  };
+
+  await db.from("portal_lease_pipeline_records").upsert(
+    {
+      id: leaseId,
+      manager_user_id: managerUserId,
+      resident_email: guestEmail,
+      property_id: propertyId,
+      row_data: pipelineRow,
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
 }

@@ -12,6 +12,7 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { advanceStaleProcessingHouseholdCharges } from "@/lib/household-charges";
 import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
 import {
   cancelFuturePaymentRemindersForCharge,
@@ -145,7 +146,32 @@ export async function GET() {
     }
 
     const rawCharges = chargeRows.map((r) => r.row_data as HouseholdCharge);
-    const charges = await enrichHouseholdChargesFromPropertyRecords(db, rawCharges);
+    const advanced =
+      process.env.VERCEL_ENV !== "production"
+        ? advanceStaleProcessingHouseholdCharges(rawCharges)
+        : rawCharges;
+    if (advanced !== rawCharges && user.role === "resident") {
+      const now = new Date().toISOString();
+      for (let i = 0; i < advanced.length; i += 1) {
+        if (advanced[i] === rawCharges[i]) continue;
+        const charge = advanced[i]!;
+        await db.from("portal_household_charge_records").upsert(
+          {
+            id: charge.id,
+            manager_user_id: charge.managerUserId,
+            resident_user_id: charge.residentUserId,
+            resident_email: charge.residentEmail.trim().toLowerCase(),
+            property_id: charge.propertyId,
+            kind: charge.kind,
+            status: charge.status,
+            row_data: charge,
+            updated_at: now,
+          },
+          { onConflict: "id" },
+        );
+      }
+    }
+    const charges = await enrichHouseholdChargesFromPropertyRecords(db, advanced);
     const rentProfiles = (profileResult.data ?? []).map((r) => r.row_data);
     // The viewer's role travels with the read so the browser store can refuse a
     // write it is not allowed to make (PRP-391) instead of discovering it from a

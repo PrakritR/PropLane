@@ -116,6 +116,8 @@ export async function buildRentReceiptPdf(
   if (includes(includeFields, "amount")) {
     drawHighlight(cursor, "Amount received", doc.amount, 12);
   }
+  if (doc.processingFeeLabel?.trim()) drawLine(cursor, `Processing fee: ${doc.processingFeeLabel.trim()}`);
+  if (doc.totalChargedLabel?.trim()) drawLine(cursor, `Total charged: ${doc.totalChargedLabel.trim()}`, 11, true);
 
   if (includes(includeFields, "paymentDate")) drawLine(cursor, `Payment date: ${doc.paymentDate}`);
   if (includes(includeFields, "paymentMethod")) drawLine(cursor, `Payment method: ${doc.paymentMethod}`);
