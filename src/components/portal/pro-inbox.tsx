@@ -187,20 +187,28 @@ type InboxThread = {
 };
 
 /**
- * The house a reply into this conversation is about, or "" when the
- * conversation does not name exactly one.
+ * The house a reply into this conversation is about, or "" when none can be named.
  *
- * The server attributes a co-manager's turn to a house they hold, and refuses an
- * untagged one when they hold only SOME of the conversation's houses (the write
- * side of the same rule that hides an untagged turn from them on read). The
- * list already narrows `houses` to the houses this account holds, so naming the
- * single one here is what keeps an ordinary reply from being refused.
+ * `houses` is already narrowed to the houses this account holds, so the single
+ * one is the answer when there is one; with several, the reply belongs to the
+ * newest turn's house - the conversation actually being answered. This is the
+ * same house the server would stamp, and naming it is what keeps a co-manager's
+ * ordinary reply from being refused on a conversation spanning houses they only
+ * partly hold.
  */
 function replyHouseIdFor(thread: InboxThread): string {
-  const houses = thread.houses ?? [];
-  if (houses.length === 1) return houses[0]?.propertyId?.trim() ?? "";
-  if (houses.length > 1) return "";
-  return (thread.rootHouseId ?? "").trim();
+  const granted = new Set(
+    (thread.houses ?? []).map((house) => house.propertyId?.trim()).filter((id): id is string => Boolean(id)),
+  );
+  if (granted.size === 1) return [...granted][0]!;
+  if (granted.size === 0) return (thread.rootHouseId ?? "").trim();
+  const messages = thread.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const house = messages[index]?.houseId?.trim() ?? "";
+    if (house && granted.has(house)) return house;
+  }
+  const root = (thread.rootHouseId ?? "").trim();
+  return root && granted.has(root) ? root : "";
 }
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {

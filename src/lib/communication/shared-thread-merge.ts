@@ -126,19 +126,31 @@ function unseenTurns(
   });
 }
 
+/** The house of the newest stored turn this delegate can see, or "" when none names one. */
+function newestVisibleHouse(stored: Record<string, unknown>, allowed: ReadonlySet<string>): string {
+  const all = turns(stored.messages);
+  for (let index = all.length - 1; index >= 0; index -= 1) {
+    const house = str(all[index]?.houseId);
+    if (house && allowed.has(house)) return house;
+  }
+  const root = str(stored.rootHouseId);
+  return root && allowed.has(root) ? root : "";
+}
+
 /**
  * The house a delegate's appended turn is about.
  *
- * This is the WRITE side of the D2 read rule, and it mirrors it: an untagged
- * turn is only ever readable by a viewer who holds every house of that
- * conversation, so an untagged turn may only be WRITTEN by one. A delegate who
- * holds only some of the houses must name one of theirs - which the composer
- * does for them, since a restricted thread already shows them only the houses
- * they hold.
+ * This is the WRITE side of the D2 read rule. An untagged turn is only ever
+ * readable by a viewer who holds every house of that conversation, so only such
+ * a viewer may WRITE one; a delegate who holds just some of the houses has their
+ * reply attributed to one of theirs - the house of the newest turn they can see,
+ * which is the conversation they are actually answering. Refused only when they
+ * hold none of the houses the conversation names.
  */
 function delegateHouseFor(
   turn: Turn,
   rule: Extract<ThreadAppendRule, { kind: "delegate" }>,
+  stored: Record<string, unknown>,
 ): { ok: true; houseId: string } | { ok: false } {
   // A grant on no house at all holds nothing: there is nothing to add.
   if (rule.allowedHouses.size === 0) return { ok: false };
@@ -146,11 +158,6 @@ function delegateHouseFor(
   if (named) return rule.allowedHouses.has(named) ? { ok: true, houseId: named } : { ok: false };
 
   const conversation = [...new Set(rule.conversationHouseIds.map((id) => str(id)).filter(Boolean))];
-  const mine = conversation.filter((id) => rule.allowedHouses.has(id));
-  if (mine.length === 1) return { ok: true, houseId: mine[0]! };
-  // They hold every house the conversation names, so an untagged turn is theirs
-  // to write - exactly the viewers the read rule shows it to.
-  if (conversation.length > 0 && mine.length === conversation.length) return { ok: true, houseId: "" };
   // The conversation names no house at all (a thread written before turns
   // carried one): there is nothing to attribute and nothing to withhold.
   if (conversation.length === 0) {
@@ -158,13 +165,21 @@ function delegateHouseFor(
       ? { ok: true, houseId: [...rule.allowedHouses][0]! }
       : { ok: true, houseId: "" };
   }
-  return { ok: false };
+
+  const mine = conversation.filter((id) => rule.allowedHouses.has(id));
+  if (mine.length === 0) return { ok: false };
+  // They hold every house the conversation names, so an untagged turn is theirs
+  // to write - exactly the viewers the read rule shows it to.
+  if (mine.length === conversation.length) return { ok: true, houseId: "" };
+  if (mine.length === 1) return { ok: true, houseId: mine[0]! };
+  return { ok: true, houseId: newestVisibleHouse(stored, rule.allowedHouses) || mine[0]! };
 }
 
 /** A turn appended to someone else's row, attributed by the server — or the reason it is refused. */
 function authorForeignTurn(
   turn: Turn,
   rule: Exclude<ThreadAppendRule, { kind: "owner" }>,
+  stored: Record<string, unknown>,
 ): { ok: true; turn: Turn } | { ok: false; reason: ThreadMergeRefusal } {
   if (rule.kind === "participant") {
     // They are the counterparty: from the owner's point of view this is inbound,
@@ -181,7 +196,7 @@ function authorForeignTurn(
     };
   }
   if (turn.outbound !== true) return { ok: false, reason: "inbound_turn_not_authorable" };
-  const house = delegateHouseFor(turn, rule);
+  const house = delegateHouseFor(turn, rule, stored);
   if (!house.ok) return { ok: false, reason: "house_not_granted" };
   return {
     ok: true,
@@ -216,7 +231,7 @@ export function mergeInboxThreadRowData(input: {
       appended.push(candidate);
       continue;
     }
-    const authored = authorForeignTurn(candidate, input.rule);
+    const authored = authorForeignTurn(candidate, input.rule, stored);
     if (!authored.ok) return { ok: false, reason: authored.reason };
     appended.push(authored.turn);
   }

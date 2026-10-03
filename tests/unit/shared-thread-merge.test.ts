@@ -200,14 +200,26 @@ describe("what a co-manager may add to another owner's conversation", () => {
     expect((result.rowData.messages as { houseId?: string }[]).at(-1)?.houseId).toBe("H1");
   });
 
-  it("refuses an untagged turn when they hold only SOME of the houses and several of them", () => {
-    // No single house to name and not every house of the conversation: the
-    // reply has to say which one it is about.
+  it("holding several of many houses, the reply takes the newest turn they can see", () => {
+    // The conversation they are actually answering. Refusing here would fail a
+    // reply that `send-inbox-message` has already delivered.
     const untagged = {
       ...stored(),
       messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
     };
-    expect(merge(untagged, delegate(["H1", "H2"], ["H1", "H2", "H3"]))).toEqual({
+    const result = merge(untagged, delegate(["H1", "H2"], ["H1", "H2", "H3"]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The newest stored turn they hold is m2 (house 2); H3's turns are hidden.
+    expect((result.rowData.messages as { houseId?: string }[]).at(-1)?.houseId).toBe("H2");
+  });
+
+  it("refuses only when they hold NONE of the houses the conversation names", () => {
+    const untagged = {
+      ...stored(),
+      messages: [...stored().messages, { id: "x", outbound: true, body: "thanks", at: "Oct 4" }],
+    };
+    expect(merge(untagged, delegate(["H9"], ["H1", "H2"]))).toEqual({
       ok: false,
       reason: "house_not_granted",
     });
