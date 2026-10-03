@@ -805,11 +805,12 @@ export function ManagerApplicationQuestionsEditorModal({
       ),
     };
 
-    // P003: this application's own fee/promo override, saved onto the
-    // template record itself — null clears back to "use the account
-    // default" exactly like the account-level setting's own null/0 rule.
-    const feeCentsOverride = null;
-    const waiverCodeOverride = null;
+    // P003 / C2-R30-4: the editor no longer offers a fee or promo code (room
+    // pricing owns it), but checkout still honours a template's stored
+    // override — so a save carries it through untouched rather than silently
+    // resetting what applicants are charged.
+    const feeCentsOverride = applicationTemplate?.feeCentsOverride ?? null;
+    const waiverCodeOverride = applicationTemplate?.waiverCodeOverride ?? null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
       let nextTemplates: PropertyApplicationTemplate[];
