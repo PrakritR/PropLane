@@ -8,6 +8,17 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
+// The workspace a credential-bound turn speaks for has its own coverage
+// (agent-communication-scope.test.ts); an open scope stands in for this
+// allow-list test, which is about which surface may run a write inline.
+vi.mock("@/lib/communication/conversation-visibility.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/communication/conversation-visibility.server")>()),
+  resolveAgentCommunicationScope: async (ctx: { userId: string }, level = "read") => ({
+    viewerId: ctx.userId, level, ownerIds: [ctx.userId], grantedHousesByOwner: new Map(),
+    workspaceHouseIds: null, untaggedOwnedVisible: true, activeWorkspaceId: null, workspaceByLine: new Map(),
+  }),
+}));
+
 import { runAgentTurn } from "@/lib/agent/loop";
 import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";

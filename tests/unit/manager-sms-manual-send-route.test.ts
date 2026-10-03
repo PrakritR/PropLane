@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
 
 const db = {
   from: (table: string) => {
+    // The reply resolves the conversation's own work line; one line (here none
+    // on file) needs no placement.
+    if (table === "manager_sms_numbers") {
+      const lines = { select: () => lines, eq: () => lines, then: (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null }) };
+      return lines;
+    }
     if (table !== "sms_outbox") throw new Error(`Unexpected table: ${table}`);
     const builder = {
       select: () => builder,
