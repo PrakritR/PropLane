@@ -268,4 +268,11 @@ describe("Workspace invite sheet — no pills, no subtext", () => {
     expect(fields).not.toMatch(/\bdescription\??:\s*string/);
     expect(fields).not.toMatch(/\bmeta\??:\s*string/);
   });
+
+  it("invite sheet hides permission presets on the Custom editor", () => {
+    const sheet = sheetSource();
+    expect(sheet).toContain("hidePresets");
+    const fields = readFileSync(join(process.cwd(), FIELDS_PATH), "utf8");
+    expect(fields).toContain("hidePresets");
+  });
 });

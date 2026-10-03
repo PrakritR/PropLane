@@ -958,33 +958,11 @@ export function ManagerLeasesPipelinePanel({
     const sections = recordSections("manager", "lease", {
       basePath: listBasePath ?? "/portal",
       leaseListTab: tab,
-      // Audit trail only once the lease carries execution evidence; Answers only for a lease-first lease.
-      hiddenSections: [...(executed ? [] : ["audit-trail"]), ...(detailRow.signingTemplateSnapshot ? [] : ["answers"])],
     });
     const activeTab = leaseDetailTabProp ?? "overview";
     const backHref = leaseListHref(listBasePath ?? "/portal", tab);
     const ownContent =
-      activeTab === "audit-trail" ? (
-        renderLeaseAuditTrailFacts(detailRow) ?? (
-          <div className="px-3 pb-4 sm:px-4">
-            <PortalListEmptyCard
-              title="Nothing to attest yet"
-              workspaceAware={false}
-              dataAttr="lease-audit-trail-empty"
-            />
-          </div>
-        )
-      ) : activeTab === "answers" ? (
-        renderLeaseAnswersSection(detailRow) ?? (
-          <div className="px-3 pb-4 sm:px-4">
-            <PortalListEmptyCard
-              title="No lease-first answers for this lease"
-              workspaceAware={false}
-              dataAttr="lease-answers-empty"
-            />
-          </div>
-        )
-      ) : activeTab === "communication" ? (
+      activeTab === "communication" ? (
         renderRecordSection("communication", {
           role: "manager",
           kind: "lease",
@@ -1016,6 +994,8 @@ export function ManagerLeasesPipelinePanel({
             ) : null;
           })()}
           {renderLeaseRowDetail(detailRow)}
+          {executed ? renderLeaseAuditTrailFacts(detailRow) : null}
+          {renderLeaseAnswersSection(detailRow)}
           {detailRow.pendingRenewal || (detailRow.signedLeaseSnapshots?.length ?? 0) > 0 ? renderLeaseAmendmentsBody(detailRow) : null}
         </div>
       );

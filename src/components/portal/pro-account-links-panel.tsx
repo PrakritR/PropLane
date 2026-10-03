@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { Plus, Users, UserPlus, UserMinus, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -17,7 +17,11 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
-import { WorkspaceInviteLinkStrip } from "@/components/portal/workspace-invite-link-strip";
+import {
+  WorkspaceActiveInviteLinkRow,
+  WorkspaceInviteLinkBox,
+  WorkspaceInviteLinkStrip,
+} from "@/components/portal/workspace-invite-link-strip";
 import {
   WorkspacePermissionsFields,
   RoleCapabilitiesList,
@@ -317,6 +321,93 @@ function inviteDraftFromRelationship(row: ProRelationshipRecord): InviteDraft {
   };
 }
 
+/** Pending or open-invite accept URL — revealed server-side, never fabricated. */
+function TeamMemberInviteLinkRow({
+  invite,
+  portalBase,
+}: {
+  invite: AccountLinkInviteDto;
+  portalBase: string;
+}) {
+  const { showToast } = useAppUi();
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const show =
+    (invite.status === "pending" && invite.direction === "outgoing") || Boolean(invite.openInvite);
+
+  useEffect(() => {
+    if (!show) {
+      setUrl(null);
+      return;
+    }
+    if (!invite.openInvite) {
+      setUrl(teamMemberDetailHref(portalBase, invite.id));
+      return;
+    }
+    let cancelled = false;
+    setBusy(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/pro/account-links/${encodeURIComponent(invite.id)}/link`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = (await res.json()) as { inviteUrl?: string };
+        if (!cancelled && data.inviteUrl) setUrl(data.inviteUrl);
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [invite.id, invite.openInvite, portalBase, show]);
+
+  const copy = async () => {
+    let next = url?.trim() || "";
+    if (!next && invite.openInvite) {
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/pro/account-links/${encodeURIComponent(invite.id)}/link`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = (await res.json()) as { inviteUrl?: string; error?: string };
+        if (!res.ok || !data.inviteUrl) {
+          showToast(data.error ?? "Could not copy the invite link.");
+          return;
+        }
+        next = data.inviteUrl;
+        setUrl(next);
+      } catch {
+        showToast("Could not copy the invite link.");
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
+    if (!next) return;
+    try {
+      await navigator.clipboard.writeText(next);
+      showToast("Invite link copied.");
+    } catch {
+      showToast("Could not copy the invite link.");
+    }
+  };
+
+  if (!show) return null;
+
+  return (
+    <WorkspaceInviteLinkBox
+      url={url}
+      visible={Boolean(url)}
+      stale={false}
+      busy={busy}
+      onCopy={() => void copy()}
+    />
+  );
+}
+
 function AddPropertyToCoManager({
   linkId,
   assignedPropertyIds,
@@ -461,6 +552,7 @@ export function ProAccountLinksPanel({
     null,
   );
   const [permissionsMember, setPermissionsMember] = useState<TeamListEntry | null>(null);
+  const [permissionsSaving, setPermissionsSaving] = useState(false);
 
   // Named function expression so the soft-retry below can re-invoke this exact
   // load directly. It must NOT hop through a ref: a ref captured this deep in the
@@ -823,7 +915,11 @@ export function ProAccountLinksPanel({
 
   const openMemberSheet = useCallback((id: string) => {
     const entry = teamEntries.find((row) => row.id === id);
-    if (entry) setPermissionsMember(entry);
+    if (!entry) return;
+    if (entry.kind === "remote") {
+      setInviteDrafts((d) => ({ ...d, [entry.invite.id]: inviteDraftFromRemote(entry.invite) }));
+    }
+    setPermissionsMember(entry);
   }, [teamEntries]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
@@ -1537,13 +1633,79 @@ export function ProAccountLinksPanel({
     );
   };
 
-  const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
+  const savePermissionsFromModal = async () => {
+    if (!permissionsMember || permissionsSaving) return;
+    setPermissionsSaving(true);
+    try {
+      if (permissionsMember.kind === "remote") {
+        const inv = permissionsMember.invite;
+        if (saveTimersRef.current[inv.id]) {
+          clearTimeout(saveTimersRef.current[inv.id]);
+          delete saveTimersRef.current[inv.id];
+        }
+        const draft = getInviteDraft(inv);
+        await patchInvite(
+          inv.id,
+          {
+            assignedPropertyIds: draft.assignedPropertyIds,
+            propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
+            coManagerPermissions: draft.workspaceDefaultPermissions,
+            workspacePermissions: draft.workspacePermissions,
+            teamRole: draft.teamRole,
+            houseScope: draft.houseScope,
+          },
+          "Permissions saved.",
+        );
+        return;
+      }
+      const draft = inviteDraftFromRelationship(permissionsMember.row);
+      const all = readProRelationships(userId);
+      writeProRelationships(
+        userId,
+        all.map((rel) =>
+          rel.id === permissionsMember.row.id
+            ? {
+                ...rel,
+                assignedPropertyIds: draft.assignedPropertyIds,
+                propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
+                coManagerPermissions: draft.workspaceDefaultPermissions,
+                workspacePermissions: draft.workspacePermissions,
+              }
+            : rel,
+        ),
+      );
+      refreshLocal();
+      showToast("Permissions saved.");
+    } finally {
+      setPermissionsSaving(false);
+    }
+  };
+
+  const renderInviteDetail = (
+    inv: AccountLinkInviteDto,
+    entry: TeamListEntry,
+    opts?: { deferSave?: boolean },
+  ) => {
     const draft = getInviteDraft(inv);
     const readOnly = inv.direction === "incoming";
+    const queueDraft = (next: InviteDraft, partial?: { propertyId: string; permissions: CoManagerPermissions }) => {
+      if (opts?.deferSave) {
+        setInviteDrafts((d) => ({ ...d, [inv.id]: next }));
+        return;
+      }
+      scheduleInviteSave(inv.id, next, partial);
+    };
     return (
       <div className="space-y-4" data-attr="team-member-property-access">
         <TeamMemberContactCard entry={entry} />
-        {inv.status === "pending" && inv.direction === "outgoing"
+        {opts?.deferSave ? (
+          inv.status === "accepted" && inv.workspaceId ? (
+            <WorkspaceActiveInviteLinkRow workspaceId={inv.workspaceId} />
+          ) : (
+            <TeamMemberInviteLinkRow invite={inv} portalBase={portalBase} />
+          )
+        ) : null}
+        {inv.status === "pending" && inv.direction === "outgoing" && !opts?.deferSave
           ? renderInviteAcceptLinkCard(inv)
           : null}
         {!readOnly && draft.houseScope !== "all" ? (
@@ -1584,7 +1746,7 @@ export function ProAccountLinksPanel({
                   draft.assignedPropertyIds,
                 )
               : draft.propertyCoManagerPermissions;
-            scheduleInviteSave(inv.id, {
+            queueDraft({
               ...draft,
               teamRole,
               workspaceDefaultPermissions: stamp ?? draft.workspaceDefaultPermissions,
@@ -1604,7 +1766,7 @@ export function ProAccountLinksPanel({
                   if (readOnly || !memberWorkspace) return;
                   const ids = houseScope === "all" ? memberWorkspace.propertyIds : draft.assignedPropertyIds;
                   const stamp = stampTeamRolePermissions(draft.teamRole) ?? draft.workspaceDefaultPermissions;
-                  scheduleInviteSave(inv.id, {
+                  queueDraft({
                     ...draft,
                     houseScope,
                     assignedPropertyIds: ids,
@@ -1617,6 +1779,21 @@ export function ProAccountLinksPanel({
                 selectedHouseIds={draft.assignedPropertyIds}
                 onSelectedHouseIdsChange={(ids) => {
                   if (readOnly) return;
+                  if (opts?.deferSave) {
+                    const nextPerms = normalizePropertyCoManagerPermissions(
+                      {
+                        ...draft.propertyCoManagerPermissions,
+                        ...Object.fromEntries(
+                          ids
+                            .filter((id) => !draft.assignedPropertyIds.includes(id))
+                            .map((id) => [id, draft.workspaceDefaultPermissions]),
+                        ),
+                      },
+                      ids,
+                    );
+                    queueDraft({ ...draft, assignedPropertyIds: ids, propertyCoManagerPermissions: nextPerms });
+                    return;
+                  }
                   applyAssignedPropertyChange(inv.id, ids, draft, true);
                 }}
                 workspace={memberWorkspace ? { name: memberWorkspace.name, houseCount: memberWorkspace.propertyIds.length } : null}
@@ -1641,14 +1818,14 @@ export function ProAccountLinksPanel({
                         propertyCoManagerPermissions: nextPerms,
                         teamRole: inferTeamRoleFromPermissions(next),
                       };
-                      scheduleInviteSave(inv.id, nextDraft);
+                      queueDraft(nextDraft);
                     }}
                   />
                   <WorkspaceGrantFields
                     value={draft.workspacePermissions}
                     disabled={readOnly}
                     onChange={(next) => {
-                      scheduleInviteSave(inv.id, { ...draft, workspacePermissions: next });
+                      queueDraft({ ...draft, workspacePermissions: next });
                     }}
                   />
                 </>
@@ -1685,8 +1862,32 @@ export function ProAccountLinksPanel({
     );
   };
 
-  const renderLocalRowDetail = (r: ProRelationshipRecord, entry: TeamListEntry) => {
-    const draft = inviteDraftFromRelationship(r);
+  const renderLocalRowDetail = (
+    r: ProRelationshipRecord,
+    entry: TeamListEntry,
+    opts?: { deferSave?: boolean },
+  ) => {
+    const draft = inviteDrafts[r.id] ?? inviteDraftFromRelationship(r);
+    const queueLocalDraft = (next: InviteDraft) => {
+      setInviteDrafts((d) => ({ ...d, [r.id]: next }));
+      if (opts?.deferSave) return;
+      const all = readProRelationships(userId);
+      writeProRelationships(
+        userId,
+        all.map((rel) =>
+          rel.id === r.id
+            ? {
+                ...rel,
+                assignedPropertyIds: next.assignedPropertyIds,
+                propertyCoManagerPermissions: next.propertyCoManagerPermissions,
+                coManagerPermissions: next.workspaceDefaultPermissions,
+                workspacePermissions: next.workspacePermissions,
+              }
+            : rel,
+        ),
+      );
+      refreshLocal();
+    };
     return (
     <div className="space-y-4" data-attr="team-member-property-access">
       <TeamMemberContactCard entry={entry} />
@@ -1701,7 +1902,22 @@ export function ProAccountLinksPanel({
         labelClassName="text-xs font-semibold text-foreground"
         options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
         selected={draft.assignedPropertyIds}
-        onChange={(ids) => applyAssignedPropertyChange(r.id, ids, draft, false)}
+        onChange={(ids) => {
+          if (opts?.deferSave) {
+            const nextPerms = normalizePropertyCoManagerPermissions(
+              {
+                ...draft.propertyCoManagerPermissions,
+                ...Object.fromEntries(
+                  ids.filter((id) => !draft.assignedPropertyIds.includes(id)).map((id) => [id, draft.workspaceDefaultPermissions]),
+                ),
+              },
+              ids,
+            );
+            queueLocalDraft({ ...draft, assignedPropertyIds: ids, propertyCoManagerPermissions: nextPerms });
+            return;
+          }
+          applyAssignedPropertyChange(r.id, ids, draft, false);
+        }}
         emptyLabel="Select houses…"
         searchPlaceholder="Search houses…"
         dataAttr="team-member-houses"
@@ -1713,40 +1929,26 @@ export function ProAccountLinksPanel({
             Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
             draft.assignedPropertyIds,
           );
-          const all = readProRelationships(userId);
-          writeProRelationships(
-            userId,
-            all.map((rel) =>
-              rel.id === r.id
-                ? {
-                    ...rel,
-                    coManagerPermissions: next,
-                    propertyCoManagerPermissions: nextPerms,
-                  }
-                : rel,
-            ),
-          );
-          refreshLocal();
+          queueLocalDraft({
+            ...draft,
+            workspaceDefaultPermissions: next,
+            propertyCoManagerPermissions: nextPerms,
+          });
         }}
       />
       <WorkspaceGrantFields
         value={draft.workspacePermissions}
         onChange={(next) => {
-          const all = readProRelationships(userId);
-          writeProRelationships(
-            userId,
-            all.map((rel) => (rel.id === r.id ? { ...rel, workspacePermissions: next } : rel)),
-          );
-          refreshLocal();
+          queueLocalDraft({ ...draft, workspacePermissions: next });
         }}
       />
     </div>
     );
   };
 
-  const renderDetailBody = (entry: TeamListEntry) => {
-    if (entry.kind === "remote") return renderInviteDetail(entry.invite, entry);
-    return renderLocalRowDetail(entry.row, entry);
+  const renderDetailBody = (entry: TeamListEntry, opts?: { deferSave?: boolean }) => {
+    if (entry.kind === "remote") return renderInviteDetail(entry.invite, entry, opts);
+    return renderLocalRowDetail(entry.row, entry, opts);
   };
 
   const teamFilterSheet = (
@@ -1815,8 +2017,26 @@ export function ProAccountLinksPanel({
           onClose={() => setPermissionsMember(null)}
           panelClassName="max-w-2xl"
           dataAttr="team-member-permissions-modal"
+          previewLabel="Preview"
+          footer={
+            permissionsMember &&
+            (permissionsMember.kind !== "remote" || permissionsMember.invite.direction !== "incoming") ? (
+              <ModalFooter className="justify-end">
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  loading={permissionsSaving}
+                  onClick={() => void savePermissionsFromModal()}
+                  data-attr="team-member-permissions-save"
+                >
+                  Save
+                </Button>
+              </ModalFooter>
+            ) : undefined
+          }
         >
-          {permissionsMember ? renderDetailBody(permissionsMember) : null}
+          {permissionsMember ? renderDetailBody(permissionsMember, { deferSave: true }) : null}
         </Modal>
 
         <Modal

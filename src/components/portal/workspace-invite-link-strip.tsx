@@ -9,6 +9,56 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Link2, MoreHorizontal } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+
+/** Read-only invite URL + copy icon — reused in the invite sheet and member editor. */
+export function WorkspaceInviteLinkBox({
+  url,
+  visible,
+  stale,
+  roleLabel,
+  reach,
+  onCopy,
+  busy,
+}: {
+  url: string | null;
+  visible: boolean;
+  stale: boolean;
+  roleLabel?: string;
+  reach?: string;
+  onCopy: () => void;
+  busy?: boolean;
+}) {
+  if (stale) {
+    return (
+      <p className="text-sm text-muted" data-attr="workspace-invite-link-stale">
+        Access changed — press Invite link again for a link with these terms.
+      </p>
+    );
+  }
+  if (!visible || !url) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-2.5" data-attr="workspace-invite-link-box">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">Invite link</span>
+        <PortalIconAction
+          icon={Copy}
+          label="Copy invite link"
+          disabled={busy}
+          onClick={onCopy}
+          data-attr="workspace-invite-link-copy-inline"
+        />
+      </div>
+      <p className="mt-2 break-all font-mono text-xs text-muted" data-attr="workspace-invite-link-url">
+        {url}
+      </p>
+      {roleLabel && reach ? (
+        <p className="mt-1 text-xs text-muted">
+          This link joins as {roleLabel} · {reach}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +78,47 @@ import { WorkspacePermissionsFields, CoManagerPermissionsEditor, WorkspaceGrantF
 import { normalizeCoManagerPermissions, type CoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { stampTeamRolePermissions, type TeamRoleId } from "@/lib/co-manager-team-roles";
 import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
+
+/** Active workspace mint link (read + reveal only). */
+export function WorkspaceActiveInviteLinkRow({ workspaceId }: { workspaceId: string }) {
+  const { showToast } = useAppUi();
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/pro/invite-links?workspaceId=${encodeURIComponent(workspaceId)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const body = (await res.json().catch(() => ({}))) as { link?: { id?: string } | null };
+        const id = body.link?.id;
+        if (!id || cancelled) return;
+        const revealed = await revealInviteLinkClient(id);
+        if (!cancelled && revealed.ok) setUrl(revealed.url);
+      } catch {
+        /* no link is fine */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const copy = () => {
+    if (!url) return;
+    void navigator.clipboard.writeText(url).then(
+      () => showToast("Invite link copied."),
+      () => showToast("Could not copy the invite link."),
+    );
+  };
+
+  return (
+    <WorkspaceInviteLinkBox url={url} visible={Boolean(url)} stale={false} busy={busy} onCopy={copy} />
+  );
+}
 
 type SavedLink = {
   propertyPermissions?: PropertyCoManagerPermissions;

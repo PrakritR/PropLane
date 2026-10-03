@@ -18,6 +18,8 @@ describe("Edit permissions is a popup", () => {
     expect(panel).toContain("open={permissionsMember !== null}");
     expect(panel).toContain('dataAttr="team-member-permissions-modal"');
     expect(panel).toContain("`Edit permissions · ${permissionsMember.name}`");
+    expect(panel).toContain('data-attr="team-member-permissions-save"');
+    expect(panel).toContain("deferSave: true");
   });
 
   it("pending invite Edit opens the member sheet, not a member page", () => {

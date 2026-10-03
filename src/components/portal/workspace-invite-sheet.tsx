@@ -50,6 +50,7 @@ import {
   normalizeWorkspacePermissions,
   type WorkspaceCoManagerGrant,
 } from "@/lib/workspace-co-manager-permissions";
+import { WorkspaceInviteLinkBox } from "@/components/portal/workspace-invite-link-strip";
 import { mintInviteLinkClient, revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
 import { deliverManagerDirectoryMessage, sendWorkspaceInviteSms } from "@/lib/manager-vendor-invite-client";
@@ -270,6 +271,19 @@ export function WorkspaceInviteSheet({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open + workspace only
   }, [open, workspace.id]);
+
+  // Reveal the held link's URL when on-screen terms still match — never mint on open.
+  useEffect(() => {
+    if (!open || !linkId || !termsMatchHeldLink || linkUrl) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await revealInviteLinkClient(linkId);
+      if (!cancelled && result.ok) setLinkUrl(result.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, linkId, termsMatchHeldLink, linkUrl]);
 
   const changeRole = (next: TeamRoleId) => setRole(next);
   const changeHouseScope = (next: HouseScope) => setHouseScope(next);
@@ -544,10 +558,31 @@ export function WorkspaceInviteSheet({
 
         {role === "custom" ? (
           <>
-            <CoManagerPermissionsEditor hideRole value={customPermissions} onChange={changeCustomPermissions} />
+            <CoManagerPermissionsEditor
+              hideRole
+              hidePresets
+              value={customPermissions}
+              onChange={changeCustomPermissions}
+            />
             <WorkspaceGrantFields value={workspacePermissions} onChange={setWorkspacePermissions} />
           </>
         ) : null}
+
+        <WorkspaceInviteLinkBox
+          url={linkUrl}
+          visible={termsMatchHeldLink}
+          stale={heldTerms != null && !termsMatchHeldLink}
+          roleLabel={roleLabelFor(role)}
+          reach={reach}
+          busy={linkLoading}
+          onCopy={() => {
+            if (!linkUrl) return;
+            void navigator.clipboard.writeText(linkUrl).then(
+              () => showToast("Invite link copied."),
+              () => showToast("Could not copy the invite link."),
+            );
+          }}
+        />
       </div>
     </Modal>
   );
