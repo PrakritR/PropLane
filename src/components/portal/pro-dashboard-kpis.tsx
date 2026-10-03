@@ -211,12 +211,16 @@ export function AttentionPanel({
   rows,
   hideRowDetail = false,
   emptyCopy = "Nothing is waiting on you. Nice.",
+  rowClassName = "flex items-center gap-3 px-4 py-2.5",
+  actionClassName = "inline-flex min-h-11 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary",
 }: {
   rows: AttentionRow[];
   /** Vendor metrics already carry the relevant status in their title. */
   hideRowDetail?: boolean;
   /** Surface-specific, factual empty state; manager copy remains the default. */
   emptyCopy?: string;
+  rowClassName?: string;
+  actionClassName?: string;
 }) {
   return (
     <PanelShell title="Needs attention" count={rows.length} dataAttr="dashboard-attention-panel">
@@ -225,16 +229,13 @@ export function AttentionPanel({
       ) : (
         <ul className="divide-y divide-border/70">
           {rows.map((row) => (
-            <li key={row.id} className="flex items-center gap-3 px-4 py-2.5" data-attr={`dashboard-attention-${row.id}`}>
+            <li key={row.id} className={rowClassName} data-attr={`dashboard-attention-${row.id}`}>
               <span className={cn("size-2 shrink-0 rounded-full", ROW_DOT[row.tone])} aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
                 {!hideRowDetail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
               </span>
-              <Link
-                href={row.href}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
-              >
+              <Link href={row.href} className={actionClassName}>
                 {row.actionLabel}
               </Link>
             </li>
@@ -297,6 +298,7 @@ export function UpcomingPanel({
   calendarHref,
   emptyCopy = "Nothing scheduled in the next two weeks.",
   aside,
+  rowLinkClassName = "flex items-center gap-3 px-4 py-2.5 transition hover:bg-accent/30",
 }: {
   rows: UpcomingRow[];
   nowMs: number;
@@ -305,6 +307,7 @@ export function UpcomingPanel({
   emptyCopy?: string;
   /** Replaces the default text Calendar link while preserving shared row behavior. */
   aside?: React.ReactNode;
+  rowLinkClassName?: string;
 }) {
   const sorted = [...rows].sort((a, b) => a.at - b.at).slice(0, 6);
   return (
@@ -325,11 +328,7 @@ export function UpcomingPanel({
             const { day, time } = dayLabel(row.at, nowMs);
             return (
               <li key={row.id}>
-                <Link
-                  href={row.href}
-                  className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-accent/30"
-                  data-attr={`dashboard-upcoming-${row.id}`}
-                >
+                <Link href={row.href} className={rowLinkClassName} data-attr={`dashboard-upcoming-${row.id}`}>
                   <span className="w-[76px] shrink-0 leading-tight">
                     <span className="block text-[12.5px] font-semibold text-foreground">{day}</span>
                     <span className="block text-[11.5px] text-muted">{time || "All day"}</span>

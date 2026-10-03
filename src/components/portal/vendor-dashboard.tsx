@@ -184,12 +184,19 @@ export function VendorDashboard({}: { displayName: string }) {
         }
         split={
           <>
-            <AttentionPanel rows={attentionRows} hideRowDetail emptyCopy="No items need attention." />
+            <AttentionPanel
+              rows={attentionRows}
+              hideRowDetail
+              emptyCopy="No items need attention."
+              rowClassName="flex items-center gap-3 p-4 min-h-[44px]"
+              actionClassName="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card px-4 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+            />
             <UpcomingPanel
               rows={upcomingRows}
               nowMs={nowMs}
               calendarHref={`${BASE}/calendar`}
               emptyCopy="No upcoming visits."
+              rowLinkClassName="flex min-h-[44px] items-center gap-3 p-4 transition hover:bg-accent/30"
               aside={<PortalIconAction icon={CalendarDays} label="Open calendar" onClick={() => router.push(`${BASE}/calendar`)} data-attr="vendor-dashboard-calendar-open" />}
             />
           </>

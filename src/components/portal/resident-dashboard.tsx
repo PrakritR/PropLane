@@ -468,7 +468,6 @@ export function ResidentJourneyBanner({
           >
             {action.title}
           </span>
-          <span className="block truncate text-sm text-muted [html[data-native]_&]:text-[12px]">{action.detail}</span>
         </span>
         <span
           className="shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold text-white"
