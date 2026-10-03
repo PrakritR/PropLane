@@ -411,7 +411,7 @@ export function ManagerPropertyLeasePanel({
         options={[
           { value: "", label: "All leases" },
           { value: "long-term", label: "Long-term" },
-          { value: "short-term", label: "Short-term" },
+          { value: "short-term", label: "Short term" },
           { value: "time-based", label: "Time-based" },
           { value: "custom", label: "Custom" },
         ]}
@@ -499,7 +499,7 @@ export function ManagerPropertyLeasePanel({
 
   const seedTypeLabel = (seedKey: PropertyLeaseListingSeedKey | undefined): string | null => {
     if (seedKey === "primary") return "Long-term";
-    if (seedKey === "short-term") return "Short-term";
+    if (seedKey === "short-term") return "Short term";
     if (seedKey === "airbnb") return "Airbnb";
     return null;
   };
@@ -629,7 +629,7 @@ export function ManagerPropertyLeasePanel({
                 id: "lease-kind",
                 label:
                   leaseKindFilter === "short-term"
-                    ? "Short-term"
+                    ? "Short term"
                     : leaseKindFilter === "time-based"
                       ? "Time-based"
                       : leaseKindFilter === "custom"

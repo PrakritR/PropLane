@@ -39,6 +39,7 @@ import {
   createPropertyLeaseTemplate,
   makePropertyLeaseTemplateId,
   normalizeLeaseTemplateKind,
+  propertyLeaseTypeLabel,
   templateAppearsToBeExecutedLease,
   updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
@@ -71,7 +72,7 @@ const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
   { value: "Long-term", label: "Long-term" },
   { value: "Month-to-Month", label: "Month-to-month" },
   { value: CUSTOM_LEASE_TERM, label: "Custom" },
-  { value: SHORT_TERM_LEASE_TERM, label: "Short-term stay" },
+  { value: SHORT_TERM_LEASE_TERM, label: "Short term" },
 ];
 
 /** Steps are Name, Document, Preview; the import review box is on Document. */
@@ -634,22 +635,21 @@ export function PropertyLeaseFormModal({
   const workspaceSteps: AddWorkspaceStep[] = [
     {
       id: "name",
-      label: "Sections",
+      label: "Lease",
       incomplete: !label.trim() || (mode === "edit" && applicationLeaseTerms.length === 0),
       summary: label.trim() || "Name this lease",
     },
     {
-      // P005: the studio's 3-step Name -> Form -> Setup. Kept the internal
-      // id "document" (every `stepId === "document"` check below is
-      // unchanged) and only renamed the rail label to "Form" to match.
+      // Keep the property editor aligned with the shared Lease → Document →
+      // Settings flow. The internal id stays stable for the import guards.
       id: "document",
-      label: "Form",
+      label: "Document",
       incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
       summary: documentModeMeta?.label ?? "Lease document",
     },
     {
       id: "setup",
-      label: "Setup",
+      label: "Settings",
       summary: formSetup.loaded
         ? `${(formSetup.leasingPipeline.leaseSigningFeeCents ?? 0) > 0 ? "Fee set" : "No lease fee"} · ${
             formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
@@ -749,7 +749,7 @@ export function PropertyLeaseFormModal({
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
       sidePanel={htmlPreview}
-      lastLabel={mode === "add" ? "Add lease" : "Save"}
+      lastLabel={mode === "add" ? "Create lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
@@ -798,7 +798,26 @@ export function PropertyLeaseFormModal({
     >
       {stepId === "name" ? (
         <StepColumn>
-          <StepHeading title="Sections" />
+          <StepHeading title="Lease" />
+          {mode === "add" ? (
+            <FieldSingleSelect
+              label="Type of lease"
+              labelClassName={WIZARD_LABEL_CLASS}
+              value={kind === "short-term" ? "short-term" : "long-term"}
+              dataAttr="property-lease-type"
+              options={[
+                { value: "long-term", label: "Long-term" },
+                { value: "short-term", label: "Short term" },
+              ]}
+              onChange={(next) =>
+                handleDocumentModeChange(next === "short-term" ? "proplane_short_term" : "proplane_long_term")
+              }
+            />
+          ) : (
+            <p className="mb-3 text-sm text-foreground" data-attr="property-lease-type-fact">
+              Type of lease · {propertyLeaseTypeLabel(kind)}
+            </p>
+          )}
           {/* F002/F013: the same dashed drop-zone card the listing wizard and
               the application editor use for "Start from a file". A quick-pick
               lands the file straight from this first step — full document-mode
@@ -1014,7 +1033,7 @@ export function PropertyLeaseFormModal({
       ) : null}
       {stepId === "setup" ? (
         <StepColumn>
-          <StepHeading title="Setup" />
+          <StepHeading title="Settings" />
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
