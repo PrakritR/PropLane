@@ -926,14 +926,14 @@ export function ManagerCommunicationComposeModal({
             {formError}
           </p>
         ) : null}
-        <div className="relative">
+        <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRecipientOpen(false); }}>
           <label className={portalMessageFieldLabel()} htmlFor="communication-compose-recipient">To</label>
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border px-3 py-2">
             {selectedKeys.map((key) => <button type="button" key={key} className="inline-flex items-center gap-1 text-sm" aria-label={`Remove ${recipientOptions.find((option) => option.key === key)?.label || key}`} onClick={() => {setSelectedKeys((previous) => previous.filter((value) => value !== key)); if (key === "admin") setSelectedCategories((previous) => previous.filter((category) => category !== "admin"));}}>
               {recipientOptions.find((option) => option.key === key)?.label || key}<X className="h-3 w-3" />
             </button>)}
             {otherTokens.map((token) => <button type="button" key={token.value} className="inline-flex items-center gap-1 text-sm" aria-label={`Remove ${token.label}`} onClick={() => {setOtherTokens((previous) => previous.filter((value) => value.value !== token.value)); if (otherTokens.length === 1) setSelectedCategories((previous) => previous.filter((category) => category !== "other"));}}>{token.label}<X className="h-3 w-3" /></button>)}
-            <input id="communication-compose-recipient" value={recipientQuery} placeholder="Name, email or phone number" className="min-w-32 flex-1 bg-transparent py-2 text-sm outline-none" onFocus={() => setRecipientOpen(true)} onChange={(event) => {setRecipientQuery(event.target.value); setRecipientOpen(true);}} onKeyDown={(event) => {
+            <input id="communication-compose-recipient" role="combobox" aria-expanded={recipientOpen} aria-controls="communication-compose-recipient-options" aria-autocomplete="list" value={recipientQuery} placeholder="Name, email or phone number" className="min-w-32 flex-1 bg-transparent py-2 text-sm outline-none" onFocus={() => setRecipientOpen(true)} onChange={(event) => {setRecipientQuery(event.target.value); setRecipientOpen(true);}} onKeyDown={(event) => {
               if (event.key === "Escape") setRecipientOpen(false);
               if (event.key !== "Enter" && event.key !== ",") return;
               event.preventDefault();
@@ -944,7 +944,7 @@ export function ManagerCommunicationComposeModal({
               setRecipientQuery(""); setRecipientOpen(false); setFormError(null);
             }} data-attr="communication-compose-recipient" />
           </div>
-          {recipientOpen ? <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-lg" role="listbox" aria-label="Recipients">
+          {recipientOpen ? <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-lg" id="communication-compose-recipient-options" role="listbox" aria-label="Recipients">
             {recipientOptions.filter((option) => !selectedKeys.includes(option.key) && option.label.toLowerCase().includes(recipientQuery.toLowerCase())).map((option) => <button key={option.key} type="button" role="option" aria-selected={false} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => {
               setSelectedCategories((previous) => previous.includes(option.category) ? previous : [...previous, option.category]);
               setSelectedKeys((previous) => [...previous, option.key]); setRecipientQuery(""); setRecipientOpen(false);
