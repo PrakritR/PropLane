@@ -376,7 +376,7 @@ const CALENDAR_HEADER_CELL =
 const CALENDAR_WEEK_DAY_STRIP =
   "portal-calendar-week-days-header sticky z-[14] top-[var(--portal-calendar-header-top,0px)] border-b border-border/60 bg-card shadow-sm";
 const CALENDAR_TIME_CELL =
-  "whitespace-normal leading-tight text-[10px] font-semibold tabular-nums sm:whitespace-nowrap text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
+  "whitespace-normal leading-tight text-[10px] font-semibold tabular-nums md:whitespace-nowrap text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
 const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-calendar-grid";
 // Open availability is the quiet layer of the week — a faint tint with a soft
 // ring, the way Google Calendar draws free time — so the booked tours on top

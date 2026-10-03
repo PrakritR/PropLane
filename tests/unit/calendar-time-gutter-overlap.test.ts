@@ -29,7 +29,7 @@ describe("the calendar time gutter fits its widest label", () => {
   });
 
   it("allows the phone meridiem to wrap without overflowing into a day column", () => {
-    expect(src).toContain("whitespace-normal leading-tight text-[10px] font-semibold tabular-nums sm:whitespace-nowrap");
+    expect(src).toContain("whitespace-normal leading-tight text-[10px] font-semibold tabular-nums md:whitespace-nowrap");
   });
 
   it("64px clears the widest half-hour label plus its padding", () => {

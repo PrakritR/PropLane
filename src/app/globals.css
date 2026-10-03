@@ -3873,10 +3873,16 @@ html[data-native] [data-listing-subnav] {
 .portal-record-content > :is(div, section):not([data-viewport-fill-body]) {
   row-gap: var(--portal-page-gap);
 }
+.portal-record-content > :is(.space-y-3, .space-y-4) > :not([hidden]) {
+  margin-block: 0;
+}
 .portal-record-content > :is(.space-y-3, .space-y-4) > :not([hidden]) ~ :not([hidden]) {
-  margin-top: var(--portal-page-gap);
+  margin-block-start: var(--portal-page-gap);
 }
 .portal-shell :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  /* Keep ordinary elevation shadows; the outline is the sole focus ring. */
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
