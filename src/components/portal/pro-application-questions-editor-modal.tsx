@@ -630,10 +630,10 @@ export function ManagerApplicationQuestionsEditorModal({
       );
       const totalQuestions = applicationFields.filter((f) => includedSectionIds.has((f.section ?? "additional") as RentalApplicationSectionId)).length;
       const steps: AddWorkspaceStep[] = [
-        { id: "name", label: "Sections", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
+        { id: "name", label: "Application", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
         {
           id: "sections",
-          label: "Form",
+          label: "Questions",
           summary: `${totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`} · ${includedSectionIds.size === 1 ? "1 section" : `${includedSectionIds.size} sections`}`,
         },
       ];
@@ -643,7 +643,7 @@ export function ManagerApplicationQuestionsEditorModal({
       if (!isBulkTemplateEditor) {
         steps.push({
           id: "setup",
-          label: "Setup",
+          label: "Settings",
           summary: formSetup.loaded
             ? `${
                 feeOverrideEnabled
@@ -1512,7 +1512,7 @@ export function ManagerApplicationQuestionsEditorModal({
             applicationPreviewPropertyId={applicationPreviewPropertyId}
           />
         }
-        lastLabel={templateEditorMode === "add" ? "Add application" : "Save"}
+        lastLabel={templateEditorMode === "add" ? "Create application" : "Save"}
         lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
           if (stepId === "name" && !templateLabel.trim()) {
@@ -1558,7 +1558,7 @@ export function ManagerApplicationQuestionsEditorModal({
       >
         {stepId === "name" ? (
           <StepColumn>
-            <StepHeading title="Sections" />
+            <StepHeading title="Application" />
             {/* F002/F004: the same dashed drop-zone card the listing wizard uses
                 for "Start from a file" — upload lives ONLY here now, for both
                 a brand-new ("add") application and an existing one. Either
@@ -1774,7 +1774,7 @@ export function ManagerApplicationQuestionsEditorModal({
         ) : null}
         {stepId === "setup" ? (
           <StepColumn>
-            <StepHeading title="Setup" />
+            <StepHeading title="Settings" />
             {!formSetup.loaded ? (
               <p className="text-sm text-muted">Loading…</p>
             ) : (

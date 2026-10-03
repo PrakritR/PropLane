@@ -123,7 +123,7 @@ describe("evidence · lease templates are opt-in", () => {
       "short-term",
     );
     const b = render(<Harness initial={withBoth} />);
-    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short-term stay lease"]);
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short term lease"]);
     writePanel(
       "lease-b-added",
       "B · After adding the two PropLane defaults — 'Long-term lease' and 'Short-term lease' (the retired 'Lease bundle' rows are gone).",
@@ -131,7 +131,7 @@ describe("evidence · lease templates are opt-in", () => {
     );
 
     // C. delete Short-term through bulk Edit → Delete flow, then re-sync
-    selectLeaseRowByLabel(b.container, "Short-term stay lease");
+    selectLeaseRowByLabel(b.container, "Short term lease");
     await act(async () => {
       fireEvent.click(document.querySelector<HTMLButtonElement>('[data-attr="property-lease-bulk-edit"]')!);
     });

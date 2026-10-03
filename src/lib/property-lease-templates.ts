@@ -105,9 +105,9 @@ export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {
 }[] = [
   {
     id: "short-term",
-    label: "Short-term",
+    label: "Short term",
     description: "Guest or furnished stay with check-in/out dates and nightly or stay-total rent.",
-    defaultLabel: "Short-term stay lease",
+    defaultLabel: "Short term lease",
   },
   {
     id: "long-term",

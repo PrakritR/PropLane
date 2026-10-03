@@ -148,6 +148,7 @@ describe("F-editor c: footer-only commit", () => {
       />,
     );
     await screen.findByRole("dialog", { name: "New lease" });
+    expect(screen.getByRole("button", { name: "Type of lease" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Start from a file" })).toBeNull();
     expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Choose file" })).toBeTruthy();
@@ -157,9 +158,9 @@ describe("F-editor c: footer-only commit", () => {
     fireEvent.change(document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement, {
       target: { value: "New lease" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Form" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Setup" }));
-    expect(screen.getByRole("button", { name: "Add lease" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Settings" }));
+    expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
   });
 });
