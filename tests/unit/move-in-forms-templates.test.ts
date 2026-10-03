@@ -6,12 +6,13 @@ import {
 import { DEFAULT_MOVE_IN_FORM_SETTINGS } from "@/lib/move-in-forms/types";
 
 describe("move-in form starters", () => {
-  it("ships exactly five built starters, all off", () => {
+  it("ships exactly five built starters: the checklist sends on lease signing, the other four by hand", () => {
     expect(MOVE_IN_FORM_STARTERS.map((t) => t.starterKey)).toEqual([
       "move-in-checklist", "key-receipt", "vehicle-parking", "pet-agreement", "emergency-contacts",
     ]);
     for (const starter of MOVE_IN_FORM_STARTERS) {
-      expect(starter.enabled).toBe(false);
+      expect("enabled" in starter).toBe(false);
+      expect(starter.trigger).toBe(starter.starterKey === "move-in-checklist" ? "lease-signed" : "manual");
       expect(starter.source).toBe("built");
       expect(starter.pdf ?? null).toBeNull();
       expect(MOVE_IN_FORM_ID_PATTERN.test(starter.id)).toBe(true);
@@ -40,11 +41,11 @@ describe("move-in form starters", () => {
 });
 
 describe("newMoveInFormTemplate", () => {
-  it("copies a starter under a fresh, valid id and leaves it off", () => {
+  it("copies a starter under a fresh, valid id and keeps its own sends setting", () => {
     const copy = newMoveInFormTemplate("built", "key-receipt");
     expect(copy.id).not.toBe("starter-key-receipt");
     expect(MOVE_IN_FORM_ID_PATTERN.test(copy.id)).toBe(true);
-    expect(copy.enabled).toBe(false);
+    expect(copy.trigger).toBe("manual");
     expect(copy.questions).toEqual(MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "key-receipt")!.questions);
     copy.questions[0]!.label = "changed";
     expect(MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "key-receipt")!.questions[0]!.label).not.toBe("changed");
@@ -54,7 +55,7 @@ describe("newMoveInFormTemplate", () => {
     const upload = newMoveInFormTemplate("upload");
     expect(upload.source).toBe("upload");
     expect(upload.questions.map((q) => q.type)).toEqual(["signature"]);
-    expect(upload.enabled).toBe(false);
+    expect("enabled" in upload).toBe(false);
   });
 });
 
@@ -86,7 +87,15 @@ describe("normalizeMoveInFormTemplates", () => {
     expect(template!.questions.map((q) => q.key)).toEqual(["a", "sig", "pick"]);
     expect(template!.questions.find((q) => q.key === "sig")!.required).toBe(true);
     expect(template!.questions.find((q) => q.key === "pick")!.options).toEqual(["x"]);
-    expect(template!.enabled).toBe(true);
+    expect(template!.trigger).toBe("lease-signed");
+  });
+
+  it("reads a form stored turned off as send-by-hand, so nothing that was off starts sending", () => {
+    const base = { id: "f1", name: "F", source: "built", questions: [], trigger: "lease-signed" };
+    expect(normalizeMoveInFormTemplates([{ ...base, enabled: false }])[0]!.trigger).toBe("manual");
+    expect(normalizeMoveInFormTemplates([{ ...base, enabled: true }])[0]!.trigger).toBe("lease-signed");
+    expect(normalizeMoveInFormTemplates([{ ...base, trigger: "application-approved", enabled: true }])[0]!.trigger).toBe("application-approved");
+    expect("enabled" in normalizeMoveInFormTemplates([{ ...base, enabled: true }])[0]!).toBe(false);
   });
 
   it("rejects an upload form's pdf that is not a well-formed stored reference", () => {
@@ -99,11 +108,11 @@ describe("normalizeMoveInFormTemplates", () => {
 });
 
 describe("readMoveInFormTemplates / readMoveInFormSettings", () => {
-  it("returns the five off starters when the key was never written", () => {
+  it("returns the five starters when the key was never written", () => {
     for (const absent of [undefined, null, {}, { moveInFormSettings: {} }, "junk"]) {
       const out = readMoveInFormTemplates(absent);
       expect(out).toHaveLength(5);
-      expect(out.every((t) => !t.enabled)).toBe(true);
+      expect(out.filter((t) => t.trigger !== "manual").map((t) => t.starterKey)).toEqual(["move-in-checklist"]);
     }
   });
 
@@ -116,8 +125,8 @@ describe("readMoveInFormTemplates / readMoveInFormSettings", () => {
 
   it("returns a fresh copy of the starters each time", () => {
     const first = readMoveInFormTemplates(undefined);
-    first[0]!.enabled = true;
-    expect(readMoveInFormTemplates(undefined)[0]!.enabled).toBe(false);
+    first[0]!.trigger = "manual";
+    expect(readMoveInFormTemplates(undefined)[0]!.trigger).toBe("lease-signed");
   });
 
   it("defaults and sanitizes settings", () => {

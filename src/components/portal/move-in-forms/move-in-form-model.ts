@@ -233,11 +233,10 @@ export function templateSourceLine(template: Pick<MoveInFormTemplate, "source" |
   return `${template.pdf.fileName} · ${pages} page${pages === 1 ? "" : "s"}`;
 }
 
-/** The row's right-hand figure: "3 of 4 residents", "0 sent", or "Turned off". */
-export function templateFigure(template: Pick<MoveInFormTemplate, "id" | "enabled">, forms: readonly Pick<MoveInFormSummary, "formId" | "status">[]): string {
-  if (!template.enabled) return "Turned off";
+/** The row's right-hand figure: "3 of 4 residents" once the form has been sent, otherwise nothing at all. */
+export function templateFigure(template: Pick<MoveInFormTemplate, "id">, forms: readonly Pick<MoveInFormSummary, "formId" | "status">[]): string {
   const sent = forms.filter((form) => form.formId === template.id && form.status !== "cancelled");
-  if (sent.length === 0) return "0 sent";
+  if (sent.length === 0) return "";
   const done = sent.filter((form) => form.status === "submitted").length;
   return `${done} of ${sent.length} resident${sent.length === 1 ? "" : "s"}`;
 }
@@ -272,11 +271,7 @@ export function removeMoveInTemplate(list: readonly MoveInFormTemplate[], id: st
   return list.filter((item) => item.id !== id);
 }
 
-export function setMoveInTemplateEnabled(list: readonly MoveInFormTemplate[], id: string, enabled: boolean): MoveInFormTemplate[] {
-  return list.map((item) => (item.id === id ? { ...item, enabled, updatedAt: nowIso() } : item));
-}
-
-/** A copy sits right after its original, with a new id, turned OFF so nothing new goes out until the manager says so. */
+/** A copy sits right after its original, with a new id, set to "only when I send it" so a duplicate never double-sends on its own. */
 export function duplicateMoveInTemplate(
   list: readonly MoveInFormTemplate[],
   id: string,
@@ -290,7 +285,7 @@ export function duplicateMoveInTemplate(
     ...structuredClone(original),
     id: newId,
     name: `${original.name || "Untitled form"} (copy)`,
-    enabled: false,
+    trigger: "manual",
     // An uploaded PDF is stored under its own form id; a copy uploads its own.
     pdf: original.source === "upload" ? null : (original.pdf ?? null),
     starterKey: undefined,
@@ -309,7 +304,7 @@ export function copyTemplateToProperty(template: MoveInFormTemplate, newId: stri
   const copy: MoveInFormTemplate = {
     ...structuredClone(template),
     id: newId,
-    enabled: false,
+    trigger: "manual",
     // The PDF lives under the source property's storage; a copy asks for its own upload.
     pdf: null,
     // Rooms belong to the source property; a copy asks for rooms again rather than pointing at strangers.
@@ -444,7 +439,7 @@ export function removeMoveInQuestion(questions: readonly MoveInFormQuestion[], i
 export function updateMoveInQuestion(
   questions: readonly MoveInFormQuestion[],
   id: string,
-  patch: Partial<Pick<MoveInFormQuestion, "label" | "type" | "required" | "options" | "description">>,
+  patch: Partial<Pick<MoveInFormQuestion, "label" | "type" | "required" | "options" | "description" | "showIf">>,
 ): MoveInFormQuestion[] {
   return questions.map((question) => {
     if (question.id !== id) return question;
@@ -456,6 +451,20 @@ export function updateMoveInQuestion(
     if (next.type === "signature") next.required = true;
     return next;
   });
+}
+
+/** Moves a question one place up or down inside its own section; a no-op at either end. */
+export function moveMoveInQuestion(questions: readonly MoveInFormQuestion[], id: string, direction: "up" | "down"): MoveInFormQuestion[] {
+  const sections = groupQuestionsBySection(questions);
+  const section = sections.find((item) => item.questions.some((q) => q.id === id));
+  if (!section) return [...questions];
+  const at = section.questions.findIndex((q) => q.id === id);
+  const to = direction === "up" ? at - 1 : at + 1;
+  if (to < 0 || to >= section.questions.length) return [...questions];
+  const moved = section.questions[at]!;
+  section.questions[at] = section.questions[to]!;
+  section.questions[to] = moved;
+  return flattenSections(sections);
 }
 
 /** `orderedIds` is the new order of one section's questions; every other section keeps its place. */

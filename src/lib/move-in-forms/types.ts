@@ -28,7 +28,11 @@ export type MoveInFormAudience =
   | { kind: "rooms"; roomIds: string[] }
   | { kind: "whole-house" };
 
-/** When a form goes out on its own. "manual" = only when the manager sends it. */
+/**
+ * When a form goes out on its own. "manual" = only when the manager sends it. This is the one
+ * "does it send itself" setting: a form has no separate on/off switch (the Applications list has
+ * none either), so every form is usable by hand and `trigger` alone decides the automatic send.
+ */
 export type MoveInFormTrigger = "lease-signed" | "application-approved" | "manual";
 
 /** Due date rule, relative to the residency's move-in date. */
@@ -52,8 +56,6 @@ export type MoveInFormTemplate = {
   audience: MoveInFormAudience;
   trigger: MoveInFormTrigger;
   due: MoveInFormDueRule;
-  /** Turned off = nothing new goes out; already-sent instances are unaffected. Starters ship off. */
-  enabled: boolean;
   starterKey?: MoveInFormStarterKey;
   createdAt: string;
   updatedAt: string;

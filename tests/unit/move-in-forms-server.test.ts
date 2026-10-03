@@ -133,7 +133,7 @@ describe("authorization: a foreign id is a 404, never a 403", () => {
   });
 
   it("will not let manager B send a form for manager A's residency", async () => {
-    properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f1", name: "F", enabled: true, questions: [q("sig", "signature", { required: true })] }];
+    properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f1", name: "F", questions: [q("sig", "signature", { required: true })] }];
     await expect(sendMoveInForm(manager("other-owner"), { applicationId: "AXIS-A", formId: "f1" })).rejects.toMatchObject({ status: 404 });
     expect(forms).toHaveLength(1);
   });
@@ -318,21 +318,18 @@ describe("manager actions", () => {
     await expect(remindMoveInForm(manager(), ID)).rejects.toMatchObject({ status: 409 });
   });
 
-  it("sends once by hand, refuses a duplicate, and refuses a form that is turned off", async () => {
-    const template: MoveInFormTemplate = { ...newMoveInFormTemplate("built"), id: "f2", name: "Keys", enabled: true, questions: [q("sig", "signature", { required: true })] };
+  it("sends once by hand (even a form that never sends itself), and refuses a duplicate", async () => {
+    const template: MoveInFormTemplate = { ...newMoveInFormTemplate("built"), id: "f2", name: "Keys", trigger: "manual", questions: [q("sig", "signature", { required: true })] };
     properties[0]!.templates = [template];
     const sent = await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f2" });
     expect(sent.form).toMatchObject({ formId: "f2", status: "sent", roomLabel: "Room 1", questionCount: 1 });
     expect(forms.find((row) => row.form_id === "f2")!.due_at).toBe(sent.form.dueAt);
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f2" })).rejects.toMatchObject({ status: 409 });
-    properties[0]!.templates = [{ ...template, enabled: false }];
-    forms = forms.filter((row) => row.form_id !== "f2");
-    await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f2" })).rejects.toMatchObject({ status: 409 });
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "nope" })).rejects.toMatchObject({ status: 404 });
   });
 
   it("will not send an upload form that has no stored document", async () => {
-    properties[0]!.templates = [{ ...newMoveInFormTemplate("upload"), id: "up", name: "Rules", enabled: true, pdf: null }];
+    properties[0]!.templates = [{ ...newMoveInFormTemplate("upload"), id: "up", name: "Rules", pdf: null }];
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "up" })).rejects.toMatchObject({ status: 409 });
   });
 });
@@ -368,12 +365,12 @@ describe("files", () => {
 
 describe("dispatch", () => {
   const enabled = (id: string, extra: Partial<MoveInFormTemplate> = {}): MoveInFormTemplate =>
-    ({ ...newMoveInFormTemplate("built"), id, name: id, enabled: true, trigger: "lease-signed", questions: [q("sig", "signature", { required: true })], ...extra });
+    ({ ...newMoveInFormTemplate("built"), id, name: id, trigger: "lease-signed", questions: [q("sig", "signature", { required: true })], ...extra });
 
   beforeEach(() => { forms = []; });
 
-  it("sends enabled templates for the trigger with a snapshot and a due date from the move-in date", async () => {
-    properties[0]!.templates = [enabled("a"), enabled("b", { enabled: false }), enabled("c", { trigger: "application-approved" }), enabled("d", { trigger: "manual" })];
+  it("sends the templates for the trigger with a snapshot and a due date from the move-in date", async () => {
+    properties[0]!.templates = [enabled("a"), enabled("b", { enabled: false } as never), enabled("c", { trigger: "application-approved" }), enabled("d", { trigger: "manual" })];
     const result = await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
     expect(result).toEqual({ sent: 1 });
     expect(forms.map((row) => row.form_id)).toEqual(["a"]);
@@ -398,9 +395,10 @@ describe("dispatch", () => {
     expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
   });
 
-  it("sends nothing from the five untouched starters, which are all off", async () => {
+  it("from the five untouched starters, sends only the checklist; the other four are by hand", async () => {
     properties[0]!.templates = null;
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
+    expect(forms.map((row) => row.form_id)).toEqual(["starter-move-in-checklist"]);
   });
 
   it("skips templates whose rooms do not include this residency's room", async () => {

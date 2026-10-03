@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * Send a move-in form by hand: pick a current resident, pick one of that property's forms that is
- * turned on, set a due date, send. The same popup frame as the viewer; the right-hand panel shows
+ * Send a move-in form by hand: pick a current resident, pick one of that property's forms, set a due date, send. The same popup frame as the viewer; the right-hand panel shows
  * what the resident gets. Forms are read from the resident's property (`listingSubmission`
- * through `readMoveInFormTemplates`), so what is offered is exactly what the property turned on.
+ * through `readMoveInFormTemplates`), so what is offered is exactly what the property has.
  */
 import { useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
@@ -29,13 +28,13 @@ const STEPS = [{ id: "send", label: "Send a form" }] as const;
 const roomSuffix = (room: string) => (room.trim() ? ` · ${room.trim()}` : "");
 const residencyPlace = (r: InspectionResidency) => `${r.property}${roomSuffix(inspectionRoomLabel(r.room))}`;
 
-/** The forms a resident's property has turned on, by name. */
-export function enabledMoveInForms(userId: string, propertyId: string): MoveInFormTemplate[] {
+/** The named forms a resident's property has, by name. Any of them can be sent by hand. */
+export function sendableMoveInForms(userId: string, propertyId: string): MoveInFormTemplate[] {
   if (!propertyId) return [];
   const hit = resolveManagerListingSubmissionForPropertyId(userId, propertyId);
   if (!hit) return [];
   return readMoveInFormTemplates(hit.sub)
-    .filter((template) => template.enabled && template.name.trim())
+    .filter((template) => template.name.trim())
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -49,7 +48,7 @@ export function SendMoveInFormPopup({
   /** From a resident record: that resident is already chosen. */
   presetApplicationId?: string;
   onClose: () => void;
-  /** Where "turn a form on" goes when the property has none enabled. */
+  /** Where "add a form" goes when the property has none. */
   onOpenProperty?: (propertyId: string) => void;
 }) {
   const { showToast } = useAppUi();
@@ -84,7 +83,7 @@ export function SendMoveInFormPopup({
   }, [userId, attempt, presetApplicationId]);
 
   const residency = residencies?.find((r) => r.id === pickedResident) ?? residencies?.[0] ?? null;
-  const forms = useMemo(() => (residency ? enabledMoveInForms(userId, residency.propertyId) : []), [userId, residency]);
+  const forms = useMemo(() => (residency ? sendableMoveInForms(userId, residency.propertyId) : []), [userId, residency]);
   const template = forms.find((f) => f.id === pickedForm) ?? forms[0] ?? null;
 
   // The due day the property's own rule gives for this resident's move-in, unless the manager picks another.
@@ -160,7 +159,7 @@ export function SendMoveInFormPopup({
           />
         ) : (
           <div className="rounded-2xl border border-dashed border-border bg-card/40 px-5 py-6 text-center" data-attr="move-in-form-send-no-forms">
-            <p className="text-sm font-semibold text-foreground">No forms are turned on for {residency?.property || "this property"}</p>
+            <p className="text-sm font-semibold text-foreground">No move-in forms for {residency?.property || "this property"}</p>
             {onOpenProperty && residency ? (
               <Button variant="outline" className="mt-3" onClick={() => onOpenProperty(residency.propertyId)} data-attr="move-in-form-send-open-property">
                 Open Move-in forms
