@@ -2,8 +2,8 @@
 
 /**
  * Bed pick for a shared room (PLAN-0924-0718). One radio row per slot —
- * "Resident N · $rent/mo" with the SAME rent for every resident (never split).
- * Taken rows show who holds the bed; open rows are selectable.
+ * "Bed N · $rent/mo" with the SAME rent for every resident (never split).
+ * Taken rows show availability only; a bed never identifies its resident.
  *
  * Pure presentation over `openResidentSlots` — this component never decides
  * openness itself, so the picker and the write it feeds are always reading
@@ -21,10 +21,6 @@ export type ApplicationResidentSlotPickerProps = {
   disabled?: boolean;
   name?: string;
 };
-
-function formatSinceDate(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
 
 /** Same rent every resident pays — first positive amount wins (never unequal display). */
 function sameRentAmount(slots: OpenResidentSlot[]): number {
@@ -80,7 +76,7 @@ export function ApplicationResidentSlotPicker({
             />
             <span className="min-w-0 flex-1 text-sm">
               <span className={taken ? "font-semibold" : "font-semibold text-foreground"}>
-                Resident {slot.slot} · {rentLabel}
+                Bed {String.fromCharCode(64 + slot.slot)} · {rentLabel}
               </span>
               {first.utilitiesEstimate ? (
                 <span className="text-muted"> · +${first.utilitiesEstimate} utilities</span>
@@ -90,7 +86,7 @@ export function ApplicationResidentSlotPicker({
               ) : null}
             </span>
             <span className={`shrink-0 text-xs font-semibold ${taken ? "text-muted" : "text-emerald-600"}`}>
-              {taken ? `${slot.holder!.name} · since ${formatSinceDate(slot.holder!.since)}` : "Open"}
+              {taken ? "Occupied" : "Open"}
             </span>
           </label>
         );
