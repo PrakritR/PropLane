@@ -17,6 +17,12 @@ import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notif
 import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 import { offerExpiresAt } from "@/lib/service-automation-settings";
+import {
+  loadMarketplaceVendorUserIds,
+  resolveWorkOrderPropertyZip,
+  workOrderCategoryForMarketplace,
+} from "@/lib/work-order-marketplace-match.server";
+import { parseMoneyAmount } from "@/lib/parse-money";
 
 function expiresLabel(at: Date): string {
   return at.toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -64,22 +70,107 @@ export async function vendorDirectoryRowsById(db: Db, ids: string[]): Promise<Ma
  * same bid-offer copy and delivery path as the single-vendor "Invite for bids"
  * flow, then opens bidding so responses can come back from any of them.
  */
+async function ensureDirectoryVendorOnManagerRoster(
+  db: Db,
+  managerUserId: string,
+  vendorUserId: string,
+): Promise<string | null> {
+  const { data: existing } = await db
+    .from("manager_vendor_records")
+    .select("id")
+    .eq("manager_user_id", managerUserId)
+    .eq("vendor_user_id", vendorUserId)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const { data: directoryRow } = await db
+    .from("vendor_business_profiles")
+    .select("business_name, work_email, work_phone, trades, directory_listed, onboarding_completed_at")
+    .eq("user_id", vendorUserId)
+    .maybeSingle();
+  if (!directoryRow || directoryRow.directory_listed !== true || !directoryRow.onboarding_completed_at) {
+    return null;
+  }
+
+  const trades = Array.isArray(directoryRow.trades) ? (directoryRow.trades as string[]) : [];
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const row = {
+    id,
+    managerUserId,
+    name: (directoryRow.business_name as string | null)?.trim() || "PropLane vendor",
+    trade: trades[0] ?? "",
+    trades: trades.length ? trades : undefined,
+    phone: (directoryRow.work_phone as string | null)?.trim() || "",
+    email: (directoryRow.work_email as string | null)?.trim() || "",
+    notes: "",
+    active: true,
+    catalogId: `self-serve-${vendorUserId}`,
+    vendorUserId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { error } = await db
+    .from("manager_vendor_records")
+    .insert({ id, manager_user_id: managerUserId, vendor_user_id: vendorUserId, row_data: row, updated_at: now });
+  if (error) return null;
+  return id;
+}
+
+export type SendWorkOrderVendorOffersBody = {
+  workOrderId?: string;
+  vendorIds?: string[];
+  marketplace?: {
+    enabled?: boolean;
+    trade?: string;
+    radiusMi?: number;
+    budget?: string;
+    sharePhotos?: boolean;
+    notes?: string;
+  };
+};
+
+export async function previewMarketplaceReach(
+  db: Db,
+  actor: WorkOrderActor,
+  input: { workOrderId: string; trade: string; radiusMi: number },
+): Promise<{ ok: true; count: number } | WorkOrderActionFailure> {
+  if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const { data: workOrder } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id, row_data")
+    .eq("id", input.workOrderId)
+    .maybeSingle();
+  if (!workOrder || (!actor.admin && workOrder.manager_user_id !== actor.userId)) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
+  const category = workOrderCategoryForMarketplace(rowData, input.trade);
+  if (!category) return { ok: true, count: 0 };
+  const propertyZip = await resolveWorkOrderPropertyZip(db, rowData);
+  if (!propertyZip) return { ok: true, count: 0 };
+  const userIds = await loadMarketplaceVendorUserIds(db, {
+    propertyZip,
+    publishRadiusMi: input.radiusMi,
+    category,
+  });
+  return { ok: true, count: userIds.length };
+}
+
 export async function sendWorkOrderVendorOffers(
   db: Db,
   actor: WorkOrderActor,
-  body: { workOrderId?: string; vendorIds?: string[] },
+  body: SendWorkOrderVendorOffersBody,
 ): Promise<{ ok: true; sent: string[]; skipped: string[] } | WorkOrderActionFailure> {
   if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
     return { ok: false, status: 403, error: "Forbidden." };
   }
 
   const workOrderId = String(body.workOrderId ?? "").trim();
-  const vendorIds = [...new Set((Array.isArray(body.vendorIds) ? body.vendorIds : []).map((v) => String(v).trim()).filter(Boolean))].slice(
-    0,
-    MAX_VENDORS_PER_SEND,
-  );
+  let vendorIds = [...new Set((Array.isArray(body.vendorIds) ? body.vendorIds : []).map((v) => String(v).trim()).filter(Boolean))];
   if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
-  if (vendorIds.length === 0) return { ok: false, status: 400, error: "Select at least one vendor." };
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
@@ -90,6 +181,39 @@ export async function sendWorkOrderVendorOffers(
     return { ok: false, status: 403, error: "Forbidden." };
   }
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
+
+  const marketplace = body.marketplace;
+  const marketplaceEnabled = marketplace?.enabled !== false;
+  const tradeLabel = (marketplace?.trade ?? rowData.category ?? "Maintenance").toString().trim();
+  const radiusMi = Math.min(50, Math.max(1, Math.round(Number(marketplace?.radiusMi ?? 5))));
+  let matchedCount = 0;
+
+  if (marketplaceEnabled) {
+    const category = workOrderCategoryForMarketplace(rowData, tradeLabel);
+    const propertyZip = await resolveWorkOrderPropertyZip(db, rowData);
+    if (category && propertyZip) {
+      const marketplaceUserIds = await loadMarketplaceVendorUserIds(db, {
+        propertyZip,
+        publishRadiusMi: radiusMi,
+        category,
+      });
+      matchedCount = marketplaceUserIds.length;
+      const managerUserId = String(workOrder.manager_user_id);
+      for (const vendorUserId of marketplaceUserIds) {
+        const directoryId = await ensureDirectoryVendorOnManagerRoster(db, managerUserId, vendorUserId);
+        if (directoryId) vendorIds.push(directoryId);
+      }
+    }
+  }
+
+  vendorIds = [...new Set(vendorIds)].slice(0, MAX_VENDORS_PER_SEND);
+  if (vendorIds.length === 0) {
+    return { ok: false, status: 400, error: "No vendors in range for this trade — widen the radius or add a roster vendor." };
+  }
+
+  const budgetRaw = marketplace?.budget?.trim();
+  const budgetCents =
+    budgetRaw && Number.isFinite(parseMoneyAmount(budgetRaw)) ? Math.round(parseMoneyAmount(budgetRaw) * 100) : null;
 
   const vendors = await vendorDirectoryRowsById(db, vendorIds);
   const sent: string[] = [];
@@ -135,6 +259,15 @@ export async function sendWorkOrderVendorOffers(
       biddingOpen: true,
       biddingOpenedAt: rowData.biddingOpenedAt ?? new Date().toISOString(),
       offerExpiresAt: expiresAt ? expiresAt.toISOString() : undefined,
+      marketplacePublish: marketplaceEnabled
+        ? {
+            trade: tradeLabel,
+            radiusMi,
+            budgetCents,
+            matchedCount,
+            publishedAt: new Date().toISOString(),
+          }
+        : rowData.marketplacePublish,
     };
     await db
       .from("portal_work_order_records")

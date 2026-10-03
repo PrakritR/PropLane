@@ -1,23 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
 import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
-import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
+import {
+  previewMarketplaceVendorReach,
+  sendWorkOrderToVendors,
+} from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
 const RADIUS_OPTIONS = [3, 5, 10, 15];
 
 function tradeForRow(row: DemoManagerWorkOrderRow): string {
   const fromCategory = row.category?.trim();
-  if (fromCategory) return fromCategory;
+  if (fromCategory) {
+    const label = fromCategory.charAt(0).toUpperCase() + fromCategory.slice(1);
+    if (fromCategory === "hvac") return "HVAC";
+    return label;
+  }
   return parseWorkOrderCategoryFromDescription(row.description ?? "") ?? "Maintenance";
 }
 
@@ -39,7 +48,9 @@ export function PublishServiceBidsModal({
   const [budget, setBudget] = useState("");
   const [notes, setNotes] = useState("");
   const [sharePhotos, setSharePhotos] = useState(true);
+  const [includeRoster, setIncludeRoster] = useState(true);
   const [rosterIds, setRosterIds] = useState<string[]>([]);
+  const [marketplaceCount, setMarketplaceCount] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const trade = row ? tradeForRow(row) : "";
@@ -54,20 +65,46 @@ export function PublishServiceBidsModal({
       });
   }, [vendors, trade]);
 
-  const vendorCount = rosterIds.length;
+  const reachCount = marketplaceCount + (includeRoster ? rosterIds.length : 0);
   const area = row ? workOrderGeneralArea(row) : "General area";
   const photoCount = row?.photoDataUrls?.filter((u) => u.trim()).length ?? 0;
 
+  useEffect(() => {
+    if (!open || !row) return;
+    let cancelled = false;
+    void previewMarketplaceVendorReach(row.id, trade, radiusMi).then((count) => {
+      if (!cancelled) setMarketplaceCount(count);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, row, trade, radiusMi]);
+
+  const stepRadius = (delta: number) => {
+    const idx = RADIUS_OPTIONS.indexOf(radiusMi as (typeof RADIUS_OPTIONS)[number]);
+    const next = RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.length - 1, Math.max(0, idx + delta))] ?? radiusMi;
+    setRadiusMi(next);
+  };
+
   const submit = async () => {
-    if (!row || rosterIds.length === 0) {
-      showToast("Pick at least one vendor.");
+    if (!row) return;
+    if (reachCount === 0) {
+      showToast("No vendors in range — widen the radius or pick a roster vendor.");
       return;
     }
     setBusy(true);
     try {
-      const result = await sendWorkOrderToVendors(row.id, rosterIds);
+      const result = await sendWorkOrderToVendors(row.id, includeRoster ? rosterIds : [], {
+        enabled: true,
+        trade,
+        radiusMi,
+        budget,
+        sharePhotos,
+        notes,
+      });
       if (!result.ok) throw new Error(result.error ?? "Could not send for bids.");
-      showToast(`Sent to ${rosterIds.length} vendor${rosterIds.length === 1 ? "" : "s"}.`);
+      const sent = result.sent?.length ?? reachCount;
+      showToast(`Sent to ${sent} vendor${sent === 1 ? "" : "s"}.`);
       onSent();
       onClose();
     } catch (e) {
@@ -85,40 +122,47 @@ export function PublishServiceBidsModal({
         onClose();
       }}
       dismissBlocked={busy}
-      title="Send for bids"
+      title="Publish to local vendors"
       primaryAction={{
-        label: busy ? "Sending…" : "Send for bids",
+        label: busy ? "Sending…" : "Publish",
         onClick: () => void submit(),
-        disabled: busy || !row || rosterIds.length === 0,
+        disabled: busy || !row || reachCount === 0,
         loading: busy,
       }}
     >
       {row ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,280px)]">
           <div className="space-y-4">
-            <CheckboxMultiSelect
-              label="Your vendors"
-              options={roster.map((v) => ({
-                value: v.id,
-                label: v.trade?.trim() ? `${v.name} · ${v.trade}` : v.name,
-              }))}
-              selected={rosterIds}
-              onChange={setRosterIds}
-              dataAttr="publish-bids-roster"
-            />
-            <label className="block">
-              <span className={MODAL_FIELD_LABEL_CLASS}>Local marketplace · within</span>
-              <select
-                className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
-                value={String(radiusMi)}
-                onChange={(e) => setRadiusMi(Number(e.target.value))}
-                data-attr="publish-bids-radius"
-              >
-                {RADIUS_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m} miles</option>
-                ))}
-              </select>
-            </label>
+            <div>
+              <span className={MODAL_FIELD_LABEL_CLASS}>Trade</span>
+              <p className="mt-1 text-sm font-medium text-foreground" data-attr="publish-bids-trade">{trade}</p>
+            </div>
+            <div>
+              <span className={MODAL_FIELD_LABEL_CLASS}>Within</span>
+              <div className="mt-1 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label="Decrease radius"
+                  onClick={() => stepRadius(-1)}
+                  data-attr="publish-bids-radius-down"
+                >
+                  <Minus className="size-4" aria-hidden />
+                </Button>
+                <span className="min-w-[5rem] text-center text-sm font-semibold tabular-nums" data-attr="publish-bids-radius">
+                  {radiusMi} mi
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label="Increase radius"
+                  onClick={() => stepRadius(1)}
+                  data-attr="publish-bids-radius-up"
+                >
+                  <Plus className="size-4" aria-hidden />
+                </Button>
+              </div>
+            </div>
             <label className="block">
               <span className={MODAL_FIELD_LABEL_CLASS}>Budget (optional)</span>
               <Input
@@ -138,13 +182,34 @@ export function PublishServiceBidsModal({
               />
               Share resident photos ({photoCount})
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={includeRoster}
+                onChange={(e) => setIncludeRoster(e.target.checked)}
+                data-attr="publish-bids-include-roster"
+              />
+              Also send to my vendors
+            </label>
+            {includeRoster ? (
+              <CheckboxMultiSelect
+                label="Your vendors"
+                options={roster.map((v) => ({
+                  value: v.id,
+                  label: v.trade?.trim() ? `${v.name} · ${v.trade}` : v.name,
+                }))}
+                selected={rosterIds}
+                onChange={setRosterIds}
+                dataAttr="publish-bids-roster"
+              />
+            ) : null}
             <label className="block">
               <span className={MODAL_FIELD_LABEL_CLASS}>Note for vendors</span>
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} data-attr="publish-bids-notes" />
             </label>
-            <p className="text-xs text-muted">
-              Reaching {vendorCount || "no"} vendor{vendorCount === 1 ? "" : "s"} on your roster. Local marketplace
-              matching uses trade and radius server-side.
+            <p className="text-xs text-muted" data-attr="publish-bids-reach-count">
+              Reaching {reachCount} vendor{reachCount === 1 ? "" : "s"} ({marketplaceCount} local marketplace
+              {includeRoster && rosterIds.length ? ` · ${rosterIds.length} on your roster` : ""})
             </p>
           </div>
           <PreviewPanel
@@ -153,7 +218,7 @@ export function PublishServiceBidsModal({
             sub={area}
             facts={[
               { label: "Trade", value: trade },
-              { label: "Vendors asked", value: String(vendorCount || "—") },
+              { label: "Area", value: area },
               { label: "Budget", value: budget.trim() ? `$${budget.trim()}` : "Open" },
               { label: "Photos", value: sharePhotos && photoCount > 0 ? String(photoCount) : "None" },
             ]}

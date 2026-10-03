@@ -314,6 +314,14 @@ export type DemoManagerWorkOrderRow = {
   biddingOpen?: boolean;
   biddingOpenedAt?: string;
   biddingResolvedAt?: string;
+  /** Last local-marketplace publish (trade + radius); offers may include roster + matched vendors. */
+  marketplacePublish?: {
+    trade: string;
+    radiusMi: number;
+    budgetCents?: number | null;
+    matchedCount?: number;
+    publishedAt: string;
+  };
   /** Vendor tapped "Mark done" (work-orders/mark-done route) and is awaiting manager
    * approve + pay, or the manager has since approved + paid (bookkeeping status only —
    * no real money movement; see work-orders/approve-pay route). */
