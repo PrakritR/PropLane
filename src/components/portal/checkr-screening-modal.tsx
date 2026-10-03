@@ -408,7 +408,7 @@ export function CheckrScreeningModal({
                 from Starter to Complete — even when applicant details are unchanged.
               </p>
             </div>
-            <div className="flex flex-wrap justify-end gap-3">
+            <div className="flex flex-nowrap justify-end gap-3 overflow-x-auto whitespace-nowrap">
               <Button
                 type="button"
                 data-attr="screening-run-again"
@@ -583,7 +583,7 @@ export function CheckrScreeningModal({
 
         <div
           data-portal-detail-actions=""
-          className="flex flex-wrap items-center justify-end gap-3 border-t border-border py-6 sm:gap-4"
+          className="flex flex-nowrap items-center justify-end gap-3 overflow-x-auto whitespace-nowrap border-t border-border py-6 sm:gap-4"
         >
           {isDemo && bg?.status === "pending" ? (
             <Button

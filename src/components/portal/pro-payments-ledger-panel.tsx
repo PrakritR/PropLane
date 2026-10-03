@@ -774,7 +774,8 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const renderDueDateCell = (row: DemoManagerPaymentLedgerRow) => {
-    return <span className="block">{row.dueDate}</span>;
+    const label = formatDueMeta(row.dueDate ?? "").replace(/^Due\s+/i, "");
+    return <span className="block">{label || row.dueDate}</span>;
   };
 
   const buildReminderPreviewForRow = (row: DemoManagerPaymentLedgerRow): BulkPaymentReminderPreviewItem | null => {
@@ -1299,7 +1300,11 @@ export function ManagerPaymentsLedgerPanel({
         <RecordStatTiles>
           <StatTile dataAttr="payment-overview-tile-amount" label="Amount" value={row.lineAmount} />
           <StatTile dataAttr="payment-overview-tile-status" label="Status" value={row.statusLabel} />
-          <StatTile dataAttr="payment-overview-tile-due" label="Due date" value={row.dueDate || "Not set"} />
+          <StatTile
+            dataAttr="payment-overview-tile-due"
+            label="Due date"
+            value={formatDueMeta(row.dueDate ?? "").replace(/^Due\s+/i, "") || row.dueDate || "Not set"}
+          />
           {charge?.paidAt ? <StatTile dataAttr="payment-overview-tile-paid" label="Paid on" value={formatPacificDateTime(charge.paidAt)} detail={charge.paidMethod} /> : dueDays != null ? <StatTile dataAttr="payment-overview-tile-days" label={dueDays < 0 ? "Days overdue" : "Days until due"} value={dueDays === 0 ? "Today" : String(Math.abs(dueDays))} /> : null}
         </RecordStatTiles>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

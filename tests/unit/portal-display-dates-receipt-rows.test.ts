@@ -29,4 +29,22 @@ describe("portal list dates — rent receipts", () => {
     expect(source).toContain("formatPortalListDate");
     expect(source).toMatch(/formatPortalListDate\(bill\.dueDate\)/);
   });
+
+  it("pro-payments-ledger-panel formats due dates in detail cells", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-payments-ledger-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("formatDueMeta");
+    expect(source).toMatch(/formatDueMeta\(row\.dueDate/);
+  });
+
+  it("pro-resident-overview-panel formats ISO due dates in payment preview facts", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-resident-overview-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("formatPortalListDate");
+    expect(source).toMatch(/formatPortalListDate\(row\.dueDate\)/);
+  });
 });

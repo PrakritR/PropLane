@@ -28,6 +28,7 @@ import {
   type ResidentNeedsAttentionItem,
 } from "@/lib/manager-resident-lifecycle";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
@@ -290,7 +291,17 @@ export function ResidentOverviewPanel({
               id: row.id,
               icon: "payments",
               title: row.chargeTitle,
-              fact: row.bucket === "paid" ? `Paid ${row.dueDate}` : row.bucket === "overdue" ? `Overdue · ${row.dueDate}` : `Due ${row.dueDate}`,
+              fact: (() => {
+                const due =
+                  /^\d{4}-\d{2}-\d{2}$/.test((row.dueDate ?? "").trim())
+                    ? formatPortalListDate(row.dueDate)
+                    : row.dueDate;
+                return row.bucket === "paid"
+                  ? `Paid ${due}`
+                  : row.bucket === "overdue"
+                    ? `Overdue · ${due}`
+                    : `Due ${due}`;
+              })(),
               urgent: row.bucket === "overdue",
               rank: 0,
               href: links.payments,
