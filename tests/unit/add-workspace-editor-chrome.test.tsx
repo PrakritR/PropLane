@@ -127,7 +127,7 @@ describe("Edit / Add lease workspace chrome", () => {
 });
 
 describe("Add request type workspace chrome", () => {
-  it("opens Details → Price → Preview", async () => {
+  it("opens single service form with resident preview and Save", async () => {
     render(
       <ServiceOfferingEditModal
         open
@@ -143,14 +143,9 @@ describe("Add request type workspace chrome", () => {
       />,
     );
     await screen.findByRole("dialog", { name: "Add request type" });
-    expect(document.querySelector('[data-attr="listing-v2-rail-details"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-price"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="service-offering-next"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="service-offering-save"]')).toBeNull();
-
-    jumpRail("preview");
+    expect(document.querySelector("[data-ps40-svc-form]")).not.toBeNull();
     expect(document.querySelector('[data-attr="service-offering-save"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="service-offering-resident-preview"]')).not.toBeNull();
     expect(screen.getAllByText("Parking spot").length).toBeGreaterThan(0);
   });
 });
