@@ -26,8 +26,6 @@ import {
   StepRail,
   type StepRailItem,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { Trash2 } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
@@ -287,9 +285,6 @@ export function AddWorkspace({
         headerAside={
           <>
             {headerActions}
-            {keepsDraft && dirty && onDiscardDraft ? (
-              <PortalIconAction icon={Trash2} label="Discard draft" ring disabled={busy} onClick={discardDraft} data-attr={`${dataAttrPrefix}-discard-draft-icon`} />
-            ) : null}
             <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
         }
@@ -305,6 +300,18 @@ export function AddWorkspace({
           <>
             <div className="flex items-center gap-2.5">
               {dangerAction}
+              {/* No trash in the header (captain, Oct 3): a kept draft is discarded from the footer. */}
+              {!dangerAction && keepsDraft && dirty && onDiscardDraft ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={discardDraft}
+                  data-attr={`${dataAttrPrefix}-discard-draft`}
+                  className="text-[13px] font-semibold text-danger hover:underline disabled:opacity-50"
+                >
+                  Discard draft
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={prevPath == null || busy}
