@@ -82,8 +82,6 @@ export function WorkspaceInviteLinkBox({
           </>
         ) : awaitingReveal ? (
           <p className="mt-2 text-sm text-muted" role="status">Loading link…</p>
-        ) : !stale ? (
-          <p className="mt-2 text-sm text-muted">Create a link to copy and share.</p>
         ) : null}
       </div>
     );
