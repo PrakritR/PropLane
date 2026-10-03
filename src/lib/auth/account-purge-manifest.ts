@@ -903,6 +903,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
   },
   {
+    // Move-in form instances (answers, signature hash, photo paths). Plain FKs onto
+    // auth.users with no delete action, same as resident_inspections: clear before the login.
+    table: "resident_move_in_forms",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+  },
+  {
     table: "resident_housemate_sharing",
     phase: 2,
     manager: { ids: ["user_id"] },

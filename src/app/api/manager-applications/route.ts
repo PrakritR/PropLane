@@ -12,7 +12,8 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
-import { emitApplicationTransition } from "@/lib/domain-action-events.server";
+import { applicationEventForTransition, emitApplicationTransition } from "@/lib/domain-action-events.server";
+import { dispatchMoveInFormsForResidency } from "@/lib/move-in-forms/server";
 import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
@@ -1441,6 +1442,11 @@ export async function POST(req: Request) {
         application: row,
         actor: { userId: user.id, email: user.email ?? "" },
       }).catch(bestEffortFailed("application action event", { application: row.id }));
+    }
+    // Forms set to go out on approval (the manager chose "when the application is approved"
+    // rather than the default "when the lease is signed"). Best-effort; never fails this save.
+    if (row.managerUserId && applicationEventForTransition(previousRow, row) === "application_approved") {
+      await dispatchMoveInFormsForResidency(row.id, "application-approved");
     }
     if (row.bucket === "pending" && row.application?.consentCredit) {
       void tryAutoOrderScreening(db, row);

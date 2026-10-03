@@ -59,6 +59,7 @@ import {
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
+  loadManagerMoveInFormsPage,
   loadManagerProperties,
   loadManagerResidents,
   loadManagerVendorsPanel,
@@ -702,6 +703,22 @@ export async function renderPortalSection(
       if (legacyPath) {
         redirect(`${def.basePath}/${legacyPath}`);
       }
+    }
+
+    // Move-in forms: the manager's inbox of what residents filled out (Submitted) or still owe
+    // (Waiting). `/portal/move-in` is a different thing from a property's own Move-in tab and from
+    // Inspections' Move-in tab; none of them share a route.
+    if ((kind === "manager" || kind === "pro") && section === "move-in") {
+      if (!tabParts?.length) redirect(`${def.basePath}/move-in/submitted`);
+      const moveInTab = tabParts[0];
+      if ((moveInTab !== "submitted" && moveInTab !== "waiting") || tabParts.length > 1) notFound();
+      const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
+      return subscriptionGated(
+        <ManagerMoveInFormsPage tab={moveInTab} basePath={def.basePath} />,
+        kind,
+        "move-in",
+        managerOwnerSubscriptionTier,
+      );
     }
 
     if (section === "inspections") {
