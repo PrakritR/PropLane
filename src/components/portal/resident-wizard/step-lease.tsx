@@ -174,7 +174,8 @@ export function LeaseStep({
             ) : (
               <>
                 <WizardSelect
-                  label="Lease term *"
+                  label="Lease term"
+                  required
                   value={termSelectValue}
                   onChange={(selected) => {
                     if (selected === RESIDENT_LEASE_TERM_CUSTOM) {

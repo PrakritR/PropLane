@@ -18,7 +18,8 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, Check, Circle, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, Circle, ChevronDown, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
@@ -260,6 +261,8 @@ export type StepRailItem = {
   count?: number;
   /** Things the manager should look at before publishing. */
   attention?: number;
+  /** A finished step — drawn as a check in the phone step list. Defaults to "opened and nothing missing". */
+  done?: boolean;
   /**
    * One line of what the section currently says — "2 rooms · 1 with photos",
    * "From $1,160 a month". The rail then reads as the listing's table of
@@ -289,10 +292,13 @@ export function StepRail({
   onJump,
   visited,
   numbered = false,
+  todoCount,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
+  /** The "N to finish" count in the phone step list. Defaults to the number of steps that need something. */
+  todoCount?: number;
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
   /**
@@ -309,16 +315,8 @@ export function StepRail({
   }, [current]);
   return (
     <>
-      <div className="min-h-11 px-2 lg:hidden">
-        <FieldSingleSelect
-          label="Jump to step"
-          hideLabel
-          value={String(current)}
-          onChange={(value) => onJump(Number(value))}
-          options={steps.map((step, index) => ({ value: String(index), disabled: step.disabled, label: step.label, attention: (step.attention ?? 0) > 0 }))}
-          dataAttr="workspace-step-picker"
-          triggerClassName="min-h-11 rounded-lg text-sm font-semibold"
-        />
+      <div className="px-1 lg:hidden">
+        <WizardStepSheet steps={steps} current={current} onJump={onJump} visited={visited} todoCount={todoCount} />
       </div>
       <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
@@ -365,6 +363,126 @@ export function StepRail({
         );
       })}
       </ol>
+    </>
+  );
+}
+
+/**
+ * The phone step picker: tap the step name and a bottom sheet lists every step.
+ *
+ * A check marks a finished step, a red dot one that still needs something, a ring
+ * the one you are on ("Here"). The "N to finish" count lives only in this list.
+ * Desktop never renders it — the left rail is the list there.
+ */
+export function WizardStepSheet({
+  steps,
+  current,
+  onJump,
+  visited,
+  todoCount,
+}: {
+  steps: readonly StepRailItem[];
+  current: number;
+  onJump: (index: number) => void;
+  visited?: ReadonlySet<string>;
+  todoCount?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const todo = todoCount ?? steps.filter((step) => (step.attention ?? 0) > 0).length;
+  const active = steps[current];
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+  const pick = (index: number) => {
+    setOpen(false);
+    onJump(index);
+  };
+  const sheet = open ? (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center" data-wizard-step-sheet="">
+      <button type="button" aria-label="Close steps" tabIndex={-1} className="absolute inset-0 bg-foreground/40" onClick={() => setOpen(false)} />
+      <div
+        role="dialog"
+        aria-label="Steps"
+        className="relative max-h-[78dvh] w-full overflow-y-auto rounded-t-[20px] bg-card px-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-2 shadow-[0_-12px_40px_-12px_rgba(11,27,58,0.4)]"
+      >
+        <span className="mx-auto mb-2 block h-1 w-10 rounded-full bg-border" aria-hidden />
+        <div className="flex items-center justify-between gap-3 px-3 pb-2">
+          <b className="text-[17px] font-extrabold tracking-tight text-foreground">Steps</b>
+          {todo > 0 ? (
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-foreground" data-wizard-step-todo="">
+              <span className="size-[7px] rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
+              {todo} to finish
+            </span>
+          ) : null}
+        </div>
+        <div id={listId} role="listbox" aria-label="Jump to step">
+          {steps.map((step, index) => {
+            const on = index === current;
+            const warn = (step.attention ?? 0) > 0;
+            const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
+            return (
+              <button
+                key={step.id}
+                type="button"
+                role="option"
+                aria-selected={on}
+                disabled={step.disabled}
+                onClick={() => pick(index)}
+                data-attr={`workspace-step-${step.id}`}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-accent/40 disabled:opacity-45"
+              >
+                <span className="grid size-5 shrink-0 place-items-center" aria-hidden>
+                  {warn ? (
+                    <span className="size-[9px] rounded-full bg-[var(--status-overdue-fg)]" />
+                  ) : done ? (
+                    <Check className="size-4 text-primary" strokeWidth={2.5} />
+                  ) : on ? (
+                    <span className="size-[18px] rounded-full border-2 border-primary" />
+                  ) : (
+                    <span className="size-[18px] rounded-full border border-border" />
+                  )}
+                </span>
+                <span className={cn("min-w-0 flex-1 truncate text-[15px]", on ? "font-bold text-foreground" : "font-semibold text-foreground/85")}>{step.label}</span>
+                {warn ? <span className="sr-only">Needs something</span> : null}
+                {on ? <span className="shrink-0 text-[12.5px] font-bold text-primary">Here</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  ) : null;
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label="Jump to step"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        data-attr="workspace-step-picker"
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-card px-3 text-left"
+      >
+        {todo > 0 ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
+        <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-foreground">{active?.label ?? ""}</span>
+        <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-muted">
+          Step {current + 1} of {steps.length}
+          <ChevronDown className="size-4" aria-hidden />
+        </span>
+      </button>
+      {sheet && typeof document !== "undefined" ? createPortal(sheet, document.body) : null}
     </>
   );
 }

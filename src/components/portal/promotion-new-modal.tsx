@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { FileText, MessageSquareText, Upload, type LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -25,10 +27,10 @@ import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-previ
 import { Input, Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
-const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
-  { id: "flyer", label: "Flyer" },
-  { id: "text", label: "Text" },
-  { id: "upload", label: "Upload your own" },
+const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; icon: LucideIcon }[] = [
+  { id: "flyer", label: "Flyer", icon: FileText },
+  { id: "text", label: "Post or blurb", icon: MessageSquareText },
+  { id: "upload", label: "Upload your own", icon: Upload },
 ];
 
 type FlyerContentField = Exclude<keyof PromotionDraft, "propertyKey" | "images">;
@@ -258,8 +260,26 @@ export function PromotionNewModal({
       {stepId === "kind" ? (
         <StepColumn>
           <StepHeading title="Kind" />
-          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3">
-            {PROMOTION_KIND_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={kind === option.id} disabled={flyerBusy || textBusy || uploadBusy} onClick={() => void requestSwitch(option.id)} data-attr="promotion-new-kind" className={`min-h-24 rounded-xl border p-3 text-sm font-semibold ${kind === option.id ? "border-primary bg-primary/5 text-primary" : "border-border bg-card"}`}>{option.label}</button>)}
+          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3 max-sm:grid-cols-1">
+            {PROMOTION_KIND_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              const on = kind === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={flyerBusy || textBusy || uploadBusy}
+                  onClick={() => void requestSwitch(option.id)}
+                  data-attr="promotion-new-kind"
+                  className={cn("flex min-h-24 flex-col items-start justify-between gap-3 rounded-xl border p-3 text-left text-sm font-bold transition max-sm:min-h-20", on ? "border-primary bg-primary/[0.06] text-primary ring-1 ring-primary" : "border-border bg-card text-foreground hover:bg-accent/40")}
+                >
+                  <Icon className="size-5" strokeWidth={1.75} aria-hidden />
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
           {!hidePropertyPicker ? (
             <WizardSelect

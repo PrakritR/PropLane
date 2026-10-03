@@ -8,21 +8,10 @@
  * collects files and an optional hint; the server does the reading.
  */
 
-import { useRef, useState, type DragEvent } from "react";
-import {
-  FileSpreadsheet,
-  FileText,
-  Home,
-  ListChecks,
-  Receipt,
-  Table,
-  Upload,
-  Users,
-  X,
-} from "lucide-react";
+import { useState } from "react";
+import { FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PortalRowFact } from "@/components/portal/portal-record-row";
-import { cn } from "@/lib/utils";
+import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
 
 const ACCEPT = ".xlsx,.xls,.csv,.pdf";
 const MAX_FILES = 50;
@@ -46,23 +35,26 @@ export function PortfolioImportUploadStep({
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [hint, setHint] = useState("");
-  const [dragOver, setDragOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [rejected, setRejected] = useState<string | null>(null);
 
+  // Limits are named only when a file is turned away — no format chips ahead of time.
   const addFiles = (picked: FileList | File[]) => {
     const next = [...files];
+    let turnedAway: string | null = null;
     for (const file of Array.from(picked)) {
-      if (next.length >= MAX_FILES) break;
+      if (!/\.(xlsx|xls|csv|pdf)$/i.test(file.name)) {
+        turnedAway = `${file.name} is not a spreadsheet or PDF. Use .xlsx, .xls, .csv or .pdf.`;
+        continue;
+      }
+      if (next.length >= MAX_FILES) {
+        turnedAway = `Up to ${MAX_FILES} files at a time.`;
+        break;
+      }
       if (next.some((f) => f.name === file.name && f.size === file.size)) continue;
       next.push(file);
     }
+    setRejected(turnedAway);
     setFiles(next);
-  };
-
-  const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   };
 
   const removeFile = (index: number) => setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -81,57 +73,33 @@ export function PortfolioImportUploadStep({
           <span>Properties</span>
         </button>
       </div>
-      <h1 className="mb-3 text-[20px] font-bold tracking-tight text-foreground md:text-[22px]">Import your portfolio</h1>
-
-      <p className="mb-5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-foreground/70" data-attr="portfolio-import-file-kinds">
-        <PortalRowFact icon={FileSpreadsheet}>Spreadsheet</PortalRowFact>
-        <span aria-hidden>·</span>
-        <PortalRowFact icon={Table}>AppFolio / Buildium export</PortalRowFact>
-        <span aria-hidden>·</span>
-        <PortalRowFact icon={FileText}>Lease PDFs</PortalRowFact>
-      </p>
-
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={ACCEPT}
-        className="sr-only"
-        onChange={(e) => {
-          if (e.target.files?.length) addFiles(e.target.files);
-          e.target.value = "";
-        }}
-        data-attr="portfolio-import-file-input"
-      />
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            inputRef.current?.click();
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        data-attr="portfolio-import-dropzone"
-        className={cn(
-          "flex min-h-[168px] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-8 text-center outline-none transition-colors",
-          dragOver ? "border-primary bg-primary/[0.05]" : "border-border hover:border-primary/40",
-        )}
-      >
-        <Upload className="size-6 text-muted" strokeWidth={1.6} aria-hidden />
-        <p className="text-[15px] font-semibold text-foreground">Drop files here</p>
-        <p className="text-[12.5px] text-muted">.xlsx · .csv · .pdf · up to {MAX_FILES} files</p>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="text-[20px] font-bold tracking-tight text-foreground md:text-[22px]">Import your portfolio</h1>
+        <WorkspaceUploadAction
+          accept={ACCEPT}
+          onPick={(file) => {
+            setRejected(null);
+            addFiles([file]);
+          }}
+          disabled={uploading}
+          dataAttr="portfolio-import-upload"
+          inputDataAttr="portfolio-import-file-input"
+        />
       </div>
+      {rejected ? (
+        <p role="alert" data-attr="portfolio-import-rejected" className="mb-3 text-[13px] font-semibold text-destructive">
+          {rejected}
+        </p>
+      ) : null}
 
+      <div className="mb-1 text-[12.5px] font-bold text-foreground">Files</div>
+      {files.length === 0 ? (
+        <p className="rounded-xl border border-border bg-card px-3 py-3 text-[14px] text-muted" data-attr="portfolio-import-no-files">
+          No files yet
+        </p>
+      ) : null}
       {files.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-1.5" data-attr="portfolio-import-file-list">
+        <ul className="flex flex-col gap-1.5" data-attr="portfolio-import-file-list">
           {files.map((file, index) => (
             <li
               key={`${file.name}-${file.size}-${index}`}
@@ -166,25 +134,6 @@ export function PortfolioImportUploadStep({
           data-attr="portfolio-import-hint"
           className="min-h-11 w-full rounded-xl border border-border bg-card px-3 text-[14px] text-foreground outline-none focus:border-primary"
         />
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2" data-attr="portfolio-import-value-facts">
-        <p className="flex items-start gap-2 text-[13px] text-foreground/70">
-          <Home className="mt-0.5 size-4 shrink-0" strokeWidth={1.6} aria-hidden />
-          <span>Properties &amp; rooms, from the rent roll</span>
-        </p>
-        <p className="flex items-start gap-2 text-[13px] text-foreground/70">
-          <Users className="mt-0.5 size-4 shrink-0" strokeWidth={1.6} aria-hidden />
-          <span>Residents &amp; leases — names, dates, rent</span>
-        </p>
-        <p className="flex items-start gap-2 text-[13px] text-foreground/70">
-          <Receipt className="mt-0.5 size-4 shrink-0" strokeWidth={1.6} aria-hidden />
-          <span>Charges — current balances</span>
-        </p>
-        <p className="flex items-start gap-2 text-[13px] text-foreground/70">
-          <ListChecks className="mt-0.5 size-4 shrink-0" strokeWidth={1.6} aria-hidden />
-          <span>Tasks &amp; invites — what to do next</span>
-        </p>
       </div>
 
       {error ? (
