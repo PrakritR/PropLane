@@ -57,10 +57,15 @@ function ContactIdentityRow({
     <>
       {leading}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold tabular-nums text-foreground" title={`${label}: ${value}`}>
-          {value}
+        <p
+          className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold tabular-nums text-foreground"
+          title={note && noteTone === "warn" ? `${label}: ${value} — ${note}` : `${label}: ${value}`}
+        >
+          <span className="truncate">{value}</span>
+          {note && noteTone === "warn" ? (
+            <span className="shrink-0 text-xs font-normal text-[var(--status-pending-fg)]">{note}</span>
+          ) : null}
         </p>
-        {note ? <p className={cn("truncate text-xs", noteTone === "warn" ? "text-[var(--status-pending-fg)]" : "text-muted")} title={note}>{note}</p> : null}
       </div>
       {actions?.map((action) =>
         action.href ? (
