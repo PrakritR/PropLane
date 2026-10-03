@@ -594,7 +594,7 @@ export function PortalFilterSortSheet({
       <div
         className={cn(
           compactPanel
-            ? "flex min-h-0 flex-col overflow-visible px-3 py-2"
+            ? "flex min-h-0 flex-col overflow-y-auto overscroll-contain px-3 py-2"
             : PORTAL_FILTER_BODY_CLASS,
           !compactPanel && "flex-1",
         )}

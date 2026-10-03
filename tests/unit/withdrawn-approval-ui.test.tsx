@@ -112,7 +112,7 @@ describe("manager Applications — no Approve on a withdrawn row", () => {
     // Detail route — no Approve button and no "Send reminder".
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send reminder" })).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Reject" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Decline" }).length).toBeGreaterThan(0);
     // What this file guards is that a WITHDRAWN row cannot be approved or chased.
     // Which destructive action the footer offers is a separate, moving decision —
     // 5532486a ("contextual bulk bar with reject-tab undo actions") made Delete
@@ -126,6 +126,6 @@ describe("manager Applications — no Approve on a withdrawn row", () => {
     render(<ManagerApplications bucket="pending" applicationId="AXIS-N1" />);
 
     expect(screen.getAllByRole("button", { name: "Approve" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Reject" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Decline" }).length).toBeGreaterThan(0);
   });
 });
