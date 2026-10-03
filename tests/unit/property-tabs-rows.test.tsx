@@ -40,8 +40,11 @@ describe("Services tab rows (studio-redesign property-tabs)", () => {
     expect(row.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
     expect(row.querySelector('[data-attr="record-row-facts"]')!.textContent).toContain("$40 · Per request");
     expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
-    fireEvent.click(within(container).getByRole("button", { name: /Add-ons/ }));
-    expect(container.querySelector(".portal-property-row")!.textContent).toContain("Turned off");
+    expect(within(container).getByRole("button", { name: "Services" })).toBeTruthy();
+    expect(within(container).queryByRole("button", { name: "Service settings" })).toBeNull();
+    const rows = container.querySelectorAll(".portal-property-row");
+    expect(rows.length).toBe(2);
+    expect([...rows].some((r) => r.textContent?.includes("Turned off"))).toBe(true);
   });
 
   it("price fact never invents a price", () => {

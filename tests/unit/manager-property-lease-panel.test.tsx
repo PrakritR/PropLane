@@ -10,7 +10,7 @@ vi.mock("@/components/portal/property-lease-form-modal", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => "/portal/properties/all/mgr-house-1",
+  usePathname: () => "/portal/properties/all/mgr-house-1/lease",
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -52,17 +52,15 @@ describe("ManagerPropertyLeasePanel", () => {
       </AppUiProvider>,
     );
 
-    // Record editing appears only inside that record’s menu.
-    expect(screen.getByRole("button", { name: "Lease settings" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Applications" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Leases" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Lease settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 
     expect(screen.queryByRole("checkbox")).toBeNull();
     fireEvent.keyDown(screen.getAllByRole("button", { name: "Actions for Long-term lease" })[0]!, { key: "ArrowDown" });
     expect(await screen.findByRole("menuitem", { name: "Edit lease" })).toBeTruthy();
     expect(await screen.findByRole("menuitem", { name: "Delete" })).toBeTruthy();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Lease settings" }));
-    expect(await screen.findByRole("dialog", { name: "Lease settings" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="property-lease-row-facts"]')).toBeTruthy();
   });
 });

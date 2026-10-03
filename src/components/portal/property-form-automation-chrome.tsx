@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
 
 export type FormAutomationPane = "form" | "automation";
 
@@ -33,6 +33,7 @@ export function PropertyFormAutomationCommandBar({
   activeFilterChips,
   panes = PANES,
   search,
+  propertyFormsSectionNav,
 }: {
   pane: FormAutomationPane;
   onPaneChange: (pane: FormAutomationPane) => void;
@@ -44,9 +45,9 @@ export function PropertyFormAutomationCommandBar({
     placeholder: string;
     dataAttr: string;
   };
-  onSettings: () => void;
-  settingsLabel: string;
-  settingsDataAttr: string;
+  onSettings?: () => void;
+  settingsLabel?: string;
+  settingsDataAttr?: string;
   settingsDisabled?: boolean;
   onAdd: () => void;
   addLabel: string;
@@ -60,13 +61,37 @@ export function PropertyFormAutomationCommandBar({
    * (`FormAutomationPaneSwitch`) is untouched and still offers both.
    */
   panes?: { id: FormAutomationPane; label: string }[];
+  /** Property record Application / Lease tabs — routed underline nav (no settings gear). */
+  propertyFormsSectionNav?: {
+    activeId: "application" | "lease";
+    applicationHref: string;
+    leaseHref: string;
+  };
 }) {
-  return (
-    <PortalListControlStack
-      className="mb-2 max-lg:mb-1.5"
-      variant="command"
-      destinationRow={
-        panes.length > 1 ? (
+  const destinationRow = propertyFormsSectionNav
+    ? (
+        <DestinationNav
+          items={[
+            {
+              id: "application",
+              label: "Applications",
+              href: propertyFormsSectionNav.applicationHref,
+              dataAttr: "property-form-section-application",
+            },
+            {
+              id: "lease",
+              label: "Leases",
+              href: propertyFormsSectionNav.leaseHref,
+              dataAttr: "property-form-section-lease",
+            },
+          ]}
+          activeId={propertyFormsSectionNav.activeId}
+          ariaLabel="Applications and leases"
+          appearance="command"
+        />
+      )
+    : panes.length > 1
+      ? (
           <LocalDestinationNav
             items={panes.map((item) => ({
               id: item.id,
@@ -78,21 +103,29 @@ export function PropertyFormAutomationCommandBar({
             ariaLabel="Form or automation"
             appearance="command"
           />
-        ) : undefined
-      }
+        )
+      : undefined;
+
+  return (
+    <PortalListControlStack
+      className="mb-2 max-lg:mb-1.5"
+      variant="command"
+      destinationRow={destinationRow}
       activeDestinationId={pane}
       destinationAriaLabel="Form or automation"
       search={search}
       actions={
         <>
           {filter}
-          <PortalIconAction
-            icon={Settings}
-            label={settingsLabel}
-            data-attr={settingsDataAttr}
-            disabled={settingsDisabled}
-            onClick={onSettings}
-          />
+          {onSettings && settingsLabel && settingsDataAttr ? (
+            <PortalIconAction
+              icon={Settings}
+              label={settingsLabel}
+              data-attr={settingsDataAttr}
+              disabled={settingsDisabled}
+              onClick={onSettings}
+            />
+          ) : null}
         </>
       }
       primary={

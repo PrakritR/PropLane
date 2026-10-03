@@ -81,9 +81,18 @@ import {
   makePropertyApplicationTemplateId,
   withPropertyApplicationTemplatesExplicit,
   updatePropertyApplicationTemplate,
+  readPropertyApplicationTemplates,
   type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
+import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
+import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
+import {
+  readPropertyLeaseTemplates,
+  syncLegacyLeaseFieldsFromTemplates,
+  type PropertyLeaseTemplate,
+} from "@/lib/property-lease-templates";
 import {
   applyEffectiveApplicationForm,
   emptyWorkspaceApplicationFormTemplate,
@@ -326,6 +335,9 @@ export function ManagerApplicationQuestionsEditorModal({
   const [copyFromApplicationId, setCopyFromApplicationId] = useState<string | null>(null);
   const [questionsMobileSectionId, setQuestionsMobileSectionId] = useState<RentalApplicationSectionId>("personal");
   const replaceApplicationFileRef = useRef<HTMLInputElement>(null);
+  const [routingLeaseTemplates, setRoutingLeaseTemplates] = useState<PropertyLeaseTemplate[]>([]);
+  const [routingApplicationTemplates, setRoutingApplicationTemplates] = useState<PropertyApplicationTemplate[]>([]);
+  const formSetup = usePropertyFormSetupSettings(applicationPreviewPropertyId);
 
   useEffect(() => {
     if (!open) {
@@ -385,6 +397,9 @@ export function ManagerApplicationQuestionsEditorModal({
     setPendingImportCompareOpen(false);
     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
     setAddModeTemplateId(templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null);
+    const synced = syncPropertyLeaseTemplatesFromListing(sub);
+    setRoutingLeaseTemplates(readPropertyLeaseTemplates(synced));
+    setRoutingApplicationTemplates(readPropertyApplicationTemplates(sub));
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -780,10 +795,12 @@ export function ManagerApplicationQuestionsEditorModal({
     const waiverCodeOverride = applicationTemplate?.waiverCodeOverride ?? null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
+      const catalogApplications =
+        routingApplicationTemplates.length > 0 ? routingApplicationTemplates : templates;
       let nextTemplates: PropertyApplicationTemplate[];
       if (templateEditorMode === "add") {
         nextTemplates = [
-          ...templates,
+          ...catalogApplications,
           {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
             // F004/F007: reuse the SAME id a staged import was parsed
@@ -809,7 +826,7 @@ export function ManagerApplicationQuestionsEditorModal({
         ];
       } else {
         const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
-        nextTemplates = updatePropertyApplicationTemplate(templates, applicationTemplate!.id, {
+        nextTemplates = updatePropertyApplicationTemplate(catalogApplications, applicationTemplate!.id, {
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
@@ -849,7 +866,8 @@ export function ManagerApplicationQuestionsEditorModal({
         }
       }
       const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
-      const okSaved = await onPersistSubmission(merged, {
+      const withLeases = syncLegacyLeaseFieldsFromTemplates(merged, routingLeaseTemplates);
+      const okSaved = await onPersistSubmission(withLeases, {
         message: publishTarget
           ? "Application published."
           : publishBlockedReason
@@ -988,10 +1006,6 @@ export function ManagerApplicationQuestionsEditorModal({
     }
     if (importIssues.some((issue) => issue.code === "unreadable_page")) {
       setSaveError("Some PDF pages could not be read. Upload a clearer PDF before publishing.");
-      return;
-    }
-    if (resolvedImportIssueIndexes.length !== importIssues.length) {
-      setSaveError("Resolve each listed PDF issue before confirming the application.");
       return;
     }
     setReviewingSource(true);
@@ -1562,7 +1576,8 @@ export function ManagerApplicationQuestionsEditorModal({
         onFinish={() => void commitSave({ publish: isTemplateEditor && !isBulkTemplateEditor })}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"
-        numberedSteps
+        numberedSteps={false}
+        hideFooterStepCount
         finishDataAttr="application-questions-save"
         footerNote={
           saveError ? (
@@ -1758,6 +1773,25 @@ export function ManagerApplicationQuestionsEditorModal({
                 }}
               />
             </div>
+            {templateEditorMode === "edit" && applicationPreviewPropertyId && !isBulkSave && formSetup.loaded ? (
+              <PropertyFormUsedForMapping
+                sub={sub}
+                pipelineOrder={formSetup.leasingPipeline.pipelineOrder}
+                mode="application"
+                currentApplicationId={applicationTemplate?.id}
+                leaseTemplates={routingLeaseTemplates}
+                applicationTemplates={routingApplicationTemplates}
+                onLeaseTemplatesChange={(next) => {
+                  setRoutingLeaseTemplates(next);
+                  setDirty(true);
+                }}
+                onApplicationTemplatesChange={(next) => {
+                  setRoutingApplicationTemplates(next);
+                  setDirty(true);
+                }}
+                onError={(message) => setSaveError(message)}
+              />
+            ) : null}
             {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&
             (originalPdfPath || (importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256) ? (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1786,22 +1820,10 @@ export function ManagerApplicationQuestionsEditorModal({
               </div>
             ) : null}
             {importIssues.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
+              <ul className="mt-2 space-y-1 text-sm text-muted" data-attr="application-import-issues">
                 {importIssues.map((issue, index) => (
                   <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        disabled={issue.code === "unreadable_page"}
-                        checked={resolvedImportIssueIndexes.includes(index)}
-                        onChange={(event) => setResolvedImportIssueIndexes((previous) =>
-                          event.target.checked ? [...previous, index] : previous.filter((item) => item !== index)
-                        )}
-                        aria-label={`Resolved PDF issue ${index + 1}`}
-                      />
-                      <span>{issue.pageNumber ? `Page ${issue.pageNumber}: ` : "Document: "}{issue.message}</span>
-                    </label>
+                    {issue.pageNumber ? `Page ${issue.pageNumber}: ` : "Document: "}{issue.message}
                   </li>
                 ))}
               </ul>

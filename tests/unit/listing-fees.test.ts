@@ -24,6 +24,7 @@ import {
 import {
   computeLeasePaymentAtSigning,
   formatListingFeeDisplay,
+  formatUsdMoneyAmount,
   paymentAtSigningPriceLabel,
 } from "@/lib/rental-application/listing-fees-display";
 
@@ -229,6 +230,7 @@ describe("lease payment at signing", () => {
   it("formats bare fee amounts for lease tables", () => {
     expect(formatListingFeeDisplay("50")).toBe("$50.00");
     expect(formatListingFeeDisplay("$75")).toBe("$75");
+    expect(formatUsdMoneyAmount(10_502)).toBe("$10,502.00");
   });
 
   it("falls back to deposit and move-in when signing checkboxes are absent", () => {
