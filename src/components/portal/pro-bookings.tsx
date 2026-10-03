@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
+import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
+import { saveStayMeta as saveStayMetaRequest } from "@/lib/channel-calendar/stay-meta-client";
+import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
@@ -126,6 +129,7 @@ function useBookingsWorkspace({
   }>({ open: false, dayKey: null, editingBlock: null });
   const [calendarsOpen, setCalendarsOpen] = useState(false);
   const [cancelEntry, setCancelEntry] = useState<PropertyBookingEntry | null>(null);
+  const [removeStayEntry, setRemoveStayEntry] = useState<PropertyBookingEntry | null>(null);
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -185,6 +189,15 @@ function useBookingsWorkspace({
       showToast(draft.bookingStatus === "cancelled" ? "Booking cancelled." : draft.id ? "Booking saved." : draft.residentName ? `Held for ${draft.residentName}.` : "Dates blocked.");
     },
     [userId, showToast, propertyOptions],
+  );
+
+  /** Notes and stay details on a signed-lease / application stay — saved through the authenticated stay-meta route. */
+  const saveStayDetails = useCallback(
+    async (meta: StayMeta) => {
+      await saveStayMetaRequest(meta);
+      showToast("Booking saved.");
+    },
+    [showToast],
   );
 
   const removeBlock = useCallback(
@@ -462,6 +475,7 @@ function useBookingsWorkspace({
         }}
         onEditBlock={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
         onDeleteBlock={setCancelEntry}
+        onRemoveStay={setRemoveStayEntry}
         bulkActions={listBulkActions}
         basePath={basePath ?? "/portal"}
         showToast={showToast}
@@ -511,8 +525,9 @@ function useBookingsWorkspace({
 
   const modals = (
     <>
+      {removeStayEntry ? <BookingsRemoveStayDialog key={bookingEntryKey(removeStayEntry)} entry={removeStayEntry} onClose={() => setRemoveStayEntry(null)} onChanged={() => onRefreshSignal?.()} /> : null}
       {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} /> : null}
-      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} /> : null}
+      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} /> : null}
       <BookingsBlockDatesModal
         open={sheet.open && !sheet.editingBlock}
         onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}
@@ -553,6 +568,7 @@ function useBookingsWorkspace({
     entriesLoading: !authReady || loading,
     residentOptions,
     saveBlock,
+    saveStayDetails,
     removeBlock,
   };
 }
@@ -634,7 +650,7 @@ export function ManagerBookings({
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
     selectedDayKey: dayKey,
   });
-  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, removeBlock } = workspace;
+  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock } = workspace;
 
   if (bookingId) {
     return (
@@ -647,6 +663,8 @@ export function ManagerBookings({
         residentOptions={residentOptions}
         propertyOptions={propertyOptions}
         onSaveBlock={saveBlock}
+        onSaveStayMeta={saveStayDetails}
+        onRefresh={() => setRefreshSignal((n) => n + 1)}
         onRemoveBlock={removeBlock}
         showToast={showToast}
       />

@@ -8,14 +8,21 @@ import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-m
 import { bookingConflictsFor, lastNightBeforeCheckout, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, describeBookingConflict } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRoomRate } from "@/lib/channel-calendar/booking-presentation";
+import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 
-export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClose, onSave }: {
+export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClose, onSave, onSaveStayMeta }: {
   entry: PropertyBookingEntry; entries: readonly PropertyBookingEntry[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
   onClose: () => void; onSave: (draft: BlockDatesDraft) => Promise<unknown>;
+  /** Signed-lease / application stays: notes and stay details save here (authenticated server route); everything else stays locked. */
+  onSaveStayMeta?: (meta: StayMeta) => Promise<unknown>;
 }) {
   const locked = entry.source !== "block" || !entry.blockId || entry.bookingStatus === "cancelled";
+  const metaRef = locked && onSaveStayMeta ? stayMetaRefOf(entry) : null;
+  // Notes and housekeeping stay editable on a stay whose dates belong to a lease/application.
+  const metaOnly = metaRef !== null;
+  const lockedDetails = locked && !metaOnly;
   const initialRate = bookingRoomRate(entry.propertyId, entry.roomId);
   const [propertyId, setPropertyId] = useState(entry.propertyId);
   const [roomId, setRoomId] = useState(entry.roomId);
@@ -38,13 +45,25 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const chooseRoom = (id: string, property = propertyId) => { setRoomId(id); const next = bookingRoomRate(property, id); setRate(String(next.amount ?? "")); setBasis(next.basis); };
   const rateValid = rate === "" || (Number.isFinite(Number(rate)) && Number(rate) >= 0);
   const save = async () => {
+    if (metaRef && onSaveStayMeta) {
+      if (busy) return;
+      setBusy(true); setError("");
+      try {
+        const { source: _source, ...housekeeping } = details;
+        void _source;
+        await onSaveStayMeta({ kind: metaRef.kind, refId: metaRef.refId, notes, stayDetails: housekeeping });
+        onClose();
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save booking."); }
+      finally { setBusy(false); }
+      return;
+    }
     if (locked || !valid || !rateValid || conflicts.length || busy) return;
     setBusy(true); setError("");
     try { await onSave({ id: entry.blockId, isBookingResidency: entry.isBookingResidency, openEnded, propertyId, roomId, checkIn, checkOut, residentName: entry.residentName ?? entry.summary, residentEmail: entry.residentEmail ?? "", residentPhone: entry.residentPhone, reason: notes, bookingStatus: status as "hold" | "confirmed", rate: rate === "" ? undefined : Number(rate), rateBasis: basis, stayDetails: details }); onClose(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save booking."); }
     finally { setBusy(false); }
   };
-  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" primaryAction={locked ? null : { label: "Save booking", onClick: save, disabled: !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>
+  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" primaryAction={lockedDetails ? null : { label: "Save booking", onClick: save, disabled: metaOnly ? busy : !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Guest</span><div className="py-2 font-medium">{entry.residentName || entry.summary}</div></div>
       <label htmlFor="booking-edit-property"><span className={MODAL_FIELD_LABEL_CLASS}>Property</span><Select id="booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(event) => { setPropertyId(event.target.value); chooseRoom("", event.target.value); }}>{properties.map((property) => <option key={property.id} value={property.id}>{property.label}</option>)}</Select></label>
@@ -54,10 +73,10 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
       <label className="flex items-center gap-2 sm:col-span-2"><input type="checkbox" role="switch" checked={openEnded} disabled={locked || busy} onChange={(event) => setOpenEnded(event.target.checked)} />Open-ended</label>
       <label htmlFor="booking-edit-status"><span className={MODAL_FIELD_LABEL_CLASS}>Status</span><Select id="booking-edit-status" disabled={locked || busy} value={status} onChange={(event) => setStatus(event.target.value)}><option value="hold">Hold</option><option value="confirmed">Confirmed</option></Select></label>
       <label><span className={MODAL_FIELD_LABEL_CLASS}>Rate / {basis === "daily" ? "day" : basis === "weekly" ? "week" : "month"}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
-      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input disabled={locked || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       <label htmlFor="booking-edit-source"><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select id="booking-edit-source" disabled={locked || busy} value={details.source ?? "Direct"} onChange={(event) => setDetails({ ...details, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => <option key={value}>{value}</option>)}</Select></label>
-      {(["linen", "baggage"] as const).map((key) => <label key={key} htmlFor={`booking-edit-${key}`}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select id={`booking-edit-${key}`} disabled={locked || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value}>{value}</option>)}</Select></label>)}
-      {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={locked || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
+      {(["linen", "baggage"] as const).map((key) => <label key={key} htmlFor={`booking-edit-${key}`}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select id={`booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value}>{value}</option>)}</Select></label>)}
+      {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
       {conflicts.length && !locked ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{describeBookingConflict(conflicts[0], conflicts[0].roomLabel)}</p> : null}
       {error ? <p role="alert" className="text-danger sm:col-span-2">{error}</p> : null}
     </div>

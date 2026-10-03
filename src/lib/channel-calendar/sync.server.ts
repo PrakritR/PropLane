@@ -25,6 +25,8 @@ import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
+import { pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
@@ -211,6 +213,63 @@ async function persistListingSubmission(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Writes a connection's stored ranges (and the dates they close on the listing)
+ * without touching the feed. Used by Remove stay / Undo, which change what is
+ * stored but never what the channel says.
+ */
+export async function persistConnectionImportedRanges(
+  db: SupabaseClient,
+  connection: ChannelCalendarConnectionRow,
+  ranges: ChannelCalendarImportedRange[],
+  opts: { removedUids?: readonly string[]; restoredRanges?: readonly ChannelCalendarImportedRange[] } = {},
+): Promise<void> {
+  const record = await loadPropertyRecord(db, connection.property_id);
+  const submission = record?.property?.listingSubmission;
+  if (record && submission) {
+    await persistListingSubmission(
+      db,
+      connection.property_id,
+      record.property,
+      applyImportedRangesToSubmission(submission, connection.room_id, connection.id, ranges),
+    );
+  }
+  const { error } = await db
+    .from("external_calendar_connections")
+    .update({ imported_ranges: ranges, updated_at: new Date().toISOString() })
+    .eq("id", connection.id);
+  if (error) throw new Error(error.message);
+
+  // The placeholder resident the sync filed for a removed reservation leaves with
+  // it. Only the `@import.proplane.local` placeholder is ever touched — a row a
+  // real person attached an account to is not an iCal ghost and stays.
+  for (const uid of opts.removedUids ?? []) {
+    await db
+      .from("manager_application_records")
+      .delete()
+      .eq("manager_user_id", connection.manager_user_id)
+      .eq("row_data->>icalConnectionId", connection.id)
+      .eq("row_data->>icalSourceUid", uid)
+      .like("resident_email", "%@import.proplane.local");
+  }
+  if (opts.restoredRanges?.length) {
+    const room = submission?.rooms.find((item) => item.id === connection.room_id);
+    try {
+      await upsertAirbnbResidentsFromImportedRanges(db, {
+        managerUserId: connection.manager_user_id,
+        propertyId: connection.property_id,
+        propertyLabel: record?.property?.buildingName?.trim() || record?.property?.title?.trim() || connection.property_id,
+        roomId: connection.room_id,
+        roomLabel: room?.name?.trim() || connection.label?.trim() || connection.room_id,
+        connectionId: connection.id,
+        ranges: opts.restoredRanges,
+      });
+    } catch {
+      // A resident row must never fail the restore — Bookings still paints.
+    }
+  }
+}
+
 export async function syncChannelCalendarConnection(
   db: SupabaseClient,
   connectionId: string,
@@ -235,7 +294,14 @@ export async function syncChannelCalendarConnection(
   const now = new Date().toISOString();
   try {
     const icsText = await fetchChannelIcs(importUrl, connection.provider);
-    const imported = icalEventsToImportedRanges(parseIcsCalendar(icsText));
+    // C2-AB7: a stay the manager removed is not stored again, so neither Bookings
+    // nor the public room calendar nor the occupancy snapshot ever see it back.
+    const tombstoneKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
+    const imported = pruneTombstonedRanges(
+      icalEventsToImportedRanges(parseIcsCalendar(icsText)),
+      { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
+      tombstoneKeys,
+    ).kept;
 
     const record = await loadPropertyRecord(db, connection.property_id);
     if (!record?.property?.listingSubmission) {
@@ -278,6 +344,18 @@ export async function syncChannelCalendarConnection(
       .select("*")
       .single();
     if (saveError) throw new Error(saveError.message);
+    // A Remove that landed while this sync was reading the feed wrote its
+    // tombstone after the keys above were read; re-check once so the stay it
+    // removed cannot slip back in through the save we just made.
+    const latestKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
+    const recheck = pruneTombstonedRanges(
+      imported,
+      { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
+      latestKeys,
+    );
+    if (recheck.dropped.length > 0) {
+      await persistConnectionImportedRanges(db, parseConnectionRow(saved as Record<string, unknown>), recheck.kept);
+    }
     return parseConnectionRow(saved as Record<string, unknown>);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed.";
