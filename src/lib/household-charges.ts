@@ -490,8 +490,8 @@ function mirrorRentProfiles(rows: RecurringRentProfile[]) {
 const DEV_ACH_CLEAR_MS = 2 * 24 * 60 * 60 * 1000;
 
 /** Localhost QA: auto-settle ACH clearing charges after two days without waiting for Stripe async webhooks. */
-function advanceStaleProcessingChargesForDev(charges: HouseholdCharge[]): HouseholdCharge[] {
-  if (process.env.NODE_ENV !== "development" || !isBrowser()) return charges;
+/** Dev/test read path: settle long-running ACH `processing` rows without a webhook. */
+export function advanceStaleProcessingHouseholdCharges(charges: HouseholdCharge[]): HouseholdCharge[] {
   const now = Date.now();
   let changed = false;
   const next = charges.map((charge) => {
@@ -507,6 +507,11 @@ function advanceStaleProcessingChargesForDev(charges: HouseholdCharge[]): Househ
     };
   });
   return changed ? next : charges;
+}
+
+function advanceStaleProcessingChargesForDev(charges: HouseholdCharge[]): HouseholdCharge[] {
+  if (process.env.NODE_ENV !== "development" || !isBrowser()) return charges;
+  return advanceStaleProcessingHouseholdCharges(charges);
 }
 
 export async function syncHouseholdChargesFromServer(
@@ -4051,17 +4056,93 @@ function resolveLeaseExecutedForRow(row: DemoApplicantRow, managerUserId: string
   }
 }
 
+/** Countersign path when move-in charges already posted at resident signature. */
+function upsertRecurringRentProfileForApprovedRow(
+  row: DemoApplicantRow,
+  managerUserId: string | null,
+  sub: ManagerListingSubmissionV1,
+  prop: ReturnType<typeof getPropertyById>,
+  ctx: {
+    leaseStart: string;
+    leaseEnd: string | undefined;
+    residentEmail: string;
+    residentName: string;
+    propertyId: string;
+    propertyLabel: string;
+  },
+): boolean {
+  const { leaseStart, leaseEnd, residentEmail, residentName, propertyId, propertyLabel } = ctx;
+  const effectiveManagerUserId = managerUserId ?? row.managerUserId ?? prop?.managerUserId ?? null;
+  const room = roomForRow(sub, row, prop?.unitLabel);
+  const dailyBasisRate = residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
+  const weeklyBasisRate = residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomWeeklyRentPrice(room);
+  const billedWeeklyBasisRate =
+    weeklyBasisRate && weeklyBasisRate > 0
+      ? weeklyRentWithFoldedShortLeaseSurcharge(room, row.application, weeklyBasisRate)
+      : undefined;
+  const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate, prop);
+  const rentAmount = selectedRoomRentAmount(row);
+  const utilities = selectedRoomUtilities(row);
+  const monthlyFeeSet = filterFeesForResidentSlot(
+    monthlyFeesBilledSeparately(sub, prop, {
+      leaseStart,
+      leaseEnd,
+      leaseTerm: row.application?.leaseTerm,
+      rentalType: row.application?.rentalType,
+    }),
+    sub,
+    row.application?.residentSlot,
+  );
+  const bundleGroupCtx = resolveBundleGroupChargeContext(row);
+  if (!leaseStart.trim()) return false;
+  if (
+    !(rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0) || monthlyFeeSet.length > 0)
+  ) {
+    return false;
+  }
+  const computedStartMonth = firstRecurringMonthAfterLeaseStart(leaseStart);
+  const roomLabel =
+    row.manualResidentDetails?.roomNumber?.trim() ||
+    row.assignedRoomChoice?.trim() ||
+    row.application?.roomChoice1?.trim() ||
+    "Room";
+  const dueDayMode = rentDueDayModeFromSubmission(sub);
+  upsertRecurringRentProfile({
+    residentEmail,
+    residentName,
+    propertyId,
+    propertyLabel,
+    roomLabel,
+    managerUserId: effectiveManagerUserId,
+    monthlyRent: recurringProfileStoredMonthlyRent(rentAmount, monthlyFoldIn, dailyBasisRate, weeklyBasisRate),
+    dailyRentPrice: dailyBasisRate && dailyBasisRate > 0 ? dailyBasisRate : 0,
+    weeklyRentPrice: billedWeeklyBasisRate && billedWeeklyBasisRate > 0 ? billedWeeklyBasisRate : 0,
+    monthlyUtilities: utilities.amount > 0 ? Number(utilities.amount.toFixed(2)) : 0,
+    monthlyFees: monthlyFeeSet,
+    bundleGroupId: bundleGroupCtx?.groupId,
+    bundleId: bundleGroupCtx?.bundleId,
+    splitMemberIndex: bundleGroupCtx?.memberIndex,
+    splitMemberCount: bundleGroupCtx?.memberCount,
+    dueDay: resolveRentDueDayForMonth(dueDayMode, computedStartMonth),
+    dueDayMode,
+    startMonth: computedStartMonth,
+    leaseEnd,
+  });
+  return true;
+}
+
 export function recordApprovedApplicationCharges(
   row: DemoApplicantRow,
   managerUserId: string | null,
   force = false,
-  opts: { leaseExecuted?: boolean } = {},
+  opts: { leaseExecuted?: boolean; moveInAtResidentSign?: boolean; recurringProfileOnly?: boolean } = {},
 ): boolean {
   // Default false is fail-closed on purpose, and it degrades safely: a caller
   // that omits it stops REGENERATING, it never deletes. Existing charges are
   // kept by the retention predicate and next month's rent still materializes
   // from the stored recurring profile.
   const leaseExecuted = opts.leaseExecuted ?? resolveLeaseExecutedForRow(row, managerUserId);
+  const moveInAtResidentSign = Boolean(opts.moveInAtResidentSign && !leaseExecuted);
   if (row.migrationBillingHold) return false;
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
@@ -4116,7 +4197,24 @@ export function recordApprovedApplicationCharges(
   // Approval deliberately generates nothing: a decision is not a bill. A manager
   // who wants money down before signature enters a holding fee, which is
   // manager-added, works at any stage, and already credits against the deposit.
-  if (residentChargeMoment(row, { leaseExecuted }) !== "signed") return wroteApplicationFee;
+  const chargeMoment = residentChargeMoment(row, { leaseExecuted });
+  const canPostMoveInSchedule =
+    chargeMoment === "signed" || (moveInAtResidentSign && row.bucket === "approved");
+  if (!canPostMoveInSchedule) return wroteApplicationFee;
+
+  if (opts.recurringProfileOnly) {
+    if (!leaseExecuted || !sub || !leaseStart?.trim()) return false;
+    const recurringOnlyChanged = upsertRecurringRentProfileForApprovedRow(row, managerUserId, sub, prop, {
+      leaseStart: leaseStart.trim(),
+      leaseEnd,
+      residentEmail,
+      residentName,
+      propertyId,
+      propertyLabel,
+    });
+    syncAllRecurringRentCharges();
+    return recurringOnlyChanged;
+  }
   // When not forced, skip wipe+regeneration if pending charges already exist for this resident.
   // This preserves manager-edited amounts and prevents auto-reconcile from overwriting manual changes.
   // Pass force=true (via the "Regenerate" button) to refresh from current listing terms.
@@ -4575,7 +4673,11 @@ export function recordApprovedApplicationCharges(
   // charges above; monthly custom fees begin with the first full recurring month (they are a
   // flat monthly service, not prorated, and are not charged for the partial move-in month).
   let computedStartMonth: string | undefined;
-  if (leaseStart && (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0) || monthlyFeeSet.length > 0)) {
+  if (
+    leaseExecuted &&
+    leaseStart &&
+    (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0) || monthlyFeeSet.length > 0)
+  ) {
     const [leaseYearRaw, leaseMonthRaw] = leaseStart.split("-").map(Number);
     if (leaseYearRaw && leaseMonthRaw) {
       computedStartMonth = firstRecurringMonthAfterLeaseStart(leaseStart);

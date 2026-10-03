@@ -85,6 +85,7 @@ import {
   resolveResidentLifecycleNextAction,
   type ResidentLifecycleStep,
 } from "@/lib/resident-lifecycle-journey";
+import { ResidentLifecycleCompactTracker } from "@/components/portal/resident-lifecycle-compact-tracker";
 import { sumDueNowCents } from "@/lib/resident-due-now-balance";
 import { aggregateApplicationFeeStatus } from "@/lib/resident-application-fee-status";
 
@@ -433,33 +434,10 @@ export function ResidentJourneyBanner({
         background: action.urgent ? "var(--status-overdue-bg)" : "var(--card)",
       }}
     >
-      <div className="flex items-center gap-2" aria-hidden data-attr="resident-dashboard-journey-steps">
-        {steps.map((step, index) => (
-          <Fragment key={step.id}>
-            {index > 0 ? (
-              <span
-                className="h-px w-4 shrink-0"
-                style={{ background: step.state === "upcoming" ? "var(--border)" : "var(--primary)" }}
-              />
-            ) : null}
-            <span
-              className="size-2 shrink-0 rounded-full"
-              style={{
-                background:
-                  step.state === "done" ? "var(--primary)" : step.state === "current" ? DOT_CONFIRMED : "var(--border)",
-              }}
-            />
-            <span
-              className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
-                step.state === "upcoming" ? "text-muted" : "text-foreground"
-              }`}
-            >
-              {step.label}
-            </span>
-          </Fragment>
-        ))}
+      <div className="mb-3" data-attr="resident-dashboard-journey-steps">
+        <ResidentLifecycleCompactTracker steps={steps} />
       </div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between [html[data-native]_&]:flex-col [html[data-native]_&]:items-stretch">
         <span className="min-w-0">
           <span
             className="block truncate text-lg font-semibold [html[data-native]_&]:text-base"
@@ -467,6 +445,11 @@ export function ResidentJourneyBanner({
           >
             {action.title}
           </span>
+          {action.detail ? (
+            <span className="mt-0.5 block truncate text-xs font-semibold text-muted [html[data-native]_&]:text-[11px]">
+              {action.detail}
+            </span>
+          ) : null}
         </span>
         <span
           className="shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold text-white"
@@ -865,6 +848,7 @@ export function ResidentDashboard({
           </Link>
         ) : null}
         {leaseSigned ? <ResidentInspectionNextSteps userId={userId} basePath={BASE} /> : null}
+        <div className="[html[data-native]_&]:[&_.plp-stats]:flex-col [html[data-native]_&]:[&_.plp-stats]:gap-2">
         <PortalDashboardKpiRow>
             {showTourKpi ? (
             <PortalDashboardKpiTile
@@ -929,6 +913,7 @@ export function ResidentDashboard({
             />
             ) : null}
         </PortalDashboardKpiRow>
+        </div>
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
         <div className="space-y-4 [html[data-native]_&]:space-y-3">
@@ -997,8 +982,7 @@ export function ResidentDashboard({
                   href={`${BASE}/applications`}
                   dot={sectionAccentDot(sectionTone)}
                   title={row.name?.trim() || "Application"}
-                  meta={applicationSubtitle(row)}
-                  pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
+                pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
                   dataAttr="resident-dashboard-attention-application"
                 />
               );

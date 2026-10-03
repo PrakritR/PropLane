@@ -14,7 +14,8 @@ import {
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import { buildResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
-import { recordApprovedApplicationCharges } from "@/lib/household-charges";
+import { HOUSEHOLD_CHARGES_EVENT, recordApprovedApplicationCharges } from "@/lib/household-charges";
+import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
@@ -33,6 +34,7 @@ export function ResidentSignAndPayClient() {
     () => (email ? findLeaseForResidentEmail(email) : null),
     [email],
   );
+  const residentSigned = Boolean(pipelineRow?.residentSignature?.signedAtIso || pipelineRow?.signedAtIso);
 
   const loadDocument = useCallback(async () => {
     if (!email || !pipelineRow) {
@@ -87,9 +89,13 @@ export function ResidentSignAndPayClient() {
       if (app) {
         const frozen = freezeSignedLeaseTerms(app, { managerUserId: app.managerUserId ?? null, lease: pipelineRow });
         if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-        recordApprovedApplicationCharges(frozen.row, app.managerUserId ?? null, true, { leaseExecuted: true });
+        recordApprovedApplicationCharges(frozen.row, app.managerUserId ?? null, true, {
+          leaseExecuted: false,
+          moveInAtResidentSign: true,
+        });
+        window.dispatchEvent(new Event(HOUSEHOLD_CHARGES_EVENT));
       }
-      showToast("Lease signed. Move-in charges are ready in Payments.");
+      showToast("Lease signed. Pay move-in costs below.");
     } finally {
       setSigning(false);
     }
@@ -131,12 +137,7 @@ export function ResidentSignAndPayClient() {
           <p className="mt-2 text-xs font-semibold text-muted">Document SHA-256: {documentHash}</p>
         ) : null}
       </section>
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h2 className="text-sm font-bold text-foreground">Move-in costs</h2>
-        <Link href="/resident/payments?pay=now" className="mt-3 inline-flex min-h-11 items-center text-sm font-bold text-primary">
-          Open payments
-        </Link>
-      </section>
+      <ResidentSignAndPayMoveIn email={email} signed={residentSigned || Boolean(documentHash)} />
     </div>
   );
 }
