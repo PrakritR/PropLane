@@ -244,6 +244,8 @@ export async function processManagerAssistantInboundEmail(
           replyText: replyText || null,
           inboundEmailId: parsed.emailId,
           replySent,
+          workspaceId,
+          workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
         });
       } catch (cause) {
         console.error("assistant-email conversation mirror failed", cause);

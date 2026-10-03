@@ -13,6 +13,8 @@ import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
 import { buildConversationKey, SMS_COUNTERPARTY_ROLES } from "@/lib/sms-conversation-identity";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { resolveSmsConversationRef } from "@/lib/communication/conversation-key.server";
+import { conversationRowData } from "@/lib/communication/conversation-thread.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
@@ -52,6 +54,17 @@ export async function upsertManagerInboxNotice(
     : `${args.idPrefix}_${Date.now()}_${randomUUID()}`;
   const now = new Date();
   const stamp = formatInboxStamp(now);
+  // The notice stays its own compatibility row (its id, archive controls and
+  // source markers are keyed to the phone), but it carries the SAME conversation
+  // key as the person's thread and the SMS projection, so the inbox shows one
+  // conversation. Best-effort: no key is never an error.
+  const ref = phone
+    ? await resolveSmsConversationRef(db, {
+        ownerManagerUserId: args.managerUserId,
+        workLineId: args.originalSmsEvent?.workLineId ?? null,
+        counterpartyPhone: phone,
+      }).catch(() => null)
+    : null;
   const incoming = {
     id: threadId, folder: args.folder ?? "inbox", from: args.from, email: "",
     subject: args.subject, preview: args.preview.slice(0, 100).replace(/\n/g, " "),
@@ -60,6 +73,7 @@ export async function upsertManagerInboxNotice(
     threadType: args.threadType, smsNoticePhone: phone || undefined,
     rootMessageId: messageId, rootOutbound: args.folder === "sent",
     ...(args.originalSmsEvent ? { rootOriginalSmsEvent: args.originalSmsEvent } : {}),
+    ...conversationRowData(ref),
   };
   const controlKeys = phone ? SMS_COUNTERPARTY_ROLES.map((role) =>
     buildConversationKey({ ownerManagerUserId: args.managerUserId, role, counterpartyPhone: phone })) : [];

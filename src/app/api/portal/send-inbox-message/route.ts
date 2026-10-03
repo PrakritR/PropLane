@@ -10,6 +10,7 @@ import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notif
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { loadThreadConversation, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { sendPushToUser } from "@/lib/push-notifications.server";
@@ -557,9 +558,35 @@ export async function POST(req: Request) {
       recipients = allowed;
     }
 
+    // One more gate before anything is written: the thread being replied into
+    // must belong to the person being messaged. Without it a reply could be
+    // stored in one conversation and delivered to another person.
+    if (replyTarget) {
+      const stored = await loadThreadConversation(db, replyTarget.threadId);
+      const match = await replyRecipientsMatchThread(db, {
+        thread: {
+          id: replyTarget.threadId,
+          scope: replyTarget.scope,
+          ownerUserId: replyTarget.ownerUserId,
+          conversationKey: stored.conversationKey,
+          workspaceId: stored.workspaceId,
+          email: String((replyTarget.rowData as { email?: unknown }).email ?? ""),
+        },
+        senderUserId: user.id,
+        recipients: recipients.filter((r) => r.email !== senderEmail),
+        propertyId: propertyId || null,
+      });
+      if (!match.ok) {
+        return NextResponse.json(
+          { ok: false, error: "This conversation is with someone else. Open their conversation to reply." },
+          { status: 409 },
+        );
+      }
+    }
+
     // Every gate is now clear, so the reply may finally land in its thread. A
     // send refused above returns before this line and writes nothing.
-    if (replyTarget) await commitInboxThreadReply(db, replyTarget, replyBody);
+    if (replyTarget) await commitInboxThreadReply(db, replyTarget, { ...replyBody, houseId: propertyId || undefined });
 
     // PRP-109: a resident who TEXTS "the sink is leaking" has had a work order
     // opened for them since the Claw work; the same sentence typed here did
@@ -821,6 +848,11 @@ export async function POST(req: Request) {
           ownerUserId: user.id,
           participantEmail: null,
           otherPartyEmail: recipientLower,
+          conversation: {
+            propertyId: propertyId || null,
+            otherPartyUserId: recipient.userId,
+            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId,
+          },
           fallbackId: `msg_${user.id}_${ts}_${rand}`,
           fromName,
           subject,
@@ -844,6 +876,11 @@ export async function POST(req: Request) {
           ownerUserId: recipient.userId,
           participantEmail: recipientLower,
           otherPartyEmail: senderEmail,
+          conversation: {
+            propertyId: propertyId || null,
+            otherPartyUserId: user.id,
+            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId,
+          },
           fallbackId: `msg_inbox_${ts}_${rand}`,
           fromName,
           subject,

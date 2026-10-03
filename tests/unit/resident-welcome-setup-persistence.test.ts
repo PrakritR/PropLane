@@ -39,6 +39,14 @@ function application(overrides: Partial<DemoApplicantRow> = {}): DemoApplicantRo
   };
 }
 
+function emptyThreadQuery() {
+  const chain: Record<string, unknown> = {};
+  for (const method of ["eq", "in", "is", "order", "limit"]) chain[method] = () => chain;
+  chain.then = (resolve: (value: { data: never[]; error: null }) => unknown) =>
+    Promise.resolve({ data: [], error: null }).then(resolve);
+  return chain;
+}
+
 function database(row = application()) {
   const tokenWrite = vi.fn().mockResolvedValue({ error: null });
   const inboxWrite = vi.fn().mockResolvedValue({ error: null });
@@ -56,7 +64,8 @@ function database(row = application()) {
   };
   const from = vi.fn((table: string) => {
     if (table === "manager_application_records") return { select: () => applicationQuery, upsert: tokenWrite };
-    if (table === "portal_inbox_thread_records") return { upsert: inboxWrite };
+    // A welcome notice looks for the person's existing conversation first (none here), then writes.
+    if (table === "portal_inbox_thread_records") return { upsert: inboxWrite, select: () => emptyThreadQuery() };
     if (table === "profiles") return { select: () => profileQuery };
     throw new Error(`Unexpected table: ${table}`);
   });

@@ -4,6 +4,13 @@
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { createHash } from "node:crypto";
+import { resolveConversationRef, type ConversationRef } from "@/lib/communication/conversation-key.server";
+import {
+  conversationRowData,
+  createKeyedThreadRow,
+  findThreadByConversation,
+  upsertKeyedThreadRow,
+} from "@/lib/communication/conversation-thread.server";
 
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -118,6 +125,68 @@ async function resolvePropertyManagerThread(
     managerEmail: string;
     propertyId: string;
   },
+): Promise<{ id: string; existing: StoredThreadRow | null; ref: ConversationRef | null }> {
+  // ONE conversation per person per workspace: the stored conversation for this
+  // person wins over the per-property id, so a second house, a text and a tour
+  // notice all land in the thread that already exists.
+  const ref = await resolveConversationRef(
+    db,
+    input.side === "resident"
+      ? {
+          scope: RESIDENT_INBOX_SCOPE,
+          ownerUserId: input.residentUserId,
+          participantEmail: input.residentEmail,
+          otherPartyEmail: input.managerEmail,
+        }
+      : {
+          scope: MANAGER_INBOX_SCOPE,
+          ownerUserId: input.managerUserId,
+          participantEmail: null,
+          otherPartyEmail: input.residentEmail,
+        },
+    {
+      propertyId: input.propertyId,
+      managerUserId: input.managerUserId,
+      otherPartyUserId: input.side === "manager" ? input.residentUserId : null,
+    },
+  );
+  if (ref) {
+    const keyed = await findThreadByConversation(
+      db,
+      input.side === "resident"
+        ? { scope: RESIDENT_INBOX_SCOPE, ownerUserId: input.residentUserId, participantEmail: input.residentEmail }
+        : { scope: MANAGER_INBOX_SCOPE, ownerUserId: input.managerUserId, participantEmail: null },
+      ref,
+    );
+    if (keyed) {
+      return {
+        id: keyed.id,
+        ref,
+        existing: {
+          id: keyed.id,
+          scope: keyed.scope,
+          owner_user_id: keyed.ownerUserId,
+          participant_email: keyed.participantEmail,
+          thread_type: keyed.threadType,
+          row_data: keyed.rowData,
+        },
+      };
+    }
+  }
+  const legacy = await resolveLegacyPropertyManagerThread(db, input);
+  return { ...legacy, ref };
+}
+
+async function resolveLegacyPropertyManagerThread(
+  db: Db,
+  input: {
+    side: PropertyManagerThreadSide;
+    residentEmail: string;
+    residentUserId: string | null;
+    managerUserId: string;
+    managerEmail: string;
+    propertyId: string;
+  },
 ): Promise<{ id: string; existing: StoredThreadRow | null }> {
   const stableId = propertyManagerConversationSideThreadId(
     {
@@ -176,6 +245,56 @@ async function resolvePropertyManagerThread(
   throw new Error("Both canonical property manager thread ids are occupied by incompatible records.");
 }
 
+/** Another writer created this person's conversation first; the caller re-reads and appends. */
+class ConversationRaceLost extends Error {}
+
+/**
+ * Create a thread row. A keyed conversation goes through the database function
+ * (one row per person per workspace, even when two writers race); an unkeyed
+ * one keeps the plain `insert` that refuses to replace a row on the same id.
+ */
+async function insertThreadRow(
+  db: Db,
+  ref: ConversationRef | null,
+  row: {
+    id: string;
+    scope: string;
+    owner_user_id: string | null;
+    participant_email: string | null;
+    thread_type: string;
+    row_data: Record<string, unknown>;
+    updated_at: string;
+  },
+): Promise<{ error: unknown }> {
+  if (!ref) return db.from("portal_inbox_thread_records").insert(row);
+  const created = await createKeyedThreadRow(
+    db,
+    ref,
+    {
+      id: row.id,
+      scope: row.scope,
+      ownerUserId: row.owner_user_id,
+      participantEmail: row.participant_email,
+      threadType: row.thread_type,
+      rowData: row.row_data,
+    },
+    "insert",
+  );
+  if (created.error) return { error: created.error };
+  if (!created.created) throw new ConversationRaceLost();
+  return { error: null };
+}
+
+/** Run a writer once more if it lost a create race (the second pass finds and appends to the winner). */
+async function withRaceRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ConversationRaceLost) return run();
+    throw error;
+  }
+}
+
 export function propertyManagerThreadLabel(propertyTitle: string): string {
   const title = propertyTitle.trim() || "Property";
   return `Property manager (${title})`;
@@ -188,6 +307,9 @@ type ThreadMessage = {
   at: string;
   outbound?: boolean;
   subject?: string;
+  /** The house this turn is about (one conversation can span houses). */
+  houseId?: string;
+  houseLabel?: string;
 };
 
 function appendThreadMessages(
@@ -242,7 +364,7 @@ export function propertyManagerSendMessageIds(
 }
 
 /** Resident-side thread for messages about one listing with one manager. */
-export async function appendResidentPropertyManagerInboxMessage(
+async function appendResidentPropertyManagerInboxMessageOnce(
   db: Db,
   input: {
     participantEmail: string;
@@ -293,6 +415,8 @@ export async function appendResidentPropertyManagerInboxMessage(
             body: residentMessage,
             at: when,
             outbound: true,
+            houseId: input.propertyId,
+            houseLabel: input.propertyTitle,
           },
           {
             id: `ack-${Date.now().toString(36)}`,
@@ -300,6 +424,8 @@ export async function appendResidentPropertyManagerInboxMessage(
             body: input.body,
             at: when,
             outbound: false,
+            houseId: input.propertyId,
+            houseLabel: input.propertyTitle,
           },
         ]
       : [
@@ -310,16 +436,19 @@ export async function appendResidentPropertyManagerInboxMessage(
             at: when,
             outbound: false,
             subject: input.subject,
+            houseId: input.propertyId,
+            houseLabel: input.propertyTitle,
           },
         ];
 
-    const { error: updateError } = await db.from("portal_inbox_thread_records").upsert(
+    const { error: updateError } = await upsertKeyedThreadRow(
+      db,
       {
         id: threadId,
         scope: RESIDENT_INBOX_SCOPE,
         owner_user_id: ownerUserId ?? existing.owner_user_id ?? null,
         participant_email: guestEmail,
-        thread_type: "portal_message",
+        thread_type: existing.thread_type ?? "portal_message",
         row_data: {
           ...rowData,
           from: displayFrom,
@@ -332,11 +461,12 @@ export async function appendResidentPropertyManagerInboxMessage(
           managerUserId: input.managerUserId,
           counterpartyRole: "manager",
           propertyTitle: input.propertyTitle,
+          ...conversationRowData(target.ref),
           messages: appendThreadMessages(rowData, newTurns),
         },
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
+      target.ref,
     );
     if (updateError) throw new Error("Could not update the resident property manager thread.");
     return;
@@ -350,11 +480,15 @@ export async function appendResidentPropertyManagerInboxMessage(
           body: input.body,
           at: when,
           outbound: false,
+          houseId: input.propertyId,
+          houseLabel: input.propertyTitle,
         },
       ]
     : [];
 
-  const { error: insertError } = await db.from("portal_inbox_thread_records").insert(
+  const { error: insertError } = await insertThreadRow(
+    db,
+    target.ref,
     {
       id: threadId,
       scope: RESIDENT_INBOX_SCOPE,
@@ -377,6 +511,9 @@ export async function appendResidentPropertyManagerInboxMessage(
         managerUserId: input.managerUserId,
         counterpartyRole: "manager",
         propertyTitle: input.propertyTitle,
+        rootHouseId: input.propertyId,
+        rootHouseLabel: input.propertyTitle,
+        ...conversationRowData(target.ref),
         ...(residentMessage ? { rootOutbound: true } : {}),
         ...(messages.length ? { messages } : {}),
       },
@@ -391,7 +528,7 @@ export async function appendResidentPropertyManagerInboxMessage(
  * Writes the resident outbound copy and the manager inbound copy on the same
  * stable thread id used by tour and listing messages.
  */
-export async function deliverResidentPropertyManagerChatMessage(
+async function deliverResidentPropertyManagerChatMessageOnce(
   db: Db,
   input: {
     residentEmail: string;
@@ -436,6 +573,8 @@ export async function deliverResidentPropertyManagerChatMessage(
     body: message,
     at: when,
     outbound: true,
+    houseId: input.propertyId,
+    houseLabel: input.propertyTitle,
   };
 
   const residentExisting = residentTarget.existing;
@@ -448,7 +587,8 @@ export async function deliverResidentPropertyManagerChatMessage(
     } else {
     // Never overwrite an already-stamped `recordRef` — it belongs to whoever first composed from that record.
     const recordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef;
-    const { error: updateError } = await db.from("portal_inbox_thread_records").upsert(
+    const { error: updateError } = await upsertKeyedThreadRow(
+      db,
       {
         id: threadId,
         scope: RESIDENT_INBOX_SCOPE,
@@ -457,7 +597,7 @@ export async function deliverResidentPropertyManagerChatMessage(
           residentExisting.owner_user_id ??
           null,
         participant_email: residentEmail,
-        thread_type: "portal_message",
+        thread_type: residentExisting.thread_type ?? "portal_message",
         row_data: {
           ...rowData,
           from: displayFrom,
@@ -471,16 +611,19 @@ export async function deliverResidentPropertyManagerChatMessage(
           counterpartyRole: "manager",
           propertyTitle: input.propertyTitle,
           ...(recordRef ? { recordRef } : {}),
+          ...conversationRowData(residentTarget.ref),
           messages: appendThreadMessages(rowData, [{ ...outboundTurn, id: input.messageIds?.resident ?? outboundTurn.id, subject }]),
         },
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
+      residentTarget.ref,
     );
     if (updateError) throw new Error("Could not update the resident property manager thread.");
     }
   } else {
-    const { error: insertError } = await db.from("portal_inbox_thread_records").insert(
+    const { error: insertError } = await insertThreadRow(
+    db,
+    residentTarget.ref,
       {
         id: threadId,
         scope: RESIDENT_INBOX_SCOPE,
@@ -505,6 +648,9 @@ export async function deliverResidentPropertyManagerChatMessage(
           counterpartyRole: "manager",
           propertyTitle: input.propertyTitle,
           rootOutbound: true,
+          rootHouseId: input.propertyId,
+          rootHouseLabel: input.propertyTitle,
+          ...conversationRowData(residentTarget.ref),
           ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
         },
         updated_at: new Date().toISOString(),
@@ -529,7 +675,7 @@ export async function deliverResidentPropertyManagerChatMessage(
 }
 
 /** Manager-side thread for the same property conversation. */
-export async function appendManagerPropertyLeadInboxMessage(
+async function appendManagerPropertyLeadInboxMessageOnce(
   db: Db,
   managerUserId: string,
   input: {
@@ -559,7 +705,7 @@ export async function appendManagerPropertyLeadInboxMessage(
   if (!prospectEmail.includes("@")) return;
 
   const unverified = input.unverified === true;
-  let target: { id: string; existing: StoredThreadRow | null };
+  let target: { id: string; existing: StoredThreadRow | null; ref: ConversationRef | null };
   if (unverified) {
     const id = `${propertyManagerConversationSideThreadId(
       { residentEmail: prospectEmail, managerUserId, propertyId: input.propertyId },
@@ -574,7 +720,7 @@ export async function appendManagerPropertyLeadInboxMessage(
     const stored = found as StoredThreadRow | null;
     // A row already sitting on this id that is not this manager's lead thread is left alone.
     if (stored && (stored.owner_user_id !== managerUserId || stored.scope !== MANAGER_INBOX_SCOPE)) return;
-    target = { id, existing: stored };
+    target = { id, existing: stored, ref: null };
   } else {
     target = await resolvePropertyManagerThread(db, {
       side: "manager",
@@ -601,6 +747,8 @@ export async function appendManagerPropertyLeadInboxMessage(
     body: input.body,
     at: when,
     outbound: input.outbound === true,
+    houseId: input.propertyId,
+    houseLabel: input.propertyTitle,
   };
 
   const normalizedRecordRef = normalizeRecordRef(input.recordRef);
@@ -610,13 +758,14 @@ export async function appendManagerPropertyLeadInboxMessage(
     if (input.messageId && recordedMessage(rowData, input.messageId, threadSubject, input.body)) return;
     // Never overwrite an already-stamped `recordRef` — see the param doc above.
     const recordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef;
-    const { error: updateError } = await db.from("portal_inbox_thread_records").upsert(
+    const { error: updateError } = await upsertKeyedThreadRow(
+      db,
       {
         id: threadId,
         scope: MANAGER_INBOX_SCOPE,
         owner_user_id: managerUserId,
         participant_email: unverified ? null : prospectEmail,
-        thread_type: "portal_message",
+        thread_type: existing.thread_type ?? "portal_message",
         row_data: {
           ...rowData,
           from: leadFrom,
@@ -632,17 +781,20 @@ export async function appendManagerPropertyLeadInboxMessage(
           propertyTitle: propertyLabel,
           ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
           ...(recordRef ? { recordRef } : {}),
+          ...conversationRowData(target.ref),
           messages: appendThreadMessages(rowData, [{ ...inboundTurn, id: input.messageId ?? inboundTurn.id, subject: threadSubject }]),
         },
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
+      target.ref,
     );
     if (updateError) throw new Error("Could not update the manager property thread.");
     return;
   }
 
-  const { error: insertError } = await db.from("portal_inbox_thread_records").insert(
+  const { error: insertError } = await insertThreadRow(
+    db,
+    target.ref,
     {
       id: threadId,
       scope: MANAGER_INBOX_SCOPE,
@@ -670,9 +822,30 @@ export async function appendManagerPropertyLeadInboxMessage(
         propertyTitle: propertyLabel,
         ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
         ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
+        rootHouseId: input.propertyId,
+        rootHouseLabel: input.propertyTitle,
+        ...conversationRowData(target.ref),
       },
       updated_at: new Date().toISOString(),
     },
   );
   if (insertError) throw new Error("Could not create the manager property thread.");
+}
+
+export async function appendResidentPropertyManagerInboxMessage(
+  ...args: Parameters<typeof appendResidentPropertyManagerInboxMessageOnce>
+): ReturnType<typeof appendResidentPropertyManagerInboxMessageOnce> {
+  return withRaceRetry(() => appendResidentPropertyManagerInboxMessageOnce(...args));
+}
+
+export async function deliverResidentPropertyManagerChatMessage(
+  ...args: Parameters<typeof deliverResidentPropertyManagerChatMessageOnce>
+): ReturnType<typeof deliverResidentPropertyManagerChatMessageOnce> {
+  return withRaceRetry(() => deliverResidentPropertyManagerChatMessageOnce(...args));
+}
+
+export async function appendManagerPropertyLeadInboxMessage(
+  ...args: Parameters<typeof appendManagerPropertyLeadInboxMessageOnce>
+): ReturnType<typeof appendManagerPropertyLeadInboxMessageOnce> {
+  return withRaceRetry(() => appendManagerPropertyLeadInboxMessageOnce(...args));
 }

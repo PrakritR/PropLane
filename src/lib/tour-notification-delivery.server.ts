@@ -19,6 +19,7 @@ import {
   resolvePropertyLeadRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import {
   TOUR_CANCELED_TENANT_SUBJECT,
   TOUR_CONFIRMED_TENANT_SUBJECT,
@@ -232,6 +233,8 @@ async function upsertInboxThread(
       outbound?: boolean;
     }>;
     threadType?: string;
+    /** The manager / house the notice is from, when the caller knows them. */
+    conversation?: { managerUserId?: string | null; propertyId?: string | null };
   },
 ): Promise<boolean> {
   const when = formatPacificDateTime(new Date());
@@ -239,32 +242,32 @@ async function upsertInboxThread(
   const ts = Date.now();
   const rand = Math.random().toString(36).slice(2, 6);
   const threadId = `tour_${input.folder}_${ts}_${rand}`;
-  const { error } = await db.from("portal_inbox_thread_records").upsert(
-    {
-      id: threadId,
+  // One conversation per person per workspace: a tour, welcome or lead notice
+  // joins the person's existing conversation instead of minting a row per event.
+  try {
+    await deliverPortalMessageThreadSide(db, {
       scope: input.scope,
-      owner_user_id: input.ownerUserId,
-      participant_email: input.participantEmail.trim().toLowerCase(),
-      thread_type: input.threadType ?? "tour_notification",
-      row_data: {
-        id: threadId,
-        folder: input.folder,
-        from: input.fromName,
-        email: input.folder === "sent" ? input.toLine : input.fromEmail,
-        subject: input.subject,
-        preview,
-        body: input.body,
-        time: when,
-        unread: input.folder === "inbox",
-        scope: input.scope,
-        ...(input.rootOutbound ? { rootOutbound: true } : {}),
-        ...(input.messages?.length ? { messages: input.messages } : {}),
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  return !error;
+      folder: input.folder,
+      ownerUserId: input.ownerUserId,
+      participantEmail: input.participantEmail.trim().toLowerCase(),
+      otherPartyEmail: (input.folder === "sent" ? input.toLine : input.fromEmail).trim().toLowerCase(),
+      fallbackId: threadId,
+      fromName: input.fromName,
+      subject: input.subject,
+      body: input.body,
+      preview,
+      when,
+      unread: input.folder === "inbox",
+      outbound: input.folder === "sent",
+      threadType: input.threadType ?? "tour_notification",
+      ...(input.rootOutbound ? { rootOutbound: true } : {}),
+      ...(input.messages?.length ? { followUps: input.messages } : {}),
+      ...(input.conversation ? { conversation: input.conversation } : {}),
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Prospect/resident inbox row for tour acks, lead invites, etc. — backfilled on account creation. */
@@ -329,6 +332,7 @@ export async function recordResidentProspectInboxMessage(
       preview: input.body,
       rootOutbound: true,
       threadType: input.threadType ?? "portal_message",
+      conversation: { managerUserId: input.managerUserId, propertyId: input.propertyId },
       messages: [
         {
           id: `ack-${Date.now().toString(36)}`,
@@ -353,6 +357,7 @@ export async function recordResidentProspectInboxMessage(
     subject: input.subject,
     body: input.body,
     threadType: input.threadType,
+    conversation: { managerUserId: input.managerUserId, propertyId: input.propertyId },
   });
 }
 

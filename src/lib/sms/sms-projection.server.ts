@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveSmsConversationRef } from "@/lib/communication/conversation-key.server";
 
 export type SmsProjectionRole = "prospect" | "resident" | "applicant" | "vendor" | "manager" | "admin" | "unknown";
 export type SmsProjectionDirection = "inbound" | "outbound";
@@ -161,6 +162,25 @@ export async function resolveSmsProjectionWorkLine(
   };
 }
 
+async function stampProjectionConversationKey(
+  db: SupabaseClient,
+  input: SmsProjectionEventInput,
+  conversationId: string,
+): Promise<void> {
+  const ref = await resolveSmsConversationRef(db, {
+    ownerManagerUserId: input.ownerManagerUserId,
+    workLineId: input.workLineId,
+    counterpartyUserId: input.counterpartyUserId ?? null,
+    counterpartyPhone: input.counterpartyPhone ?? null,
+  });
+  if (!ref) return;
+  await db.rpc("stamp_sms_projection_conversation", {
+    p_conversation_id: conversationId,
+    p_workspace: ref.workspaceId,
+    p_key: ref.key,
+  });
+}
+
 /** Atomically create/find the summary, dedupe the original event, update summary and bind safe legacy aliases. */
 export async function projectOriginalEvent(
   db: SupabaseClient,
@@ -202,6 +222,12 @@ export async function projectOriginalEvent(
   const result = data as { conversationId?: string; turnId?: string; inserted?: boolean; eventCount?: number; skipped?: string } | null;
   if (result?.skipped === "deleted") return { skipped: "deleted" };
   if (!result?.conversationId || !result.turnId) throw new Error("SMS projection returned an invalid result");
+  // A brand-new conversation joins its person's conversation key (the same key
+  // the in-app threads carry). Best-effort and first-event only; the backfill
+  // stamps the rest. A failure here never fails the projection write.
+  if (result.inserted === true && Number(result.eventCount ?? 0) <= 1) {
+    await stampProjectionConversationKey(db, input, result.conversationId).catch(() => undefined);
+  }
   return {
     conversationId: result.conversationId,
     eventId: result.turnId,

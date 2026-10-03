@@ -28,6 +28,7 @@ import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setu
 import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { postResendEmail as postCapturedResendEmail } from "@/lib/resend-delivery.server";
+import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
@@ -286,56 +287,41 @@ export async function deliverResidentWelcome(
 
     // Manager's Sent record (no participant_email so the resident doesn't get this copy)
     const managerThreadId = `welcome_${actor.userId}_${ts}_${rand}`;
-    await db.from("portal_inbox_thread_records").upsert(
-      {
-        id: managerThreadId,
-        scope: "axis_portal_inbox_manager_v1",
-        owner_user_id: actor.userId,
-        participant_email: null,
-        thread_type: "portal_message",
-        row_data: {
-          id: managerThreadId,
-          folder: "sent",
-          from: senderName,
-          email: to,
-          subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
-          preview,
-          body: text,
-          time: when,
-          unread: false,
-          scope: "axis_portal_inbox_manager_v1",
-        },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
+    await deliverPortalMessageThreadSide(db, {
+      scope: "axis_portal_inbox_manager_v1",
+      folder: "sent",
+      ownerUserId: actor.userId,
+      participantEmail: null,
+      otherPartyEmail: to,
+      fallbackId: managerThreadId,
+      fromName: senderName,
+      subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
+      body: text,
+      preview,
+      when,
+      unread: false,
+      outbound: true,
+    });
 
     // Resident's Unopened record (skip self-send and @axis.local to avoid polluting inboxes)
     if (!skipExternalEmail && to !== senderLower) {
       const residentThreadId = `welcome_inbox_${ts}_${rand}`;
-      await db.from("portal_inbox_thread_records").upsert(
-        {
-          id: residentThreadId,
-          scope: "axis_portal_inbox_resident_v1",
-          owner_user_id: null,
-          participant_email: to,
-          thread_type: "portal_message",
-          row_data: {
-            id: residentThreadId,
-            folder: "inbox",
-            from: senderName,
-            email: senderLower,
-            subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
-            preview,
-            body: text,
-            time: when,
-            unread: true,
-            scope: "axis_portal_inbox_resident_v1",
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" },
-      );
+      await deliverPortalMessageThreadSide(db, {
+        scope: "axis_portal_inbox_resident_v1",
+        folder: "inbox",
+        ownerUserId: null,
+        participantEmail: to,
+        otherPartyEmail: senderLower,
+        fallbackId: residentThreadId,
+        fromName: senderName,
+        subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
+        body: text,
+        preview,
+        when,
+        unread: true,
+        outbound: false,
+        conversation: { managerUserId: actor.userId },
+      });
     }
   } catch {
     /* non-critical — email already sent */
@@ -458,55 +444,40 @@ export async function deliverExistingResidentWelcome(
     const preview = text.slice(0, 100).replace(/\n/g, " ");
 
     const managerThreadId = `welcome_existing_${actor.userId}_${ts}_${rand}`;
-    await db.from("portal_inbox_thread_records").upsert(
-      {
-        id: managerThreadId,
-        scope: "axis_portal_inbox_manager_v1",
-        owner_user_id: actor.userId,
-        participant_email: null,
-        thread_type: "portal_message",
-        row_data: {
-          id: managerThreadId,
-          folder: "sent",
-          from: senderName,
-          email: to,
-          subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
-          preview,
-          body: text,
-          time: when,
-          unread: false,
-          scope: "axis_portal_inbox_manager_v1",
-        },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
+    await deliverPortalMessageThreadSide(db, {
+      scope: "axis_portal_inbox_manager_v1",
+      folder: "sent",
+      ownerUserId: actor.userId,
+      participantEmail: null,
+      otherPartyEmail: to,
+      fallbackId: managerThreadId,
+      fromName: senderName,
+      subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
+      body: text,
+      preview,
+      when,
+      unread: false,
+      outbound: true,
+    });
 
     if (viaInbox && !skipExternalEmail && to !== senderLower) {
       const residentThreadId = `welcome_existing_inbox_${ts}_${rand}`;
-      await db.from("portal_inbox_thread_records").upsert(
-        {
-          id: residentThreadId,
-          scope: "axis_portal_inbox_resident_v1",
-          owner_user_id: null,
-          participant_email: to,
-          thread_type: "portal_message",
-          row_data: {
-            id: residentThreadId,
-            folder: "inbox",
-            from: senderName,
-            email: senderLower,
-            subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
-            preview,
-            body: text,
-            time: when,
-            unread: true,
-            scope: "axis_portal_inbox_resident_v1",
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" },
-      );
+      await deliverPortalMessageThreadSide(db, {
+        scope: "axis_portal_inbox_resident_v1",
+        folder: "inbox",
+        ownerUserId: null,
+        participantEmail: to,
+        otherPartyEmail: senderLower,
+        fallbackId: residentThreadId,
+        fromName: senderName,
+        subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
+        body: text,
+        preview,
+        when,
+        unread: true,
+        outbound: false,
+        conversation: { managerUserId: actor.userId },
+      });
     }
   } catch {
     /* non-critical */

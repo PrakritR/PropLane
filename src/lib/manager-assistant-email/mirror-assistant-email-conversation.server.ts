@@ -50,6 +50,13 @@ export async function mirrorAssistantEmailConversation(
      * only a sent answer wears the EMAIL tag.
      */
     replySent?: boolean;
+    /**
+     * The workspace the work address belongs to, and the address itself (S7).
+     * The conversation is filed under THIS workspace and remembers the line it
+     * came in on, so mail to workspace B's address never shows under A.
+     */
+    workspaceId?: string | null;
+    workLine?: string | null;
   },
 ): Promise<void> {
   const senderEmail = args.senderEmail.trim().toLowerCase();
@@ -80,6 +87,10 @@ export async function mirrorAssistantEmailConversation(
     messageId: `assistant-email-in-${emailId}`,
     channel: "email",
     messageSubject: subject,
+    conversation: {
+      workspaceId: args.workspaceId ?? null,
+      workLine: args.workLine ?? null,
+    },
   });
 
   const replyText = args.replyText?.trim() ?? "";

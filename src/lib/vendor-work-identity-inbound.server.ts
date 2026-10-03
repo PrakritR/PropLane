@@ -85,6 +85,8 @@ export async function ingestVendorWorkIdentitySms(
   const stored = await deliverPortalMessageThreadSide(db, {
     scope: scopeForRole("vendor"), folder: "inbox", ownerUserId: vendorUserId,
     participantEmail: `${from}@sms.proplane.local`, otherPartyEmail: `${from}@sms.proplane.local`,
+    // The texter is a phone, not an address: the conversation is keyed by the number.
+    conversation: { otherPartyPhone: from },
     fallbackId: `vendor-inbound-sms:${vendorUserId}:${from}`,
     fromName: from, subject: "Text message", body: input.text || "(text received)",
     preview: (input.text || "(text received)").slice(0, 100).replace(/\n/g, " "),

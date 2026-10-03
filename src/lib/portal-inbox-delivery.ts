@@ -36,6 +36,21 @@ import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
+import {
+  propertyLabelFor,
+  resolveConversationRef,
+  type ConversationHints,
+  type ConversationRef,
+} from "@/lib/communication/conversation-key.server";
+import {
+  adoptThreadIntoConversation,
+  conversationRowData,
+  conversationSchemaAvailable,
+  createKeyedThreadRow,
+  findThreadByConversation,
+  resolveThreadAlias,
+  upsertKeyedThreadRow,
+} from "@/lib/communication/conversation-thread.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -140,14 +155,27 @@ export async function resolveInboxThreadReplyTarget(
   db: SupabaseClient,
   opts: { threadId: string; senderUserId: string; senderEmail: string },
 ): Promise<InboxThreadReplyTarget | null> {
-  const threadId = opts.threadId.trim();
+  let threadId = opts.threadId.trim();
   if (!threadId) return null;
   const senderEmail = opts.senderEmail.trim().toLowerCase();
-  const { data: threadRow } = await db
+  let { data: threadRow } = await db
     .from("portal_inbox_thread_records")
     .select("id, row_data, owner_user_id, participant_email, scope, thread_type")
     .eq("id", threadId)
     .maybeSingle();
+  if (!threadRow) {
+    // An old id that a folded conversation still answers to. The alias only
+    // names the row; every ownership check below still applies to it.
+    const aliased = await resolveThreadAlias(db, threadId);
+    if (aliased && aliased !== threadId) {
+      threadId = aliased;
+      ({ data: threadRow } = await db
+        .from("portal_inbox_thread_records")
+        .select("id, row_data, owner_user_id, participant_email, scope, thread_type")
+        .eq("id", threadId)
+        .maybeSingle());
+    }
+  }
   if (!threadRow) return null;
   const ownerUserId = (threadRow.owner_user_id as string | null) ?? null;
   const isOwner = ownerUserId === opts.senderUserId;
@@ -228,6 +256,9 @@ export async function commitInboxThreadReply(
      * viewing; the ref is set once, by whoever first composed from a record.
      */
     recordRef?: RecordRef;
+    /** The house this turn is about; each turn of a person's conversation carries its own. */
+    houseId?: string;
+    houseLabel?: string;
   },
 ): Promise<"sending" | "sent" | "failed" | undefined> {
   const { data: freshRow, error: readError } = await db
@@ -271,6 +302,8 @@ export async function commitInboxThreadReply(
     ...(opts.channel ? { channel: opts.channel } : {}),
     ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
     ...(opts.delivery ? { delivery: opts.delivery } : {}),
+    ...(opts.houseId?.trim() ? { houseId: opts.houseId.trim() } : {}),
+    ...(opts.houseLabel?.trim() ? { houseLabel: opts.houseLabel.trim() } : {}),
   });
   const existingRecordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef);
   const recordRef = existingRecordRef ?? normalizeRecordRef(opts.recordRef);
@@ -336,6 +369,13 @@ export type PortalMessageThreadSide = {
   participantEmail: string | null;
   /** row_data.email — the other party in the conversation. */
   otherPartyEmail: string;
+  /**
+   * What the conversation resolver may use to place this side in a workspace and
+   * under a person key: the house, the counterparty's phone / account, the
+   * work line the message used. All optional - with none, the resolver falls
+   * back to the owner's default workspace and the counterparty's email.
+   */
+  conversation?: ConversationHints & { workLine?: string | null };
 };
 
 /**
@@ -346,10 +386,7 @@ export type PortalMessageThreadSide = {
  * portable across our fake test client, and the extra rows per identity are few
  * (one per counterparty). Returns the newest match or null.
  */
-export async function findExistingPortalMessageThread(
-  db: SupabaseClient,
-  side: PortalMessageThreadSide,
-): Promise<{
+export type ExistingPortalMessageThread = {
   id: string;
   rowData: Record<string, unknown>;
   ownerUserId: string | null;
@@ -362,12 +399,58 @@ export async function findExistingPortalMessageThread(
    * inbound turn does (see `deliverPortalMessageThreadSide`'s `reopens`).
    */
   archived: boolean;
-} | null> {
+  /** The stored type of the matched row (a keyed row may be any person-thread type). */
+  threadType: string | null;
+  /** True when the row was found by its conversation key rather than the legacy email match. */
+  matchedByKey: boolean;
+};
+
+export async function findExistingPortalMessageThread(
+  db: SupabaseClient,
+  side: PortalMessageThreadSide,
+  /**
+   * The side's resolved conversation. `undefined` = resolve it here; `null` =
+   * the caller already tried and there is none (legacy match only).
+   */
+  resolved?: ConversationRef | null,
+): Promise<ExistingPortalMessageThread | null> {
+  // The conversation key is the identity. One person in one workspace is ONE
+  // row regardless of which folder, thread type or channel it started in.
+  const ref = resolved === undefined ? await resolveConversationRef(db, side, side.conversation ?? {}) : resolved;
+  if (ref) {
+    const keyed = await findThreadByConversation(db, side, ref);
+    if (keyed) {
+      return {
+        id: keyed.id,
+        rowData: keyed.rowData,
+        ownerUserId: keyed.ownerUserId,
+        participantEmail: keyed.participantEmail,
+        scope: keyed.scope || side.scope,
+        updatedAt: keyed.updatedAt,
+        archived: keyed.archived,
+        threadType: keyed.threadType,
+        matchedByKey: true,
+      };
+    }
+  }
+  return findLegacyPortalMessageThread(db, side, ref ?? null);
+}
+
+async function findLegacyPortalMessageThread(
+  db: SupabaseClient,
+  side: PortalMessageThreadSide,
+  ref: ConversationRef | null,
+): Promise<ExistingPortalMessageThread | null> {
   const matchCol = side.folder === "sent" ? "owner_user_id" : "participant_email";
   const matchVal = side.folder === "sent" ? side.ownerUserId : side.participantEmail;
   if (!matchVal) return null;
 
   const otherPartyNormalized = side.otherPartyEmail.trim().toLowerCase();
+  // The key columns only when a conversation was resolved and the migration is live.
+  const legacyColumns: string =
+    ref && conversationSchemaAvailable()
+      ? "id, row_data, owner_user_id, participant_email, scope, updated_at, conversation_key, workspace_id"
+      : "id, row_data, owner_user_id, participant_email, scope, updated_at";
   // Deliberately NOT filtered on `row_data->>folder` at the DB level: an
   // archived row's folder is "trash", not `side.folder`, and filtering it out
   // here made every new message to/from an archived person's thread insert a
@@ -377,26 +460,31 @@ export async function findExistingPortalMessageThread(
   // the archived row's remembered `previousFolder` explicitly.
   const { data } = await db
     .from("portal_inbox_thread_records")
-    .select("id, row_data, owner_user_id, participant_email, scope, updated_at")
+    .select(legacyColumns)
     .eq("scope", side.scope)
     .eq(matchCol, matchVal)
     .eq("row_data->>email", otherPartyNormalized)
     .order("updated_at", { ascending: false })
     .limit(100);
 
-  const rows = (Array.isArray(data) ? data : []) as {
+  const rows = (Array.isArray(data) ? data : []) as unknown as {
     id: string;
     row_data: Record<string, unknown> | null;
     owner_user_id: string | null;
     participant_email: string | null;
     scope: string | null;
     updated_at: string | null;
+    conversation_key?: string | null;
+    workspace_id?: string | null;
   }[];
   const otherParty = side.otherPartyEmail.trim().toLowerCase();
   let archivedMatch: (typeof rows)[number] | null = null;
   for (const r of rows) {
     const rowData = (r.row_data ?? {}) as Record<string, unknown>;
     if (String(rowData.email ?? "").trim().toLowerCase() !== otherParty) continue;
+    // A row already filed under ANOTHER workspace is another conversation, even
+    // for the same email: workspaces never share a conversation.
+    if (ref && r.workspace_id && r.workspace_id !== ref.workspaceId) continue;
     const folder = String(rowData.folder ?? "");
     if (folder === side.folder) {
       return {
@@ -407,6 +495,8 @@ export async function findExistingPortalMessageThread(
         scope: String(r.scope ?? side.scope),
         updatedAt: r.updated_at ?? null,
         archived: false,
+        threadType: "portal_message",
+        matchedByKey: false,
       };
     }
     // An archived row remembers which side it was via `previousFolder` — only
@@ -426,6 +516,8 @@ export async function findExistingPortalMessageThread(
       scope: String(archivedMatch.scope ?? side.scope),
       updatedAt: archivedMatch.updated_at ?? null,
       archived: true,
+      threadType: "portal_message",
+      matchedByKey: false,
     };
   }
   return null;
@@ -504,11 +596,29 @@ export async function deliverPortalMessageThreadSide(
     delivery?: "sending" | "sent" | "failed";
     /** Stamped onto the appended turn only — see `InboxThreadMessage.automated`. */
     automated?: boolean;
+    /**
+     * Stored type for a brand-new row. A keyed conversation that already
+     * exists keeps its own type. Defaults to `portal_message`.
+     */
+    threadType?: string;
+    /** The root turn is the owner's own outbound message (a resident's text + the ack that follows). */
+    rootOutbound?: boolean;
+    /** Turns that follow the root on a brand-new row (a resident's message, then the acknowledgement). */
+    followUps?: { id: string; from: string; body: string; at: string; outbound?: boolean }[];
+    /** Internal: one re-read after losing a create race. */
+    retried?: boolean;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string; delivery?: "sending" | "sent" | "failed" }> {
-  const existing = await findExistingPortalMessageThread(db, args);
+  const ref = await resolveConversationRef(db, args, args.conversation ?? {});
+  const existing = await findExistingPortalMessageThread(db, args, ref);
   const nowIso = new Date().toISOString();
   const normalizedRecordRef = normalizeRecordRef(args.recordRef);
+  // The house this turn is about. Each turn carries its own, so one
+  // conversation spanning houses can still be shown (and shared with a
+  // co-manager) house by house.
+  const houseId = String(args.conversation?.propertyId ?? "").trim() || undefined;
+  const houseLabel = houseId ? await propertyLabelFor(db, houseId) : undefined;
+  const workLine = String(args.conversation?.workLine ?? "").trim() || undefined;
 
   if (existing) {
     // See the `folder`/`previousFolder` comment further below.
@@ -552,20 +662,36 @@ export async function deliverPortalMessageThreadSide(
       from: args.fromName,
       body: args.body,
       at: args.when,
-      outbound: args.outbound,
+      outbound: args.rootOutbound ? true : args.outbound,
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(args.channel ? { channel: args.channel } : {}),
       ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
       ...(args.delivery ? { delivery: args.delivery } : {}),
       ...(args.automated ? { automated: true } : {}),
+      ...(houseId ? { houseId } : {}),
+      ...(houseLabel ? { houseLabel } : {}),
     });
-    const { error } = await db.from("portal_inbox_thread_records").upsert(
+    // Turns that follow the main one (a resident's message, then the acknowledgement).
+    for (const turn of args.followUps ?? []) {
+      messages.push(houseId ? { ...turn, houseId } : turn);
+    }
+    // A conversation found by its key may have started as a sent copy; an
+    // inbound turn makes it an inbox conversation. An archived one only
+    // reopens on inbound (`reopens`), never on an outbound or automated turn.
+    const storedFolder = String(existing.rowData.folder ?? "");
+    const folderPatch = reopens
+      ? { folder: args.folder, previousFolder: undefined }
+      : existing.matchedByKey && storedFolder === "sent" && !args.outbound
+        ? { folder: "inbox" }
+        : {};
+    const { error, conflict } = await upsertKeyedThreadRow(
+      db,
       {
         id: existing.id,
         scope: existing.scope,
         owner_user_id: existing.ownerUserId,
         participant_email: existing.participantEmail,
-        thread_type: "portal_message",
+        thread_type: existing.matchedByKey ? (existing.threadType ?? "portal_message") : "portal_message",
         row_data: {
           ...existing.rowData,
           // Keep the original root `body` — that is the first message's text and
@@ -593,7 +719,9 @@ export async function deliverPortalMessageThreadSide(
           // upsert's `folder` back to the live value and clearing the
           // remembered `previousFolder`; an outbound append into a still-
           // archived thread keeps its current (trash) folder untouched.
-          ...(reopens ? { folder: args.folder, previousFolder: undefined } : {}),
+          ...folderPatch,
+          ...conversationRowData(ref),
+          ...(workLine ? { workLine } : {}),
           // Advance with the latest message, like `subject`: a conversation is
           // about whatever it most recently became about.
           ...(args.category ? { category: args.category } : {}),
@@ -604,59 +732,94 @@ export async function deliverPortalMessageThreadSide(
         },
         updated_at: nowIso,
       },
-      { onConflict: "id" },
+      ref,
     );
+    // Another writer created this person's conversation between our read and
+    // our write: append to theirs instead of failing or forking.
+    if (conflict && !args.retried) return deliverPortalMessageThreadSide(db, { ...args, retried: true });
     if (error) throw new Error("Could not save the reply.", { cause: error });
+    // A legacy row found by email joins its conversation now, so the next
+    // message (from any writer) finds it by key.
+    if (ref && !existing.matchedByKey) await adoptThreadIntoConversation(db, existing.id, ref);
     await emitInboxMessageWebhook(args, existing.id, args.unread);
     return { action: "append", threadId: existing.id, ...(args.delivery ? { delivery: args.delivery } : {}) };
   }
 
-  const { error } = await db.from("portal_inbox_thread_records").upsert(
-    {
+  const createRowData: Record<string, unknown> = {
+    id: args.fallbackId,
+    folder: args.folder,
+    from: args.fromName,
+    email: args.otherPartyEmail,
+    subject: args.subject,
+    preview: args.preview,
+    body: args.body,
+    time: args.when,
+    // The root turn's OWN time. `time` advances with every later append (it
+    // is the list's sort key), and without `rootAt` the root inherits that
+    // moving value — so once anything is appended, the root sorts AFTER the
+    // reply to it, and a merged person-thread picks the reply as its first
+    // turn: an assistant answer became the thread's `from`, the thread was
+    // read as the PropLane Assistant conversation, and its composer
+    // defaulted back to In-app.
+    rootAt: args.when,
+    unread: args.unread,
+    scope: args.scope,
+    ...(args.category ? { category: args.category } : {}),
+    // The root message lives in `body`, not `messages[]` — remember its
+    // deterministic id so a redelivered webhook can still dedupe it.
+    ...(args.messageId ? { rootMessageId: args.messageId } : {}),
+    ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+    // The root turn lives in `body`; its channel/subject stamps live beside it
+    // under `root*` so the bubble builders can label it like any other turn.
+    ...(args.channel ? { rootChannel: args.channel } : {}),
+    ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
+    ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
+    ...(args.delivery ? { rootDelivery: args.delivery } : {}),
+    ...(args.automated ? { rootAutomated: true } : {}),
+    ...(args.rootOutbound ? { rootOutbound: true } : {}),
+    ...(args.followUps?.length ? { messages: args.followUps } : {}),
+    ...(houseId ? { rootHouseId: houseId } : {}),
+    ...(houseLabel ? { rootHouseLabel: houseLabel } : {}),
+    ...(workLine ? { workLine } : {}),
+    ...conversationRowData(ref),
+  };
+  const threadType = args.threadType ?? "portal_message";
+  let createdId = args.fallbackId;
+  if (ref) {
+    // The ONLY way a person's conversation is created: a database function
+    // that takes a lock, so two sends at the same instant make one row.
+    const created = await createKeyedThreadRow(db, ref, {
       id: args.fallbackId,
       scope: args.scope,
-      owner_user_id: args.ownerUserId,
-      participant_email: args.participantEmail,
-      thread_type: "portal_message",
-      row_data: {
+      ownerUserId: args.ownerUserId,
+      participantEmail: args.participantEmail,
+      threadType,
+      rowData: createRowData,
+    });
+    if (created.error) throw new Error("Could not save the message.", { cause: created.error });
+    if (!created.created) {
+      // Lost the race: the winner's row is there now; append to it.
+      if (!args.retried) return deliverPortalMessageThreadSide(db, { ...args, retried: true });
+      throw new Error("Could not save the message.");
+    }
+    createdId = created.id;
+  } else {
+    const { error } = await db.from("portal_inbox_thread_records").upsert(
+      {
         id: args.fallbackId,
-        folder: args.folder,
-        from: args.fromName,
-        email: args.otherPartyEmail,
-        subject: args.subject,
-        preview: args.preview,
-        body: args.body,
-        time: args.when,
-        // The root turn's OWN time. `time` advances with every later append (it
-        // is the list's sort key), and without `rootAt` the root inherits that
-        // moving value — so once anything is appended, the root sorts AFTER the
-        // reply to it, and a merged person-thread picks the reply as its first
-        // turn: an assistant answer became the thread's `from`, the thread was
-        // read as the PropLane Assistant conversation, and its composer
-        // defaulted back to In-app.
-        rootAt: args.when,
-        unread: args.unread,
         scope: args.scope,
-        ...(args.category ? { category: args.category } : {}),
-        // The root message lives in `body`, not `messages[]` — remember its
-        // deterministic id so a redelivered webhook can still dedupe it.
-        ...(args.messageId ? { rootMessageId: args.messageId } : {}),
-        ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-        // The root turn lives in `body`; its channel/subject stamps live beside it
-        // under `root*` so the bubble builders can label it like any other turn.
-        ...(args.channel ? { rootChannel: args.channel } : {}),
-        ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
-        ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
-        ...(args.delivery ? { rootDelivery: args.delivery } : {}),
-        ...(args.automated ? { rootAutomated: true } : {}),
+        owner_user_id: args.ownerUserId,
+        participant_email: args.participantEmail,
+        thread_type: threadType,
+        row_data: createRowData,
+        updated_at: nowIso,
       },
-      updated_at: nowIso,
-    },
-    { onConflict: "id" },
-  );
-  if (error) throw new Error("Could not save the message.", { cause: error });
-  await emitInboxMessageWebhook(args, args.fallbackId, args.unread);
-  return { action: "create", threadId: args.fallbackId, ...(args.delivery ? { delivery: args.delivery } : {}) };
+      { onConflict: "id" },
+    );
+    if (error) throw new Error("Could not save the message.", { cause: error });
+  }
+  await emitInboxMessageWebhook(args, createdId, args.unread);
+  return { action: "create", threadId: createdId, ...(args.delivery ? { delivery: args.delivery } : {}) };
 }
 
 /**
@@ -945,6 +1108,13 @@ export async function deliverPortalInboxMessage(
     const when = formatPacificDateTime(new Date());
     const preview = text.slice(0, 100).replace(/\n/g, " ");
 
+    // The house this send is about, when the caller names it: it picks the
+    // workspace the conversation lives in and labels each turn.
+    const conversationPropertyId =
+      String(opts.propertyId ?? "").trim() ||
+      (opts.recordRef?.kind === "property" ? String(opts.recordRef.id ?? "").trim() : "") ||
+      null;
+    const senderIsManagerSide = senderScope === MANAGER_INBOX_SCOPE;
     for (const recipient of recipients) {
       const ts = Date.now();
       const rand = Math.random().toString(36).slice(2, 6);
@@ -957,6 +1127,11 @@ export async function deliverPortalInboxMessage(
         ownerUserId: opts.senderUserId,
         participantEmail: null,
         otherPartyEmail: recipientLower,
+        conversation: {
+          propertyId: conversationPropertyId,
+          otherPartyUserId: recipient.userId,
+          managerUserId: senderIsManagerSide ? opts.senderUserId : recipient.userId,
+        },
         fallbackId: `msg_${opts.senderUserId}_${ts}_${rand}`,
         fromName,
         subject,
@@ -980,6 +1155,11 @@ export async function deliverPortalInboxMessage(
         ownerUserId: recipient.userId,
         participantEmail: recipientLower,
         otherPartyEmail: senderEmail,
+        conversation: {
+          propertyId: conversationPropertyId,
+          otherPartyUserId: opts.senderUserId,
+          managerUserId: senderIsManagerSide ? (opts.ownerManagerUserId?.trim() || opts.senderUserId) : recipient.userId,
+        },
         fallbackId: `msg_inbox_${ts}_${rand}`,
         fromName,
         subject,

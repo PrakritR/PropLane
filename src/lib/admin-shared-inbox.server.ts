@@ -6,6 +6,7 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
+import { emailKey } from "@/lib/communication/conversation-key";
 import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 
@@ -151,7 +152,9 @@ export async function deliverPortalMessageToAdminSharedInbox(
       createdAt: nowIso,
       thread,
     };
-    const record = buildPortalInboxThreadUpsert(nextRow, { id: "", email: null });
+    // The admin inbox is one thread per sender with no workspace: the person's
+    // key (their email) rides in row_data so every surface joins on one value.
+    const record = buildPortalInboxThreadUpsert({ ...nextRow, conversationKey: emailKey(senderEmail) }, { id: "", email: null });
     await db.from("portal_inbox_thread_records").upsert(record, { onConflict: "id" });
     return { threadId: existing.id, created: false };
   }
@@ -171,7 +174,7 @@ export async function deliverPortalMessageToAdminSharedInbox(
     thread: [],
     scope: ADMIN_INBOX_SCOPE,
   };
-  const record = buildPortalInboxThreadUpsert(row, { id: "", email: null });
+  const record = buildPortalInboxThreadUpsert({ ...row, conversationKey: emailKey(senderEmail) }, { id: "", email: null });
   const { error } = await db.from("portal_inbox_thread_records").upsert(record, { onConflict: "id" });
   if (error) throw new Error(error.message);
   void when;

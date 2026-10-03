@@ -6,6 +6,7 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { buildPortalApplicationOpenHref } from "@/lib/manager-applications-storage";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
@@ -28,31 +29,29 @@ async function deliverEmail(to: string[], subject: string, text: string, actorUs
 async function upsertManagerInbox(
   db: Db,
   managerUserId: string,
-  input: { subject: string; body: string; fromName: string; fromEmail: string },
+  input: { subject: string; body: string; fromName: string; fromEmail: string; managerEmail: string; messageId: string },
 ): Promise<void> {
   const threadId = `cosigner-${Date.now().toString(36)}`;
   const now = formatPacificDateTime(new Date());
-  await db.from("portal_inbox_thread_records").upsert(
-    {
-      id: threadId,
-      scope: MANAGER_INBOX_SCOPE,
-      owner_user_id: managerUserId,
-      participant_email: input.fromEmail,
-      row_data: {
-        id: threadId,
-        folder: "inbox",
-        from: input.fromName,
-        email: input.fromEmail,
-        subject: input.subject,
-        preview: input.body.slice(0, 100),
-        body: input.body,
-        time: now,
-        unread: true,
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
+  // One conversation per person: a co-signer's submission lands in THEIR
+  // conversation with this workspace, next to every other message from them,
+  // not in a fresh row per notice.
+  await deliverPortalMessageThreadSide(db, {
+    scope: MANAGER_INBOX_SCOPE,
+    folder: "inbox",
+    ownerUserId: managerUserId,
+    participantEmail: input.managerEmail,
+    otherPartyEmail: input.fromEmail.trim().toLowerCase(),
+    fallbackId: threadId,
+    fromName: input.fromName,
+    subject: input.subject,
+    body: input.body,
+    preview: input.body.slice(0, 100).replace(/\n/g, " "),
+    when: now,
+    unread: true,
+    outbound: false,
+    messageId: input.messageId,
+  });
 }
 
 export async function notifyManagerCosignerSubmitted(input: {
@@ -91,5 +90,7 @@ export async function notifyManagerCosignerSubmitted(input: {
     body,
     fromName: input.cosignerName,
     fromEmail: input.cosignerEmail,
+    managerEmail,
+    messageId: `cosigner-submitted:${input.signerAppId}:${input.cosignerEmail.trim().toLowerCase()}`,
   });
 }
