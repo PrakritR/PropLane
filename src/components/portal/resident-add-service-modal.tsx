@@ -191,7 +191,7 @@ export function ResidentAddServiceModal({
       if (option.kind === "repair") {
         const title = form.title.trim() || serviceIntakeSuggestedTitle(option, form.categoryLabel);
         if (!title) {
-          showToast("Add a title first.");
+          showToast("Choose a category first.");
           return;
         }
         if (!form.description.trim()) {
@@ -331,7 +331,7 @@ export function ResidentAddServiceModal({
   return (
     <Modal
       open={open}
-      title="Add service"
+      title="Report a problem"
       onClose={onClose}
       panelClassName="max-w-lg"
       footer={
@@ -344,7 +344,7 @@ export function ResidentAddServiceModal({
             onClick={() => void submit()}
             disabled={submitting}
           >
-            {submitting ? "Submitting…" : "Add service"}
+            {submitting ? "Sending…" : "Send"}
           </Button>
         </ModalFooter>
       }
@@ -356,9 +356,10 @@ export function ResidentAddServiceModal({
           onChange={patchForm}
           disabled={submitting || !servicesUnlocked}
           disabledRepairCategories={disabledRepairCategories}
+          compactRepairReport
           photoSlot={
             <>
-              <ServiceIntakePhotoPicker onPick={openPhotoPicker} disabled={submitting} />
+              <ServiceIntakePhotoPicker onPick={openPhotoPicker} disabled={submitting} photoCount={photos.length} />
               {photoError ? (
                 <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="resident-service-intake-photo-error">
                   Add at least one photo before submitting.

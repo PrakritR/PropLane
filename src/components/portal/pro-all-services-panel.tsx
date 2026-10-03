@@ -12,11 +12,11 @@ import {
 } from "@/lib/unified-service-rows";
 
 /** The four states the merged list filters by, in the order a manager works through them. */
-const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
+const SERVICE_STATE_TABS: { id: ServiceRowState | "vendors"; label: string }[] = [
   { id: "open", label: "Open" },
   { id: "scheduled", label: "Scheduled" },
   { id: "done", label: "Done" },
-  { id: "declined", label: "Declined" },
+  { id: "vendors", label: "Vendors" },
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -98,6 +98,13 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
+import {
+  managerServiceListFigure,
+  managerServiceListStageLabel,
+  resolveWorkOrderAssignee,
+} from "@/lib/manager-service-workflow";
+import { ManagerServicesVendorsTab } from "@/components/portal/manager-services-vendors-tab";
+import { vendorDetailHref } from "@/lib/portal-detail-routes";
 
 type FilterType = "requests" | "work-orders";
 
@@ -156,7 +163,7 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
-  const [serviceState, setServiceState] = useState<ServiceRowState>("open");
+  const [serviceState, setServiceState] = useState<ServiceRowState | "vendors">("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [servicesSettingsOpen, setServicesSettingsOpen] = useState(false);
   const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
@@ -434,10 +441,21 @@ export function ManagerAllServicesPanel({
     [filteredRequests, filteredWorkOrders, propertyOptions],
   );
   const unifiedCounts = useMemo(() => countServiceRowsByState(unifiedRows), [unifiedRows]);
-  const visibleUnifiedRows = useMemo(
-    () => unifiedRows.filter((row) => row.state === serviceState),
-    [unifiedRows, serviceState],
-  );
+  const vendorTabCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of filteredWorkOrders) {
+      if (row.vendorId) ids.add(row.vendorId);
+    }
+    return ids.size;
+  }, [filteredWorkOrders]);
+
+  const visibleUnifiedRows = useMemo(() => {
+    if (serviceState === "vendors") return [];
+    if (serviceState === "done") {
+      return unifiedRows.filter((row) => row.state === "done" || row.state === "declined");
+    }
+    return unifiedRows.filter((row) => row.state === serviceState);
+  }, [unifiedRows, serviceState]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
     `${serviceState}:${groupMode}`,
   );
@@ -626,32 +644,37 @@ export function ManagerAllServicesPanel({
   const renderServiceRow = (row: (typeof visibleUnifiedRows)[number], omitPropertyInSubtitle: boolean) => {
     const rowKey = unifiedServiceRowKey(row);
     const bidCount = row.kind === "maintenance" ? bidCountByWorkOrderId.get(row.id) ?? 0 : 0;
+    const maintenanceRow =
+      row.kind === "maintenance" ? filteredWorkOrders.find((w) => w.id === row.id) ?? null : null;
+    const assignee =
+      maintenanceRow ? resolveWorkOrderAssignee(maintenanceRow) : row.kind === "add-on"
+        ? filteredRequests.find((r) => r.id === row.id)?.assignee
+          ? { kind: "vendor" as const, id: "", name: filteredRequests.find((r) => r.id === row.id)!.assignee!.name }
+          : null
+        : null;
+    const stageFigure =
+      maintenanceRow
+        ? managerServiceListStageLabel(maintenanceRow, bidCount)
+        : row.statusLabel;
     const subtitleParts = [
-      row.kind === "add-on" ? "Add-on service" : "Maintenance",
+      row.residentName || row.residentEmail,
       omitPropertyInSubtitle ? null : row.propertyLabel,
-      groupMode === "house" ? row.residentName || row.residentEmail : null,
       row.unitLabel,
-      // The visit time rides on the row so a manager sees at a glance what is booked
-      // and what PropLane has only proposed (see `visitSourcePill` in the detail).
-      // C246: a genuinely scheduled visit only ever sets `scheduledIso`; an approved
-      // add-on with no confirmed visit shows its approval date labeled as such instead
-      // of being misread as a scheduled-visit date.
-      row.scheduledIso
-        ? formatServiceVisitLabel(row.scheduledIso)
-        : row.proposedVisit
-          ? `Proposed ${formatServiceVisitLabel(row.proposedVisit.iso)}`
-          : row.approvedIso
-            ? `Approved ${formatServiceVisitLabel(row.approvedIso)}`
-            : null,
-      // C253: a plain glyph-free fact — never a pill/badge — so a manager can see bid
-      // volume without opening the record.
-      bidCount > 0 ? `${bidCount} ${bidCount === 1 ? "bid" : "bids"}` : null,
+      assignee
+        ? assignee.kind === "team"
+          ? `${assignee.name} · Team`
+          : assignee.name
+        : null,
     ].filter(Boolean);
+    const costFact =
+      maintenanceRow ? managerServiceListFigure(maintenanceRow) : undefined;
+    if (costFact) subtitleParts.push(costFact);
     return (
       <PortalServiceRecordRow
         key={rowKey}
         title={row.title}
         subtitle={subtitleParts.join(" · ") || undefined}
+        figure={stageFigure || undefined}
         checked={selectedIds.has(rowKey)}
         onSelectedChange={() => toggleSelected(rowKey)}
         onOpen={() =>
@@ -662,6 +685,7 @@ export function ManagerAllServicesPanel({
           )
         }
         dataAttr={row.kind === "add-on" ? "service-request-list-row" : "work-order-list-row"}
+        rowId={row.kind === "maintenance" ? `svc-row-${row.id}` : undefined}
       />
     );
   };
@@ -840,7 +864,17 @@ export function ManagerAllServicesPanel({
           title: portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
           section: "services",
           sibling: portalEmptySibling(
-            SERVICE_STATE_TABS.map((tab) => ({ id: tab.id, label: tab.label, count: unifiedCounts[tab.id], onSelect: () => setServiceState(tab.id) })),
+            SERVICE_STATE_TABS.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count:
+                tab.id === "vendors"
+                  ? vendorTabCount
+                  : tab.id === "done"
+                    ? unifiedCounts.done + unifiedCounts.declined
+                    : unifiedCounts[tab.id as ServiceRowState],
+              onSelect: () => setServiceState(tab.id),
+            })),
             serviceState,
           ),
           // Done and Declined are outcomes; a new service starts open.
@@ -855,11 +889,16 @@ export function ManagerAllServicesPanel({
       items={SERVICE_STATE_TABS.map((tab) => ({
         id: tab.id,
         label: tab.label,
-        count: unifiedCounts[tab.id],
+        count:
+          tab.id === "vendors"
+            ? vendorTabCount
+            : tab.id === "done"
+              ? unifiedCounts.done + unifiedCounts.declined
+              : unifiedCounts[tab.id as ServiceRowState],
         dataAttr: `manager-services-state-${tab.id}`,
       }))}
       activeId={serviceState}
-      onChange={(id) => setServiceState(id as ServiceRowState)}
+      onChange={(id) => setServiceState(id as ServiceRowState | "vendors")}
       ariaLabel="Service status"
       appearance="command"
     />
@@ -896,7 +935,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
@@ -907,7 +946,13 @@ export function ManagerAllServicesPanel({
             order detail — so the merge stays presentational and the stores never mix.
           */}
           <div className="space-y-3" data-attr="services-resident-groups">
-            {isPropertyClusterList(groupMode, serviceClusters)
+            {serviceState === "vendors" ? (
+              <ManagerServicesVendorsTab
+                workOrders={filteredWorkOrders}
+                basePath={basePath}
+                onOpenVendor={(vendorId) => navigate(vendorDetailHref(basePath, vendorId))}
+              />
+            ) : isPropertyClusterList(groupMode, serviceClusters)
               ? serviceClusters.map((cluster) => (
                   <ApplicationHouseholdCluster
                     key={cluster.key}

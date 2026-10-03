@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Settings } from "lucide-react";
+import { MapPin, Settings } from "lucide-react";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -60,10 +60,22 @@ import {
 import { vendorWorkOrderListHref, vendorJobDetailHref, type VendorJobDetailTabId } from "@/lib/portal-detail-routes";
 import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { ServiceWorkflowStepper } from "@/components/portal/service-workflow-stepper";
+import {
+  vendorCanSeeFullWorkOrderSite,
+  vendorLeadMapsQuery,
+  vendorServiceWorkflowSteps,
+  workOrderGeneralArea,
+} from "@/lib/work-order-vendor-privacy";
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
   return unit && unit !== "—" ? `${row.propertyName} · ${unit}` : row.propertyName;
+}
+
+function vendorPlaceLine(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string {
+  if (vendorCanSeeFullWorkOrderSite(row, bid)) return propertyLabel(row);
+  return workOrderGeneralArea(row);
 }
 
 function pad2(n: number) {
@@ -238,6 +250,18 @@ export function VendorWorkOrdersPanel({
     () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === tabId),
     [sorted, tabId, bidsByWorkOrderId],
   );
+
+  const { nearYouRows, otherPendingRows } = useMemo(() => {
+    if (tabId !== "pending") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherPendingRows: visible };
+    const near: DemoManagerWorkOrderRow[] = [];
+    const rest: DemoManagerWorkOrderRow[] = [];
+    for (const row of visible) {
+      const offer = offersByWorkOrderId[row.id];
+      if (offer?.status === "sent" && row.biddingOpen) near.push(row);
+      else rest.push(row);
+    }
+    return { nearYouRows: near, otherPendingRows: rest };
+  }, [visible, tabId, offersByWorkOrderId]);
 
   const wizardJobs = useMemo(
     () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending"),
@@ -651,9 +675,30 @@ export function VendorWorkOrdersPanel({
     const showPricingFields = canEditBid && (mode === "upfront" || consultationScheduled || pricingPending);
     const showScheduledPrice = canMarkDone && !showPricingFields;
 
+    const fullSite = vendorCanSeeFullWorkOrderSite(row, bid);
     return (
       <>
         <p className="text-sm leading-relaxed text-muted">{row.description}</p>
+        {!fullSite ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span>{workOrderGeneralArea(row)}</span>
+            <a
+              href={vendorLeadMapsQuery(row)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              data-attr="vendor-lead-directions"
+              aria-label="Directions"
+            >
+              <MapPin className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          </div>
+        ) : null}
+        {fullSite && row.residentName ? (
+          <p className="mt-2 text-xs text-muted">
+            Resident: <span className="font-medium text-foreground">{row.residentName}</span>
+          </p>
+        ) : null}
         {row.bucket !== "open" && row.scheduled && row.scheduled !== "—" ? (
           <p className="mt-1.5 text-xs text-muted">
             Visit scheduled for <span className="font-medium text-foreground">{row.scheduled}</span>
@@ -926,7 +971,11 @@ export function VendorWorkOrdersPanel({
               </label>
             </div>
             <div className="space-y-2">
-              <ServiceIntakePhotoPicker onPick={() => openDonePhotoPicker(row.id)} disabled={markingDoneId === row.id} />
+              <ServiceIntakePhotoPicker
+                onPick={() => openDonePhotoPicker(row.id)}
+                disabled={markingDoneId === row.id}
+                photoCount={(donePhotosById[row.id] ?? []).length}
+              />
               {donePhotoErrorById[row.id] ? (
                 <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="vendor-mark-done-photo-error">
                   Add a completion photo before marking this service done.
@@ -977,7 +1026,7 @@ export function VendorWorkOrdersPanel({
                 variant="primary"
                 data-attr="vendor-mark-done"
                 className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                disabled={markingDoneId === row.id}
+                disabled={markingDoneId === row.id || (donePhotosById[row.id] ?? []).length === 0}
                 onClick={() => markDone(row)}
               >
                 {markingDoneId === row.id ? "Marking done…" : "Mark done"}
@@ -1060,16 +1109,27 @@ export function VendorWorkOrdersPanel({
               action: { label: "Schedule", href: vendorJobDetailHref("/vendor", row.id, "schedule") },
               rows: [
                 { label: "Details", value: row.description || "—" },
-                { label: "Access", value: row.entryPermission ? `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}` : "—" },
+                ...(vendorCanSeeFullWorkOrderSite(row, bid)
+                  ? [
+                      {
+                        label: "Access",
+                        value: row.entryPermission
+                          ? `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}`
+                          : "—",
+                      },
+                    ]
+                  : []),
               ],
             },
             {
               id: "site",
               title: "Site",
-              rows: [
-                { label: "Property", value: propertyLabel(row) || "—" },
-                { label: "Reference", value: row.reference || "—" },
-              ],
+              rows: vendorCanSeeFullWorkOrderSite(row, bid)
+                ? [
+                    { label: "Property", value: propertyLabel(row) || "—" },
+                    { label: "Reference", value: row.reference || "—" },
+                  ]
+                : [{ label: "Area", value: workOrderGeneralArea(row) }],
             },
             {
               id: "payments",
@@ -1081,6 +1141,9 @@ export function VendorWorkOrdersPanel({
             },
           ],
         })}
+        <div className="px-3 pb-4 sm:px-4">
+          <ServiceWorkflowStepper steps={vendorServiceWorkflowSteps(row, bid)} />
+        </div>
         {row.photoDataUrls?.length ? (
           <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
@@ -1104,7 +1167,7 @@ export function VendorWorkOrdersPanel({
       <PortalRecordDetailPage
         pageTitle="Services"
         title={row.title}
-        subtitle={propertyLabel(row)}
+        subtitle={vendorPlaceLine(row, bid)}
         avatarName={row.title}
         backHref={backHref}
         backLabel="Back to services"
@@ -1121,7 +1184,7 @@ export function VendorWorkOrdersPanel({
           recordId={row.id}
           activeId={activeTab}
           title={row.title}
-          subtitle={propertyLabel(row)}
+          subtitle={vendorPlaceLine(row, bid)}
           backHref={backHref}
           backLabel="All services"
           ariaLabel="Job sections"
@@ -1203,13 +1266,37 @@ export function VendorWorkOrdersPanel({
         }
         dataAttr="vendor-services-list"
       >
-        {visible.map((row) => {
-          const phaseLabel = vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id]);
+        {nearYouRows.length > 0 ? (
+          <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">Near you</p>
+        ) : null}
+        {nearYouRows.map((row) => {
+          const bid = bidsByWorkOrderId[row.id];
+          const phaseLabel = vendorWorkOrderPhaseLabel(row, bid);
+          const figure = bid ? "Quoted" : "New";
           return (
             <div key={row.id} id={`portal-work-order-${row.id}`}>
               <PortalServiceRecordRow
                 title={row.title}
-                subtitle={[row.reference, propertyLabel(row), row.scheduled || "Not yet scheduled", phaseLabel]
+                subtitle={[vendorPlaceLine(row, bid), row.scheduled || "When flexible", phaseLabel]
+                  .filter(Boolean)
+                  .join(" · ")}
+                figure={figure}
+                checked={selectedIds.has(row.id)}
+                onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
+                onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
+                dataAttr="vendor-service-row"
+              />
+            </div>
+          );
+        })}
+        {(tabId === "pending" ? otherPendingRows : visible).map((row) => {
+          const bid = bidsByWorkOrderId[row.id];
+          const phaseLabel = vendorWorkOrderPhaseLabel(row, bid);
+          return (
+            <div key={row.id} id={`portal-work-order-${row.id}`}>
+              <PortalServiceRecordRow
+                title={row.title}
+                subtitle={[row.reference, vendorPlaceLine(row, bid), row.scheduled || "Not yet scheduled", phaseLabel]
                   .filter(Boolean)
                   .join(" · ")}
                 checked={selectedIds.has(row.id)}

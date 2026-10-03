@@ -77,6 +77,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { ManagerArrivalsDeparturesPanel } from "@/components/portal/manager-arrivals-departures-panel";
 import {
   SERVICE_REQUESTS_EVENT,
   syncServiceRequestsFromServer,
@@ -397,11 +398,13 @@ export function ManagerTaskList({
       label: MANAGER_TASK_LIST_TAB_LABELS[id],
       href: managerTaskListHref(basePath, id),
       count:
-        id === "completed"
-          ? completedCount
-          : id === "overdue"
-            ? overdueCount
-            : inProgressCount,
+        id === "arrivals-departures"
+          ? undefined
+          : id === "completed"
+            ? completedCount
+            : id === "overdue"
+              ? overdueCount
+              : inProgressCount,
       alert: id === "overdue" && overdueCount > 0,
       dataAttr: `manager-task-list-tab-${id}`,
     }));
@@ -736,21 +739,18 @@ export function ManagerTaskList({
                         ...(routeTask.notes ? [{ label: "Details", value: routeTask.notes }] : []),
                       ],
                     },
-                    {
-                      id: "payments",
-                      title: "Payments",
-                      kind: "rows",
-                      rows: [],
-                      emptyLabel: "No charges yet",
-                    },
-                    {
-                      id: "vendor",
-                      title: "Vendor",
-                      rows: [
-                        { label: "Assigned", value: vendorAssignee ? vendorAssignee.name : "Unassigned" },
-                      ],
-                      action: vendorAssignee ? { label: "Vendor record", href: vendorDetailHref(basePath, vendorAssignee.id) } : undefined,
-                    },
+                    // Only a task that has a vendor shows a vendor card; an
+                    // empty "Unassigned" card is unrelated chrome.
+                    ...(vendorAssignee
+                      ? [
+                          {
+                            id: "vendor",
+                            title: "Vendor",
+                            rows: [{ label: "Assigned", value: vendorAssignee.name }],
+                            action: { label: "Vendor record", href: vendorDetailHref(basePath, vendorAssignee.id) },
+                          },
+                        ]
+                      : []),
                   ],
                 })
               );
@@ -774,6 +774,23 @@ export function ManagerTaskList({
           />
         ) : null}
       </>
+    );
+  }
+
+  if (tabId === "arrivals-departures" && !taskIdProp) {
+    return (
+      <ManagerPortalPageShell title="Tasks" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
+        <PortalListControlStack
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          destinations={tabItems}
+          activeDestinationId={tabId}
+          destinationAriaLabel="Task status"
+        />
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <ManagerArrivalsDeparturesPanel />
+        </div>
+      </ManagerPortalPageShell>
     );
   }
 

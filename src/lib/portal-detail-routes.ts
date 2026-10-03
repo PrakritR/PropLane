@@ -585,7 +585,7 @@ export function propertyTourDetailHref(
   return `${propertyTourListHref(basePath, stage, propertyKey, bucket)}/${encodeURIComponent(tourId)}`;
 }
 
-export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed"] as const;
+export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed", "arrivals-departures"] as const;
 export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
 
 /** Vendor task list keeps two tabs — overdue is manager-only. */
@@ -602,11 +602,13 @@ export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> 
   "in-progress": "Open",
   overdue: "Overdue",
   completed: "Done",
+  "arrivals-departures": "Arrivals & departures",
 };
 
 export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
   if (raw === "completed") return "completed";
   if (raw === "overdue" || raw === "late") return "overdue";
+  if (raw === "arrivals-departures") return "arrivals-departures";
   return "in-progress";
 }
 
