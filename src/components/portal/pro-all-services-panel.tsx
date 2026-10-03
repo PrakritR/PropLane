@@ -139,6 +139,38 @@ function unifiedServiceRowKey(row: { kind: string; id: string }): string {
   return `${row.kind}::${row.id}`;
 }
 
+function ServicesAssigneeFilterField({
+  assigneeFilter,
+  onAssigneeFilterChange,
+  assigneeFilterOptions,
+}: {
+  assigneeFilter: string;
+  onAssigneeFilterChange: (value: string) => void;
+  assigneeFilterOptions: { id: string; label: string }[];
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const options = assigneeFilterOptions.map((o) => ({ value: o.id, label: o.label }));
+  const summary = filterSingleSelectSummary(assigneeFilter, options, "Anyone");
+  return (
+    <FilterCollapsibleSection
+      sectionId="assignee"
+      label="Assigned to"
+      summary={summary}
+      empty={!assigneeFilter}
+      menuOptionCount={options.length}
+      dataAttr="services-filter-assignee-trigger"
+    >
+      <FilterSingleSelectList
+        options={options}
+        value={assigneeFilter}
+        onChange={onAssigneeFilterChange}
+        onPick={closeFieldMenu}
+        dataAttr="services-filter-assignee"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function ManagerAllServicesPanel({
   tabId: serverTabId,
   basePath,
@@ -413,30 +445,6 @@ export function ManagerAllServicesPanel({
       ? ""
       : filterResidentOptions.find((option) => option.id === residentFilters[0])?.label ?? residentFilters[0]!;
 
-  function ServicesAssigneeFilterField() {
-    const closeFieldMenu = useFilterAccordionClose();
-    const options = assigneeFilterOptions.map((o) => ({ value: o.id, label: o.label }));
-    const summary = filterSingleSelectSummary(assigneeFilter, options, "Anyone");
-    return (
-      <FilterCollapsibleSection
-        sectionId="assignee"
-        label="Assigned to"
-        summary={summary}
-        empty={!assigneeFilter}
-        menuOptionCount={options.length}
-        dataAttr="services-filter-assignee-trigger"
-      >
-        <FilterSingleSelectList
-          options={options}
-          value={assigneeFilter}
-          onChange={setAssigneeFilter}
-          onPick={closeFieldMenu}
-          dataAttr="services-filter-assignee"
-        />
-      </FilterCollapsibleSection>
-    );
-  }
-
   const servicesFilterSheet = (
     <PortalFilterSortSheet
         activeCount={servicesFilterActiveCount}
@@ -463,7 +471,11 @@ export function ManagerAllServicesPanel({
           onResidentFiltersChange={setResidentFilters}
           residentDataAttr="services-filter-resident"
         />
-        <ServicesAssigneeFilterField />
+        <ServicesAssigneeFilterField
+          assigneeFilter={assigneeFilter}
+          onAssigneeFilterChange={setAssigneeFilter}
+          assigneeFilterOptions={assigneeFilterOptions}
+        />
       </PortalFilterSortSheet>
   );
 
