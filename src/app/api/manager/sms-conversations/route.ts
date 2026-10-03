@@ -10,6 +10,7 @@ import {
   hasRole,
 } from "@/lib/auth/portal-access";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
+import { ensureVendorForOutboundText } from "@/lib/sms/inbound-text-routing.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { decodeSmsProjectionCursor, fetchManagerSmsProjectionDetail, fetchManagerSmsProjectionPage } from "@/lib/sms/sms-projection-inbox.server";
@@ -198,6 +199,8 @@ export async function POST(req: Request) {
     residentUserId?: string | null;
     conversationKey?: string | null;
     projectionId?: string | null;
+    /** "This is a vendor": add a number nobody has on the list to Vendors with this text. */
+    isVendor?: boolean;
   };
   let selectedConversation: ManagerSmsResidentConversation | undefined;
   if (body.projectionId) {
@@ -219,5 +222,20 @@ export async function POST(req: Request) {
     selectedConversation,
     idempotencyKey: req.headers.get("idempotency-key") ?? undefined,
   });
-  return NextResponse.json(result.body, { status: result.status });
+  if (result.status < 200 || result.status >= 300) {
+    return NextResponse.json(result.body, { status: result.status });
+  }
+  // The text went out. A vendor's number lands on the manager's own list too;
+  // a failure here never turns a sent text into an error (the retry key would
+  // not resend it anyway), so it is reported as "not added", not thrown.
+  const vendor = await ensureVendorForOutboundText(auth.db, {
+    managerUserId: auth.user.id,
+    toPhone: String(body.toPhone ?? ""),
+    body: String(body.text ?? ""),
+    markedVendor: body.isVendor === true,
+  }).catch((error: unknown) => {
+    console.error("outbound vendor roster add failed", error instanceof Error ? error.message : "unknown");
+    return null;
+  });
+  return NextResponse.json(vendor ? { ...result.body, vendor } : result.body, { status: result.status });
 }

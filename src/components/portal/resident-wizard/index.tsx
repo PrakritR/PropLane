@@ -41,6 +41,8 @@ import { ApplicationStep } from "./step-application";
 import { LeaseStep } from "./step-lease";
 import { PaymentsStep } from "./step-payments";
 import { DocumentsStep } from "./step-documents";
+import { EditDocumentsStep, EditPaymentsStep } from "./edit-steps";
+import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import { TourStep } from "./step-tour";
 import { ReviewStep } from "./step-review";
 import { ResidentSidePanel } from "./side-panel";
@@ -106,6 +108,11 @@ export function AddResidentWizard({
     baseline: ResidentEditBaseline;
     signedAtIso?: string | null;
     onRequestNewTerms?: () => void;
+    /** The resident's real charges, signers, files and application facts. */
+    record?: ResidentEditRecord;
+    onUploadDocument?: (file: File) => void | Promise<void>;
+    onDownloadDocument?: (id: string) => void;
+    onRemoveDocument?: (id: string) => void;
   };
 }) {
   const { showToast } = useAppUi();
@@ -127,7 +134,7 @@ export function AddResidentWizard({
   const undoRef = useRef<AddPersonForm | null>(null);
 
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
-  const derived = useResidentWizardDerived(form, propertyTick, patch);
+  const derived = useResidentWizardDerived(form, propertyTick, patch, { editing: mode === "edit" });
   const stepIds: readonly string[] =
     mode === "application"
       ? APPLICATION_STEPS
@@ -150,7 +157,9 @@ export function AddResidentWizard({
     const paidMonths = Object.values(form.paymentMarks).filter((m) => m.status === "paid").length;
     if (mode === "edit") {
       const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
-      const chargeCount = Object.keys(form.paymentMarks).length;
+      const recordCharges = editContext?.record?.charges ?? [];
+      const chargeCount = recordCharges.length;
+      const paidCharges = recordCharges.filter((c) => c.status === "paid").length;
       const changed = editContext
         ? diffResidentEdit(editContext.baseline, { ...form, application: form.application as Record<string, unknown> }).any
         : false;
@@ -159,8 +168,8 @@ export function AddResidentWizard({
         { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
         { id: "application", label: "Application", summary: appFilled || "On file" },
         { id: "lease", label: "Lease", incomplete: missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Rent not set" },
-        { id: "payments", label: "Payments", summary: chargeCount ? `${paidMonths} paid · ${chargeCount - paidMonths} unpaid` : "No charges yet" },
-        { id: "documents", label: "Documents", summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
+        { id: "payments", label: "Payments", summary: chargeCount ? `${paidCharges} paid · ${chargeCount - paidCharges} unpaid` : "No charges yet" },
+        { id: "documents", label: "Documents", summary: (editContext?.record?.documents.length ?? 0) + form.documents.length ? `${(editContext?.record?.documents.length ?? 0) + form.documents.length} attached` : "None attached" },
         { id: "review", label: "Review", summary: changed ? "Changes to save" : "Nothing changed" },
       ];
     }
@@ -588,7 +597,7 @@ export function AddResidentWizard({
     >
       {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
       {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
-      {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
+      {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} editRecord={mode === "edit" ? editContext?.record : undefined} /> : null}
       {stepId === "lease" ? (
         <LeaseStep
           form={form}
@@ -599,10 +608,29 @@ export function AddResidentWizard({
           editStage={editContext?.stage}
           signedAtIso={editContext?.signedAtIso}
           onRequestNewTerms={editContext?.onRequestNewTerms}
+          editRecord={mode === "edit" ? editContext?.record : undefined}
         />
       ) : null}
-      {stepId === "payments" ? <PaymentsStep form={form} patch={patch} derived={derived} /> : null}
-      {stepId === "documents" ? <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} /> : null}
+      {stepId === "payments" ? (
+        mode === "edit" && editContext?.record ? (
+          <EditPaymentsStep form={form} patch={patch} derived={derived} stage={editContext.stage} baseline={editContext.baseline} record={editContext.record} />
+        ) : (
+          <PaymentsStep form={form} patch={patch} derived={derived} />
+        )
+      ) : null}
+      {stepId === "documents" ? (
+        mode === "edit" && editContext?.record ? (
+          <EditDocumentsStep
+            record={editContext.record}
+            busy={busy}
+            onUpload={editContext.onUploadDocument}
+            onDownload={editContext.onDownloadDocument}
+            onRemove={editContext.onRemoveDocument}
+          />
+        ) : (
+          <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} />
+        )
+      ) : null}
       {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} managerUserId={managerUserId} assignee={assignee} onAssignee={setAssignee} /> : null}
       {stepId === "review" ? (
         <ReviewStep

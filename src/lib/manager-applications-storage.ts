@@ -241,7 +241,11 @@ export function isDraftApplicationRow(row: Pick<DemoApplicantRow, "bucket" | "st
  * access grant — that is the only other place this tag is read.
  */
 export function isBookingResidencyRow(row: DemoApplicantRow): boolean {
-  return (row as unknown as Record<string, unknown>).bookingResidency === true;
+  const fields = row as unknown as Record<string, unknown>;
+  // A text-created Potential resident (`smsLead`) is the same kind of plumbing
+  // row: listed under Residents > Potential, never an application to review,
+  // count in a badge or send a completion reminder to its placeholder inbox.
+  return fields.bookingResidency === true || fields.smsLead === true;
 }
 
 /**

@@ -69,6 +69,14 @@ export type DemoApplicantRow = {
    * answers, bucket) intact. Never a hard delete. Absent/null = active.
    */
   withdrawnAt?: string | null;
+  /**
+   * Set on the placeholder row a text from an unrecognized number creates
+   * (`routeUnrecognizedInboundText`): the person is listed under Residents >
+   * Potential but never counts as a submitted application.
+   */
+  smsLead?: boolean;
+  /** The workspace whose work number was texted; lets a house-less lead show in that workspace only. */
+  smsLeadWorkspaceId?: string;
   /** Public Axis application id when linked to a resident account. */
   axisId?: string;
   /** Linked resident auth user id when known. */

@@ -417,6 +417,39 @@ error 11200, receipt stuck `processing`). Now:
   `scripts/twilio-apply-inbound-retry-policy.mjs`). The fragment is unsigned,
   so signature validation strips it. Twilio retries share a 15s budget.
 
+## Unrecognized numbers: Potential residents and vendors (C2-DT4 / C2-DT5)
+
+A text that reaches the prospect fork of `processClaimedInbound` (not a manager,
+not a vendor with a work-order session, not a verified resident) is first
+classified by `routeUnrecognizedInboundText`
+(`src/lib/sms/inbound-text-routing.server.ts`, pure rules in
+`inbound-text-classification.ts`). It reads only the workspace owner's own rows:
+
+- a number already on the owner's **Vendors** list lands on that vendor's thread
+  (role `vendor`) and is never leased to or added to Potential residents;
+- an unknown number whose text names a trade (plumber, electrician, handyman,
+  "I'm a vendor", quote) is added to Vendors, trade guessed from the words;
+- any other unknown number becomes **one** Potential resident: a
+  `manager_application_records` row (`smsLead: true`, stage "In progress", the
+  `@import.proplane.local` placeholder email every phone-only resident uses, the
+  name from "this is <Name>" else the formatted phone), listed under Residents >
+  Potential. It is stamped with the workspace whose line was texted
+  (`smsLeadWorkspaceId`) because it names no house;
+- STOP/START/HELP create nothing; a phone that already has an application row
+  creates nothing.
+
+Ids are deterministic from owner + E.164 phone and every insert is
+`ignoreDuplicates`, so a Twilio retry, the recovery sweep or a second text
+upserts the same row. `isBookingResidencyRow` also covers `smsLead`, so these
+rows never inflate the Applications list, badges or completion reminders.
+
+The outbound mirror is `ensureVendorForOutboundText`, called by
+`POST /api/manager/sms-conversations` after a successful send: the compose
+modal's "This is a vendor" box (phone typed under Other) adds a stranger to
+Vendors; a number that belongs to a PropLane vendor account is added without the
+tick; a vendor already on the list changes nothing. Coverage:
+`tests/unit/inbound-text-routing.test.ts`.
+
 ## Prospect SMS scheduling and follow-up
 
 Prospect texts are merged into one reply after a 10 second quiet window

@@ -45,3 +45,19 @@ export function classifyInboundText(input: {
   }
   return { kind: "potential-new", label: "New Potential resident" };
 }
+
+/** The trade a vendor-sounding text names, in the words the Vendors list already uses. */
+export function guessTradeFromInboundText(body: string): string {
+  const text = (body || "").toLowerCase();
+  if (/plumb/.test(text)) return "Plumbing";
+  if (/electric/.test(text)) return "Electrical";
+  if (/hvac/.test(text)) return "HVAC";
+  if (/lock/.test(text)) return "Locksmith";
+  if (/clean/.test(text)) return "Cleaning";
+  if (/paint/.test(text)) return "Painting";
+  if (/landscap/.test(text)) return "Landscaping";
+  if (/roof/.test(text)) return "Roofing";
+  if (/pest/.test(text)) return "Pest control";
+  if (/handy|repair|contractor/.test(text)) return "General repair";
+  return "General maintenance";
+}

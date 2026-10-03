@@ -2,7 +2,7 @@
 
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Camera, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -277,8 +277,10 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, 
   );
 }
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, residentBucket, residentTypeFilter }: {
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter }: {
   role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  /** Embedded in a resident record: wraps the Move-in / Move-out tabs in the record's one section header card. */
+  embeddedToolbar?: (destinationRow: ReactNode) => ReactNode;
   /** Resident-only bucket list mode. Omitted (always, for manager) keeps the kind-based view exactly as it was. */
   residentBucket?: ResidentInspectionTab;
   residentTypeFilter?: ResidentInspectionTypeFilter;
@@ -304,14 +306,16 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
       recordTab={recordTab}
       routeBase={routeBase}
       embeddedInResident={embeddedInResident}
+      embeddedToolbar={embeddedToolbar}
       residentBucket={residentBucket}
       residentTypeFilter={residentTypeFilter}
     />
   );
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, residentBucket, residentTypeFilter }: {
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter }: {
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  embeddedToolbar?: (destinationRow: ReactNode) => ReactNode;
   residentBucket?: ResidentInspectionTab;
   residentTypeFilter?: ResidentInspectionTypeFilter;
 }) {
@@ -576,20 +580,24 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   </div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
-      <LocalDestinationNav
-        className="mb-3"
-        items={(["move-in", "move-out"] as const).map((id) => ({
-          id,
-          label: kindLabel(id),
-          count: data.reports.filter((r) => r.application_id === applicationId && r.kind === id).length,
-          dataAttr: `inspection-type-${id}`,
-        }))}
-        activeId={kind}
-        onChange={(id) => changeKind(id as InspectionKind)}
-        ariaLabel="Inspection type"
-        size="toolbar"
-        itemLayout="equal"
-      />
+      (() => {
+        const nav = (
+          <LocalDestinationNav
+            className={embeddedToolbar ? "w-full" : "mb-3"}
+            items={(["move-in", "move-out"] as const).map((id) => ({
+              id,
+              label: kindLabel(id),
+              count: data.reports.filter((r) => r.application_id === applicationId && r.kind === id).length,
+              dataAttr: `inspection-type-${id}`,
+            }))}
+            activeId={kind}
+            onChange={(id) => changeKind(id as InspectionKind)}
+            ariaLabel="Inspection type"
+            {...(embeddedToolbar ? { appearance: "command" as const } : { size: "toolbar" as const, itemLayout: "equal" as const })}
+          />
+        );
+        return embeddedToolbar ? embeddedToolbar(nav) : nav;
+      })()
     ) : isResidentBucketMode ? (
     <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection status" activeDestinationId={residentActiveBucket}
       destinations={RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({

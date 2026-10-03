@@ -13,7 +13,7 @@ function database(seed: Record<string, Row[]>) {
   const rows = structuredClone(seed);
   const db = {
     async rpc(name: string, args: { p_table: string; p_manager?: string; p_targets?: { table: string; ids: string[] }[] }) {
-      if (name === "purge_manager_resident_rows") {
+      if (name === "purge_manager_resident_rows_v2") {
         // Stands in for the one-transaction resident cascade: it deletes only
         // rows the named manager owns, so a cross-portfolio leak still fails here.
         const counts: Record<string, number> = {};
@@ -24,7 +24,7 @@ function database(seed: Record<string, Row[]>) {
           rows[target.table] = before.filter(row => !(target.ids.includes(String(row.id)) && row[owner] === args.p_manager));
           counts[target.table] = before.length - rows[target.table].length;
         }
-        return { error: null, data: counts };
+        return { error: null, data: { deleted: counts, anonymized: {} } };
       }
       // Financial behavior is exercised against PostgreSQL in the SQL suite.
       // These scope/retry fixtures only call preservation for empty tables.

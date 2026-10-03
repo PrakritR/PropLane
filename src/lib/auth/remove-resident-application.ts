@@ -17,6 +17,8 @@ type ResidentRemovalTarget = {
   managerUserId: string;
   email: string;
   residentUserId: string | null;
+  /** Numbers they text from, so the work number's text log can be attributed. */
+  phones: string[];
 };
 
 type Refusal = { ok: false; status: number; error: string };
@@ -31,17 +33,24 @@ function literalEmail(email: string): string {
 }
 
 /**
- * The resident's login id, when they have one. A resident may hold charges or
- * autopay rows keyed only by `resident_user_id`, so the cascade needs it — but a
- * resident who never signed up is still deletable, hence `null` rather than a
- * refusal.
+ * The resident's login id and phone, when they have one. A resident may hold
+ * charges or autopay rows keyed only by `resident_user_id`, so the cascade needs
+ * the id — but a resident who never signed up is still deletable, hence `null`
+ * rather than a refusal.
  */
-async function resolveResidentUserId(db: SupabaseClient, email: string): Promise<string | null> {
-  if (!email) return null;
-  const { data, error } = await db.from("profiles").select("id").ilike("email", literalEmail(email));
+async function resolveResidentLogin(
+  db: SupabaseClient,
+  email: string,
+): Promise<{ id: string | null; phones: string[] }> {
+  if (!email) return { id: null, phones: [] };
+  const { data, error } = await db.from("profiles").select("id,phone").ilike("email", literalEmail(email));
   if (error) throw new Error(error.message);
-  const id = (data ?? []).map((row) => (row as { id?: unknown }).id).find((value) => typeof value === "string");
-  return typeof id === "string" && id.length > 0 ? id : null;
+  const rows = (data ?? []) as { id?: unknown; phone?: unknown }[];
+  const id = rows.map((row) => row.id).find((value) => typeof value === "string" && value.length > 0);
+  const phones = rows
+    .map((row) => row.phone)
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return { id: typeof id === "string" ? id : null, phones };
 }
 
 /**
@@ -69,13 +78,15 @@ async function authorizeResidentRemoval(
   // property changed hands) is cleared in the caller's own portfolio — the
   // access check above already proved the property is theirs.
   const managerUserId = String(row.manager_user_id ?? "").trim() || actor.userId;
+  const login = await resolveResidentLogin(db, recordEmail);
   return {
     ok: true as const,
     target: {
       applicationId: String(row.id),
       managerUserId,
       email: recordEmail,
-      residentUserId: await resolveResidentUserId(db, recordEmail),
+      residentUserId: login.id,
+      phones: login.phones,
     },
   };
 }
@@ -101,47 +112,18 @@ export async function previewResidentApplicationRemoval(
     email: target.email,
     residentUserId: target.residentUserId,
     applicationId: target.applicationId,
+    phones: target.phones,
   });
-  const paid = await summarizePaidResidentCharges(db as ServiceDb, target.managerUserId, target.email);
-  const counts = { ...preview.counts, paidCount: paid.count, paidCents: paid.totalCents };
+  // Paid money stays on the books, unnamed; the dialog says how much.
+  const counts = { ...preview.counts, paidCount: preview.paidKept.count, paidCents: preview.paidKept.cents };
   return { ok: true as const, mode: "preview" as const, email: target.email, counts, total: preview.total };
-}
-
-async function summarizePaidResidentCharges(
-  db: ServiceDb,
-  managerUserId: string,
-  email: string,
-): Promise<{ count: number; totalCents: number }> {
-  if (!email.trim()) return { count: 0, totalCents: 0 };
-  const { data, error } = await db
-    .from("portal_household_charge_records")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId)
-    .ilike("resident_email", literalEmail(email));
-  if (error) return { count: 0, totalCents: 0 };
-  let count = 0;
-  let totalCents = 0;
-  for (const row of data ?? []) {
-    const rd = (row as { row_data?: Record<string, unknown> }).row_data ?? {};
-    if (String(rd.status ?? "").toLowerCase() !== "paid") continue;
-    const cents =
-      typeof rd.paidAmountCents === "number"
-        ? rd.paidAmountCents
-        : typeof rd.amountCents === "number"
-          ? rd.amountCents
-          : 0;
-    if (cents > 0) {
-      count += 1;
-      totalCents += cents;
-    }
-  }
-  return { count, totalCents };
 }
 
 /**
  * Remove the resident from this portfolio: the application AND every lease,
- * charge, service, inspection, document and conversation in this manager's
- * portfolio that belongs to them, in one transaction.
+ * unpaid charge, booking, service, inspection, document, message and text in
+ * this manager's portfolio that belongs to them, in one transaction. Paid
+ * charges stay on the books without a name.
  *
  * The resident's login and anything they hold with another manager are
  * untouched. A failure removes nothing, so the caller keeps the row in the list.
@@ -159,6 +141,7 @@ export async function removeResidentApplication(
     email: target.email,
     residentUserId: target.residentUserId,
     applicationId: target.applicationId,
+    phones: target.phones,
   });
   return {
     ok: true as const,
@@ -166,6 +149,7 @@ export async function removeResidentApplication(
     email: target.email,
     removed: result.counts,
     total: result.total,
+    anonymized: result.anonymized,
     storageWarnings: result.storageWarnings,
   };
 }

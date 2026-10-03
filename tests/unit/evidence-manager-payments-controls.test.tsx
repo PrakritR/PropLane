@@ -197,11 +197,14 @@ describe("evidence · Payments action rows", () => {
       <ManagerResidents residentId={RESIDENT_ID} detailTab="payments" />,
     );
 
-    // Same Filter · Settings · Edit strip as every other resident-detail tab —
-    // not a second dock pair of Settings / Setup under the list.
+    // C2-RT3: the section's own header card (status tabs, Settings, Edit and the
+    // round + Add charge) — not a second dock pair of Settings / Setup under the
+    // list, and no disabled Filter placeholder beside the tabs.
     expect(html).toContain('data-attr="settings-open-payments"');
     expect(html).toContain('data-attr="resident-detail-edit"');
-    expect(html).toContain('data-attr="resident-detail-filter"');
+    expect(html).toContain('data-attr="resident-section-action-add-charge"');
+    expect(html).toContain('data-attr="resident-payments-bucket-pending"');
+    expect(html).not.toContain('data-attr="resident-detail-filter"');
     expect(html).not.toContain('data-attr="resident-payments-settings-open"');
     expect(html).not.toContain('data-attr="resident-payment-setup-open"');
     expect(html).not.toContain('data-attr="resident-payments-reminder-settings"');

@@ -316,7 +316,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
       inspections: [{ id: "add-inspection", label: "Add inspection", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
-      documents: [{ id: "upload", label: "Upload", icon: Upload, tone: "primary" }],
+      documents: [{ id: "upload", label: "Add document", icon: Upload, tone: "primary" }],
     },
     hasDocuments: true,
     hasActivity: true,

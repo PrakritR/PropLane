@@ -24,7 +24,9 @@ import {
   WizardStepper,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
+import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
+import { EditApplicationBottomCards, EditApplicationTopCards } from "./edit-steps";
 import { customAnswersForRow, type AddPersonForm, type ApplicationAnswers, type ManagerApplicationTextKey } from "./state";
 
 /**
@@ -68,11 +70,14 @@ export function ApplicationStep({
   patch,
   derived,
   propertyLabel,
+  editRecord,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
   derived: ResidentWizardDerived;
   propertyLabel: string | null;
+  /** Edit mode: status, household, housing charges and placement from the real record. */
+  editRecord?: ResidentEditRecord;
 }) {
   const a = form.application;
   const on = derived.fieldEnabled;
@@ -107,6 +112,9 @@ export function ApplicationStep({
   return (
     <StepColumn>
       <StepHeading title="Application" />
+      {editRecord ? (
+        <EditApplicationTopCards record={editRecord} />
+      ) : (
       <WizardSection
         title={propertyLabel ? `${propertyLabel}'s application` : "This property's application"}
         chip={<WizardChip>{form.propertyId ? "edit questions on the listing" : "pick a property on Home"}</WizardChip>}
@@ -117,6 +125,7 @@ export function ApplicationStep({
           chip={derived.isShortTerm || derived.isAirbnb ? <WizardChip>short-term form</WizardChip> : undefined}
         />
       </WizardSection>
+      )}
 
       <WizardSection title="About them" dataAttr="residents-wizard-app-about">
         <WizardRow cols={2}>
@@ -314,6 +323,8 @@ export function ApplicationStep({
           <CustomQuestions questions={[...bySection("household"), ...bySection("property"), ...bySection("additional")]} form={form} patch={patch} />
         </WizardSection>
       ) : null}
+
+      {editRecord ? <EditApplicationBottomCards record={editRecord} /> : null}
 
       <WizardSection title="Notes for your team" chip={<WizardChip>never shown to the resident</WizardChip>} dataAttr="residents-wizard-notes">
         <Textarea className="min-h-[72px]" value={form.notes} onChange={(e) => patch({ notes: e.target.value })} data-attr="residents-wizard-notes-input" />
