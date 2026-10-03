@@ -82,10 +82,12 @@ import {
   residentToursViewerKey,
 } from "@/lib/resident-tour-sync-client";
 import {
-  residentJourneySteps,
-  resolveResidentJourneyNextAction,
-  type ResidentJourneyStep,
-} from "@/lib/resident-journey-timeline";
+  residentLifecycleSteps,
+  resolveResidentLifecycleNextAction,
+  type ResidentLifecycleStep,
+} from "@/lib/resident-lifecycle-journey";
+import { sumDueNowCents } from "@/lib/resident-due-now-balance";
+import { aggregateApplicationFeeStatus } from "@/lib/resident-application-fee-status";
 
 import { refreshResidentDashboardApplications, refreshResidentDashboardServices } from "@/lib/resident-dashboard-sync-client";
 
@@ -417,13 +419,14 @@ export function ResidentJourneyBanner({
   steps,
   action,
 }: {
-  steps: ResidentJourneyStep[];
-  action: ReturnType<typeof resolveResidentJourneyNextAction>;
+  steps: ResidentLifecycleStep[];
+  action: ReturnType<typeof resolveResidentLifecycleNextAction>;
 }) {
-  if (action.id === "none") return null;
+  if (action.title === "You're all caught up") return null;
   return (
     <Link
       href={action.href}
+      data-jr-banner
       data-attr="resident-dashboard-journey"
       className="mb-1 flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
       style={{
@@ -750,7 +753,7 @@ export function ResidentDashboard({
 
   const communicationHref = `${BASE}/communication`;
   const overdueChargeCount = pendingCharges.filter((c) => isHouseholdChargeOverdue(c)).length;
-  const totalBalanceDue = pendingCharges.reduce((sum, c) => sum + parseMoneyLabel(c.balanceLabel), 0);
+  const totalBalanceDue = sumDueNowCents(pendingCharges) / 100;
 
   const navStage = resolveResidentPortalNavStage({
     leaseAccessUnlocked: leaseSigned,
@@ -784,31 +787,43 @@ export function ResidentDashboard({
       : "No lease on file yet.";
 
   // C118 — the one journey timeline this whole dashboard resolves to.
-  const journeyInput = useMemo(
+  const feeStatus = useMemo(
+    () => aggregateApplicationFeeStatus(applicationRows, email ?? ""),
+    [applicationRows, email],
+  );
+  const signingOrder = useMemo((): "application_first" | "lease_first" => {
+    const pid = applicationRows[0]?.propertyId?.trim() || applicationRows[0]?.application?.propertyId?.trim() || "";
+    const order = pid ? getPropertyById(pid)?.signingOrder : undefined;
+    return order === "lease_first" ? "lease_first" : "application_first";
+  }, [applicationRows]);
+  const lifecycleInput = useMemo(
     () => ({
-      hasPendingTour: pendingTourCount > 0,
-      applicationSubmitted: applicationRows.length > 0,
+      signingOrder,
+      applicationFeePaid: feeStatus.paid || !feeStatus.needsPayment,
+      applicationSubmitted: applicationRows.some((row) => !isInProgressApplicationRow(row)),
       applicationApproved,
-      leaseSignatureNeeded: Boolean(lease.cta),
-      leaseSigned,
-      overdueChargeCount,
-      pendingChargeCount: pendingCharges.length,
-      totalBalanceDueLabel: formatUsd(totalBalanceDue),
+      residentSignedLease: leaseSigned,
+      managerCountersigned: leaseSigned,
+      moveInChargesPaid: totalBalanceDue <= 0 && leaseSigned,
+      movedIn: leaseSigned && showHouseDetails,
+      applicationFeeDeclined: feeStatus.declined,
       basePath: BASE,
     }),
     [
-      pendingTourCount,
-      applicationRows.length,
+      signingOrder,
+      feeStatus,
+      applicationRows,
       applicationApproved,
-      lease.cta,
       leaseSigned,
-      overdueChargeCount,
-      pendingCharges.length,
       totalBalanceDue,
+      showHouseDetails,
     ],
   );
-  const journeySteps = useMemo(() => residentJourneySteps(journeyInput), [journeyInput]);
-  const journeyAction = useMemo(() => resolveResidentJourneyNextAction(journeyInput), [journeyInput]);
+  const journeySteps = useMemo(() => residentLifecycleSteps(lifecycleInput), [lifecycleInput]);
+  const journeyAction = useMemo(
+    () => resolveResidentLifecycleNextAction(lifecycleInput),
+    [lifecycleInput],
+  );
 
   const openServiceCount = canUseServices ? serviceItems.length : 0;
   const openCount =
@@ -894,14 +909,16 @@ export function ResidentDashboard({
             />
             ) : null}
             {showPaymentsKpi && canUsePayments ? (
-            <PortalDashboardKpiTile
-              label="Balance due"
-              value={formatUsd(totalBalanceDue)}
-              tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
-              emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
-              href={`${BASE}/payments`}
-              dataAttr="resident-dashboard-kpi-balance"
-            />
+            <div className="plp-stats">
+              <PortalDashboardKpiTile
+                label="Balance due"
+                value={formatUsd(totalBalanceDue)}
+                tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
+                emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
+                href={`${BASE}/payments`}
+                dataAttr="resident-dashboard-kpi-balance"
+              />
+            </div>
             ) : null}
             {showInboxKpi ? (
             <PortalDashboardKpiTile

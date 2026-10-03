@@ -133,6 +133,15 @@ import {
 } from "@/lib/manager-applications-storage";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { RentalWizardStepBody } from "./rental-wizard-steps";
+import { RentalWizardApplySteps } from "@/components/marketing/rental-wizard-apply-steps";
+import { SharedApplicationSummaryCard } from "@/components/marketing/shared-application-summary-card";
+import { SharedRoomBedConflictModal } from "@/components/marketing/shared-room-bed-conflict-modal";
+import { applicantListingQuote } from "@/lib/rental-application/listing-fees-display";
+import {
+  firstChoiceRoomOptions,
+  firstChoiceSelectionPatch,
+  getRoomChoiceLabel,
+} from "@/lib/rental-application/data";
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { ApplicationUnavailableContactManager } from "@/components/marketing/application-unavailable-contact-manager";
 import { RentalApplicationFinishPanel } from "@/components/marketing/rental-application-finish-panel";
@@ -398,6 +407,11 @@ function RentalApplicationWizardInner({
   const isVerifyingFeeReturn = (feeCheckoutReturn === "success" || feeCheckoutReturn === "return") && Boolean(searchParams.get("session_id")?.trim());
   const [feeReturnError, setFeeReturnError] = useState<string | null>(null);
   const [feeReturnRetry, setFeeReturnRetry] = useState(0);
+  const [bedConflict, setBedConflict] = useState<{
+    message: string;
+    nextRoomChoice?: string;
+    nextLabel?: string;
+  } | null>(null);
   const feeReturnAttemptRef = useRef("");
   const requestedTarget = wizardTargetFromParam(searchParams);
   const requestedTargetSignature = wizardTargetSignature(requestedTarget);
@@ -1603,6 +1617,24 @@ function RentalApplicationWizardInner({
     const validationStep = result.step ?? 1;
     setErrors(result.fieldErrors);
     setStep(validationStep);
+    const bedTaken = result.fieldErrors.roomChoice1?.toLowerCase().includes("bed is taken");
+    if (bedTaken && form.propertyId.trim()) {
+      const options = firstChoiceRoomOptions(form.propertyId, {
+        leaseStart: form.leaseStart,
+        leaseEnd: form.leaseEnd,
+        leaseTerm: form.leaseTerm,
+        keepValue: form.roomChoice1,
+      });
+      const next = options.find((o) => o.value && !o.disabled && o.value !== form.roomChoice1);
+      if (next?.value) {
+        setBedConflict({
+          message: `${result.fieldErrors.roomChoice1} Your answers are saved.`,
+          nextRoomChoice: next.value,
+          nextLabel: next.label.split(" · ")[0] ?? next.label,
+        });
+        return false;
+      }
+    }
     showToast("Please review the highlighted fields before submitting.");
     queueMicrotask(() =>
       scrollToFirstWizardFieldError(
@@ -2649,14 +2681,24 @@ function RentalApplicationWizardInner({
                 : "rental-wizard-shell mt-4 rounded-2xl border border-border bg-card p-4 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.18)] sm:mt-8 sm:rounded-3xl sm:p-9 md:p-11 [html[data-theme=dark]_&]:shadow-[0_24px_80px_-32px_rgba(0,0,0,0.55)] [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-white/8"
             }
           >
+            <SharedApplicationSummaryCard
+              roomLabel={
+                form.roomChoice1.trim()
+                  ? getRoomChoiceLabel(form.roomChoice1).split(" · ")[0] ?? ""
+                  : ""
+              }
+              bedSlot={form.residentSlot}
+              monthlyRent={
+                form.managerRentOverride.trim()
+                  ? Number(form.managerRentOverride)
+                  : undefined
+              }
+              applyMode={form.applyingAsGroup === "yes" ? "room" : form.residentSlot ? "bed" : undefined}
+              groupId={form.groupId}
+              uploadedForms={Boolean(form.applicationTemplateId?.trim())}
+            />
+            <RentalWizardApplySteps currentStep={step} />
             <div className="rental-wizard-step-header border-b border-border pb-4 sm:pb-6">
-              {/*
-                Deliberately no "Step N of M" and no numbered 1..N pills: the
-                applicant must never see how long the application is (a total
-                on the first screen is a reason to abandon). The eyebrow names
-                the form (long-term vs short-term), the title names the current
-                section, and the bar below carries forward motion — no total.
-              */}
               <p className="rental-wizard-step-eyebrow text-[10px] font-bold uppercase tracking-[0.18em] text-muted/70 sm:text-[11px]">
                 {form.rentalType === "short_term" ? "Short-term stay application" : "Rental application"}
               </p>
@@ -2672,6 +2714,26 @@ function RentalApplicationWizardInner({
               </div>
             </div>
 
+            <SharedRoomBedConflictModal
+              open={Boolean(bedConflict)}
+              message={bedConflict?.message ?? ""}
+              nextBedLabel={bedConflict?.nextLabel}
+              onDismiss={() => setBedConflict(null)}
+              onSwitch={() => {
+                if (!bedConflict?.nextRoomChoice) {
+                  setBedConflict(null);
+                  return;
+                }
+                patchForm(
+                  firstChoiceSelectionPatch(bedConflict.nextRoomChoice, {
+                    propertyId: form.propertyId,
+                    leaseTerm: form.leaseTerm,
+                  }),
+                );
+                setBedConflict(null);
+                setStep(3);
+              }}
+            />
             <div className="rental-wizard-step-content pt-5 sm:pt-8">
               <RentalWizardStepBody
                 step={step}

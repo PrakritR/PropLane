@@ -48,6 +48,12 @@ import {
 import type { ListingQuote } from "@/lib/listing-quote";
 import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-application/types";
 import { makeApplicationGroupId } from "@/lib/rental-application/application-groups";
+import { openResidentSlotsForApplicationRow } from "@/lib/manager-applications-storage";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { parseRoomChoiceValue, roomChoiceValue } from "@/lib/rental-application/room-choice-value";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { SharedRoomApplyModePanel, type SharedRoomApplyMode } from "@/components/marketing/shared-room-apply-mode-panel";
+import { findApplicationFeeCharge } from "@/lib/household-charges";
 import { digitsOnly, formatMoneyBlur } from "@/lib/rental-application/masks";
 import {
   customFieldAnswerValue,
@@ -59,7 +65,7 @@ import {
   listingCustomApplicationFields,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
-import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
+import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { Label, FieldError, YesNoPills } from "@/components/rental-application/form-field-controls";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
@@ -1075,6 +1081,64 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <div data-wizard-field="roomChoice1" className="hidden" aria-hidden />
         )}
         </WizardFieldGate>
+        {isByRoom && !bundleSelected && form.roomChoice1.trim() ? (() => {
+          const parsed = parseRoomChoiceValue(form.roomChoice1);
+          const submission =
+            selectedProperty?.listingSubmission?.v === 1
+              ? normalizeManagerListingSubmissionV1(selectedProperty.listingSubmission)
+              : undefined;
+          const room = parsed.listingRoomId && submission
+            ? submission.rooms.find((r) => r.id === parsed.listingRoomId)
+            : undefined;
+          if (!room || normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) return null;
+          const slots = openResidentSlotsForApplicationRow(
+            {
+              id: savedApplicationId || "draft",
+              name: form.fullLegalName,
+              application: form,
+              assignedRoomChoice: form.roomChoice1,
+            },
+            room,
+            { at: parseFlexibleLocalDate(form.leaseStart) ?? new Date() },
+          );
+          if (!slots.length) return null;
+          const applyMode: SharedRoomApplyMode = form.applyingAsGroup === "yes" ? "room" : "bed";
+          return (
+            <SharedRoomApplyModePanel
+              mode={applyMode}
+              onModeChange={(mode) =>
+                patch({
+                  applyingAsGroup: mode === "room" ? "yes" : "no",
+                  groupId: mode === "room" && !form.groupId.trim() ? makeApplicationGroupId() : form.groupId,
+                })
+              }
+              groupId={form.groupId}
+              roommateContacts={form.ref1Phone}
+              onRoommateContactsChange={(value) => patch({ ref1Phone: value })}
+              slotPicker={{
+                slots,
+                value: form.residentSlot ?? null,
+                onChange: (slot) => {
+                  const chosen = slots.find((s) => s.slot === slot);
+                  if (!chosen || chosen.holder) return;
+                  const parsed = parseRoomChoiceValue(form.roomChoice1);
+                  const nextChoice =
+                    parsed.listingRoomId && (parsed.propertyId || form.propertyId)
+                      ? roomChoiceValue(parsed.propertyId || form.propertyId, parsed.listingRoomId, slot)
+                      : form.roomChoice1;
+                  patch({
+                    ...firstChoiceSelectionPatch(nextChoice, {
+                      propertyId: form.propertyId,
+                      leaseTerm: form.leaseTerm,
+                    }),
+                    residentSlot: slot,
+                  });
+                },
+                name: "apply-resident-slot",
+              }}
+            />
+          );
+        })() : null}
         {listingQuote ? <ApplicantPaysCard quote={listingQuote} /> : null}
         </div>
 
@@ -1854,7 +1918,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <div>
           <StepIntro>Confirm everything below, then continue to the application fee step.</StepIntro>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-4" data-jr-review-answers>
           {showHouseholdReview ? (
             <ReviewSection title="Household application" stepTarget={1} onEdit={editFromReview}>
               {showGroupReview ? (
@@ -2085,6 +2149,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const codeWaived = Boolean(form.applicationFeeWaived);
     const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
     const feeStillDue = applicationFeeGate.needsFee && !applicationFeeGate.paid;
+    const feeCharge =
+      form.propertyId.trim() && form.email.trim()
+        ? findApplicationFeeCharge(form.email, form.propertyId.trim(), null)
+        : undefined;
+    const feeDeclined = feeCharge?.status === "failed";
     // C174: the last step before the applicant pays is where "what do I owe, and when" has to be
     // unavoidable — the SAME resolver the review step (10) and the room-picker (step 3) already
     // call, so the deposit/first-month numbers here can never disagree with the lease itself.
@@ -2117,6 +2186,15 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </div>
         ) : null}
 
+        {feeDeclined ? (
+          <div
+            className="rounded-2xl border px-4 py-4 text-sm portal-banner-pending"
+            data-stripe-card
+            role="status"
+          >
+            Your card was declined and nothing was charged. Update your payment below and try again.
+          </div>
+        ) : null}
         {applicationFeeGate.needsFee ? (
           <div className="rounded-2xl border border-border bg-accent/30 p-5 sm:p-6">
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted">Application fee</p>

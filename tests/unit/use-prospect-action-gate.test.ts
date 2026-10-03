@@ -52,11 +52,11 @@ describe("useProspectActionGate", () => {
     expect(result.current.gateView).toBe("action");
   });
 
-  it("routes residents into the portal surface", () => {
+  it("lets signed-in residents schedule a tour without the account gate", () => {
     const autofill = makeAutofill({ userId: "resident-1", hasResidentRole: true });
 
     const { result } = renderHook(() => useProspectActionGate("tour", "mgr-5259", false, autofill));
-    expect(result.current.gateView).toBe("resident-portal");
+    expect(result.current.gateView).toBe("action");
   });
 
   it("keeps the gate up when the property changes", () => {
