@@ -30,8 +30,13 @@ export function buildManagerResidentActivityEvents(input: {
   leaseRows: LeasePipelineRow[];
   ledgerRows: DemoManagerPaymentLedgerRow[];
   importEvents?: RecordSectionActivityEvent[];
+  manualEvents?: RecordSectionActivityEvent[];
 }): RecordSectionActivityEvent[] {
   const events: RecordSectionActivityEvent[] = [];
+
+  if (input.manualEvents?.length) {
+    events.push(...input.manualEvents);
+  }
 
   if (input.importEvents?.length) {
     events.push(...input.importEvents);

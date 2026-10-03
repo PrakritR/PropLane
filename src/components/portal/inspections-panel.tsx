@@ -11,7 +11,7 @@ import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-detail-subsection-chrome";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor, type InspectionEditorHandle } from "@/components/portal/inspection-editor";
@@ -478,7 +478,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
 
   if (detail) {
-    const editor = <InspectionEditor ref={editorRef} embedded={role === "manager" && Boolean(routeBase)} initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
+    const editor = <InspectionEditor ref={editorRef} embedded={embeddedInResident || (role === "manager" && Boolean(routeBase))} initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
     if (role !== "manager" || !routeBase) return editor;
     const recordTabId = parseServiceRecordTab(recordTab);
     const inspectionBasePath = routeBase.replace(/\/inspections$/, "") || "/portal";
@@ -576,27 +576,19 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   </div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
-      <ResidentDetailSubsectionChrome
-        className="sticky z-[38] mb-3 shrink-0 space-y-2 bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]"
-        bucketItems={(["move-in", "move-out"] as const).map((id) => ({
+      <LocalDestinationNav
+        className="mb-3"
+        items={(["move-in", "move-out"] as const).map((id) => ({
           id,
           label: kindLabel(id),
-          count: data.reports.filter(r => r.application_id === applicationId && r.kind === id).length,
+          count: data.reports.filter((r) => r.application_id === applicationId && r.kind === id).length,
           dataAttr: `inspection-type-${id}`,
         }))}
-        activeBucketId={kind}
-        onBucketChange={(id) => changeKind(id as InspectionKind)}
-        bucketAriaLabel="Inspection type"
-        onSettings={
-          role === "manager" && !isDemoModeActive()
-            ? () => setSettingsOpen(true)
-            : undefined
-        }
-        settingsLabel={inspectionsSettingsEntry.label}
-        settingsDataAttr={inspectionsSettingsEntry.dataAttr}
-        onEdit={openEmbeddedInspection}
-        editDisabled={embeddedEditDisabled}
-        editLabel={embeddedPrimaryReport ? "Edit" : "Create inspection"}
+        activeId={kind}
+        onChange={(id) => changeKind(id as InspectionKind)}
+        ariaLabel="Inspection type"
+        size="toolbar"
+        itemLayout="equal"
       />
     ) : isResidentBucketMode ? (
     <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection status" activeDestinationId={residentActiveBucket}

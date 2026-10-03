@@ -49,6 +49,13 @@ export async function loadInspectionList(userId: string, role: InspectionRole, a
   return entry.refresher.run(force);
 }
 
+export async function completeInspectionReport(role: InspectionRole, id: string, revision: number) {
+  return inspectionRequest<import("./model").InspectionDetail>(role, `/${id}/complete`, {
+    method: "POST",
+    body: JSON.stringify({ revision }),
+  });
+}
+
 export async function downloadInspection(role: InspectionRole, id: string) {
   if (isDemoModeActive()) throw new Error("Open your signed-in portal to download inspection records.");
   const response = await fetch(inspectionUrl(role, `/${id}/pdf`));

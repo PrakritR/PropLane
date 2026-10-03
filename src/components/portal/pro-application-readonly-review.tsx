@@ -15,6 +15,8 @@ import {
 } from "@/lib/rental-application/custom-fields";
 import { digitsOnly } from "@/lib/rental-application/masks";
 import { Badge } from "@/components/ui/badge";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Pencil } from "lucide-react";
 
 function displayOrDash(v: string | null | undefined) {
   const t = (v ?? "").trim();
@@ -31,10 +33,14 @@ export function ReviewSection({
   title,
   children,
   "data-attr": dataAttr,
+  onEdit,
+  editLabel,
 }: {
   title: string;
   children: ReactNode;
   "data-attr"?: string;
+  onEdit?: () => void;
+  editLabel?: string;
 }) {
   return (
     // A detail card: bold title on the card itself, then label/value rows. The
@@ -43,8 +49,16 @@ export function ReviewSection({
       className="overflow-hidden rounded-2xl border border-border bg-card"
       data-attr={dataAttr}
     >
-      <div className="px-4 pb-1 pt-3.5">
+      <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3.5">
         <h3 className="text-[13.5px] font-bold tracking-tight text-foreground">{title}</h3>
+        {onEdit ? (
+          <PortalIconAction
+            icon={Pencil}
+            label={editLabel ?? `Edit ${title.toLowerCase()}`}
+            data-attr={`resident-application-card-edit-${title.toLowerCase().replace(/\s+/g, "-")}`}
+            onClick={onEdit}
+          />
+        ) : null}
       </div>
       <dl className="divide-y divide-border/60 px-4 pb-1.5 text-sm">{children}</dl>
     </section>
