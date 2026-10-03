@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { Button } from "@/components/ui/button";
 
 /**
  * In-app confirmation for a destructive or lossy action — the one
@@ -57,6 +58,41 @@ export function ConfirmDeleteModal({
    */
   guard?: "hold" | "tap";
 }) {
+  if (guard === "tap") {
+    // Dropping unsaved input is one short question: no context column, no preview,
+    // no empty body — the question sits on the button's row (captain, Oct 3).
+    return (
+      <PortalDialog
+        open={open}
+        onClose={onClose}
+        title={title}
+        tone={tone === "danger" ? "danger" : "default"}
+        dismissBlocked={busy}
+        fullScreenMobile={false}
+        contextPanel={null}
+        preview={null}
+        primaryAction={null}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3" data-attr="confirm-tap-row">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-muted">{description}</p>
+            {note ? <p className="mt-1 text-xs text-muted">{note}</p> : null}
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            className={tone === "danger" ? "shrink-0 rounded-full !bg-danger !text-white hover:!brightness-110 !shadow-none" : "shrink-0 rounded-full"}
+            disabled={busy || confirmDisabled}
+            loading={busy}
+            onClick={onConfirm}
+            data-attr={dataAttr}
+          >
+            {busy ? busyLabel : confirmLabel}
+          </Button>
+        </div>
+      </PortalDialog>
+    );
+  }
   return (
     <PortalDialog
       open={open}
