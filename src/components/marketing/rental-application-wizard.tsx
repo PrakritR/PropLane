@@ -736,10 +736,18 @@ function RentalApplicationWizardInner({
     void loadPublicExtraListingsFromServer().then(() => setExtrasTick((n) => n + 1));
   }, [mode]);
 
+  // The linked home arrives from the server after first paint; until that request settles the
+  // link is unknown, not invalid, so the gate must not claim it is dead.
+  const [leadSettledFor, setLeadSettledFor] = useState<string | null>(null);
   useEffect(() => {
     const on = () => setExtrasTick((n) => n + 1);
     if (linkedPropertyId) {
-      void loadPublicPropertyLeadFromServer(linkedPropertyId).then(() => on());
+      void loadPublicPropertyLeadFromServer(linkedPropertyId)
+        .catch(() => undefined)
+        .then(() => {
+          on();
+          setLeadSettledFor(linkedPropertyId);
+        });
     }
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     return () => window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
@@ -2661,7 +2669,11 @@ function RentalApplicationWizardInner({
               </>
             ) : <p role="status" className="mt-4">Verifying payment…</p>}
           </div>
-        ) : form.applicantRole === "cosigner" ? null : !canRenderWizard ? (
+        ) : form.applicantRole === "cosigner" ? null : !canRenderWizard && linkedPropertyId && !linkedProperty && leadSettledFor !== linkedPropertyId ? (
+          <div className="mt-8 rounded-2xl border border-border bg-card p-6">
+            <p role="status" className="text-sm text-muted">Loading this home…</p>
+          </div>
+        ) : !canRenderWizard ? (
           <div className="mt-8">
             <ManagerLinkGate
               title="Open your manager’s apply link"
