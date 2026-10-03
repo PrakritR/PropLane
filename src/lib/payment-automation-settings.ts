@@ -312,6 +312,7 @@ export type ScheduledMessageOverride = {
    * for THIS slot only. Both are optional and independent: absent means "use
    * the automation setting", which is why they are not defaulted to false.
    */
+  customDeliverViaInbox?: boolean;
   customDeliverViaEmail?: boolean;
   customDeliverViaSms?: boolean;
 };

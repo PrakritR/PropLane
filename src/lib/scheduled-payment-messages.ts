@@ -46,6 +46,7 @@ export type ScheduledPaymentMessage = {
    * means the automation's own delivery settings decide, so a reader must not
    * read `undefined` as "off".
    */
+  deliverViaInbox?: boolean;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
   /** Present when this row bundles several charges into one send slot. */
@@ -62,8 +63,11 @@ export type ScheduledPaymentMessage = {
  */
 function channelOverrideFields(
   override?: ScheduledMessageOverride,
-): { deliverViaEmail?: boolean; deliverViaSms?: boolean } {
-  const fields: { deliverViaEmail?: boolean; deliverViaSms?: boolean } = {};
+): { deliverViaInbox?: boolean; deliverViaEmail?: boolean; deliverViaSms?: boolean } {
+  const fields: { deliverViaInbox?: boolean; deliverViaEmail?: boolean; deliverViaSms?: boolean } = {};
+  if (typeof override?.customDeliverViaInbox === "boolean") {
+    fields.deliverViaInbox = override.customDeliverViaInbox;
+  }
   if (typeof override?.customDeliverViaEmail === "boolean") {
     fields.deliverViaEmail = override.customDeliverViaEmail;
   }

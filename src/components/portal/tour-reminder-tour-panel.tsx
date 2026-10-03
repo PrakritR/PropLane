@@ -255,6 +255,7 @@ export function TourReminderTourPanel({
             meta="Placeholders are filled when the reminder sends."
             source="automation"
             channel={editingReminder.deliverViaSms && !editingReminder.deliverViaEmail ? "sms" : "email"}
+            deliverViaInbox={editingReminder.deliverViaInbox}
             deliverViaEmail={editingReminder.deliverViaEmail !== false}
             deliverViaSms={editingReminder.deliverViaSms === true}
             emailAvailable={Boolean(editingReminder.recipientEmail?.includes("@"))}
@@ -277,6 +278,7 @@ export function TourReminderTourPanel({
                         customSubject: next.subject,
                         customBody: next.body,
                         ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                        ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
                         ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
                         ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                       });

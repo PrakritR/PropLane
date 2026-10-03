@@ -57,6 +57,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       subject?: string;
       body?: string;
       sendAt?: string;
+      deliverViaInbox?: boolean;
       deliverViaEmail?: boolean;
       deliverViaSms?: boolean;
       senderPortal?: string;
@@ -103,6 +104,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const patch: Parameters<typeof updateScheduledInboxMessage>[3] = {};
     if (typeof body.subject === "string") patch.subject = body.subject.trim();
     if (typeof body.body === "string") patch.body = body.body.trim();
+    if (typeof body.deliverViaInbox === "boolean") patch.deliverViaInbox = body.deliverViaInbox;
     if (typeof body.deliverViaEmail === "boolean") patch.deliverViaEmail = body.deliverViaEmail;
     if (typeof body.deliverViaSms === "boolean") patch.deliverViaSms = body.deliverViaSms;
     if (typeof body.sendAt === "string" && body.sendAt.trim()) {

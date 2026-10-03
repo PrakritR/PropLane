@@ -137,6 +137,7 @@ export function PortalComposeScheduledMessagesSection({
       next: {
         subject: string;
         body: string;
+        deliverViaInbox?: boolean;
         deliverViaEmail?: boolean;
         deliverViaSms?: boolean;
         sendAt?: string;
@@ -150,6 +151,7 @@ export function PortalComposeScheduledMessagesSection({
           body: JSON.stringify({
             subject: next.subject,
             body: next.body,
+            ...(next.deliverViaInbox !== undefined ? { deliverViaInbox: next.deliverViaInbox } : {}),
             ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
             ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
             ...(next.sendAt ? { sendAt: next.sendAt } : {}),
@@ -161,6 +163,7 @@ export function PortalComposeScheduledMessagesSection({
           customSubject: next.subject,
           customBody: next.body,
           ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
           ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
           ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
         });
@@ -216,6 +219,7 @@ export function PortalComposeScheduledMessagesSection({
             body={editing.body}
             meta={editing.meta}
             channel={editing.channel}
+            deliverViaInbox={editing.deliverViaInbox}
             deliverViaEmail={editing.deliverViaEmail}
             deliverViaSms={editing.deliverViaSms}
             emailAvailable

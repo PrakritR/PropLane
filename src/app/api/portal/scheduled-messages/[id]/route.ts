@@ -37,6 +37,7 @@ function buildOverridePatch(body: {
   customBody?: string;
   customDaysBeforeDue?: number;
   customSendAt?: string;
+  customDeliverViaInbox?: boolean;
   customDeliverViaEmail?: boolean;
   customDeliverViaSms?: boolean;
 }): ScheduledMessageOverridePatch {
@@ -55,6 +56,7 @@ function buildOverridePatch(body: {
   // Only a real boolean is written. An absent key keeps whatever the override
   // already held, which for a slot never edited means "use the automation's own
   // delivery settings".
+  if (typeof body.customDeliverViaInbox === "boolean") patch.customDeliverViaInbox = body.customDeliverViaInbox;
   if (typeof body.customDeliverViaEmail === "boolean") patch.customDeliverViaEmail = body.customDeliverViaEmail;
   if (typeof body.customDeliverViaSms === "boolean") patch.customDeliverViaSms = body.customDeliverViaSms;
   return patch;
@@ -75,7 +77,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       customBody?: string;
       customDaysBeforeDue?: number;
       customSendAt?: string;
-      customDeliverViaEmail?: boolean;
+      customDeliverViaInbox?: boolean;
+  customDeliverViaEmail?: boolean;
       customDeliverViaSms?: boolean;
     };
 
@@ -92,6 +95,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         const parsedSendAt = new Date(body.customSendAt);
         if (!Number.isNaN(parsedSendAt.getTime())) inboxPatch.sendAt = parsedSendAt.toISOString();
       }
+      if (typeof body.customDeliverViaInbox === "boolean") inboxPatch.deliverViaInbox = body.customDeliverViaInbox;
       if (typeof body.customDeliverViaEmail === "boolean") inboxPatch.deliverViaEmail = body.customDeliverViaEmail;
       if (typeof body.customDeliverViaSms === "boolean") inboxPatch.deliverViaSms = body.customDeliverViaSms;
       await updateScheduledInboxMessage(auth.db, auth.userId, id, inboxPatch);

@@ -526,6 +526,7 @@ export function ResidentDirectChatPane({
       next: {
         subject: string;
         body: string;
+        deliverViaInbox?: boolean;
         deliverViaEmail?: boolean;
         deliverViaSms?: boolean;
         sendAt?: string;
@@ -539,6 +540,7 @@ export function ResidentDirectChatPane({
           body: JSON.stringify({
             subject: next.subject,
             body: next.body,
+            ...(next.deliverViaInbox !== undefined ? { deliverViaInbox: next.deliverViaInbox } : {}),
             ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
             ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
             ...(next.sendAt ? { sendAt: next.sendAt } : {}),
@@ -550,6 +552,7 @@ export function ResidentDirectChatPane({
           customSubject: next.subject,
           customBody: next.body,
           ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
           ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
           ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
         });
@@ -574,6 +577,7 @@ export function ResidentDirectChatPane({
             body={item.body}
             meta={item.meta}
             channel={item.channel}
+            deliverViaInbox={item.deliverViaInbox}
             deliverViaEmail={item.deliverViaEmail}
             deliverViaSms={item.deliverViaSms}
             emailAvailable

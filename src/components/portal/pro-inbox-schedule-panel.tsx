@@ -315,6 +315,7 @@ export function ManagerInboxSchedulePanel({
           body={scheduled.body}
           meta={scheduled.meta}
           channel={scheduled.channel}
+          deliverViaInbox={scheduled.deliverViaInbox}
           deliverViaEmail={scheduled.deliverViaEmail}
           deliverViaSms={scheduled.deliverViaSms}
           emailAvailable
@@ -373,6 +374,7 @@ export function ManagerInboxSchedulePanel({
                         body: JSON.stringify({
                           subject: next.subject,
                           body: next.body,
+                          ...(next.deliverViaInbox !== undefined ? { deliverViaInbox: next.deliverViaInbox } : {}),
                           ...(next.deliverViaEmail !== undefined
                             ? { deliverViaEmail: next.deliverViaEmail }
                             : {}),
@@ -389,6 +391,7 @@ export function ManagerInboxSchedulePanel({
                       customSubject: next.subject,
                       customBody: next.body,
                       ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                      ...(next.deliverViaInbox !== undefined ? { customDeliverViaInbox: next.deliverViaInbox } : {}),
                       ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
                       ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                     });

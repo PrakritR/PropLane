@@ -160,7 +160,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       // "do not email this one" survives.
       managerDeliverViaEmail: message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail,
       managerDeliverViaSms: message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms,
-      managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
+      managerDeliverViaInbox: message.deliverViaInbox ?? automationSettings.paymentReminderDeliverViaInbox,
     });
 
     if (!result.sent) {
