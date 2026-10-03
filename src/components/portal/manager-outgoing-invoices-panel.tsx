@@ -66,7 +66,7 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
         <DropdownMenuItem onSelect={() => setView(row)}>View invoice</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => { window.location.href = vendorDetailHref(basePath, row.vendorId, "communication"); }}>Message vendor</DropdownMenuItem>
       </> }}><PortalApplicantRecordRow name={row.vendorName} address={[row.serviceTitle || row.invoiceNumber || "Invoice", row.propertyName].filter(Boolean).join(" · ")}
-        facts={<PortalRowFact icon={CalendarDays}>{row.paidAt ? `Paid ${row.paidAt.slice(0, 10)}` : `Approved ${(row.decidedAt || row.submittedAt).slice(0, 10)}`}{row.paidFrom ? ` · ${row.paidFrom === "balance" ? "PropLane balance" : "Bank"}` : ""}</PortalRowFact>}
+        facts={<PortalRowFact icon={CalendarDays}>{row.status === "paid" ? `Paid${row.paidAt ? ` ${row.paidAt.slice(0, 10)}` : ""}` : row.decidedAt ? `${row.status === "scheduled" ? "Scheduled" : "Approved"} ${row.decidedAt.slice(0, 10)}` : `Submitted ${row.submittedAt.slice(0, 10)}`}{row.paidFrom ? ` · ${row.paidFrom === "balance" ? "PropLane balance" : "Bank"}` : ""}</PortalRowFact>}
         trailing={<strong>{money(row.totalCents)}</strong>} onOpen={() => setView(row)} dataAttr="outgoing-invoice-row" /></RecordActionContext.Provider>)}
       {shownPayouts.map(row => <PortalApplicantRecordRow key={`payout-${row.id}`} name={row.vendorName} address="Payout" facts={<PortalRowFact icon={CalendarDays}>Paid {row.createdAt.slice(0, 10)}</PortalRowFact>} trailing={<strong>{money(row.amountCents)}</strong>} onOpen={() => { if (row.workOrderId) window.location.href = workOrderDetailHref(basePath, "completed", row.workOrderId); }} />)}
     </PortalRecordListSurface>
