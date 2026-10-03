@@ -305,12 +305,17 @@ export function StepRail({
   }, [current]);
   return (
     <>
-      <label className="flex min-h-11 items-center gap-3 px-2 lg:hidden">
-        <span className="sr-only">Jump to step</span>
-        <select aria-label="Jump to step" value={current} onChange={(event) => onJump(Number(event.target.value))} className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-sm font-semibold">
-          {steps.map((step, index) => <option key={step.id} value={index}>{step.label}{(step.attention ?? 0) > 0 ? " · needs attention" : ""}</option>)}
-        </select>
-      </label>
+      <div className="min-h-11 px-2 lg:hidden">
+        <FieldSingleSelect
+          label="Jump to step"
+          hideLabel
+          value={String(current)}
+          onChange={(value) => onJump(Number(value))}
+          options={steps.map((step, index) => ({ value: String(index), label: `${step.label}${(step.attention ?? 0) > 0 ? " · needs attention" : ""}` }))}
+          dataAttr="workspace-step-picker"
+          triggerClassName="min-h-11 rounded-lg text-sm font-semibold"
+        />
+      </div>
       <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
         const on = i === current;

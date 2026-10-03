@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React from "react";
+import React, { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
@@ -11,9 +11,31 @@ describe("workspace navigation", () => {
   it("routes the compact jump control through the same controlled step callback", () => {
     const onJump = vi.fn();
     render(<StepRail steps={[{ id: "contact", label: "Contact" }, { id: "review", label: "Review", attention: 1 }]} current={0} onJump={onJump} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Jump to step" }), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Jump to step" }));
+    const option = screen.getByRole("option", { name: "Review · needs attention" });
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(onJump).toHaveBeenCalledWith(1);
     expect(screen.getByRole("button", { name: "Contact" }).getAttribute("aria-current")).toBe("step");
+  });
+
+  it("changing the anchored step picker keeps the workspace and typed fields mounted", () => {
+    function Harness() {
+      const [current, setCurrent] = useState(0);
+      return <ListingWorkspace title="Editor" footer={null} rail={<StepRail steps={[{ id: "one", label: "One" }, { id: "two", label: "Two" }]} current={current} onJump={setCurrent} />}>
+        <input aria-label="Retained name" defaultValue="" />
+      </ListingWorkspace>;
+    }
+    render(<Harness />);
+    const input = screen.getByRole("textbox", { name: "Retained name" });
+    fireEvent.change(input, { target: { value: "Casey" } });
+    fireEvent.click(screen.getByRole("button", { name: "Jump to step" }));
+    const option = screen.getByRole("option", { name: "Two" });
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(screen.getByRole("textbox", { name: "Retained name" })).toBe(input);
+    expect((input as HTMLInputElement).value).toBe("Casey");
+    expect(screen.getByRole("button", { name: "Two" }).getAttribute("aria-current")).toBe("step");
   });
 
   it("Enter advances a text input without submitting textareas or picker controls", () => {
