@@ -16,7 +16,7 @@ import { MoveInFormFrame, MoveInFormResidentCard } from "@/components/portal/mov
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
 import { loadInspectionList } from "@/lib/inspections/client";
-import type { InspectionResidency } from "@/lib/inspections/model";
+import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections/model";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { sendMoveInForm } from "@/lib/move-in-forms/client";
 import { formatMoveInDate, formatWallDate, pacificDay } from "@/lib/move-in-forms/manager-rows";
@@ -27,7 +27,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 const STEPS = [{ id: "send", label: "Send a form" }] as const;
 
 const roomSuffix = (room: string) => (room.trim() ? ` · ${room.trim()}` : "");
-const residencyPlace = (r: InspectionResidency) => `${r.property}${roomSuffix(r.room)}`;
+const residencyPlace = (r: InspectionResidency) => `${r.property}${roomSuffix(inspectionRoomLabel(r.room))}`;
 
 /** The forms a resident's property has turned on, by name. */
 export function enabledMoveInForms(userId: string, propertyId: string): MoveInFormTemplate[] {

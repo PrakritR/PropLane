@@ -14,7 +14,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/portal-entry-row";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -200,7 +200,7 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
         }
         primary={
           demo ? undefined : (
-            <PortalPrimaryIconAction label="Send a form" data-attr="move-in-forms-send" onClick={() => setSendOpen(true)} />
+            <PortalPrimaryIconAction label={portalListAddPrimaryLabel("move-in form")} data-attr="move-in-forms-send" onClick={() => setSendOpen(true)} />
           )
         }
         activeFilterChips={
