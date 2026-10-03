@@ -5,6 +5,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import {
   declineWorkOrderVendorOffer,
+  previewMarketplaceReach,
   sendWorkOrderVendorOffers,
   vendorDirectoryRowsById,
 } from "@/lib/work-order-offers.server";
@@ -83,6 +84,19 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const workOrderId = url.searchParams.get("workOrderId")?.trim();
+    const preview = url.searchParams.get("preview") === "1";
+    const previewTrade = url.searchParams.get("trade")?.trim();
+    const previewRadius = Number(url.searchParams.get("radiusMi") ?? "5");
+
+    if (preview && workOrderId && previewTrade) {
+      const reach = await previewMarketplaceReach(db, actor, {
+        workOrderId,
+        trade: previewTrade,
+        radiusMi: Number.isFinite(previewRadius) ? previewRadius : 5,
+      });
+      if (!reach.ok) return NextResponse.json({ error: reach.error }, { status: reach.status });
+      return NextResponse.json({ count: reach.count });
+    }
 
     let query = db.from("work_order_vendor_offers").select("*").order("created_at", { ascending: true });
     if (!actor.admin && actor.role === "vendor") {
@@ -125,6 +139,14 @@ export async function POST(req: Request) {
       vendorIds?: string[];
       offerId?: string;
       reason?: string;
+      marketplace?: {
+        enabled?: boolean;
+        trade?: string;
+        radiusMi?: number;
+        budget?: string;
+        sharePhotos?: boolean;
+        notes?: string;
+      };
     };
 
     // One route, two verbs: a vendor declining an offer is an answer to the manager's send,

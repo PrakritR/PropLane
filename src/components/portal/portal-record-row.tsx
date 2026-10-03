@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Bath, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
+import { Bath, DoorOpen, UserRound, Wrench, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { usePortalListGroupFlushRow } from "@/components/portal/portal-list-group";
@@ -413,18 +413,29 @@ export function PortalApplicantRecordRow({
 export function PortalServiceRecordRow({
   title,
   subtitle,
+  facts,
+  leading,
   figure,
+  actions,
   selected = false,
   checked = false,
   onSelectedChange,
   onOpen,
   dataAttr,
   rowId,
+  useServiceTile = true,
 }: {
   title: string;
+  /** Place line — resident · property · room (and assignee when shown). */
   subtitle?: string;
+  /** One or more glyph facts under the place line. */
+  facts?: ReactNode;
+  leading?: ReactNode;
+  /** When true (default), show the wrench tile instead of initials. */
+  useServiceTile?: boolean;
   /** Plain stage or money figure — never a pill. */
   figure?: string;
+  actions?: ReactNode;
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
@@ -434,6 +445,19 @@ export function PortalServiceRecordRow({
 }) {
   const selectable = Boolean(onSelectedChange);
   const highlighted = selected || checked;
+  const tile =
+    leading ??
+    (useServiceTile !== false ? (
+      <span
+        className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary"
+        data-slot="portal-service-row-tile"
+        aria-hidden
+      >
+        <Wrench className="size-5" />
+      </span>
+    ) : (
+      <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
+    ));
 
   return (
     <div
@@ -447,7 +471,7 @@ export function PortalServiceRecordRow({
     >
       {selectable ? (
         <RowSelectCheckbox
-              onOpenRecord={onOpen}
+          onOpenRecord={onOpen}
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
           aria-label={`Select ${title}`}
@@ -459,15 +483,21 @@ export function PortalServiceRecordRow({
         onClick={onOpen}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
+        {tile}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{title}</p>
           {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
+          {facts ? (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5" data-attr="service-row-facts">
+              {facts}
+            </div>
+          ) : null}
         </div>
       </button>
       {figure ? (
         <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{figure}</span>
       ) : null}
+      {actions ? <div className="shrink-0">{actions}</div> : null}
     </div>
   );
 }

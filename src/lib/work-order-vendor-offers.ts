@@ -26,16 +26,47 @@ export async function fetchWorkOrderVendorOffers(workOrderId?: string): Promise<
 
 /** Confirm sending this work order to one or more vendors for a free consultation/quote.
  * Nothing is ever sent automatically — this is the manager's explicit confirm action. */
+export type PublishMarketplaceOptions = {
+  enabled?: boolean;
+  trade?: string;
+  radiusMi?: number;
+  budget?: string;
+  sharePhotos?: boolean;
+  notes?: string;
+};
+
+export async function previewMarketplaceVendorReach(
+  workOrderId: string,
+  trade: string,
+  radiusMi: number,
+): Promise<number> {
+  try {
+    const params = new URLSearchParams({
+      workOrderId,
+      preview: "1",
+      trade,
+      radiusMi: String(radiusMi),
+    });
+    const res = await fetch(`/api/portal/work-order-vendor-offers?${params}`, { credentials: "include" });
+    if (!res.ok) return 0;
+    const data = (await res.json()) as { count?: number };
+    return typeof data.count === "number" ? data.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function sendWorkOrderToVendors(
   workOrderId: string,
   vendorIds: string[],
+  marketplace?: PublishMarketplaceOptions,
 ): Promise<{ ok: boolean; sent?: string[]; error?: string }> {
   try {
     const res = await fetch("/api/portal/work-order-vendor-offers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ workOrderId, vendorIds }),
+      body: JSON.stringify({ workOrderId, vendorIds, marketplace }),
     });
     const data = await res.json();
     if (!res.ok) return { ok: false, error: data.error ?? "Could not send to vendors." };

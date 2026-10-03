@@ -157,6 +157,7 @@ export function PortalListControlStack({
     placeholder: string;
     dataAttr?: string;
     ariaLabel?: string;
+    inputClassName?: string;
   };
   /** Removable chips when filters are active (Appendix F band 3). */
   activeFilterChips?: ReactNode;
@@ -315,8 +316,13 @@ export function PortalListControlStack({
           onChange={(e) => search.onChange(e.target.value)}
           placeholder={search.placeholder}
           aria-label={search.ariaLabel ?? search.placeholder}
-          className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
+          className={cn(
+            // Borderless inline search — the Pricing tab reference (ui-page-structure.md).
+            "portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0",
+            search.inputClassName,
+          )}
           data-attr={search.dataAttr ?? "portal-list-search"}
+          data-search=""
         />
       </div>
     ) : (

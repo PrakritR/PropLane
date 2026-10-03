@@ -670,9 +670,13 @@ export function VendorWorkOrdersPanel({
     const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
     const mode = bid?.quoteMode ?? modeById[row.id] ?? "upfront";
     const consultationScheduled = Boolean(bid?.consultationVisitAt);
-    const showModeToggle = canEditBid && !bid && row.biddingOpen;
-    const showScheduleConsultation = canEditBid && !bid && mode === "after_consultation" && row.biddingOpen;
-    const showPricingFields = canEditBid && (mode === "upfront" || consultationScheduled || pricingPending);
+    const simplifiedBidForm = Boolean(row.biddingOpen && !bid);
+    const showModeToggle = canEditBid && !bid && row.biddingOpen === false && !simplifiedBidForm;
+    const showScheduleConsultation =
+      canEditBid && !bid && mode === "after_consultation" && row.biddingOpen && !simplifiedBidForm;
+    const showPricingFields =
+      canEditBid &&
+      (simplifiedBidForm || mode === "upfront" || consultationScheduled || pricingPending);
     const showScheduledPrice = canMarkDone && !showPricingFields;
 
     const fullSite = vendorCanSeeFullWorkOrderSite(row, bid);
@@ -832,7 +836,7 @@ export function VendorWorkOrdersPanel({
             {showPricingFields ? (
               <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2">
                 <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                  Labor cost
+                  {simplifiedBidForm ? "Amount" : "Labor cost"}
                   <Input
                     type="text"
                     inputMode="decimal"
@@ -844,24 +848,26 @@ export function VendorWorkOrdersPanel({
                     className="h-8 w-24 rounded-md text-sm"
                   />
                 </label>
+                {simplifiedBidForm ? null : (
+                  <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+                    Equipment / materials
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="$0"
+                      value={draft.materials}
+                      onChange={(e) =>
+                        setDraftById((prev) => ({
+                          ...prev,
+                          [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), materials: e.target.value },
+                        }))
+                      }
+                      className="h-8 w-24 rounded-md text-sm"
+                    />
+                  </label>
+                )}
                 <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                  Equipment / materials
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="$0"
-                    value={draft.materials}
-                    onChange={(e) =>
-                      setDraftById((prev) => ({
-                        ...prev,
-                        [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), materials: e.target.value },
-                      }))
-                    }
-                    className="h-8 w-24 rounded-md text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                  When you can do it
+                  {simplifiedBidForm ? "Earliest start" : "When you can do it"}
                   <Input
                     type="datetime-local"
                     value={draft.proposedTime}
@@ -875,10 +881,10 @@ export function VendorWorkOrdersPanel({
                   />
                 </label>
                 <label className="flex flex-1 min-w-[160px] flex-col gap-1 text-[11px] font-medium text-muted">
-                  Note (optional)
+                  Note
                   <Input
                     type="text"
-                    placeholder="Anything the manager should know"
+                    placeholder={simplifiedBidForm ? "Optional" : "Anything the manager should know"}
                     value={draft.note}
                     onChange={(e) =>
                       setDraftById((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), note: e.target.value } }))
@@ -1059,6 +1065,15 @@ export function VendorWorkOrdersPanel({
       }
     };
     const bid = bidsByWorkOrderId[row.id];
+    const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
+    const vendorPrimary =
+      row.biddingOpen && !bid
+        ? { label: "Send quote", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
+        : canMarkDone
+          ? { label: "Mark done", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
+          : bid?.status === "accepted" && (!row.scheduled || row.scheduled === "—")
+            ? { label: "Schedule visit", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "schedule")) }
+            : null;
     const ownContent =
       activeTab === "schedule" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
@@ -1177,7 +1192,16 @@ export function VendorWorkOrdersPanel({
         pinScrollBody
       >
         <PortalRecordActions>
-          <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          <div className="flex items-center justify-end gap-1">
+            {vendorPrimary ? (
+              <PortalPrimaryIconAction
+                label={vendorPrimary.label}
+                data-attr="vendor-job-primary"
+                onClick={vendorPrimary.onClick}
+              />
+            ) : null}
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </div>
         </PortalRecordActions>
         <PortalRecordSectionChrome
           sections={sections}

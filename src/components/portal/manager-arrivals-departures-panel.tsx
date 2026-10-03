@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Bath, Luggage, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { buildThreeDayArrivalAgenda } from "@/lib/manager-arrivals-agenda";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import { airbnbBookingEntries, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -74,7 +75,25 @@ export function ManagerArrivalsDeparturesPanel() {
                 <PortalServiceRecordRow
                   key={event.id}
                   title={event.title}
-                  subtitle={[event.kind === "check-in" ? "IN · Check-in" : "OUT · Check-out", event.place, ...event.facts].join(" · ")}
+                  subtitle={[event.kind === "check-in" ? "IN · Check-in" : "OUT · Check-out", event.place].filter(Boolean).join(" · ")}
+                  facts={
+                    event.facts.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                        {event.facts.map((fact) => {
+                          const lower = fact.toLowerCase();
+                          let Icon = Clock;
+                          if (lower.startsWith("linen")) Icon = Bath;
+                          else if (lower.startsWith("baggage")) Icon = Luggage;
+                          return (
+                            <PortalRowFact key={fact} icon={Icon}>
+                              {fact}
+                            </PortalRowFact>
+                          );
+                        })}
+                      </div>
+                    ) : undefined
+                  }
+                  useServiceTile={false}
                   onOpen={() => {}}
                   dataAttr="arrivals-departure-row"
                 />

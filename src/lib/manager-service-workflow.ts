@@ -36,7 +36,7 @@ export function resolveWorkOrderAssignee(row: DemoManagerWorkOrderRow): ManagerS
   return null;
 }
 
-function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrderBid | null): number | null {
+export function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrderBid | null): number | null {
   if (acceptedBid?.amountCents != null) {
     return acceptedBid.amountCents + (acceptedBid.materialsCents ?? 0);
   }
@@ -46,6 +46,13 @@ function workOrderCostCents(row: DemoManagerWorkOrderRow, acceptedBid?: WorkOrde
   const parsed = parseMoneyAmount(row.cost ?? "");
   if (Number.isFinite(parsed) && parsed > 0) return Math.round(parsed * 100);
   return null;
+}
+
+export function managerServiceListCostFigure(
+  row: DemoManagerWorkOrderRow,
+  acceptedBid?: WorkOrderBid | null,
+): string {
+  return formatServiceMoney(workOrderCostCents(row, acceptedBid));
 }
 
 export function formatServiceMoney(cents: number | null | undefined): string {
@@ -147,12 +154,11 @@ export function managerServiceNextStep(
   const assignee = resolveWorkOrderAssignee(row);
   const bidCount = opts.bidCount ?? 0;
   if (!assignee) {
-    if (bidCount > 0) return { key: "compare-quotes", label: "Compare quotes" };
-    if (row.biddingOpen) return { key: "compare-quotes", label: "Compare quotes" };
-    return { key: "assign", label: "Assign" };
+    if (bidCount > 0 || row.biddingOpen) return { key: "compare-quotes", label: "Compare quotes" };
+    return { key: "publish", label: "Publish to vendors" };
   }
   if (row.automationStatus === "vendor_marked_done") {
-    return { key: "approve-pay", label: "Approve invoice" };
+    return { key: "approve-pay", label: "Approve & pay" };
   }
   if (!row.scheduledAtIso && row.bucket !== "completed") {
     return { key: "schedule", label: "Schedule" };
