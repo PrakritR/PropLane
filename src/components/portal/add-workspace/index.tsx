@@ -125,7 +125,7 @@ export function AddWorkspace({
 }) {
   const confirm = useConfirm();
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<{ step: number; message: string } | null>(null);
   const railSteps = useMemo<StepRailItem[]>(
     () => steps.map((s) => ({ ...s, attention: s.incomplete ? 1 : 0 })),
     [steps],
@@ -181,7 +181,7 @@ export function AddWorkspace({
 
   const validateFields = () => {
     const invalid = Array.from(workspaceRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("main input, main select, main textarea") ?? []).find((field) => {
-      if (!field.willValidate || field.closest('[hidden], [aria-hidden="true"], .hidden')) return false;
+      if (!field.willValidate || field.closest('[hidden], [aria-hidden="true"]')) return false;
       for (let node: HTMLElement | null = field; node && node !== workspaceRef.current; node = node.parentElement) {
         const style = window.getComputedStyle(node);
         if (style.display === "none" || style.visibility === "hidden") return false;
@@ -190,7 +190,7 @@ export function AddWorkspace({
     });
     if (invalid) {
       const label = invalid.labels?.[0]?.textContent?.replace(/\s*\(required\)/g, "").trim() || invalid.getAttribute("aria-label") || "Required fields";
-      setValidationError(invalid.validity.valueMissing ? `${label}: Required` : invalid.validationMessage);
+      setValidationError({ step: current, message: invalid.validity.valueMissing ? `${label}: Required` : invalid.validationMessage });
       invalid.setAttribute("aria-invalid", "true");
       invalid.scrollIntoView?.({ block: "center", behavior: "smooth" });
       invalid.focus();
@@ -261,7 +261,7 @@ export function AddWorkspace({
               </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
-              {validationError ? <span role="alert" className="mb-0.5 block text-destructive">{validationError}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
               Step {current + 1} of {steps.length}
             </span>
             {isLast ? (
