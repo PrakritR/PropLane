@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowDownToLine } from "lucide-react";
+import { Landmark } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { bankToWithdrawAccounts, type PortalPayoutBalance } from "@/components/portal/portal-payouts-panel";
@@ -25,5 +25,5 @@ export function FinancesWithdrawAction() {
       setOpen(true);
     } catch (error) { showToast(error instanceof Error ? error.message : "Could not load withdrawals."); } finally { setLoading(false); }
   }
-  return <><PortalIconAction icon={ArrowDownToLine} label="Withdraw" disabled={loading} onClick={() => void launch()} />{snapshot ? <PayoutWithdrawSheet open={open} onClose={() => setOpen(false)} apiBase="/api/stripe" currency={snapshot.currency} availableCents={withdrawableCentsFromSnapshot(snapshot)} instantAvailableCents={snapshot.instantAvailableCents} heldDepositCents={snapshot.heldDepositCents} accounts={accounts} onSuccess={() => { setOpen(false); window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT)); }} /> : null}</>;
+  return <><PortalIconAction icon={Landmark} label="Withdraw" data-attr="finances-withdraw" disabled={loading} onClick={() => void launch()} />{snapshot ? <PayoutWithdrawSheet open={open} onClose={() => setOpen(false)} apiBase="/api/stripe" currency={snapshot.currency} availableCents={withdrawableCentsFromSnapshot(snapshot)} instantAvailableCents={snapshot.instantAvailableCents} heldDepositCents={snapshot.heldDepositCents} accounts={accounts} onSuccess={() => { setOpen(false); window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT)); }} /> : null}</>;
 }
