@@ -20,6 +20,7 @@ import {
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { vendorDetailHref } from "@/lib/portal-detail-routes";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
 import {
@@ -276,6 +277,8 @@ export function ManagerCommunicationComposeModal({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sendVia, setSendVia] = useState<string[]>(["email"]);
+  /** "This is a vendor": a typed phone number nobody has on the list is added to Vendors with the text. */
+  const [markVendor, setMarkVendor] = useState(false);
   const [scheduleLater, setScheduleLater] = useState(false);
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [sending, setSending] = useState(false);
@@ -736,6 +739,7 @@ export function ManagerCommunicationComposeModal({
     let smsOk = !viaSms;
     let lastError = "Could not send.";
     let smsOutcomeUnknown = false;
+    let vendorTexted: { vendorId: string; name: string; created: boolean } | null = null;
     let optimisticId: string | null = null;
     let primaryRecipientEmail: string | undefined;
 
@@ -826,12 +830,14 @@ export function ManagerCommunicationComposeModal({
                 toPhone: target.phone,
                 text,
                 residentUserId: target.residentUserId ?? undefined,
+                ...(markVendor && !target.residentUserId ? { isVendor: true } : {}),
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
               code?: string;
               error?: string;
               status?: string;
+              vendor?: { vendorId: string; name: string; created: boolean };
             };
             if (isManualSmsOutcomeUnknown(data)) {
               smsOutcomeUnknown = true;
@@ -843,6 +849,7 @@ export function ManagerCommunicationComposeModal({
               continue;
             }
             sent += 1;
+            if (data.vendor) vendorTexted = data.vendor;
           } catch {
             smsOutcomeUnknown = true;
             lastError = MANUAL_SMS_UNKNOWN_MESSAGE;
@@ -885,7 +892,22 @@ export function ManagerCommunicationComposeModal({
       if (optimisticId) onClearOptimistic?.(optimisticId);
 
       const both = viaEmail && viaSms;
-      showToast(both ? "Message sent via email and SMS." : viaSms ? "SMS sent." : "Message sent.");
+      const sentMessage = both ? "Message sent via email and SMS." : viaSms ? "SMS sent." : "Message sent.";
+      if (vendorTexted) {
+        // The number is a vendor: say so, and Open goes straight to them.
+        const vendor = vendorTexted;
+        showToast(vendor.created ? `${sentMessage} Added to Vendors · ${vendor.name}` : sentMessage, {
+          actionLabel: "Open",
+          undo: () => window.location.assign(vendorDetailHref("/portal", vendor.vendorId)),
+        });
+      } else if (viaSms) {
+        showToast(sentMessage, {
+          actionLabel: "Open",
+          undo: () => window.location.assign("/portal/communication/active"),
+        });
+      } else {
+        showToast(sentMessage);
+      }
       onClose();
       onSent?.({ email: viaEmail, sms: viaSms, primaryRecipientEmail });
     } catch {
@@ -972,6 +994,12 @@ export function ManagerCommunicationComposeModal({
           <Paperclip className="h-3 w-3" />{item.fileName}{item.uploading ? " · Uploading…" : item.error ? " · Failed" : ""}
           <button type="button" aria-label={`Remove ${item.fileName}`} onClick={() => {revokeInboxAttachmentPreview(item); setAttachments((previous) => previous.filter((value) => value.id !== item.id));}}><X className="h-3 w-3" /></button>
         </span>)}</div> : null}
+        {viaSms && otherTokens.some((token) => token.kind === "phone") ? (
+          <label className="flex items-center gap-2 text-sm" data-attr="communication-compose-is-vendor">
+            <input type="checkbox" checked={markVendor} onChange={(event) => setMarkVendor(event.target.checked)} />
+            <span>This is a vendor</span>
+          </label>
+        ) : null}
         <div className="flex items-center gap-2" data-attr="communication-compose-tools">
           <label className="grid h-10 w-10 cursor-pointer place-items-center rounded-full text-muted hover:bg-accent" title="Attach files">
             <Paperclip className="h-4 w-4" aria-hidden /><input type="file" aria-label="Attach files" className="sr-only" accept={INBOX_ATTACHMENT_ACCEPT} multiple disabled={sending || attachments.length >= INBOX_MAX_ATTACHMENTS} onChange={(event) => {pickAttachments(event.target.files); event.target.value = "";}} data-attr="communication-compose-attach" />

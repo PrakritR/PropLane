@@ -33,6 +33,15 @@ function accountIsPartitioned(): boolean {
   return (selection?.workspaces.length ?? 0) > 1;
 }
 
+/**
+ * A lead with no house (someone who texted a work number) belongs to the
+ * workspace that owns that number, not to "whichever workspace is the default".
+ */
+export function isActiveWorkspaceId(workspaceId: string | null | undefined): boolean {
+  if (!selection || !selection.activeWorkspaceId) return true;
+  return selection.activeWorkspaceId === workspaceId;
+}
+
 export function workspaceContainsProperty(propertyId: string | null | undefined): boolean {
   if (!selection || !selection.activeWorkspaceId) return true;
   const active = activeWorkspace();

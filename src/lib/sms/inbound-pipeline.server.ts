@@ -8,6 +8,7 @@ import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.ser
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
 import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
+import { routeUnrecognizedInboundText } from "@/lib/sms/inbound-text-routing.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   deliverManagerSmsReply,
@@ -1033,12 +1034,6 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
 
   let handled;
   try {
-    await upsertManagerSmsContact(db, {
-      managerUserId: managerId,
-      phone: fromPhone,
-      counterpartyRole: "prospect",
-      lastInboundAt: new Date().toISOString(),
-    }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
     // A work number is the WORKSPACE's front door. A co-manager's line leases
     // the owner's houses — tenant records stay with the property owner, the
     // reply still goes out from the line that was texted — instead of turning
@@ -1047,6 +1042,57 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       throwOnError: true,
       workspaceId: workspaceId,
     });
+    // Who is this number? Decided once, on the workspace owner's own records
+    // (docs/agents/sms-system.md "Unrecognized numbers"): a vendor on the list
+    // or a trade-sounding text lands on a vendor thread and is never leased to;
+    // any other new number becomes ONE Potential resident, deduped by phone.
+    mark("route:unrecognized");
+    const routing = await routeUnrecognizedInboundText(db, {
+      managerUserId: workspace.ownerUserId,
+      workspaceId,
+      fromPhone,
+      body,
+    });
+    if (routing.kind === "vendor") {
+      mark("route:vendor-roster");
+      await projectClassifiedInbound(db, {
+        managerUserId: workspace.ownerUserId,
+        role: "vendor",
+        counterpartyUserId: routing.vendorUserId,
+        fromPhone,
+        toPhone,
+        messageSid,
+        body,
+        occurredAt,
+      }).catch((error) => console.error("vendor roster inbound projection failed", error instanceof Error ? error.message : "unknown"));
+      await upsertManagerSmsContact(db, {
+        managerUserId: managerId,
+        phone: fromPhone,
+        counterpartyRole: "vendor",
+        ...(routing.created ? { displayName: routing.name.slice(0, 80) } : {}),
+        lastInboundAt: new Date().toISOString(),
+      }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+      await db.from("inbound_sms_log").update({
+        matched_sender_user_id: routing.vendorUserId,
+        ...inboundLogIdentityFields({
+          managerUserId: managerId,
+          counterpartyRole: "vendor",
+          counterpartyUserId: routing.vendorUserId,
+          fromPhone,
+        }),
+      }).eq("message_sid", messageSid).eq("manager_user_id", managerId);
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+    await upsertManagerSmsContact(db, {
+      managerUserId: managerId,
+      phone: fromPhone,
+      counterpartyRole: "prospect",
+      ...(routing.kind === "potential" && routing.created ? { displayName: routing.name.slice(0, 80) } : {}),
+      lastInboundAt: new Date().toISOString(),
+    }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
     const originalReceivedAt = await projectClassifiedInbound(db, {
       managerUserId: workspace.ownerUserId,
       role: "prospect",

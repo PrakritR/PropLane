@@ -3,7 +3,7 @@
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
 import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail } from "lucide-react";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
@@ -897,7 +897,7 @@ export function ManagerResidents({
       return [];
     }
     const built = readManagerApplicationRows()
-      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents") && workspaceContainsProperty(row.assignedPropertyId || row.propertyId || row.application?.propertyId))
+      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents") && (row.smsLeadWorkspaceId ? isActiveWorkspaceId(row.smsLeadWorkspaceId) : workspaceContainsProperty(row.assignedPropertyId || row.propertyId || row.application?.propertyId)))
       .map((row) => {
         const propId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
         const prop = propId ? getPropertyById(propId) : null;
