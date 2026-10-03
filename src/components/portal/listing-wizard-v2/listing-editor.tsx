@@ -26,7 +26,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
+import { BlockedDatesSection } from "@/components/portal/listing-room-editor/blocked-dates-section";
+import { RoomBathroomFields } from "@/components/portal/listing-room-editor/room-bathroom-fields";
+import { SharedRoomConfigRows } from "@/components/portal/listing-room-editor/shared-room-config-rows";
+import { BathroomEditorMirrorFields } from "@/components/portal/listing-room-editor/bathroom-editor-mirror-fields";
+import { bathFactLabel, copyRoomBathroomLinkFrom, roomBathroomState } from "@/lib/listing-room-editor/bathroom-link";
 import { cn } from "@/lib/utils";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
@@ -115,10 +119,13 @@ import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manag
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { isValidZipInput } from "@/lib/listing-form-inputs";
 import {
-  bathroomDescriptionIsBlank,
-  bathroomDescriptionMatches,
   bathroomTypeOf,
-  copyBathroomDescriptionFrom,
+  copyBathroomSetupFrom,
+  copySharedSpaceSetupFrom,
+  bathroomSetupIsBlank,
+  bathroomSetupMatches,
+  sharedSpaceSetupIsBlank,
+  sharedSpaceSetupMatches,
   writeBathroomType,
   type BathroomType,
 } from "@/lib/listing-record-defaults";
@@ -129,6 +136,7 @@ import {
   sharedSpaceAccessMenuSelected,
   sharedSpaceAccessOptions,
   sharedSpaceAccessTriggerLabel,
+  sharedSpaceIsEveryone,
 } from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
@@ -1052,39 +1060,37 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  * a room's description starts from another room's, and it is a one-time copy
  * (see `copyRoomDescriptionFrom`), never a standing link.
  */
-function RoomCardBody({
+export function ListingRoomEditorBody({
+  sub,
   room,
   propertyId = null,
+  managerUserId = null,
   who,
   wholePlace,
-  bathrooms,
-  access,
-  onAccess,
+  onPatchBathrooms,
   onGoToBathrooms,
   onRoom,
-  onDone,
   storiesId,
   sameAsOptions,
   sameAsValue,
   onSameAs,
+  showSharedRoomConfig = false,
 }: {
+  sub: ManagerListingSubmissionV1;
   room: ManagerRoomSubmission;
-  /** The listing's record id, for the room's booked rows. */
   propertyId?: string | null;
+  managerUserId?: string | null;
   who: string;
   wholePlace: boolean;
-  bathrooms: number;
-  access: string;
-  onAccess: (kind: string) => void;
+  onPatchBathrooms: (bathrooms: ManagerBathroomSubmission[]) => void;
   onGoToBathrooms: () => void;
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
-  onDone?: () => void;
   storiesId: string | undefined;
-  /** "—" plus every other room's name; picking one copies its description onto this room once. */
   sameAsOptions: readonly { value: string; label: string }[];
-  /** The other room this room's description currently matches, or "" — derived, never stored. */
   sameAsValue: string;
   onSameAs: (roomId: string) => void;
+  /** House details popup only — wizard pricing lives on Payments (C2-RE15). */
+  showSharedRoomConfig?: boolean;
 }) {
   const photos = room.photoDataUrls ?? [];
   const video = room.videoDataUrl;
@@ -1118,17 +1124,16 @@ function RoomCardBody({
       <FactRow label="Beds">
         <CountStepper compact value={bedCount} min={1} max={OCCUPANCY_MAX} label={`Beds for ${who}`} onChange={(n) => writeBeds(beds.length ? beds.map((b, i) => (i === 0 ? { ...b, count: n } : b)) : [{ type: "Twin", count: n }])} />
       </FactRow>
-      {wholePlace ? null : bathrooms === 0 ? (
-        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
-          <button type="button" onClick={onGoToBathrooms} data-attr="listing-v2-add-bathroom-first" className="text-[13.5px] font-bold text-primary hover:underline">
-            + Add bathroom
-          </button>
-        </FactRow>
-      ) : (
-        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
-          <RowSelectCell ariaLabel={`Bathroom for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
-        </FactRow>
+      {wholePlace ? null : (
+        <RoomBathroomFields
+          sub={sub}
+          room={room}
+          who={who}
+          onGoToBathrooms={onGoToBathrooms}
+          onSubmission={(next) => onPatchBathrooms(next.bathrooms ?? [])}
+        />
       )}
+      {showSharedRoomConfig ? <SharedRoomConfigRows room={room} who={who} onRoom={onRoom} /> : null}
       <FactRow label={help("Floor", ROOM_HELP.floor)}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floorOptions} placeholder="Floor…" onChange={(v) => onRoom({ floor: v })} />
       </FactRow>
@@ -1166,7 +1171,7 @@ function RoomCardBody({
             <Textarea rows={3} value={detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
           </Field>
         </CardFields>
-        <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} />
+        <BlockedDatesSection propertyId={propertyId} roomId={room.id} managerUserId={managerUserId} />
       </MoreRows>
     </>
   );
@@ -1291,20 +1296,20 @@ function StepRooms({
       Object.assign(roomPatch, { [key]: copied[key] });
     }
     writeRoom(room.id, roomPatch);
-    const sourceAccess = accessForRoom(otherId);
-    if (sourceAccess) setAccessForRoom(room.id, sourceAccess);
+    patch(copyRoomBathroomLinkFrom(sub, room.id, otherId));
   };
 
   const factsFor = (room: ManagerRoomSubmission, i: number) => {
     const residents = room.occupancyCapacity ?? 1;
     const floorShown = room.floor || groundFloor || "Floor not set";
-    const bath = accessLabel(accessForRoom(room.id));
+    const bst = roomBathroomState(sub, room.id);
+    const bath = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
     const furn = roomFurnishingLabel(roomFurnitureItems(room));
     return (
       <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
         {!wholePlace ? <span>{residents} residents</span> : null}
         <span>{floorShown}</span>
-        {bath ? <span>{bath} bath</span> : null}
+        {bath ? <span>{bath}</span> : null}
         <span>{furn}</span>
       </span>
     );
@@ -1321,7 +1326,11 @@ function StepRooms({
       : [
           `${residents} ${residents === 1 ? "resident" : "residents"}`,
           floorShown,
-          accessLabel(accessForRoom(room.id))?.toLowerCase() ? `${accessLabel(accessForRoom(room.id))!.toLowerCase()} bath` : "",
+          (() => {
+            const bst = roomBathroomState(sub, room.id);
+            const label = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
+            return label === "No bath" ? "" : label;
+          })(),
           furnishingSummary(furnishing),
           bedText,
         ];
@@ -1401,14 +1410,13 @@ function StepRooms({
             dataAttr="listing-v2-room-card"
           >
             <div data-attr="listing-v2-room-editor">
-              <RoomCardBody
+              <ListingRoomEditorBody
+                sub={sub}
                 room={room}
                 propertyId={propertyId}
                 who={label}
                 wholePlace={wholePlace}
-                bathrooms={baths.length}
-                access={accessForRoom(room.id)}
-                onAccess={(v) => setAccessForRoom(room.id, v)}
+                onPatchBathrooms={(bathrooms) => patch({ bathrooms })}
                 onGoToBathrooms={onGoToBathrooms}
                 onRoom={(p) => writeRoom(room.id, p)}
                 storiesId={sub.listingStoriesId}
@@ -1448,7 +1456,8 @@ const BATHROOM_HELP = {
  * its derived value is whichever other bathroom still matches
  * (`bathroomDescriptionMatches`). Who uses it is untouched by the copy.
  */
-function BathroomCardBody({
+export function ListingBathroomEditorBody({
+  sub,
   bath,
   who,
   rooms,
@@ -1458,7 +1467,10 @@ function BathroomCardBody({
   sameAsValue,
   onSameAs,
   onChange,
+  onPatchSubmission,
+  onOpenRoom,
 }: {
+  sub: ManagerListingSubmissionV1;
   bath: ManagerBathroomSubmission;
   who: string;
   rooms: readonly ManagerRoomSubmission[];
@@ -1468,9 +1480,10 @@ function BathroomCardBody({
   sameAsValue: string;
   onSameAs: (bathId: string) => void;
   onChange: (patch: Partial<ManagerBathroomSubmission>) => void;
+  onPatchSubmission: (next: ManagerListingSubmissionV1) => void;
+  onOpenRoom?: (roomId: string) => void;
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
-  const assigned = bath.assignedRoomIds ?? [];
   // A card the bathroom count made carries no floor, so the control shows the
   // listing's ground floor as its default. Display only: nothing is written
   // until the manager picks, which is what keeps an untouched card removable
@@ -1481,12 +1494,35 @@ function BathroomCardBody({
       <FactRow first label="Same as">
         <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="Set for this bathroom" onChange={onSameAs} />
       </FactRow>
+      <BathroomEditorMirrorFields sub={sub} bath={bath} who={who} onSubmission={onPatchSubmission} />
+      {!wholePlace && (bath.assignedRoomIds?.length ?? 0) > 0 ? (
+        <FactRow label="Used by">
+          <span className="flex flex-wrap justify-end gap-2 text-[13.5px]">
+            {(bath.assignedRoomIds ?? []).map((roomId) => {
+              const idx = rooms.findIndex((r) => r.id === roomId);
+              const label = rooms[idx]?.name.trim() || (idx >= 0 ? `Room ${idx + 1}` : "Room");
+              return onOpenRoom ? (
+                <button
+                  key={roomId}
+                  type="button"
+                  className="font-semibold text-primary underline-offset-2 hover:underline"
+                  onClick={() => onOpenRoom(roomId)}
+                >
+                  {label}
+                </button>
+              ) : (
+                <span key={roomId}>{label}</span>
+              );
+            })}
+          </span>
+        </FactRow>
+      ) : null}
       <FactRow label="Floor">
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floors} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
       </FactRow>
-      <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>}>
+      <FactRow label={<span className="inline-flex items-center gap-1.5">Layout <ColumnHelp title="Layout" text={BATHROOM_HELP.type} /></span>}>
         <RowSelectCell
-          ariaLabel={`Type of ${who}`}
+          ariaLabel={`Layout of ${who}`}
           value={bathroomTypeOf(bath)}
           options={BATHROOM_TYPE_OPTIONS}
           onChange={(v) => onChange(writeBathroomType(bath, v as BathroomType))}
@@ -1495,45 +1531,6 @@ function BathroomCardBody({
       <FactRow label="Finishes">
         <AmenityPick label={`Finishes for ${who}`} presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
       </FactRow>
-      {wholePlace || rooms.length === 0 ? null : (
-        <FactRow label="Who uses it">
-          <CheckboxMultiSelect
-            hideLabel
-            label={`Who uses ${who}`}
-            dataAttr="listing-v2-bath-who-uses"
-            variant="cell"
-            className="min-w-[150px] max-w-[220px]"
-            options={rooms.map((room, i) => ({
-              value: room.id,
-              label: room.name.trim() || `Room ${i + 1}`,
-            }))}
-            selected={bath.allResidents ? rooms.map((room) => room.id) : assigned}
-            selectionTriggerLabel={
-              bath.allResidents
-                ? "Every room"
-                : assigned.length === 0
-                  ? "No rooms yet"
-                  : assigned
-                      .map((id) => {
-                        const index = rooms.findIndex((room) => room.id === id);
-                        const room = index >= 0 ? rooms[index] : null;
-                        return room?.name.trim() || (index >= 0 ? `Room ${index + 1}` : id);
-                      })
-                      .join(", ")
-            }
-            emptyLabel="No rooms yet"
-            onChange={(next) => {
-              const kinds = { ...(bath.accessKindByRoomId ?? {}) };
-              for (const id of Object.keys(kinds)) if (!next.includes(id)) delete kinds[id];
-              onChange({
-                assignedRoomIds: next,
-                allResidents: next.length > 0 && next.length === rooms.length,
-                accessKindByRoomId: kinds,
-              });
-            }}
-          />
-        </FactRow>
-      )}
       <MoreRows dataAttr="listing-v2-bath-more">
         <CardFields>
           <Field label="Description">
@@ -1574,12 +1571,12 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
    * reads "—", for the same reason rooms do.
    */
   const sameAsValue = (bath: ManagerBathroomSubmission) =>
-    bathroomDescriptionIsBlank(bath) ? "" : baths.find((b) => b.id !== bath.id && bathroomDescriptionMatches(b, bath))?.id ?? "";
+    bathroomSetupIsBlank(bath) ? "" : baths.find((b) => b.id !== bath.id && bathroomSetupMatches(b, bath))?.id ?? "";
   const applySameAs = (bath: ManagerBathroomSubmission, otherId: string) => {
     if (!otherId) return;
     const source = baths.find((b) => b.id === otherId);
     if (!source) return;
-    writeBath(bath.id, copyBathroomDescriptionFrom(source, bath));
+    writeBath(bath.id, copyBathroomSetupFrom(source, bath));
   };
 
   const typeLabel = (bath: ManagerBathroomSubmission) => BATHROOM_TYPE_OPTIONS.find((o) => o.value === bathroomTypeOf(bath))?.label ?? "";
@@ -1693,7 +1690,8 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             dataAttr="listing-v2-bath-card"
           >
             <div data-attr="listing-v2-bath-editor">
-              <BathroomCardBody
+              <ListingBathroomEditorBody
+                sub={sub}
                 bath={bath}
                 who={label}
                 rooms={rooms}
@@ -1703,6 +1701,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 sameAsValue={sameAsValue(bath)}
                 onSameAs={(id) => applySameAs(bath, id)}
                 onChange={(p) => patchBath(bath, p)}
+                onPatchSubmission={(next) => patch({ bathrooms: next.bathrooms, rooms: next.rooms })}
               />
             </div>
           </RecordCard>
@@ -1722,14 +1721,16 @@ const SPACE_HELP = {
  * A shared space is its own record: there is no Default card for shared spaces
  * and nothing for a space to follow or reset to. Rooms and Bathrooms keep theirs.
  */
-function SharedSpaceCardBody({
+export function ListingSharedSpaceEditorBody({
   space,
   who,
   rooms,
   wholePlace,
   storiesId,
   onChange,
-  onDone,
+  sameAsOptions,
+  sameAsValue,
+  onSameAs,
 }: {
   space: ManagerSharedSpaceSubmission;
   who: string;
@@ -1737,70 +1738,109 @@ function SharedSpaceCardBody({
   wholePlace: boolean;
   storiesId: string | undefined;
   onChange: (patch: Partial<ManagerSharedSpaceSubmission>) => void;
-  onDone: () => void;
+  sameAsOptions?: readonly { value: string; label: string }[];
+  sameAsValue?: string;
+  onSameAs?: (spaceId: string) => void;
 }) {
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
   const roomIds = rooms.map((room) => room.id);
+  const accessEveryone = sharedSpaceIsEveryone(space.roomAccessIds, roomIds);
+  const [roomPickerOpen, setRoomPickerOpen] = useState(() => !accessEveryone);
+  const whoUsesMode = roomPickerOpen ? "pick" : "all";
   return (
     <>
-      <FactRow first label="Type">
-        <RowSelectCell ariaLabel={`Type of ${who}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => onChange({ spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
-      </FactRow>
+      {sameAsOptions && sameAsOptions.length > 1 ? (
+        <FactRow first label="Same as">
+          <RowSelectCell
+            ariaLabel={`Same as for ${who}`}
+            value={sameAsValue ?? ""}
+            options={sameAsOptions}
+            placeholder="Set for this space"
+            onChange={(id) => onSameAs?.(id)}
+          />
+        </FactRow>
+      ) : (
+        <FactRow first label="Type">
+          <RowSelectCell ariaLabel={`Type of ${who}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => onChange({ spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
+        </FactRow>
+      )}
+      {sameAsOptions && sameAsOptions.length > 1 ? (
+        <FactRow label="Type">
+          <RowSelectCell ariaLabel={`Type of ${who}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => onChange({ spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
+        </FactRow>
+      ) : null}
       <FactRow label="Floor">
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={space.location ?? ""} options={floorLevelSelectOptions(storiesId, space.location).map((l) => ({ value: l, label: l }))} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
-        <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>}>
-          <CheckboxMultiSelect
-            hideLabel
-            label={`Who may use ${who}`}
-            dataAttr="listing-v2-space-who"
-            variant="cell"
-            className="min-w-[150px] max-w-[220px]"
-            options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
-            selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
-            selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
-            emptyLabel="Everyone"
-            onChange={(next) =>
-              onChange({
-                roomAccessIds: encodeSharedSpaceAccessPick({
-                  nextSelected: next,
-                  roomIds,
-                  previousAccessIds: space.roomAccessIds,
-                }),
-              })
-            }
-          />
-        </FactRow>
+        <>
+          <FactRow label={<span className="inline-flex items-center gap-1.5">Who uses it <ColumnHelp title="Who uses it" text={SPACE_HELP.who} /></span>}>
+            <RowSelectCell
+              ariaLabel={`Who uses ${who}`}
+              value={whoUsesMode}
+              options={[
+                { value: "all", label: "All rooms" },
+                { value: "pick", label: "Select rooms" },
+              ]}
+              onChange={(mode) => {
+                if (mode === "all") {
+                  setRoomPickerOpen(false);
+                  onChange({ roomAccessIds: encodeSharedSpaceEveryone() });
+                  return;
+                }
+                setRoomPickerOpen(true);
+                if (sharedSpaceIsEveryone(space.roomAccessIds, roomIds)) {
+                  onChange({ roomAccessIds: [...roomIds] });
+                }
+              }}
+            />
+          </FactRow>
+          {roomPickerOpen ? (
+            <FactRow label="Rooms">
+              <CheckboxMultiSelect
+                hideLabel
+                label={`Rooms for ${who}`}
+                dataAttr="listing-v2-space-who"
+                variant="cell"
+                className="min-w-[150px] max-w-[240px]"
+                options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
+                selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
+                selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
+                emptyLabel="Pick rooms"
+                onChange={(next) => {
+                  const nextIds = encodeSharedSpaceAccessPick({
+                    nextSelected: next,
+                    roomIds,
+                    previousAccessIds: space.roomAccessIds,
+                  });
+                  if (sharedSpaceIsEveryone(nextIds, roomIds)) {
+                    setRoomPickerOpen(false);
+                  }
+                  onChange({ roomAccessIds: nextIds });
+                }}
+              />
+            </FactRow>
+          ) : null}
+        </>
       )}
+      <FactRow label="Description">
+        <Textarea className="max-w-[280px]" rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
+      </FactRow>
+      <div className="px-3.5 py-2">
+        <ListingMediaRow
+          photos={<PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />}
+          video={<VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />}
+        />
+      </div>
       <MoreRows dataAttr="listing-v2-space-more">
         <FactRow label="What is in it">
           <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
         </FactRow>
         <FactRow label={space.spaceKind === "outdoor" ? "Lot size" : "Size"}>
-          <SizeInput
-            who={who}
-            value={space.sizeSqft ?? 0}
-            inherited={false}
-            onCommit={(n) => onChange({ sizeSqft: n ?? undefined })}
-          />
+          <SizeInput who={who} value={space.sizeSqft ?? 0} inherited={false} onCommit={(n) => onChange({ sizeSqft: n ?? undefined })} />
         </FactRow>
-        <CardFields>
-          <Field label="Description">
-            <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
-          </Field>
-        </CardFields>
-        <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video">
-            <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
-          </Field>
-        </CardFields>
       </MoreRows>
-      <EditorDone onClick={onDone} dataAttr="listing-v2-space-done" />
     </>
   );
 }
@@ -1815,88 +1855,149 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const spaces = sub.sharedSpaces ?? [];
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
-  /** The listing's ground floor — where a new space starts. */
   const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
 
   const writeSpace = (id: string, next: ManagerSharedSpaceSubmission) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === id ? next : sp)) });
   const patchSpace = (space: ManagerSharedSpaceSubmission, p: Partial<ManagerSharedSpaceSubmission>) => writeSpace(space.id, { ...space, ...p });
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
-  const accessSummary = (space: ManagerSharedSpaceSubmission) =>
-    sharedSpaceAccessTriggerLabel(
-      space.roomAccessIds,
-      rooms.map((room) => room.id),
+  const spaceLabel = (space: ManagerSharedSpaceSubmission, i: number) =>
+    space.name.trim() || SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label || `Shared space ${i + 1}`;
+  const sameAsOptions = (space: ManagerSharedSpaceSubmission) => [
+    { value: "", label: "Set for this space" },
+    ...spaces.filter((s) => s.id !== space.id).map((s) => ({ value: s.id, label: `Same as ${spaceLabel(s, spaces.indexOf(s))}` })),
+  ];
+  const sameAsValue = (space: ManagerSharedSpaceSubmission) =>
+    sharedSpaceSetupIsBlank(space) ? "" : spaces.find((s) => s.id !== space.id && sharedSpaceSetupMatches(s, space))?.id ?? "";
+  const applySameAs = (space: ManagerSharedSpaceSubmission, otherId: string) => {
+    if (!otherId) return;
+    const source = spaces.find((s) => s.id === otherId);
+    if (!source) return;
+    writeSpace(space.id, copySharedSpaceSetupFrom(source, space));
+  };
+  const factsFor = (space: ManagerSharedSpaceSubmission) => {
+    const type = SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label;
+    const floorShown = space.location || groundFloor || "Floor not set";
+    const who = wholePlace
+      ? ""
+      : sharedSpaceAccessTriggerLabel(space.roomAccessIds, rooms.map((r) => r.id));
+    return (
+      <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
+        {type ? <span>{type}</span> : null}
+        <span>{floorShown}</span>
+        {who ? <span>{who}</span> : null}
+      </span>
     );
-  const summaryFor = (space: ManagerSharedSpaceSubmission) =>
-    [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
-      .filter(Boolean)
-      .join(" · ");
+  };
+
+  const addSpace = (kind?: ManagerSharedSpaceSubmission["spaceKind"]) => {
+    const id = `space-${crypto.randomUUID()}`;
+    const blank: ManagerSharedSpaceSubmission = {
+      id,
+      name: kind ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",
+      spaceKind: kind,
+      location: groundFloor,
+      detail: "",
+      amenitiesText: "",
+      photoDataUrls: [],
+      videoDataUrl: null,
+      roomAccessIds: encodeSharedSpaceEveryone(),
+    };
+    patch({ sharedSpaces: [...spaces, blank] });
+    setOpen(id);
+  };
 
   return (
     <StepColumn>
-      <StepHeading title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`} />
+      <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+        <StepHeading title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm"
+              aria-label="Add shared space"
+              data-attr="listing-v2-add-space-icon"
+            >
+              <LayoutGrid className="h-5 w-5" aria-hidden />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {SHARED_SPACE_KIND_OPTIONS.map((opt) => (
+              <DropdownMenuItem key={opt.id} onClick={() => addSpace(opt.id)}>
+                {opt.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       {spaces.map((space, i) => {
         const isOpen = open === space.id;
-        const label = space.name.trim() || `Shared space ${i + 1}`;
+        const label = spaceLabel(space, i);
         return (
           <RecordCard
             key={space.id}
+            propertyEditor
             name={space.name}
             nameLabel={`Name for shared space ${i + 1}`}
-            namePlaceholder="Kitchen"
+            namePlaceholder={SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label ?? "Kitchen"}
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
-            onDuplicate={() => {
-              const copy = duplicateSharedSpaceEntry(space);
-              const idx = spaces.findIndex((sp) => sp.id === space.id);
-              patch({ sharedSpaces: [...spaces.slice(0, idx + 1), copy, ...spaces.slice(idx + 1)] });
-              setOpen(copy.id);
-            }}
-            onRemove={() => {
-              patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
-              if (open === space.id) setOpen(null);
-            }}
-            removeLabel={`Remove ${label}`}
-            summary={summaryFor(space)}
+            facts={factsFor(space)}
+            headerEnd={
+              <div className="pr9-acts flex shrink-0 items-center gap-0.5">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]" aria-label={`Actions for ${label}`}>
+                      <MoreHorizontal className="h-5 w-5" aria-hidden />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const idx = spaces.findIndex((s) => s.id === space.id);
+                        const copy = duplicateSharedSpaceEntry(space);
+                        patch({ sharedSpaces: [...spaces.slice(0, idx + 1), copy, ...spaces.slice(idx + 1)] });
+                        setOpen(copy.id);
+                      }}
+                    >
+                      Duplicate
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toggle(space.id)}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-700"
+                      onClick={() => {
+                        patch({ sharedSpaces: spaces.filter((s) => s.id !== space.id) });
+                        if (open === space.id) setOpen(null);
+                      }}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            }
             open={isOpen}
             onToggle={() => toggle(space.id)}
             toggleLabel={label}
             dataAttr="listing-v2-space-card"
           >
             <div data-attr="listing-v2-space-editor">
-              <SharedSpaceCardBody
+              <ListingSharedSpaceEditorBody
+                key={space.id}
                 space={space}
                 who={label}
                 rooms={rooms}
                 wholePlace={wholePlace}
                 storiesId={sub.listingStoriesId}
                 onChange={(p) => patchSpace(space, p)}
-                onDone={() => setOpen(null)}
+                sameAsOptions={sameAsOptions(space)}
+                sameAsValue={sameAsValue(space)}
+                onSameAs={(id) => applySameAs(space, id)}
               />
             </div>
           </RecordCard>
         );
       })}
-
-      <AddRowButton
-        label="Add shared space"
-        icon={LayoutGrid}
-        dataAttr="listing-v2-add-space"
-        onClick={() => {
-          const id = `space-${Date.now()}`;
-          const blank: ManagerSharedSpaceSubmission = {
-            id,
-            name: "",
-            location: groundFloor,
-            detail: "",
-            amenitiesText: "",
-            photoDataUrls: [],
-            videoDataUrl: null,
-            roomAccessIds: encodeSharedSpaceEveryone(),
-          };
-          patch({ sharedSpaces: [...spaces, blank] });
-          setOpen(id);
-        }}
-      />
     </StepColumn>
   );
 }

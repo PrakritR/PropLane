@@ -17,7 +17,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToS
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { EVERYONE_ACCESS_VALUE, encodeSharedSpaceEveryone } from "@/lib/listing-shared-space-access";
+import { encodeSharedSpaceEveryone } from "@/lib/listing-shared-space-access";
 
 afterEach(() => cleanup());
 
@@ -85,8 +85,28 @@ const pickFloor = (label: string, value: string) => {
   fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
   fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
 };
+const pickListOption = (triggerLabel: string | RegExp, optionName: string) => {
+  const trigger = screen.getByRole("button", { name: triggerLabel });
+  fireEvent.click(trigger);
+  const option = screen.getByRole("option", { name: optionName });
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+};
 /** A record's rows live inside its card; open it to reach them. */
 const openCard = (label: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${label}` }));
+const openActionsMenu = (cardLabel: string) => {
+  const trigger = screen.getByRole("button", { name: `Actions for ${cardLabel}` });
+  fireEvent.pointerDown(trigger, { button: 0 });
+  fireEvent.click(trigger);
+};
+const openAddMenu = (ariaLabel: string) => {
+  const trigger = screen.getByRole("button", { name: ariaLabel });
+  fireEvent.pointerDown(trigger, { button: 0 });
+  fireEvent.click(trigger);
+};
+const closeOpenMenus = () => {
+  fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+};
 /** Render the editor and walk the rail to one step, the way a manager does. */
 function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmissionV1) => void) {
   render(<Editor onChange={onChange} />);
@@ -100,8 +120,9 @@ describe("bathrooms as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).toBeNull();
     openCard("Upstairs");
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-done"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-card-remove"]')).not.toBeNull();
+    openActionsMenu("Upstairs");
+    expect(screen.getByText("Duplicate")).toBeTruthy();
+    closeOpenMenus();
     expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).toBeNull();
   });
 
@@ -126,9 +147,10 @@ describe("bathrooms as cards", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
     openCard("Upstairs");
-    const who = screen.getByRole("button", { name: "Who uses Upstairs" });
-    expect(who.textContent).toContain("No rooms yet");
-    fireEvent.click(who);
+    pickListOption(/Bathroom type for Upstairs/i, "Shared");
+    const roomsTrigger = screen.getByRole("button", { name: /Rooms for Upstairs/i });
+    expect(roomsTrigger.textContent).toContain("Pick rooms");
+    fireEvent.click(roomsTrigger);
     const roomA = screen.getByRole("option", { name: "Room A" });
     fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
@@ -136,10 +158,11 @@ describe("bathrooms as cards", () => {
     fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual([]);
-    // Rooms step: the room card offers only the access kind.
+    // Rooms step: access kind is Private / Shared / None.
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
     openCard("Room A");
-    expect(floorOptions("Bathroom access for Room A")).toEqual(["ensuite", "shared", "hall"]);
+    const accessOptions = floorOptions("Bathroom access for Room A");
+    expect(accessOptions).toEqual(["private", "shared", "none"]);
   });
 });
 
@@ -148,36 +171,32 @@ describe("shared spaces as cards", () => {
     open("spaces");
     expect(document.querySelectorAll('[data-attr="listing-v2-space-card"]').length).toBe(2);
     const summaries = [...document.querySelectorAll('[data-attr="listing-v2-space-card"]')].map((c) => c.textContent ?? "");
-    expect(summaries[0]).toContain("Everyone");
+    expect(summaries[0]).toContain("All rooms");
     expect(summaries[1]).toContain("1 room");
     openCard("Kitchen");
     expect(document.querySelector('[data-attr="listing-v2-space-editor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-space-done"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-space-card-remove"]')).not.toBeNull();
-    const who = screen.getByRole("button", { name: "Who may use Kitchen" });
-    expect(who.textContent).toContain("Everyone");
+    openActionsMenu("Kitchen");
+    expect(screen.getByText("Delete")).toBeTruthy();
+    closeOpenMenus();
+    const who = screen.getByRole("button", { name: "Who uses Kitchen" });
+    expect(who.textContent).toContain("All rooms");
     fireEvent.click(who);
     const options = [...document.getElementById(who.getAttribute("aria-controls")!)!.querySelectorAll("[role='option']")];
-    expect(options[0]?.getAttribute("data-field-select-option-value")).toBe(EVERYONE_ACCESS_VALUE);
-    expect(options[0]?.textContent).toContain("Everyone");
-    expect(options.map((option) => option.textContent ?? "")).toEqual(expect.arrayContaining([
-      expect.stringContaining("Everyone"),
-      expect.stringContaining("Room A"),
-      expect.stringContaining("Room B"),
-    ]));
+    expect(options.map((o) => o.textContent?.replace(/✓/g, "").trim())).toEqual(["All rooms", "Select rooms"]);
   });
 
   it("Everyone in the menu writes empty access; unticking a room narrows", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("spaces", (s) => seen.push(s));
     openCard("Kitchen");
-    const who = screen.getByRole("button", { name: "Who may use Kitchen" });
-    fireEvent.click(who);
+    pickListOption("Who uses Kitchen", "Select rooms");
+    const roomsTrigger = screen.getByRole("button", { name: /Rooms for Kitchen/i });
+    fireEvent.click(roomsTrigger);
     const roomA = screen.getByRole("option", { name: "Room A" });
     fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.sharedSpaces!.find((space) => space.id === "s1")?.roomAccessIds).toEqual(["r2"]);
-    const everyone = screen.getByRole("option", { name: "Everyone" });
+    const everyone = screen.getAllByRole("option", { name: /All rooms/ }).at(-1)!;
     fireEvent.pointerDown(everyone, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(everyone, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.sharedSpaces!.find((space) => space.id === "s1")?.roomAccessIds).toEqual([]);
@@ -198,19 +217,20 @@ describe("shared spaces as cards", () => {
     pickFloor("Floor for Kitchen", options[1]!);
     expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(options[1]);
     expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s2")?.location ?? "").toBe("");
-    // Add: ground floor, Everyone, everything else blank; the legacy block is never written.
-    fireEvent.click(screen.getByRole("button", { name: "Add shared space" }));
+    // Add: pick a kind from the menu — ground floor, All rooms, blank detail.
+    openAddMenu("Add shared space");
+    fireEvent.click(screen.getByText("Laundry"));
     const spaces = seen.at(-1)!.sharedSpaces!;
     expect(spaces.length).toBe(3);
     const added = spaces[2]!;
     expect(added.location).toBe(options[0]);
     expect(added.roomAccessIds).toEqual(encodeSharedSpaceEveryone());
-    expect(added.name).toBe("");
+    expect(added.name).toBe("Laundry");
     expect(added.detail).toBe("");
     expect(added.amenitiesText).toBe("");
     expect(added.photoDataUrls).toEqual([]);
     expect(added.videoDataUrl).toBeNull();
-    expect(added.spaceKind).toBeUndefined();
+    expect(added.spaceKind).toBe("laundry");
     expect(seen.at(-1)!.sharedSpaceDefaults).toBeUndefined();
   });
 

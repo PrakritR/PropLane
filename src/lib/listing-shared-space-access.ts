@@ -1,16 +1,18 @@
 /**
  * Who may use a shared space.
  *
- * Everyone is an empty `roomAccessIds` list. A list that names every current
- * room also reads as Everyone and is written back as empty, so a later room
+ * All rooms is an empty `roomAccessIds` list. A list that names every current
+ * room also reads as All rooms and is written back as empty, so a later room
  * still has access — the same rule as fee “all rooms”.
  *
- * There is no “nobody” encoding. Clearing the last room or unticking Everyone
- * while every room is still selected stays Everyone, and a stored list whose
- * ids all belong to rooms that no longer exist reads as Everyone too.
+ * There is no “nobody” encoding. Clearing the last room or unticking All rooms
+ * while every room is still selected stays All rooms, and a stored list whose
+ * ids all belong to rooms that no longer exist reads as All rooms too.
  */
 
 export const EVERYONE_ACCESS_VALUE = "__everyone__";
+
+export const SHARED_SPACE_ALL_ROOMS_LABEL = "All rooms";
 
 export function sharedSpaceIsEveryone(
   roomAccessIds: readonly string[] | undefined,
@@ -56,7 +58,7 @@ export function sharedSpaceAccessTriggerLabel(
   roomAccessIds: readonly string[] | undefined,
   roomIds: readonly string[],
 ): string {
-  if (sharedSpaceIsEveryone(roomAccessIds, roomIds)) return "Everyone";
+  if (sharedSpaceIsEveryone(roomAccessIds, roomIds)) return SHARED_SPACE_ALL_ROOMS_LABEL;
   const n = roomIds.filter((id) => (roomAccessIds ?? []).includes(id)).length;
   return n === 1 ? "1 room" : `${n} rooms`;
 }
@@ -65,7 +67,7 @@ export function sharedSpaceAccessOptions(
   rooms: readonly { id: string; name: string }[],
 ): { value: string; label: string }[] {
   return [
-    { value: EVERYONE_ACCESS_VALUE, label: "Everyone" },
+    { value: EVERYONE_ACCESS_VALUE, label: SHARED_SPACE_ALL_ROOMS_LABEL },
     ...rooms.map((room, i) => ({
       value: room.id,
       label: room.name.trim() || `Room ${i + 1}`,
@@ -90,7 +92,7 @@ export function sharedSpaceAccessNames(
   rooms: readonly { id: string; name?: string }[],
 ): string {
   const roomIds = rooms.map((room) => room.id);
-  if (sharedSpaceIsEveryone(roomAccessIds, roomIds)) return "Everyone";
+  if (sharedSpaceIsEveryone(roomAccessIds, roomIds)) return SHARED_SPACE_ALL_ROOMS_LABEL;
   return rooms
     .filter((room) => (roomAccessIds ?? []).includes(room.id))
     .map((room) => room.name?.trim())

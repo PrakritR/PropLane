@@ -31,7 +31,7 @@ describe("house details autosave", () => {
     // exactly like a successful one and the edit would be lost silently.
     const persist = panel.split("if (!ok) {")[1]?.slice(0, 400) ?? "";
     expect(persist).toContain('setStatus("error")');
-    expect(persist).toContain("return;");
+    expect(persist).toMatch(/return(?:\s+false)?;/);
     expect(persist).not.toContain("setDirty(false)");
   });
 

@@ -86,11 +86,11 @@ describe("manager move-in panel", () => {
     expect(panel).not.toContain("earliest move-in date");
   });
 
-  it("expands house and room cards in place", () => {
-    expect(panel).toContain("HouseDetailsExpandable");
+  it("lists whole-house and per-room move-in as rows with share and copy chrome", () => {
+    expect(panel).toContain("PortalRecordListSurface");
     expect(panel).toContain('data-attr="property-move-in-share"');
     expect(panel).toContain('data-attr="property-move-in-copy"');
-    expect(panel).not.toContain("PortalRecordListSurface");
+    expect(panel).toContain('data-attr="property-move-in-list"');
     expect(panel).not.toContain("hideBackText");
     expect(panel).not.toContain("property-move-in-house-select");
     expect(panel).not.toContain("property-move-in-bulk-edit");
