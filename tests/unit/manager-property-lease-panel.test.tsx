@@ -52,8 +52,8 @@ describe("ManagerPropertyLeasePanel", () => {
       </AppUiProvider>,
     );
 
-    expect(screen.getByRole("link", { name: "Applications" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Leases" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Leases/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Applications/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lease settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 

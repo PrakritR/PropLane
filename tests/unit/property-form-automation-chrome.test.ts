@@ -24,11 +24,14 @@ describe("Application / Lease Bookings chrome", () => {
       expect(file).not.toMatch(/>\s*Settings\s*</);
     }
 
-    // Property Application / Lease tabs use routed Applications | Leases underline
-    // nav — no settings gear on the property record page (C228 automation lives
-    // on Settings -> Forms and on each form editor).
+    // Property Application / Lease pages each show ONE underlined tab (Applications, or Leases)
+    // with its count, never the other section's tab — no settings gear on the property record
+    // page (C228 automation lives on Settings -> Forms and on each form editor).
     expect(application).toContain("propertyFormsSectionNav");
     expect(lease).toContain("propertyFormsSectionNav");
+    const chrome = src("src/components/portal/property-form-automation-chrome.tsx");
+    expect(chrome).not.toContain("applicationHref");
+    expect(chrome).not.toContain("leaseHref");
     expect(application).not.toContain('settingsDataAttr="property-application-settings-open"');
     expect(lease).not.toContain('settingsDataAttr="property-lease-settings-open"');
     expect(lease).not.toContain("PropertyLeaseCatalogSettingsModal");
