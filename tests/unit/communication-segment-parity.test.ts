@@ -25,6 +25,7 @@ describe("Communication status and action parity", () => {
     expect(unified).toContain("embedded");
     expect(commandStack).toContain('data-attr="portal-list-command-embedded-row"');
     expect(unified).toContain('listVariant="manager"');
+    expect(unified).toContain('layout="inline"');
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*address=\{row\.address\}/);
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
   });

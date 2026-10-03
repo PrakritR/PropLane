@@ -1,5 +1,6 @@
 "use client";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
+import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Archive, ArchiveRestore, Info, Trash2 } from "lucide-react";
@@ -112,12 +113,16 @@ function inboxThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage
         lastShownSubject,
       );
       lastShownSubject = fields.lastShownSubject;
+      const direction = inboxTurnDirection(thread, message, i, folder);
       bubbles.push({
         id: message.id,
         author: message.from,
         body: fields.body,
         at: message.at,
-        direction: inboxTurnDirection(thread, message, i, folder),
+        direction,
+        delivery:
+          message.delivery ??
+          (direction === "outbound" ? ("sent" as const) : undefined),
         channel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: message.attachments,
@@ -145,6 +150,7 @@ function smsThreadBubbles(
       // not mix two date formats.
       at: Number.isNaN(at) ? "" : formatInboxStamp(new Date(at)),
       direction: message.direction === "outbound" ? "outbound" : "inbound",
+      delivery: message.direction === "outbound" ? ("sent" as const) : undefined,
       channel: "sms" as const,
     };
   });
@@ -163,9 +169,10 @@ function mergeThreadBubbles(
   emailBubbles: InboxBubbleMessage[],
   smsBubbles: InboxBubbleMessage[],
 ): InboxBubbleMessage[] {
-  return [...emailBubbles, ...smsBubbles].sort(
+  const merged = [...emailBubbles, ...smsBubbles].sort(
     (a, b) => (parseInboxStampMs(a.at) ?? 0) - (parseInboxStampMs(b.at) ?? 0),
   );
+  return annotateInboxOutboundReadReceipts(merged);
 }
 
 /** Direct chat when this resident has no inbox thread yet — same shell as Communication. */

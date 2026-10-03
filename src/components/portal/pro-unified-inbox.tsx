@@ -789,7 +789,15 @@ export function ManagerUnifiedInbox({
           : t.subject,
         preview: isPropLaneAssistantInboxThread(t)
           ? propLaneAssistantListPreview(t, listSegment)
-          : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+          : communicationInboxListPreview(
+              lastMsg?.body?.trim()
+                ? lastMsg.body
+                : lastMsg
+                  ? ""
+                  : (t.preview ?? ""),
+              listSegment,
+              80,
+            ),
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
@@ -1380,6 +1388,7 @@ export function ManagerUnifiedInbox({
                 onChange={onArchivedViewChange}
                 counts={listSegmentCounts}
                 interceptNavigation
+                layout="inline"
               />
             }
             search={{

@@ -346,8 +346,12 @@ export function PortalListControlStack({
       >
         {embedded ? (
           <HorizontalScrollCapture
-            className="flex min-w-0 flex-row flex-nowrap items-center gap-1.5 px-1 py-1 sm:gap-2 sm:pr-1"
+            className={cn(
+              "flex min-w-0 flex-row flex-nowrap items-center gap-1.5 overflow-x-auto px-1 py-1 sm:gap-2 sm:pr-1",
+              "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            )}
             data-attr="portal-list-command-embedded-row"
+            {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
           >
             {showDestinations ? (
               <div className="flex shrink-0 items-center gap-2 py-0.5" data-portal-list-destination-nav>
@@ -357,7 +361,7 @@ export function PortalListControlStack({
             ) : null}
             {showToolRow || chipsNode ? (
               <div
-                className="flex min-w-[12rem] flex-1 flex-nowrap items-center gap-1 sm:min-w-[16rem] sm:gap-1.5"
+                className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 sm:gap-1.5"
                 data-attr="portal-list-command-utilities"
               >
                 {searchNode}

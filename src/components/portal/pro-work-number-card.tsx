@@ -302,7 +302,7 @@ export function ManagerWorkNumberCard() {
 
   return (
     <div
-      className="shrink-0 flex flex-col gap-0.5 border-b border-border px-3 pb-1.5 pt-2"
+      className="shrink-0 flex flex-col gap-0.5 border-b border-border/60 px-2.5 pb-1 pt-1.5 sm:px-3"
       data-attr="manager-work-identity"
     >
       {numberBox}

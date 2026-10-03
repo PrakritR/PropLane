@@ -650,6 +650,8 @@ export type InboxBubbleMessage = {
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
   delivery?: "sending" | "sent" | "failed";
+  /** True when a later inbound turn or provider observation confirms read. */
+  readByRecipient?: boolean;
   /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
   channel?: InboxChannel;
   /**
@@ -1175,11 +1177,14 @@ export function InboxListSegmentTabs({
   onChange,
   counts,
   interceptNavigation = false,
+  layout = "default",
 }: {
   commBase: string;
   value: InboxListSegment;
   onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
   counts?: { active?: number; archived?: number };
+  /** Manager list header — tabs size to content inside one embedded toolbar row. */
+  layout?: "default" | "inline";
   /**
    * Update client state instead of a full route navigation on a plain left
    * click (no modifier key, not opening in a new tab) — used by the manager
@@ -1220,7 +1225,7 @@ export function InboxListSegmentTabs({
         appearance="command"
         ariaLabel="Conversation folders"
         activeId={selected}
-        className="-mb-px w-full gap-1 border-0 bg-transparent p-0"
+        className={layout === "inline" ? "-mb-px w-auto shrink-0 gap-1 border-0 bg-transparent p-0" : "-mb-px w-full gap-1 border-0 bg-transparent p-0"}
         items={[
           {
             id: "active",
@@ -1295,7 +1300,7 @@ export function InboxBubble({
     !sending &&
     !failed &&
     (message.delivery === "sent" || message.delivery === undefined) &&
-    (message.status?.toLowerCase().includes("read") ?? false);
+    (message.readByRecipient === true || (message.status?.toLowerCase().includes("read") ?? false));
 
   const metaCaption = (() => {
     if (failed) return "Couldn't send";

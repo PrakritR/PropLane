@@ -92,6 +92,7 @@ import {
   INBOX_THREAD_ICON_BTN,
   INBOX_THREAD_ICON_BTN_DANGER,
 } from "./portal-inbox-ui";
+import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
   useInboxRowSelection,
   sendManualScheduledMessageNow,
@@ -1484,7 +1485,7 @@ export const ManagerInbox = forwardRef<
     // only when the subject changes ("Re: Propert" three times shows it once).
     // Quoted Gmail/Outlook history is stripped so the bubble is the new text.
     let lastEmailSubject = "";
-    return inboxThreadMessages(activeThread).map((m, i) => {
+    const bubbles = inboxThreadMessages(activeThread).map((m, i) => {
       // Root direction follows the folder (a Sent thread we authored). Appended
       // messages default to outbound (a reply we sent), but a new message
       // delivered into this person-thread carries an explicit direction so an
@@ -1523,6 +1524,7 @@ export const ManagerInbox = forwardRef<
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });
+    return annotateInboxOutboundReadReceipts(bubbles);
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
   const latestInboundMessageText = useMemo(() => {
