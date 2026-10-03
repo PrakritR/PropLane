@@ -126,8 +126,9 @@ export function resolveResidentEditStage(input: {
   if (movedOut) {
     stage = "moved_out";
   } else if (lease) {
-    if (DRAFT_STATUSES.includes(lease.status)) stage = "lease_draft";
-    else if (SENT_STATUSES.includes(lease.status)) stage = "lease_sent";
+    const status = lease.status;
+    if (status && DRAFT_STATUSES.includes(status)) stage = "lease_draft";
+    else if (status && SENT_STATUSES.includes(status)) stage = "lease_sent";
     else if (lease.status === "Fully Signed" || lease.bucket === "signed") {
       signedAtIso = lease.fullySignedAt ?? lease.residentSignedAt ?? lease.managerSignedAt ?? null;
       if (input.row.manuallyAdded && (lease.externallySignedLease || !hasPipelineSignatures(lease))) {

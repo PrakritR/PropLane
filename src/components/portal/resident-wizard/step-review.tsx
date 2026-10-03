@@ -33,7 +33,7 @@ export function ReviewStep({
   mode?: "person" | "tour" | "application" | "edit";
   editBaseline?: ResidentEditBaseline;
 }) {
-  const todo = useMemo(() => (mode === "edit" ? [] : thingsToFinish(form, mode === "edit" ? "person" : mode)), [form, mode]);
+  const todo = useMemo(() => (mode === "edit" ? [] : thingsToFinish(form, mode)), [form, mode]);
   const editLines = useMemo(() => {
     if (mode !== "edit" || !editBaseline) return [];
     return residentEditReviewLines(

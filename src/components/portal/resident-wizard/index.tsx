@@ -587,9 +587,7 @@ export function AddResidentWizard({
       }
     >
       {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
-      {stepId === "home" ? (
-        <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} editStage={editContext?.stage} />
-      ) : null}
+      {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
       {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
       {stepId === "lease" ? (
         <LeaseStep

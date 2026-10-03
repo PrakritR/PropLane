@@ -2247,7 +2247,7 @@ export function ManagerResidents({
       securityDeposit: savedDeposit || app?.managerSecurityDepositOverride?.trim() || "",
       notes: row.manualResidentDetails?.notes || "",
       alsoCreate: [...ALSO_CREATE_IDS],
-      application: app ? { ...app } : {},
+      application: app ? ({ ...app } as AddPersonForm["application"]) : {},
     };
     setEditResidentForm(editForm);
     setEditResidentContext({
