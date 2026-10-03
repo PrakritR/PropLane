@@ -59,6 +59,7 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
   const [services, setServices] = useState<Array<{ id: string; title: string; vendorUserId: string }>>([]);
   const [destination, setDestination] = useState<string | null>(null);
   const [selected, setSelected] = useState("");
+  const [availableBalanceCents, setAvailableBalanceCents] = useState<number | null>(null);
   useEffect(() => setTab(tabId), [tabId]);
   useEffect(() => {
     let active = true;
@@ -73,6 +74,20 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
     fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/outgoing`).then(response => response.json()).then(data => { if (active) setDestination(data.destination ?? null); }).catch(() => {});
     return () => { active = false; };
   }, [pay?.id, vendorUserId, rows]);
+  useEffect(() => {
+    if (!pay) { setAvailableBalanceCents(null); return; }
+    let active = true;
+    fetch("/api/portal/proplane-balance").then(response => response.json()).then(data => {
+      if (!active) return;
+      const cents = data?.enabled ? Number(data.availableCents ?? 0) : 0;
+      setAvailableBalanceCents(Number.isFinite(cents) ? cents : 0);
+    }).catch(() => { if (active) setAvailableBalanceCents(0); });
+    return () => { active = false; };
+  }, [pay?.id]);
+  useEffect(() => {
+    if (!pay || availableBalanceCents === null) return;
+    if (pay.totalCents > availableBalanceCents) setSource("bank");
+  }, [pay?.id, pay?.totalCents, availableBalanceCents]);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
@@ -148,14 +163,17 @@ export function ManagerOutgoingInvoicesPanel({ tabId = "to-pay", vendorUserId, b
       const data = await res.json(); if (!res.ok) { setActionError(data.error || "Could not create bill."); return; }
       setPicker(false); await refresh(); showToast("Bill created.");
     } }}><div className="space-y-4"><FieldSingleSelect label="Payment" value={newBill ? "new" : "invoice"} onChange={value => setNewBill(value === "new")} options={[{ value: "invoice", label: "Approved invoice" }, { value: "new", label: "New bill" }]} />{newBill ? <><FieldSingleSelect label="Service" value={serviceId} onChange={setServiceId} placeholder="Choose service" options={services.filter(service => !vendorUserId || service.vendorUserId === vendorUserId).map(service => ({ value: service.id, label: service.title }))} /><label>Description<Input value={billTitle} onChange={event => setBillTitle(event.target.value)} /></label><label>Amount<Input inputMode="decimal" value={billAmount} onChange={event => setBillAmount(event.target.value)} /></label></> : <FieldSingleSelect label="Invoice" value={selected} onChange={setSelected} placeholder="Choose an approved invoice" options={unpaid.map(row => ({ value: row.id, label: `${row.vendorName} · ${row.invoiceNumber || row.serviceTitle || "Invoice"} · ${money(row.totalCents)}` }))} />}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
-    <PortalDialog open={Boolean(pay)} onClose={() => { setPay(null); setActionError(""); }} title="Pay vendor" primaryAction={{ label: "Pay", onClick: async () => {
+    <PortalDialog open={Boolean(pay)} onClose={() => { setPay(null); setActionError(""); }} title="Pay vendor" primaryAction={{ label: pay ? `Pay ${money(pay.totalCents)}` : "Pay", disabled: Boolean(pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents), onClick: async () => {
       if (!pay) return;
       if (source === "bank") { setCheckout(pay); setPay(null); return; }
       const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(pay.id)}/pay-from-balance`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) { setActionError(data.error || "Could not pay invoice."); return; }
+      if (!res.ok) {
+        if (res.status === 422 && data.code === "insufficient_balance") { setSource("bank"); setCheckout(pay); setPay(null); return; }
+        setActionError(data.error || "Could not pay invoice."); return;
+      }
       setPay(null); showToast("Payment sent."); await refresh();
-    } }}><div className="space-y-4"><div className="flex justify-between"><span>{pay?.vendorName}</span><strong>{money(pay?.totalCents ?? 0)}</strong></div>{destination ? <div className="flex justify-between"><span>Paid to</span><span>{destination}</span></div> : null}<FieldSingleSelect label="Pay from" value={source} onChange={setSource} options={[{ value: "balance", label: "PropLane balance" }, { value: "bank", label: "Bank account" }]} />{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
+    } }}><div className="space-y-4"><div className="flex justify-between"><span>{pay?.vendorName}</span><strong>{money(pay?.totalCents ?? 0)}</strong></div>{destination ? <div className="flex justify-between"><span>Paid to</span><span>{destination}</span></div> : null}<FieldSingleSelect label="Pay from" value={source} onChange={setSource} options={[{ value: "balance", label: availableBalanceCents === null ? "PropLane balance" : `PropLane balance · ${money(availableBalanceCents)} available` }, { value: "bank", label: "Bank account" }]} />{pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents ? <p role="status" className="text-sm text-muted">Short {money(pay.totalCents - availableBalanceCents)} — choose bank or reduce the amount.</p> : null}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
     <PortalDialog open={Boolean(actionRow)} onClose={() => setActionRow(null)} title={action === "schedule" ? "Schedule payment" : "Mark paid outside PropLane"} primaryAction={{ label: action === "schedule" ? "Schedule payment" : "Record payment", onClick: async () => { if (actionRow && await mutate(actionRow, action, action === "offline" ? `${actionDate}T12:00:00-07:00` : actionDate, offlineMethod)) setActionRow(null); } }}><div className="space-y-4"><label>Date<Input type="date" value={actionDate} onChange={event => setActionDate(event.target.value)} /></label>{action === "offline" ? <FieldSingleSelect label="Method" value={offlineMethod} onChange={setOfflineMethod} options={["Cash", "Check", "Bank transfer", "Other"].map(method => ({ value: method, label: method }))} /> : null}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
     <VendorInvoiceManagerPaySheet invoice={checkout} onClose={() => { setCheckout(null); void refresh(); }} />
 

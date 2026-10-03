@@ -108,7 +108,7 @@ async function checkoutOwner(
     const { data, error } = await db.from("manager_application_records").select("manager_user_id").eq("id", applicationId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
-  } else if (purpose === "vendor_invoice_pay") {
+  } else if (purpose === VENDOR_INVOICE_PAY_PURPOSE || purpose === VENDOR_INVOICE_DIRECT_PAY_PURPOSE) {
     owner = session.metadata?.manager_user_id?.trim() ?? "";
   } else {
     const purchase = await resolveManagerCheckoutPurchase(db, session);

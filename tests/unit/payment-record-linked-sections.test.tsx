@@ -27,6 +27,10 @@ vi.mock("@/lib/portal-base-path-client", () => ({
   usePaidPortalBasePath: () => "/portal",
 }));
 
+vi.mock("@/components/portal/workspace-provider", () => ({
+  useWorkspaces: () => ({ active: { name: "Seattle Homes" } }),
+}));
+
 vi.mock("@/components/portal/payment-schedule-ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/portal/payment-schedule-ui")>();
   return {

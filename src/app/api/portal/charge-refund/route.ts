@@ -9,6 +9,7 @@ import {
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
     const ctx: ChargeRefundContext = {
       kind: String(charge.kind ?? ""),
       status: String(row.status ?? charge.status ?? ""),
-      paidCents: Number(payment?.amount_cents ?? 0),
+      paidCents: resolveChargePaidCents(payment?.amount_cents, charge),
       alreadyRefundedCents: Number(charge.refundedCents ?? 0),
       stripeChargeId: (payment?.stripe_charge_id as string | null) ?? null,
       // An ACH debit can bounce after it looks paid; only a settled payment may be refunded.

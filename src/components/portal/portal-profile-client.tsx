@@ -732,12 +732,7 @@ export function PortalProfileClient({
       case "profile":
         return personalInfoSection;
       case "payments":
-        return (
-          <>
-            <HubSettingsModulePane tab="payouts" />
-            <HubSettingsModulePane tab="payments" />
-          </>
-        );
+        return <HubSettingsModulePane tab="payouts" />;
       case "billing":
         // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
         // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,

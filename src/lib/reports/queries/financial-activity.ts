@@ -49,7 +49,10 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
   if (filters.includeAccountMovements && !filters.propertyId) {
     rows.push(...await loadAccountFinancialActivity(db, managerUserId, { from, to }));
   }
-  if (filters.includeAccountMovements && !filters.propertyId) await loadActivityRunningBalances(db, managerUserId, rows);
+  let openingBalanceCents = 0;
+  if (filters.includeAccountMovements && !filters.propertyId) {
+    openingBalanceCents = await loadActivityRunningBalances(db, managerUserId, rows);
+  }
   let heldDepositsCents = 0;
   let deposits = db.from("security_deposit_ledger").select("id, amount_held_cents").eq("manager_user_id", managerUserId).order("id", { ascending: true });
   deposits = applyReportPropertyScope(deposits, filters);
@@ -63,6 +66,24 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
       if (!Number.isSafeInteger(heldDepositsCents)) throw new Error("Deposit total exceeds supported precision.");
     }
     if (!data || data.length < 500) break;
+  }
+  if (openingBalanceCents !== 0) {
+    rows.push({
+      id: "opening-balance",
+      date: from,
+      description: "Opening balance",
+      amountCents: 0,
+      amount: centsToUsd(0),
+      category: "Opening balance",
+      categoryCode: "opening_balance",
+      accountType: "equity",
+      property: "Account · all workspaces",
+      propertyId: null,
+      who: "PropLane",
+      source: "PropLane",
+      entryType: "adjustment",
+      runningBalanceCents: openingBalanceCents,
+    });
   }
   rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
   return { id: "financial-activity", title: "Ledger", columns: [

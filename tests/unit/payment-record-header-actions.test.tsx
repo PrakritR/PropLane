@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 //
-// PLAN-0920-2357 stream B: the payment record page's header icon actions
-// ("Record payment", "Send reminder", "Delete") used to fall through to a
-// visible "Coming soon" toast for every id but "send-reminder". Record
-// payment now reuses the same reversible mark-as-paid path the detail page's
-// own "Mark as paid" button uses, and Delete calls `removePayment`.
+// C2-PAY1/PAY3: header icons (take payment, mark paid offline sheet, send
+// reminder, edit, download, delete on unpaid; refund + move to pending on paid).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
@@ -102,14 +99,13 @@ function renderDetail(row: DemoManagerPaymentLedgerRow) {
 }
 
 describe("payment record page header actions", () => {
-  it("wires Record payment to the reversible mark-as-paid path — never Coming soon", async () => {
+  it("opens the Mark paid offline sheet from the header — never Coming soon", () => {
     renderDetail(sampleRow());
-    const button = document.querySelector('[data-attr="record-header-action-record-payment"]')!;
+    const button = document.querySelector('[data-attr="record-header-action-mark-paid"]')!;
+    expect(button).toBeTruthy();
     fireEvent.click(button);
-
-    await waitFor(() => expect(markHouseholdChargePaid).toHaveBeenCalledTimes(1));
-    expect(markHouseholdChargePaid).toHaveBeenCalledWith("hc_test_1", "mgr-test", undefined);
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Marked as paid.", expect.anything()));
+    expect(document.body.textContent).toContain("Mark paid offline");
+    expect(markHouseholdChargePaid).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalledWith("Coming soon");
   });
 
@@ -126,15 +122,13 @@ describe("payment record page header actions", () => {
     expect(navigate).toHaveBeenCalled();
   });
 
-  it("omits Record payment AND Delete on a paid row — a lock is not a dead click (C024: Refund replaces Delete)", () => {
+  it("omits unpaid-only actions on a paid row (C2-PAY2: refund + move to pending instead)", () => {
     renderDetail(sampleRow({ bucket: "paid", statusLabel: "Paid", amountPaid: "$1,850.00", balanceDue: "$0.00" }));
-    expect(document.querySelector('[data-attr="record-header-action-record-payment"]')).toBeNull();
-    expect(document.querySelector('[data-attr="record-header-action-send-reminder"]')).toBeTruthy();
-    // C024: once a charge is marked paid, Delete no longer offers itself — it used to delete the
-    // charge line without refunding anyone and orphan the real payment line.
+    expect(document.querySelector('[data-attr="record-header-action-mark-paid"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-send-reminder"]')).toBeNull();
     expect(document.querySelector('[data-attr="record-header-action-delete"]')).toBeNull();
-    // C023: Refund takes its place as the one way to reverse money that already moved.
     expect(document.querySelector('[data-attr="record-header-action-refund"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="record-header-action-move-pending"]')).toBeTruthy();
     expect(markHouseholdChargePaid).not.toHaveBeenCalled();
   });
 

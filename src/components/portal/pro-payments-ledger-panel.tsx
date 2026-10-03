@@ -40,7 +40,9 @@ import {
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Bell, CalendarDays, RotateCcw, Trash2, Check, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { Bell, BadgeCheck, CalendarDays, HandCoins, RotateCcw, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import type { RecordSections } from "@/lib/portals/record-sections";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -318,6 +320,8 @@ export function ManagerPaymentsLedgerPanel({
   );
   const { showToast } = useAppUi();
   const confirm = useConfirm();
+  const workspaceCtx = useWorkspaces();
+  const workspaceBalanceLabel = `${workspaceCtx?.active?.name ?? "PropLane"} balance`;
   const displayScheduledMessages = useMemo(
     () => combineScheduledPaymentMessages(scheduledMessages),
     [scheduledMessages],
@@ -1292,6 +1296,40 @@ export function ManagerPaymentsLedgerPanel({
   // which has no section chrome / tabs to link a "Section →" action into).
   // Every value is read straight off `row` — nothing here is computed a
   // second way from what the sibling Resident/Service tabs already show.
+  const buildPaymentRecordHeaderActions = useCallback(
+    (row: DemoManagerPaymentLedgerRow): RecordSections["headerActions"] => {
+      const actions: RecordSections["headerActions"] = [];
+      const paid = isPaidRow(row);
+      const canEdit = Boolean(row.householdChargeId && !paid) && rowEditable(row);
+
+      if (!paid) {
+        if (row.householdChargeId) {
+          actions.push({ id: "take-payment", label: "Take payment", icon: HandCoins });
+        }
+        if (isMarkableAsPaid(row)) {
+          actions.push({ id: "mark-paid", label: "Mark paid offline", icon: BadgeCheck });
+        }
+        actions.push({ id: "send-reminder", label: "Send reminder", icon: Bell });
+        if (canEdit) {
+          actions.push({ id: "edit", label: "Edit", icon: Pencil });
+        }
+      } else {
+        if (isReturnableDepositRow(row)) {
+          actions.push({ id: "return-deposit", label: "Return deposit", icon: RotateCcw });
+        } else if (isRefundableChargeRow(row)) {
+          actions.push({ id: "refund", label: "Refund", icon: RotateCcw });
+        }
+        actions.push({ id: "move-pending", label: "Move to pending", icon: CalendarDays });
+      }
+      actions.push({ id: "download", label: "Download", icon: Download });
+      if (rowDeletable(row)) {
+        actions.push({ id: "delete", label: "Delete", icon: Trash2, tone: "danger" });
+      }
+      return actions;
+    },
+    [rowDeletable, rowEditable],
+  );
+
   const renderPaymentOverviewPanel = (row: DemoManagerPaymentLedgerRow) => {
     const charge = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
     const roomLabel = formatLedgerRoomLabel(row.roomNumber);
@@ -1322,7 +1360,15 @@ export function ManagerPaymentsLedgerPanel({
             {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
             {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
-            <RecordFactRow label="Finances" value={<PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />} />
+            <RecordFactRow
+              label={isPaidRow(row) ? "Paid into" : "Pays into"}
+              value={
+                <span className="inline-flex items-center gap-1">
+                  {workspaceBalanceLabel}
+                  <PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />
+                </span>
+              }
+            />
           </RecordFactCard>
           <RecordFactCard title="History" dataAttr="payment-overview-history">
             <ol className="space-y-4 p-4">{events.map((event, index) => <li key={`${event.at}-${index}`} className="border-l-2 border-primary/30 pl-3"><span className="block text-sm font-medium">{event.label}</span><time className="text-xs text-muted" dateTime={event.at}>{formatPacificDateTime(event.at)}</time></li>)}</ol>
@@ -2288,18 +2334,7 @@ export function ManagerPaymentsLedgerPanel({
           // anyone and orphaned the real payment line. C023: a paid charge instead offers Refund
           // (or Return deposit for a security deposit), added here rather than in
           // `record-sections.ts` since only THIS record kind, in only its paid state, offers them.
-          const headerActions = [
-            ...(isMarkableAsPaid(detailRow)
-              ? [
-                  { id: "record-payment", label: "Record payment", icon: Check },
-                  { id: "send-reminder", label: "Send reminder", icon: Bell },
-                ]
-              : []),
-            ...(isPaidRow(detailRow) ? [{ id: "send-reminder", label: "Send reminder", icon: Bell }] : []),
-            ...(isReturnableDepositRow(detailRow) ? [{ id: "return-deposit", label: "Return deposit", icon: RotateCcw }] : []),
-            ...(isRefundableChargeRow(detailRow) ? [{ id: "refund", label: "Refund", icon: RotateCcw }] : []),
-            ...(rowDeletable(detailRow) ? [{ id: "delete", label: "Delete", icon: Trash2, tone: "danger" as const }] : []),
-          ];
+          const headerActions = buildPaymentRecordHeaderActions(detailRow);
           const groups = allSections.groups;
           const sections = { ...allSections, groups, headerActions };
           // Every action `record-sections.ts` still lists for this record kind
@@ -2312,10 +2347,6 @@ export function ManagerPaymentsLedgerPanel({
           const onHeaderAction = (actionId: string) => {
             if (actionId === "send-reminder") {
               openReminderPreview(detailRow);
-              return;
-            }
-            if (actionId === "record-payment") {
-              void recordPaid(detailRow, "Marked as paid.");
               return;
             }
             if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
