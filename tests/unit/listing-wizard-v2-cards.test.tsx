@@ -91,10 +91,9 @@ describe("rooms as cards", () => {
     openCard("Room A");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
     const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
-    // "Same as" is the first row; only the important questions are otherwise on the card, everything else waits behind one More.
-    expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished"]);
-    fireEvent.click(editor.querySelector('[data-attr="listing-v2-room-more"]')!);
+    // "Same as" is the first row; every field shows — no More / Less (captain, Oct 3).
     expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished", "Room amenities"]);
+    expect(editor.textContent).not.toMatch(/More ▾|Less ▴/);
     expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).toBeNull();
     expect([...editor.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Duplicate");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-add-room-icon"]')!);

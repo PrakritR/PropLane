@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
 import {
   deleteRoomDateBlock,
@@ -37,7 +37,6 @@ export function BlockedDatesSection({
   const [loading, setLoading] = useState(false);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
-  const [openEnded, setOpenEnded] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
@@ -73,8 +72,12 @@ export function BlockedDatesSection({
       showToast?.("Pick a move-in date.");
       return;
     }
-    if (!openEnded && !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
-      showToast?.("Pick a move-out date or mark open-ended.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
+      showToast?.("Pick an end date.");
+      return;
+    }
+    if (checkOut < checkIn) {
+      showToast?.("The end date is before the start date.");
       return;
     }
     setBusy(true);
@@ -83,14 +86,13 @@ export function BlockedDatesSection({
         propertyId,
         roomId,
         checkIn,
-        checkOut: openEnded ? checkOut || checkIn : checkOut,
-        openEnded,
+        checkOut,
+        openEnded: false,
         reason: "Blocked by manager",
         bookingStatus: "hold",
       });
       setCheckIn("");
       setCheckOut("");
-      setOpenEnded(false);
       refresh();
     } catch (e) {
       showToast?.(e instanceof Error ? e.message : "Could not block those dates.");
@@ -107,57 +109,57 @@ export function BlockedDatesSection({
     );
   }
 
+  const shortDate = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return y && m && d ? new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : iso;
+  };
+
   return (
     <div className="space-y-3 px-3.5 py-2" data-attr="room-blocked-dates">
+      {/* Captain, Oct 3: the add is a round + beside the heading; no Open-ended. */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-semibold text-foreground">Blocked dates</span>
-      </div>
-      {loading ? <p className="text-xs text-muted">Loading…</p> : null}
-      {rows.length === 0 && !loading ? <p className="text-xs text-muted">No blocked dates yet.</p> : null}
-      <ul className="space-y-2">
-        {rows.map((row) => (
-          <li
-            key={row.id}
-            className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px]"
-          >
-            <span>
-              {row.checkIn} → {row.openEnded ? "Open-ended" : row.checkOut}
-            </span>
-            <RowActionsMenu
-              label="Blocked span"
-              items={[
-                {
-                  id: "remove",
-                  label: "Remove",
-                  danger: true,
-                  onSelect: () => {
-                    void deleteRoomDateBlock(row.id)
-                      .then(() => refresh())
-                      .catch(() => showToast?.("Could not remove that block."));
-                  },
-                },
-              ]}
-            />
-          </li>
-        ))}
-      </ul>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Input type="date" aria-label="Move-in" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-        <Input
-          type="date"
-          aria-label="Move-out"
-          value={checkOut}
-          disabled={openEnded}
-          onChange={(e) => setCheckOut(e.target.value)}
+        <PortalPrimaryIconAction
+          label="Block dates"
+          disabled={busy}
+          onClick={() => void addBlock()}
+          data-attr="room-blocked-dates-add"
         />
       </div>
-      <label className="flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={openEnded} onChange={(e) => setOpenEnded(e.target.checked)} />
-        Open-ended
-      </label>
-      <Button type="button" variant="outline" disabled={busy} onClick={() => void addBlock()} data-attr="room-blocked-dates-add">
-        + Block dates
-      </Button>
+      {loading ? <p className="text-xs text-muted">Loading…</p> : null}
+      {rows.length > 0 ? (
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li
+              key={row.id}
+              className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px]"
+            >
+              <span>
+                {shortDate(row.checkIn)} → {row.openEnded ? "Open-ended" : shortDate(row.checkOut)}
+              </span>
+              <RowActionsMenu
+                label="Blocked dates"
+                items={[
+                  {
+                    id: "remove",
+                    label: "Remove",
+                    danger: true,
+                    onSelect: () => {
+                      void deleteRoomDateBlock(row.id)
+                        .then(() => refresh())
+                        .catch(() => showToast?.("Could not remove that block."));
+                    },
+                  },
+                ]}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input type="date" aria-label="Start date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+        <Input type="date" aria-label="End date" value={checkOut} min={checkIn || undefined} onChange={(e) => setCheckOut(e.target.value)} />
+      </div>
     </div>
   );
 }

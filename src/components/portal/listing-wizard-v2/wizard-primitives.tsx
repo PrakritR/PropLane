@@ -2079,22 +2079,12 @@ export function SameAsAllToggle({
  * and one press shows it all — there is no second More inside.
  */
 export function MoreRows({ children, dataAttr }: { children: ReactNode; dataAttr?: string }) {
-  const [open, setOpen] = useState(false);
+  // Captain, Oct 3: no More / Less on rooms, bathrooms or shared spaces — every
+  // field shows. The wrapper only keeps the hairline and the old data-attr hook.
   return (
-    <>
-      <div className="border-t border-border px-3.5 py-2">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          data-attr={dataAttr ?? "listing-v2-more"}
-          className="text-[13px] font-bold text-primary hover:underline"
-        >
-          {open ? "Less ▴" : "More ▾"}
-        </button>
-      </div>
-      {open ? children : null}
-    </>
+    <div className="border-t border-border" data-attr={dataAttr ?? "listing-v2-more"}>
+      {children}
+    </div>
   );
 }
 
