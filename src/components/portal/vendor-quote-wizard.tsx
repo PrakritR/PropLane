@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
@@ -137,6 +139,12 @@ export function VendorQuoteWizard({
 
   const currentId = quoteSteps[step]?.id ?? "job";
   const title = door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Add quote";
+
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `vendor-${door}`,
+    open, value: { step, jobId, when, labor, materials, note, invoiceNumber, managerUserId },
+    restore: (saved) => { setStep(saved.step); setJobId(saved.jobId); setWhen(saved.when); setLabor(saved.labor); setMaterials(saved.materials); setNote(saved.note); setInvoiceNumber(saved.invoiceNumber); setManagerUserId(saved.managerUserId); },
+  });
 
   if (!open) return null;
 
@@ -307,7 +315,7 @@ export function VendorQuoteWizard({
       steps={quoteSteps}
       current={step}
       onJump={setStep}
-      onClose={resetAndClose}
+      onClose={() => { workspaceDraft.preserve(); (resetAndClose)(); }}
       dirty={Boolean(jobId || when || labor || materials || note)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose what you typed?"

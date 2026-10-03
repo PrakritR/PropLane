@@ -178,7 +178,8 @@ describe("one move-in payment", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Pay $2,300.00" }));
     const sheet = await screen.findByRole("dialog");
-    expect(within(sheet).getByText("$2,300.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
     expect(within(sheet).getByText(/Move-in total · 4 items/)).toBeTruthy();
   });
 
@@ -187,7 +188,8 @@ describe("one move-in payment", () => {
     await waitFor(() => expect(screen.getAllByText("Move-in total").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
     const sheet = await screen.findByRole("dialog");
-    expect(within(sheet).getByText("$3,400.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
     expect(within(sheet).getByText("5 charges")).toBeTruthy();
   });
 });

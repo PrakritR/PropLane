@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
@@ -68,6 +70,7 @@ export function VendorUploadDocumentWorkspace({
     setBusy(true);
     try {
       if (demo) {
+        workspaceDraft.clear();
         onUploaded([
           {
             kind,
@@ -99,6 +102,12 @@ export function VendorUploadDocumentWorkspace({
     }
   }
 
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `vendor-document:${initialKind ?? "new"}`,
+    open, value: { step, kind, file },
+    restore: (saved) => { setStep(saved.step); setKind(saved.kind); setFile(saved.file); },
+  });
+
   if (!open) return null;
 
   return (
@@ -107,7 +116,7 @@ export function VendorUploadDocumentWorkspace({
       steps={steps}
       current={step}
       onJump={setStep}
-      onClose={resetAndClose}
+      onClose={() => { workspaceDraft.preserve(); (resetAndClose)(); }}
       dirty={Boolean(kind || file)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose the file?"

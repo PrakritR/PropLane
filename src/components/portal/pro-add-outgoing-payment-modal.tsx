@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -143,6 +145,7 @@ export function ManagerAddOutgoingPaymentModal({
     setStepError(null);
     if (isDemoModeActive()) {
       showToast("Outgoing payment saved (demo).");
+      workspaceDraft.clear();
       onSubmitted();
       onClose();
       return;
@@ -168,6 +171,7 @@ export function ManagerAddOutgoingPaymentModal({
         return;
       }
       showToast("Outgoing payment saved.");
+      workspaceDraft.clear();
       onSubmitted();
       onClose();
     } catch {
@@ -176,6 +180,13 @@ export function ManagerAddOutgoingPaymentModal({
       setSaving(false);
     }
   }
+
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `outgoing-payment`,
+    actor: managerUserId,
+    open, value: { categoryCode, amount, expenseDate, memo, propertyId, vendorId, stepIdx },
+    restore: (saved) => { setCategoryCode(saved.categoryCode); setAmount(saved.amount); setExpenseDate(saved.expenseDate); setMemo(saved.memo); setPropertyId(saved.propertyId); setVendorId(saved.vendorId); setStepIdx(saved.stepIdx); },
+  });
 
   if (!open) return null;
 
@@ -202,7 +213,7 @@ export function ManagerAddOutgoingPaymentModal({
         setStepError(null);
         setStepIdx(index);
       }}
-      onClose={onClose}
+      onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
       dirty={Boolean(amount.trim() || memo.trim() || propertyId || vendorId)}
       discardTitle="Discard this payment?"
       assistantContext="Add an outgoing payment for taxes, mortgage, fees, or a vendor invoice."

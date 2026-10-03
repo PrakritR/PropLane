@@ -18,10 +18,11 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, Circle, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
+import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -92,6 +93,7 @@ export function ListingWorkspace({
   saveState,
   onClose,
   closeDisabled = false,
+  closeDataAttr,
   rail,
   railHeader,
   railFooter,
@@ -116,6 +118,7 @@ export function ListingWorkspace({
    * silently dropped.
    */
   closeDisabled?: boolean;
+  closeDataAttr?: string;
   rail: ReactNode;
   /**
    * What sits ABOVE the sections in the rail — the cover photo and, while
@@ -183,6 +186,7 @@ export function ListingWorkspace({
               type="button"
               onClick={onClose}
               disabled={closeDisabled}
+              data-attr={closeDataAttr}
               aria-label="Close"
               className="grid h-11 w-11 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
             >
@@ -248,6 +252,7 @@ export function SideBelow({ children }: { children: ReactNode }) {
 
 export type StepRailItem = {
   id: string;
+  disabled?: boolean;
   label: string;
   /** Off the short path — Continue skips it; the manager opens it when they want to. */
   offPath?: boolean;
@@ -295,7 +300,6 @@ export function StepRail({
    */
   numbered?: boolean;
 }) {
-  void visited;
   void numbered;
   // Keep the active desktop section in view when navigation comes from the footer.
   const currentRef = useRef<HTMLButtonElement | null>(null);
@@ -311,7 +315,7 @@ export function StepRail({
           hideLabel
           value={String(current)}
           onChange={(value) => onJump(Number(value))}
-          options={steps.map((step, index) => ({ value: String(index), label: `${step.label}${(step.attention ?? 0) > 0 ? " · needs attention" : ""}` }))}
+          options={steps.map((step, index) => ({ value: String(index), disabled: step.disabled, label: `${index === current ? "◉ " : (step.attention ?? 0) > 0 ? "● " : visited?.has(step.id) ? "✓ " : ""}${step.label}${(step.attention ?? 0) > 0 ? " · needs attention" : ""}`, triggerLabel: step.label }))}
           dataAttr="workspace-step-picker"
           triggerClassName="min-h-11 rounded-lg text-sm font-semibold"
         />
@@ -326,10 +330,11 @@ export function StepRail({
               ref={on ? currentRef : undefined}
               type="button"
               onClick={() => onJump(i)}
+              disabled={step.disabled}
               aria-current={on ? "step" : undefined}
               data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex min-h-11 w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-r-[10px] rounded-l-md border-l-[3px] px-3 py-2.5 text-left transition",
+                "flex min-h-11 w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-r-[10px] rounded-l-md border-l-[3px] px-3 py-2.5 text-left transition disabled:opacity-45",
                 on
                   ? "border-primary bg-white [html[data-theme=dark]_&]:bg-card"
                   : "border-transparent hover:bg-foreground/[0.045]",
@@ -337,7 +342,7 @@ export function StepRail({
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", warn ? "bg-[var(--status-overdue-fg)]" : "bg-transparent")} aria-hidden />
+                  {on ? <Circle className="size-3 shrink-0 text-primary" aria-hidden /> : warn ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : visited?.has(step.id) ? <Check className="size-3 shrink-0 text-primary" aria-hidden /> : <span className="size-3 shrink-0" aria-hidden />}
                   <span
                     className={cn(
                       "min-w-0 truncate text-[13.5px]",
@@ -597,7 +602,7 @@ export function Field(props: {
   const caption = (
     <>
       {label}
-      {required ? <span className="sr-only"> (required)</span> : null}
+      {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
@@ -621,23 +626,25 @@ export function Field(props: {
 
   if (group) {
     return (
-      <div className="mb-4">
+      <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
         <span id={id} className="mb-1.5 block text-[12.5px] font-bold text-foreground">
           {caption}
         </span>
         <div role="group" aria-labelledby={id}>
           {children}
         </div>
+        <WizardFieldError id={id} />
         {note}
       </div>
     );
   }
   return (
-    <div className="mb-4">
+    <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
       <label className="block">
         <span className="mb-1.5 block text-[12.5px] font-bold text-foreground">{caption}</span>
         {children}
       </label>
+      <WizardFieldError id={id} />
       {note}
     </div>
   );
@@ -1570,7 +1577,7 @@ export function FactRow({
       <span className={cn("flex min-w-0 shrink items-center gap-2 text-[14px] text-foreground", sub ? "font-medium" : "font-semibold")}>
         <span className="truncate">
           {label}
-          {required ? <span className="sr-only"> (required)</span> : null}
+          {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         </span>
         {own && onReset ? (
           <button

@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 /**
  * Add booking — the same AddWorkspace as Add task (PLAN-0922-1225).
  * Link calendars is its own PortalDialog in channel-calendar-link-modal.tsx.
@@ -267,6 +269,12 @@ export function BookingsBlockDatesModal({
     }
   };
 
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `booking:${editingBlock?.id ?? initialPropertyId ?? "new"}:${initialRoomId ?? ""}:${initialDayKey ?? ""}`,
+    open, value: { stepIdx, propertyId, roomChoice, checkIn, checkOut, reason, residentChoice, newResidentName, newResidentEmail, newResidentPhone, editingBlockId },
+    restore: (saved) => { setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
+  });
+
   if (!open) return null;
 
   const steps: AddWorkspaceStep[] = [
@@ -298,7 +306,7 @@ export function BookingsBlockDatesModal({
         steps={steps}
         current={current}
         onJump={setStepIdx}
-        onClose={onClose}
+        onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
         dirty={Boolean(propertyId || checkIn || residentChoice)}
         discardTitle={editingBlockId ? "Discard these edits?" : "Discard this booking?"}
         assistantContext={editingBlockId ? "Edit booking" : "Add booking"}

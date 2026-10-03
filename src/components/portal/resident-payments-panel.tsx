@@ -1416,9 +1416,7 @@ export function ResidentPaymentsPanel({
       panelClassName="max-w-md"
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" disabled={rentReportingBusy} onClick={() => setRentReportingConsentOpen(false)}>
-            Not now
-          </Button>
+          
           <Button
             type="button"
             variant="primary"

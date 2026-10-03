@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -90,6 +92,7 @@ export function PropertyApplicationFormModal({
       ];
     }
     if (!onSave(next)) return;
+    workspaceDraft.clear();
     onClose();
   };
 
@@ -101,6 +104,12 @@ export function PropertyApplicationFormModal({
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]!.id;
 
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `application-name:${mode}:${template?.id ?? "new"}`,
+    open, value: { label, kind, stepIdx },
+    restore: (saved) => { setLabel(saved.label); setKind(saved.kind); setStepIdx(saved.stepIdx); },
+  });
+
   if (!open) return null;
 
   return (
@@ -109,7 +118,7 @@ export function PropertyApplicationFormModal({
       steps={workspaceSteps}
       current={current}
       onJump={setStepIdx}
-      onClose={onClose}
+      onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
       dirty={Boolean(label.trim())}
       discardTitle="Discard this application?"
       assistantContext={workspaceTitle}

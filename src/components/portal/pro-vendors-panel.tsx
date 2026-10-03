@@ -601,9 +601,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             this workspace&apos;s service requests so they can bid and get assigned jobs.
           </p>
           <ModalFooter>
-            <Button type="button" variant="outline" onClick={() => setPendingDirectoryAdd(null)}>
-              Cancel
-            </Button>
+            
             <Button
               type="button"
               data-attr="vendor-directory-add-confirm"

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 /** Previews receive the same controlled draft or server amounts as the committing action. */
 export function PopupRecordPreview({ rows }: { rows: ReadonlyArray<{ label: string; value: ReactNode }> }) {
   return <dl className="divide-y divide-border rounded-xl border border-border bg-card px-4 text-sm" data-attr="popup-record-preview">
-    {rows.map(row => <div key={row.label} className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3"><dt className="text-muted">{row.label}</dt><dd className="min-w-0 break-words font-semibold">{row.value || "Not set"}</dd></div>)}
+    {rows.map(row => <div key={row.label} className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3"><dt className="text-muted">{row.label}</dt><dd className="min-w-0 break-words font-semibold">{row.value == null || row.value === "" ? "Not set" : row.value}</dd></div>)}
   </dl>;
 }
 

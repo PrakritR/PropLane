@@ -13,8 +13,10 @@ import {
 } from "@/lib/demo/demo-playback";
 import { Button } from "@/components/ui/button";
 import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
-import { ModalShell, useModalPresentation } from "@/components/ui/modal";
-import { MODAL_FULL_PAGE_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { ModalShell } from "@/components/ui/modal";
+import { MODAL_STANDARD_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { ListingWorkspace, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { cn } from "@/lib/utils";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
@@ -4147,8 +4149,6 @@ export function ManagerAddListingForm({
   // Hoisted above the `!mounted` early return: every hook has to run in the same
   // order on every render, and this sat ~460 lines below the return, so an
   // unmounted first paint called one fewer hook than a mounted one.
-  const presentation = useModalPresentation();
-  const isDrawer = presentation === "drawer";
 
   if (!mounted) return null;
 
@@ -4858,6 +4858,7 @@ export function ManagerAddListingForm({
     <ModalShell
       open
       onClose={requestWizardClose}
+      ariaLabel={wizardTitlePrefix}
       presentation="dialog"
       portalContainer={portalContainer}
       lockScroll
@@ -4865,122 +4866,95 @@ export function ManagerAddListingForm({
       dismissOnCanvasPointerDown
       panelClassName="pointer-events-none fixed inset-0 flex min-h-0 min-w-0 outline-none"
     >
-      <div
-        data-modal-assistant-workspace=""
-        data-full-screen={isDrawer ? "true" : "false"}
-        className={cn("pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center", isDrawer ? "p-0" : "p-4")}
-      >
-      <div data-listing-editor="" className={cn(
-        "pointer-events-auto @container flex min-h-0 min-w-0 w-full flex-col overflow-hidden",
-        isDrawer
-          ? cn(
-              MODAL_FULL_PAGE_PANEL_CLASS,
-              "!relative !inset-auto !h-full !max-h-full border-border bg-[#111827] [html[data-theme=light]_&]:bg-white",
-            )
-          : "modal-panel relative z-10 flex max-h-[calc(100svh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-[#111827] shadow-2xl sm:max-h-[calc(100svh-1.5rem)] lg:max-h-[calc(100svh-2rem)] [html[data-theme=light]_&]:border-border [html[data-theme=light]_&]:bg-white",
-      )}>
-      {/* A plain container, not a <form>: the PropLane Assistant embedded in the
-          body has its own <form> for the chat composer, and a form-in-form is
-          invalid HTML that throws a hydration error whenever the assistant is
-          open. Continue / Submit are onClick buttons,
-          so nothing here relied on form submission. */}
-      <div id="manager-add-listing-form" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* ── Header ── */}
-        <div className="modal-panel shrink-0 border-b border-border px-5 pt-5 pb-6 sm:px-6">
-          <div className="flex w-full min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-lg font-bold tracking-tight text-foreground sm:text-xl">
-                {wizardTitlePrefix}
-              </p>
-              <p className="mt-1 text-xs font-medium text-muted sm:text-sm">
-                Step {visibleStepPosition + 1} of {visibleStepCount} · {LISTING_FORM_STEPS[stepIndex]?.label}
+      <div data-modal-assistant-workspace="" className="pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center p-0 sm:p-5">
+        <div data-listing-editor="" className={cn("pointer-events-auto modal-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden", MODAL_STANDARD_PANEL_CLASS)}>
+          <ListingWorkspace
+            title={wizardTitlePrefix}
+            onClose={requestWizardClose}
+            closeDisabled={busy || closingDraft}
+            closeDataAttr="listing-wizard-close"
+            headerAside={<span ref={setAssistantTriggerTarget} />}
+            rail={<StepRail steps={wizardSteps.map((index) => ({ id: LISTING_FORM_STEPS[index]!.id, label: LISTING_FORM_STEPS[index]!.label, disabled: !canNavigateToWizardStep(index, maxStepReached) || busy || closingDraft }))} current={visibleStepPosition} onJump={(position) => {
+              const next = wizardSteps[position];
+              if (next != null && canNavigateToWizardStep(next, maxStepReached) && !busy && !closingDraft) { setStepFieldErrors({}); setStepIndex(next); }
+            }} />}
+            sidePanel={<ListingPreviewPanel sub={sub} />}
+            footer={
+        <div className="w-full">
+          <div className="w-full min-w-0">
+          {draftSaveError ? (
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p role="alert" data-testid="listing-wizard-draft-save-error" className="text-xs font-medium text-red-600">
+                {draftSaveError}
               </p>
             </div>
-            <span ref={setAssistantTriggerTarget} className="shrink-0" />
-            <button
-              type="button"
-              onClick={closeWizard}
-              disabled={busy || closingDraft}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/30 text-muted hover:bg-accent/40 disabled:opacity-60"
-              aria-label="Close"
-              data-attr="listing-wizard-close"
+          ) : (draftAutoSaveEligible || editAutoSaveEligible) && autosaveStatus !== "idle" ? (
+            <p
+              className="mb-3 text-xs text-muted"
+              data-testid="listing-wizard-autosave-status"
+              aria-live="polite"
             >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
-            </button>
+              {autosaveStatus === "saving"
+                ? "Saving…"
+                : autosaveStatus === "saved"
+                  ? draftAutoSaveEligible
+                    ? "Saved to Drafts"
+                    : "Changes saved"
+                  : autosaveStatus === "saved-without-photos"
+                    ? draftAutoSaveEligible
+                      ? "Saved to Drafts — photos not uploaded yet"
+                      : "Changes saved — photos not uploaded yet"
+                    : "Couldn't save — check your connection"}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {visibleStepPosition > 0 ? (
+                <Button type="button" variant="outline" className="w-full min-h-[48px] sm:w-auto sm:min-w-[120px]" onClick={goPrev} disabled={busy}>
+                  Back
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {!isFinalStep ? (
+                <Button
+                  type="button"
+                  className="w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"
+                  data-attr="listing-wizard-continue"
+                  onClick={goNext}
+                  disabled={busy}
+                >
+                  {busy ? "Saving…" : "Continue"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"
+                  data-attr="listing-wizard-submit"
+                  onClick={() => submitListing()}
+                  disabled={busy}
+                >
+                  {busy
+                    ? isPreviewWizard
+                      ? "Saving preview…"
+                      : isEditMode
+                        ? "Submitting changes…"
+                        : "Submitting listing…"
+                    : isPreviewWizard
+                      ? "Save preview"
+                      : isEditMode
+                        ? "Submit changes"
+                        : "Submit listing"}
+                </Button>
+              )}
+            </div>
           </div>
-
-          <div
-            className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-accent/50"
-            role="progressbar"
-            aria-label="Listing completion"
-            aria-valuemin={1}
-            aria-valuemax={visibleStepCount}
-            aria-valuenow={visibleStepPosition + 1}
-          >
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-300"
-              style={{ width: `${((visibleStepPosition + 1) / visibleStepCount) * 100}%` }}
-            />
           </div>
-
-          {/* The only navigation control. The "Step X of N" subtitle and the
-              progressbar above report position/completion; this row is what
-              moves. A completed step shows a ✓ and stays clickable; the current
-              step is filled; a step not yet reached is visible but disabled, so
-              the wizard never styles a jump the manager cannot actually make. */}
-          <nav aria-label="Listing steps" className="mt-3 -mx-1 overflow-x-auto px-1 [-webkit-overflow-scrolling:touch]">
-            <ol className="flex min-w-max items-center gap-1">
-              {wizardSteps.map((i, pillPos) => {
-                const step = LISTING_FORM_STEPS[i]!;
-                const reachable = canNavigateToWizardStep(i, maxStepReached);
-                const isCurrent = i === stepIndex;
-                const completed = pillPos < visibleStepPosition;
-                return (
-                  <li key={step.id} className="flex items-center">
-                    <button
-                      type="button"
-                      disabled={!reachable}
-                      aria-current={isCurrent ? "step" : undefined}
-                      onClick={() => { if (reachable) { setStepFieldErrors({}); setStepIndex(i); } }}
-                      className={cn(
-                        "flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3 text-xs font-semibold transition",
-                        isCurrent
-                          ? "bg-primary/10 text-primary"
-                          : completed
-                            ? "text-foreground hover:bg-accent/40"
-                            : reachable
-                              ? "text-muted hover:bg-accent/40"
-                              : "cursor-default text-muted/45",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                          completed
-                            ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-                            : isCurrent
-                              ? "bg-primary text-white"
-                              : "border border-border text-muted/60",
-                        )}
-                      >
-                        {completed ? "✓" : pillPos + 1}
-                      </span>
-                      {step.label}
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
-
-          {/* Step blurb */}
-          <p className="mt-3 text-[12px] leading-relaxed text-muted">
-            {LISTING_STEP_BLURBS[LISTING_FORM_STEPS[stepIndex]!.id]}
-          </p>
         </div>
-
-        <div className="flex min-h-0 flex-1 flex-col">
-        <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-6">
+            }
+          >
+            <div id="manager-add-listing-form" className="min-w-0">
+        <div ref={scrollRef} className="h-full min-h-0 min-w-0 overflow-y-auto">
           {/* Content FILLS the modal width (padding on the scroll container provides the
               margins). A max-width column here centered wide children and clipped them on
               both edges against the panel's overflow-hidden — do not reintroduce it. */}
@@ -6888,93 +6862,12 @@ export function ManagerAddListingForm({
           </div>
         </div>
 
-          <ModalAssistantStrip
-            contextHint={listingAssistantContext}
-            storageScopeKey={wizardTitlePrefix}
-            triggerTarget={assistantTriggerTarget}
-          />
-        </div>
 
-        <div className="modal-panel z-20 shrink-0 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-5">
-          <div className="w-full min-w-0">
-          {draftSaveError ? (
-            <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <p role="alert" data-testid="listing-wizard-draft-save-error" className="text-xs font-medium text-red-600">
-                {draftSaveError}
-              </p>
             </div>
-          ) : (draftAutoSaveEligible || editAutoSaveEligible) && autosaveStatus !== "idle" ? (
-            <p
-              className="mb-3 text-xs text-muted"
-              data-testid="listing-wizard-autosave-status"
-              aria-live="polite"
-            >
-              {autosaveStatus === "saving"
-                ? "Saving…"
-                : autosaveStatus === "saved"
-                  ? draftAutoSaveEligible
-                    ? "Saved to Drafts"
-                    : "Changes saved"
-                  : autosaveStatus === "saved-without-photos"
-                    ? draftAutoSaveEligible
-                      ? "Saved to Drafts — photos not uploaded yet"
-                      : "Changes saved — photos not uploaded yet"
-                    : "Couldn't save — check your connection"}
-            </p>
-          ) : null}
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-2">
-              {visibleStepPosition > 0 ? (
-                <Button type="button" variant="outline" className="w-full min-h-[48px] sm:w-auto sm:min-w-[120px]" onClick={goPrev} disabled={busy}>
-                  Back
-                </Button>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              {!isFinalStep ? (
-                <Button
-                  type="button"
-                  className="w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"
-                  data-attr="listing-wizard-continue"
-                  onClick={goNext}
-                  disabled={busy}
-                >
-                  {busy
-                    ? "Saving…"
-                    : visibleStepPosition === visibleStepCount - 2
-                      ? isPreviewWizard
-                        ? "Review & save →"
-                        : "Review & submit →"
-                      : "Continue"}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  className="w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"
-                  data-attr="listing-wizard-submit"
-                  onClick={() => submitListing()}
-                  disabled={busy}
-                >
-                  {busy
-                    ? isPreviewWizard
-                      ? "Saving preview…"
-                      : isEditMode
-                        ? "Submitting changes…"
-                        : "Submitting listing…"
-                    : isPreviewWizard
-                      ? "Save preview"
-                      : isEditMode
-                        ? "Submit changes"
-                        : "Submit listing"}
-                </Button>
-              )}
-            </div>
-          </div>
-          </div>
+          </ListingWorkspace>
         </div>
       </div>
-      </div>
-      </div>
+      <ModalAssistantStrip contextHint={listingAssistantContext} storageScopeKey={wizardTitlePrefix} triggerTarget={assistantTriggerTarget} />
     </ModalShell>
     <ListingSaveFailedDialog
       open={closeSaveFailReason != null}

@@ -15,6 +15,7 @@
  * charge path yet.
  */
 
+import { BookingRemovalPreview } from "@/components/portal/booking-removal-preview";
 import { useMemo, useState } from "react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -134,7 +135,7 @@ export function BookingsRecordPage({
     if (
       !(await confirm({
         title: "Cancel booking",
-        description: `Cancel ${name || "this booking"}?`,
+        description: <BookingRemovalPreview entry={entry} />,
         confirmLabel: "Cancel booking",
         tone: "danger",
         dataAttr: "bookings-record-cancel-confirm",

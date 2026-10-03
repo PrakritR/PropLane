@@ -897,9 +897,7 @@ export function ManagerMessagingSettingsPanel({
       dataAttr="add-work-number-modal"
       footer={
         <ModalFooter>
-          <Button type="button" variant="ghost" onClick={() => setAddNumberOpen(false)} data-attr="add-work-number-cancel">
-            Cancel
-          </Button>
+          
           <Button
             type="button"
             variant="primary"
@@ -991,15 +989,7 @@ export function ManagerMessagingSettingsPanel({
       dataAttr="messaging-announce-residents-modal"
       footer={
         <ModalFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={announceBusy}
-            onClick={() => dismissAnnounce(announceChannelsLive)}
-            data-attr="messaging-announce-residents-skip"
-          >
-            Not now
-          </Button>
+          
           <Button
             type="button"
             variant="primary"

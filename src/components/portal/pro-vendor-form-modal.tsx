@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
+
 import { Copy } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -623,6 +625,7 @@ export function ManagerVendorFormModal({
       if (!current()) return;
       showToast("Vendor updated.");
       onClose();
+      workspaceDraft.clear();
       onSaved?.();
     } catch { if (current()) setError("Could not save the vendor. Your details are still here."); }
     finally { if (current()) setSaving(false); submitRef.current = false; }
@@ -766,6 +769,7 @@ export function ManagerVendorFormModal({
       }
       setInviteSendPreview(null);
       onClose();
+      workspaceDraft.clear();
       onSaved?.();
     } finally {
       setSaving(false);
@@ -919,6 +923,13 @@ export function ManagerVendorFormModal({
     ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
     : undefined;
 
+  const workspaceDraft = useWorkspaceDraft({
+    scope: `vendor:${mode}:${vendor?.id ?? "new"}`,
+    actor: userId,
+    open, value: { draft, invitePath, axisInput, draftAxisId, draftAxisName, stepIdx, issueQuery, checkedCatalogIds },
+    restore: (saved) => { setDraft(saved.draft); setInvitePath(saved.invitePath); setAxisInput(saved.axisInput); setDraftAxisId(saved.draftAxisId); setDraftAxisName(saved.draftAxisName); setStepIdx(saved.stepIdx); setIssueQuery(saved.issueQuery); setCheckedCatalogIds(saved.checkedCatalogIds); },
+  });
+
   if (!open) return null;
 
   return (
@@ -929,7 +940,7 @@ export function ManagerVendorFormModal({
           steps={steps}
           current={current}
           onJump={setStepIdx}
-          onClose={() => { if (!submitRef.current) onClose(); }}
+          onClose={() => { workspaceDraft.preserve(); (() => { if (!submitRef.current) onClose(); })(); }}
           dirty={Boolean(draft.name.trim() || draft.email.trim() || draft.phone.trim())}
           discardTitle={mode === "edit" ? "Discard these edits?" : "Discard this vendor?"}
           assistantContext={title}

@@ -79,11 +79,11 @@ export function PortalFeedbackSubmitModal({
       onClose={handleClose}
       panelClassName="max-w-lg"
       description={form.submitted ? undefined : "Share an idea, ask a question, or report something broken."}
-      footer={
+      footer={form.submitted ? undefined : (
         <ModalFooter>
           <PortalFeedbackFormFooterButton form={form} onDone={handleClose} />
         </ModalFooter>
-      }
+      )}
     >
       <PortalFeedbackFormBody form={form} />
     </Modal>

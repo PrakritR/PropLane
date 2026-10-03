@@ -110,9 +110,7 @@ export function PortalDataExportButton({ className }: { className?: string }) {
             <Button type="button" disabled={busy} onClick={() => exportData()} data-attr="portal-data-export-confirm">
               {busy ? "Preparing export…" : "Download encrypted export"}
             </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={close}>
-              Cancel
-            </Button>
+            
           </div>
         }
       >

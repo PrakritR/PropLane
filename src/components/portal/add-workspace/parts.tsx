@@ -9,11 +9,12 @@
  * side panel, never as subtext.
  */
 
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Upload, FileText, Image as ImageIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
+import { WizardFieldError } from "./validation";
 import { WorkspaceUploadAction } from "./upload-action";
 
 /* ─────────────────────────── controls ─────────────────────────── */
@@ -21,17 +22,27 @@ import { WorkspaceUploadAction } from "./upload-action";
 export const WIZARD_LABEL_CLASS = "mb-1.5 block text-[12.5px] font-bold normal-case tracking-normal text-foreground";
 
 /** The settings-kit single-select, labelled like every other wizard field. */
-export function WizardSelect(props: Parameters<typeof FieldSingleSelect>[0]) {
-  return <FieldSingleSelect {...props}
-    labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1", props.labelClassName)}
-    wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:border-b max-sm:border-border/60 max-sm:py-2", props.wrapperClassName)}
-    triggerClassName={cn("max-sm:w-auto max-sm:max-w-[60%] max-sm:justify-end max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none", props.triggerClassName)}
-  />;
+export function WizardSelect({ required, ...props }: Parameters<typeof FieldSingleSelect>[0] & { required?: boolean }) {
+  const id = useId();
+  const isRequired = required ?? /\*\s*$/.test(props.label);
+  const label = props.label.replace(/\s*\*\s*$/, "");
+  return <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={isRequired} data-wizard-empty={!props.value}>
+    <FieldSingleSelect {...props} label={label}
+      labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1", props.labelClassName)}
+      wrapperClassName={cn("max-sm:flex max-sm:min-h-14 max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:border-b max-sm:border-border/60 max-sm:py-2", props.wrapperClassName)}
+      triggerClassName={cn("max-sm:w-auto max-sm:max-w-[60%] max-sm:justify-end max-sm:border-0 max-sm:bg-transparent max-sm:shadow-none", props.triggerClassName)}
+    />
+    <WizardFieldError id={id} />
+  </div>;
 }
 
-/** The settings-kit multi-select, labelled like every other wizard field. */
-export function WizardMultiSelect(props: Parameters<typeof CheckboxMultiSelect>[0]) {
-  return <CheckboxMultiSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+/** Pick-several follows the same label/value row as a single pick on a phone. */
+export function WizardMultiSelect({ required = false, ...props }: Parameters<typeof CheckboxMultiSelect>[0] & { required?: boolean }) {
+  const id = useId();
+  return <div data-wizard-field={id} data-wizard-label={props.label} data-wizard-required={required} data-wizard-empty={props.selected.length === 0} className="max-sm:border-b max-sm:border-border/60 max-sm:py-2 [&>div:first-child]:max-sm:flex [&>div:first-child]:max-sm:min-h-10 [&>div:first-child]:max-sm:items-center [&>div:first-child]:max-sm:gap-3 [&>div:first-child>button]:max-sm:ml-auto [&>div:first-child>button]:max-sm:w-auto [&>div:first-child>button]:max-sm:max-w-[60%] [&>div:first-child>button]:max-sm:border-0 [&>div:first-child>button]:max-sm:bg-transparent [&>div:first-child>button]:max-sm:shadow-none">
+    <CheckboxMultiSelect labelClassName={cn(WIZARD_LABEL_CLASS, "max-sm:mb-0 max-sm:min-w-0 max-sm:flex-1")} {...props} />
+    <WizardFieldError id={id} />
+  </div>;
 }
 
 /* ─────────────────────────── layout ─────────────────────────── */
@@ -105,14 +116,16 @@ export function WizardField({
   children: ReactNode;
   className?: string;
 }) {
+  const id = useId();
   return (
-    <label className={cn("block", className)}>
+    <label data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className={cn("block", className)}>
       <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
         {label}
-        {required ? <span className="sr-only"> (required)</span> : null}
+        {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         {mark ? <span className="ml-1 inline-flex font-normal">{mark}</span> : null}
       </span>
       {children}
+      <WizardFieldError id={id} />
     </label>
   );
 }
