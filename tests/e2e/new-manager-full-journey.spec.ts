@@ -88,7 +88,7 @@ test.describe("New manager — full journey from scratch", () => {
     await shot(page, "04-portal-landing");
 
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
 
     // ── 3. Tour every major portal section (fresh empty account) ────────────
     const sectionResults: Array<{ name: string; ok: boolean; note?: string }> = [];
@@ -114,7 +114,7 @@ test.describe("New manager — full journey from scratch", () => {
 
     // ── 4. Start first listing (Home step + save draft) ─────────────────────
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    const createBtn = page.locator('[data-attr="manager-properties-create"]');
+    const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
     await expect(createBtn).toBeEnabled({ timeout: 60_000 });
     await createBtn.click();
     await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
