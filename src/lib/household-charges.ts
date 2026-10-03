@@ -1354,6 +1354,19 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
   return due.getTime() <= endOfNextMonth.getTime();
 }
 
+/** Resident Payments list + dashboard: failed stays owed; processing is clearing. */
+export function residentChargeListDueLabel(charge: HouseholdCharge): string {
+  if (charge.status === "failed") return "Card declined. Pay again";
+  if (charge.status === "processing") return "Bank transfer clearing";
+  return chargeDueLabel(charge);
+}
+
+/** Failed payment attempts stay in the Due bucket even before the calendar due date. */
+export function residentChargeCountsAsDue(charge: HouseholdCharge, now = new Date()): boolean {
+  if (charge.status === "failed") return true;
+  return isHouseholdChargeOverdue(charge, now);
+}
+
 export function chargeDueLabel(charge: HouseholdCharge): string {
   if (charge.dueDateLabel?.trim()) return charge.dueDateLabel.trim();
   if (

@@ -13,18 +13,19 @@ import type { ResidentLeaseDocumentRow } from "@/lib/resident-lease-documents";
  * - **To sign** — a lease or application document still awaiting this
  *   resident's own action (an unsigned lease, a pending application).
  * - **Signed** — the CURRENT executed lease.
+ * - **Payments** — every rent receipt (fee + total charged).
  * - **Archived** — everything settled or superseded: an older signed lease
- *   snapshot from a prior renewal, a resolved application, every rent
- *   receipt, every "Other" upload (neither of those two ever carries a
- *   signature workflow).
+ *   snapshot from a prior renewal, a resolved application, every "Other"
+ *   upload (neither carries a signature workflow).
  */
-export type ResidentDocumentTab = "to-sign" | "signed" | "archived";
+export type ResidentDocumentTab = "to-sign" | "signed" | "payments" | "archived";
 
-export const RESIDENT_DOCUMENT_TAB_ORDER: ResidentDocumentTab[] = ["to-sign", "signed", "archived"];
+export const RESIDENT_DOCUMENT_TAB_ORDER: ResidentDocumentTab[] = ["to-sign", "signed", "payments", "archived"];
 
 export const RESIDENT_DOCUMENT_TAB_LABELS: Record<ResidentDocumentTab, string> = {
   "to-sign": "To sign",
   signed: "Signed",
+  payments: "Payments",
   archived: "Archived",
 };
 
@@ -60,7 +61,7 @@ export function parseResidentDocumentKindFilter(raw: string | undefined | null):
 export const RESIDENT_DOCUMENT_KIND_DEFAULT_TAB: Record<ResidentDocumentKind, ResidentDocumentTab> = {
   application: "to-sign",
   lease: "to-sign",
-  receipts: "archived",
+  receipts: "payments",
   other: "archived",
 };
 
@@ -84,7 +85,7 @@ export function residentDocumentTabForLease(
 
 /** A rent receipt is always a settled, historical record. */
 export function residentDocumentTabForReceipt(): ResidentDocumentTab {
-  return "archived";
+  return "payments";
 }
 
 /** A resident-uploaded / manager-shared "Other" document has no signature workflow. */

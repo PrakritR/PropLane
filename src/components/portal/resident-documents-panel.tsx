@@ -676,9 +676,12 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
 function RentReceiptsTab({
   basePath,
   range,
+  paymentsTab = false,
 }: {
   basePath: string;
   range: ReceiptDateRange;
+  /** Documents › Payments — show total charged line when the ledger carries it. */
+  paymentsTab?: boolean;
 }) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
@@ -809,7 +812,9 @@ function RentReceiptsTab({
                 id: row.id,
                 data: row,
                 primary: receiptRowLabel(row.description),
-                meta: formatPortalListDate(row.date),
+                meta: paymentsTab
+                  ? `${formatPortalListDate(row.date)} · ${row.amount}`
+                  : formatPortalListDate(row.date),
                 selected: selectedIds.has(row.id),
                 onSelectedChange: () => toggleSelected(row.id),
                 onClick: () => openReceipt(row),
@@ -985,7 +990,7 @@ export function ResidentDocumentsPanel({
                 dataAttr="resident-documents-kind-select"
               />
             </PortalFilterSortSheet>
-            {activeBucket === "archived" && showKind("receipts") ? (
+            {(activeBucket === "payments" || activeBucket === "archived") && showKind("receipts") ? (
               <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
             ) : null}
           </div>
@@ -997,6 +1002,10 @@ export function ResidentDocumentsPanel({
 
       {showKind("lease") && activeBucket !== "archived" ? (
         <SignedLeaseDocumentsTable basePath={basePath} statusFilter={leaseStatusFilter} />
+      ) : null}
+
+      {showKind("receipts") && activeBucket === "payments" ? (
+        <RentReceiptsTab basePath={basePath} range={receiptRange} paymentsTab />
       ) : null}
 
       {showKind("receipts") && activeBucket === "archived" ? (

@@ -46,6 +46,8 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useNativePlatform } from "@/hooks/use-native-platform";
 import {
   chargeDueLabel,
+  residentChargeListDueLabel,
+  residentChargeCountsAsDue,
   compareChargesByDueDate,
   HOUSEHOLD_CHARGES_EVENT,
   HOUSEHOLD_CHARGES_SESSION_KEY,
@@ -96,6 +98,7 @@ import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { RESIDENT_PAYMENTS_TAB_LABELS, shouldSimplifyResidentPaymentsHeader } from "@/lib/resident-payments-tabs";
+import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -594,7 +597,7 @@ export function ResidentPaymentsPanel({
   // `processing` (ACH clearing, 3–5 business days) shows alongside pending so
   // the charge doesn't vanish mid-payment — but it is never overdue or payable.
   const pendingRows = useMemo(
-    () => rows.filter((c) => c.status === "pending" || c.status === "processing"),
+    () => rows.filter((c) => c.status === "pending" || c.status === "processing" || c.status === "failed"),
     [rows],
   );
   // One move-in payment: the deposit, first month and move-in fees a signature
@@ -610,7 +613,10 @@ export function ResidentPaymentsPanel({
     () => [
       ...moveInGroups.filter((group) => group.overdue).map(moveInGroupAsListRow),
       ...pendingRows.filter(
-        (c) => !moveInGroupedChargeIds.has(c.id) && c.status !== "processing" && isHouseholdChargeOverdue(c),
+        (c) =>
+          !moveInGroupedChargeIds.has(c.id) &&
+          c.status !== "processing" &&
+          residentChargeCountsAsDue(c),
       ),
     ],
     [moveInGroupedChargeIds, moveInGroups, pendingRows],
@@ -619,7 +625,9 @@ export function ResidentPaymentsPanel({
     () => [
       ...moveInGroups.filter((group) => !group.overdue).map(moveInGroupAsListRow),
       ...pendingRows.filter(
-        (c) => !moveInGroupedChargeIds.has(c.id) && (c.status === "processing" || !isHouseholdChargeOverdue(c)),
+        (c) =>
+          !moveInGroupedChargeIds.has(c.id) &&
+          (c.status === "processing" || !residentChargeCountsAsDue(c)),
       ),
     ],
     [moveInGroupedChargeIds, moveInGroups, pendingRows],
@@ -648,8 +656,9 @@ export function ResidentPaymentsPanel({
 
   useEffect(() => {
     if (bucketTouched || !email) return;
-    // Default tab is Pending.
-  }, [bucketTouched, email, overdueRows.length]);
+    if (overdueRows.length > 0) setBucket("overdue");
+    else if (upcomingPendingRows.length > 0) setBucket("pending");
+  }, [bucketTouched, email, overdueRows.length, upcomingPendingRows.length]);
 
   const statusTabs = useMemo(
     () =>
@@ -766,9 +775,14 @@ export function ResidentPaymentsPanel({
     const ids = [...new Set(chargeIds.map((id) => id.trim()).filter(Boolean))];
     if (ids.length === 0) return;
     setCheckout(null);
-    setPayModalStep("select");
+    setPayModalStep("pay");
     setPayConfirm({ chargeIds: ids, method });
   }, []);
+
+  useEffect(() => {
+    if (!payConfirm) return;
+    void loadCheckout(payConfirm.chargeIds, payConfirm.method);
+  }, [loadCheckout, payConfirm]);
 
   const selectPayModalMethod = useCallback((method: ResidentAxisPaymentMethod) => {
     setPaymentMethod(method);
@@ -1235,8 +1249,8 @@ export function ResidentPaymentsPanel({
         meta: [
           showPropertyInMeta ? row.propertyLabel : null,
           moveInGroup
-            ? `${chargeDueLabel(row)} · ${moveInGroupItemCountLabel(moveInGroup)}`
-            : formatCompactChargeLine(row.title || "Charge", row.balanceLabel, chargeDueLabel(row), {
+            ? `${residentChargeListDueLabel(row)} · ${moveInGroupItemCountLabel(moveInGroup)}`
+            : formatCompactChargeLine(row.title || "Charge", row.balanceLabel, residentChargeListDueLabel(row), {
                 omitBalance: true,
               }),
         ]
@@ -1280,7 +1294,7 @@ export function ResidentPaymentsPanel({
         columns={[
           { id: "charge", header: "Charge", cell: (row) => row.title || "Charge" },
           { id: "property", header: "Property", cell: (row) => row.propertyLabel || "—" },
-          { id: "due", header: "Due", cell: (row) => chargeDueLabel(row) },
+          { id: "due", header: "Due", cell: (row) => residentChargeListDueLabel(row) },
           {
             id: "amount",
             header: "Amount",
@@ -1320,6 +1334,10 @@ export function ResidentPaymentsPanel({
         <PortalDataTableEmpty icon="payment" message="No charges yet." variant="stacked" />
       ) : (
         <>
+          <ResidentAutopayCard
+            onManagePaymentMethods={() => router.push("/resident/settings")}
+            onPayChargeNow={(chargeId) => openPayConfirm([chargeId], paymentMethod)}
+          />
           {bucket === "pending" && rentReporting && (rentReporting.addonAvailable || rentReporting.upgradeRequired) ? (
             <div className="mb-4 rounded-xl border border-border bg-card p-4" data-attr="resident-rent-reporting-card">
               <div className="flex items-center justify-between gap-4">
@@ -1455,48 +1473,8 @@ export function ResidentPaymentsPanel({
       </div>
     </Modal>
 
-    {payConfirm && payModalStep === "select" ? (
-      <PortalDialog
-        open
-        onClose={closePayModal}
-        title="Pay charges"
-        contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
-        previewLabel="Payment preview"
-        preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: charge.balanceLabel })), { label: "Amount due", value: confirmTotalLabel }]} />}
-        primaryAction={{
-          label: `Pay ${confirmTotalLabel}`,
-          onClick: () => void continuePayModal(),
-          disabled: checkout?.loading,
-          dataAttr: "resident-payments-confirm-pay",
-        }}
-      >
-        <div className="flex min-h-[min(50vh,20rem)] flex-col gap-4">
-          <div className="flex flex-1 flex-col justify-center space-y-4">
-            <div className="space-y-1 text-center">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Amount due</p>
-              <p className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{confirmTotalLabel}</p>
-              {confirmMoveInGroup ? (
-                <p className="text-sm text-muted">Move-in total · {moveInGroupItemCountLabel(confirmMoveInGroup)}</p>
-              ) : confirmCharges.length > 1 ? (
-                <p className="text-sm text-muted">{confirmCharges.length} charges</p>
-              ) : confirmCharges[0]?.title ? (
-                <p className="text-sm text-muted">{confirmCharges[0].title}</p>
-              ) : null}
-            </div>
-            {payConfirm.method ? (
-              <p className="text-center text-xs text-muted">No added fees · PropLane covers payment processing</p>
-            ) : null}
-          </div>
-          {renderPayModalMethodFooter()}
-        </div>
-      </PortalDialog>
-    ) : null}
-
-    {/* The checkout step stops at the Stripe element: its own Back control and
-        embedded iframe are unchanged, not folded into PortalDialog's fixed
-        footer, since the commit action there lives inside the iframe. */}
     <Modal
-      open={payConfirm !== null && payModalStep !== "select"}
+      open={payConfirm !== null}
       onClose={closePayModal}
       title="Pay charges"
       contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
@@ -1507,50 +1485,34 @@ export function ResidentPaymentsPanel({
     >
       {payConfirm ? (
         <div className="flex min-h-[min(50vh,20rem)] flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              disabled={checkout?.loading}
-              onClick={() => {
-                setPayModalStep("select");
-                setCheckout(null);
-              }}
-            >
-              Back
-            </Button>
-            <p className="text-sm text-foreground">
-              <span className="font-semibold tabular-nums">{confirmTotalLabel}</span>
+          <div className="space-y-1 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Amount due</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
+            </p>
+            <p className="text-xs text-muted">
+              {(checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0) > 0
+                ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
+                : "Processing fee: None"}
             </p>
           </div>
-          <div className="space-y-3">
-            {checkout?.loading ? (
-              <p className="text-sm text-muted">Loading secure checkout…</p>
-            ) : checkout?.error ? (
-              <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
-                <p>{checkout.error}</p>
-                {checkout.blockedByManagerSetup ? (
-                  // Never a dead end: a resident who cannot pay by card needs
-                  // somewhere to go, and Communication is where they reach the
-                  // manager who has to fix it.
-                  <Link
-                    href="/resident/communication/active"
-                    className="mt-2 inline-block font-semibold underline underline-offset-2"
-                    data-attr="resident-payment-error-contact-manager"
-                  >
-                    Message your property manager
-                  </Link>
-                ) : null}
-              </div>
-            ) : payModalCheckoutReady && checkout?.clientSecret ? (
-              <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
-                <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
-              </div>
-            ) : (
-              <p className="text-sm text-muted">Could not load secure checkout. Go back and try again.</p>
-            )}
-          </div>
+          {renderPaymentMethodPicker(confirmCharges, {
+            selected: payConfirm.method,
+            onSelect: (method) => selectPayModalMethod(method),
+          })}
+          {checkout?.loading ? (
+            <p className="text-sm text-muted">Loading secure checkout…</p>
+          ) : checkout?.error ? (
+            <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
+              <p>{checkout.error}</p>
+            </div>
+          ) : checkout?.clientSecret ? (
+            <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
+              <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Preparing checkout…</p>
+          )}
         </div>
       ) : null}
     </Modal>
