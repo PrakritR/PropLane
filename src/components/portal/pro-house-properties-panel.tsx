@@ -835,15 +835,17 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
-        // C2-PR14: Edit, Share, Duplicate, Unlist, then red Delete last; the
+        // Studio header: outlined Edit first, Share, Unlist, Duplicate, then red Delete last; the
         // adaptive row folds the tail into its own ⋯ only when width runs out.
         if (canEditAction) {
           actions.push({
             id: "edit-listing",
+            // Outlined and pinned first, like the studio — a filled primary would be
+            // moved to the far end by the adaptive row.
+            alwaysVisible: true,
             node: (
               <PortalIconAction
                 ring
-                ringPrimary
                 icon={Pencil}
                 label="Edit"
                 data-attr="listing-edit-full"
@@ -881,7 +883,6 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
-        if (canDuplicateAction) actions.push(duplicateFooterAction());
         actions.push({
           id: "unlist",
           node: (
@@ -902,6 +903,7 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
+        if (canDuplicateAction) actions.push(duplicateFooterAction());
         if (canDeleteAction) {
           actions.push({
             id: "delete-listed",

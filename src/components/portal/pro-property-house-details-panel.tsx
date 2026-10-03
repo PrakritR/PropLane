@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/input";
 import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import { HouseDetailsExpandable } from "@/components/portal/house-info-sections";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PropertyHouseDetailsListPanel } from "@/components/portal/property-house-details-list-panel";
 import { HouseInfoSplitReview } from "@/components/portal/house-info-split-review";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -64,6 +64,7 @@ export function ManagerPropertyHouseDetailsPanel({
   const [notesTick, setNotesTick] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [earlierNotesOpen, setEarlierNotesOpen] = useState(false);
   const [splitDismissed, setSplitDismissed] = useState(false);
 
   const portalNote = useMemo(
@@ -278,6 +279,9 @@ export function ManagerPropertyHouseDetailsPanel({
           sub={sub}
           houseInfo={draft.houseInfo}
           managerNotes={draft.houseDescription}
+          earlierNotes={
+            draft.generalHouseInfo || draft.houseRulesText ? { onOpen: () => setEarlierNotesOpen(true) } : undefined
+          }
           managerUserId={managerUserId}
           showToast={showToast}
           onPersist={(payload) => {
@@ -299,39 +303,42 @@ export function ManagerPropertyHouseDetailsPanel({
           }}
         />
 
-        {draft.generalHouseInfo || draft.houseRulesText ? (
-          <HouseDetailsExpandable
-            defaultOpen={false}
-            dataAttr="house-info-legacy"
-            title="Your earlier notes"
-          >
-            <div className="space-y-3">
-              {draft.generalHouseInfo ? (
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-muted">General house info</label>
-                  <Textarea
-                    rows={4}
-                    aria-label="General house info"
-                    value={draft.generalHouseInfo}
-                    onChange={(e) => updateText("generalHouseInfo", e.target.value)}
-                  />
-                </div>
-              ) : null}
-              {draft.houseRulesText ? (
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-muted">House rules</label>
-                  <Textarea
-                    rows={4}
-                    aria-label="House rules"
-                    value={draft.houseRulesText}
-                    onChange={(e) => updateText("houseRulesText", e.target.value)}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </HouseDetailsExpandable>
-        ) : null}
       </div>
+
+      {/* Studio: legacy free-text lives with Manager notes, not as a card under the list. */}
+      <PortalDialog
+        open={earlierNotesOpen}
+        onClose={() => setEarlierNotesOpen(false)}
+        title="Earlier notes"
+        dataAttr="house-info-legacy"
+        preview={null}
+        primaryAction={{ label: "Done", onClick: () => setEarlierNotesOpen(false), dataAttr: "house-info-legacy-done" }}
+      >
+            <div className="space-y-3">
+          {draft.generalHouseInfo ? (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-muted">General house info</label>
+              <Textarea
+                rows={4}
+                aria-label="General house info"
+                value={draft.generalHouseInfo}
+                onChange={(e) => updateText("generalHouseInfo", e.target.value)}
+              />
+            </div>
+          ) : null}
+          {draft.houseRulesText ? (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-muted">House rules</label>
+              <Textarea
+                rows={4}
+                aria-label="House rules"
+                value={draft.houseRulesText}
+                onChange={(e) => updateText("houseRulesText", e.target.value)}
+              />
+            </div>
+          ) : null}
+        </div>
+      </PortalDialog>
 
       {reviewOpen ? (
         <HouseInfoSplitReview

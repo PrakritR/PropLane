@@ -98,7 +98,10 @@ export function PropertyHouseDetailsListPanel({
   managerUserId,
   onPersist,
   showToast,
+  earlierNotes,
 }: {
+  /** Legacy free-text (General house info / House rules) — a Manager tools row when present. */
+  earlierNotes?: { onOpen: () => void };
   propertyId: string;
   sub: ManagerListingSubmissionV1;
   houseInfo: HouseInfoV1;
@@ -669,6 +672,19 @@ export function PropertyHouseDetailsListPanel({
                 />
               }
             />
+            {earlierNotes ? (
+              <PortalPropertyRecordRow
+                title="Earlier notes"
+                leading={<PortalRowIconTile icon={FileText} />}
+                leadingShape="square"
+                onOpen={earlierNotes.onOpen}
+                dataAttr="property-house-details-earlier-notes-row"
+                facts={rowFacts([{ icon: Lock, text: "Manager only", sr: "Audience" }])}
+                actions={
+                  <RowActionsMenu label="Earlier notes" items={[{ id: "edit", label: "Edit", onSelect: earlierNotes.onOpen }]} />
+                }
+              />
+            ) : null}
             {propertyId ? <HousePrintablesCard propertyId={propertyId} rooms={rooms} showToast={showToast} /> : null}
           </>
         ) : null}

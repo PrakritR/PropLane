@@ -297,10 +297,11 @@ export function PortalListControlStack({
       <div
         className={cn(
           "relative flex-1",
-          // An embedded band shares a narrow column (Communication's list pane):
-          // the search yields down to its glyph so the round + is never clipped,
-          // and opens back up while it has focus.
-          embedded ? "min-w-[2.5rem] transition-[min-width] focus-within:min-w-[10rem]" : "min-w-[6rem]",
+          // When tabs, icons and the + crowd the band (Communication's list pane,
+          // House details' six tabs), the search yields down to its glyph so no tab
+          // scrolls out of view and the + is never clipped; it opens back up while
+          // it has focus. With room to spare it still fills the band.
+          "min-w-[2.5rem] transition-[min-width] focus-within:min-w-[10rem]",
         )}
       >
         <Search
