@@ -1,0 +1,128 @@
+import { describe, expect, it, vi } from "vitest";
+
+type Row = Record<string, unknown>;
+const tables = vi.hoisted(() => ({ data: {} as Record<string, Row[]> }));
+
+function builder(rows: Row[]) {
+  let current = rows;
+  const api = {
+    select: () => api,
+    eq: (column: string, value: unknown) => {
+      current = current.filter((row) => {
+        if (column.startsWith("row_data->>")) return String((row.row_data as Row | undefined)?.[column.slice(11)] ?? "") === String(value);
+        return row[column] === value;
+      });
+      return api;
+    },
+    limit: () => api,
+    maybeSingle: async () => ({ data: current[0] ?? null, error: null }),
+    then: (resolve: (value: { data: Row[]; error: null }) => unknown) => resolve({ data: current, error: null }),
+  };
+  return api;
+}
+
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (table: string) => builder(tables.data[table] ?? []) }) }));
+vi.mock("@/lib/channel-calendar/sync.server", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/channel-calendar/sync.server")>("@/lib/channel-calendar/sync.server").catch(() => ({}));
+  return {
+    ...actual,
+    loadPropertyRecord: async () => ({ managerUserId: "m1", property: null, rowData: null }),
+    loadConnectionByExportToken: async (_db: unknown, token: string) => {
+      const row = (tables.data.external_calendar_connections ?? []).find((r) => r.export_token === token);
+      if (!row) return null;
+      const { parseConnectionRow } = await import("@/lib/channel-calendar/connections.server");
+      return parseConnectionRow(row);
+    },
+  };
+});
+
+import { GET } from "@/app/api/calendar/export/[token]/route";
+import { importedRangesForFeed } from "@/lib/channel-calendar/export-feed";
+
+const conn = (id: string, provider: string, token: string, ranges: { start: string; end: string }[], roomId = "r1") => ({
+  id, manager_user_id: "m1", property_id: "p1", room_id: roomId, provider, label: null, import_url: null, export_token: token,
+  imported_ranges: ranges.map((r, i) => ({ id: `${id}-${i}`, sourceUid: `${id}-${i}`, summary: "Reserved", ...r })), last_synced_at: null, last_error: null,
+});
+const placement = (id: string, connectionId: string | null, start: string, end: string, extra: Row = {}) => ({
+  id, manager_user_id: "m1", assigned_property_id: "p1", property_id: "p1", choice: "p1::r1", preferred: null, lease_start: start, lease_end: end,
+  manual_start: null, manual_end: null, manually_added: connectionId ? "true" : "false", bucket: "approved", ical_connection: connectionId,
+  row_data: { bucket: "approved" }, ...extra,
+});
+
+const AIRBNB = { start: "2027-01-10", end: "2027-01-12" };
+const BOOKING = { start: "2027-02-01", end: "2027-02-03" };
+const LEASE = { start: "2027-03-01", end: "2027-03-31" };
+
+function seed() {
+  tables.data = {
+    external_calendar_connections: [
+      conn("c-air", "airbnb", "tok-air", [AIRBNB]),
+      conn("c-bdc", "booking_com", "tok-bdc", [BOOKING]),
+    ],
+    manager_application_records: [
+      placement("lease", null, LEASE.start, LEASE.end),
+      placement("air-stay", "c-air", AIRBNB.start, AIRBNB.end),
+      placement("bdc-stay", "c-bdc", BOOKING.start, BOOKING.end),
+    ],
+    portal_schedule_records: [
+      { manager_user_id: "m1", property_id: "p1", record_type: "room_date_block", row_data: { roomId: "r1", bookingStatus: "cancelled", checkIn: "2027-04-10", checkOut: "2027-04-14" } },
+      { manager_user_id: "m1", property_id: "p1", record_type: "room_date_block", row_data: { roomId: "r1", checkIn: "2027-06-01", checkOut: "2027-06-05" } },
+    ],
+  };
+}
+
+async function feed(token: string, query = "") {
+  const res = await GET(new Request(`https://x.test/api/calendar/export/${token}.ics${query}`), { params: Promise.resolve({ token: `${token}.ics` }) });
+  expect(res.status).toBe(200);
+  return res.text();
+}
+const has = (ics: string, range: { start: string }) => ics.includes(range.start.replaceAll("-", ""));
+
+describe("calendar export feed", () => {
+  it("the Airbnb feed carries Booking.com bookings and leases, not Airbnb's own", async () => {
+    seed();
+    const ics = await feed("tok-air");
+    expect(has(ics, BOOKING)).toBe(true);
+    expect(has(ics, AIRBNB)).toBe(false);
+    expect(has(ics, LEASE)).toBe(true);
+    expect(ics.includes("20270601")).toBe(true);
+  });
+
+  it("the Booking.com feed is the reverse", async () => {
+    seed();
+    const ics = await feed("tok-bdc");
+    expect(has(ics, AIRBNB)).toBe(true);
+    expect(has(ics, BOOKING)).toBe(false);
+    expect(has(ics, LEASE)).toBe(true);
+  });
+
+  it("an 'other' link carries every channel, and a cancelled block is in none of them", async () => {
+    seed();
+    const other = await feed("tok-air", "?channels=all");
+    expect(has(other, AIRBNB) && has(other, BOOKING) && has(other, LEASE)).toBe(true);
+    for (const ics of [other, await feed("tok-air"), await feed("tok-bdc")]) expect(ics.includes("20270410")).toBe(false);
+  });
+
+  it("a token shared by two connections (older links) carries every channel", async () => {
+    seed();
+    tables.data.external_calendar_connections![1]!.export_token = "tok-air";
+    const ics = await feed("tok-air");
+    expect(has(ics, AIRBNB) && has(ics, BOOKING)).toBe(true);
+  });
+});
+
+describe("importedRangesForFeed", () => {
+  const connections = [
+    { id: "a", roomId: "r1", provider: "airbnb" as const, importedRanges: [{ id: "1", sourceUid: "1", summary: "", ...AIRBNB }] },
+    { id: "b", roomId: "p1", provider: "booking_com" as const, importedRanges: [{ id: "2", sourceUid: "2", summary: "", ...BOOKING }] },
+    { id: "c", roomId: "r2", provider: "booking_com" as const, importedRanges: [{ id: "3", sourceUid: "3", summary: "", start: "2027-05-01", end: "2027-05-02" }] },
+  ];
+  it("a whole-home booking blocks the room, and a room's feed ignores other rooms", () => {
+    const out = importedRangesForFeed({ propertyId: "p1", roomId: "r1", destination: "airbnb", connections, placements: [] });
+    expect(out).toEqual([BOOKING]);
+  });
+  it("a whole-home feed takes every room's other-channel bookings, deduplicated against placements", () => {
+    const out = importedRangesForFeed({ propertyId: "p1", roomId: "p1", destination: "airbnb", connections, placements: [{ connectionId: "b", ...BOOKING }] });
+    expect(out).toHaveLength(2);
+  });
+});

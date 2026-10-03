@@ -85,8 +85,9 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
     finally { setBusy(false); }
   };
   const exportFor = async (id: string, label: string) => {
-    const url = exports[id] || connections.find((c) => c.roomId === id)?.exportUrl || await fetchRoomExportCalendarUrl({ propertyId, roomId: id, roomLabel: label });
-    setExports((old) => ({ ...old, [id]: url }));
+    const key = `${id}:${channel}`;
+    const url = exports[key] || connections.find((c) => c.roomId === id && c.provider === channel)?.exportUrl || await fetchRoomExportCalendarUrl({ propertyId, roomId: id, roomLabel: label, provider: channel });
+    setExports((old) => ({ ...old, [key]: url }));
     return url;
   };
   const openPreview = async (id: string, label: string) => {
@@ -141,7 +142,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
           const id = room.id!;
           const connection = connections.find((c) => c.roomId === id && c.provider === channel);
           const StatusIcon = connection?.lastError ? AlertCircle : connection?.lastSyncedAt ? CheckCircle : CircleDashed;
-          const url = exports[id] || connections.find((c) => c.roomId === id)?.exportUrl;
+          const url = exports[`${id}:${channel}`] || connection?.exportUrl;
           const conflicts = conflictingChannelStays(entries, propertyId, id, channel);
           const bad = Boolean(drafts[id]?.trim()) && !isValidChannelImportUrl(channel, drafts[id]!.trim());
           return <RecordActionContext.Provider key={id} value={{ scope: id, clear: () => {}, actions: <>

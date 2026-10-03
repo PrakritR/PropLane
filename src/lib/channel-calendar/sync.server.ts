@@ -382,36 +382,39 @@ async function resolveRoomExportToken(
     .maybeSingle();
   if (sameProvider?.export_token) return String(sameProvider.export_token);
 
-  const { data: siblings } = await db
-    .from("external_calendar_connections")
-    .select("export_token")
-    .eq("property_id", propertyId)
-    .eq("room_id", roomId)
-    .limit(1);
-  const siblingToken = siblings?.[0]?.export_token;
-  if (siblingToken) return String(siblingToken);
-
+  // A link belongs to one (room, channel): the channel is the site it is pasted into, and the feed
+  // leaves that channel's own bookings out. Sharing a sibling's token would make that impossible.
   return mintChannelCalendarExportToken();
 }
 
-/** One PropLane export link per room — reuses an existing token when present. */
+/**
+ * One PropLane export link per (room, channel) - reuses the existing token when present.
+ * `destination` is the site the link is pasted into. "other" (VRBO and the rest) has no channel of
+ * its own: it reuses any link the room already has, or mints an Airbnb-channel one, and adds
+ * `?channels=all` so the feed carries every channel's bookings.
+ */
 export async function ensureRoomExportCalendarUrl(
   db: SupabaseClient,
   input: {
     propertyId: string;
     roomId: string;
     label?: string | null;
+    destination?: ChannelCalendarProvider | "other";
   },
   browserOrigin?: string,
 ): Promise<string> {
-  const { data: existing } = await db
+  const destination = input.destination ?? "airbnb";
+  const provider: ChannelCalendarProvider = destination === "other" ? "airbnb" : destination;
+  const suffix = destination === "other" ? "?channels=all" : "";
+  let query = db
     .from("external_calendar_connections")
     .select("export_token")
     .eq("property_id", input.propertyId)
-    .eq("room_id", input.roomId)
-    .limit(1);
+    .eq("room_id", input.roomId);
+  if (destination !== "other") query = query.eq("provider", provider);
+  const { data: existing } = await query.limit(1);
   const token = existing?.[0]?.export_token;
-  if (token) return buildExportCalendarUrl(String(token), browserOrigin);
+  if (token) return `${buildExportCalendarUrl(String(token), browserOrigin)}${suffix}`;
 
   const record = await loadPropertyRecord(db, input.propertyId);
   const ownerUserId = record?.managerUserId?.trim();
@@ -423,12 +426,12 @@ export async function ensureRoomExportCalendarUrl(
       managerUserId: ownerUserId,
       propertyId: input.propertyId,
       roomId: input.roomId,
-      provider: "airbnb",
+      provider,
       label: input.label ?? null,
     },
     browserOrigin,
   );
-  return connection.exportUrl;
+  return `${connection.exportUrl}${suffix}`;
 }
 
 export async function syncAllChannelCalendarImports(db: SupabaseClient): Promise<{ synced: number; failed: number }> {

@@ -7,6 +7,7 @@ import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-ico
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl } from "@/lib/channel-calendar/client";
+import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { channelCalendarUnits } from "@/lib/channel-calendar/property-units";
 
 type Site = "airbnb" | "booking_com" | "vrbo" | "other";
@@ -34,8 +35,10 @@ type Props = {
 
 /**
  * This workspace's PropLane calendar export links (iCal), one per house and room, with Copy
- * and the short steps for pasting one into another site. Links come from the existing export
- * feed; a room that has none yet can mint one, the same call the Connect popup makes.
+ * and the short steps for pasting one into another site. "Paste into" picks the destination:
+ * a link is minted per (room, channel), and its feed leaves that channel's own bookings out so
+ * they do not echo back. VRBO / Other have no channel of their own, so their link (the room's
+ * existing token plus `?channels=all`) carries every channel's bookings.
  */
 export function ExportBookingCalendarDialog({ open, onClose, propertyOptions, showToast }: Props) {
   const [site, setSite] = useState<Site>("airbnb");
@@ -54,16 +57,21 @@ export function ExportBookingCalendarDialog({ open, onClose, propertyOptions, sh
     fetchManagerChannelBookings(idsKey.split("\n")).then((properties) => {
       if (stopped) return;
       const found: Record<string, string> = {};
-      for (const property of properties) for (const room of property.rooms) if (room.exportUrl) found[`${property.propertyId}:${room.roomId}`] ??= room.exportUrl;
+      for (const property of properties) for (const room of property.rooms) if (room.exportUrl) {
+        found[`${property.propertyId}:${room.roomId}:${room.provider}`] ??= room.exportUrl;
+        // Any existing link also serves a generic site once it asks for every channel.
+        found[`${property.propertyId}:${room.roomId}:other`] ??= `${room.exportUrl}?channels=all`;
+      }
       setUrls((old) => ({ ...found, ...old }));
     }).catch(() => { if (!stopped) setError("Could not load calendar links."); });
     return () => { stopped = true; };
   }, [open, idsKey]);
+  const destination: ChannelCalendarProvider | "other" = site === "airbnb" || site === "booking_com" ? site : "other";
   const create = async (row: (typeof rows)[number]) => {
     setBusyKey(row.key); setError("");
     try {
-      const url = await fetchRoomExportCalendarUrl({ propertyId: row.propertyId, roomId: row.roomId, roomLabel: row.unitLabel });
-      setUrls((old) => ({ ...old, [row.key]: url }));
+      const url = await fetchRoomExportCalendarUrl({ propertyId: row.propertyId, roomId: row.roomId, roomLabel: row.unitLabel, provider: destination });
+      setUrls((old) => ({ ...old, [`${row.key}:${destination}`]: url }));
     } catch (e) { setError(e instanceof Error ? e.message : "Could not create the link."); }
     finally { setBusyKey(""); }
   };
@@ -73,7 +81,7 @@ export function ExportBookingCalendarDialog({ open, onClose, propertyOptions, sh
       <div className="space-y-5">
         {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
         {rows.length === 0 ? <p>No houses in this workspace yet.</p> : <ul className="space-y-4">{rows.map((row) => {
-          const url = urls[row.key] ?? "";
+          const url = urls[`${row.key}:${destination}`] ?? "";
           return <li key={row.key} className="space-y-1.5" data-attr="export-booking-calendar-row">
             <span className="block text-[12.5px] font-bold text-foreground">{row.label}</span>
             <div className="flex items-center gap-2">

@@ -15,6 +15,8 @@ export async function fetchRoomExportCalendarUrl(input: {
   propertyId: string;
   roomId: string;
   roomLabel?: string;
+  /** The site the link is pasted into; "other" is a link that carries every channel's bookings. */
+  provider?: ChannelCalendarProvider | "other";
 }): Promise<string> {
   const origin = apiOrigin();
   const params = new URLSearchParams({
@@ -22,6 +24,7 @@ export async function fetchRoomExportCalendarUrl(input: {
     roomId: input.roomId,
     origin,
   });
+  if (input.provider) params.set("provider", input.provider);
   if (input.roomLabel?.trim()) params.set("roomLabel", input.roomLabel.trim());
   const res = await fetch(`/api/portal/channel-calendar/connections?${params}`, {
     credentials: "include",

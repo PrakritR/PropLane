@@ -60,5 +60,7 @@ describe("ExportBookingCalendarDialog", () => {
     expect(screen.getByLabelText("Create export link for 4709A · Room 3")).toBeTruthy();
     expect(screen.getByLabelText("Paste into")).toBeTruthy();
     expect(document.querySelectorAll('[data-attr="export-booking-calendar-steps"] li').length).toBeGreaterThanOrEqual(3);
+    // Room 2 has a Booking.com link and an Airbnb one without an import: the default site (Airbnb) shows the Airbnb link.
+    expect((screen.getByLabelText("4709A · Room 2 export link") as HTMLInputElement).value).toBe("https://proplane.ai/api/calendar/export/token-r2.ics");
   });
 });
