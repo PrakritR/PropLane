@@ -51,6 +51,7 @@ export function useResidentWizardDerived(
   form: AddPersonForm,
   propertyTick: number,
   patch: (next: Partial<AddPersonForm>) => void,
+  opts: { editing?: boolean } = {},
 ): ResidentWizardDerived {
   const { propertyId, roomId, bundleId, leaseTerm, leaseTermCustomMode } = form;
 
@@ -123,6 +124,13 @@ export function useResidentWizardDerived(
     const pricing = resolveManualResidentPlacementValues({ propertyId, roomId, bundleId, leaseTerm, leaseTermCustomMode });
     if (!pricing) return;
     const placementKey = `${propertyId}\0${roomId}\0${bundleId}\0${leaseTerm}\0${String(leaseTermCustomMode)}`;
+    // Editing a resident opens on what is SAVED. The first pass over their own
+    // placement must not overwrite the rent they pay with today's listing price;
+    // only a placement the manager changes from here re-prices.
+    if (opts.editing && lastPricingPlacementRef.current === "") {
+      lastPricingPlacementRef.current = placementKey;
+      return;
+    }
     const placementChanged = lastPricingPlacementRef.current !== placementKey;
     lastPricingPlacementRef.current = placementKey;
     if (placementChanged) {

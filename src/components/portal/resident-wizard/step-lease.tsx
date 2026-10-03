@@ -26,7 +26,9 @@ import {
   ApplicationResidentSlotPicker,
   defaultOpenResidentSlot,
 } from "@/components/portal/application-resident-slot-picker";
+import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
+import { EditLeaseRecordCards } from "./edit-steps";
 import type { AddPersonForm, LeaseDocumentChoice } from "./state";
 
 const LEASE_DOCUMENT_OPTIONS: { value: LeaseDocumentChoice; label: string; hint: string }[] = [
@@ -44,6 +46,7 @@ export function LeaseStep({
   editStage,
   signedAtIso,
   onRequestNewTerms,
+  editRecord,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
@@ -53,6 +56,8 @@ export function LeaseStep({
   editStage?: ResidentEditStage;
   signedAtIso?: string | null;
   onRequestNewTerms?: () => void;
+  /** Edit mode: the resident's real lease status, signers and document. */
+  editRecord?: ResidentEditRecord;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const clearMark = (key: string) => {
@@ -136,7 +141,18 @@ export function LeaseStep({
   return (
     <StepColumn>
       <StepHeading title="The lease" />
-      {editStage === "signed" && signedAtIso ? (
+      {editRecord ? (
+        <EditLeaseRecordCards
+          record={editRecord}
+          action={
+            editStage === "signed" && onRequestNewTerms ? (
+              <Button type="button" onClick={onRequestNewTerms} data-attr="residents-wizard-new-terms">
+                New terms
+              </Button>
+            ) : null
+          }
+        />
+      ) : editStage === "signed" && signedAtIso ? (
         <WizardSection title="Signed" dataAttr="residents-wizard-lease-signed">
           <WizardLine
             label={`Signed ${formatPortalListDate(signedAtIso)}`}
@@ -251,6 +267,7 @@ export function LeaseStep({
         </WizardSection>
       )}
 
+      {editRecord ? null : (
       <WizardSection title="Lease document" dataAttr="residents-wizard-lease-document">
         <WizardSelect
           label="This lease is"
@@ -295,6 +312,7 @@ export function LeaseStep({
           </div>
         ) : null}
       </WizardSection>
+      )}
     </StepColumn>
   );
 }

@@ -420,6 +420,7 @@ export function PortalServiceRecordRow({
   onOpen,
   dataAttr,
   rowId,
+  menu,
 }: {
   title: string;
   subtitle?: string;
@@ -431,6 +432,8 @@ export function PortalServiceRecordRow({
   onOpen: () => void;
   dataAttr?: string;
   rowId?: string;
+  /** The row's one ⋯ menu (Edit first), when the list carries its own actions. */
+  menu?: ReactNode;
 }) {
   const selectable = Boolean(onSelectedChange);
   const highlighted = selected || checked;
@@ -468,6 +471,7 @@ export function PortalServiceRecordRow({
       {figure ? (
         <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{figure}</span>
       ) : null}
+      {menu}
     </div>
   );
 }
