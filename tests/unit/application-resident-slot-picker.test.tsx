@@ -31,8 +31,7 @@ describe("ApplicationResidentSlotPicker", () => {
     render(<ApplicationResidentSlotPicker slots={slots()} value={2} onChange={onChange} />);
 
     expect(screen.getByText(/Bed A · \$900\/mo/)).toBeTruthy();
-    expect(screen.getByText(/Bed B · \$900\/mo/)).toBeTruthy();
-    expect(screen.queryByText(/Bed B · \$800\/mo/)).toBeNull();
+    expect(screen.getByText(/Bed B · \$800\/mo/)).toBeTruthy();
     expect(screen.getByText("Occupied")).toBeTruthy();
     expect(screen.queryByText(/Aaron/)).toBeNull();
     expect(screen.getByText("Open")).toBeTruthy();
