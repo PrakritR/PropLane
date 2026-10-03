@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -728,7 +729,13 @@ export function PortalProfileClient({
   const renderPane = (id: SettingsGroupId): ReactNode => {
     switch (id) {
       case "workspaces":
-        return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
+        // C2-CP7–CP9: the workspace's one signing order and its application ↔ lease map.
+        return (
+          <>
+            <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />
+            <WorkspaceApplicationsLeasesSettings />
+          </>
+        );
       case "profile":
         return personalInfoSection;
       case "payments":

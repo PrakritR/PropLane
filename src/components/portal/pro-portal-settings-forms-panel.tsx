@@ -607,19 +607,7 @@ function LeaseFormAutomationBlock() {
           dataAttr="forms-lease-auto-generate"
         />
       </PortalSettingsRow>
-      <PortalSettingsRow label="Auto-send the lease to the resident">
-        <PortalSettingsToggle
-          checked={automation.autoSendLease}
-          onChange={(next) => {
-            const nextAutomation = { ...automation, autoSendLease: next };
-            setAutomation(nextAutomation);
-            void patch({ automation: nextAutomation });
-          }}
-          label="Auto-send the lease to the resident"
-          disabled={disabled}
-          dataAttr="forms-lease-auto-send"
-        />
-      </PortalSettingsRow>
+      {/* Auto-send lives in Settings → Workspace → Applications & leases (C2-CP8). */}
     </PortalSettingsGroup>
   );
 }

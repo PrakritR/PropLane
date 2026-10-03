@@ -71,7 +71,6 @@ import {
 import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
-import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import {
   ServiceRequestAutomationRows,
   ServiceVendorAutomationRows,
@@ -583,7 +582,6 @@ export function ManagerPortalAutomationSettingsPanel({
                 { kind: "deposit_accounting", multi: true },
               ]}
             />
-            <LeaseAutomationSettingsRows />
             <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={leaseReminderFormRef} />
             <AutomationRuleRows rows={[{ kind: "document_signature" }]} />
             <AutomatedMessagesList area="lease" />
