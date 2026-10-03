@@ -7,6 +7,16 @@ import { managerScheduleRecordIdOwnedByUser, isManagerScopedScheduleRecordType }
 const draft = { id: "axis_room_block_manager_1", propertyId: "house", roomId: "room", checkIn: "2026-11-01", checkOut: "2026-11-06", reason: "", residentName: "Taylor", isBookingResidency: true };
 afterEach(() => vi.unstubAllGlobals());
 describe("booking cancellation archive", () => {
+  it.each([-1, NaN, Infinity])("rejects invalid rate %s before writing", async (rate) => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    await expect(saveRoomDateBlock("manager", { ...draft, rate })).rejects.toThrow("Rate must be");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("normalizes only string stay details from persisted data", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rows: [{ ...draft, recordType: "room_date_block", stayDetails: { linen: { nested: true }, baggage: ["Yes"], earlyCheckIn: 12, lateCheckOut: " 13:00 ", source: " Direct ", unexpected: "ignored" } }] }) }));
+    const [block] = await fetchRoomDateBlocks();
+    expect(block.stayDetails).toEqual({ lateCheckOut: "13:00", source: "Direct" });
+  });
   it("writes a separate non-occupying record type and restores the same id", async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetcher);
     await saveRoomDateBlock("manager", { ...draft, bookingStatus: "cancelled" });
@@ -26,6 +36,11 @@ describe("booking cancellation archive", () => {
     expect(isManagerScopedScheduleRecordType("cancelled_room_date_block")).toBe(true);
     expect(managerScheduleRecordIdOwnedByUser(draft.id, "manager", "cancelled_room_date_block")).toBe(true);
     expect(managerScheduleRecordIdOwnedByUser(draft.id, "other", "cancelled_room_date_block")).toBe(false);
+  });
+  it("retains an open-ended future stay beyond the drawing horizon", () => {
+    const entries = roomBlockEntries([{ ...draft, checkIn: "2099-01-01", checkOut: "9999-12-31", openEnded: true, createdAt: "" }], { propertyLabelForId: () => "House", roomLabelForId: () => "Room" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ start: "2099-01-01", end: "2099-01-01", openEnded: true });
   });
   it("stores an indefinite range while bounding its calendar drawing", async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetcher);

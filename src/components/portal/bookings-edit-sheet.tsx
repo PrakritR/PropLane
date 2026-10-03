@@ -36,14 +36,15 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const conflicts = conflictsForRoom(roomId);
   const properties = propertyOptions.length ? propertyOptions : [{ id: entry.propertyId, label: entry.propertyLabel }];
   const chooseRoom = (id: string, property = propertyId) => { setRoomId(id); const next = bookingRoomRate(property, id); setRate(String(next.amount ?? "")); setBasis(next.basis); };
+  const rateValid = rate === "" || (Number.isFinite(Number(rate)) && Number(rate) >= 0);
   const save = async () => {
-    if (locked || !valid || conflicts.length || busy) return;
+    if (locked || !valid || !rateValid || conflicts.length || busy) return;
     setBusy(true); setError("");
     try { await onSave({ id: entry.blockId, isBookingResidency: entry.isBookingResidency, openEnded, propertyId, roomId, checkIn, checkOut, residentName: entry.residentName ?? entry.summary, residentEmail: entry.residentEmail ?? "", residentPhone: entry.residentPhone, reason: notes, bookingStatus: status as "hold" | "confirmed", rate: rate === "" ? undefined : Number(rate), rateBasis: basis, stayDetails: details }); onClose(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save booking."); }
     finally { setBusy(false); }
   };
-  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" primaryAction={locked ? null : { label: "Save booking", onClick: save, disabled: !valid || Boolean(conflicts.length) || busy || (rate !== "" && (!Number.isFinite(Number(rate)) || Number(rate) < 0)), loading: busy }}>
+  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" primaryAction={locked ? null : { label: "Save booking", onClick: save, disabled: !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Guest</span><div className="py-2 font-medium">{entry.residentName || entry.summary}</div></div>
       <label htmlFor="booking-edit-property"><span className={MODAL_FIELD_LABEL_CLASS}>Property</span><Select id="booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(event) => { setPropertyId(event.target.value); chooseRoom("", event.target.value); }}>{properties.map((property) => <option key={property.id} value={property.id}>{property.label}</option>)}</Select></label>

@@ -155,7 +155,7 @@ export function roomBlockEntries(
   const out: PropertyBookingEntry[] = [];
   for (const block of blocks) {
     const start = normalizeBookingDateKey(block.checkIn);
-    const end = block.openEnded ? openEndedBookingHorizonKey() : normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
+    const end = block.openEnded ? (openEndedBookingHorizonKey() > start ? openEndedBookingHorizonKey() : start) : normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
     if (!start || !end || end < start) continue;
     out.push({
       source: "block",

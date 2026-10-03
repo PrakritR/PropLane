@@ -33,6 +33,16 @@ type BlockRow = {
   createdAt?: unknown;
 };
 
+function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const values = raw as Record<string, unknown>;
+  const result: NonNullable<RoomDateBlock["stayDetails"]> = {};
+  for (const key of ["source", "linen", "baggage", "earlyCheckIn", "lateCheckOut"] as const) {
+    if (typeof values[key] === "string") result[key] = values[key].trim();
+  }
+  return result;
+}
+
 function normalizeBlock(raw: unknown): RoomDateBlock | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as BlockRow;
@@ -44,7 +54,7 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
     bookingStatus: row.recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE ? "cancelled" : row.bookingStatus === "confirmed" ? "confirmed" : "hold",
     ...(typeof row.rate === "number" && Number.isFinite(row.rate) && row.rate >= 0 ? { rate: row.rate } : {}),
     rateBasis: row.rateBasis === "daily" || row.rateBasis === "weekly" ? row.rateBasis : "monthly",
-    ...(row.stayDetails && typeof row.stayDetails === "object" ? { stayDetails: row.stayDetails as RoomDateBlock["stayDetails"] } : {}),
+    stayDetails: normalizeStayDetails(row.stayDetails),
     id: row.id,
     propertyId: row.propertyId,
     roomId: typeof row.roomId === "string" ? row.roomId : "",
@@ -108,6 +118,7 @@ export async function saveRoomDateBlock(
     isBookingResidency?: boolean;
   },
 ): Promise<RoomDateBlock> {
+  if (input.rate != null && (!Number.isFinite(input.rate) || input.rate < 0)) throw new Error("Rate must be a non-negative number.");
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
   const residentPhone = normalizeE164(input.residentPhone) ?? "";
@@ -126,7 +137,7 @@ export async function saveRoomDateBlock(
     bookingStatus: input.bookingStatus ?? "hold",
     rate: input.rate,
     rateBasis: input.rateBasis,
-    stayDetails: input.stayDetails,
+    stayDetails: normalizeStayDetails(input.stayDetails),
     ...(residentName ? { residentName } : {}),
     ...(residentName && residentEmail ? { residentEmail } : {}),
     ...(residentName && residentPhone ? { residentPhone } : {}),
