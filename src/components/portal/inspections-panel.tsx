@@ -644,15 +644,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>
     )}
     {embeddedScope && !loading && !embeddedPrimaryReport ? (
-      <div className="mx-1 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-10 text-center" data-attr="inspection-embedded-empty">
-        <ClipboardCheck className="h-10 w-10 text-primary" aria-hidden />
-        <div className="space-y-2">
-          <p className="text-base font-semibold">No {kindLabel(kind).toLowerCase()} photos yet</p>
-        </div>
-        <Button onClick={openEmbeddedInspection} disabled={busy || embeddedEditDisabled} data-attr="inspection-embedded-create">
-          Add {kindLabel(kind).toLowerCase()} photos
-        </Button>
-      </div>
+      <p className="text-sm text-muted" data-attr="inspection-embedded-empty">No inspections.</p>
     ) : null}
     {embeddedScope && !loading && embeddedPrimaryReport ? (
       <div className="mx-1 space-y-4 rounded-2xl border border-border bg-card/50 p-5" data-attr="inspection-embedded-resume">

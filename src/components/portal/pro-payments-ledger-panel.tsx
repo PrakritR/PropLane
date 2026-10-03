@@ -677,8 +677,9 @@ export function ManagerPaymentsLedgerPanel({
   const saveEdit = async (row: DemoManagerPaymentLedgerRow) => {
     if (!row.householdChargeId) return;
     let amt = parseFloat(editAmountDraft.replace(/[^\d.]/g, ""));
-    if (!Number.isFinite(amt) || amt < 0) {
-      showToast("Enter a valid amount.");
+    const amountCents = Math.round(amt * 100);
+    if (!Number.isFinite(amt) || amountCents <= 0) {
+      showToast("Enter a valid amount in dollars and cents.");
       return;
     }
     let title: string | undefined;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -24,24 +24,32 @@ const KIND_OPTIONS: Array<{ value: ResidentUploadDocKind; label: string }> = [
 export function ManagerResidentUploadModal({
   open,
   residentName,
+  defaultKind = "other",
   onClose,
   onUploaded,
 }: {
   open: boolean;
   residentName: string;
+  defaultKind?: ResidentUploadDocKind;
   onClose: () => void;
-  onUploaded: (files: File[], kind: ResidentUploadDocKind) => void;
+  onUploaded: (files: File[], kinds: ResidentUploadDocKind[]) => Promise<void>;
 }) {
   const [files, setFiles] = useState<File[]>([]);
-  const [kind, setKind] = useState<ResidentUploadDocKind>("other");
+  const [kind, setKind] = useState<ResidentUploadDocKind>(defaultKind);
   const [perFileKinds, setPerFileKinds] = useState<Record<string, ResidentUploadDocKind>>({});
+  const [busy, setBusy] = useState(false);
 
   const title = useMemo(() => `Upload for ${residentName}`, [residentName]);
 
+  useEffect(() => {
+    if (open) setKind(defaultKind);
+  }, [open, defaultKind]);
+
   const reset = () => {
     setFiles([]);
-    setKind("other");
+    setKind(defaultKind);
     setPerFileKinds({});
+    setBusy(false);
   };
 
   return (
@@ -49,6 +57,7 @@ export function ManagerResidentUploadModal({
       open={open}
       title={title}
       onClose={() => {
+        if (busy) return;
         reset();
         onClose();
       }}
@@ -65,6 +74,7 @@ export function ManagerResidentUploadModal({
             type="file"
             multiple
             className="sr-only"
+            disabled={busy}
             onChange={(e) => {
               const next = Array.from(e.target.files ?? []);
               setFiles(next);
@@ -96,21 +106,27 @@ export function ManagerResidentUploadModal({
           </ul>
         ) : null}
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" onClick={() => { reset(); onClose(); }}>
-            Cancel
-          </Button>
           <Button
             type="button"
-            disabled={files.length === 0}
+            disabled={files.length === 0 || busy}
             onClick={() => {
-              const resolved = files.map((f) => perFileKinds[`${f.name}-${f.size}`] ?? kind);
-              onUploaded(files, resolved[0] ?? kind);
-              reset();
-              onClose();
+              void (async () => {
+                const resolved = files.map(
+                  (f) => perFileKinds[`${f.name}-${f.size}`] ?? kind,
+                );
+                setBusy(true);
+                try {
+                  await onUploaded(files, resolved);
+                  reset();
+                  onClose();
+                } finally {
+                  setBusy(false);
+                }
+              })();
             }}
             data-attr="resident-upload-submit"
           >
-            Upload
+            {busy ? "Uploading…" : "Upload"}
           </Button>
         </div>
       </div>
