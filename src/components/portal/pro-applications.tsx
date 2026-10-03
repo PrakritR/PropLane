@@ -251,9 +251,9 @@ type ManagerApplicationTabId = ApplicationListTabId;
  * "Rejected" so it stays distinguishable from a real manager rejection.
  */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
-  if (row.bucket !== "pending") return row.bucket;
-  if (isWithdrawnApplicationRow(row)) return "rejected";
-  return isInProgressApplicationRow(row) ? "incomplete" : "pending";
+  if (row.bucket === "rejected") return "rejected";
+  if (row.bucket === "approved") return "approved";
+  return "pending";
 }
 
 function ApplicationFact({ label, value }: { label: string; value: string }) {
@@ -899,23 +899,14 @@ export function ManagerApplications({
   );
 
   const counts = useMemo(() => countByBucket(propertyFilteredRows), [propertyFilteredRows]);
-  const incompleteCount = useMemo(
-    () => propertyFilteredRows.filter((r) => r.bucket === "pending" && isInProgressApplicationRow(r)).length,
-    [propertyFilteredRows],
-  );
-  // "Pending" now means submitted and awaiting review — Incomplete (still a
-  // draft) is its own tab, so it is subtracted out here rather than shown as
-  // an annotation on top of the combined bucket count.
-  const pendingReviewCount = counts.pending - incompleteCount;
   const tabs = useMemo(
     () =>
       [
-        { id: "incomplete" as const, label: "Incomplete", count: incompleteCount },
-        { id: "pending" as const, label: "Pending", count: pendingReviewCount },
+        { id: "pending" as const, label: "Pending", count: counts.pending },
         { id: "approved" as const, label: "Approved", count: counts.approved },
-        { id: "rejected" as const, label: "Rejected", count: counts.rejected },
+        { id: "rejected" as const, label: "Declined", count: counts.rejected },
       ] as const,
-    [counts, incompleteCount, pendingReviewCount],
+    [counts],
   );
 
   const propertyFilterLabel = useMemo(() => {
@@ -1224,6 +1215,26 @@ export function ManagerApplications({
           : "Moved to Pending.";
     showToast(msg);
     return result;
+  };
+
+  // A single decline is immediately reversible from its toast. Keep the
+  // existing confirmation for bulk declines, where several records move.
+  const declineApplication = async (row: DemoApplicantRow) => {
+    setRejectBusy(true);
+    const result = await setRowBucket(row.id, "rejected", { skipNavigate: true, quiet: true });
+    setRejectBusy(false);
+    if (!result || result.blocked) {
+      showToast(result?.message ?? "Application could not be declined.");
+      return;
+    }
+    showToast("Application declined.", {
+      undo: async () => {
+        const restored = await setRowBucket(row.id, "pending", { skipNavigate: true, quiet: true });
+        if (!restored || restored.blocked) showToast(restored?.message ?? "Application could not be restored.");
+        else showToast("Application restored.");
+      },
+    });
+    if (applicationIdProp) router.push(applicationsListHref("pending"));
   };
 
   /**
@@ -1559,9 +1570,9 @@ export function ManagerApplications({
         {row.bucket === "pending" ? (
           <PortalIconAction
             icon={X}
-            label="Reject"
-            data-attr="application-reject"
-            onClick={() => setRejectPreviewRows([row])}
+            label="Decline"
+            data-attr="application-decline"
+            onClick={() => void declineApplication(row)}
           />
         ) : null}
         <ApplicationPdfDownloadButton row={row} label="Download" icon />
@@ -2045,7 +2056,7 @@ export function ManagerApplications({
         return;
       }
       if (actionId === "decline") {
-        setRejectPreviewRows([detailRow]);
+        void declineApplication(detailRow);
       }
     };
     const ownContent =
