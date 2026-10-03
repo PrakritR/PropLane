@@ -116,13 +116,20 @@ describe("server: trial cannot buy a work number", () => {
 });
 
 describe("client: the work-number card never reaches the picker on a trial", () => {
-  const panelSrc = readFileSync(
+  // The lock message is computed in the settings panel; the "Get your work number"
+  // step of the one setup popup (bcbe62040) renders the lock card and the picker.
+  const messagingSrc = readFileSync(
     join(process.cwd(), "src/components/portal/pro-messaging-settings-panel.tsx"),
+    "utf8",
+  );
+  const panelSrc = readFileSync(
+    join(process.cwd(), "src/components/portal/pro-work-number-setup-modal.tsx"),
     "utf8",
   );
 
   it("shows a plain, single 'Start Pro' action for a trial", () => {
-    expect(panelSrc).toContain("Available on Pro. Start Pro to set up a work number.");
+    expect(messagingSrc).toContain("Available on Pro. Start Pro to set up a work number.");
+    expect(messagingSrc).toContain("planMessage={planMessage}");
     expect(panelSrc).toContain('"Start Pro"');
   });
 

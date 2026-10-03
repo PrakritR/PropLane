@@ -38,6 +38,8 @@ const SLOT = {
   hostUserId: MANAGER,
 };
 
+let applicationBeforeTour: "required" | "not_needed" = "not_needed";
+
 function ctx(revision = 7, agreementBody = "YES"): AgentContext {
   const query: Record<string, unknown> = {};
   const chain = () => query;
@@ -47,13 +49,31 @@ function ctx(revision = 7, agreementBody = "YES"): AgentContext {
   query.order = chain;
   query.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
     Promise.resolve({ data: [{ source_message_id: "source-1", body: agreementBody }], error: null }).then(resolve, reject);
+  // "Application before a tour" reads the property's owner, then that owner's saved setting.
+  const ruleQuery = (table: string) => {
+    const rule: Record<string, unknown> = {};
+    rule.select = () => rule;
+    rule.eq = () => rule;
+    rule.maybeSingle = async () =>
+      table === "manager_property_records"
+        ? { data: { manager_user_id: MANAGER }, error: null }
+        : { data: { row_data: { leasingPipeline: { applicationBeforeTour } } }, error: null };
+    rule.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(resolve, reject);
+    return rule;
+  };
   return {
     landlordId: MANAGER,
     userId: MANAGER,
     email: "manager@example.test",
     roles: ["leasing_sms_agent"],
     isAdmin: false,
-    db: { from: () => query } as unknown as AgentContext["db"],
+    db: {
+      from: (table: string) =>
+        ["manager_property_records", "manager_automation_settings", "manager_application_records"].includes(table)
+          ? ruleQuery(table)
+          : query,
+    } as unknown as AgentContext["db"],
     leasingScope: {
       sessionId: "session-1",
       prospectPhoneE164: "+12065550123",
@@ -88,6 +108,7 @@ function input(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  applicationBeforeTour = "not_needed";
   delete process.env.PROSPECT_TOUR_FAULT_AFTER_COMMIT;
   loadConfirmedProspectTourBooking.mockImplementation(async () =>
     confirmProspectSmsTourOffer.mock.calls.length > 0 ? ({
@@ -266,6 +287,15 @@ describe("confirm_prospect_sms_tour", () => {
 
     const noLease = { ...ctx(8), leasingScope: { ...ctx(8).leasingScope!, prospectBurst: undefined } };
     expect(await executeWrite(confirmProspectSmsTourTool, noLease, input())).toMatchObject({ ok: false });
+  });
+
+  it("refuses an SMS caller (no verified email) when the workspace requires an application before a tour", async () => {
+    offered();
+    applicationBeforeTour = "required";
+    expect(await executeWrite(prepareProspectTourConfirmationTool, ctx(), input())).toMatchObject({ ok: false });
+    expect(await executeWrite(confirmProspectSmsTourTool, ctx(), input())).toMatchObject({ ok: false });
+    expect(prepareProspectSmsTourOffer).not.toHaveBeenCalled();
+    expect(confirmProspectSmsTourOffer).not.toHaveBeenCalled();
   });
 
   it("does not run from an ordinary email or voice context", async () => {

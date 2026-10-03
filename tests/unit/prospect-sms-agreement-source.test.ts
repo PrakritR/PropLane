@@ -46,9 +46,28 @@ type Ingress = {
  * This is deliberately not a "return all rows" mock: the old bug narrowed
  * the query to the newest revision, and this fake must expose that mistake.
  */
+let applicationBeforeTour: "required" | "not_needed" = "not_needed";
+
+/** The "Application before a tour" rule's reads: the property's owner, then that owner's saved setting. */
+function applicationRuleQuery(table: string) {
+  const query: Record<string, unknown> = {};
+  query.select = () => query;
+  query.eq = () => query;
+  query.maybeSingle = async () => {
+    if (table === "manager_property_records") return { data: { manager_user_id: MANAGER }, error: null };
+    return { data: { row_data: { leasingPipeline: { applicationBeforeTour } } }, error: null };
+  };
+  query.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+    Promise.resolve({ data: [], error: null }).then(resolve, reject);
+  return query;
+}
+
 function dbFor(rows: Ingress[]) {
   const db = {
     from(table: string) {
+      if (["manager_property_records", "manager_automation_settings", "manager_application_records"].includes(table)) {
+        return applicationRuleQuery(table);
+      }
       if (table !== "prospect_sms_ingress") throw new Error(`unexpected table ${table}`);
       const predicates: { column: string; value: unknown }[] = [];
       let ids: Set<string> | null = null;
@@ -127,6 +146,7 @@ async function invoke(rows: Ingress[]) {
 describe("prospect SMS confirmation agreement source", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    applicationBeforeTour = "not_needed";
     mocks.listOpenTourSlots.mockResolvedValue({
       ok: true,
       slotHosts: { [OFFER.slotKey]: [{ userId: MANAGER, label: "Akhil" }] },
@@ -176,5 +196,11 @@ describe("prospect SMS confirmation agreement source", () => {
       .mockResolvedValueOnce({ status: "confirmed", planned_event_id: "planned-1", offer_snapshot: OFFER });
     await expect(invoke(rows)).resolves.toMatchObject({ booking: { status: "confirmed" } });
     expect(mocks.confirmProspectSmsTourOffer).toHaveBeenCalledOnce();
+  });
+
+  it("refuses an SMS caller (no verified email) when the workspace requires an application before a tour", async () => {
+    applicationBeforeTour = "required";
+    await expect(invoke([ingress("YES", 9, "yes")])).rejects.toThrow(/application before a tour/i);
+    expect(mocks.confirmProspectSmsTourOffer).not.toHaveBeenCalled();
   });
 });
