@@ -264,7 +264,12 @@ describe("evidence · PATCH manager-manual-payment-settings, workspace scope", (
     expect(ok.status).toBe(200);
     expect(workspaceStored[WS]).toEqual({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
     const echoed = ok.json.workspacePaymentSettings as Record<string, Record<string, unknown>>;
-    expect(echoed[WS]).toEqual({ serviceFeePayer: "proplane", autopayEnabled: true, autopayRetryEnabled: true });
+    expect(echoed[WS]).toEqual({
+      serviceFeePayer: "proplane",
+      autopayEnabled: true,
+      autopayRetryEnabled: true,
+      defaultPaymentMethod: "balance",
+    });
     expect(JSON.stringify(ok.json)).not.toContain("FREE100");
   });
 

@@ -16,10 +16,9 @@ function renderPanel() {
   );
 }
 
-vi.mock("@/lib/demo/demo-session", () => ({
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
-  subscribeDemoPath: () => () => {},
-  DEMO_MANAGER_USER_ID: "demo-manager",
 }));
 
 vi.mock("next/navigation", () => ({

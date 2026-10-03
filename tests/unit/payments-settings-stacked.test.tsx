@@ -102,7 +102,7 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
 
   it("links to the account processing-fee default and has no listing late-fee editor", () => {
     const body = paymentsSettingsPanelSource();
-    expect(body).toContain('managerSettingsProfilePath("account")');
+    expect(body).toContain('/portal/profile?tab=account');
     expect(body).toContain('label="Processing fee paid by"');
     expect(body).not.toContain('title="Processing fee"');
     expect(body).not.toContain('title="Late fees"');
