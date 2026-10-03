@@ -323,6 +323,7 @@ function sharedRoomOverviewRows(row: DemoApplicantRow, allRows: DemoApplicantRow
     const rent = residentPrice?.monthlyRent ?? Number(resident.application?.managerRentOverride?.replace(/[^\d.]/g, ""));
     return {
       label: `Roommate ${index + 1}`,
+      residentId: resident.id,
       value: `${resident.name || resident.email || "Applicant"} · ${status}${residentSlot ? ` · Bed ${String.fromCharCode(64 + residentSlot)}` : ""}${typeof rent === "number" && rent > 0 ? ` · $${rent.toLocaleString()}/mo` : ""}`,
     };
   });
@@ -2128,7 +2129,23 @@ export function ManagerApplications({
               ? [{
                   id: "shared-room",
                   title: "Shared room",
-                  rows: sharedRoomOverviewRows(detailRow, rows)!,
+                  rows: sharedRoomOverviewRows(detailRow, rows)!.map(({ residentId, ...fact }) => {
+                    const roommate = residentId ? rows.find((candidate) => candidate.id === residentId) : null;
+                    const action = roommate && isInProgressApplicationRow(roommate)
+                      ? <PortalIconAction icon={Bell} label="Send reminder" data-attr="shared-room-send-reminder" onClick={() => void openReminderPreview(roommate)} />
+                      : roommate && isApprovableApplicationRow(roommate)
+                        ? <PortalIconAction icon={Check} label="Approve" data-attr="shared-room-approve" onClick={() => beginApprovalPreview(roommate)} />
+                        : null;
+                    return {
+                      ...fact,
+                      value: residentId ? (
+                        <span className="flex min-w-0 items-center justify-end gap-2">
+                          <span className="min-w-0">{fact.value}</span>
+                          {action}
+                        </span>
+                      ) : fact.value,
+                    };
+                  }),
                 }]
               : []),
             // C050/C065: one primary action directly under Overview on an
