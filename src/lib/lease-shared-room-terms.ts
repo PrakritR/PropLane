@@ -121,20 +121,44 @@ function escapeHtml(s: string): string {
 /** Marks the block so a regenerated or re-tailored document never carries it twice. */
 export const SHARED_ROOM_CLAUSES_MARKER = 'data-axis-shared-room="1"';
 
-export function sharedRoomClausesHtml(terms: SharedRoomLeaseTerms): string {
+export type SharedRoomSigner = { role: string; name: string; bedLabel?: string };
+
+/**
+ * Everyone who signs this lease, in print order: the landlord, then every roommate on a joint
+ * lease (just the one resident otherwise). A joint lease is ONE document, so every roommate is
+ * named as a signer in it — the Who signed card and the document agree.
+ */
+export function sharedRoomSigners(terms: SharedRoomLeaseTerms): SharedRoomSigner[] {
+  return [
+    { role: "Landlord / Authorized Agent", name: "" },
+    ...terms.residents.map((r) => ({ role: "Resident / Tenant", name: r.name, bedLabel: r.bedLabel })),
+  ];
+}
+
+export function sharedRoomClausesHtml(terms: SharedRoomLeaseTerms, opts: { heading?: string } = {}): string {
+  const heading = opts.heading ?? "Shared room terms";
   const body = sharedRoomClauses(terms)
     .map((c) => `<p><strong>${escapeHtml(c.title)}.</strong> ${escapeHtml(c.body)}</p>`)
     .join("\n");
-  return `<section ${SHARED_ROOM_CLAUSES_MARKER}>\n<h2>Shared room terms</h2>\n${body}\n</section>`;
+  const signers = terms.joint
+    ? `\n<p><strong>Signers of this joint lease.</strong></p>\n<ul data-axis-shared-room-signers="1">\n${sharedRoomSigners(terms)
+        .map((signer) => `<li>${escapeHtml(signer.role)}${signer.name ? `: ${escapeHtml(signer.name)}` : ""}${signer.bedLabel ? ` (${escapeHtml(signer.bedLabel)})` : ""}</li>`)
+        .join("\n")}\n</ul>`
+    : "";
+  return `<section ${SHARED_ROOM_CLAUSES_MARKER}>\n<h2>${escapeHtml(heading)}</h2>\n${body}${signers}\n</section>`;
 }
 
 /**
  * The generated document with the shared-room terms before its closing tag (or at the end of a
  * fragment). Already carrying them, or no shared-room terms, returns the document unchanged.
  */
-export function withSharedRoomClauses(html: string, terms: SharedRoomLeaseTerms | null | undefined): string {
+export function withSharedRoomClauses(
+  html: string,
+  terms: SharedRoomLeaseTerms | null | undefined,
+  opts: { heading?: string } = {},
+): string {
   if (!terms || html.includes(SHARED_ROOM_CLAUSES_MARKER)) return html;
-  const block = sharedRoomClausesHtml(terms);
+  const block = sharedRoomClausesHtml(terms, opts);
   const close = html.search(/<\/body>/i);
   return close >= 0 ? `${html.slice(0, close)}${block}\n${html.slice(close)}` : `${html}\n${block}`;
 }
