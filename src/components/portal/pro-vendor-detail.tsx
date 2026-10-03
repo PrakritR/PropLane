@@ -71,6 +71,7 @@ type ManagerFacingVendorReview = {
   body: string;
   reviewerLabel: string;
   isOwnWorkspace: boolean;
+  workOrderId: string;
   vendorReply: string | null;
   createdAt: string;
 };
@@ -652,6 +653,9 @@ export function ManagerVendorDetail({
     };
   }, [tab, row.vendorUserId, reviewRevision]);
 
+  const reviewedServiceIds = new Set((managerReviews ?? []).map(review => review.workOrderId));
+  const reviewableJobs = jobs.filter(job => (job.status === "completed" || job.status === "paid") && !reviewedServiceIds.has(job.id));
+
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
     preferred: draft.preferredChannel,
@@ -729,7 +733,7 @@ export function ManagerVendorDetail({
           <section data-attr="vendor-detail-manager-reviews">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">Reviews</h2>
-              <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={!jobs.some(job => job.status === "completed" || job.status === "paid")} onClick={() => setReviewPicker(true)} />
+              <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={managerReviewsState !== "ready" || reviewableJobs.length === 0} onClick={() => setReviewPicker(true)} />
               <span className="text-[13px] text-muted">
                 {managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—"}
               </span>
@@ -820,8 +824,8 @@ export function ManagerVendorDetail({
         </PortalRecordListSurface>
       </div> : null}
       {tab === "invoices" ? row.vendorUserId ? <ManagerOutgoingInvoicesPanel vendorUserId={row.vendorUserId} basePath={basePath} /> : <p className="p-4 text-sm">No linked vendor account.</p> : null}
-      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{jobs.filter(job => job.status === "completed" || job.status === "paid").map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
-      <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} />
+      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{reviewableJobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
+      <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} defaultVendor={{ id: row.id, name: row.name, vendorUserId: row.vendorUserId ?? null }} />
       <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />
 
     </div>
