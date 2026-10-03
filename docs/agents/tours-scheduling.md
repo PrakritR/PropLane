@@ -474,3 +474,22 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
   are per manager and already apply to every house.
 - The grid draws the same default band guests are offered (the manager's tour settings,
   `defaultTourGridEnabled`), never clickable; only painted bands open the popup.
+
+## Application before a tour (workspace setting, Oct 3 2026)
+
+Settings -> Workspace -> Applications & leases -> "Application before a tour" (Not needed by
+default / Required, `leasingPipeline.applicationBeforeTour`). When Required a prospect cannot
+request a tour of a property until they have a SUBMITTED application for it. The rule lives in
+`src/lib/application-before-tour.server.ts` and is re-derived server-side: the property's owner
+and their saved setting, then the caller's `manager_application_records` (scoped on the
+`resident_email` column). `createTourInquiry` is the one enforcement point (web form, resident
+assistant, leasing SMS), and it trusts only `verifiedApplicantEmail`: the signed-in session's email
+from `POST /api/public/partner-inquiries`, the account email for the resident tool, and nothing for
+an anonymous guest or an SMS prospect (a body's `email` proves nothing). The refusal is a 403
+`application_required` with a clear message. Manager-scheduled tours (`createManualPlannedTour`,
+`book_tour`, accepting an inquiry) never pass through it. The page half: the public projection
+stamps `applicationBeforeTour: true` (only when Required), `buildProspectTourHref` sends a visitor
+to Apply, and `TourScheduleFlow` shows `TourApplicationFirstPanel` until
+`GET /api/public/tour-application-gate` says the caller has applied. Coverage:
+`tests/unit/application-before-tour.test.ts`, `tour-application-gate-routes.test.ts`,
+`tour-application-first-ui.test.tsx`, `tools/tours.test.ts`.

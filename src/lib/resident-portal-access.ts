@@ -8,7 +8,6 @@ import type {
   ManagerSubscriptionTier,
   ResidentPortalAccessState,
 } from "@/lib/resident-portal-access-types";
-import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 
 export type { ManagerSubscriptionTier, ResidentPortalAccessState } from "@/lib/resident-portal-access-types";
 export { residentPortalHomePath } from "@/lib/resident-portal-nav";
@@ -30,9 +29,6 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     isBookingResidency: false,
     fullPortalAccess: false,
     managerSubscriptionTier,
-    pipelineOrder: "application_then_lease",
-    hasLeaseFirstDraft: false,
-    leaseFirstPendingLeaseId: null,
   };
 }
 
@@ -172,55 +168,6 @@ export async function loadResidentManagerAttestedTenancy(
   });
 }
 
-/**
- * The lease-first draft `createLeaseFirstDraft` creates from "Send lease to
- * sign" before any application exists (Part 3 hotfix, defect 4). A brand new
- * lease-first signup has no application and no tour — without this, they
- * would resolve to NO manager and `isPreLeaseResident: false`, leaving the
- * Lease tab locked on the exact record it was just created to unlock.
- */
-async function loadResidentLeaseFirstDraft(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  email: string,
-  managerUserId?: string | null,
-): Promise<{
-  managerUserId: string;
-  propertyId: string | null;
-  /** The lease-first lease still waiting on the resident's own signature, if any. */
-  pendingLeaseId: string | null;
-} | null> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return null;
-  // Scoped to the caller's own email (and the pinned manager when there is one) — the
-  // resident can only ever see their own lease-first lease, never another's.
-  let query = db
-    .from("portal_lease_pipeline_records")
-    .select("id, row_data, manager_user_id, property_id")
-    .eq("resident_email", normalizedEmail);
-  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
-  const { data } = await query.order("updated_at", { ascending: false });
-  let first: { managerUserId: string; propertyId: string | null } | null = null;
-  let pendingLeaseId: string | null = null;
-  for (const record of data ?? []) {
-    const row = record.row_data as Record<string, unknown> | null;
-    if (row?.leaseFirst !== true) continue;
-    const mgr = typeof record.manager_user_id === "string" ? record.manager_user_id.trim() : "";
-    if (!mgr) continue;
-    if (!first) {
-      first = {
-        managerUserId: mgr,
-        propertyId: typeof record.property_id === "string" ? record.property_id : null,
-      };
-    }
-    const resident = row.residentSignature as Record<string, unknown> | null | undefined;
-    const residentSigned = Boolean(resident?.name && resident?.signedAtIso);
-    if (!residentSigned && !pendingLeaseId && typeof record.id === "string") {
-      pendingLeaseId = record.id;
-    }
-  }
-  return first ? { ...first, pendingLeaseId } : null;
-}
-
 export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;
@@ -345,34 +292,10 @@ const loadResidentPortalAccessStateCached = cache(
       ? false
       : await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined);
     const leaseAccessUnlocked = leaseSigned || attestedTenancy;
-    // A brand-new lease-first signup (Part 3 hotfix, defect 4) has no
-    // application and no tour, so without this lookup they would resolve to
-    // no manager at all and stay locked out of the exact lease their invite
-    // was just created to unlock.
-    // Loaded whether or not an application exists: a resident who started a lease-first
-    // home may also have an in-progress application row, and the lease still unlocks.
-    const leaseFirstDraft = !leaseAccessUnlocked
-      ? await loadResidentLeaseFirstDraft(db, email, managerUserId)
-      : null;
     const isPreLeaseResident =
       roleOk &&
       !leaseAccessUnlocked &&
-      (hasTourLink || hasSubmittedApplication || applicationApproved || Boolean(leaseFirstDraft));
-
-    let pipelineOrder: ResidentPortalAccessState["pipelineOrder"] = "application_then_lease";
-    const pipelineManagerId =
-      managerUserId ??
-      leaseFirstDraft?.managerUserId ??
-      ownedApplications.find((application) => application.managerUserId)?.managerUserId ??
-      null;
-    if (pipelineManagerId) {
-      try {
-        const pipeline = await loadLeasingPipeline(db, pipelineManagerId);
-        pipelineOrder = pipeline.pipelineOrder;
-      } catch {
-        /* keep default */
-      }
-    }
+      (hasTourLink || hasSubmittedApplication || applicationApproved);
 
     return {
       roleOk,
@@ -390,9 +313,6 @@ const loadResidentPortalAccessStateCached = cache(
       isBookingResidency,
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
-      pipelineOrder,
-      hasLeaseFirstDraft: Boolean(leaseFirstDraft),
-      leaseFirstPendingLeaseId: leaseFirstDraft?.pendingLeaseId ?? null,
     };
   },
 );

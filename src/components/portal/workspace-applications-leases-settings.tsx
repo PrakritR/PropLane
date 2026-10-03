@@ -9,17 +9,15 @@
  * optional settings scope context when one exists).
  *
  * What lives here, and where it is stored:
- * - Signing order, Roommates in a shared room sign: the workspace leasing pipeline record
- *   (`manager_automation_settings.row_data.leasingPipeline`, `leasing-pipeline-preferences.ts`).
- *   One value for every property; a house override can no longer carry its own order.
+ * - Application before a tour, Roommates in a shared room sign: the workspace leasing pipeline
+ *   record (`manager_automation_settings.row_data.leasingPipeline`, `leasing-pipeline-preferences.ts`).
+ *   One value for every property. There is no signing-order setting: every workspace is
+ *   application first, then lease, then the move-in form (captain, Oct 3 2026).
  * - Auto-send the lease: the workspace application automation (`autoSendLease`).
  * - Deposit accounting: the workspace lease automation (`lease-automation-settings.ts`).
  * - The application <-> lease mapping and the co-signer links are NOT here: each template's popup
  *   (Add/Edit application, Add/Edit lease) carries its own row on the first step
  *   (`application-lease-mapping.ts`).
- *
- * "Who signs first" used to be a second label for the signing order (the Lease tab's gear and the
- * application row's signature icon both read `pipelineOrder`), so it is the Signing order row.
  */
 import { useCallback, useEffect, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -46,14 +44,14 @@ import {
 import {
   DEFAULT_LEASING_PIPELINE,
   type LeasingPipelinePreferences,
-  type PipelineOrder,
+  type ApplicationBeforeTour,
   type SharedRoomLeaseDefault,
 } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 
-const SIGNING_ORDER_OPTIONS = [
-  { value: "application_then_lease", label: "Application first, then lease" },
-  { value: "lease_then_application", label: "Lease first, then application" },
+const APPLICATION_BEFORE_TOUR_OPTIONS = [
+  { value: "not_needed", label: "Not needed" },
+  { value: "required", label: "Required" },
 ];
 
 const SHARED_ROOM_OPTIONS = [
@@ -200,17 +198,17 @@ export function WorkspaceApplicationsLeasesSettings() {
     <div className="space-y-6" data-attr="workspace-applications-leases-settings">
       <PortalSettingsSection title="Applications & leases">
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Signing order">
+          <PortalSettingsRow label="Application before a tour">
             <FieldSingleSelect
               hideLabel
-              label="Signing order"
+              label="Application before a tour"
               variant="cell"
               wrapperClassName="w-64"
-              options={SIGNING_ORDER_OPTIONS}
-              value={pipeline.pipelineOrder}
+              options={APPLICATION_BEFORE_TOUR_OPTIONS}
+              value={pipeline.applicationBeforeTour}
               disabled={disabled}
-              dataAttr="workspace-signing-order"
-              onChange={(next) => savePipeline({ pipelineOrder: next as PipelineOrder })}
+              dataAttr="workspace-application-before-tour"
+              onChange={(next) => savePipeline({ applicationBeforeTour: next as ApplicationBeforeTour })}
             />
           </PortalSettingsRow>
           <PortalSettingsRow label="Roommates in a shared room sign">

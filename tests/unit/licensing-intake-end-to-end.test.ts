@@ -57,22 +57,15 @@ describe("an application and a lease link one-to-one, in the direction the signi
     expect(leaseIdForApplication({ applications: result.applications, leases: result.leases }, intake.id)).toBe(leases[0]!.id);
   });
 
-  it("lease first: mapping a lease to an application is stored on the lease and the application answers it", () => {
-    const lease = licensing();
-    const result = setMappingTarget("lease_then_application", { applications: [intake, otherIntake], leases: [lease] }, lease.id, otherIntake.id);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.leases[0]!.linkedApplicationTemplateId).toBe(otherIntake.id);
-    expect(applicationIdForLease({ applications: result.applications, leases: result.leases }, lease.id)).toBe(otherIntake.id);
+  it("lease first is gone: a lease answers with no application, even one that names its form", () => {
+    const named = { ...licensing(), linkedApplicationTemplateId: intake.id };
+    expect(applicationIdForLease({ applications: [intake], leases: [named] }, named.id)).toBeNull();
   });
 
-  it("a link made before the one-to-one rule is read, not lost: a lease that named its form, an older mirror", () => {
-    const named = { ...licensing(), linkedApplicationTemplateId: intake.id };
-    expect(leaseIdForApplication({ applications: [intake], leases: [named] }, intake.id)).toBe(named.id);
+  it("a link made before the one-to-one rule is read, not lost: an application's older legacy lease list", () => {
     const lease = licensing();
     const mirror = { ...intake, usedForLeaseTemplateIds: [lease.id] };
     expect(leaseIdForApplication({ applications: [mirror], leases: [lease] }, intake.id)).toBe(lease.id);
-    expect(applicationIdForLease({ applications: [mirror], leases: [lease] }, lease.id)).toBe(intake.id);
   });
 
   it("the link survives the listing submission round trip", () => {
@@ -83,10 +76,9 @@ describe("an application and a lease link one-to-one, in the direction the signi
   });
 });
 
-describe("Lease first, then application drives Marc's resident journey; the general default stays Application first", () => {
+describe("Every workspace is application first, even one that stored lease first", () => {
   const marc = normalizeLeasingPipelinePreferences({ pipelineOrder: "lease_then_application" });
   const base: ResidentLifecycleInput = {
-    signingOrder: "lease_first",
     applicationFeePaid: false,
     applicationSubmitted: false,
     applicationApproved: false,
@@ -102,31 +94,23 @@ describe("Lease first, then application drives Marc's resident journey; the gene
     expect(signingOrderForPipeline(normalizeLeasingPipelinePreferences({ pipelineOrder: "nonsense" }))).toBe("application_first");
   });
 
-  it("Marc's pipeline is lease first", () => {
-    expect(signingOrderForPipeline(marc)).toBe("lease_first");
+  it("a stored lease-first order is ignored", () => {
+    expect(marc.pipelineOrder).toBe("application_then_lease");
+    expect(signingOrderForPipeline(marc)).toBe("application_first");
   });
 
-  it("the resident's steps start with signing the lease for Marc and with the application otherwise", () => {
-    expect(residentLifecycleSteps({ ...base, signingOrder: signingOrderForPipeline(marc) })[0]).toMatchObject({ id: "sign_lease", state: "current" });
-    expect(residentLifecycleSteps({ ...base, signingOrder: signingOrderForPipeline(DEFAULT_LEASING_PIPELINE) })[0]).toMatchObject({ id: "received", state: "current" });
+  it("the resident's steps start with the application", () => {
+    expect(residentLifecycleSteps(base)[0]).toMatchObject({ id: "received", state: "current" });
   });
 
-  it("after signing, Marc's resident moves on to the application; the next action says so", () => {
-    const signed = { ...base, residentSignedLease: true };
-    const steps = residentLifecycleSteps(signed);
-    expect(steps[0]).toMatchObject({ id: "sign_lease", state: "done" });
-    expect(steps[1]).toMatchObject({ id: "received", state: "current" });
-    expect(resolveResidentLifecycleNextAction(signed).ctaLabel).toBe("Continue application");
-  });
-
-  it("a lease-first prospect who has applied but not signed is sent to sign the lease", () => {
+  it("an applicant who has applied waits on the review, never on a lease", () => {
     const next = resolveResidentLifecycleNextAction({ ...base, applicationSubmitted: true, applicationFeePaid: true });
-    expect(next.ctaLabel).toBe("Sign lease");
-    expect(next.href).toContain("/sign-and-pay");
+    expect(next.ctaLabel).not.toBe("Sign lease");
+    expect(next.href ?? "").not.toContain("/sign-and-pay");
   });
 
-  it("the listing's call to action follows the same order", () => {
-    expect(listingApplyLabel(false, signingOrderForPipeline(marc))).toBe("Sign lease");
+  it("the listing's call to action says Apply", () => {
+    expect(listingApplyLabel(false, signingOrderForPipeline(marc))).toBe("Apply online");
     expect(listingApplyLabel(false, signingOrderForPipeline(DEFAULT_LEASING_PIPELINE))).toBe("Apply online");
   });
 });

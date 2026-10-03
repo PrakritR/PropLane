@@ -1375,7 +1375,7 @@ export function ManagerApplications({
     const actions = [];
     if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
     // An approved application in an application-first workspace goes on to the lease: the one Send lease screen
-    // (a lease-first workspace never gates a lease on approval, so it has no use for this).
+    // (a workspace with applications turned off never gates a lease on approval, so it has no use for this).
     if (
       row.bucket === "approved" &&
       !isWithdrawnApplicationRow(row) &&

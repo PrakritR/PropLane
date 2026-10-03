@@ -1,27 +1,19 @@
 /**
- * C2-CP9 — application <-> lease mapping, strictly one-to-one in the DEPENDENT direction.
+ * C2-CP9 — application -> lease mapping, strictly one-to-one in the dependent direction.
  *
- * The workspace signing order (`leasing-pipeline-preferences.ts`) decides which side depends on
- * which:
+ * Every workspace is application first, then lease, then the move-in form (captain, Oct 3 2026).
+ * Every APPLICATION maps to exactly one LEASE (`PropertyApplicationTemplate.linkedLeaseTemplateId`).
+ * One lease may serve many applications; an application can never map to two leases. The old
+ * lease -> application direction (lease first) is gone: nothing here reads or writes
+ * `PropertyLeaseTemplate.linkedApplicationTemplateId` any more, so a stored value is simply inert.
  *
- * - Application first: every APPLICATION maps to exactly one LEASE
- *   (`PropertyApplicationTemplate.linkedLeaseTemplateId`). One lease may serve many applications;
- *   an application can never map to two leases.
- * - Lease first: every LEASE maps to exactly one APPLICATION
- *   (`PropertyLeaseTemplate.linkedApplicationTemplateId`). One application may serve many leases;
- *   a lease can never map to two applications.
- *
- * Each direction is stored as a single scalar on the dependent template, so a second link is
- * unrepresentable in new data. The only way to meet two is stored legacy data (the old
- * `usedForLeaseTemplateIds` array, or several leases that each named the same application); the
+ * The link is a single scalar on the application, so a second link is unrepresentable in new data.
+ * The only way to meet two is stored legacy data (the old `usedForLeaseTemplateIds` array); the
  * normaliser collapses those to ONE, deterministically (see `collapseApplicationLeaseLinks`).
  * Nothing here keeps two silently: a setter handed two targets refuses.
  *
- * Unmapped fallback (documented, deterministic):
- * - application -> lease: the property's default lease (`defaultLeaseTemplateId`) when it exists,
- *   else the kind/term based pick `resolvePropertyLeaseTemplateForApplication` has always made.
- * - lease -> application: the property's default application (`defaultApplicationTemplateId`) when
- *   it exists, else the first published template of the applicant's variant (today's pick).
+ * Unmapped fallback: the property's default lease (`defaultLeaseTemplateId`) when it exists, else
+ * the kind/term based pick `resolvePropertyLeaseTemplateForApplication` has always made.
  *
  * Pure, with type-only imports, so `manager-listing-submission.ts` can call the normaliser without
  * an import cycle.
@@ -29,6 +21,7 @@
 import type { PropertyApplicationTemplate } from "@/lib/property-application-templates";
 import type { PropertyLeaseTemplate } from "@/lib/property-lease-templates";
 
+/** Kept as a type so call sites compile; only `application_then_lease` is ever honoured. */
 export type MappingSigningOrder = "application_then_lease" | "lease_then_application";
 
 export type MappingCatalog = {
@@ -69,9 +62,8 @@ function cleanIds(ids: readonly string[] | null | undefined): string[] {
 
 /**
  * The ONE lease an application maps to, or null when unmapped.
- * Order of authority: the application's own `linkedLeaseTemplateId`; else (stored before this
- * field existed) the first lease, in catalog order, that named this application; else the first
- * lease in the application's legacy `usedForLeaseTemplateIds`.
+ * Order of authority: the application's own `linkedLeaseTemplateId`; else the first lease in the
+ * application's legacy `usedForLeaseTemplateIds`.
  */
 export function leaseIdForApplication(catalog: MappingCatalog, applicationId: string | null | undefined): string | null {
   const id = applicationId?.trim();
@@ -83,57 +75,37 @@ export function leaseIdForApplication(catalog: MappingCatalog, applicationId: st
   if (application.linkedLeaseTemplateId === null) return null;
   const explicit = application.linkedLeaseTemplateId?.trim();
   if (explicit && leaseIds.has(explicit)) return explicit;
-  const pointing = catalog.leases.find((lease) => lease.linkedApplicationTemplateId?.trim() === id);
-  if (pointing) return pointing.id;
   return cleanIds(application.usedForLeaseTemplateIds).find((leaseId) => leaseIds.has(leaseId)) ?? null;
 }
 
 /**
- * The ONE application a lease maps to, or null when unmapped.
- * Order of authority: the lease's own `linkedApplicationTemplateId`; else the first application,
- * in catalog order, whose legacy `usedForLeaseTemplateIds` named this lease.
+ * @deprecated Lease first is retired: a lease maps to no application. Always null. Kept only so
+ * `property-lease-form-modal.tsx` (a separately owned file) still compiles until it drops the import.
  */
-export function applicationIdForLease(catalog: MappingCatalog, leaseId: string | null | undefined): string | null {
-  const id = leaseId?.trim();
-  if (!id) return null;
-  const lease = catalog.leases.find((candidate) => candidate.id === id);
-  if (!lease) return null;
-  const applicationIds = new Set(catalog.applications.map((application) => application.id));
-  const explicit = lease.linkedApplicationTemplateId?.trim();
-  if (explicit && applicationIds.has(explicit)) return explicit;
-  return (
-    catalog.applications.find(
-      (application) => !isCosignerApplicationTemplate(application) && cleanIds(application.usedForLeaseTemplateIds).includes(id),
-    )?.id ?? null
-  );
+export function applicationIdForLease(_catalog: MappingCatalog, _leaseId: string | null | undefined): string | null {
+  return null;
 }
 
-/** The mapped target for a dependent row under `order`: application -> lease (app first) or lease -> application (lease first). */
+/** The lease an application maps to (the only direction). */
 export function mappedTargetId(
-  order: MappingSigningOrder,
+  _order: MappingSigningOrder,
   catalog: MappingCatalog,
   dependentId: string,
 ): string | null {
-  return order === "lease_then_application"
-    ? applicationIdForLease(catalog, dependentId)
-    : leaseIdForApplication(catalog, dependentId);
+  return leaseIdForApplication(catalog, dependentId);
 }
 
 export type MappingEditResult =
   | { ok: true; applications: PropertyApplicationTemplate[]; leases: PropertyLeaseTemplate[] }
   | { ok: false; error: string };
 
-/** Why `targetId` cannot be chosen under `order` (null = it can). Shared by Settings-free callers: the template popups. */
+/** Why `targetId` cannot be chosen as an application's lease (null = it can). */
 export function mappingTargetError(
-  order: MappingSigningOrder,
+  _order: MappingSigningOrder,
   catalog: MappingCatalog,
   targetId: string | null,
 ): string | null {
   if (!targetId) return null;
-  if (order === "lease_then_application") {
-    const application = catalog.applications.find((candidate) => candidate.id === targetId);
-    return !application || isCosignerApplicationTemplate(application) ? "That application is not available." : null;
-  }
   const lease = catalog.leases.find((candidate) => candidate.id === targetId);
   return !lease || isAddendumLeaseTemplate(lease) ? "That lease is not available." : null;
 }
@@ -144,36 +116,22 @@ export function leaseLinkFields(targetId: string | null): Pick<PropertyApplicati
 }
 
 /**
- * The popup path (lease first): point the lease `leaseId` at ONE application (or none). Unlike
- * `setMappingTarget` the lease need not be in the catalog yet, so a lease that has not been saved
- * can carry its choice until its first save. `applications` is the catalog with every legacy claim
- * on this lease scrubbed (so a cleared choice cannot resurrect), or null when nothing needed changing.
+ * @deprecated Lease first is retired. Always clears the link. Kept only so
+ * `property-lease-form-modal.tsx` (a separately owned file) still compiles until it drops the import.
  */
 export function applicationLinkForLease(
-  catalog: MappingCatalog,
-  leaseId: string,
-  target: string | readonly string[] | null,
+  _catalog: MappingCatalog,
+  _leaseId: string,
+  _target: string | readonly string[] | null,
 ):
   | { ok: true; linkedApplicationTemplateId: string | null; applications: PropertyApplicationTemplate[] | null }
   | { ok: false; error: string } {
-  const targets = target == null ? [] : typeof target === "string" ? [target] : cleanIds(target);
-  if (targets.length > 1) return { ok: false, error: "A lease can only use one application." };
-  const targetId = targets[0]?.trim() || null;
-  const error = mappingTargetError("lease_then_application", catalog, targetId);
-  if (error) return { ok: false, error };
-  let scrubbed = false;
-  const applications = catalog.applications.map((row) => {
-    if (!cleanIds(row.usedForLeaseTemplateIds).includes(leaseId)) return row;
-    scrubbed = true;
-    return { ...row, usedForLeaseTemplateIds: cleanIds(row.usedForLeaseTemplateIds).filter((id) => id !== leaseId) };
-  });
-  return { ok: true, linkedApplicationTemplateId: targetId, applications: scrubbed ? applications : null };
+  return { ok: true, linkedApplicationTemplateId: null, applications: null };
 }
 
 /**
- * Point ONE dependent row at ONE target (or clear it with `null`). Handing it several targets is
- * refused, never truncated: an application can never map to two leases (application first) and a
- * lease can never map to two applications (lease first).
+ * Point ONE application at ONE lease (or clear it with `null`). Handing it several targets is
+ * refused, never truncated: an application can never map to two leases.
  */
 export function setMappingTarget(
   order: MappingSigningOrder,
@@ -182,37 +140,18 @@ export function setMappingTarget(
   target: string | readonly string[] | null,
 ): MappingEditResult {
   const targets = target == null ? [] : typeof target === "string" ? [target] : cleanIds(target);
-  const applicationFirst = order !== "lease_then_application";
-  if (targets.length > 1) {
-    return {
-      ok: false,
-      error: applicationFirst
-        ? "An application can only use one lease."
-        : "A lease can only use one application.",
-    };
-  }
+  if (targets.length > 1) return { ok: false, error: "An application can only use one lease." };
   const targetId = targets[0]?.trim() || null;
-  if (applicationFirst) {
-    const application = catalog.applications.find((candidate) => candidate.id === dependentId);
-    if (!application || isCosignerApplicationTemplate(application)) {
-      return { ok: false, error: "That application cannot be mapped to a lease." };
-    }
-    const error = mappingTargetError(order, catalog, targetId);
-    if (error) return { ok: false, error };
-    return {
-      ok: true,
-      applications: catalog.applications.map((row) => (row.id === dependentId ? { ...row, ...leaseLinkFields(targetId) } : row)),
-      leases: [...catalog.leases],
-    };
+  const application = catalog.applications.find((candidate) => candidate.id === dependentId);
+  if (!application || isCosignerApplicationTemplate(application)) {
+    return { ok: false, error: "That application cannot be mapped to a lease." };
   }
-  const lease = catalog.leases.find((candidate) => candidate.id === dependentId);
-  if (!lease || isAddendumLeaseTemplate(lease)) return { ok: false, error: "That lease cannot be mapped to an application." };
-  const link = applicationLinkForLease(catalog, dependentId, targetId);
-  if (!link.ok) return link;
+  const error = mappingTargetError(order, catalog, targetId);
+  if (error) return { ok: false, error };
   return {
     ok: true,
-    applications: link.applications ?? [...catalog.applications],
-    leases: catalog.leases.map((row) => (row.id === dependentId ? { ...row, linkedApplicationTemplateId: link.linkedApplicationTemplateId } : row)),
+    applications: catalog.applications.map((row) => (row.id === dependentId ? { ...row, ...leaseLinkFields(targetId) } : row)),
+    leases: [...catalog.leases],
   };
 }
 
@@ -222,15 +161,14 @@ export function setMappingTarget(
  * - every application carries AT MOST one lease, resolved by `leaseIdForApplication`'s order of
  *   authority (own link, then first lease naming it, then first legacy `usedForLeaseTemplateIds`),
  *   and the legacy array is rewritten to match that single id;
- * - every lease's `linkedApplicationTemplateId` names an existing application.
+ * Leases are returned untouched (a stored lease -> application link is inert and left alone).
  * Returns the same arrays (by reference) when nothing changed.
  */
 export function collapseApplicationLeaseLinks<
   A extends Pick<PropertyApplicationTemplate, "id" | "listingSeedKey" | "formVariant" | "linkedLeaseTemplateId" | "usedForLeaseTemplateIds">,
-  L extends Pick<PropertyLeaseTemplate, "id" | "listingSeedKey" | "linkedApplicationTemplateId">,
+  L extends Pick<PropertyLeaseTemplate, "id" | "listingSeedKey">,
 >(applications: readonly A[], leases: readonly L[]): { applications: A[]; leases: L[]; changed: boolean } {
   const catalog = { applications, leases } as unknown as MappingCatalog;
-  const applicationIds = new Set(applications.map((application) => application.id));
   let changed = false;
   const nextApplications = applications.map((application) => {
     if (isCosignerApplicationTemplate(application)) return application;
@@ -248,28 +186,20 @@ export function collapseApplicationLeaseLinks<
       usedForLeaseTemplateIds: resolved ? [resolved] : undefined,
     };
   });
-  const nextLeases = leases.map((lease) => {
-    const link = lease.linkedApplicationTemplateId?.trim();
-    if (!link || applicationIds.has(link)) return lease;
-    changed = true;
-    return { ...lease, linkedApplicationTemplateId: null };
-  });
   return changed
-    ? { applications: nextApplications, leases: nextLeases, changed }
+    ? { applications: nextApplications, leases: leases as L[], changed }
     : { applications: applications as A[], leases: leases as L[], changed };
 }
 
 export type MappingViolation = { dependentId: string; targetIds: string[] };
 
-/** Every dependent row that, as stored, names more than one target under `order`. Empty after `collapseApplicationLeaseLinks`. */
-export function findMappingViolations(order: MappingSigningOrder, catalog: MappingCatalog): MappingViolation[] {
-  if (order === "lease_then_application") return [];
+/** Every dependent row that, as stored, names more than one target as an application's leases. Empty after `collapseApplicationLeaseLinks`. */
+export function findMappingViolations(_order: MappingSigningOrder, catalog: MappingCatalog): MappingViolation[] {
   const out: MappingViolation[] = [];
   for (const application of mappableApplicationTemplates(catalog.applications)) {
     const targets = new Set<string>();
     const explicit = application.linkedLeaseTemplateId?.trim();
     if (explicit) targets.add(explicit);
-    for (const lease of catalog.leases) if (lease.linkedApplicationTemplateId?.trim() === application.id) targets.add(lease.id);
     for (const id of cleanIds(application.usedForLeaseTemplateIds)) targets.add(id);
     if (targets.size > 1) out.push({ dependentId: application.id, targetIds: [...targets] });
   }
@@ -290,21 +220,6 @@ export function resolveLeaseForApplicationTemplate(
   return (id ? catalog.leases.find((lease) => lease.id === id) : null) ?? null;
 }
 
-/**
- * Resident path, lease first: the application a lease signer gets. Their lease's own mapping, else
- * the property default application, else null (the caller then keeps its first-published pick).
- */
-export function resolveApplicationForLeaseTemplate(
-  catalog: MappingCatalog,
-  leaseTemplateId: string | null | undefined,
-  defaultApplicationTemplateId?: string | null,
-): PropertyApplicationTemplate | null {
-  const mapped = applicationIdForLease(catalog, leaseTemplateId);
-  const id = mapped ?? (defaultApplicationTemplateId?.trim() || null);
-  const found = id ? catalog.applications.find((application) => application.id === id) : null;
-  return found && !isCosignerApplicationTemplate(found) ? found : null;
-}
-
 export type MappingRow = {
   dependentId: string;
   dependentLabel: string;
@@ -313,20 +228,8 @@ export type MappingRow = {
   targetOptions: { value: string; label: string }[];
 };
 
-/**
- * What Settings -> Applications & leases draws: application first = one row per application with a
- * single Lease choice; lease first = one row per lease with a single Application choice.
- */
-export function mappingRows(order: MappingSigningOrder, catalog: MappingCatalog): MappingRow[] {
-  if (order === "lease_then_application") {
-    const options = mappableApplicationTemplates(catalog.applications).map((a) => ({ value: a.id, label: a.label }));
-    return mappableLeaseTemplates(catalog.leases).map((lease) => ({
-      dependentId: lease.id,
-      dependentLabel: lease.label,
-      targetId: applicationIdForLease(catalog, lease.id),
-      targetOptions: options,
-    }));
-  }
+/** One row per application with a single Lease choice (application first, the only order). */
+export function mappingRows(_order: MappingSigningOrder, catalog: MappingCatalog): MappingRow[] {
   const options = mappableLeaseTemplates(catalog.leases).map((l) => ({ value: l.id, label: l.label }));
   return mappableApplicationTemplates(catalog.applications).map((application) => ({
     dependentId: application.id,

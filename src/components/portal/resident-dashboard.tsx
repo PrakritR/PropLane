@@ -801,18 +801,12 @@ export function ResidentDashboard({
     () => aggregateApplicationFeeStatus(applicationRows, email ?? ""),
     [applicationRows, email],
   );
-  const signingOrder = useMemo((): "application_first" | "lease_first" => {
-    const pid = applicationRows[0]?.propertyId?.trim() || applicationRows[0]?.application?.propertyId?.trim() || "";
-    const order = pid ? getPropertyById(pid)?.signingOrder : undefined;
-    return order === "lease_first" ? "lease_first" : "application_first";
-  }, [applicationRows]);
   // The resident has signed once the lease waits on the manager's countersignature
   // (or is fully signed); move-in costs are payable from that moment.
   const residentSigned = leaseSigned || leaseRow?.status === "Manager Signature Pending";
   const moveInDue = sumDueNowCents(pendingCharges.filter(isPendingUpfrontMoveInCharge)) / 100;
   const lifecycleInput = useMemo(
     () => ({
-      signingOrder,
       applicationFeePaid: feeStatus.paid || !feeStatus.needsPayment,
       applicationSubmitted: applicationRows.some((row) => !isInProgressApplicationRow(row)),
       applicationApproved,
@@ -825,7 +819,6 @@ export function ResidentDashboard({
       moveInTotalLabel: moveInDue > 0 ? formatUsd(moveInDue) : undefined,
     }),
     [
-      signingOrder,
       feeStatus,
       applicationRows,
       applicationApproved,

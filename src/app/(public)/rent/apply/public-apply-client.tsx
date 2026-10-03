@@ -189,14 +189,13 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
         <SignedInResidentAccountPrompt
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
-          purpose={linkedProperty?.signingOrder === "lease_first" ? "lease" : "apply"}
+          purpose="apply"
         />
       ) : view === "account-prompt" ? (
         <PublicApplyAccountPrompt
           gateKey={applyGateKey}
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
-          signingOrder={linkedProperty?.signingOrder}
         />
       ) : !applicationsAvailable ? (
         <ApplicationUnavailableContactManager

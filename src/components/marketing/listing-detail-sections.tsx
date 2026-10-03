@@ -180,12 +180,7 @@ function PriceCard({
 }) {
   const estimated = rich.estimatedMonthlyTotalLabel?.trim() ? formatMoneyInLabel(rich.estimatedMonthlyTotalLabel.trim()) : undefined;
   const from = listingFromPrice(rich);
-  const leaseFirst = property.signingOrder === "lease_first";
-  // Lease-first (studio, captain Sep 27): the price card's "Application fee" row IS the
-  // lease fee — one fee concept in the row, never both. `leaseSigningFeeCents` is the
-  // server's resolved amount (`effectiveLeaseSigningFeeCents`), not client math.
-  const breakdownLines = (rich.pricingBreakdown ?? []).filter((line) => !(leaseFirst && line.label === "Application fee"));
-  const showDueAtSigning = leaseFirst;
+  const breakdownLines = rich.pricingBreakdown ?? [];
   const shortStay = propertyAllowsShortTermRental(property.id);
   const nightly = shortStay
     ? shortTermNightlyRate(property.listingSubmission?.shortTermDailyCost)
@@ -195,7 +190,7 @@ function PriceCard({
     <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
       <p className="text-xs font-semibold text-muted">Base rent from</p>
       <p className={`mt-0.5 text-3xl ${listingMoneyClass}`}>{from}</p>
-      {estimated || breakdownLines.length > 0 || showDueAtSigning ? (
+      {estimated || breakdownLines.length > 0 ? (
         <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
           {estimated ? (
             <div className="flex items-baseline justify-between gap-3 py-2">
@@ -209,12 +204,6 @@ function PriceCard({
               <dd className={listingMoneyClass}>{formatMoneyInLabel(line.value)}</dd>
             </div>
           ))}
-          {showDueAtSigning ? (
-            <div className="flex items-baseline justify-between gap-3 py-2" data-attr="listing-price-due-at-signing">
-              <dt className="text-muted">Lease fee</dt>
-              <dd className={listingMoneyClass}>{(property.leaseSigningFeeCents ?? 0) > 0 ? formatFeeCentsForFact(property.leaseSigningFeeCents ?? 0) : "None"}</dd>
-            </div>
-          ) : null}
         </dl>
       ) : null}
       {shortStay && nightly > 0 ? (

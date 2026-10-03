@@ -474,27 +474,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const propertyOffersBundles =
       form.propertyId.trim().length > 0 &&
       getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
-    // This wizard is the ONE apply flow for a prospect — a lease-first listing
-    // (`property.signingOrder`, PLAN-0927) has no separate anonymous start, so
-    // it reuses this same wizard and simply says so up front, on step 1, before
-    // anything is filled in.
-    const currentProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
-    const leaseFirst = currentProperty?.signingOrder === "lease_first";
 
     return (
       <div className="rental-wizard-step space-y-4">
-        {leaseFirst ? (
-          <div
-            className="rounded-xl border border-primary/30 bg-primary/8 p-4 text-sm leading-relaxed [html[data-theme=dark]_&]:border-primary/25 [html[data-theme=dark]_&]:bg-primary/12"
-            data-attr="rental-wizard-lease-first-banner"
-          >
-            <p className="font-semibold text-foreground">Signing the lease comes first</p>
-            <p className="mt-1 text-muted">
-              This home&rsquo;s manager has you sign the lease before the application. Continue below to
-              get started — you&rsquo;ll sign the lease first, then finish your household application.
-            </p>
-          </div>
-        ) : null}
         <div className="divide-y divide-border/60 rounded-2xl border border-border bg-card/30 [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/4">
           {showGroup ? (
             <>

@@ -45,7 +45,7 @@ function leaseRow(overrides: Partial<LeaseBasicRow> = {}): LeaseBasicRow {
   };
 }
 
-function renderLeaseModal(signingOrder?: "application_first" | "lease_first" | null) {
+function renderLeaseModal(signingOrder?: "application_first" | null) {
   render(
     <ListingDetailModal
       state={{ kind: "lease", row: leaseRow() }}
@@ -71,10 +71,11 @@ describe("listing detail modal — apply CTA follows signingOrder", () => {
     expect(cta!.textContent).toContain("Apply");
   });
 
-  it("says Sign lease instead of Apply for a lease-first listing", () => {
-    renderLeaseModal("lease_first");
+  it("never says Sign lease: a stale lease_first value still reads Apply", () => {
+    renderLeaseModal("lease_first" as never);
     const cta = document.querySelector('[data-attr="listing-text-apply"]');
     expect(cta).not.toBeNull();
-    expect(cta!.textContent).toContain("Sign lease");
+    expect(cta!.textContent).toContain("Apply");
+    expect(cta!.textContent).not.toContain("Sign lease");
   });
 });
