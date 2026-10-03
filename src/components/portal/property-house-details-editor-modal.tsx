@@ -261,6 +261,7 @@ export function PropertyHouseDetailsEditorModal({
       {target.kind === "space" && space ? (
         <div className="rounded-2xl border border-border bg-card px-1 py-1" data-attr="property-house-details-space-editor">
           <ListingSharedSpaceEditorBody
+            key={space.id}
             space={space}
             who={spaceLabel(space, spaces.indexOf(space))}
             rooms={rooms}

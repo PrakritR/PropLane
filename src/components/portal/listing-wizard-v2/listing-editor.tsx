@@ -1747,9 +1747,6 @@ export function ListingSharedSpaceEditorBody({
   const roomIds = rooms.map((room) => room.id);
   const accessEveryone = sharedSpaceIsEveryone(space.roomAccessIds, roomIds);
   const [roomPickerOpen, setRoomPickerOpen] = useState(() => !accessEveryone);
-  useEffect(() => {
-    setRoomPickerOpen(!sharedSpaceIsEveryone(space.roomAccessIds, roomIds));
-  }, [space.id]);
   const whoUsesMode = roomPickerOpen ? "pick" : "all";
   return (
     <>
@@ -1893,7 +1890,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   };
 
   const addSpace = (kind?: ManagerSharedSpaceSubmission["spaceKind"]) => {
-    const id = `space-${spaces.length + 1}-${Math.random().toString(36).slice(2, 9)}`;
+    const id = `space-${crypto.randomUUID()}`;
     const blank: ManagerSharedSpaceSubmission = {
       id,
       name: kind ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",
@@ -1986,6 +1983,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           >
             <div data-attr="listing-v2-space-editor">
               <ListingSharedSpaceEditorBody
+                key={space.id}
                 space={space}
                 who={label}
                 rooms={rooms}
