@@ -48,6 +48,7 @@ import {
   leaseMismatchAcknowledgementGapForRow,
   leasePipelineRowHasDocument,
   leaseRecordTerms,
+  leaseApplicationSnapshotForRow,
   leaseSendGateBlocker,
   persistLeaseRowToServerAwait,
   readLeasePipeline,
@@ -68,7 +69,9 @@ import {
   type LeaseSendTerms,
   type PdfTermKey,
   type PdfTermPick,
+  approvedResidentOptionLabel,
 } from "@/lib/lease-send-terms";
+import { roomForApplicationRow } from "@/lib/application-approval-slots";
 import {
   confirmTemplatePlacementReviewForRow,
   leaseNeedsTemplatePlacementReview,
@@ -82,6 +85,11 @@ import {
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { requestResidentWelcomeEmail } from "@/lib/application-review";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
+import { jointRoommateApplications, linkJointRoomLeases } from "@/lib/lease-joint-room.client";
+import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { sharedRoomCardFor } from "@/lib/shared-room-card";
 import { stripeSetupStateFromStatus } from "@/lib/stripe-setup-state";
 import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
@@ -219,6 +227,28 @@ function LeaseSendSheetBody({
     [lease, apps, pickedApplicationId],
   );
 
+  /* Roommates on one joint shared-room lease: one send covers them all. */
+  const jointMates = useMemo(() => (app ? jointRoommateApplications(app, apps) : []), [app, apps]);
+  const jointCard = useMemo(() => (app && jointMates.length > 0 ? sharedRoomCardFor(app, apps, null) : null), [app, apps, jointMates]);
+
+  /* The property's lease formats: a lease type picker appears only when there is a real choice. */
+  const leaseChoices = useMemo(() => {
+    void tick;
+    if (!lease?.propertyId) return [];
+    const property = getPropertyById(lease.propertyId);
+    if (!property?.listingSubmission || property.listingSubmission.v !== 1) return [];
+    try {
+      return listLeaseTemplateGenerateChoices(
+        normalizeManagerListingSubmissionV1(property.listingSubmission),
+        leaseApplicationSnapshotForRow(lease) ?? {},
+        lease.leaseKind === "joint_bundle" ? "joint_bundle" : "individual",
+      );
+    } catch {
+      return [];
+    }
+  }, [lease, tick]);
+  const selectedChoiceId = leaseChoices.find((c) => c.template.id === lease?.leaseGenerationTemplateId)?.id ?? leaseChoices[0]?.id ?? "";
+
   /* The four terms, seeded from the application once. */
   useEffect(() => {
     if (terms || !app) return;
@@ -313,6 +343,31 @@ function LeaseSendSheetBody({
       }
     },
     [managerUserId, bump],
+  );
+
+  const chooseLeaseType = useCallback(
+    async (choiceId: string) => {
+      if (!lease) return;
+      const choice = leaseChoices.find((c) => c.id === choiceId);
+      if (!choice) return;
+      setWorking("Preparing the lease…");
+      setError(null);
+      try {
+        const made = generateLeaseHtmlForRow(lease.id, managerUserId, { templateId: choice.template.id, persist: false });
+        if (!made.ok) {
+          setError(made.error);
+          return;
+        }
+        const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
+        const saved = row ? await persistLeaseRowToServerAwait(row) : ({ ok: false, error: "Lease not found." } as const);
+        if (!saved.ok) setError(saved.error);
+        setConfirmed(false);
+        bump();
+      } finally {
+        setWorking(null);
+      }
+    },
+    [lease, leaseChoices, managerUserId, bump],
   );
 
   useEffect(() => {
@@ -503,32 +558,79 @@ function LeaseSendSheetBody({
         }
       }
 
-      const fresh = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
-      const blocker = fresh ? leaseSendGateBlocker(fresh) : "Lease not found.";
-      if (blocker) {
-        setError(blocker);
-        bump();
+      // A joint shared-room lease goes to every roommate at once: link their leases, give them the same
+      // dates, rebuild each document so it names the roommates, then send them all.
+      let targets: Array<{ row: LeasePipelineRow; name: string; email: string }> = [];
+      if (source === "lease" && jointMates.length > 0) {
+        const linked = linkJointRoomLeases(app, readManagerApplicationRows(), managerUserId);
+        if (!linked.ok) {
+          setError(linked.error);
+          return;
+        }
+        setWorking("Preparing the joint lease…");
+        const datePatch = { leaseStart: nextTerms.start, leaseEnd: nextTerms.end };
+        for (const mate of jointMates.slice(1)) {
+          const current = readManagerApplicationRows().find((r) => r.id === mate.id) ?? mate;
+          const updated: DemoApplicantRow = { ...current, application: { ...(current.application ?? {}), ...datePatch } as DemoApplicantRow["application"] };
+          writeManagerApplicationRows(readManagerApplicationRows().map((r) => (r.id === mate.id ? updated : r)), { serverConfirmed: true, skipLeaseSeed: true });
+          const savedMate = await upsertApplicationRowToServerAwait(updated);
+          if (!savedMate.ok && savedMate.error) {
+            setError(savedMate.error);
+            return;
+          }
+        }
+        for (const row of linked.rows) {
+          regenerateEditableLeasesForResident(row.residentEmail, managerUserId, row.id === lease.id ? undefined : datePatch);
+          const regenerated = readLeasePipeline(managerUserId).find((r) => r.id === row.id);
+          const persisted = regenerated ? await persistLeaseRowToServerAwait(regenerated) : ({ ok: false, error: "Lease not found." } as const);
+          if (!persisted.ok) {
+            setError(persisted.error);
+            return;
+          }
+          const mate = jointMates.find((m) => m.email?.trim().toLowerCase() === row.residentEmail.trim().toLowerCase());
+          if (regenerated) targets.push({ row: regenerated, name: mate ? applicantDisplayName(mate) : row.residentName, email: row.residentEmail });
+        }
+      } else {
+        const fresh = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
+        if (fresh) targets = [{ row: fresh, name: residentName, email: residentEmail }];
+      }
+      if (targets.length === 0) {
+        setError("Lease not found.");
         return;
+      }
+
+      for (const target of targets) {
+        const blocker = leaseSendGateBlocker(target.row);
+        if (blocker) {
+          setError(targets.length > 1 ? `${target.name}: ${blocker}` : blocker);
+          bump();
+          return;
+        }
       }
       setWorking("Sending…");
-      const sent = await sendLeaseToResident(lease.id, managerUserId);
-      if (!sent.ok) {
-        setError(sent.error ?? "Could not send the lease.");
-        return;
-      }
-      appendLeaseThreadMessage(lease.id, "manager", "Sent lease to resident for review and signature.", managerUserId);
-      let toastMessage = `Lease sent · ${residentName}`;
-      if (sendsMessage) {
-        const delivered = await deliverPortalInboxMessage({
-          eventCategory: "leases",
-          fromName: "Property Manager",
-          toEmails: [residentEmail],
-          subject: `Your lease for ${unit} is ready to sign`,
-          text: message,
-          deliverViaEmail: channels.viaEmail,
-          deliverViaSms: channels.viaSms,
-        }).catch(() => ({ ok: false as const }));
-        if (!delivered.ok) toastMessage = `Lease sent · ${residentName}. The message could not be delivered.`;
+      let toastMessage = targets.length > 1 ? `Joint lease sent · ${targets.length} roommates` : `Lease sent · ${residentName}`;
+      for (const target of targets) {
+        const sent = await sendLeaseToResident(target.row.id, managerUserId);
+        if (!sent.ok) {
+          setError(sent.error ?? "Could not send the lease.");
+          return;
+        }
+        appendLeaseThreadMessage(target.row.id, "manager", "Sent lease to resident for review and signature.", managerUserId);
+        if (sendsMessage && target.email) {
+          const own = target.row.id === lease.id;
+          const delivered = await deliverPortalInboxMessage({
+            eventCategory: "leases",
+            fromName: "Property Manager",
+            toEmails: [target.email],
+            subject: `Your lease for ${target.row.unit?.trim() || "your unit"} is ready to sign`,
+            text: own
+              ? message
+              : buildLeaseReadyForResidentMessage({ residentName: target.name || "there", residentEmail: target.email, unit: target.row.unit?.trim() || "your unit", variant: "send" }),
+            deliverViaEmail: channels.viaEmail,
+            deliverViaSms: channels.viaSms,
+          }).catch(() => ({ ok: false as const }));
+          if (!delivered.ok) toastMessage = `${toastMessage}. A message could not be delivered.`;
+        }
       }
       showToast(toastMessage);
       onSent?.(lease.id);
@@ -583,7 +685,7 @@ function LeaseSendSheetBody({
                 setPicks({});
               }}
               placeholder="Choose a resident"
-              options={candidates.map((a) => ({ value: a.id, label: `${applicantDisplayName(a)} · ${a.property ?? ""}`.replace(/ · $/, "") }))}
+              options={candidates.map((a) => ({ value: a.id, label: approvedResidentOptionLabel({ residentName: applicantDisplayName(a), roomLabel: roomForApplicationRow(a)?.name ?? a.property ?? "" }) }))}
               dataAttr="lease-send-resident"
             />
           ) : null}
@@ -617,6 +719,16 @@ function LeaseSendSheetBody({
                 ) : null}
 
                 <div className="min-w-0 space-y-4">
+                  {source === "lease" && !docIsPdf && leaseChoices.length > 1 ? (
+                    <FieldSingleSelect
+                      label="Lease type"
+                      value={selectedChoiceId}
+                      onChange={(next) => void chooseLeaseType(next)}
+                      options={leaseChoices.map((c) => ({ value: c.id, label: c.label }))}
+                      disabled={busy || Boolean(working)}
+                      dataAttr="lease-send-lease-type"
+                    />
+                  ) : null}
                   <TermsCard
                     terms={terms}
                     disabled={busy}
@@ -704,6 +816,22 @@ function LeaseSendSheetBody({
                           <div key={row.key} className="flex min-h-11 items-center justify-between gap-3 py-2.5 text-sm">
                             <span className="text-muted">{row.label}</span>
                             <span className="font-bold text-foreground">{money(row.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {jointCard && source === "lease" ? (
+                    <div data-attr="lease-send-roommates">
+                      <p className="mb-1 text-[13px] font-bold text-foreground">Roommates on this lease</p>
+                      <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
+                        {jointCard.roommates.map((m) => (
+                          <div key={m.id} className="flex min-h-11 items-center justify-between gap-3 py-2.5 text-sm" data-attr="lease-send-roommate">
+                            <span className="min-w-0 truncate font-semibold text-foreground">{m.name}</span>
+                            <span className="shrink-0 text-muted">
+                              {[m.bedLabel, m.rentLabel].filter(Boolean).join(" · ")}
+                            </span>
                           </div>
                         ))}
                       </div>

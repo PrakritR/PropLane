@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { LeaseSignersCard } from "@/components/portal/lease-signers-card";
+import { LeaseSharedRoomFacts } from "@/components/portal/lease-shared-room-facts";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { jointRoomCountersignBlocker, jointRoomSiblings } from "@/lib/lease-joint-room";
 import { CalendarDays, Home, Wallet } from "lucide-react";
@@ -65,6 +66,7 @@ import {
   sendLeaseBackToManager,
   hasBothLeaseSignatures,
   leaseRowMatchesListTab,
+  leaseGenerationPreviewContextForRow,
   readLeasePipeline,
   resolveManagerLeaseGenerationRow,
   syncLeasePipelineFromServer,
@@ -1007,6 +1009,12 @@ export function ManagerLeasesPipelinePanel({
             remindBusyLeaseId={reminderBusyForRow}
           />
           <LeaseFactsLine row={detailRow} />
+          {(() => {
+            const sharedRoom = leaseGenerationPreviewContextForRow(detailRow, managerUserId)?.sharedRoom;
+            return sharedRoom ? (
+              <LeaseSharedRoomFacts terms={sharedRoom} addendum={Boolean(detailRow.managerUploadedPdf) && !detailRow.generatedHtml} />
+            ) : null;
+          })()}
           {renderLeaseRowDetail(detailRow)}
           {detailRow.pendingRenewal || (detailRow.signedLeaseSnapshots?.length ?? 0) > 0 ? renderLeaseAmendmentsBody(detailRow) : null}
         </div>

@@ -21,8 +21,8 @@ describe("lease send is gated on a document, inside the Send lease screen", () =
   });
 
   it("the sheet still runs the shared send gate immediately before sending", () => {
-    expect(sheet).toContain("leaseSendGateBlocker(fresh)");
-    expect(sheet).toContain("sendLeaseToResident(lease.id, managerUserId)");
+    expect(sheet).toContain("leaseSendGateBlocker(target.row)");
+    expect(sheet).toContain("sendLeaseToResident(target.row.id, managerUserId)");
   });
 
   // The record's header renders the SAME shared actions; the panel does not re-implement the rule.

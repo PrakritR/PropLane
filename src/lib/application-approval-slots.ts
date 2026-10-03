@@ -18,11 +18,9 @@ import {
   type OpenResidentSlot,
 } from "@/lib/rental-application/room-occupancy";
 import { formatRoomPriceAmount, roomPricesPerResident } from "@/lib/room-pricing";
+import { bedLabelForSlot } from "@/lib/shared-room-display";
 
-/** "Bed A" for slot 1, "Bed B" for slot 2 — the letter every manager surface uses. */
-export function bedLabelForSlot(slot: number): string {
-  return Number.isInteger(slot) && slot >= 1 ? `Bed ${String.fromCharCode(64 + slot)}` : "Bed";
-}
+export { bedLabelForSlot };
 
 /**
  * The listing room this application is placed in — the manager's final

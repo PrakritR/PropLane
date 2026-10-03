@@ -5,6 +5,14 @@
  */
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
+import { parseMoneyAmount } from "@/lib/parse-money";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import {
+  sharedRoomLeaseTerms,
+  type SharedRoomLeaseTerms,
+  type SharedRoomResident,
+} from "@/lib/lease-shared-room-terms";
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
@@ -67,7 +75,7 @@ import {
   leaseIntakeFromApplication,
   type LeaseIntakeAnswers,
 } from "@/lib/leasing/lease-application-field-map";
-import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
+import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { submissionWithLeaseTemplateById } from "@/lib/property-lease-template-sync";
@@ -3094,6 +3102,64 @@ export function resolveManagerLeaseGenerationRow(
   return joint ?? row;
 }
 
+/**
+ * The shared-room terms for this lease — its bed and rent, and on a joint lease every roommate on it.
+ * Roommates are the leases already linked by `jointRoomGroupId`, else the approved applications that
+ * share the resident's Group ID and room.
+ */
+function sharedRoomTermsForLeaseRow(
+  row: LeasePipelineRow,
+  ctx: LeaseGenerationContext,
+  managerUserId?: string | null,
+): SharedRoomLeaseTerms | null {
+  const room = resolveSubmissionRoom(ctx.submission, {
+    roomChoices: [ctx.application.roomChoice1],
+    unitLabel: ctx.leasedRoom?.unitLabel,
+  });
+  if (!room || normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) return null;
+  const residentFrom = (
+    name: string | undefined,
+    app: Partial<RentalWizardFormState> | undefined,
+  ): SharedRoomResident => {
+    const slot = Number(app?.residentSlot);
+    const rent = parseMoneyAmount(app?.managerRentOverride ?? "");
+    return {
+      name: (name ?? "").trim(),
+      slot: Number.isInteger(slot) && slot >= 1 ? slot : null,
+      rentOverride: rent > 0 ? rent : null,
+    };
+  };
+  const residents: SharedRoomResident[] = [residentFrom(ctx.application.fullLegalName || row.residentName, ctx.application)];
+  if (room.sharedRoomLeaseKind === "joint") {
+    const groupId = row.jointRoomGroupId?.trim();
+    if (groupId) {
+      for (const sibling of readLeasePipeline(managerUserId ?? row.managerUserId)) {
+        if (sibling.id === row.id || sibling.jointRoomGroupId?.trim() !== groupId || sibling.status === "Voided") continue;
+        residents.push(residentFrom(sibling.residentName, sibling.application));
+      }
+    } else {
+      const myGroup = ctx.application.groupId?.trim().toUpperCase();
+      const myRoom = parseRoomChoiceValue(ctx.application.roomChoice1 ?? "").listingRoomId;
+      if (myGroup && myRoom) {
+        for (const app of readManagerApplicationRows()) {
+          if (app.bucket !== "approved" || app.withdrawnAt) continue;
+          if (normalizeApplicationAxisId(app.id) === normalizeApplicationAxisId(row.axisId ?? "")) continue;
+          if (app.application?.groupId?.trim().toUpperCase() !== myGroup) continue;
+          const choice = app.assignedRoomChoice?.trim() || app.application?.roomChoice1?.trim() || "";
+          if (parseRoomChoiceValue(choice).listingRoomId !== myRoom) continue;
+          residents.push(residentFrom(app.name, app.application));
+        }
+      }
+    }
+  }
+  return sharedRoomLeaseTerms({
+    room,
+    propertyAddress: ctx.listingProperty?.address ?? ctx.submission?.address ?? "",
+    term: ctx.application.leaseTerm,
+    residents,
+  });
+}
+
 function leaseGenerationContextForRow(
   row: LeasePipelineRow,
   managerUserId?: string | null,
@@ -3137,6 +3203,8 @@ function leaseGenerationContextForRow(
       ),
     };
   }
+  const sharedRoom = sharedRoomTermsForLeaseRow(row, ctx, managerUserId);
+  if (sharedRoom) ctx = { ...ctx, sharedRoom };
   const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
   const jurisdictionInput: LeaseJurisdictionInput = billed;
   // Close-save / unfinished listings often have no address. Add-resident still

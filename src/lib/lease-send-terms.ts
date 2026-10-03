@@ -247,3 +247,11 @@ export function resolvePdfTermPicks(
   }
   return { terms, overrides, unresolved };
 }
+
+/**
+ * The Resident dropdown on Send lease lists approved applicants only; the label says so, so a
+ * manager can tell them apart without already knowing who is approved.
+ */
+export function approvedResidentOptionLabel(row: { residentName: string; roomLabel: string }): string {
+  return [row.residentName, row.roomLabel, "Approved"].filter((part) => part.trim()).join(" \u00b7 ");
+}

@@ -34,6 +34,7 @@ import {
   type JurisdictionKey,
 } from "@/lib/lease-jurisdiction";
 import type { JointLeaseMember } from "@/lib/bundle-group/types";
+import { withSharedRoomClauses, type SharedRoomLeaseTerms } from "@/lib/lease-shared-room-terms";
 import { buildPlacementLeaseHtml } from "@/lib/property-lease-placement-html";
 import type { LeaseBillingSnapshot } from "@/lib/lease-billing-snapshot";
 import { formatRoomPriceAmount, resolveStayPricing, type StayKind } from "@/lib/room-pricing";
@@ -91,6 +92,12 @@ export type LeaseGenerationContext = {
   leaseKind?: "individual" | "joint_bundle";
   /** Amounts aligned with placement + pending household charges when generating from the manager portal. */
   leaseBilling?: LeaseBillingSnapshot;
+  /**
+   * The resident's bed, its rent and the roommates, when the room holds two or more residents. The
+   * shared-room and roommate clauses are added to whichever document is generated (a PropLane lease or
+   * a manager's template alike).
+   */
+  sharedRoom?: SharedRoomLeaseTerms;
   /** Property-level template preview — no resident yet; omit disclosure blocks and bracket placeholders. */
   propertyTemplatePreview?: boolean;
   /** When true with `propertyTemplatePreview`, render listing rent/fees/deposits in the summary (generic template editor). */
@@ -405,6 +412,11 @@ function executedJurisdictionFor(key: JurisdictionKey | null): string | null {
  * built-in jurisdictions, while a short stay selects only a short-stay template.
  */
 export function buildAiGeneratedLeaseHtml(ctx: LeaseGenerationContext): LeaseGenerationOutcome {
+  const outcome = buildAiGeneratedLeaseHtmlBase(ctx);
+  return outcome.kind === "generated" ? { ...outcome, html: withSharedRoomClauses(outcome.html, ctx.sharedRoom) } : outcome;
+}
+
+function buildAiGeneratedLeaseHtmlBase(ctx: LeaseGenerationContext): LeaseGenerationOutcome {
   const room = resolveSubmissionRoom(ctx.submission, {
     roomChoices: [ctx.application.roomChoice1],
     unitLabel: ctx.leasedRoom?.unitLabel,
