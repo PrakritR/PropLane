@@ -58,9 +58,11 @@ type Props = {
   onSaved: (row: DemoApplicantRow) => void | Promise<void>;
   /** Manager edits keep bucket/stage; resident resubmit moves back to pending. */
   preserveReviewStatus?: boolean;
+  /** Open the wizard on a specific step (manager fact-card pencil). */
+  initialStep?: number;
 };
 
-export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSaved, preserveReviewStatus = false }: Props) {
+export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSaved, preserveReviewStatus = false, initialStep }: Props) {
   const { showToast } = useAppUi();
   // Latest row for the reload effect below, which keys on the application's
   // identity rather than this object's. Synced in an effect declared BEFORE
@@ -69,7 +71,10 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
   useEffect(() => {
     rowRef.current = row;
   }, [row]);
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => {
+    const n = initialStep ?? 1;
+    return n >= 1 && n <= EDIT_STEP_COUNT ? n : 1;
+  });
   const [maxStepReached, setMaxStepReached] = useState<number>(EDIT_STEP_COUNT);
   const [form, setForm] = useState<RentalWizardFormState>(() => ({
     ...createInitialRentalWizardState(),

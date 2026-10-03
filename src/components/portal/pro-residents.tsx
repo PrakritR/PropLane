@@ -95,6 +95,12 @@ import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { importedActivity, parseResidentImportFile } from "@/lib/portfolio-import/activity";
 import { buildManagerResidentActivityEvents } from "@/lib/manager-resident-activity-events";
+import {
+  appendManagerResidentActivityLog,
+  readManagerResidentActivityLog,
+} from "@/lib/manager-resident-activity-log";
+import { ManagerResidentApplicationFactCards } from "@/components/portal/manager-resident-application-fact-cards";
+import { ManagerResidentBackgroundCheckPanel } from "@/components/portal/manager-resident-background-check-panel";
 import { uploadManagerDocumentForResident } from "@/lib/manager-resident-document-upload";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
 import { ApplicationDocumentPreview, runApplicationPdfDownload } from "@/components/portal/pro-applications";
@@ -304,7 +310,6 @@ import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
-import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -568,7 +573,6 @@ export function ManagerResidents({
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
-  const [applicantScreeningFooterActions, setApplicantScreeningFooterActions] = useState<ReactNode>(null);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [applicationReminderPreview, setApplicationReminderPreview] = useState<{
     row: DemoApplicantRow;
@@ -584,10 +588,10 @@ export function ManagerResidents({
     useState<ResidentUnifiedServicesBucket>("pending");
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
-  const handleApplicantScreeningFooterActions = useCallback((actions: ReactNode | null) => {
-    setApplicantScreeningFooterActions(actions);
-  }, []);
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
+  const [applicationEditInitialStep, setApplicationEditInitialStep] = useState<number | undefined>(undefined);
+  const [activityLogTick, setActivityLogTick] = useState(0);
+  const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentApplicationBucketId>("pending");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<ManagerLeaseTab>("manager");
@@ -1159,6 +1163,15 @@ export function ManagerResidents({
     [residentDirectoryRows, activeResidentId],
   );
 
+  const logResidentActivity = useCallback(
+    (label: string) => {
+      if (!selected?.id) return;
+      appendManagerResidentActivityLog(selected.id, label);
+      setActivityLogTick((n) => n + 1);
+    },
+    [selected?.id],
+  );
+
   if (activeResidentId !== prevSelectedId) {
     setPrevSelectedId(activeResidentId);
     if (activeResidentId) {
@@ -1417,12 +1430,6 @@ export function ManagerResidents({
     : (residentDetailTabsAvailable[0] ?? "payments");
 
 
-  useEffect(() => {
-    if (resolvedDetailTab !== "background-check") {
-      setApplicantScreeningFooterActions(null);
-    }
-  }, [resolvedDetailTab]);
-
   // `threadReading` must stay FALSE here. Under
   // `html[data-communication-thread-reading]` globals.css hides the mobile nav
   // bar and locks `#portal-main-content` to the viewport with `overflow:hidden`,
@@ -1590,6 +1597,10 @@ export function ManagerResidents({
               ? "Message sent via SMS and PropLane inbox."
               : "Message sent via inbox and email.",
       );
+      if (messageReminderForPayment) {
+        logResidentActivity("Payment reminder sent");
+        setMessageReminderForPayment(false);
+      }
     } finally {
       setMessageBusy(false);
     }
@@ -1804,6 +1815,7 @@ export function ManagerResidents({
 
       appendLeaseThreadMessage(leaseId, "manager", "Sent lease-signing reminder to resident.", userId);
       setLeaseTick((n) => n + 1);
+      logResidentActivity("Lease signing reminder sent");
       if (data.skipped) {
         showToast("Reminder sent to PropLane inbox (demo email, no external email sent).");
       } else {
@@ -2004,6 +2016,7 @@ export function ManagerResidents({
     setApplicationReminderBusyId(row.id);
     try {
       if (isDemoModeActive()) {
+        logResidentActivity("Application reminder sent");
         showToast("Application reminder sent to the applicant.");
         return;
       }
@@ -2021,6 +2034,7 @@ export function ManagerResidents({
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
       if (res.ok && data.ok) {
+        logResidentActivity("Application reminder sent");
         showToast("Application reminder sent to the applicant.");
         return;
       }
@@ -2788,7 +2802,6 @@ export function ManagerResidents({
    */
   const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
     <>
-      {applicantScreeningFooterActions}
       {applicationShowsBackgroundCheck(selectedApplicationRow) &&
       !selectedApplicationRow.application?.consentCredit &&
       shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
@@ -3257,6 +3270,7 @@ export function ManagerResidents({
         if (residentLease) openLeaseSigningReminderPreview(selected, residentLease);
         return;
       case "remind-payment":
+        setMessageReminderForPayment(true);
         setMessageOpen(true);
         return;
       case "remind-application":
@@ -3328,8 +3342,9 @@ export function ManagerResidents({
         parseResidentImportFile(selected.detail),
         selected.manualResidentDetails?.importedAt,
       ),
+      manualEvents: readManagerResidentActivityLog(selected.id),
     });
-  }, [residentLeaseRows, residentLedgerRows, selected, selectedApplicationRow]);
+  }, [activityLogTick, residentLeaseRows, residentLedgerRows, selected, selectedApplicationRow]);
 
   const residentDocumentSections = useMemo(() => {
     const sections: Partial<Record<ManagerResidentDocTabId, import("@/components/portal/manager-resident-documents-panel").ManagerResidentDocumentRow[]>> =
@@ -3511,23 +3526,7 @@ export function ManagerResidents({
                               />
                               {selectedApplicationRow &&
                               applicationShowsBackgroundCheck(selectedApplicationRow) ? (
-                                <ApplicationScreeningPanel
-                                  row={selectedApplicationRow}
-                                  collapsible={false}
-                                  presentation="full"
-                                  bareCanvas
-                                  stretch
-                                  headerActionsPlacement="parent"
-                                  compactTabFooterActions
-                                  onHeaderActionsChange={handleApplicantScreeningFooterActions}
-                                  onUpdated={handleScreeningUpdated}
-                                  onOpenScreeningModal={(opts) => {
-                                    setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
-                                    setCheckrScreeningRowId(selectedApplicationRow.id);
-                                  }}
-                                  cosignerSubmissions={selectedApplicationCosigners}
-                                  className="min-h-0 flex-1"
-                                />
+                                <ManagerResidentBackgroundCheckPanel row={selectedApplicationRow} />
                               ) : (
                                 <p className="text-sm text-muted">No background check for this resident.</p>
                               )}
@@ -3576,14 +3575,14 @@ export function ManagerResidents({
                                     }
                                   />
                                 ) : (
-                                  <ApplicationDocumentPreview
+                                  <ManagerResidentApplicationFactCards
                                     row={selectedApplicationRow}
-                                    bareCanvas
-                                    stretch
-                                    flow
-                                    showDownload={false}
-                                    variant="html"
-                                    className="min-h-0 flex-1"
+                                    assignedPropertyId={selected.propertyId}
+                                    assignedRoomChoice={selected.roomLabel}
+                                    onEditStep={(step) => {
+                                      setApplicationEditInitialStep(step);
+                                      setApplicationEditOpen(true);
+                                    }}
                                   />
                                 )
                               ) : (
@@ -4335,7 +4334,10 @@ export function ManagerResidents({
             ? `Edit application · ${selectedApplicationRow.name || selected?.name || "Resident"}`
             : "Edit application"
         }
-        onClose={() => setApplicationEditOpen(false)}
+        onClose={() => {
+          setApplicationEditOpen(false);
+          setApplicationEditInitialStep(undefined);
+        }}
         panelClassName="max-w-4xl w-full"
       >
         {selectedApplicationRow?.application ? (
@@ -4343,9 +4345,14 @@ export function ManagerResidents({
             row={selectedApplicationRow}
             residentEmail={(selectedApplicationRow.email ?? selected?.email ?? "").trim().toLowerCase()}
             preserveReviewStatus
-            onCancel={() => setApplicationEditOpen(false)}
+            initialStep={applicationEditInitialStep}
+            onCancel={() => {
+              setApplicationEditOpen(false);
+              setApplicationEditInitialStep(undefined);
+            }}
             onSaved={async (savedRow) => {
               setApplicationEditOpen(false);
+              setApplicationEditInitialStep(undefined);
               const email = (savedRow.email ?? selectedApplicationRow.email ?? selected?.email ?? "")
                 .trim()
                 .toLowerCase();
@@ -4586,6 +4593,7 @@ export function ManagerResidents({
           if (messageBusy) return;
           setMessageOpen(false);
           setMessageScheduleLater(false);
+          setMessageReminderForPayment(false);
         }}
         initialScheduleLater={messageScheduleLater}
         scheduledRecipientEmail={selected?.email}
