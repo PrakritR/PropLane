@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   CUSTOM_PROPERTY_KEY,
@@ -18,9 +18,11 @@ import {
 import type { ManagerPromotionPropertyOption } from "@/lib/manager-property-links";
 import type { PromotionAssetKind } from "@/lib/promotion-assets";
 import { buildPromotionNewModalAssistantContext } from "@/lib/promotion-assistant-context";
-import type { PromotionTextFormat } from "@/lib/promotion-text";
+import { PROMOTION_TEXT_FORMAT_DEFAULT, type PromotionTextFormat } from "@/lib/promotion-text";
+import { PromotionPostPreview, PromotionUploadPreview } from "@/components/portal/promotion-live-preview";
 import { PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
 import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
+import { Input, Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
 const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
@@ -127,6 +129,7 @@ export function PromotionNewModal({
   const [flyerBase, setFlyerBase] = useState<PromotionDraft>(() => draft);
   const [flyerBaseProperty, setFlyerBaseProperty] = useState(() => draft.propertyKey);
   const [textDirty, setTextDirty] = useState(false);
+  const [textPreview, setTextPreview] = useState<PromotionTextGenerateOptions>({ format: textInitialFormat ?? PROMOTION_TEXT_FORMAT_DEFAULT, tone: textInitialTone ?? draft.tone, images: textInitialImages ?? [], extraInstructions: "" });
   const textComposerRef = useRef<PromotionTextComposerHandle>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
@@ -169,7 +172,7 @@ export function PromotionNewModal({
       kind === "flyer"
         ? flyerContentChanged(draft, flyerBase)
         : kind === "text"
-          ? textDirty
+          ? textDirty || flyerContentChanged(draft, flyerBase)
           : Boolean(uploadFile);
     if (
       leavingDirty &&
@@ -184,7 +187,7 @@ export function PromotionNewModal({
     }
     // Discard the form we're leaving: the flyer draft resets to its baseline
     // (seed + property autofill); the text composer unmounts when kind changes.
-    if (kind === "flyer") setDraft(flyerBase);
+    if (kind === "flyer" || kind === "text") setDraft(flyerBase);
     setTextDirty(false);
     setUploadFile(null);
     setUploadFileName(null);
@@ -224,8 +227,11 @@ export function PromotionNewModal({
     kind === "flyer"
       ? flyerContentChanged(draft, flyerBase)
       : kind === "text"
-        ? textDirty
+        ? textDirty || flyerContentChanged(draft, flyerBase)
         : Boolean(uploadFile);
+
+  const preview = kind === "flyer" ? <PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded />
+    : kind === "upload" ? <PromotionUploadPreview file={uploadFile} /> : <PromotionPostPreview draft={draft} options={textPreview} />;
 
   if (!open) return null;
 
@@ -240,19 +246,7 @@ export function PromotionNewModal({
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
       assistantScopeKey="New promotion"
-      sidePanel={kind === "flyer" ? <PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded /> :
-        <PreviewPanel
-          title="Promotion preview"
-          name={kindLabel}
-          sub={draft.propertyLabel || draft.address || undefined}
-          facts={[
-            { label: "Type", value: kindLabel },
-            { label: "Property", value: draft.propertyLabel || "Not set", warn: !draft.propertyLabel },
-            { label: "Headline", value: draft.headline || "From listing", warn: false },
-          ]}
-          creates={[{ tone: "yes", text: kind === "upload" ? "Saves the file on this property" : `Generates a ${kindLabel.toLowerCase()}` }]}
-        />
-      }
+      sidePanel={preview}
       lastLabel={lastLabel}
       lastDisabled={lastDisabled}
       busy={flyerBusy || textBusy || uploadBusy}
@@ -281,7 +275,7 @@ export function PromotionNewModal({
           ) : null}
         </StepColumn>
       ) : null}
-      {stepId === "content" ? (
+      <div hidden={stepId !== "content"}>
         <StepColumn wide>
           <StepHeading title="Content" />
           {kind === "flyer" ? (
@@ -305,6 +299,9 @@ export function PromotionNewModal({
               />
             </div>
           ) : (
+            <div className="space-y-4">
+            <WizardField label="Headline"><Input value={draft.headline} onChange={(event) => setDraft((currentDraft) => ({ ...currentDraft, headline: event.target.value }))} /></WizardField>
+            <WizardField label="Content"><Textarea rows={5} value={draft.customDetails} onChange={(event) => setDraft((currentDraft) => ({ ...currentDraft, customDetails: event.target.value }))} /></WizardField>
             <PromotionTextComposer
               ref={textComposerRef}
               onGenerate={onGenerateText}
@@ -313,27 +310,19 @@ export function PromotionNewModal({
               initialTone={textInitialTone}
               initialImages={textInitialImages}
               onDirtyChange={handleTextDirty}
+              onDraftChange={setTextPreview}
               propertyKey={undefined}
               listings={listings}
               onSelectProperty={undefined}
             />
+            </div>
           )}
         </StepColumn>
-      ) : null}
+      </div>
       {stepId === "preview" ? (
         <StepColumn>
           <StepHeading title="Preview" />
-          <PreviewPanel
-            title="Promotion preview"
-            name={kindLabel}
-            sub={draft.propertyLabel || draft.address || undefined}
-            facts={[
-              { label: "Type", value: kindLabel },
-              { label: "Property", value: draft.propertyLabel || "Not set", warn: !draft.propertyLabel },
-              { label: "Headline", value: draft.headline || "From listing" },
-            ]}
-            creates={[{ tone: "yes", text: kind === "upload" ? "Saves the file on this property" : `Generates a ${kindLabel.toLowerCase()}` }]}
-          />
+          {preview}
         </StepColumn>
       ) : null}
     </AddWorkspace>

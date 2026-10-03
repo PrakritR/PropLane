@@ -119,6 +119,7 @@ export function PortalPropertyRecordRow({
   statusWord,
   trailing,
   amount,
+  actions,
   amountTone,
   amountSubLabel,
   leading,
@@ -158,6 +159,8 @@ export function PortalPropertyRecordRow({
   trailing?: ReactNode;
   /** The money, right-aligned and bold. */
   amount?: string;
+  /** Explicit per-record controls for read-only rows outside the list selection context. */
+  actions?: ReactNode;
   /** Colours `amount` red ("bad", e.g. overdue) or green ("ok"); unset keeps today's plain foreground. */
   amountTone?: "ok" | "bad";
   /** A one-word label under `amount` ("Pending", "per month") — the entry row's figure sub-label. */
@@ -205,9 +208,9 @@ export function PortalPropertyRecordRow({
       </p>
       {address ? <p className="text-[13px] leading-relaxed text-muted md:truncate">{address}</p> : null}
       {facts ? (
-        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
           {facts}
-        </p>
+        </div>
       ) : null}
       {meta && (meta.baths || meta.rooms || meta.residents) ? (
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
@@ -299,6 +302,7 @@ export function PortalPropertyRecordRow({
         </div>
       )}
       {aside}
+      {actions ? <div className="shrink-0 self-center">{actions}</div> : null}
     </div>
   );
 }
