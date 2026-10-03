@@ -807,7 +807,7 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
-        // C2-PR14: Edit, Share, Duplicate, then the red Unlist last; the
+        // C2-PR14: Edit, Share, Duplicate, Unlist, then red Delete last; the
         // adaptive row folds the tail into its own ⋯ only when width runs out.
         if (canEditAction) {
           actions.push({
@@ -859,7 +859,6 @@ function ManagerPropertyInlineDetails({
           node: (
             <PortalIconAction
               ring
-              tone="danger"
               icon={CircleOff}
               label="Unlist"
               data-attr="listing-unlist"
@@ -872,6 +871,27 @@ function ManagerPropertyInlineDetails({
               onSelect={() => setPendingDestructiveAction("unlist")}
             >
               Unlist
+            </DropdownMenuItem>
+          ),
+        });
+        actions.push({
+          id: "delete-listed",
+          node: (
+            <PortalIconAction
+              ring
+              tone="danger"
+              icon={Trash2}
+              label="Delete"
+              data-attr="listing-delete"
+              onClick={() => showToast("Coming soon")}
+            />
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="listing-delete"
+              onSelect={() => showToast("Coming soon")}
+            >
+              Delete
             </DropdownMenuItem>
           ),
         });
@@ -1138,7 +1158,7 @@ function ManagerPropertyInlineDetails({
         return;
       case "delete":
         if (bucket === 2 && listingId) {
-          setPendingDestructiveAction("unlist");
+          showToast("Coming soon");
         } else if (bucket === 5) {
           setPendingDestructiveAction("delete-draft");
         } else if (bucket === 3 && canDeleteAction) {

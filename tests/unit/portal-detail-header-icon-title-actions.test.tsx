@@ -176,6 +176,7 @@ describe("listed Preview header actions — source", () => {
     expect(footer).toContain('label="Edit"');
     expect(footer).toContain('label="Share"');
     expect(footer).toContain('label="Unlist"');
+    expect(footer).toContain('label="Delete"');
     expect(footer).toContain("<PortalIconAction");
     expect(footer).not.toContain('label="View public"');
     expect(panel).toContain("onPropertyRecordHeaderAction");
