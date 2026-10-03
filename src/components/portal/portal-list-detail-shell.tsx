@@ -72,6 +72,7 @@ export function PortalDetailHeader({
   title,
   subtitle,
   avatarName,
+  leading,
   onBack,
   backLabel = "Back",
   hideBackText = false,
@@ -93,6 +94,7 @@ export function PortalDetailHeader({
   title: string;
   subtitle?: string;
   avatarName?: string;
+  leading?: ReactNode;
   onBack?: () => void;
   backLabel?: string;
   /** Hide visible back label; chevron only (accessibility label kept). */
@@ -132,7 +134,8 @@ export function PortalDetailHeader({
           </button>
         ) : null}
         <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && "max-w-[9rem] md:max-w-[15rem]")}>
-          {avatarName ? (
+          {leading ? <span className="shrink-0">{leading}</span> : null}
+          {!leading && avatarName ? (
             <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />
           ) : null}
           {/* The record's name is the page's title: it reads as one, not as a list row. */}

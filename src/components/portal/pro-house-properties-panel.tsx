@@ -6,7 +6,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleOff, Copy, FileText, Home, MoreHorizontal, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
+import { CircleOff, Copy, FileText, Home, MoreHorizontal, Pencil, Share2, Trash2, TriangleAlert, Users, Building2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -2237,6 +2237,12 @@ function ManagerHousePropertiesPanelBody({
       <PortalRecordDetailPage
         title={managerPropertyRowTitle(row, sourceBucket)}
         subtitle={address}
+        // Studio record header: the property's round tile beside its name.
+        leading={
+          <span className="flex size-9 items-center justify-center rounded-full bg-accent text-primary md:size-10" aria-hidden>
+            <Building2 className="size-4 md:size-[18px]" strokeWidth={1.8} />
+          </span>
+        }
         backHref={`${propertiesBase}/properties/${activeStage}`}
         backLabel="Back to properties"
         hideBackText
