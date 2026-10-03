@@ -436,7 +436,7 @@ export function bookingsHref(basePath: string): string {
  * "is this room free on the 14th" is the question the screen answers, and a
  * list cannot answer it at a glance.
  */
-export const MANAGER_BOOKING_BUCKETS = ["calendar", "upcoming", "inhouse", "past", "stays", "occupancy"] as const;
+export const MANAGER_BOOKING_BUCKETS = ["calendar", "upcoming", "inhouse", "past"] as const;
 export type ManagerBookingBucketId = (typeof MANAGER_BOOKING_BUCKETS)[number];
 export const DEFAULT_MANAGER_BOOKING_BUCKET: ManagerBookingBucketId = "calendar";
 
@@ -445,8 +445,16 @@ export const MANAGER_BOOKING_BUCKET_LABELS: Record<ManagerBookingBucketId, strin
   upcoming: "Upcoming",
   inhouse: "In-house",
   past: "Past",
-  stays: "Stays",
-  occupancy: "Occupancy",
+};
+
+/**
+ * Stays and Occupancy were folded into Upcoming / In-house / Past by date
+ * (captain 2026-10-03). The old URLs redirect instead of dead-ending: a stay
+ * list opens on Upcoming, "who is in which room now" on In-house.
+ */
+export const LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS: Readonly<Record<string, ManagerBookingBucketId>> = {
+  stays: "upcoming",
+  occupancy: "inhouse",
 };
 
 export function parseManagerBookingBucket(

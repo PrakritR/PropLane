@@ -56,7 +56,6 @@ export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
 export function ManagerBookingsListView({
   entries,
   loading = false,
-  showStayDetails = false,
   bucket,
   selectedKeys,
   onToggleSelected,
@@ -69,7 +68,6 @@ export function ManagerBookingsListView({
 }: {
   entries: PropertyBookingEntry[];
   loading?: boolean;
-  showStayDetails?: boolean;
   bucket: ManagerBookingListBucketId;
   selectedKeys: ReadonlySet<string>;
   onToggleSelected: (key: string, selected: boolean) => void;
@@ -135,7 +133,7 @@ export function ManagerBookingsListView({
                   <>
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRangeShort(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
-                    {showStayDetails ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
+                    {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
                     {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
                   </>
                 }

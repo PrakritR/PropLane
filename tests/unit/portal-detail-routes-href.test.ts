@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applicationListHref,
   managerBookingListHref,
+  LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS,
   parseManagerBookingBucket,
   legacyManagerPortalSectionPath,
   managerDocumentsApplicationDetailHref,
@@ -19,8 +20,11 @@ import {
 describe("portal-detail-routes href helpers", () => {
   const base = "/portal";
 
-  it("routes Stays and Occupancy as booking views rather than record ids", () => {
-    for (const view of ["stays", "occupancy"] as const) {
+  it("folds Stays and Occupancy into the date tabs and redirects the old URLs", () => {
+    expect(parseManagerBookingBucket("stays")).toBe("calendar");
+    expect(parseManagerBookingBucket("occupancy")).toBe("calendar");
+    expect(LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS).toEqual({ stays: "upcoming", occupancy: "inhouse" });
+    for (const view of ["upcoming", "inhouse", "past"] as const) {
       expect(parseManagerBookingBucket(view)).toBe(view);
       expect(managerBookingListHref(base, view)).toBe(`/portal/bookings/${view}`);
     }

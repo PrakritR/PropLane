@@ -22,7 +22,7 @@ import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BookingsCalendarKey, BookingsOccupancyPanel } from "@/components/portal/bookings-portfolio-timeline";
+import { BookingsCalendarKey } from "@/components/portal/bookings-portfolio-timeline";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -63,10 +63,6 @@ const BOOKING_BUCKET_LABELS = MANAGER_BOOKING_BUCKETS.map((id) => ({
   id,
   label: MANAGER_BOOKING_BUCKET_LABELS[id],
 }));
-
-function staySource(entry: PropertyBookingEntry): string {
-  return entry.stayDetails?.source || (entry.source === "proplane" ? "Tenant" : entry.source === "hold" ? "Application" : entry.source === "block" ? entry.residentName ? "Direct" : "Blocked" : bookingSourceLabel(entry.source));
-}
 
 function isListBucket(bucket: ManagerBookingBucketId): bucket is ManagerBookingListBucketId {
   return bucket === "upcoming" || bucket === "inhouse" || bucket === "past";
@@ -121,7 +117,6 @@ function useBookingsWorkspace({
   const { userId, ready: authReady } = useManagerUserId();
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("");
   const [sheet, setSheet] = useState<{
     open: boolean;
     dayKey: string | null;
@@ -221,17 +216,14 @@ function useBookingsWorkspace({
       inhouse: listCounts.inhouse,
       past: listCounts.past,
       calendar: 0,
-      occupancy: 0,
-      stays: entries.filter((entry) => entry.bookingStatus !== "cancelled").length,
     };
   }, [entries, todayKey]);
 
   const listBucket = isListBucket(bucket) ? bucket : "upcoming";
   const listEntries = useMemo(() => {
-    if (bucket === "stays") return filterBookingsBySearch(entries.filter((entry) => entry.bookingStatus !== "cancelled" && (!sourceFilter || staySource(entry) === sourceFilter)), listSearch).sort((a, b) => a.start.localeCompare(b.start));
     if (!isListBucket(bucket)) return [];
     return filterBookingsBySearch(bookingsForListBucket(entries, listBucket, todayKey), listSearch);
-  }, [bucket, entries, listBucket, listSearch, sourceFilter, todayKey]);
+  }, [bucket, entries, listBucket, listSearch, todayKey]);
 
   const { selectedIds, setSelectedIds } = usePortalRowSelection(bucket);
 
@@ -241,20 +233,20 @@ function useBookingsWorkspace({
         id,
         label,
         // The calendar is a view, not a bucket — a "0" beside it reads as empty.
-        count: id === "calendar" || id === "occupancy" ? undefined : counts[id],
+        count: id === "calendar" ? undefined : counts[id],
       })),
     [counts],
   );
 
   const propertyFilterSheet = showPropertyFilter ? (
       <PortalFilterSortSheet
-        activeCount={portalFilterActiveCount([propertyFilters, bucket === "stays" ? sourceFilter : ""])}
+        activeCount={portalFilterActiveCount([propertyFilters])}
         compactPanel
         commandStripTrigger
         dropdownAlign="start"
-        filterFieldCount={bucket === "stays" ? 2 : 1}
+        filterFieldCount={1}
         mobileFlushBody
-        onReset={() => { setPropertyFilters([]); setSourceFilter(""); }}
+        onReset={() => setPropertyFilters([])}
         dataAttr="bookings-filter-sheet-open"
       >
         <ApplicationFilterSortFields
@@ -263,7 +255,6 @@ function useBookingsWorkspace({
           onPropertyFiltersChange={setPropertyFilters}
           dataAttr="bookings-filter-property"
         />
-        {bucket === "stays" ? <PortalFormSingleSelect label="Source" value={sourceFilter} onChange={setSourceFilter} options={[{ value: "", label: "All sources" }, ...["Tenant", "Direct", "Airbnb", "Booking.com", "Application", "Blocked"].map((value) => ({ value, label: value }))]} dataAttr="bookings-filter-source" /> : null}
       </PortalFilterSortSheet>
     ) : null;
 
@@ -401,7 +392,7 @@ function useBookingsWorkspace({
       }
       activeDestinationId={bucket}
       destinationAriaLabel="Booking views"
-      search={bucket === "occupancy" ? undefined : {
+      search={{
         value: listSearch,
         onChange: setListSearch,
         placeholder: "Search bookings",
@@ -426,7 +417,7 @@ function useBookingsWorkspace({
       }
       primary={
         <PortalPrimaryIconAction
-          label={portalListAddPrimaryLabel(bucket === "stays" ? "stay" : "booking")}
+          label={portalListAddPrimaryLabel("booking")}
           disabled={linkDisabled}
           data-attr="bookings-block-dates-open"
           onClick={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
@@ -437,9 +428,7 @@ function useBookingsWorkspace({
   );
 
   const content =
-    bucket === "occupancy" ? (
-      loading || !authReady ? <div role="status" className="p-6 text-sm">Loading bookings…</div> : <BookingsOccupancyPanel propertyIds={scopedPropertyIds} entries={entries} today={startOfLocalDay(new Date())} onOpenDay={goToDayPage} roomFilterId={roomFilterId} onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })} />
-    ) : bucket === "calendar" ? (
+    bucket === "calendar" ? (
       <ManagerPortfolioBookingsCalendar
         propertyIds={scopedPropertyIds}
         showToast={showToast}
@@ -463,7 +452,6 @@ function useBookingsWorkspace({
         entries={listEntries}
         loading={!authReady || loading}
         bucket={listBucket}
-        showStayDetails={bucket === "stays"}
         selectedKeys={selectedIds}
         onToggleSelected={(key, selected) => {
           setSelectedIds((prev) => {
@@ -480,8 +468,7 @@ function useBookingsWorkspace({
         basePath={basePath ?? "/portal"}
         showToast={showToast}
         emptyCard={
-          propertyFilters.length > 0 || roomFilterId || listSearch.trim()
-            || (bucket === "stays" && sourceFilter) ? {
+          propertyFilters.length > 0 || roomFilterId || listSearch.trim() ? {
                 title: portalEmptyNoMatchTitle("bookings", listSearch),
                 section: "bookings",
                 tone: "muted",
@@ -490,14 +477,13 @@ function useBookingsWorkspace({
                   onClick: () => {
                     setPropertyFilters([]);
                     setListSearch("");
-                    setSourceFilter("");
                     onRoomFilterIdChange?.("");
                   },
                   dataAttr: "bookings-empty-clear-filters",
                 },
               }
             : {
-                title: bucket === "stays" ? "No stays match" : portalEmptyCopy(`bookings.${listBucket}`).title,
+                title: portalEmptyCopy(`bookings.${listBucket}`).title,
                 section: "bookings",
                 sibling: basePath
                   ? portalEmptySibling(

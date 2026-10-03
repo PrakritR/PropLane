@@ -108,4 +108,3 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps 
     </div>
   </div>;
 }
-export function BookingsOccupancyPanel(props: BookingsPortfolioTimelineProps) { return <BookingsPortfolioTimeline {...props} occupancyMode />; }

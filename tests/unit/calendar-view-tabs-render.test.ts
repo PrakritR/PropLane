@@ -78,7 +78,7 @@ describe("portfolio calendar and bookings nav", () => {
 describe("portfolio bookings buckets", () => {
   it("offers calendar first, then upcoming, in-house, and past segments", () => {
     const routes = read("src/lib/portal-detail-routes.ts");
-    expect(routes).toContain('["calendar", "upcoming", "inhouse", "past", "stays", "occupancy"]');
+    expect(routes).toContain('["calendar", "upcoming", "inhouse", "past"]');
   });
 
   it("unknown segment lands on the calendar", () => {

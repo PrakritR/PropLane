@@ -1293,7 +1293,12 @@ export async function renderPortalSection(
     }
 
     if (section === "bookings") {
-      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket, isBookingDayKeySegment } = await import(
+      const {
+        MANAGER_BOOKING_BUCKETS,
+        LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS,
+        parseManagerBookingBucket,
+        isBookingDayKeySegment,
+      } = await import(
         "@/lib/portal-detail-routes"
       );
       if (!tabParts?.length) {
@@ -1312,7 +1317,11 @@ export async function renderPortalSection(
           managerOwnerSubscriptionTier,
         );
       }
-      // Stays and Occupancy share the same booking data and authorization as Calendar.
+      // Stays and Occupancy were folded into the date tabs: old links redirect.
+      const legacyBucket = LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS[segmentRaw];
+      if (legacyBucket && tabParts.length === 1) {
+        redirect(`${def.basePath}/bookings/${legacyBucket}`);
+      }
       if (MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
         if (tabParts.length > 1) notFound();
         const bucket = parseManagerBookingBucket(segmentRaw);
