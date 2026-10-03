@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { PricingReceiptPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
+import {
+  BundleWholePricingReceiptPanel,
+  PricingReceiptPanel,
+} from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
   FactRow,
   MoneyInput,
@@ -11,8 +14,11 @@ import {
   ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
-import { FeeRows } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { ArrangementStandardFeeRows } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
+import { FeeRows, ProrateRows, perDay } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import type { ArrangementFeePatch } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
+import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
@@ -20,9 +26,21 @@ import {
   type ManagerBundleRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
+  type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
-import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import {
+  CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
+  SHORT_TERM_LEASE_TERM,
+} from "@/lib/rental-application/lease-terms";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import {
+  termPriceFieldText,
+  writeRoomTermPrice,
+  writeTermPriceEntry,
+} from "@/lib/listing-house-defaults";
+import { parseMoneyAmount } from "@/lib/parse-money";
+import { isStayLeaseTerm } from "@/lib/listing-quote";
 import {
   pricingCopySourceBundles,
   setBundlePricingCopyFrom,
@@ -57,6 +75,83 @@ type Props = {
   showToast: (message: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
 };
+
+function privateArrangementRow(room: ManagerRoomSubmission): RoomOccupancyPrice {
+  return room.occupancyPrices?.find((r) => r.count === 1) ?? { count: 1 };
+}
+
+function mergePrivateArrangementRow(room: ManagerRoomSubmission, patch: ArrangementFeePatch): ManagerRoomSubmission {
+  const row = { ...privateArrangementRow(room), ...patch, count: 1 as const };
+  const rest = (room.occupancyPrices ?? []).filter((r) => r.count !== 1);
+  return { ...room, occupancyPrices: [...rest, row] };
+}
+
+function roomHasOwnTermPricing(room: ManagerRoomSubmission, term: string): boolean {
+  const entry = room.termPricing?.[term];
+  return Boolean(entry && Object.keys(entry).length > 0);
+}
+
+function clearRoomTermPricing(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  if (!room.termPricing?.[term]) return room;
+  const next = { ...room.termPricing };
+  delete next[term];
+  return { ...room, termPricing: Object.keys(next).length > 0 ? next : undefined };
+}
+
+function seedRoomTermFromLongTerm(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  const seed = {
+    monthlyRent: room.monthlyRent > 0 ? room.monthlyRent : undefined,
+    securityDeposit: room.securityDeposit,
+    utilitiesEstimate: room.utilitiesEstimate,
+    pricingMode: room.pricingMode,
+  };
+  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
+  return {
+    ...room,
+    termPricing: {
+      ...(room.termPricing ?? {}),
+      [term]: cleaned,
+    },
+  };
+}
+
+function bundleHasOwnTermPricing(bundle: ManagerBundleRow, term: string): boolean {
+  const entry = bundle.termPricing?.[term];
+  return Boolean(entry && Object.keys(entry).length > 0);
+}
+
+function clearBundleTermPricing(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
+  if (!bundle.termPricing?.[term]) return bundle;
+  const next = { ...bundle.termPricing };
+  delete next[term];
+  return { ...bundle, termPricing: Object.keys(next).length > 0 ? next : undefined };
+}
+
+function seedBundleTermFromLongTerm(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
+  const rent = parseMoneyAmount(bundle.price ?? "");
+  const seed: ManagerRoomTermPrice = {
+    monthlyRent: rent > 0 ? rent : undefined,
+    securityDeposit: bundle.securityDeposit,
+    utilitiesEstimate: bundle.utilitiesEstimate,
+  };
+  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
+  return {
+    ...bundle,
+    termPricing: {
+      ...(bundle.termPricing ?? {}),
+      [term]: cleaned,
+    },
+  };
+}
+
+function writeBundleTermPrice(
+  bundle: ManagerBundleRow,
+  term: string,
+  field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
+  value: string,
+): ManagerBundleRow {
+  return { ...bundle, termPricing: writeTermPriceEntry(bundle.termPricing, term, field, value) };
+}
 
 function subjectTitle(subject: PropertyPricingSubject, sub: ManagerListingSubmissionV1): string {
   if (subject.kind === "room") {
@@ -98,6 +193,15 @@ export function PropertyRoomPricingWorkspace({
   }, [open, sub, subject]);
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
+  const extraLeaseTerms = useMemo(
+    () =>
+      leaseTerms.filter(
+        (t) => t !== LONG_TERM_LEASE_TERM && t !== SHORT_TERM_LEASE_TERM && t !== "Airbnb",
+      ),
+    [leaseTerms],
+  );
+  const allowM2m = leaseTerms.includes("Month-to-Month");
+  const allowCustomStart = leaseTerms.includes(CUSTOM_LEASE_TERM);
   const steps: AddWorkspaceStep[] = useMemo(() => {
     const out: AddWorkspaceStep[] = [];
     if (subject.kind === "bundle") {
@@ -112,6 +216,9 @@ export function PropertyRoomPricingWorkspace({
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
       out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
     }
+    for (const term of extraLeaseTerms) {
+      out.push({ id: term, label: term, summary: "" });
+    }
     return out.map((s) => {
       if (s.id === "bundle") return s;
       if (subject.kind === "bundle") {
@@ -122,18 +229,35 @@ export function PropertyRoomPricingWorkspace({
             : bundle?.shortTermNightlyRent?.trim() || "—";
         return { ...s, summary };
       }
+      if (subject.kind === "whole") {
+        const summary =
+          s.id === SHORT_TERM_LEASE_TERM
+            ? draft.shortTermDailyCost?.trim()
+              ? `$${draft.shortTermDailyCost.replace(/^\$/, "")}/night`
+              : "—"
+            : draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0
+              ? `$${draft.entireHomeMonthlyRent}/mo`
+              : "—";
+        return { ...s, summary };
+      }
       if (subject.kind !== "room") return s;
       const room = draft.rooms.find((r) => r.id === subject.roomId);
       if (!room) return s;
-      const summary =
-        s.id === LONG_TERM_LEASE_TERM
-          ? propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id])
-          : room.shortTermRent
-            ? `$${room.shortTermRent}/night`
-            : "—";
-      return { ...s, summary };
+      if (s.id === LONG_TERM_LEASE_TERM) {
+        return { ...s, summary: propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id]) };
+      }
+      if (s.id === SHORT_TERM_LEASE_TERM || isStayLeaseTerm(s.id)) {
+        const nightly = room.shortTermRent?.trim();
+        return { ...s, summary: nightly ? `$${nightly.replace(/^\$/, "")}/night` : "—" };
+      }
+      const term = listingPricingTabToLeaseTerm(s.id) ?? s.id;
+      if (!roomHasOwnTermPricing(room, term)) {
+        return { ...s, summary: "Same as long-term" };
+      }
+      const rent = room.termPricing?.[term]?.monthlyRent;
+      return { ...s, summary: rent && rent > 0 ? `$${rent.toLocaleString("en-US")}/mo` : "—" };
     });
-  }, [draft, leaseTerms, subject]);
+  }, [draft, extraLeaseTerms, leaseTerms, subject]);
 
   const activeStepId = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
   const activeTerm =
@@ -180,11 +304,19 @@ export function PropertyRoomPricingWorkspace({
           const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
           const copySources = pricingCopySourceRooms(draft, room.id, activeTerm);
           const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
-          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const isStay = isStayLeaseTerm(quoteTerm);
+          const isBaseLong = quoteTerm === LONG_TERM_LEASE_TERM;
+          const isCustomMonthlyTerm = !isBaseLong && !isStay;
           const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
+          const stepTitle =
+            activeStepId === SHORT_TERM_LEASE_TERM
+              ? "Short term"
+              : activeStepId === LONG_TERM_LEASE_TERM
+                ? "Long-term"
+                : String(activeStepId);
           return (
             <StepColumn>
-              <StepHeading title={activeStepId === SHORT_TERM_LEASE_TERM ? "Short term" : "Long-term"} />
+              <StepHeading title={stepTitle} />
               {priceSource ? (
                 <p className="text-[12px] font-semibold text-muted" data-rp-src>
                   {priceSource}
@@ -212,28 +344,141 @@ export function PropertyRoomPricingWorkspace({
               ) : null}
               {!copyValue ? (
                 isStay ? (
-                  <>
-                    <FactRow label="Nightly rate">
-                      <MoneyInput
-                        label="Nightly rate"
-                        value={room.shortTermRent ?? ""}
-                        onChange={(v) => updateRoom(room.id, { ...room, shortTermRent: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Deposit">
-                      <MoneyInput
-                        label="Deposit"
-                        value={room.shortTermDeposit ?? room.securityDeposit ?? ""}
-                        onChange={(v) => updateRoom(room.id, { ...room, shortTermDeposit: v })}
-                      />
-                    </FactRow>
-                    <FeeRows
+                  cap > 1 ? (
+                    <ArrangementPriceEditor
+                      room={room}
+                      onRoom={(next) => updateRoom(room.id, next)}
                       sub={draft}
                       patch={patch}
-                      roomId={room.id}
-                      roomName={room.name?.trim() || "Room"}
                       term={quoteTerm}
+                      prorate={false}
+                      stayMode
+                      showResidentsCapacity
                     />
+                  ) : (
+                    <>
+                      <FactRow label="Nightly rate">
+                        <MoneyInput
+                          label="Nightly rate"
+                          value={room.shortTermRent ?? ""}
+                          onChange={(v) => updateRoom(room.id, { ...room, shortTermRent: v })}
+                        />
+                      </FactRow>
+                      <FactRow label="Deposit">
+                        <MoneyInput
+                          label="Deposit"
+                          value={room.shortTermDeposit ?? room.securityDeposit ?? ""}
+                          onChange={(v) => updateRoom(room.id, { ...room, shortTermDeposit: v })}
+                        />
+                      </FactRow>
+                      <FeeRows
+                        sub={draft}
+                        patch={patch}
+                        roomId={room.id}
+                        roomName={room.name?.trim() || "Room"}
+                        term={quoteTerm}
+                      />
+                      <ArrangementStandardFeeRows
+                        count={1}
+                        row={privateArrangementRow(room)}
+                        onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                        showMonthToMonth={false}
+                        showCustomStart={false}
+                      />
+                    </>
+                  )
+                ) : cap > 1 ? (
+                  <ArrangementPriceEditor
+                    room={room}
+                    onRoom={(next) => updateRoom(room.id, next)}
+                    sub={draft}
+                    patch={patch}
+                    term={quoteTerm}
+                    prorate={isBaseLong}
+                    showResidentsCapacity
+                    showMonthToMonthSurcharge={allowM2m && isBaseLong}
+                    showCustomStartSurcharge={allowCustomStart && isBaseLong}
+                  />
+                ) : isCustomMonthlyTerm ? (
+                  <>
+                    <ToggleRow
+                      label="Same as long-term"
+                      checked={!roomHasOwnTermPricing(room, quoteTerm)}
+                      onChange={(same) => {
+                        if (same) updateRoom(room.id, clearRoomTermPricing(room, quoteTerm));
+                        else updateRoom(room.id, seedRoomTermFromLongTerm(room, quoteTerm));
+                      }}
+                      dataAttr="property-room-pricing-same-as-long-term"
+                    />
+                    {roomHasOwnTermPricing(room, quoteTerm) ? (
+                      <>
+                        <FactRow label="Rent /mo">
+                          <MoneyInput
+                            label="Rent"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "monthlyRent") ||
+                              (room.monthlyRent > 0 ? String(room.monthlyRent) : "")
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "monthlyRent", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Utilities /mo">
+                          <MoneyInput
+                            label="Utilities"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "utilitiesEstimate") ||
+                              room.utilitiesEstimate ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "utilitiesEstimate", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Deposit">
+                          <MoneyInput
+                            label="Deposit"
+                            value={
+                              termPriceFieldText(room.termPricing?.[quoteTerm], "securityDeposit") ||
+                              room.securityDeposit ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              updateRoom(
+                                room.id,
+                                writeRoomTermPrice(room, quoteTerm, "securityDeposit", v),
+                              )
+                            }
+                          />
+                        </FactRow>
+                        <FeeRows
+                          sub={draft}
+                          patch={patch}
+                          roomId={room.id}
+                          roomName={room.name?.trim() || "Room"}
+                          term={quoteTerm}
+                        />
+                        <ArrangementStandardFeeRows
+                          count={1}
+                          row={privateArrangementRow(room)}
+                          onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                          showMonthToMonth={allowM2m}
+                          showCustomStart={allowCustomStart}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-[13px] font-semibold text-muted">
+                        Uses this room&apos;s long-term rent, utilities, deposit, and fees.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -270,16 +515,49 @@ export function PropertyRoomPricingWorkspace({
                       roomName={room.name?.trim() || "Room"}
                       term={quoteTerm}
                     />
-                    {cap > 1 ? (
-                      <ArrangementPriceEditor
-                        room={room}
-                        onRoom={(next) => updateRoom(room.id, next)}
+                    {isBaseLong && allowCustomStart ? (
+                      <ProrateRows
                         sub={draft}
                         patch={patch}
                         term={quoteTerm}
-                        prorate={activeStepId === LONG_TERM_LEASE_TERM}
+                        roomId={room.id}
+                        name={room.name?.trim() || "Room"}
+                        automatic={(room.prorateMethod ?? "auto") !== "daily_rate"}
+                        onAutomatic={(next) =>
+                          updateRoom(room.id, { ...room, prorateMethod: next ? "auto" : "daily_rate" })
+                        }
+                        rent={{
+                          text: room.dailyRentRate ? String(room.dailyRentRate) : "",
+                          placeholder: perDay(room.monthlyRent) || "35",
+                          onChange: (v) =>
+                            updateRoom(room.id, {
+                              ...room,
+                              dailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                            }),
+                        }}
+                        util={
+                          Number((room.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
+                            ? {
+                                text: room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : "",
+                                placeholder: perDay(Number((room.utilitiesEstimate ?? "").replace(/[^0-9.]/g, ""))),
+                                onChange: (v) =>
+                                  updateRoom(room.id, {
+                                    ...room,
+                                    dailyUtilitiesRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                                  }),
+                              }
+                            : null
+                        }
+                        dataAttr="property-room-pricing-prorate"
                       />
                     ) : null}
+                    <ArrangementStandardFeeRows
+                      count={1}
+                      row={privateArrangementRow(room)}
+                      onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
+                      showMonthToMonth={allowM2m}
+                      showCustomStart={allowCustomStart}
+                    />
                   </>
                 )
               ) : (
@@ -295,35 +573,155 @@ export function PropertyRoomPricingWorkspace({
 
   const wholeBody =
     subject.kind === "whole"
-      ? (
-          <StepColumn>
-            <StepHeading title="Whole house" />
-            {!isEntireHomeListing(draft) ? (
-              <ToggleRow
-                label="Offer the whole house"
-                checked={Boolean(draft.entireHomeOffered)}
-                onChange={(on) => patch({ entireHomeOffered: on })}
-                dataAttr="property-whole-house-offer"
-              />
-            ) : null}
-            <FactRow label="Rent /mo">
-              <MoneyInput
-                label="Whole house rent"
-                value={
-                  draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0
-                    ? String(draft.entireHomeMonthlyRent)
-                    : ""
-                }
-                onChange={(v) =>
-                  patch({
-                    entireHomeMonthlyRent: Number(v.replace(/[^0-9.]/g, "")) || 0,
-                    roomPricingMeta: undefined,
-                  })
-                }
-              />
-            </FactRow>
-          </StepColumn>
-        )
+      ? (() => {
+          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
+          const fees = draft.entireHomeArrangementFees ?? {};
+          const priceSource =
+            draft.entireHomePriceSource === "default"
+              ? "Workspace default"
+              : draft.entireHomePriceSource === "own"
+                ? "This property"
+                : null;
+          const patchWholeFees = (next: Partial<typeof fees>) => {
+            patch({
+              entireHomeArrangementFees: { ...fees, ...next },
+              entireHomePriceSource: "own",
+            });
+          };
+          const stepTitle = isStay ? "Short term" : isBaseLong ? "Long-term" : String(activeStepId);
+          return (
+            <StepColumn>
+              <StepHeading title={stepTitle} />
+              {!isEntireHomeListing(draft) ? (
+                <ToggleRow
+                  label="Offer the whole house"
+                  checked={Boolean(draft.entireHomeOffered)}
+                  onChange={(on) => patch({ entireHomeOffered: on, entireHomePriceSource: "own" })}
+                  dataAttr="property-whole-house-offer"
+                />
+              ) : null}
+              {priceSource ? (
+                <p className="text-[12px] font-semibold text-muted" data-rp-src>
+                  {priceSource}
+                </p>
+              ) : null}
+              {isStay ? (
+                <>
+                  <FactRow label="Nightly rate">
+                    <MoneyInput
+                      label="Whole house nightly rate"
+                      value={draft.shortTermDailyCost ?? ""}
+                      onChange={(v) => patch({ shortTermDailyCost: v, entireHomePriceSource: "own" })}
+                    />
+                  </FactRow>
+                  <FactRow label="Deposit">
+                    <MoneyInput
+                      label="Whole house deposit"
+                      value={draft.securityDeposit ?? ""}
+                      onChange={(v) => patch({ securityDeposit: v, entireHomePriceSource: "own" })}
+                    />
+                  </FactRow>
+                  <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                  <ArrangementStandardFeeRows
+                    count={1}
+                    row={{ count: 1, ...fees }}
+                    onPatch={(feePatch) => patchWholeFees(feePatch)}
+                    showMonthToMonth={false}
+                    showCustomStart={false}
+                  />
+                </>
+              ) : (
+                <>
+                  <FactRow label="Rent /mo">
+                    <MoneyInput
+                      label="Whole house rent"
+                      value={
+                        draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0
+                          ? String(draft.entireHomeMonthlyRent)
+                          : ""
+                      }
+                      onChange={(v) =>
+                        patch({
+                          entireHomeMonthlyRent: Number(v.replace(/[^0-9.]/g, "")) || 0,
+                          entireHomePriceSource: "own",
+                        })
+                      }
+                    />
+                  </FactRow>
+                  <FactRow label="Utilities /mo">
+                    <MoneyInput
+                      label="Whole house utilities"
+                      value={draft.entireHomeUtilitiesEstimate ?? ""}
+                      onChange={(v) =>
+                        patch({ entireHomeUtilitiesEstimate: v, entireHomePriceSource: "own" })
+                      }
+                    />
+                  </FactRow>
+                  <FactRow label="Deposit">
+                    <MoneyInput
+                      label="Whole house deposit"
+                      value={draft.securityDeposit ?? ""}
+                      onChange={(v) => patch({ securityDeposit: v, entireHomePriceSource: "own" })}
+                    />
+                  </FactRow>
+                  <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                  {isBaseLong && allowCustomStart ? (
+                    <ProrateRows
+                      sub={draft}
+                      patch={patch}
+                      term={quoteTerm}
+                      roomId={null}
+                      name="Whole house"
+                      automatic={(draft.entireHomeProrateMethod ?? "auto") !== "daily_rate"}
+                      onAutomatic={(next) =>
+                        patch({
+                          entireHomeProrateMethod: next ? "auto" : "daily_rate",
+                          entireHomePriceSource: "own",
+                        })
+                      }
+                      rent={{
+                        text: draft.entireHomeDailyRentRate ? String(draft.entireHomeDailyRentRate) : "",
+                        placeholder: perDay(draft.entireHomeMonthlyRent ?? 0) || "35",
+                        onChange: (v) =>
+                          patch({
+                            entireHomeDailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                            entireHomePriceSource: "own",
+                          }),
+                      }}
+                      util={
+                        Number((draft.entireHomeUtilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
+                          ? {
+                              text: draft.entireHomeDailyUtilitiesRate
+                                ? String(draft.entireHomeDailyUtilitiesRate)
+                                : "",
+                              placeholder: perDay(
+                                Number((draft.entireHomeUtilitiesEstimate ?? "").replace(/[^0-9.]/g, "")),
+                              ),
+                              onChange: (v) =>
+                                patch({
+                                  entireHomeDailyUtilitiesRate:
+                                    Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                                  entireHomePriceSource: "own",
+                                }),
+                            }
+                          : null
+                      }
+                      dataAttr="property-whole-pricing-prorate"
+                    />
+                  ) : null}
+                  <ArrangementStandardFeeRows
+                    count={1}
+                    row={{ count: 1, ...fees }}
+                    onPatch={(feePatch) => patchWholeFees(feePatch)}
+                    showMonthToMonth={allowM2m && isBaseLong}
+                    showCustomStart={allowCustomStart && isBaseLong}
+                  />
+                </>
+              )}
+            </StepColumn>
+          );
+        })()
       : null;
 
   const bundleBody =
@@ -356,11 +754,11 @@ export function PropertyRoomPricingWorkspace({
                   />
                 </FactRow>
                 <FactRow label="Rooms">
-                  <FieldSingleSelect
+                  <CheckboxMultiSelect
                     label="Rooms in bundle"
                     options={roomOptions}
-                    value={selected[0] ?? ""}
-                    onChange={(v) => patchBundle({ includedRoomIds: v ? [v] : [] })}
+                    selected={selected}
+                    onChange={(ids) => patchBundle({ includedRoomIds: ids })}
                     dataAttr="property-bundle-rooms"
                   />
                 </FactRow>
@@ -370,9 +768,23 @@ export function PropertyRoomPricingWorkspace({
           const copySources = pricingCopySourceBundles(draft, bundle.id, activeTerm);
           const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
           const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+          const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
+          const isCustomMonthlyTerm = !isBaseLong && !isStay;
+          const customTerm = listingPricingTabToLeaseTerm(activeStepId) ?? activeStepId;
+          const bundleLabel = bundle.label?.trim() || "Bundle";
+          const bundleFeeScopeId = bundle.id;
+          const stepTitle =
+            activeStepId === "bundle"
+              ? "Bundle"
+              : isStay
+                ? "Short term"
+                : isBaseLong
+                  ? "Long-term"
+                  : String(activeStepId);
+          const bundleRentMonthly = parseMoneyAmount(bundle.price ?? "");
           return (
             <StepColumn>
-              <StepHeading title={isStay ? "Short term" : "Long-term"} />
+              <StepHeading title={stepTitle} />
               {copySources.length > 0 ? (
                 <FactRow label="Pricing">
                   <FieldSingleSelect
@@ -403,7 +815,92 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => patchBundle({ shortTermNightlyRent: v })}
                       />
                     </FactRow>
-                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                    <FactRow label="Deposit">
+                      <MoneyInput
+                        label="Bundle short-term deposit"
+                        value={bundle.shortTermDeposit ?? bundle.securityDeposit ?? ""}
+                        onChange={(v) => patchBundle({ shortTermDeposit: v })}
+                      />
+                    </FactRow>
+                    <FactRow label="Move-in fee">
+                      <MoneyInput
+                        label="Bundle short-term move-in fee"
+                        value={bundle.shortTermMoveInFee ?? ""}
+                        onChange={(v) => patchBundle({ shortTermMoveInFee: v })}
+                      />
+                    </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={bundleFeeScopeId}
+                      roomName={bundleLabel}
+                      term={quoteTerm}
+                    />
+                  </>
+                ) : isCustomMonthlyTerm ? (
+                  <>
+                    <ToggleRow
+                      label="Same as long-term"
+                      checked={!bundleHasOwnTermPricing(bundle, customTerm)}
+                      onChange={(same) => {
+                        if (same) patchBundle(clearBundleTermPricing(bundle, customTerm));
+                        else patchBundle(seedBundleTermFromLongTerm(bundle, customTerm));
+                      }}
+                      dataAttr="property-bundle-pricing-same-as-long-term"
+                    />
+                    {bundleHasOwnTermPricing(bundle, customTerm) ? (
+                      <>
+                        <FactRow label="Rent /mo">
+                          <MoneyInput
+                            label="Bundle rent"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "monthlyRent") ||
+                              (bundleRentMonthly > 0 ? String(bundleRentMonthly) : "")
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "monthlyRent", v))
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Utilities /mo">
+                          <MoneyInput
+                            label="Bundle utilities"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "utilitiesEstimate") ||
+                              bundle.utilitiesEstimate ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "utilitiesEstimate", v))
+                            }
+                          />
+                        </FactRow>
+                        <FactRow label="Deposit">
+                          <MoneyInput
+                            label="Bundle deposit"
+                            value={
+                              termPriceFieldText(bundle.termPricing?.[customTerm], "securityDeposit") ||
+                              bundle.securityDeposit ||
+                              ""
+                            }
+                            onChange={(v) =>
+                              patchBundle(writeBundleTermPrice(bundle, customTerm, "securityDeposit", v))
+                            }
+                          />
+                        </FactRow>
+                        <FeeRows
+                          sub={draft}
+                          patch={patch}
+                          roomId={bundleFeeScopeId}
+                          roomName={bundleLabel}
+                          term={quoteTerm}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-[13px] font-semibold text-muted">
+                        Uses this bundle&apos;s long-term rent, utilities, and deposit.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -414,6 +911,13 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => patchBundle({ price: v })}
                       />
                     </FactRow>
+                    <FactRow label="Utilities /mo">
+                      <MoneyInput
+                        label="Bundle utilities"
+                        value={bundle.utilitiesEstimate ?? ""}
+                        onChange={(v) => patchBundle({ utilitiesEstimate: v })}
+                      />
+                    </FactRow>
                     <FactRow label="Deposit">
                       <MoneyInput
                         label="Bundle deposit"
@@ -421,7 +925,54 @@ export function PropertyRoomPricingWorkspace({
                         onChange={(v) => patchBundle({ securityDeposit: v })}
                       />
                     </FactRow>
-                    <FeeRows sub={draft} patch={patch} roomId={null} term={quoteTerm} />
+                    <FactRow label="Move-in fee">
+                      <MoneyInput
+                        label="Bundle move-in fee"
+                        value={bundle.moveInFee ?? ""}
+                        onChange={(v) => patchBundle({ moveInFee: v })}
+                      />
+                    </FactRow>
+                    <FeeRows
+                      sub={draft}
+                      patch={patch}
+                      roomId={bundleFeeScopeId}
+                      roomName={bundleLabel}
+                      term={quoteTerm}
+                    />
+                    {allowCustomStart ? (
+                      <ProrateRows
+                        sub={draft}
+                        patch={patch}
+                        term={quoteTerm}
+                        roomId={bundleFeeScopeId}
+                        name={bundleLabel}
+                        automatic={(bundle.prorateMethod ?? "auto") !== "daily_rate"}
+                        onAutomatic={(next) => patchBundle({ prorateMethod: next ? "auto" : "daily_rate" })}
+                        rent={{
+                          text: bundle.dailyRentRate ? String(bundle.dailyRentRate) : "",
+                          placeholder: perDay(bundleRentMonthly) || "35",
+                          onChange: (v) =>
+                            patchBundle({
+                              dailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                            }),
+                        }}
+                        util={
+                          Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
+                            ? {
+                                text: bundle.dailyUtilitiesRate ? String(bundle.dailyUtilitiesRate) : "",
+                                placeholder: perDay(
+                                  Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")),
+                                ),
+                                onChange: (v) =>
+                                  patchBundle({
+                                    dailyUtilitiesRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                                  }),
+                              }
+                            : null
+                        }
+                        dataAttr="property-bundle-pricing-prorate"
+                      />
+                    ) : null}
                   </>
                 )
               ) : (
@@ -437,9 +988,11 @@ export function PropertyRoomPricingWorkspace({
   const center =
     subject.kind === "bundle"
       ? bundleBody
-      : subject.kind === "room" && activeStepId !== "bundle"
-        ? roomBody
-        : wholeBody;
+      : subject.kind === "whole"
+        ? wholeBody
+        : subject.kind === "room" && activeStepId !== "bundle"
+          ? roomBody
+          : null;
 
   if (!open) return null;
 
@@ -472,6 +1025,27 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             lockLeaseTerm
             plainReceipt
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
+          />
+        ) : subject.kind === "whole" ? (
+          <BundleWholePricingReceiptPanel
+            sub={draft}
+            kind="whole"
+            leaseTerm={quoteTerm}
+            leaseTerms={leaseTerms}
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
+          />
+        ) : subject.kind === "bundle" ? (
+          <BundleWholePricingReceiptPanel
+            sub={draft}
+            kind="bundle"
+            bundleId={subject.bundleId}
+            leaseTerm={quoteTerm}
+            leaseTerms={leaseTerms}
+            allowMonthToMonthStart={allowM2m}
+            allowCustomStart={allowCustomStart}
           />
         ) : undefined
       }

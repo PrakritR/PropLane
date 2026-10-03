@@ -25,8 +25,9 @@ import {
   propertyPricingRoomSummary,
   propertyPricingWholeHouseSummary,
   roomPricingSourceLabel,
+  wholeHousePricingSourceLabel,
 } from "@/lib/property-pricing-summary";
-import { resetRoomToWorkspaceDefault } from "@/lib/property-pricing-publish";
+import { resetRoomToWorkspaceDefault, resetWholeHouseToWorkspaceDefault } from "@/lib/property-pricing-publish";
 import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
@@ -284,6 +285,7 @@ export function PropertyPricingPanel({
         {tab === "whole" && showWholeTab ? (
           <PortalPropertyRecordRow
             title="Whole house"
+            address={wholeHousePricingSourceLabel(sub) ?? undefined}
             summary={propertyPricingWholeHouseSummary(sub)}
             amount={
               propertyPricingWholeHouseSummary(sub).includes("/mo")
@@ -292,6 +294,36 @@ export function PropertyPricingPanel({
             }
             onOpen={() => openSubject({ kind: "whole" })}
             dataAttr="property-pricing-whole-row"
+            actions={
+              sub.entireHomePriceSource === "default" || sub.entireHomePriceSource === "own"
+                ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        type="button"
+                        className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
+                        aria-label="Actions for Whole house"
+                      >
+                        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            const next = resetWholeHouseToWorkspaceDefault(sub, workspacePricingDefaults);
+                            if (!next) {
+                              showToast("No workspace default for the whole house.");
+                              return;
+                            }
+                            persist(next);
+                            showToast("Whole house reset to workspace default.");
+                          }}
+                        >
+                          Reset to default
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                : undefined
+            }
           />
         ) : null}
       </PortalRecordListSurface>

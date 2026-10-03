@@ -17,13 +17,26 @@
  *   room override, through one shared helper.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { buildListingQuote } from "@/lib/listing-quote";
+import { buildListingQuote, type ListingQuoteStartKind } from "@/lib/listing-quote";
+import {
+  arrangementSummaryLine,
+  offeredResidentCountsFor,
+  roomPriceForResidentCount,
+} from "@/lib/room-arrangement-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { applyPaymentAtSigningCell, clearRoomPaymentAtSigning } from "@/lib/listing-fees";
 import { roomHasOwnPaymentAtSigning } from "@/lib/listing-fee-scope";
-import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import {
+  isEntireHomeListing,
+  type ManagerBundleRow,
+  type ManagerListingSubmissionV1,
+  type ManagerRoomSubmission,
+} from "@/lib/manager-listing-submission";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { deriveRoomAvailability, formatDateKeyShort, legacyMoveInDateAsSpan, manualRangesToSpans, todayDateKey } from "@/lib/room-availability-timeline";
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
@@ -279,6 +292,8 @@ export function PricingReceiptPanel({
   leaseTerms,
   lockLeaseTerm = false,
   plainReceipt = false,
+  allowMonthToMonthStart = false,
+  allowCustomStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -291,9 +306,29 @@ export function PricingReceiptPanel({
   lockLeaseTerm?: boolean;
   /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
   plainReceipt?: boolean;
+  allowMonthToMonthStart?: boolean;
+  allowCustomStart?: boolean;
 }) {
-  const quote = useMemo(() => buildListingQuote(sub, { roomId, leaseTerm }), [sub, roomId, leaseTerm]);
   const rooms = sub.rooms ?? [];
+  const room = roomId ? rooms.find((r) => r.id === roomId) ?? null : null;
+  const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
+  const offered = offeredResidentCountsFor(room);
+  const [arrangementPick, setArrangementPick] = useState(offered[0] ?? 1);
+  const [residentIndex, setResidentIndex] = useState(0);
+  const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
+  const arrangementCount = offered.includes(arrangementPick) ? arrangementPick : (offered[0] ?? 1);
+
+  const quote = useMemo(
+    () =>
+      buildListingQuote(sub, {
+        roomId,
+        leaseTerm,
+        arrangementCount: plainReceipt && room ? arrangementCount : undefined,
+        residentSlot: plainReceipt && residentIndex > 0 ? residentIndex + 1 : undefined,
+        startKind: plainReceipt ? startKind : "std",
+      }),
+    [sub, roomId, leaseTerm, plainReceipt, room, arrangementCount, residentIndex, startKind],
+  );
   const wholePlace = isEntireHomeListing(sub);
   const ownRoomSigning = roomHasOwnPaymentAtSigning(sub, roomId, leaseTerm);
 
@@ -325,9 +360,79 @@ export function PricingReceiptPanel({
     .filter(Boolean)
     .join(", ");
 
+  const arrangementSummary =
+    plainReceipt && room && capacity > 1
+      ? offered
+          .map((count) => {
+            const price = roomPriceForResidentCount(room, count);
+            const money =
+              price.monthlyRent > 0 ? `$${price.monthlyRent.toLocaleString("en-US")}` : "—";
+            if (quote.isStay) {
+              const occRow = room.occupancyPrices?.find((r) => r.count === count);
+              const nightly =
+                parseMoneyAmount(occRow?.shortTermRent ?? "") ||
+                parseMoneyAmount(room.shortTermRent ?? "") ||
+                0;
+              const nightlyLabel =
+                nightly > 0 ? `$${nightly.toLocaleString("en-US")}` : money !== "—" ? money : "—";
+              const suffix = count > 1 ? " each/night" : "/night";
+              return `${count === 1 ? "Private" : `Shared by ${count}`} ${nightlyLabel}${suffix}`;
+            }
+            return `${count === 1 ? "Private" : `Shared by ${count}`} ${money}${count > 1 ? " each" : "/mo"}`;
+          })
+          .join(" · ")
+      : arrangementSummaryLine(room);
+
+  const startOptions: { value: ListingQuoteStartKind; label: string }[] = [{ value: "std", label: "Standard start" }];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
+  if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
+
+  const residentOptions = Array.from({ length: arrangementCount }, (_, i) => ({
+    value: String(i),
+    label: `Resident ${i + 1}`,
+  }));
+
   return (
     <>
       <PanelSection title="What a resident pays">
+        {plainReceipt && room && capacity > 1 && offered.length > 1 ? (
+          <div className="rp-pv-sel mb-3 flex flex-wrap gap-2">
+            <RowSelectCell
+              ariaLabel="Arrangement to quote"
+              value={String(arrangementCount)}
+              options={offered.map((n) => ({ value: String(n), label: n === 1 ? "Private" : `Shared by ${n}` }))}
+              onChange={(v) => {
+                setArrangementPick(Number(v) || 1);
+                setResidentIndex(0);
+              }}
+            />
+            {arrangementCount > 1 && room.residentPricing === "per_resident" ? (
+              <RowSelectCell
+                ariaLabel="Resident to quote"
+                value={String(residentIndex)}
+                options={residentOptions}
+                onChange={(v) => setResidentIndex(Number(v) || 0)}
+              />
+            ) : null}
+            {leaseTerm === LONG_TERM_LEASE_TERM && startOptions.length > 1 ? (
+              <RowSelectCell
+                ariaLabel="Start type"
+                value={startKind}
+                options={startOptions}
+                onChange={(v) => setStartKind(v as ListingQuoteStartKind)}
+              />
+            ) : null}
+          </div>
+        ) : plainReceipt && leaseTerm === LONG_TERM_LEASE_TERM && startOptions.length > 1 ? (
+          <div className="rp-pv-sel mb-3 flex flex-wrap gap-2">
+            <RowSelectCell
+              ariaLabel="Start type"
+              value={startKind}
+              options={startOptions}
+              onChange={(v) => setStartKind(v as ListingQuoteStartKind)}
+            />
+          </div>
+        ) : null}
         <div className="mb-3 grid grid-cols-2 gap-2">
           {wholePlace ? (
             <span className="flex h-9 items-center text-[12.5px] font-semibold text-foreground">Whole place</span>
@@ -378,15 +483,19 @@ export function PricingReceiptPanel({
             label={line.label}
             note={line.note}
             amount={usd(line.amount)}
-            muted={!line.dueAtSigning}
+            muted={plainReceipt ? false : !line.dueAtSigning}
             control={
-              <input
-                type="checkbox"
-                checked={line.dueAtSigning}
-                onChange={(e) => toggle(line.key, e.target.checked)}
-                aria-label={`Collect ${line.label} at signing`}
-                className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
-              />
+              plainReceipt
+                ? undefined
+                : (
+                  <input
+                    type="checkbox"
+                    checked={line.dueAtSigning}
+                    onChange={(e) => toggle(line.key, e.target.checked)}
+                    aria-label={`Collect ${line.label} at signing`}
+                    className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
+                  />
+                )
             }
           />
         ))}
@@ -422,8 +531,200 @@ export function PricingReceiptPanel({
             ))}
           </>
         ) : null}
+        {plainReceipt && arrangementSummary ? (
+          <p className="mt-3 text-[12.5px] font-semibold text-muted" data-rp-allarr>
+            {arrangementSummary}
+          </p>
+        ) : null}
       </PanelSection>
     </>
+  );
+}
+
+function effectiveBundleRow(
+  bundle: ManagerBundleRow,
+  sub: ManagerListingSubmissionV1,
+  leaseTerm: string,
+): ManagerBundleRow {
+  const copyId = bundle.copyFromBundleIdByTerm?.[leaseTerm];
+  if (!copyId) return bundle;
+  const src = (sub.bundles ?? []).find((b) => b.id === copyId);
+  if (!src) return bundle;
+  return {
+    ...bundle,
+    price: src.price,
+    utilitiesEstimate: src.utilitiesEstimate,
+    securityDeposit: src.securityDeposit,
+    shortTermNightlyRent: src.shortTermNightlyRent,
+    termPricing: src.termPricing ? { ...src.termPricing } : bundle.termPricing,
+  };
+}
+
+function bundleMonthlyRent(bundle: ManagerBundleRow, leaseTerm: string): number {
+  if (leaseTerm !== LONG_TERM_LEASE_TERM) {
+    const override = bundle.termPricing?.[leaseTerm]?.monthlyRent;
+    if (typeof override === "number" && override > 0) return override;
+  }
+  return parseMoneyAmount(bundle.price ?? "");
+}
+
+/** What a resident pays for a bundle or whole-house pricing workspace (C2-PRC3 / replica engPreview). */
+export function BundleWholePricingReceiptPanel({
+  sub,
+  kind,
+  bundleId,
+  leaseTerm,
+  leaseTerms,
+  allowMonthToMonthStart = false,
+  allowCustomStart = false,
+}: {
+  sub: ManagerListingSubmissionV1;
+  kind: "bundle" | "whole";
+  bundleId?: string;
+  leaseTerm: string;
+  leaseTerms: string[];
+  allowMonthToMonthStart?: boolean;
+  allowCustomStart?: boolean;
+}) {
+  const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
+  const bundle =
+    kind === "bundle" && bundleId ? (sub.bundles ?? []).find((b) => b.id === bundleId) ?? null : null;
+  const effective = bundle ? effectiveBundleRow(bundle, sub, leaseTerm) : null;
+  const isStay = leaseTerm === SHORT_TERM_LEASE_TERM;
+
+  const quote = useMemo(
+    () =>
+      buildListingQuote(sub, {
+        roomId: null,
+        leaseTerm,
+        startKind,
+        useEntireHomeRent: kind === "whole",
+      }),
+    [sub, leaseTerm, startKind, kind],
+  );
+
+  const label =
+    kind === "whole"
+      ? "Whole house"
+      : effective?.label?.trim() || "Bundle";
+  const roomCount =
+    kind === "bundle" && effective
+      ? (effective.includedRoomIds ?? []).filter((id) => sub.rooms.some((r) => r.id === id)).length
+      : (sub.rooms ?? []).length;
+  const roomsLine =
+    kind === "bundle"
+      ? roomCount === 0
+        ? "No rooms picked"
+        : `${roomCount} room${roomCount === 1 ? "" : "s"}`
+      : `${roomCount} rooms`;
+
+  const headlineRent =
+    kind === "bundle" && effective
+      ? isStay
+        ? parseMoneyAmount(effective.shortTermNightlyRent ?? "")
+        : bundleMonthlyRent(effective, leaseTerm)
+      : quote.isStay
+        ? quote.nightlyRate ?? 0
+        : quote.monthlyRent;
+
+  const startOptions: { value: ListingQuoteStartKind; label: string }[] = [
+    { value: "std", label: "Standard start" },
+  ];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
+  if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
+
+  const allArr = leaseTerms
+    .map((term) => {
+      if (kind === "bundle" && effective) {
+        if (term === SHORT_TERM_LEASE_TERM) {
+          const n = parseMoneyAmount(effective.shortTermNightlyRent ?? "");
+          return n > 0 ? `${term} ${usd(n)}/night` : "";
+        }
+        const row = bundle ? effectiveBundleRow(bundle, sub, term) : effective!;
+        const rent = bundleMonthlyRent(row, term);
+        return rent > 0 ? `${term} ${usd(rent)}/mo` : "";
+      }
+      const q = buildListingQuote(sub, {
+        roomId: null,
+        leaseTerm: term,
+        useEntireHomeRent: kind === "whole",
+      });
+      if (q.isStay && q.nightlyRate) return `${term} ${usd(q.nightlyRate)}/night`;
+      if (!q.isStay && q.monthlyRent > 0) return `${term} ${usd(q.monthlyRent)}/mo`;
+      return "";
+    })
+    .filter(Boolean)
+    .join(" · ");
+
+  const bundleUtilities =
+    kind === "bundle" && effective && !isStay
+      ? parseMoneyAmount(
+          (leaseTerm !== LONG_TERM_LEASE_TERM
+            ? effective.termPricing?.[leaseTerm]?.utilitiesEstimate
+            : effective.utilitiesEstimate) ?? "",
+        )
+      : 0;
+
+  const monthlyLines = quote.isStay
+    ? headlineRent > 0
+      ? [["Nightly rate", headlineRent]]
+      : quote.nightlyRate
+        ? [["Nightly rate", quote.nightlyRate]]
+        : []
+    : [
+        headlineRent > 0 ? ["Rent", headlineRent] : null,
+        (kind === "bundle" ? bundleUtilities : quote.monthlyUtilities) > 0
+          ? ["Utilities", kind === "bundle" ? bundleUtilities : quote.monthlyUtilities]
+          : null,
+        ...quote.monthlyFees.map((f) => [f.label, f.amount]),
+      ].filter(Boolean) as [string, number][];
+
+  const onceLines = quote.signingLines
+    .filter((line) => line.amount > 0)
+    .map((line) => [line.label, line.amount] as [string, number]);
+
+  return (
+    <PanelSection title="What a resident pays">
+      {leaseTerm === LONG_TERM_LEASE_TERM && startOptions.length > 1 ? (
+        <div className="rp-pv-sel mb-3 flex flex-wrap gap-2">
+          <RowSelectCell
+            ariaLabel="Start type"
+            value={startKind}
+            options={startOptions}
+            onChange={(v) => setStartKind(v as ListingQuoteStartKind)}
+          />
+        </div>
+      ) : null}
+      <div className="mb-3 rounded-xl border border-border bg-card p-3">
+        <div className="text-[22px] font-extrabold tabular-nums tracking-tight text-foreground">
+          {headlineRent > 0 ? usd(headlineRent) : "—"}
+          <span className="ml-1 text-[13px] font-semibold text-muted">
+            {isStay ? "a night" : "a month"}
+          </span>
+        </div>
+        <p className="mt-1 text-[12.5px] font-semibold text-muted">
+          {label} · {roomsLine} · {leaseTerm}
+          {kind === "whole" && !sub.entireHomeOffered && !isEntireHomeListing(sub) ? " · Not offered" : ""}
+        </p>
+        <div className="mt-3 space-y-1.5">
+          {monthlyLines.map(([k, v]) => (
+            <PanelLine key={k} label={k} amount={usd(Number(v))} />
+          ))}
+        </div>
+        {onceLines.length > 0 ? (
+          <div className="mt-3 space-y-1.5 border-t border-border/60 pt-2">
+            {onceLines.map(([k, v]) => (
+              <PanelLine key={k} label={k} amount={usd(Number(v))} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {allArr ? (
+        <p className="text-[12.5px] font-semibold text-muted" data-rp-allarr>
+          {allArr}
+        </p>
+      ) : null}
+    </PanelSection>
   );
 }
 

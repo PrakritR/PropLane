@@ -33,6 +33,8 @@ import {
   type ListingFeeCadence,
   type ListingFeeRow,
 } from "@/lib/listing-fees";
+import { feeAppliesToArrangementCount } from "@/lib/listing-fees";
+import { roomPriceForResidentCount } from "@/lib/room-arrangement-pricing";
 import { roomResidentPriceForSlot, roomStayPriceForSlot } from "@/lib/room-pricing";
 import {
   PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
@@ -183,9 +185,19 @@ function roomUtilitiesForTerm(
  * `roomId` null quotes the whole place — an entire-home listing, where the
  * listing's own rent stands in for a room's.
  */
+export type ListingQuoteStartKind = "std" | "m2m" | "cst";
+
 export function buildListingQuote(
   sub: ManagerListingSubmissionV1,
-  options: { roomId?: string | null; leaseTerm: string; residentSlot?: number | null },
+  options: {
+    roomId?: string | null;
+    leaseTerm: string;
+    residentSlot?: number | null;
+    arrangementCount?: number | null;
+    startKind?: ListingQuoteStartKind;
+    /** Property Pricing whole-house row — use `entireHomeMonthlyRent` even on shared-home listings. */
+    useEntireHomeRent?: boolean;
+  },
 ): ListingQuote {
   const leaseTerm = String(options.leaseTerm ?? "").trim();
   const isStay = isStayLeaseTerm(leaseTerm);
@@ -197,28 +209,50 @@ export function buildListingQuote(
     typeof options.residentSlot === "number" && Number.isInteger(options.residentSlot) && options.residentSlot >= 1
       ? options.residentSlot
       : undefined;
+  const arrangementCount =
+    typeof options.arrangementCount === "number" &&
+    Number.isInteger(options.arrangementCount) &&
+    options.arrangementCount >= 1
+      ? options.arrangementCount
+      : undefined;
+  const startKind: ListingQuoteStartKind = options.startKind ?? "std";
   const slotPrice = room && residentSlot ? roomResidentPriceForSlot(room, residentSlot, leaseTerm) : undefined;
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
+  const arrangementPrice =
+    room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
+  const arrangementRow =
+    room?.occupancyPrices?.find((row) => row.count === arrangementCount) ??
+    (options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined);
 
   const baseMonthlyRent = slotPrice
     ? slotPrice.monthlyRent
+    : arrangementPrice && !isStay
+      ? arrangementPrice.monthlyRent
     : room
       ? roomRentForTerm(room, leaseTerm, sub)
-      : isEntireHomeListing(sub)
+      : options.useEntireHomeRent && (sub.entireHomeMonthlyRent ?? 0) > 0
         ? (sub.entireHomeMonthlyRent ?? 0)
-        : defaults.monthlyRent > 0
-          ? defaults.monthlyRent
-          : 0;
+        : isEntireHomeListing(sub)
+          ? (sub.entireHomeMonthlyRent ?? 0)
+          : defaults.monthlyRent > 0
+            ? defaults.monthlyRent
+            : 0;
   const monthlyUtilities = isStay
     ? 0
     : slotPrice?.utilitiesEstimate != null && String(slotPrice.utilitiesEstimate).trim()
       ? parseMoneyAmount(slotPrice.utilitiesEstimate)
+      : arrangementPrice && !isStay
+        ? parseMoneyAmount(arrangementPrice.utilitiesEstimate)
       : room
         ? roomUtilitiesForTerm(room, leaseTerm, sub)
-        : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
+        : options.useEntireHomeRent && (sub.entireHomeUtilitiesEstimate ?? "").trim()
+          ? parseMoneyAmount(sub.entireHomeUtilitiesEstimate ?? "")
+          : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
   const securityDeposit =
     slotPrice?.securityDeposit != null && String(slotPrice.securityDeposit).trim()
       ? parseMoneyAmount(slotPrice.securityDeposit)
+      : arrangementPrice
+        ? parseMoneyAmount(arrangementPrice.securityDeposit)
       : room
         ? roomDepositForTerm(room, leaseTerm, sub, isStay)
         : parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
@@ -227,7 +261,8 @@ export function buildListingQuote(
     (fee) =>
       feeAppliesToLeaseType(fee, leaseTerm) &&
       feeAppliesToRoom(fee, roomId) &&
-      feeAppliesToResidentSlot(fee, residentSlot),
+      feeAppliesToResidentSlot(fee, residentSlot) &&
+      feeAppliesToArrangementCount(fee, arrangementCount),
   );
 
   const foldMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub);
@@ -264,14 +299,22 @@ export function buildListingQuote(
   }
 
   const applicationFee = parseMoneyAmount(
-    listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard", leaseTerm),
+    arrangementRow?.applicationFee?.trim()
+      ? arrangementRow.applicationFee
+      : listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard", leaseTerm),
   );
   if (applicationFee > 0) {
     applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });
   }
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
-  const monthlyRent = baseMonthlyRent + foldedTotal;
+  let monthlyRent = baseMonthlyRent + foldedTotal;
+  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge) {
+    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
+  }
+  if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {
+    monthlyRent += parseMoneyAmount(arrangementRow.customStartSurcharge);
+  }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
     0,
@@ -333,6 +376,24 @@ export function buildListingQuote(
       note: isRefundable(fee) ? "Refundable" : "Non-refundable",
       amount: amountForTerm(fee, isStay),
       dueAtSigning: isPaymentDueAtSigning(sub, key, leaseTerm, roomId),
+    });
+  }
+  const leaseFeeAmt = parseMoneyAmount(arrangementRow?.leaseFee ?? "");
+  if (leaseFeeAmt > 0) {
+    signingLines.push({
+      key: "arrangement_lease_fee",
+      label: "Lease fee",
+      amount: leaseFeeAmt,
+      dueAtSigning: true,
+    });
+  }
+  const moveInFromArr = parseMoneyAmount(arrangementRow?.moveInFee ?? "");
+  if (moveInFromArr > 0) {
+    signingLines.push({
+      key: "arrangement_move_in_fee",
+      label: "Move-in fee",
+      amount: moveInFromArr,
+      dueAtSigning: true,
     });
   }
 

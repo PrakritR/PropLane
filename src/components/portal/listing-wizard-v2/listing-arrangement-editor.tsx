@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrangementStandardFeeRows } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
 import { FactRow, MoneyInput, MultiPick, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import {
@@ -9,7 +10,18 @@ import {
   type RoomOccupancyPrice,
 } from "@/lib/room-arrangement-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { FeeRows, ProrateRows, perDay, type Patch } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import {
+  FeeRows,
+  ProrateRows,
+  perDay,
+  type Patch,
+} from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+
+const PRICING_MODE_OPTIONS = [
+  { value: "fixed", label: "Fixed" },
+  { value: "flexible", label: "Flexible" },
+];
 
 function moneyText(n: number | undefined): string {
   return n && n > 0 ? String(n) : "";
@@ -19,19 +31,13 @@ function moneyFromInput(v: string): number | undefined {
   return Number(String(v).replace(/[^0-9.]/g, "")) || undefined;
 }
 
+function usd(n: number): string {
+  return `$${Math.round(n || 0).toLocaleString("en-US")}`;
+}
+
 /**
  * Pricing card body for a shared room: Offered as + one rent set per head-count,
  * with Same as for counts above 1.
- *
- * N082: every "Different prices" arrangement (Shared by 2, Shared by 3, …) also
- * gets its own Other fees and Partial months, exactly like the room's Private
- * (count 1) row already does at the bottom of the room card in
- * `listing-pricing-step.tsx` — this component renders ONLY the counts >= 2,
- * since count 1's fees/prorate stay on that existing room-level block
- * unchanged (`arrangementCount={1}` there, `arrangementCount={count}` here —
- * see `FeeRows`' own doc for how the two never collide). A "Same as N"
- * arrangement has no fee/prorate rows of its own: it inherits N's, same as it
- * inherits N's rent.
  */
 export function ArrangementPriceEditor({
   room,
@@ -40,16 +46,22 @@ export function ArrangementPriceEditor({
   patch,
   term,
   prorate,
+  showMonthToMonthSurcharge = false,
+  showCustomStartSurcharge = false,
+  showResidentsCapacity = false,
+  stayMode = false,
 }: {
   room: ManagerRoomSubmission;
   onRoom: (next: ManagerRoomSubmission) => void;
-  /** The whole submission, for the per-arrangement Other fees / Partial months blocks (`FeeRows`/`ProrateRows` read and write the listing's shared `customFees` list, not just this room). */
   sub: ManagerListingSubmissionV1;
   patch: Patch;
-  /** The fee-scope term for this tab (long-term/month-to-month/custom dates) — same value the room card's own Other fees/Partial months already use. */
   term: string;
-  /** Whether this lease type can start mid-month, so Partial months applies at all (`proratesOnTab(term)` at the call site). */
   prorate: boolean;
+  showMonthToMonthSurcharge?: boolean;
+  showCustomStartSurcharge?: boolean;
+  showResidentsCapacity?: boolean;
+  /** Short-term property pricing — nightly rate and deposit per arrangement band. */
+  stayMode?: boolean;
 }) {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const offered = offeredResidentCountsFor(room);
@@ -75,13 +87,16 @@ export function ArrangementPriceEditor({
   const rowFor = (count: number): RoomOccupancyPrice =>
     room.occupancyPrices?.find((row) => row.count === count) ?? { count };
 
+  const mergeRows = (count: number, rowPatch: Partial<RoomOccupancyPrice>): RoomOccupancyPrice[] => {
+    const byCount = new Map<number, RoomOccupancyPrice>();
+    for (const n of offered) byCount.set(n, { ...rowFor(n), count: n });
+    byCount.set(count, { ...byCount.get(count)!, ...rowPatch, count });
+    return [...byCount.values()].sort((a, b) => a.count - b.count);
+  };
+
   const writeRow = (count: number, rowPatch: Partial<RoomOccupancyPrice>) => {
-    const current = offered.map((n) => ({ ...rowFor(n), count: n }));
-    const next = current.map((row) => (row.count === count ? { ...row, ...rowPatch, count } : row));
-    const resolved = roomPriceForResidentCount(
-      { ...room, occupancyPrices: next },
-      1,
-    );
+    const next = mergeRows(count, rowPatch);
+    const resolved = roomPriceForResidentCount({ ...room, occupancyPrices: next }, 1);
     onRoom({
       ...room,
       offeredResidentCounts: offered,
@@ -92,8 +107,197 @@ export function ArrangementPriceEditor({
     });
   };
 
+  const renderOwnBand = (count: number, row: RoomOccupancyPrice, resolved: ReturnType<typeof roomPriceForResidentCount>) => {
+    const name = arrangementLabel(count);
+    if (stayMode) {
+      const nightly =
+        row.shortTermRent?.trim() ||
+        (count === 1 ? String(room.shortTermRent ?? "").trim() : "") ||
+        "";
+      const deposit = row.securityDeposit ?? resolved.securityDeposit ?? room.securityDeposit ?? "";
+      return (
+        <>
+          <FactRow label="Nightly rate per resident">
+            <MoneyInput
+              label={`${name} nightly rate`}
+              value={nightly}
+              onChange={(v) => writeRow(count, { shortTermRent: v, sameAs: undefined })}
+            />
+          </FactRow>
+          <FactRow label="Deposit per resident">
+            <MoneyInput
+              label={`${name} deposit`}
+              value={deposit}
+              onChange={(v) => writeRow(count, { securityDeposit: v })}
+            />
+          </FactRow>
+          <FeeRows
+            sub={sub}
+            patch={patch}
+            roomId={room.id}
+            roomName={name}
+            term={term || SHORT_TERM_LEASE_TERM}
+            arrangementCount={count}
+          />
+          <ArrangementStandardFeeRows
+            count={count}
+            row={row}
+            onPatch={(feePatch) => writeRow(count, feePatch)}
+            showMonthToMonth={false}
+            showCustomStart={false}
+          />
+        </>
+      );
+    }
+    const automatic = (row.prorateMethod ?? resolved.prorateMethod) !== "daily_rate";
+    const splitMode = count > 1 && row.wholeRoomMonthlyRent != null && row.wholeRoomMonthlyRent > 0;
+    const eachPays =
+      splitMode && count > 1 ? Math.floor((row.wholeRoomMonthlyRent ?? 0) / count) : resolved.monthlyRent;
+
+    const rentShape = splitMode ? "split" : "own";
+
+    return (
+      <>
+        {count > 1 ? (
+          <FactRow label="Rent shape">
+            <RowSelectCell
+              ariaLabel={`Rent shape for ${name}`}
+              value={rentShape}
+              options={[
+                { value: "own", label: "Same price for each resident" },
+                { value: "split", label: "Whole room price, split evenly" },
+              ]}
+              onChange={(value) => {
+                if (value === "split") {
+                  const total = (row.wholeRoomMonthlyRent ?? (row.monthlyRent ?? resolved.monthlyRent) * count) || 0;
+                  writeRow(count, {
+                    wholeRoomMonthlyRent: total > 0 ? total : undefined,
+                    monthlyRent: total > 0 ? Math.floor(total / count) : undefined,
+                  });
+                  return;
+                }
+                writeRow(count, { wholeRoomMonthlyRent: undefined });
+              }}
+            />
+          </FactRow>
+        ) : null}
+        {splitMode ? (
+          <>
+            <FactRow label="Whole room rent /mo">
+              <MoneyInput
+                label={`${name} whole room rent`}
+                value={moneyText(row.wholeRoomMonthlyRent)}
+                dataAttr="listing-v2-arrangement-whole-rent"
+                onChange={(v) => {
+                  const total = Number(String(v).replace(/[^0-9.]/g, "")) || 0;
+                  writeRow(count, {
+                    wholeRoomMonthlyRent: total || undefined,
+                    monthlyRent: total > 0 ? Math.floor(total / count) : undefined,
+                  });
+                }}
+              />
+            </FactRow>
+            <FactRow label="Each resident pays">
+              <span className="text-[13px] font-semibold text-foreground" data-rp-each={count}>
+                {eachPays > 0 ? `${usd(eachPays)}/mo` : "—"}
+              </span>
+            </FactRow>
+          </>
+        ) : (
+          <FactRow label="Rent /mo per resident">
+            <MoneyInput
+              label={`${name} rent per resident`}
+              value={moneyText(row.monthlyRent ?? (count === 1 ? room.monthlyRent : resolved.monthlyRent))}
+              dataAttr="listing-v2-arrangement-rent"
+              onChange={(v) =>
+                writeRow(count, {
+                  sameAs: undefined,
+                  wholeRoomMonthlyRent: undefined,
+                  monthlyRent: Number(String(v).replace(/[^0-9.]/g, "")) || undefined,
+                })
+              }
+            />
+          </FactRow>
+        )}
+        <FactRow label="Utilities /mo per resident">
+          <MoneyInput
+            label={`${name} utilities`}
+            value={row.utilitiesEstimate ?? resolved.utilitiesEstimate}
+            onChange={(v) => writeRow(count, { utilitiesEstimate: v })}
+          />
+        </FactRow>
+        <FactRow label="Deposit per resident">
+          <MoneyInput
+            label={`${name} deposit`}
+            value={row.securityDeposit ?? resolved.securityDeposit}
+            onChange={(v) => writeRow(count, { securityDeposit: v })}
+          />
+        </FactRow>
+        <FactRow label="Listed rent">
+          <RowSelectCell
+            ariaLabel={`Listed rent for ${name}`}
+            value={row.pricingMode ?? room.pricingMode ?? "fixed"}
+            options={PRICING_MODE_OPTIONS}
+            onChange={(v) => writeRow(count, { pricingMode: v as "fixed" | "flexible" })}
+          />
+        </FactRow>
+        {count > 1 || capacity < 2 ? (
+          <>
+            <FeeRows
+              sub={sub}
+              patch={patch}
+              roomId={room.id}
+              roomName={name}
+              term={term}
+              arrangementCount={count}
+            />
+            {prorate ? (
+              <ProrateRows
+                sub={sub}
+                patch={patch}
+                term={term}
+                roomId={room.id}
+                name={name}
+                automatic={automatic}
+                onAutomatic={(next) => writeRow(count, { prorateMethod: next ? "auto" : "daily_rate" })}
+                rent={{
+                  text: row.dailyRentRate ? String(row.dailyRentRate) : "",
+                  placeholder: perDay(resolved.monthlyRent) || "35",
+                  onChange: (v) => writeRow(count, { dailyRentRate: moneyFromInput(v) }),
+                }}
+                util={
+                  Number(resolved.utilitiesEstimate.replace(/[^0-9.]/g, "")) > 0
+                    ? {
+                        text: row.dailyUtilitiesRate ? String(row.dailyUtilitiesRate) : "",
+                        placeholder: perDay(Number(resolved.utilitiesEstimate.replace(/[^0-9.]/g, "")) || 0),
+                        onChange: (v) => writeRow(count, { dailyUtilitiesRate: moneyFromInput(v) }),
+                      }
+                    : null
+                }
+                arrangementCount={count}
+                dataAttr={`listing-v2-price-prorate-arrangement-${count}`}
+              />
+            ) : null}
+          </>
+        ) : null}
+        <ArrangementStandardFeeRows
+          count={count}
+          row={row}
+          onPatch={(feePatch) => writeRow(count, feePatch)}
+          showMonthToMonth={showMonthToMonthSurcharge && term === "Long-term"}
+          showCustomStart={showCustomStartSurcharge && term === "Long-term"}
+        />
+      </>
+    );
+  };
+
   return (
     <>
+      {showResidentsCapacity && capacity > 1 ? (
+        <FactRow label="Residents">
+          <span className="text-[13px] font-semibold text-muted">{capacity} · set on Rooms</span>
+        </FactRow>
+      ) : null}
       <FactRow label="Offered as">
         <MultiPick
           label="Offered as"
@@ -111,8 +315,6 @@ export function ArrangementPriceEditor({
         const sameOptions = offered
           .filter((n) => n < count)
           .map((n) => ({ value: String(n), label: n === 1 ? "Same as Private" : `Same as Shared by ${n}` }));
-        const name = arrangementLabel(count);
-        const automatic = (row.prorateMethod ?? resolved.prorateMethod) !== "daily_rate";
         return (
           <div key={count} className="border-t border-border bg-[#eff4ff]/60">
             <FactRow label={arrangementLabel(count)}>
@@ -124,76 +326,17 @@ export function ArrangementPriceEditor({
                   value={row.sameAs ? String(row.sameAs) : "own"}
                   options={[{ value: "own", label: "Different prices" }, ...sameOptions]}
                   onChange={(value) =>
-                    writeRow(count, value === "own" ? { sameAs: undefined, monthlyRent: resolved.monthlyRent } : { sameAs: Number(value) })
+                    writeRow(
+                      count,
+                      value === "own"
+                        ? { sameAs: undefined, monthlyRent: resolved.monthlyRent }
+                        : { sameAs: Number(value) },
+                    )
                   }
                 />
               )}
             </FactRow>
-            {own ? (
-              <>
-                <FactRow label="Rent /mo per resident">
-                  <MoneyInput
-                    label={`${arrangementLabel(count)} rent per resident`}
-                    value={moneyText(row.monthlyRent ?? (count === 1 ? room.monthlyRent : resolved.monthlyRent))}
-                    dataAttr="listing-v2-arrangement-rent"
-                    onChange={(v) => writeRow(count, { sameAs: undefined, monthlyRent: Number(String(v).replace(/[^0-9.]/g, "")) || undefined })}
-                  />
-                </FactRow>
-                <FactRow label="Utilities /mo per resident">
-                  <MoneyInput
-                    label={`${arrangementLabel(count)} utilities`}
-                    value={row.utilitiesEstimate ?? resolved.utilitiesEstimate}
-                    onChange={(v) => writeRow(count, { utilitiesEstimate: v })}
-                  />
-                </FactRow>
-                <FactRow label="Deposit per resident">
-                  <MoneyInput
-                    label={`${arrangementLabel(count)} deposit`}
-                    value={row.securityDeposit ?? resolved.securityDeposit}
-                    onChange={(v) => writeRow(count, { securityDeposit: v })}
-                  />
-                </FactRow>
-                {count > 1 ? (
-                  <>
-                    <FeeRows
-                      sub={sub}
-                      patch={patch}
-                      roomId={room.id}
-                      roomName={name}
-                      term={term}
-                      arrangementCount={count}
-                    />
-                    {prorate ? (
-                      <ProrateRows
-                        sub={sub}
-                        patch={patch}
-                        term={term}
-                        roomId={room.id}
-                        name={name}
-                        automatic={automatic}
-                        onAutomatic={(next) => writeRow(count, { prorateMethod: next ? "auto" : "daily_rate" })}
-                        rent={{
-                          text: row.dailyRentRate ? String(row.dailyRentRate) : "",
-                          placeholder: perDay(resolved.monthlyRent) || "35",
-                          onChange: (v) => writeRow(count, { dailyRentRate: moneyFromInput(v) }),
-                        }}
-                        util={
-                          Number(resolved.utilitiesEstimate.replace(/[^0-9.]/g, "")) > 0
-                            ? {
-                                text: row.dailyUtilitiesRate ? String(row.dailyUtilitiesRate) : "",
-                                placeholder: perDay(Number(resolved.utilitiesEstimate.replace(/[^0-9.]/g, "")) || 0),
-                                onChange: (v) => writeRow(count, { dailyUtilitiesRate: moneyFromInput(v) }),
-                              }
-                            : null
-                        }
-                        arrangementCount={count}
-                        dataAttr={`listing-v2-price-prorate-arrangement-${count}`}
-                      />
-                    ) : null}
-                  </>
-                ) : null}
-              </>
-            ) : null}
+            {own ? renderOwnBand(count, row, resolved) : null}
           </div>
         );
       })}

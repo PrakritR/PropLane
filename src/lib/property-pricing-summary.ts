@@ -25,6 +25,7 @@ export function propertyPricingRoomSummary(
   sub: ManagerListingSubmissionV1,
   meta?: RoomPricingUiMeta,
 ): string {
+  void meta;
   const normalized = normalizeManagerListingSubmissionV1(sub);
   const copy = resolveRoomPricingCopyLabel(normalized, room.id, "long_term");
   if (copy) return copy;
@@ -47,6 +48,12 @@ export function propertyPricingBundleSummary(bundle: ManagerBundleRow, sub: Mana
     .filter(Boolean);
   const place = rooms.length ? rooms.join(", ") : bundle.roomsLine?.trim() || bundle.label?.trim() || "Rooms";
   return `${place} · ${rent}`;
+}
+
+export function wholeHousePricingSourceLabel(sub: ManagerListingSubmissionV1): string | null {
+  if (sub.entireHomePriceSource === "default") return "Workspace default";
+  if (sub.entireHomePriceSource === "own") return "This property";
+  return null;
 }
 
 export function propertyPricingWholeHouseSummary(sub: ManagerListingSubmissionV1): string {

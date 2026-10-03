@@ -25,4 +25,19 @@ describe("propertyPricingPublishBlocker", () => {
     expect(submission.rooms[0]?.monthlyRent).toBe(950);
     expect(submission.roomPricingMeta?.[submission.rooms[0]!.id]?.priceSource).toBe("default");
   });
+
+  it("marks whole house default when filled on publish", () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      entireHomeOffered: true,
+      entireHomeMonthlyRent: 0,
+    });
+    const { submission, filledWholeHouse } = applyWorkspaceDefaultsOnPublish(
+      sub,
+      SEATTLE_DEMO_WORKSPACE_PRICING_DEFAULTS,
+    );
+    expect(filledWholeHouse).toBe(true);
+    expect(submission.entireHomeMonthlyRent).toBe(4500);
+    expect(submission.entireHomePriceSource).toBe("default");
+  });
 });

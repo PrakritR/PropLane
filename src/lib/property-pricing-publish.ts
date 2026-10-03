@@ -66,9 +66,11 @@ export function applyWorkspaceDefaultsOnPublish(
 
   let filledWholeHouse = false;
   let entireHomeMonthlyRent = base.entireHomeMonthlyRent;
+  let entireHomePriceSource = base.entireHomePriceSource;
   if (base.entireHomeOffered && entireHomeMonthlyRentAmount(base) <= 0 && (defaults.rentWhole ?? 0) > 0) {
     entireHomeMonthlyRent = defaults.rentWhole;
     filledWholeHouse = true;
+    entireHomePriceSource = "default";
   }
 
   return {
@@ -77,6 +79,7 @@ export function applyWorkspaceDefaultsOnPublish(
       rooms,
       roomPricingMeta,
       entireHomeMonthlyRent,
+      entireHomePriceSource,
     },
     filledRooms,
     filledWholeHouse,
@@ -102,6 +105,20 @@ export function propertyPricingPublishBlocker(
     return "Whole house needs a price — set it in Pricing or add a workspace default.";
   }
   return null;
+}
+
+export function resetWholeHouseToWorkspaceDefault(
+  sub: ManagerListingSubmissionV1,
+  rawDefaults: unknown,
+): ManagerListingSubmissionV1 | null {
+  const defaults = normalizeWorkspacePricingDefaults(rawDefaults);
+  const rentWhole = defaults.rentWhole ?? 0;
+  if (!(rentWhole > 0)) return null;
+  return {
+    ...sub,
+    entireHomeMonthlyRent: rentWhole,
+    entireHomePriceSource: "default",
+  };
 }
 
 export function resetRoomToWorkspaceDefault(

@@ -753,6 +753,16 @@ export type ManagerListingSubmissionV1 = {
   entireHomeMonthlyRent?: number;
   /** When true on a by-the-room listing, the public listing may offer a whole-house lease (studio Pricing tab). */
   entireHomeOffered?: boolean;
+  /** Whole-house row filled from workspace defaults vs edited on this property (Pricing publish). */
+  entireHomePriceSource?: "default" | "own";
+  /** Lease / application / move-in and surcharges for the whole-house pricing popup. */
+  entireHomeArrangementFees?: {
+    leaseFee?: string;
+    applicationFee?: string;
+    moveInFee?: string;
+    monthToMonthSurcharge?: string;
+    customStartSurcharge?: string;
+  };
   /** Per-room pricing markers (workspace default fill, copy-from-room). Manager-only metadata. */
   roomPricingMeta?: Record<string, RoomPricingUiMeta>;
   /**

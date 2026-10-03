@@ -26,6 +26,14 @@ export type RoomOccupancyPrice = {
   prorateMethod?: "auto" | "daily_rate";
   dailyRentRate?: number;
   dailyUtilitiesRate?: number;
+  /** Money strings scoped to this arrangement (property Pricing popup). */
+  leaseFee?: string;
+  applicationFee?: string;
+  moveInFee?: string;
+  monthToMonthSurcharge?: string;
+  customStartSurcharge?: string;
+  /** Nightly rate for this arrangement on short-term stays (property Pricing popup). */
+  shortTermRent?: string;
 };
 
 export type ArrangementRoomLike = {
@@ -100,6 +108,19 @@ export function normalizeOccupancyPrices(
     if (dailyRent !== undefined) next.dailyRentRate = dailyRent;
     const dailyUtil = positiveRent(row.dailyUtilitiesRate);
     if (dailyUtil !== undefined) next.dailyUtilitiesRate = dailyUtil;
+    if (typeof (row as RoomOccupancyPrice).shortTermRent === "string" && (row as RoomOccupancyPrice).shortTermRent!.trim()) {
+      next.shortTermRent = (row as RoomOccupancyPrice).shortTermRent!.trim();
+    }
+    for (const key of [
+      "leaseFee",
+      "applicationFee",
+      "moveInFee",
+      "monthToMonthSurcharge",
+      "customStartSurcharge",
+    ] as const) {
+      const rawMoney = (row as RoomOccupancyPrice)[key];
+      if (typeof rawMoney === "string" && rawMoney.trim()) next[key] = rawMoney.trim();
+    }
     byCount.set(count, next);
   }
   if (byCount.size === 0) return undefined;
