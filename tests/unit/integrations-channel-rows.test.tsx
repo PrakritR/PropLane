@@ -23,7 +23,7 @@ vi.mock("@/components/portal/channel-calendar-link-modal", () => ({ ChannelCalen
 vi.mock("@/lib/rental-application/data", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/rental-application/data")>()),
   isEntireHomeProperty: () => false,
-  getRoomOptionsForProperty: () => [{ value: "p1::r1", label: "Room 1" }, { value: "p1::r2", label: "Room 2" }, { value: "p1::r3", label: "Room 3" }],
+  getRoomOptionsForProperty: () => [{ value: "p1::r1", label: "Room 1 · 3rd floor · $2100/mo" }, { value: "p1::r2", label: "Room 2" }, { value: "p1::r3", label: "Room 3" }],
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: [room("airbnb", "r1"), room("booking_com", "r2"), room("airbnb", "r2", false)] }]),
@@ -57,8 +57,13 @@ describe("ExportBookingCalendarDialog", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.ai/api/calendar/export/token-r1.ics"));
     expect(toast).toHaveBeenCalledWith("Link copied");
     // Room 3 has no export link yet: it offers to create one instead of a copy.
-    expect(screen.getByLabelText("Create export link for 4709A · Room 3")).toBeTruthy();
-    expect(screen.getByLabelText("Paste into")).toBeTruthy();
+    expect(screen.getByLabelText("Create link for 4709A · Room 3")).toBeTruthy();
+    // Compact standard dialog: the select leads, rooms sit under their house with the name alone, no empty inputs.
+    expect(document.querySelector('[data-attr="export-booking-calendar-site"]')).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "4709A" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("$2100");
+    expect(document.querySelectorAll('[data-attr="export-booking-calendar-row"] input').length).toBe(2);
+    expect(document.querySelector('[data-popup-preview]')).toBeNull();
     expect(document.querySelectorAll('[data-attr="export-booking-calendar-steps"] li').length).toBeGreaterThanOrEqual(3);
     // Room 2 has a Booking.com link and an Airbnb one without an import: the default site (Airbnb) shows the Airbnb link.
     expect((screen.getByLabelText("4709A · Room 2 export link") as HTMLInputElement).value).toBe("https://proplane.ai/api/calendar/export/token-r2.ics");
