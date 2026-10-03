@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Textarea } from "@/components/ui/input";
-import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
+import { AlertCircle, Check, Sparkles } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
-import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { RecordActionMenu } from "@/components/ui/record-action-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { PropertyAiInfoEditorModal, type AiInfoEditorTarget } from "@/components/portal/property-ai-info-editor-modal";
+import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
 import {
-  type AiCommunicationInfo,
+  type AiCommunicationCustomItem,
   type AiCommunicationInfoSection,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
@@ -15,59 +19,22 @@ import {
   persistManagerListingSubmissionOnServer,
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
+import {
+  AI_INFO_BUILTIN_ROWS,
+  AI_INFO_TAB_DEFS,
+  type AiInfoBuiltinKey,
+  type AiInfoTabId,
+} from "@/lib/property-ai-info-rows";
 
 type SectionKey = "about" | AiCommunicationInfoSection;
 
-/**
- * The property's AI info tab: five sections the leasing assistant reads when it
- * talks to a prospect about this home. "About this home" is the listing's
- * `marketingNotes` (public, searchable — a prospect quoting the ad lands here);
- * the other four are `aiCommunicationInfo`, assistant-only. Each section is a
- * textarea that saves itself when it loses focus.
- */
-const SECTIONS: { key: SectionKey; title: string; placeholder: string }[] = [
-  {
-    key: "about",
-    title: "About this home",
-    placeholder:
-      'e.g. Facebook: "Private locked room near University of Washington" — furnished, 5 min walk to campus, utilities included.',
-  },
-  {
-    key: "tours",
-    title: "Tours & showings",
-    placeholder: "e.g. Tours weekdays after 4pm; meet at the side gate; virtual tours on request.",
-  },
-  {
-    key: "rules",
-    title: "House rules & policies",
-    placeholder: "e.g. No smoking anywhere; quiet hours 10pm–8am; one cat allowed with deposit.",
-  },
-  {
-    key: "pricing",
-    title: "Pricing, deposits & lease terms",
-    placeholder: "e.g. Rent includes wifi and water; $500 deposit; 12-month or month-to-month.",
-  },
-  {
-    key: "neighborhood",
-    title: "Neighborhood & getting around",
-    placeholder: "e.g. Light rail 8 min walk; Trader Joe's on the corner; street parking with permit.",
-  },
-];
-
-const EMPTY_INFO: AiCommunicationInfo = { tours: "", rules: "", pricing: "", neighborhood: "" };
-
-type AiInfoTab = "home" | "leasing" | "rules" | "area";
-
-const AI_INFO_TABS: { id: AiInfoTab; label: string; keys: SectionKey[] }[] = [
-  { id: "home", label: "Home", keys: ["about"] },
-  { id: "leasing", label: "Leasing", keys: ["tours", "pricing"] },
-  { id: "rules", label: "Rules", keys: ["rules"] },
-  { id: "area", label: "Area", keys: ["neighborhood"] },
-];
-
-function readSection(sub: ManagerListingSubmissionV1, key: SectionKey): string {
+function readBuiltinText(sub: ManagerListingSubmissionV1, key: SectionKey): string {
   if (key === "about") return sub.marketingNotes ?? "";
   return sub.aiCommunicationInfo?.[key] ?? "";
+}
+
+function makeCustomId(): string {
+  return `ai-custom-${Date.now().toString(36)}`;
 }
 
 export function ManagerPropertyAiInfoPanel({
@@ -79,7 +46,6 @@ export function ManagerPropertyAiInfoPanel({
 }: {
   propertyId: string;
   managerUserId: string | null;
-  /** Bump when the property pipeline re-syncs so saved values re-resolve. */
   revision?: number;
   showToast: (message: string) => void;
   onUpdated?: () => void;
@@ -90,64 +56,217 @@ export function ManagerPropertyAiInfoPanel({
     return resolveManagerListingSubmissionForPropertyId(managerUserId, propertyId);
   }, [managerUserId, propertyId, revision]);
 
-  // `null` per section means "no unsaved edit" — a background re-sync never
-  // overwrites text the manager is mid-typing.
-  const [drafts, setDrafts] = useState<Partial<Record<SectionKey, string | null>>>({});
-  const [status, setStatus] = useState<Partial<Record<SectionKey, "saving" | "saved" | "error">>>({});
-  const [activeTab, setActiveTab] = useState<AiInfoTab>("home");
+  const [activeTab, setActiveTab] = useState<AiInfoTabId>("home");
   const [search, setSearch] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorTarget, setEditorTarget] = useState<AiInfoEditorTarget | null>(null);
+  const [editorValue, setEditorValue] = useState("");
+  const [editorTitle, setEditorTitle] = useState("");
+  const [editorGroup, setEditorGroup] = useState<AiInfoTabId>("home");
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    setDrafts({});
-  }, [propertyId]);
+  const customItems = resolved?.sub.aiCommunicationCustom ?? [];
 
-  const save = useCallback(
-    async (key: SectionKey) => {
-      if (!resolved || !managerUserId) return;
-      const draft = drafts[key];
-      if (draft === null || draft === undefined) return;
-      const value = draft.trim();
-      if (value === readSection(resolved.sub, key).trim()) {
-        setDrafts((current) => ({ ...current, [key]: null }));
-        return;
+  const customVisible = customItems.some((c) => c.group === "custom" || !AI_INFO_TAB_DEFS.some((t) => t.id === c.group));
+  const tabs = useMemo(() => {
+    const built = AI_INFO_TAB_DEFS.filter((t) => t.id !== "custom" || customVisible);
+    return built.map((tab) => {
+      const builtCount = AI_INFO_BUILTIN_ROWS.filter((r) => r.group === tab.id).length;
+      const customCount = customItems.filter((c) => (c.group === tab.id || (tab.id === "custom" && c.group === "custom"))).length;
+      return { id: tab.id, label: tab.label, count: builtCount + customCount };
+    });
+  }, [customItems, customVisible]);
+
+  const openBuiltin = useCallback((key: AiInfoBuiltinKey) => {
+    if (!resolved) return;
+    const row = AI_INFO_BUILTIN_ROWS.find((r) => r.key === key)!;
+    setEditorTarget({
+      kind: "builtin",
+      key,
+      title: row.title,
+      sampleQuestion: row.sampleQuestion,
+    });
+    setEditorValue(readBuiltinText(resolved.sub, key));
+    setEditorOpen(true);
+  }, [resolved]);
+
+  const openCustom = useCallback((item: AiCommunicationCustomItem) => {
+    setEditorTarget({
+      kind: "custom",
+      id: item.id,
+      title: item.title,
+      sampleQuestion: `What can you tell me about ${item.title.toLowerCase()}?`,
+      group: item.group,
+    });
+    setEditorTitle(item.title);
+    setEditorGroup(item.group === "custom" ? "custom" : (item.group as AiInfoTabId));
+    setEditorValue(item.text);
+    setEditorOpen(true);
+  }, []);
+
+  const openNewCustom = useCallback(() => {
+    setEditorTarget({
+      kind: "custom",
+      id: "",
+      title: "",
+      sampleQuestion: "What can you tell me about this?",
+      isNew: true,
+      group: activeTab === "custom" ? "custom" : activeTab,
+    });
+    setEditorTitle("");
+    setEditorGroup(activeTab);
+    setEditorValue("");
+    setEditorOpen(true);
+  }, [activeTab]);
+
+  const persistSubmission = useCallback(
+    async (next: ManagerListingSubmissionV1) => {
+      if (!resolved || !managerUserId) return false;
+      setSaving(true);
+      const ok = await persistManagerListingSubmissionOnServer(resolved.saveTarget, managerUserId, next);
+      setSaving(false);
+      if (!ok) {
+        showToast("Could not save. Try again.");
+        return false;
       }
+      onUpdated?.();
+      return true;
+    },
+    [managerUserId, onUpdated, resolved, showToast],
+  );
+
+  const saveEditor = useCallback(async () => {
+    if (!resolved || !editorTarget) return;
+    const text = editorValue.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS).trim();
+    if (editorTarget.kind === "builtin") {
+      const key = editorTarget.key;
       const next: ManagerListingSubmissionV1 =
         key === "about"
-          ? { ...resolved.sub, marketingNotes: value }
+          ? { ...resolved.sub, marketingNotes: text }
           : {
               ...resolved.sub,
-              aiCommunicationInfo: { ...EMPTY_INFO, ...(resolved.sub.aiCommunicationInfo ?? {}), [key]: value },
+              aiCommunicationInfo: {
+                tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
+                rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
+                pricing: resolved.sub.aiCommunicationInfo?.pricing ?? "",
+                neighborhood: resolved.sub.aiCommunicationInfo?.neighborhood ?? "",
+                [key]: text,
+              },
             };
-      setStatus((current) => ({ ...current, [key]: "saving" }));
-      const ok = await persistManagerListingSubmissionOnServer(resolved.saveTarget, managerUserId, next);
-      if (!ok) {
-        setStatus((current) => ({ ...current, [key]: "error" }));
-        showToast("Could not save. Your text is still here — try again.");
-        return;
+      if (await persistSubmission(next)) {
+        setEditorOpen(false);
+        showToast("Saved");
       }
-      setDrafts((current) => ({ ...current, [key]: null }));
-      setStatus((current) => ({ ...current, [key]: "saved" }));
-      onUpdated?.();
+      return;
+    }
+    const title = editorTitle.trim();
+    if (!title) {
+      showToast("Give this a title.");
+      return;
+    }
+    const list = [...(resolved.sub.aiCommunicationCustom ?? [])];
+    const existing = editorTarget.isNew ? null : list.find((c) => c.id === editorTarget.id) ?? null;
+    const item: AiCommunicationCustomItem = {
+      id: existing?.id ?? makeCustomId(),
+      title,
+      text: editorValue.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS),
+      group: editorGroup,
+    };
+    const nextList = existing
+      ? list.map((c) => (c.id === existing.id ? item : c))
+      : [...list, item];
+    const next = { ...resolved.sub, aiCommunicationCustom: nextList };
+    if (await persistSubmission(next)) {
+      setEditorOpen(false);
+      if (editorTarget.isNew) setActiveTab(editorGroup);
+      showToast(existing ? "Saved" : `${title} added`);
+    }
+  }, [editorGroup, editorTarget, editorTitle, editorValue, persistSubmission, resolved, showToast]);
+
+  const clearEditor = useCallback(async () => {
+    if (!resolved || !editorTarget || editorTarget.kind !== "builtin") return;
+    const key = editorTarget.key;
+    const next: ManagerListingSubmissionV1 =
+      key === "about"
+        ? { ...resolved.sub, marketingNotes: "" }
+        : {
+            ...resolved.sub,
+            aiCommunicationInfo: {
+              tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
+              rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
+              pricing: resolved.sub.aiCommunicationInfo?.pricing ?? "",
+              neighborhood: resolved.sub.aiCommunicationInfo?.neighborhood ?? "",
+              [key]: "",
+            },
+          };
+    if (await persistSubmission(next)) {
+      setEditorValue("");
+      setEditorOpen(false);
+      showToast("Cleared");
+    }
+  }, [editorTarget, persistSubmission, resolved, showToast]);
+
+  const deleteCustom = useCallback(async () => {
+    if (!resolved || !editorTarget || editorTarget.kind !== "custom" || editorTarget.isNew) return;
+    const nextList = (resolved.sub.aiCommunicationCustom ?? []).filter((c) => c.id !== editorTarget.id);
+    if (await persistSubmission({ ...resolved.sub, aiCommunicationCustom: nextList.length ? nextList : undefined })) {
+      setEditorOpen(false);
+      showToast("Deleted");
+    }
+  }, [editorTarget, persistSubmission, resolved, showToast]);
+
+  useEffect(() => {
+    if (editorTarget?.kind === "custom" && !editorTarget.isNew) {
+      setEditorTitle(editorTarget.title);
+    }
+  }, [editorTarget]);
+
+  const deleteCustomRow = useCallback(
+    async (id: string) => {
+      if (!resolved) return;
+      const nextList = (resolved.sub.aiCommunicationCustom ?? []).filter((c) => c.id !== id);
+      if (await persistSubmission({ ...resolved.sub, aiCommunicationCustom: nextList.length ? nextList : undefined })) {
+        showToast("Deleted");
+      }
     },
-    [drafts, managerUserId, onUpdated, resolved, showToast],
+    [persistSubmission, resolved, showToast],
+  );
+
+  const clearEditorForKey = useCallback(
+    async (key: AiInfoBuiltinKey) => {
+      if (!resolved) return;
+      const next: ManagerListingSubmissionV1 =
+        key === "about"
+          ? { ...resolved.sub, marketingNotes: "" }
+          : {
+              ...resolved.sub,
+              aiCommunicationInfo: {
+                tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
+                rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
+                pricing: resolved.sub.aiCommunicationInfo?.pricing ?? "",
+                neighborhood: resolved.sub.aiCommunicationInfo?.neighborhood ?? "",
+                [key]: "",
+              },
+            };
+      if (await persistSubmission(next)) showToast("Cleared");
+    },
+    [persistSubmission, resolved, showToast],
   );
 
   if (!resolved) return null;
 
-  const tabKeys = AI_INFO_TABS.find((t) => t.id === activeTab)?.keys ?? [];
   const q = search.trim().toLowerCase();
-  const visibleSections = SECTIONS.filter((section) => {
-    if (!tabKeys.includes(section.key)) return false;
+  const builtRows = AI_INFO_BUILTIN_ROWS.filter((row) => {
+    if (row.group !== activeTab) return false;
     if (!q) return true;
-    return section.title.toLowerCase().includes(q);
+    return row.title.toLowerCase().includes(q);
   });
-
-  const tabCounts = AI_INFO_TABS.map((tab) => ({
-    id: tab.id,
-    label: tab.label,
-    count: tab.keys.length,
-    dataAttr: `property-ai-info-tab-${tab.id}`,
-  }));
+  const customRows = customItems.filter((item) => {
+    const group = item.group === "custom" ? "custom" : item.group;
+    if (group !== activeTab) return false;
+    if (!q) return true;
+    return item.title.toLowerCase().includes(q);
+  });
 
   return (
     <div className="px-3 py-4 max-md:px-2.5" data-attr="property-ai-info">
@@ -158,68 +277,103 @@ export function ManagerPropertyAiInfoPanel({
           <ManagerPortalStatusPills
             activeId={activeTab}
             mobileSelect={false}
-            onChange={(id) => setActiveTab(id as AiInfoTab)}
-            tabs={tabCounts}
+            onChange={(id) => setActiveTab(id as AiInfoTabId)}
+            tabs={tabs.map((t) => ({
+              id: t.id,
+              label: t.label,
+              count: t.count,
+              dataAttr: `property-ai-info-tab-${t.id}`,
+            }))}
           />
         }
         search={{
           value: search,
           onChange: setSearch,
-          placeholder: "Search AI info",
+          placeholder: "Search what the assistant knows",
           dataAttr: "property-ai-info-search",
         }}
+        primary={
+          <PortalPrimaryIconAction
+            label={`Add to ${tabs.find((t) => t.id === activeTab)?.label ?? "section"}`}
+            data-attr="property-ai-info-add"
+            onClick={openNewCustom}
+          />
+        }
       />
       <div className="space-y-3">
-      {visibleSections.map((section) => {
-        const saved = readSection(resolved.sub, section.key);
-        const draft = drafts[section.key];
-        const value = draft ?? saved;
-        return (
-          <section
-            key={section.key}
-            className="rounded-2xl border border-border bg-card p-4 sm:p-5"
-            data-attr={`property-ai-info-${section.key}`}
-          >
-            <p className="group inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
-              {section.title}
-              <PortalPropertySectionInfo
-                title={section.title}
-                body="Sample answers in the assistant use this text when prospects ask about this home."
-                dataAttr={`property-ai-info-help-${section.key}`}
-              />
-            </p>
-            <Textarea
-              value={value}
-              onChange={(e) =>
-                setDrafts((current) => ({
-                  ...current,
-                  [section.key]: e.target.value.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS),
-                }))
+        {builtRows.map((row) => {
+          const text = readBuiltinText(resolved.sub, row.key);
+          const len = text.trim().length;
+          return (
+            <PortalPropertyRecordRow
+              key={row.key}
+              title={row.title}
+              leading={<Sparkles className="size-5 text-primary" aria-hidden />}
+              leadingShape="square"
+              facts={
+                len ? (
+                  <PortalRowFact icon={Check}>
+                    {len} of {PROMOTION_HOUSE_NOTES_MAX_CHARS} characters
+                  </PortalRowFact>
+                ) : (
+                  <PortalRowFact icon={AlertCircle}>Not filled in yet</PortalRowFact>
+                )
               }
-              onBlur={() => void save(section.key)}
-              rows={4}
-              maxLength={PROMOTION_HOUSE_NOTES_MAX_CHARS}
-              placeholder={section.placeholder}
-              aria-label={section.title}
-              className="mt-3"
-              data-attr={`property-ai-info-${section.key}-input`}
+              onOpen={() => openBuiltin(row.key)}
+              dataAttr={`property-ai-info-row-${row.key}`}
+              actions={
+                <RecordActionMenu label={`Actions for ${row.title}`}>
+                  <DropdownMenuItem onSelect={() => openBuiltin(row.key)}>Edit</DropdownMenuItem>
+                  {len ? <DropdownMenuItem onSelect={() => void clearEditorForKey(row.key)}>Clear</DropdownMenuItem> : null}
+                </RecordActionMenu>
+              }
             />
-            <div className="mt-2 flex items-center justify-between text-xs text-muted">
-              <span>
-                {value.length}/{PROMOTION_HOUSE_NOTES_MAX_CHARS}
-              </span>
-              <span aria-live="polite" className="font-semibold tabular-nums">
-                {status[section.key] === "saving" ? "Saving…" : null}
-                {status[section.key] === "saved" ? (
-                  <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span>
-                ) : null}
-                {status[section.key] === "error" ? <span className="text-red-600">Failed</span> : null}
-              </span>
-            </div>
-          </section>
-        );
-      })}
+          );
+        })}
+        {customRows.map((item) => {
+          const len = item.text.trim().length;
+          return (
+            <PortalPropertyRecordRow
+              key={item.id}
+              title={item.title}
+              leading={<Sparkles className="size-5 text-primary" aria-hidden />}
+              leadingShape="square"
+              facts={
+                len ? (
+                  <PortalRowFact icon={Check}>
+                    {len} of {PROMOTION_HOUSE_NOTES_MAX_CHARS} characters
+                  </PortalRowFact>
+                ) : (
+                  <PortalRowFact icon={AlertCircle}>Not filled in yet</PortalRowFact>
+                )
+              }
+              onOpen={() => openCustom(item)}
+              dataAttr={`property-ai-info-row-custom-${item.id}`}
+              actions={
+                <RecordActionMenu label={`Actions for ${item.title}`}>
+                  <DropdownMenuItem onSelect={() => openCustom(item)}>Edit</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void deleteCustomRow(item.id)}>Delete</DropdownMenuItem>
+                </RecordActionMenu>
+              }
+            />
+          );
+        })}
       </div>
+
+      <PropertyAiInfoEditorModal
+        open={editorOpen}
+        target={editorTarget}
+        value={editorValue}
+        onChange={setEditorValue}
+        customTitle={editorTitle}
+        onCustomTitleChange={setEditorTitle}
+        showCustomTitle={editorTarget?.kind === "custom"}
+        onClose={() => setEditorOpen(false)}
+        onSave={() => void saveEditor()}
+        onClear={editorTarget?.kind === "builtin" && editorValue.trim() ? () => void clearEditor() : undefined}
+        onDelete={editorTarget?.kind === "custom" && !editorTarget?.isNew ? () => void deleteCustom() : undefined}
+        busy={saving}
+      />
     </div>
   );
 }

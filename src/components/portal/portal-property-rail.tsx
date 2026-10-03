@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
+import { PROPERTY_RECORD_SECTION_INFO } from "@/lib/property-record-section-info";
 
 export type RecordRailItem = {
   id: string;
@@ -116,11 +118,20 @@ export function PortalRecordRail({
                   data-attr={item.dataAttr}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex min-h-10 items-center rounded-lg px-2.5 text-[13.5px] font-medium transition",
+                    "flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-[13.5px] font-medium transition group",
                     active ? "bg-accent text-primary" : "text-foreground/85 hover:bg-[var(--secondary)]/70 hover:text-foreground",
                   )}
                 >
-                  {item.label}
+                  <span className="inline-flex min-w-0 items-center gap-0.5">
+                    {item.label}
+                    {PROPERTY_RECORD_SECTION_INFO[item.id] ? (
+                      <PortalPropertySectionInfo
+                        title={PROPERTY_RECORD_SECTION_INFO[item.id]!.title}
+                        body={PROPERTY_RECORD_SECTION_INFO[item.id]!.body}
+                        dataAttr={`property-rail-info-${item.id}`}
+                      />
+                    ) : null}
+                  </span>
                 </Link>
               );
             })}

@@ -84,8 +84,19 @@ import {
   makePromotionUploadId,
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
-import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
-import { type PromotionPresetKind } from "@/lib/promotion-default-sync";
+import { PropertyPromotionBuiltinModal } from "@/components/portal/property-promotion-builtin-modal";
+import { PropertyPromotionBuiltinFacts, PropertyPromotionBuiltinRow } from "@/components/portal/property-promotion-builtin-row";
+import {
+  BUILTIN_PROMOTION_DEFS,
+  filterCustomPromotionAssets,
+  resolveBuiltinFlyerEntry,
+  resolveBuiltinTextPromotion,
+  type PropertyPromotionBuiltinKey,
+  readPromotionBuiltins,
+  builtinEnabled,
+  type PropertyPromotionBuiltinsState,
+} from "@/lib/property-promotion-builtin";
+import type { MockProperty } from "@/data/types";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -136,6 +147,7 @@ type PromotionSaveTarget =
 
 export function ManagerPropertyPromotionPanel({
   listingId,
+  property,
   showToast,
   onUpdated,
   headerActionsExtra,
@@ -144,6 +156,7 @@ export function ManagerPropertyPromotionPanel({
   propertyLabel,
 }: {
   listingId: string;
+  property?: MockProperty | null;
   showToast: (m: string) => void;
   onUpdated?: () => void;
   headerActionsExtra?: ReactNode;
@@ -174,6 +187,12 @@ export function ManagerPropertyPromotionPanel({
   const [promoSearch, setPromoSearch] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zillowSaving, setZillowSaving] = useState(false);
+  const [builtinEditKey, setBuiltinEditKey] = useState<PropertyPromotionBuiltinKey | null>(null);
+  const [builtinDraft, setBuiltinDraft] = useState<PromotionDraft>(EMPTY_DRAFT);
+  const [builtinTextBody, setBuiltinTextBody] = useState("");
+  const [builtinSaving, setBuiltinSaving] = useState(false);
+
+  const promotionBuiltins = useMemo(() => readPromotionBuiltins(sub), [sub]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -222,18 +241,26 @@ export function ManagerPropertyPromotionPanel({
     return sortPromotionAssets(flattenPromotionAssets(rows), "newest");
   }, [propertyId, tick]);
 
-  const customAssets = useMemo(() => assets.filter((asset) => asset.kind === "upload"), [assets]);
+  const customAssets = useMemo(() => filterCustomPromotionAssets(assets), [assets]);
+
+  const visibleBuiltins = useMemo(() => {
+    if (!property || promoTab === "sites" || promoTab === "yours") return [];
+    const q = promoSearch.trim().toLowerCase();
+    return BUILTIN_PROMOTION_DEFS.filter(
+      (def) => def.tab === promoTab && (!q || def.name.toLowerCase().includes(q)),
+    );
+  }, [property, promoTab, promoSearch]);
 
   const visibleAssets = useMemo(() => {
     const q = promoSearch.trim().toLowerCase();
-    const tabbed =
-      promoTab === "flyers"
-        ? assets.filter((a) => a.kind === "flyer")
-        : promoTab === "social"
-          ? assets.filter((a) => a.kind === "text")
-          : promoTab === "yours"
-            ? customAssets
-            : [];
+    if (promoTab === "sites") return [];
+    if (promoTab === "yours") {
+      const tabbed = customAssets;
+      if (!q) return tabbed;
+      return tabbed.filter((asset) => promotionAssetMatchesQuery(asset, q));
+    }
+    const kind = promoTab === "flyers" ? "flyer" : "text";
+    const tabbed = filterCustomPromotionAssets(assets.filter((a) => a.kind === kind));
     if (!q) return tabbed;
     return tabbed.filter((asset) => promotionAssetMatchesQuery(asset, q));
   }, [assets, customAssets, promoTab, promoSearch]);
@@ -270,17 +297,141 @@ export function ManagerPropertyPromotionPanel({
     [sub, saveTarget, zillow, userId, showToast, onUpdated],
   );
 
-  const addPromotionPreset = useCallback(
-    (preset: PromotionPresetKind) => {
-      setEditingRowId(null);
-      setEditingEntryId(null);
-      setNewPromotionKind(preset === "default_flyer" ? "flyer" : "text");
-      setNewPromotionStepId("content");
-      setDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
-      setShowNewModal(true);
+  const persistPromotionBuiltins = useCallback(
+    (nextBuiltins: PropertyPromotionBuiltinsState) => {
+      if (!sub || !saveTarget) return false;
+      const nextSub: ManagerListingSubmissionV1 = { ...sub, promotionBuiltins: nextBuiltins };
+      let ok = false;
+      if (saveTarget.mode === "pending") {
+        ok = updatePendingManagerProperty(saveTarget.saveId, nextSub, userId ?? "");
+      } else if (saveTarget.mode === "listing") {
+        ok = updateExtraListingFromSubmission(saveTarget.saveId, userId ?? "", nextSub);
+      } else if (saveTarget.mode === "requestChange") {
+        ok = updateRequestChangeProperty(saveTarget.saveId, userId ?? "", nextSub);
+      }
+      if (!ok) {
+        showToast("Could not save promotion settings.");
+        return false;
+      }
+      onUpdated?.();
+      return true;
     },
-    [listings, propertyId, autofillOpts],
+    [sub, saveTarget, userId, showToast, onUpdated],
   );
+
+  const toggleBuiltin = useCallback(
+    (key: PropertyPromotionBuiltinKey) => {
+      const enabled = builtinEnabled(promotionBuiltins, key);
+      const next: PropertyPromotionBuiltinsState = {
+        ...promotionBuiltins,
+        [key]: { ...promotionBuiltins[key], enabled: !enabled },
+      };
+      if (persistPromotionBuiltins(next)) {
+        showToast(enabled ? "Default promotion turned off." : "Default promotion turned on.");
+      }
+    },
+    [promotionBuiltins, persistPromotionBuiltins, showToast],
+  );
+
+  const openBuiltinEditor = useCallback(
+    (key: PropertyPromotionBuiltinKey) => {
+      if (!property) return;
+      const def = BUILTIN_PROMOTION_DEFS.find((d) => d.key === key);
+      if (!def) return;
+      setBuiltinEditKey(key);
+      if (def.kind === "flyer") {
+        const entry = resolveBuiltinFlyerEntry(
+          propertyId,
+          property,
+          promotionRow,
+          promotionBuiltins.flyer,
+          autofillOpts,
+        );
+        if (entry && promotionRow) {
+          setBuiltinDraft(flyerEntryToDraft(promotionRow, entry, listings));
+        } else if (entry) {
+          setBuiltinDraft({
+            ...draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts),
+            ...flyerEntryToDraft(
+              {
+                id: "preview",
+                managerUserId: userId,
+                propertyId,
+                propertyLabel: listings.find((l) => l.id === propertyId)?.label ?? property.title,
+                title: def.name,
+                theme: entry.theme,
+                flyerSize: entry.flyerSize,
+                template: entry.template,
+                status: "generated",
+                inputs: entry.inputs,
+                copy: entry.copy,
+                createdAt: entry.createdAt,
+                updatedAt: entry.updatedAt,
+              },
+              entry,
+              listings,
+            ),
+          });
+        }
+      } else if (def.kind === "text" && def.textFormat) {
+        const { plain } = resolveBuiltinTextPromotion(
+          property,
+          def.textFormat,
+          promotionRow,
+          promotionBuiltins,
+          key === "social" ? "social" : "blurb",
+          autofillOpts,
+        );
+        setBuiltinTextBody(plain);
+        setBuiltinDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
+      } else {
+        setBuiltinDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
+      }
+    },
+    [property, propertyId, promotionRow, promotionBuiltins, autofillOpts, listings, userId],
+  );
+
+  const saveBuiltinEditor = useCallback(() => {
+    if (!builtinEditKey || !sub || !saveTarget) return;
+    setBuiltinSaving(true);
+    const key = builtinEditKey;
+    const def = BUILTIN_PROMOTION_DEFS.find((d) => d.key === key);
+    const nextBuiltins: PropertyPromotionBuiltinsState = { ...promotionBuiltins };
+    if (def?.kind === "flyer") {
+      nextBuiltins.flyer = {
+        ...nextBuiltins.flyer,
+        enabled: nextBuiltins.flyer?.enabled !== false,
+        flyer: {
+          headline: builtinDraft.headline,
+          sellingPoints: builtinDraft.sellingPoints,
+          price: builtinDraft.price,
+          promo: builtinDraft.promo,
+          cta: builtinDraft.cta,
+          contact: builtinDraft.contact,
+        },
+      };
+    } else if (def?.kind === "text") {
+      const textKey = key === "social" ? "social" : "blurb";
+      nextBuiltins[textKey] = {
+        ...nextBuiltins[textKey],
+        enabled: nextBuiltins[textKey]?.enabled !== false,
+        text: { body: builtinTextBody, tone: builtinDraft.tone },
+      };
+    }
+    persistPromotionBuiltins(nextBuiltins);
+    setBuiltinSaving(false);
+    setBuiltinEditKey(null);
+    showToast("Default promotion saved.");
+  }, [
+    builtinEditKey,
+    sub,
+    saveTarget,
+    promotionBuiltins,
+    builtinDraft,
+    builtinTextBody,
+    persistPromotionBuiltins,
+    showToast,
+  ]);
 
   // Open the unified new-promotion workspace on Kind.
   const openNewPromotion = useCallback(() => {
@@ -599,16 +750,20 @@ export function ManagerPropertyPromotionPanel({
   }, [openNewPromotion, promoTab]);
 
   const promoTabs = useMemo(() => {
+    const builtinFlyerCount = property ? BUILTIN_PROMOTION_DEFS.filter((d) => d.tab === "flyers").length : 0;
+    const builtinSocialCount = property ? BUILTIN_PROMOTION_DEFS.filter((d) => d.tab === "social").length : 0;
+    const customFlyers = filterCustomPromotionAssets(assets.filter((a) => a.kind === "flyer")).length;
+    const customSocial = filterCustomPromotionAssets(assets.filter((a) => a.kind === "text")).length;
     const tabs: { id: "flyers" | "social" | "sites" | "yours"; label: string; count: number }[] = [
-      { id: "flyers", label: "Flyers & printables", count: assets.filter((a) => a.kind === "flyer").length },
-      { id: "social", label: "Social", count: assets.filter((a) => a.kind === "text").length },
+      { id: "flyers", label: "Flyers & printables", count: customFlyers + builtinFlyerCount },
+      { id: "social", label: "Social", count: customSocial + builtinSocialCount },
       { id: "sites", label: "Listing sites", count: 1 },
     ];
     if (customAssets.length > 0) {
       tabs.push({ id: "yours", label: "Yours", count: customAssets.length });
     }
     return tabs;
-  }, [assets, customAssets.length]);
+  }, [assets, customAssets.length, property]);
 
   if (!propertyId) return null;
 
@@ -776,6 +931,38 @@ export function ManagerPropertyPromotionPanel({
             />
           </div>
         ) : null}
+        {promoTab !== "sites"
+          ? visibleBuiltins.map((def) => {
+              const enabled = builtinEnabled(promotionBuiltins, def.key);
+              let detail = "From the listing";
+              if (def.kind === "text" && property && def.textFormat) {
+                const { plain } = resolveBuiltinTextPromotion(
+                  property,
+                  def.textFormat,
+                  promotionRow,
+                  promotionBuiltins,
+                  def.key === "social" ? "social" : "blurb",
+                  autofillOpts,
+                );
+                detail = `${plain.length} chars`;
+              } else if (def.kind === "flyer") {
+                detail = "Letter · Cobalt";
+              } else if (def.kind === "print") {
+                detail = "Door card";
+              }
+              return (
+                <PropertyPromotionBuiltinRow
+                  key={def.key}
+                  def={def}
+                  enabled={enabled}
+                  facts={<PropertyPromotionBuiltinFacts kind={def.kind} detail={detail} />}
+                  onOpen={() => openBuiltinEditor(def.key)}
+                  onToggle={() => toggleBuiltin(def.key)}
+                  dataAttr={`property-promotion-builtin-${def.key}`}
+                />
+              );
+            })
+          : null}
         {promoTab !== "sites" && visibleAssets.length > 0 ? (
           <PromotionAssetStack
             assets={visibleAssets}
@@ -790,13 +977,21 @@ export function ManagerPropertyPromotionPanel({
         ) : null}
       </PortalPropertyDetailSection></PortalRecordListSurface>
 
-      <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">
-        <PromotionDefaultSuggestions
-          propertyId={propertyId}
-          promotionRow={promotionRow}
-          onAddPreset={addPromotionPreset}
-        />
-      </div>
+      <PropertyPromotionBuiltinModal
+        open={builtinEditKey !== null}
+        def={BUILTIN_PROMOTION_DEFS.find((d) => d.key === builtinEditKey) ?? null}
+        draft={builtinDraft}
+        setDraft={setBuiltinDraft}
+        property={property ?? null}
+        promotionRow={promotionRow}
+        managerUserId={userId}
+        textFormat={BUILTIN_PROMOTION_DEFS.find((d) => d.key === builtinEditKey)?.textFormat}
+        textBody={builtinTextBody}
+        onTextBodyChange={setBuiltinTextBody}
+        onClose={() => setBuiltinEditKey(null)}
+        onSave={saveBuiltinEditor}
+        busy={builtinSaving}
+      />
 
       <PromotionNewModal
         open={showNewModal}

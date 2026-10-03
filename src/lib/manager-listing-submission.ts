@@ -669,6 +669,61 @@ export function normalizeAiCommunicationInfo(raw: unknown): AiCommunicationInfo 
   return any ? out : undefined;
 }
 
+export type AiCommunicationCustomGroup = "home" | "leasing" | "rules" | "area" | "custom";
+
+export type AiCommunicationCustomItem = {
+  id: string;
+  title: string;
+  text: string;
+  group: AiCommunicationCustomGroup;
+};
+
+export function normalizeAiCommunicationCustom(raw: unknown): AiCommunicationCustomItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: AiCommunicationCustomItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const text = typeof row.text === "string" ? row.text : "";
+    if (!id || !title) continue;
+    const groupRaw = row.group;
+    const group: AiCommunicationCustomGroup =
+      groupRaw === "home" || groupRaw === "leasing" || groupRaw === "rules" || groupRaw === "area"
+        ? groupRaw
+        : "custom";
+    out.push({ id, title, text, group });
+  }
+  return out.length ? out : undefined;
+}
+
+export type PropertyPromotionBuiltinKey = "flyer" | "blurb" | "social" | "door";
+
+export type PropertyPromotionBuiltinsState = Partial<
+  Record<
+    PropertyPromotionBuiltinKey,
+    {
+      enabled?: boolean;
+      flyer?: Partial<{
+        headline: string;
+        sellingPoints: string;
+        price: string;
+        promo: string;
+        cta: string;
+        contact: string;
+      }>;
+      text?: { body?: string; tone?: string };
+      doorQrOn?: boolean;
+    }
+  >
+>;
+
+function normalizePromotionBuiltins(raw: unknown): PropertyPromotionBuiltinsState | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  return raw as PropertyPromotionBuiltinsState;
+}
+
 export type ManagerListingSubmissionV1 = {
   v: 1;
   buildingName: string;
@@ -759,6 +814,10 @@ export type ManagerListingSubmissionV1 = {
    * neighborhood. Assistant-only — never projected to the public listing.
    */
   aiCommunicationInfo?: AiCommunicationInfo;
+  /** Manager-added AI knowledge rows grouped under Home / Leasing / Rules / Area. */
+  aiCommunicationCustom?: AiCommunicationCustomItem[];
+  /** Built-in promotion toggles and overrides (flyer, blurb, social, door card). */
+  promotionBuiltins?: PropertyPromotionBuiltinsState;
   /** Quiet hours, guests, smoking, shared spaces — shown on House rules tab */
   houseRulesText: string;
   /** Manager-only internal notes about the house (not shown to residents). */
@@ -2599,6 +2658,8 @@ function normalizeManagerListingSubmissionV1Base(
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
     aiCommunicationInfo: normalizeAiCommunicationInfo((sub as { aiCommunicationInfo?: unknown }).aiCommunicationInfo),
+    aiCommunicationCustom: normalizeAiCommunicationCustom((sub as { aiCommunicationCustom?: unknown }).aiCommunicationCustom),
+    promotionBuiltins: normalizePromotionBuiltins((sub as { promotionBuiltins?: unknown }).promotionBuiltins),
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",
