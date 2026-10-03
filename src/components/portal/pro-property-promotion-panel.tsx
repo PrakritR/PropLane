@@ -29,7 +29,9 @@ import {
   CUSTOM_PROPERTY_KEY,
   type PromotionDraft,
 } from "@/components/portal/promotion-form";
+import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
 import { PromotionNewModal } from "@/components/portal/promotion-new-modal";
+import type { PromotionPresetKind } from "@/lib/promotion-default-sync";
 import { PromotionTextGenerateModal } from "@/components/portal/promotion-text-generate-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { track } from "@/lib/analytics/track-client";
@@ -432,6 +434,18 @@ export function ManagerPropertyPromotionPanel({
     persistPromotionBuiltins,
     showToast,
   ]);
+
+  const addPromotionPreset = useCallback(
+    (preset: PromotionPresetKind) => {
+      setEditingRowId(null);
+      setEditingEntryId(null);
+      setNewPromotionKind(preset === "default_flyer" ? "flyer" : "text");
+      setNewPromotionStepId("content");
+      setDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
+      setShowNewModal(true);
+    },
+    [listings, propertyId, autofillOpts],
+  );
 
   // Open the unified new-promotion workspace on Kind.
   const openNewPromotion = useCallback(() => {
@@ -976,6 +990,14 @@ export function ManagerPropertyPromotionPanel({
           />
         ) : null}
       </PortalPropertyDetailSection></PortalRecordListSurface>
+
+      <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">
+        <PromotionDefaultSuggestions
+          propertyId={propertyId}
+          promotionRow={promotionRow}
+          onAddPreset={addPromotionPreset}
+        />
+      </div>
 
       <PropertyPromotionBuiltinModal
         open={builtinEditKey !== null}

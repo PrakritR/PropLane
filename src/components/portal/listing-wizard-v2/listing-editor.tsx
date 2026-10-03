@@ -2410,7 +2410,8 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
  * and next to the receipt. A manager setting a deposit can now see what it does
  * to the move-in total without leaving the field.
  */
-function StepPricing({
+/** Property Payments tab and unit tests — pricing left the listing wizard rail (studio redesign 0929). */
+export function ListingPricingWorkspace({
   sub,
   patch,
   defaults,
