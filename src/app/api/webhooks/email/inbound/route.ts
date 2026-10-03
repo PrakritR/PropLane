@@ -51,11 +51,13 @@ export async function POST(req: Request) {
   const svixTimestamp = req.headers.get("svix-timestamp");
   const svixSignature = req.headers.get("svix-signature");
 
-  // Fail closed on any deployed environment. Only local dev may run unsigned
-  // (no secret configured / no signature headers) — mirrors the Twilio route.
-  if (!secret || !svixSignature) {
-    if (process.env.VERCEL) return new Response("Forbidden", { status: 403 });
-  } else {
+  // Fail closed. A configured secret ALWAYS requires a valid signature - a
+  // request that simply leaves the headers off is not a local-dev convenience.
+  // With no secret at all, only a local, non-production runtime may run unsigned.
+  const deployed = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
+  if (secret ? !svixSignature : deployed) {
+    return new Response("Forbidden", { status: 403 });
+  } else if (secret) {
     const verified = verifyResendWebhookSignature({
       rawBody: raw,
       headers: { id: svixId, timestamp: svixTimestamp, signature: svixSignature },

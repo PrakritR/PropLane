@@ -106,3 +106,24 @@ export async function requestPushPermission(): Promise<PushPermission> {
 export async function resendCachedToken(): Promise<void> {
   if (cachedToken) await saveToken(cachedToken.value, cachedToken.platform);
 }
+
+/**
+ * Release this device's push token for the account that is signing out, so the
+ * next person to sign in on a shared phone does not inherit its notifications.
+ * Best-effort: signing out never waits on, or fails because of, this.
+ */
+export async function releaseCachedPushToken(): Promise<void> {
+  if (!cachedToken) return;
+  const { value } = cachedToken;
+  cachedToken = null;
+  try {
+    await fetch("/api/native/register-push-token", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ token: value }),
+    });
+  } catch {
+    // Offline: the next sign-in re-registers the token to its new owner anyway.
+  }
+}

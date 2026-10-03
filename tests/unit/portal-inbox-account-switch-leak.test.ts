@@ -22,6 +22,8 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+import type { WorkspacePayload } from "@/lib/workspaces/types";
 import {
   MANAGER_INBOX_STORAGE_KEY,
   RESIDENT_INBOX_STORAGE_KEY,
@@ -115,5 +117,23 @@ describe("inbox cache is scoped to the viewer", () => {
     seedDemoInbox(MANAGER_INBOX_STORAGE_KEY, PRIVATE);
     setPortalSessionViewer("manager-a");
     expect(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])).toHaveLength(2);
+  });
+
+  it("S12: keys the cache by workspace too, so a workspace switch never shows the other workspace's rows", () => {
+    const selection = (id: string) => ({ workspaces: [], activeWorkspaceId: id }) as unknown as WorkspacePayload;
+    try {
+      setPortalSessionViewer("manager-a");
+      setWorkspaceSelection(selection("ws-1"));
+      seedDemoInbox(MANAGER_INBOX_STORAGE_KEY, PRIVATE);
+      expect(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])).toHaveLength(2);
+
+      setWorkspaceSelection(selection("ws-2"));
+      expect(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])).toEqual([]);
+
+      setWorkspaceSelection(selection("ws-1"));
+      expect(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])).toHaveLength(2);
+    } finally {
+      setWorkspaceSelection(null);
+    }
   });
 });

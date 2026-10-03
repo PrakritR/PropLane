@@ -507,6 +507,24 @@ describe("POST /api/webhooks/email/inbound", () => {
     expect(ingestSpy).not.toHaveBeenCalled();
   }, 45_000);
 
+  it("S12: a configured secret requires a signature even off Vercel", async () => {
+    process.env.RESEND_INBOUND_WEBHOOK_SECRET = SECRET;
+    const res = await post(JSON.stringify(RECEIVED_PAYLOAD), { "Content-Type": "application/json" });
+    expect(res.status).toBe(403);
+    expect(ingestSpy).not.toHaveBeenCalled();
+  });
+
+  it("S12: a production runtime with no secret is closed, not unsigned-open", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const res = await post(JSON.stringify(RECEIVED_PAYLOAD), { "Content-Type": "application/json" });
+      expect(res.status).toBe(403);
+      expect(ingestSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("rejects a bad signature on Vercel", async () => {
     process.env.VERCEL = "1";
     process.env.RESEND_INBOUND_WEBHOOK_SECRET = SECRET;

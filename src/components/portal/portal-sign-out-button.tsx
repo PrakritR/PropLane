@@ -25,6 +25,13 @@ export function PortalSignOutButton({ className, onSignedOut, dataAttr, onReques
     if (busy) return;
     setBusy(true);
     try {
+      // Release this device's push token while the session still proves who owns it.
+      try {
+        const { releaseCachedPushToken } = await import("@/lib/native/push-client");
+        await releaseCachedPushToken();
+      } catch {
+        /* best-effort: never blocks sign-out */
+      }
       const response = await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
       if (!response.ok) throw new Error("Could not sign out. Try again.");
       try {

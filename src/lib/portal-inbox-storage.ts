@@ -14,6 +14,7 @@ import {
   portalSessionViewerId,
 } from "@/lib/auth/portal-session-gate";
 import { trimmedText } from "@/lib/trimmed-text";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
@@ -215,7 +216,10 @@ let inboxViewerGeneration = 0;
  * a signed-in account's mail.
  */
 function viewerCacheKey(key: string): string {
-  return `${portalSessionViewerId() ?? "anon"}::${key}`;
+  // The workspace is part of the key: the server lists a different set of
+  // conversations per active workspace, so a switch must never be answered
+  // from the previous workspace's cache.
+  return `${portalSessionViewerId() ?? "anon"}::${selectedWorkspaceId() ?? "-"}::${key}`;
 }
 
 /** Drop every cached row when the account changes, so nothing outlives a sign-out. */

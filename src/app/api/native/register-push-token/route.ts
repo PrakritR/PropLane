@@ -52,3 +52,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+/**
+ * Releases a device push token when its owner signs out. Scoped to the caller's
+ * own token: a token that belongs to someone else is left exactly as it is.
+ */
+export async function DELETE(req: Request) {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    const body = (await req.json().catch(() => ({}))) as Body;
+    const token = body.token?.trim();
+    if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
+
+    const db = createSupabaseServiceRoleClient();
+    const { error } = await db
+      .from("device_push_tokens")
+      .update({ disabled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("token", token)
+      .eq("user_id", user.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to release token.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
