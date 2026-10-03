@@ -153,27 +153,33 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
 });
 
 describe("listed Preview header actions — source", () => {
-  it("ships listed Preview as ringed PortalIconAction view, pen, share, and delete in the title row (PLAN-0920-1058, area 1a)", () => {
-    const src = readFileSync(
+  it("ships listed Preview header as Edit, Share, Duplicate, Unlist, Delete — no View public (C2-PR2 / C2-PR14)", () => {
+    const registry = readFileSync(
+      resolve(process.cwd(), "src/lib/portals/record-sections.ts"),
+      "utf8",
+    );
+    const previewStart = registry.indexOf("sectionActions: {");
+    const previewBlock = registry.slice(previewStart, previewStart + 800);
+    expect(previewBlock).toContain('label: "Edit"');
+    expect(previewBlock).toContain('label: "Share"');
+    expect(previewBlock).toContain('label: "Duplicate property"');
+    expect(previewBlock).toContain('label: "Unlist"');
+    expect(previewBlock).toContain('label: "Delete"');
+    expect(previewBlock).not.toContain("View public");
+    expect(registry).not.toMatch(/icon: Eye/);
+
+    const panel = readFileSync(
       resolve(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
       "utf8",
     );
-    const listed = src.slice(src.indexOf("if (bucket === 2 && listingId)"), src.indexOf("if (bucket === 3)"));
-    expect(listed).toContain('label="View public"');
-    expect(listed).toContain('label="Edit"');
-    expect(listed).toContain('label="Share"');
-    expect(listed).toContain('label="Delete"');
-    expect(listed).toContain("icon={Eye}");
-    expect(listed).toContain("icon={Pencil}");
-    expect(listed).toContain("icon={Share2}");
-    expect(listed).toContain("icon={Trash2}");
-    // Every ringed header action goes through PortalIconAction, never a
-    // hand-rolled icon-only Button — the record page's own ring styling
-    // (40px circle, first one filled) lives in that one component.
-    expect(listed).toContain("<PortalIconAction");
-    expect(listed).not.toMatch(/<Button[^>]*aria-label="(View|Edit|Send|Unlist)"/);
-    expect(src).toContain('sourceBucket === 2 && (detailTabProp ?? "preview") === "preview"');
-    expect(src).toContain("?edit=1");
+    const footer = panel.slice(panel.indexOf("if (isListingPreview)"), panel.indexOf("return actions;"));
+    expect(footer).toContain('label="Edit"');
+    expect(footer).toContain('label="Share"');
+    expect(footer).toContain('label="Unlist"');
+    expect(footer).toContain("<PortalIconAction");
+    expect(footer).not.toContain('label="View public"');
+    expect(panel).toContain("onPropertyRecordHeaderAction");
+    expect(panel).toContain('case "duplicate"');
   });
 });
 
