@@ -4,7 +4,7 @@ import { type KeyboardEvent, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApplicationQuestionFields } from "@/components/portal/application-question-edit-modal";
+import { ApplicationQuestionFields, type ExtraQuestionType } from "@/components/portal/application-question-edit-modal";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import { isCustomFieldHiddenByCondition, isFileCustomFieldType } from "@/lib/rental-application/custom-fields";
 import {
@@ -181,7 +181,7 @@ export function ApplicationSectionPreviewPane({
   );
 }
 
-function BuilderQuestionCard({
+export function BuilderQuestionCard({
   field,
   allFields,
   expanded,
@@ -197,6 +197,9 @@ function BuilderQuestionCard({
   onMoveToSection,
   canEditBuiltIn,
   blockedTypes = [],
+  extraTypes = [],
+  sampleLabel = "Applicant sees",
+  hideSampleForTypes = [],
 }: {
   field: ResolvedApplicationField;
   /** Every question in the form (all sections), for "Show only if …" candidates. */
@@ -214,6 +217,12 @@ function BuilderQuestionCard({
   onMoveToSection: (sectionId: RentalApplicationSectionId) => void;
   canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
+  /** Types a host form adds beyond the application vocabulary (move-in forms: Photos, Signature). */
+  extraTypes?: readonly ExtraQuestionType[];
+  /** "Applicant sees" on applications, "Resident sees" on move-in forms. */
+  sampleLabel?: string;
+  /** Types the read-only sample cannot draw faithfully (a signature pad); the sample is left out for them. */
+  hideSampleForTypes?: readonly string[];
 }) {
   // Built-in and custom questions share order only where the applicant
   // renderer places their controls in the same ordered section.
@@ -289,7 +298,7 @@ function BuilderQuestionCard({
     <div onKeyDown={onKeyDown}>
       <PortalCollapsibleEditRow
         title={field.label.trim() || "Untitled question"}
-        subtitle={`${field.isStandard ? "Built-in" : "Custom"} · ${typeLabel(field.type)}${
+        subtitle={`${field.isStandard ? "Built-in" : "Custom"} · ${extraTypes.find((extra) => extra.id === field.type)?.label ?? typeLabel(field.type)}${
           field.required ? " · Required" : " · Optional"
         }`}
         expanded={expanded}
@@ -312,13 +321,16 @@ function BuilderQuestionCard({
           editableRequired={canEditBuiltIn?.(field, "required") ?? true}
           editableType={!field.isStandard}
           blockedTypes={blockedTypes}
+          extraTypes={extraTypes}
         />
-        <div className="border-t border-border/70 pt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
-          {/* The REAL applicant control, read-only — never a hand-drawn imitation, so the
-              builder preview and the real wizard can never drift (see the component doc). */}
-          <CustomQuestionField field={field} value="" onChange={() => {}} readOnly />
-        </div>
+        {hideSampleForTypes.includes(field.type) ? null : (
+          <div className="border-t border-border/70 pt-4">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{sampleLabel}</p>
+            {/* The REAL applicant control, read-only — never a hand-drawn imitation, so the
+                builder preview and the real wizard can never drift (see the component doc). */}
+            <CustomQuestionField field={field} value="" onChange={() => {}} readOnly />
+          </div>
+        )}
       </PortalCollapsibleEditRow>
     </div>
   );
