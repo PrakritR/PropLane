@@ -307,7 +307,7 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * their profile, scoped to the viewing manager's portfolio in the panel.
  */
 export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
-  potential: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services"),
+  potential: RESIDENT_DETAIL_TABS,
   current: RESIDENT_DETAIL_TABS,
   past: RESIDENT_DETAIL_TABS,
 };

@@ -526,10 +526,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
           ariaLabel="Inspection sections"
           onHeaderAction={onInspectionHeaderAction}
         >
-          <div className={recordTabId === "rooms" ? undefined : "hidden"}>{editor}</div>
-          {recordTabId === "rooms" ? null : recordTabId === "payments" ? (
-            <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
-          ) : recordTabId === "communication" ? (
+          {recordTabId === "communication" ? (
             renderRecordSection("communication", {
               role: "manager",
               kind: "inspection",
@@ -537,47 +534,35 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
               recordId: detail.report.id,
               recordLabel: kindLabel(detail.report.kind),
             })
-          ) : (() => {
-            const { done, total, issues } = inspectionRoomStats(detail.report.document);
-            const photos = inspectionPhotoCounts(detail.report.document);
-            const notStarted = total - done;
-            return renderRecordSection("overview", {
-              role: "manager",
-              kind: "inspection",
-              kindLabel: "report",
-              recordId: detail.report.id,
-              recordLabel: kindLabel(detail.report.kind),
-              overviewTiles: [
-                { id: "rooms", label: "Rooms", value: `${done} of ${total}`, detail: "done" },
-                { id: "issues", label: "Issues", value: String(issues), tone: issues > 0 ? "danger" : "default" },
-                { id: "photos", label: "Photos", value: String(photos.total) },
-                { id: "status", label: "Status", value: INSPECTION_STATUS_LABEL[detail.report.status] },
-              ],
-              overviewNeeds: [
-                ...(notStarted > 0 ? [{ id: "rooms-remaining", title: `${notStarted} room${notStarted === 1 ? "" : "s"} not started`, detail: "Finish the checklist" }] : []),
-                ...(issues > 0 ? [{ id: "issues", title: `${issues} issue${issues === 1 ? "" : "s"} to resolve`, detail: "Charge or note in Rooms" }] : []),
-              ],
-              overviewCards: [
-                {
-                  id: "home",
-                  title: "Home",
-                  rows: [
-                    { label: "Property", value: detail.report.property_label },
-                    { label: "Unit", value: inspectionRoomLabel(detail.report.room_label) || "—" },
-                    { label: "Resident", value: detail.report.resident_name },
-                    { label: "Type", value: kindLabel(detail.report.kind) },
-                  ],
-                },
-                {
-                  id: "payments",
-                  title: "Payments",
-                  kind: "rows",
-                  rows: [],
-                  emptyLabel: "No charges yet",
-                },
-              ],
-            });
-          })()}
+          ) : (
+            <div className="i29 flex flex-col gap-3.5 pb-7" data-er="inspection-overview">
+              {(() => {
+                const { done, total, issues } = inspectionRoomStats(detail.report.document);
+                const photos = inspectionPhotoCounts(detail.report.document);
+                return (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-2xl border border-border/80 bg-card px-4 py-3 text-sm">
+                      <span className="text-muted">Rooms</span>
+                      <p className="font-semibold">{done} of {total}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/80 bg-card px-4 py-3 text-sm">
+                      <span className="text-muted">Issues</span>
+                      <p className="font-semibold">{issues}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/80 bg-card px-4 py-3 text-sm">
+                      <span className="text-muted">Photos</span>
+                      <p className="font-semibold">{photos.total}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/80 bg-card px-4 py-3 text-sm">
+                      <span className="text-muted">Status</span>
+                      <p className="font-semibold">{INSPECTION_STATUS_LABEL[detail.report.status]}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+              {editor}
+            </div>
+          )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
     );
