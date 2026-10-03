@@ -417,6 +417,9 @@ export function PropertyHouseDetailsListPanel({
           pickTab("baths");
           setEditorOpen(false);
         }}
+        onOpenLinkedRoom={(roomId) => {
+          openEditor({ kind: "room", roomId });
+        }}
         houseInfo={houseInfo}
         managerNotes={managerNotes}
         onClose={() => setEditorOpen(false)}

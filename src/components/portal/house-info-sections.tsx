@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PortalTableExpandChevron } from "@/components/portal/portal-data-table";
+import { FactRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   HOUSE_INFO_SECTIONS,
   getHouseInfoValue,
@@ -216,17 +217,46 @@ function EditorSection({
   );
 }
 
+function HouseInfoRowFields({
+  spec,
+  info,
+  onChange,
+}: {
+  spec: HouseInfoSectionSpec;
+  info: HouseInfoV1;
+  onChange: (sectionId: HouseInfoSectionId, key: string, value: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card">
+      {spec.fields.map((field, index) => (
+        <FactRow key={field.key} first={index === 0} label={field.label}>
+          <div className="min-w-[150px] max-w-[280px]">
+            <FieldControl
+              spec={spec}
+              field={field}
+              info={info}
+              onChange={(key, value) => onChange(spec.id, key, value)}
+            />
+          </div>
+        </FactRow>
+      ))}
+    </div>
+  );
+}
+
 export function HouseInfoEditor({
   info,
   onChange,
   onOtherChange,
   sectionIds,
+  layout = "sections",
 }: {
   info: HouseInfoV1;
   onChange: (sectionId: HouseInfoSectionId, key: string, value: string) => void;
   onOtherChange: (value: string) => void;
   /** When set, only these sections render (single-section popup). */
   sectionIds?: readonly HouseInfoSectionId[];
+  layout?: "sections" | "rows";
 }) {
   const [showOptional, setShowOptional] = useState(
     () => !HOUSE_INFO_SECTIONS.every((spec) => !spec.optional || houseInfoSectionIsEmpty(info, spec)),
@@ -237,6 +267,16 @@ export function HouseInfoEditor({
     return !spec.optional || showOptional || !houseInfoSectionIsEmpty(info, spec);
   });
   const hiddenCount = HOUSE_INFO_SECTIONS.length - visible.length;
+
+  if (layout === "rows" && sectionIds?.length) {
+    return (
+      <div className="space-y-4">
+        {visible.map((spec) => (
+          <HouseInfoRowFields key={spec.id} spec={spec} info={info} onChange={onChange} />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2.5">

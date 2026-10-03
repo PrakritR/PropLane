@@ -13,7 +13,12 @@ import { HouseInfoEditor } from "@/components/portal/house-info-sections";
 import {
   bathroomDescriptionIsBlank,
   bathroomDescriptionMatches,
-  copyBathroomDescriptionFrom,
+  bathroomSetupIsBlank,
+  bathroomSetupMatches,
+  copyBathroomSetupFrom,
+  copySharedSpaceSetupFrom,
+  sharedSpaceSetupIsBlank,
+  sharedSpaceSetupMatches,
 } from "@/lib/listing-record-defaults";
 import {
   copyRoomDescriptionFrom,
@@ -48,6 +53,7 @@ export function PropertyHouseDetailsEditorModal({
   onClose,
   onSave,
   onGoToBathrooms,
+  onOpenLinkedRoom,
   busy,
 }: {
   open: boolean;
@@ -59,6 +65,7 @@ export function PropertyHouseDetailsEditorModal({
   managerNotes: string;
   onClose: () => void;
   onGoToBathrooms?: () => void;
+  onOpenLinkedRoom?: (roomId: string) => void;
   onSave: (next: {
     sub: ManagerListingSubmissionV1;
     houseInfo: HouseInfoV1;
@@ -132,7 +139,15 @@ export function PropertyHouseDetailsEditorModal({
     ...baths.filter((x) => x.id !== b.id).map((x) => ({ value: x.id, label: `Same as ${bathLabel(x, baths.indexOf(x))}` })),
   ];
   const sameAsBathValue = (b: ManagerBathroomSubmission) =>
-    bathroomDescriptionIsBlank(b) ? "" : baths.find((x) => x.id !== b.id && bathroomDescriptionMatches(x, b))?.id ?? "";
+    bathroomSetupIsBlank(b) ? "" : baths.find((x) => x.id !== b.id && bathroomSetupMatches(x, b))?.id ?? "";
+
+  const spaceLabel = (s: ManagerSharedSpaceSubmission, i: number) => s.name.trim() || `Shared space ${i + 1}`;
+  const sameAsSpaceOptions = (s: ManagerSharedSpaceSubmission) => [
+    { value: "", label: "Set for this space" },
+    ...spaces.filter((x) => x.id !== s.id).map((x) => ({ value: x.id, label: `Same as ${spaceLabel(x, spaces.indexOf(x))}` })),
+  ];
+  const sameAsSpaceValue = (s: ManagerSharedSpaceSubmission) =>
+    sharedSpaceSetupIsBlank(s) ? "" : spaces.find((x) => x.id !== s.id && sharedSpaceSetupMatches(x, s))?.id ?? "";
 
   return (
     <Modal
@@ -178,6 +193,7 @@ export function PropertyHouseDetailsEditorModal({
             storiesId={draftSub.listingStoriesId}
             sameAsOptions={sameAsRoomOptions(room)}
             sameAsValue={sameAsRoomValue(room)}
+            showSharedRoomConfig
             onSameAs={(otherId) => {
               const source = rooms.find((r) => r.id === otherId);
               if (!source) return;
@@ -209,10 +225,11 @@ export function PropertyHouseDetailsEditorModal({
             onSameAs={(otherId) => {
               const source = baths.find((b) => b.id === otherId);
               if (!source) return;
-              patchBath(bath.id, copyBathroomDescriptionFrom(source, bath));
+              patchBath(bath.id, copyBathroomSetupFrom(source, bath));
             }}
             onChange={(p) => patchBath(bath.id, p)}
             onPatchSubmission={(next) => setDraftSub(next)}
+            onOpenRoom={onOpenLinkedRoom}
           />
         </div>
       ) : null}
@@ -221,12 +238,18 @@ export function PropertyHouseDetailsEditorModal({
         <div className="rounded-2xl border border-border bg-card px-1 py-1" data-attr="property-house-details-space-editor">
           <ListingSharedSpaceEditorBody
             space={space}
-            who={space.name.trim() || "Shared space"}
+            who={spaceLabel(space, spaces.indexOf(space))}
             rooms={rooms}
             wholePlace={wholePlace}
             storiesId={draftSub.listingStoriesId}
             onChange={(p) => patchSpace(space.id, p)}
-            onDone={() => {}}
+            sameAsOptions={sameAsSpaceOptions(space)}
+            sameAsValue={sameAsSpaceValue(space)}
+            onSameAs={(otherId) => {
+              const source = spaces.find((s) => s.id === otherId);
+              if (!source) return;
+              patchSpace(space.id, copySharedSpaceSetupFrom(source, space));
+            }}
           />
         </div>
       ) : null}
@@ -235,6 +258,7 @@ export function PropertyHouseDetailsEditorModal({
         <HouseInfoEditor
           info={draftInfo}
           sectionIds={[target.sectionId]}
+          layout="rows"
           onChange={(sectionId, key, value) => {
             setDraftInfo((prev) => setHouseInfoValue(prev, sectionId, key, value));
           }}

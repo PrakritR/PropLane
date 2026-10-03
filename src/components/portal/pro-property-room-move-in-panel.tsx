@@ -23,7 +23,7 @@ import {
   updateExtraListingFromSubmission,
   updatePendingManagerProperty,
 } from "@/lib/demo-property-pipeline";
-import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1, ManagerRoomResidentMoveIn, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing, reconcileRoomResidentMoveIn } from "@/lib/manager-listing-submission";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
 
@@ -224,6 +224,28 @@ export function ManagerPropertyRoomMoveInPanel({
     }
   };
 
+  const saveMoveRoomResident = (roomId: string, slotIndex: number, entry: ManagerRoomResidentMoveIn) => {
+    const room = sub.rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    setMoveSaving(true);
+    const rows = [...(room.moveInResidentDetails ?? [])];
+    while (rows.length <= slotIndex) {
+      rows.push({ moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null });
+    }
+    rows[slotIndex] = entry;
+    const ok = persistSubmission(
+      {
+        ...sub,
+        rooms: sub.rooms.map((row) =>
+          row.id === roomId ? reconcileRoomResidentMoveIn({ ...row, moveInResidentDetails: rows }) : row,
+        ),
+      },
+      "Move-in details saved.",
+    );
+    setMoveSaving(false);
+    if (ok) setMoveEditorOpen(false);
+  };
+
   const saveMoveRoom = (roomId: string, patch: Partial<ManagerRoomSubmission>) => {
     const room = sub.rooms.find((r) => r.id === roomId);
     if (!room) return;
@@ -336,10 +358,11 @@ export function ManagerPropertyRoomMoveInPanel({
           ) : null}
 
           {activeMoveTab === "rooms"
-            ? roomIndices.map((index) => {
+            ? roomIndices.flatMap((index) => {
                 const room = sub.rooms[index]!;
                 const label = room.name.trim() || `Room ${index + 1}`;
-                return (
+                const capacity = room.occupancyCapacity ?? 1;
+                const rows = [
                   <PortalPropertyRecordRow
                     key={room.id}
                     title={label}
@@ -356,8 +379,40 @@ export function ManagerPropertyRoomMoveInPanel({
                         items={[{ id: "edit", label: "Edit", onSelect: () => openMoveEditor({ kind: "room", roomId: room.id }) }]}
                       />
                     }
-                  />
-                );
+                  />,
+                ];
+                if (capacity >= 2) {
+                  for (let slot = 0; slot < capacity; slot += 1) {
+                    const entry = room.moveInResidentDetails?.[slot];
+                    const residentLabel = `${label} · Resident ${slot + 1}`;
+                    rows.push(
+                      <PortalPropertyRecordRow
+                        key={`${room.id}-resident-${slot}`}
+                        title={residentLabel}
+                        summary={moveRowSummary(
+                          entry?.moveInInstructions ?? "",
+                          entry?.moveInPhotoDataUrls ?? [],
+                          entry?.moveInVideoDataUrl ?? null,
+                        )}
+                        onOpen={() => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot })}
+                        dataAttr={`property-move-in-resident-row-${room.id}-${slot}`}
+                        actions={
+                          <RowActionsMenu
+                            label={residentLabel}
+                            items={[
+                              {
+                                id: "edit",
+                                label: "Edit",
+                                onSelect: () => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot }),
+                              },
+                            ]}
+                          />
+                        }
+                      />,
+                    );
+                  }
+                }
+                return rows;
               })
             : null}
         </PortalRecordListSurface>
@@ -370,13 +425,14 @@ export function ManagerPropertyRoomMoveInPanel({
           housePhotos={housePhotos}
           houseVideo={houseVideo}
           room={
-            moveEditorTarget?.kind === "room"
+            moveEditorTarget?.kind === "room" || moveEditorTarget?.kind === "roomResident"
               ? sub.rooms.find((r) => r.id === moveEditorTarget.roomId) ?? null
               : null
           }
           onClose={() => setMoveEditorOpen(false)}
           onSaveHouse={saveMoveHouse}
           onSaveRoom={saveMoveRoom}
+          onSaveRoomResident={saveMoveRoomResident}
           busy={moveSaving}
           canEdit={canEdit}
           onError={showToast}

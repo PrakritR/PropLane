@@ -34,6 +34,8 @@ export type BathroomDefaults = {
 };
 export type BathroomInheritField = keyof BathroomDefaults;
 export const BATHROOM_INHERIT_FIELDS: readonly BathroomInheritField[] = ["location", "type", "amenitiesText", "detail", "photoDataUrls", "videoDataUrl"];
+/** Same as Bathroom X — layout, floor, finishes and description only (never media or room links). */
+export const BATHROOM_SAME_AS_FIELDS: readonly BathroomInheritField[] = ["location", "type", "amenitiesText", "detail"];
 
 export type SharedSpaceDefaults = {
   location: string;
@@ -146,6 +148,59 @@ export function copyBathroomDescriptionFrom(source: ManagerBathroomSubmission, t
   let next = target;
   for (const field of BATHROOM_INHERIT_FIELDS) next = writeBathroomField(next, field, bathroomFieldValue(source, field));
   return next;
+}
+
+/** Same as Bathroom X in the room / house-details editors (replica room-editor-0930). */
+export function copyBathroomSetupFrom(source: ManagerBathroomSubmission, target: ManagerBathroomSubmission): ManagerBathroomSubmission {
+  let next = target;
+  for (const field of BATHROOM_SAME_AS_FIELDS) next = writeBathroomField(next, field, bathroomFieldValue(source, field));
+  return next;
+}
+
+export function bathroomSetupMatches(a: ManagerBathroomSubmission, b: ManagerBathroomSubmission): boolean {
+  return BATHROOM_SAME_AS_FIELDS.every((field) => defaultValuesMatch(bathroomFieldValue(a, field), bathroomFieldValue(b, field)));
+}
+
+export function bathroomSetupIsBlank(bath: ManagerBathroomSubmission): boolean {
+  return BATHROOM_SAME_AS_FIELDS.every(
+    (field) => field === "type" || defaultValueIsUnset(bathroomFieldValue(bath, field)),
+  );
+}
+
+export function copySharedSpaceSetupFrom(
+  source: ManagerSharedSpaceSubmission,
+  target: ManagerSharedSpaceSubmission,
+): ManagerSharedSpaceSubmission {
+  return {
+    ...target,
+    spaceKind: source.spaceKind,
+    location: source.location,
+    amenitiesText: source.amenitiesText,
+    detail: source.detail,
+    sizeSqft: source.sizeSqft,
+    roomAccessIds: [...(source.roomAccessIds ?? [])],
+  };
+}
+
+export function sharedSpaceSetupMatches(a: ManagerSharedSpaceSubmission, b: ManagerSharedSpaceSubmission): boolean {
+  return (
+    (a.spaceKind ?? "") === (b.spaceKind ?? "") &&
+    (a.location ?? "") === (b.location ?? "") &&
+    (a.amenitiesText ?? "") === (b.amenitiesText ?? "") &&
+    (a.detail ?? "") === (b.detail ?? "") &&
+    (a.sizeSqft ?? 0) === (b.sizeSqft ?? 0) &&
+    JSON.stringify(a.roomAccessIds ?? []) === JSON.stringify(b.roomAccessIds ?? [])
+  );
+}
+
+export function sharedSpaceSetupIsBlank(space: ManagerSharedSpaceSubmission): boolean {
+  return (
+    defaultValueIsUnset(space.location) &&
+    defaultValueIsUnset(space.amenitiesText) &&
+    defaultValueIsUnset(space.detail) &&
+    !space.sizeSqft &&
+    !(space.roomAccessIds?.length)
+  );
 }
 
 /** Do two bathrooms describe the same bathroom — every {@link BATHROOM_INHERIT_FIELDS} field equal by value? */

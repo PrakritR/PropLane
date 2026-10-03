@@ -10,11 +10,12 @@ import {
   setHouseInfoValue,
   type HouseInfoV1,
 } from "@/lib/house-info";
-import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import type { ManagerRoomResidentMoveIn, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 
 export type MoveInEditorTarget =
   | { kind: "house" }
-  | { kind: "room"; roomId: string };
+  | { kind: "room"; roomId: string }
+  | { kind: "roomResident"; roomId: string; slotIndex: number };
 
 export function PropertyMoveInEditorModal({
   open,
@@ -27,6 +28,7 @@ export function PropertyMoveInEditorModal({
   onClose,
   onSaveHouse,
   onSaveRoom,
+  onSaveRoomResident,
   busy,
   canEdit,
   onError,
@@ -46,6 +48,7 @@ export function PropertyMoveInEditorModal({
     video: string | null;
   }) => void;
   onSaveRoom: (roomId: string, patch: Partial<ManagerRoomSubmission>) => void;
+  onSaveRoomResident?: (roomId: string, slotIndex: number, patch: ManagerRoomResidentMoveIn) => void;
   busy?: boolean;
   canEdit: boolean;
   onError: (message: string) => void;
@@ -63,11 +66,16 @@ export function PropertyMoveInEditorModal({
     setPhotos(housePhotos);
     setVideo(houseVideo);
     setRoomDraft(room);
-  }, [open, houseInfo, houseInstructions, housePhotos, houseVideo, room]);
+  }, [open, houseInfo, houseInstructions, housePhotos, houseVideo, room, target]);
 
   if (!target) return null;
 
-  const title = target.kind === "house" ? "The whole house" : room?.name.trim() || "Room";
+  const title =
+    target.kind === "house"
+      ? "The whole house"
+      : target.kind === "roomResident"
+        ? `${room?.name.trim() || "Room"} · Resident ${target.slotIndex + 1}`
+        : room?.name.trim() || "Room";
 
   return (
     <Modal
@@ -87,6 +95,13 @@ export function PropertyMoveInEditorModal({
             onClick={() => {
               if (target.kind === "house") {
                 onSaveHouse({ houseInfo: draftInfo, instructions: instr, photos, video });
+              } else if (target.kind === "roomResident" && roomDraft && onSaveRoomResident) {
+                const entry = roomDraft.moveInResidentDetails?.[target.slotIndex];
+                onSaveRoomResident(roomDraft.id, target.slotIndex, {
+                  moveInInstructions: entry?.moveInInstructions ?? "",
+                  moveInPhotoDataUrls: [...(entry?.moveInPhotoDataUrls ?? [])],
+                  moveInVideoDataUrl: entry?.moveInVideoDataUrl ?? null,
+                });
               } else if (roomDraft) {
                 onSaveRoom(roomDraft.id, {
                   moveInInstructions: roomDraft.moveInInstructions ?? "",
@@ -133,6 +148,49 @@ export function PropertyMoveInEditorModal({
           onInstructionsChange={(value) => setRoomDraft((r) => (r ? { ...r, moveInInstructions: value } : r))}
           onPhotosChange={(urls) => setRoomDraft((r) => (r ? { ...r, moveInPhotoDataUrls: urls } : r))}
           onVideoChange={(url) => setRoomDraft((r) => (r ? { ...r, moveInVideoDataUrl: url } : r))}
+          onError={onError}
+        />
+      ) : null}
+
+      {target.kind === "roomResident" && roomDraft ? (
+        <MoveInCardFields
+          instructions={roomDraft.moveInResidentDetails?.[target.slotIndex]?.moveInInstructions ?? ""}
+          photoDataUrls={roomDraft.moveInResidentDetails?.[target.slotIndex]?.moveInPhotoDataUrls ?? []}
+          videoDataUrl={roomDraft.moveInResidentDetails?.[target.slotIndex]?.moveInVideoDataUrl ?? null}
+          disabled={!canEdit}
+          onInstructionsChange={(value) =>
+            setRoomDraft((r) => {
+              if (!r) return r;
+              const rows = [...(r.moveInResidentDetails ?? [])];
+              while (rows.length <= target.slotIndex) {
+                rows.push({ moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null });
+              }
+              rows[target.slotIndex] = { ...rows[target.slotIndex]!, moveInInstructions: value };
+              return { ...r, moveInResidentDetails: rows };
+            })
+          }
+          onPhotosChange={(urls) =>
+            setRoomDraft((r) => {
+              if (!r) return r;
+              const rows = [...(r.moveInResidentDetails ?? [])];
+              while (rows.length <= target.slotIndex) {
+                rows.push({ moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null });
+              }
+              rows[target.slotIndex] = { ...rows[target.slotIndex]!, moveInPhotoDataUrls: urls };
+              return { ...r, moveInResidentDetails: rows };
+            })
+          }
+          onVideoChange={(url) =>
+            setRoomDraft((r) => {
+              if (!r) return r;
+              const rows = [...(r.moveInResidentDetails ?? [])];
+              while (rows.length <= target.slotIndex) {
+                rows.push({ moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null });
+              }
+              rows[target.slotIndex] = { ...rows[target.slotIndex]!, moveInVideoDataUrl: url };
+              return { ...r, moveInResidentDetails: rows };
+            })
+          }
           onError={onError}
         />
       ) : null}
