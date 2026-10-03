@@ -2,7 +2,7 @@
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Archive, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Info, Trash2 } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
@@ -177,6 +177,8 @@ export function ResidentDirectChatPane({
   smsUiEnabled,
   onSent,
   onArchive,
+  onRestore,
+  propertyLabel,
   onDelete,
   onBack,
   readSources = [],
@@ -196,6 +198,8 @@ export function ResidentDirectChatPane({
   onSent: () => void;
   /** Archive every thread folded into this person's conversation. */
   onArchive?: () => void | Promise<void>;
+  onRestore?: () => void | Promise<void>;
+  propertyLabel?: string;
   /** Delete every thread folded into this person's conversation. */
   onDelete?: () => void | Promise<void>;
   /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
@@ -967,17 +971,21 @@ export function ResidentDirectChatPane({
       <button
         type="button"
         className={INBOX_THREAD_ICON_BTN}
-        aria-label="Edit contact details"
-        title="Edit contact details"
+        aria-label="Contact information"
+        title="Contact information"
         data-attr="inbox-thread-contact-edit"
         onClick={() => {
           setContactEditError(null);
           setContactEditOpen(true);
         }}
       >
-        <Pencil className="h-4 w-4" aria-hidden />
+        <Info className="h-4 w-4" aria-hidden />
       </button>
-      {onArchive ? (
+      {onRestore ? (
+        <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Restore conversation" title="Restore" data-attr="inbox-thread-restore" onClick={() => onRestore()}>
+          <ArchiveRestore className="h-4 w-4" aria-hidden />
+        </button>
+      ) : onArchive ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN}
@@ -1033,7 +1041,7 @@ export function ResidentDirectChatPane({
     <>
     <InboxThreadView
       title={displayName}
-      subtitle={email || undefined}
+      subtitle={propertyLabel || undefined}
       avatarName={displayName}
       messages={messages}
       beforeMessages={projectionSummaries.some((resident) => projectionPages[resident.projectionId!]?.nextCursor) || projectionError ? (

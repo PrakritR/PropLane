@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Eraser, Pencil, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Info, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -2263,12 +2263,12 @@ export const ManagerInbox = forwardRef<
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
-      aria-label="Edit contact details"
-      title="Edit contact details"
+      aria-label="Contact information"
+      title="Contact information"
       data-attr="inbox-thread-contact-edit"
       onClick={openThreadPhone}
     >
-      <Pencil className="h-4 w-4" aria-hidden />
+      <Info className="h-4 w-4" aria-hidden />
     </button>
   ) : null;
 
@@ -2442,18 +2442,7 @@ export const ManagerInbox = forwardRef<
           <Archive className="h-4 w-4" aria-hidden />
         </button>
         ) : null}
-        {!activeIsAssistantThread ? (
-        <button
-          type="button"
-          className={INBOX_THREAD_ICON_BTN_DANGER}
-          aria-label="Delete conversation"
-          title="Delete"
-          data-attr="inbox-thread-delete"
-          onClick={() => deleteForever(activeThread.id)}
-        >
-          <Trash2 className="h-4 w-4" aria-hidden />
-        </button>
-        ) : onClearAssistant ? (
+        {activeIsAssistantThread && onClearAssistant ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN_DANGER}

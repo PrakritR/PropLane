@@ -1661,6 +1661,12 @@ export function ManagerUnifiedInbox({
       key={`${viewerId}:${workspaceIdentity.id}:${selectedRow?.key ?? ""}`}
       residentEmail={directChatEmail}
       residentName={placeholderContact?.name ?? selectedRow?.name}
+      propertyLabel={selectedRow?.address}
+      onRestore={selectedRow && listSegment === "archived" ? async () => {
+        const keys = [...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])];
+        await bulk.handleRestore(keys);
+        closeActiveThread();
+      } : undefined}
       smsResident={selectedSmsResidents[0] ?? null}
       smsResidents={selectedSmsResidents}
       smsUiEnabled={smsUiEnabled}
@@ -1689,9 +1695,7 @@ export function ManagerUnifiedInbox({
       onDelete={
         selectedRow && listSegment === "archived" && !isAssistantUnifiedInboxRow(selectedRow, emailThreads)
           ? async () => {
-              bulk.selection.clearSelection();
-              bulk.selection.toggleSelected(selectedRow.key);
-              await bulk.handleDelete();
+              await bulk.handleDelete([...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])]);
               closeActiveThread();
             }
           : selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)
