@@ -291,21 +291,10 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   payment: {
     basePathDefault: "/portal",
-    ownGroups: [
-      { label: "Payment", ids: [{ id: "overview", label: "Overview" }] },
-      { label: "Linked", ids: [
-        { id: "service", label: "Service" },
-        { id: "vendor", label: "Vendor" },
-        { id: "resident", label: "Resident" },
-      ] },
-    ],
-    headerActions: [
-      { id: "record-payment", label: "Record payment", icon: CreditCard },
-      { id: "send-reminder", label: "Send reminder", icon: Send },
-      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
-    ],
-    hasDocuments: true,
-    hasActivity: true,
+    ownGroups: [{ label: "", ids: [{ id: "overview", label: "Payment" }] }],
+    headerActions: [],
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const direction = ctx.direction ?? "incoming";
@@ -566,33 +555,19 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // fact cards (Contact, Services).
     ownGroups: [
       { label: "Vendor", ids: [
-        { id: "overview", label: "Overview" },
+        { id: "overview", label: "Vendor" },
         { id: "services", label: "Services" },
-        { id: "invoices", label: "Invoices" },
+        { id: "invoices", label: "Outgoing payments" },
         { id: "reviews", label: "Reviews" },
       ] },
     ],
     headerActions: [
       { id: "message", label: "Message", icon: Mail },
-      { id: "invite", label: "Invite", icon: UserPlus },
+      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "invite", label: "Send invite", icon: UserPlus },
       { id: "remove", label: "Remove", icon: UserMinus, tone: "danger" },
     ],
-    sectionActions: {
-      services: [
-        { id: "new-service", label: "New service", icon: Plus },
-        { id: "message", label: "Message", icon: Mail },
-      ],
-      invoices: [
-        { id: "approve-invoice", label: "Approve invoice", icon: CheckCircle2 },
-        { id: "export", label: "Export", icon: Download },
-      ],
-      communication: [{ id: "compose", label: "New message", icon: Mail }],
-      documents: [
-        { id: "upload", label: "Upload", icon: Upload },
-        { id: "download-all", label: "Download all", icon: Download },
-      ],
-    },
-    hasDocuments: true,
+    hasDocuments: false,
     hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";

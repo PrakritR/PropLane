@@ -1,3 +1,5 @@
+import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
+import { invoiceBelongsInOutgoing, outgoingInvoiceTotals } from "@/lib/manager-outgoing-invoices";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_STATUSES, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
@@ -56,13 +58,29 @@ export async function GET(req: Request) {
       }
     }
 
+    const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    const workIds = [...new Set(rows.map((row) => row.work_order_id).filter(Boolean))];
+    const services = new Map<string, { vendorUserId: string | null; title: string; propertyName: string; propertyId: string | null }>();
+    if (workIds.length) {
+      const { data: workRows, error: workError } = await auth.db.from("portal_work_order_records")
+        .select("id, vendor_user_id, property_id, row_data").eq("manager_user_id", auth.userId).in("id", workIds);
+      if (workError) return NextResponse.json({ error: workError.message }, { status: 500 });
+      for (const work of workRows ?? []) {
+        const detail = work.row_data as { title?: string; propertyName?: string } | null;
+        services.set(String(work.id), { vendorUserId: work.vendor_user_id, propertyId: work.property_id, title: detail?.title ?? "Service", propertyName: detail?.propertyName ?? "" });
+      }
+    }
     const invoices = rows.map((row) => ({
       ...mapVendorInvoiceRow(row),
+      serviceTitle: services.get(String(row.work_order_id))?.title,
+      propertyName: services.get(String(row.work_order_id))?.propertyName,
       vendorUserId: String(row.vendor_user_id ?? ""),
       vendorName: namesById.get(String(row.vendor_user_id ?? "")) ?? "Vendor",
     }));
 
-    return NextResponse.json({ invoices }, { headers: { "Cache-Control": "private, no-store" } });
+    const outgoing = invoices.filter((invoice) => rowAllowedInWorkspaceScope(scope, services.get(invoice.workOrderId ?? "")?.propertyId) && invoiceBelongsInOutgoing(invoice, services.get(invoice.workOrderId ?? "")?.vendorUserId ?? null));
+    const result = url.searchParams.get("outgoing") === "1" ? outgoing : invoices;
+    return NextResponse.json({ invoices: result, totals: outgoingInvoiceTotals(outgoing, new Date().getUTCFullYear()) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load vendor invoices.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -9,6 +9,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ManagerOutgoingInvoicesPanel } from "@/components/portal/manager-outgoing-invoices-panel";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalApplicantRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { VendorReviewDialog, type VendorReviewDialogRow } from "@/components/portal/vendor-review-dialog";
+import { Modal } from "@/components/ui/modal";
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
@@ -53,7 +60,7 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
-import { ArrowRight, BriefcaseBusiness, ChevronDown, ChevronUp, CircleDollarSign, Contact, Star, X } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp,  X } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
@@ -471,7 +478,7 @@ export function ManagerVendorDetail({
   onNavigate,
   detailHref,
   tab: tabProp,
-  extraNeedsYou = [],
+  extraNeedsYou: _extraNeedsYou = [],
   onEdit: _onEdit,
   onSendCheckInNow,
 }: {
@@ -488,6 +495,12 @@ export function ManagerVendorDetail({
   onSendCheckInNow?: (checkIn: VendorCheckIn) => Promise<void>;
 }) {
   const tab = tabProp ?? "overview";
+  const [serviceTab, setServiceTab] = useState("open");
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [reviewJob, setReviewJob] = useState<VendorReviewDialogRow | null>(null);
+  const [reviewPicker, setReviewPicker] = useState(false);
+  const [reviewServiceId, setReviewServiceId] = useState("");
+  const [reviewRevision, setReviewRevision] = useState(0);
   const [inboxTab, setInboxTab] = useState<"all" | "trash">("all");
   const messaging = useManagerMessagingNumberStatus();
   const smsAvailable = Boolean(messaging.status?.sendingAvailable && messaging.status?.number);
@@ -635,7 +648,7 @@ export function ManagerVendorDetail({
     return () => {
       cancelled = true;
     };
-  }, [tab, row.vendorUserId]);
+  }, [tab, row.vendorUserId, reviewRevision]);
 
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
@@ -681,16 +694,8 @@ export function ManagerVendorDetail({
         <h2 className="text-sm font-semibold">About</h2>
         <p className="mt-3 break-words text-sm text-foreground">{draft.notes.trim() || "—"}</p>
       </section>
-      <VendorPreferredForCard vendorId={row.id} vendorTrades={draft.trades} propertyOptions={propertyOptions} />
+      <section className="rounded-xl border border-border bg-card p-4"><h2 className="text-sm font-semibold">Your work together</h2>{fact("Completed services", String(summary?.completedJobCount ?? 0))}{fact(typicalJob.label, typicalJob.value)}</section>
     </div>
-  );
-
-  const overviewLink = (title: string, destination: VendorDetailTab) => (
-    <PortalIconAction
-      icon={ArrowRight}
-      label={`View ${title.toLowerCase()}`}
-      onClick={() => onNavigate(detailHref?.(destination) ?? vendorDetailHref(basePath, row.id, destination))}
-    />
   );
 
   return (
@@ -705,29 +710,7 @@ export function ManagerVendorDetail({
         </div>
       )}
 
-      {tab === "overview" ? (
-        <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-overview">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-attr="vendor-overview-metrics">
-            {[["Hourly", row.typicalRates?.[0]?.hourlyCents != null ? jobMoney(row.typicalRates[0].hourlyCents) : "—"], [typicalJob.label, typicalJob.value], ["Your completed jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—"], ["Your job ratings", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—"]].map(([label, value]) => (
-              <div key={label} className="rounded-xl border border-border bg-card p-3"><span className="block text-xs font-medium text-muted">{label}</span><strong className="mt-1 block text-base">{value}</strong></div>
-            ))}
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2" data-attr="vendor-overview-desktop" data-mobile-layout="390-compact">
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Contact className="size-4" aria-hidden />Profile</h2>{overviewLink("Profile", "profile")}</div>{fact("Trade", draft.trades.join(", "))}{fact("Work contact", draft.email || draft.phone)}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact(typicalJob.label, typicalJob.value)}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Services</h2>{overviewLink("Services", "services")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}{fact("Manager reviews", managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—")}</section>
-          </div>
-          {summaryState === "error" ? <p role="alert" className="text-sm text-destructive">Could not load vendor history.</p> : null}
-          {extraNeedsYou.length ? (
-            <div className="space-y-2" data-attr="vendor-needs-you">
-              {extraNeedsYou.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border bg-card px-3 py-2.5"><strong className="text-[13.5px]">{item.title}</strong></div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {tab === "overview" ? profileCards : null}
 
       {tab === "profile" ? profileCards : null}
 
@@ -743,7 +726,8 @@ export function ManagerVendorDetail({
         <div className="space-y-5 px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
           <section data-attr="vendor-detail-manager-reviews">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Manager reviews</h2>
+              <h2 className="text-sm font-semibold">Reviews</h2>
+              <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={!jobs.some(job => job.status === "completed" || job.status === "paid")} onClick={() => setReviewPicker(true)} />
               <span className="text-[13px] text-muted">
                 {managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—"}
               </span>
@@ -760,7 +744,7 @@ export function ManagerVendorDetail({
                   <li key={review.id} className="space-y-1 px-3 py-2.5 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <VendorReviewStarDisplay stars={review.stars} />
-                      <span className="text-[13px] text-muted">{review.reviewerLabel}</span>
+                      <span className="text-[13px] text-muted">{review.reviewerLabel} · {review.createdAt.slice(0, 10)}</span>
                     </div>
                     {review.body ? <p className="text-[13.5px]">{review.body}</p> : null}
                     {review.vendorReply ? (
@@ -824,57 +808,19 @@ export function ManagerVendorDetail({
         />
       ) : null}
 
-      {tab === "jobs" || tab === "services" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-services-list">
-          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading services…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load services.</p> : jobs.length === 0 ? (
-            <p className="py-8 text-center text-sm">No services assigned to {callName} yet.</p>
-          ) : (
-            <ul className="divide-y divide-border rounded-xl border border-border">
-              {jobs.map((job) => {
-                return (
-                  <li key={job.id}>
-                    <button type="button" className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" onClick={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} aria-label={`Open service ${job.title}`} data-attr="vendor-job-open">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-foreground">{job.title}</p>
-                      <p className="truncate text-[13px]">
-                        {[job.propertyName, job.unit].filter(Boolean).join(" · ")}
-                      </p>
-                      <p className="text-[13px]">Accepted quote {jobMoney(job.acceptedQuoteCents)} · Final invoice {jobMoney(job.finalInvoiceCents)} · Paid {jobMoney(job.paidCents)}</p>
-                    </div>
-                    <span className="shrink-0 text-[13px]">{job.status}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      ) : null}
+      {tab === "jobs" || tab === "services" ? <div data-attr="vendor-services-list">
+        <PortalListControlStack variant="command" stickyDestinations={false}
+          destinationRow={<ManagerPortalStatusPills tabs={[{ id: "open", label: "Open", count: openJobs.length }, { id: "done", label: "Done", count: jobs.length - openJobs.length }]} activeId={serviceTab} onChange={setServiceTab} />}
+          search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} />
+        <PortalRecordListSurface loading={summaryState === "loading"} loadError={summaryState === "error" ? "Could not load services." : undefined} onRetry={() => void refreshSummary(true)}>
+          {jobs.filter(job => (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") && [job.title, job.propertyName, job.unit].join(" ").toLowerCase().includes(serviceSearch.toLowerCase())).map(job =>
+            <PortalApplicantRecordRow key={job.id} name={job.title} address={[job.propertyName, job.unit].filter(Boolean).join(" · ")} facts={<span>{job.status}</span>} trailing={<span>{jobMoney(job.finalInvoiceCents)}</span>} onOpen={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} />)}
+        </PortalRecordListSurface>
+      </div> : null}
+      {tab === "invoices" ? row.vendorUserId ? <ManagerOutgoingInvoicesPanel vendorUserId={row.vendorUserId} basePath={basePath} /> : <p className="p-4 text-sm">No linked vendor account.</p> : null}
+      <Modal open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><label>Completed service<Select value={reviewServiceId} onChange={event => setReviewServiceId(event.target.value)}><option value="">Choose a service</option>{jobs.filter(job => job.status === "completed" || job.status === "paid").map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</Select></label><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></Modal>
+      <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />
 
-      {tab === "invoices" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-invoices-list">
-          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading invoices…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load invoices.</p> : jobs.filter((job) => job.finalInvoiceCents != null).length === 0 ? (
-            <p className="py-8 text-center text-sm">No invoices from {callName} yet.</p>
-          ) : (
-            <ul className="divide-y divide-border rounded-xl border border-border">
-              {jobs.filter((job) => job.finalInvoiceCents != null).map((job) => (
-                <li key={job.id}>
-                  <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" onClick={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} data-attr="vendor-invoice-open">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-foreground">{job.title}</p>
-                      <p className="truncate text-[13px]">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p>
-                    </div>
-                    <div className="shrink-0 text-right text-[13px]">
-                      <strong className="block">{jobMoney(job.finalInvoiceCents)}</strong>
-                      <span>{job.paidCents != null && job.paidCents >= (job.finalInvoiceCents ?? 0) ? "Paid" : "Pending"}</span>
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }

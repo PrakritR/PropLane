@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Receipt, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -52,7 +52,6 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { ManagerVendorDetail, type VendorDetailTab } from "@/components/portal/pro-vendor-detail";
-import { ManagerVendorPayoutsModal } from "@/components/portal/manager-vendor-payouts-panel";
 import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
 import { loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
@@ -167,7 +166,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [directoryAreaFilter, setDirectoryAreaFilter] = useState("");
   const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
   const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
-  const [payoutsOpen, setPayoutsOpen] = useState(false);
   // C272: "Add to your vendors" grants the directory vendor visibility into
   // this workspace's service requests — a confirm step names that before the
   // grant, rather than a silent one-click add.
@@ -615,7 +613,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           </ModalFooter>
         </div>
       </Modal>
-      <ManagerVendorPayoutsModal open={payoutsOpen} onClose={() => setPayoutsOpen(false)} />
       <ManagerVendorFormModal
         open={vendorFormOpen}
         mode={vendorFormMode}
@@ -746,6 +743,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     }
     const vendorTab = parseVendorDetailTab(vendorTabProp);
     const ownVendorTab: VendorDetailTab =
+      vendorTab === "services" ||
+      vendorTab === "invoices" ||
       vendorTab === "pricing" ||
       vendorTab === "reviews" ||
       vendorTab === "overview" ||
@@ -755,34 +754,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         ? vendorTab
         : "overview";
     const baseSections = recordSections("manager", "vendor", { basePath });
-    // Item 3a: hide the Services/Invoices/Reviews tabs when this vendor has
-    // zero rows for them — never hide "overview", and never filter before the
-    // counts have actually loaded (avoids a flash of a tab disappearing).
-    const routeVendorJobs = routeVendorSummary?.jobs ?? [];
-    const servicesCount = routeVendorJobs.length;
-    const invoicesCount = routeVendorJobs.filter((job) => job.finalInvoiceCents != null).length;
-    const reviewsCount =
-      (routeVendor.vendorUserId ? (reviewAggregatesByVendorUserId[routeVendor.vendorUserId]?.count ?? 0) : 0) +
-      routeVendorJobs.filter((job) => job.residentRating != null).length;
-    const sections =
-      routeVendorSummaryState === "ready"
-        ? {
-            ...baseSections,
-            groups: baseSections.groups.map((group) => ({
-              ...group,
-              items: group.items.filter((item) => {
-                if (item.id === "services") return servicesCount > 0;
-                if (item.id === "invoices") return invoicesCount > 0;
-                if (item.id === "reviews") return reviewsCount > 0;
-                return true;
-              }),
-            })),
-          }
-        : baseSections;
+    const sections = baseSections;
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
         return;
+      }
+      if (actionId === "edit") {
+        setVendorFormMode("edit"); setEditingVendor(routeVendor); setVendorFormOpen(true); return;
       }
       if (actionId === "invite") {
         void openVendorInvitePreview(routeVendor);
@@ -1314,12 +1293,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           data-attr="vendor-directory-filter-toggle"
         />
       ) : null}
-      <PortalIconAction
-        label="Payouts"
-        icon={Receipt}
-        onClick={() => setPayoutsOpen(true)}
-        data-attr="vendor-payouts-open"
-      />
       <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
     </>
   );
