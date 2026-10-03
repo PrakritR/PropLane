@@ -10,6 +10,7 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
   if (entry.bookingStatus === "cancelled" || entry.statusLabel?.toLowerCase() === "cancelled") return "Cancelled";
   if (entry.source === "airbnb") return "Airbnb";
   if (entry.source === "booking_com") return "Booking.com";
+  if (entry.source === "vrbo") return "Vrbo";
   if (!entry.openEnded && entry.end < today) return "Checked out";
   if ((entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed")) return entry.start <= today ? "In-house" : "Confirmed";
   const kind = occupancyStayKind(entry);
@@ -18,7 +19,7 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
   return entry.start <= today ? "In-house" : "Confirmed";
 }
 export function calendarStatusClass(status: string): string {
-  if (status === "Airbnb" || status === "Booking.com") return "bg-[#9a4b1a] text-white";
+  if (status === "Airbnb" || status === "Booking.com" || status === "Vrbo") return "bg-[#9a4b1a] text-white";
   if (status === "Hold") return "border border-dashed border-amber-600 bg-amber-100 text-amber-900";
   if (status === "Confirmed") return "bg-[#3d7d46] text-white";
   if (status === "In-house") return "bg-primary text-white";

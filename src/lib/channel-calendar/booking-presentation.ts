@@ -1,4 +1,4 @@
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { roomHeadlineAmount, roomHeadlinePriceLabel } from "@/lib/room-pricing";
 import { dateKey } from "@/lib/room-availability-calendar";
@@ -23,5 +23,5 @@ export function canCancelBooking(entry: PropertyBookingEntry, today = dateKey(ne
 }
 /** A reservation read from a channel calendar feed: it can be removed (tombstoned), never edited or cancelled here. */
 export function canRemoveChannelStay(entry: PropertyBookingEntry): boolean {
-  return (entry.source === "airbnb" || entry.source === "booking_com") && !entry.blockId && Boolean(entry.connectionId) && Boolean(entry.sourceUid);
+  return isChannelBookingSource(entry.source) && !entry.blockId && Boolean(entry.connectionId) && Boolean(entry.sourceUid);
 }

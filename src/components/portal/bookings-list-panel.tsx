@@ -9,7 +9,7 @@ import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
   bookingEntryKey,
@@ -29,7 +29,7 @@ const LIST_TABS: { id: BookingsListTabId; label: string }[] = [
 ];
 
 function guestName(entry: PropertyBookingEntry): string {
-  return entry.source === "airbnb" || entry.source === "booking_com"
+  return isChannelBookingSource(entry.source)
     ? bookingGuestLabel(entry.summary, entry.source)
     : entry.summary;
 }
@@ -109,7 +109,7 @@ export function ManagerBookingsListPanel({
               label={name}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
               onView={() => navigate(href)}
-              onEditDates={entry.source !== "airbnb" && entry.source !== "booking_com" ? () => navigate(href) : undefined}
+              onEditDates={!isChannelBookingSource(entry.source) ? () => navigate(href) : undefined}
             >
               {/* The overflow provides the row's ⋯; the card draws it in the
                   selection slot (a no-op onSelectedChange), so there is one

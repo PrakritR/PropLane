@@ -17,7 +17,14 @@ import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
  * room is spoken for, not let. `block` — a manager's explicit "not available"
  * range with a reason, reversible from the day detail.
  */
-export type BookingSource = "airbnb" | "booking_com" | "proplane" | "hold" | "block";
+export type BookingSource = "airbnb" | "booking_com" | "vrbo" | "proplane" | "hold" | "block";
+
+/** The sources a channel calendar feed brings in (everything that is neither PropLane's own nor a manager block). */
+export type ChannelBookingSource = "airbnb" | "booking_com" | "vrbo";
+
+export function isChannelBookingSource(source: BookingSource): source is ChannelBookingSource {
+  return source === "airbnb" || source === "booking_com" || source === "vrbo";
+}
 
 export type PropertyBookingEntry = {
   source: BookingSource;
@@ -321,7 +328,7 @@ export function airbnbBookingEntries(
         const start = normalizeBookingDateKey(range.start);
         if (!start) continue;
         out.push({
-          source: room.provider === "booking_com" ? "booking_com" : "airbnb",
+          source: room.provider,
           propertyId: property.propertyId,
           propertyLabel: property.propertyLabel,
           roomId: room.roomId,

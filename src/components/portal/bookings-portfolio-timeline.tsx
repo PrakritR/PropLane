@@ -4,7 +4,7 @@ import { Fragment, useSyncExternalStore, useState, type ReactNode } from "react"
 import { ArrowUpRight, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import Link from "next/link";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
@@ -57,10 +57,10 @@ function BookingBar({ entry, today, children, className, style, onEdit }: { entr
   const status = calendarStatus(entry, today);
   const checkout = bookingCheckout(entry);
   return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${entry.summary}, ${status}`}>
-    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : ""}{entry.residentName || entry.summary}</span>{children}
+    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : ""}{entry.residentName || entry.summary}</span>{children}
   </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
     <div className="grid gap-2 p-3 text-sm"><strong>{entry.residentName || entry.summary}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
-    {onEdit && entry.source !== "airbnb" && entry.source !== "booking_com" ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
+    {onEdit && !isChannelBookingSource(entry.source) ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
     <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>
   </DropdownMenuContent></DropdownMenu>;
 }

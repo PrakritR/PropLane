@@ -13,7 +13,7 @@ function isAuthorized(req: Request): boolean {
   return req.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 
-/** Pull every saved Airbnb / Booking.com import URL on a schedule. */
+/** Pull every saved Airbnb / Booking.com / Vrbo import URL on a schedule. */
 export async function GET(req: Request) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

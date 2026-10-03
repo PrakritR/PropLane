@@ -67,7 +67,7 @@ function stubFetch() {
 }
 
 describe("Bookings → Settings", () => {
-  it("calendar popover opens the Connect Airbnb editor", async () => {
+  it("Link calendars opens the Connect a channel chooser", async () => {
     stubFetch();
     const view = render(
       <AppUiProvider>
@@ -83,7 +83,8 @@ describe("Bookings → Settings", () => {
     fireEvent.click(linkCalendars!);
     await settle();
 
-    expect(document.body.textContent ?? "").toContain("Connect Airbnb");
+    expect(document.body.textContent ?? "").toContain("Connect a channel");
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-choose-vrbo"]')).not.toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();

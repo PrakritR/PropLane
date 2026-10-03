@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MoreHorizontal, Sheet, House, Building2, CalendarArrowUp, Share2 } from "lucide-react";
+import { MoreHorizontal, Sheet, House, Building2, Palmtree } from "lucide-react";
 
 import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
-import { ExportBookingCalendarDialog } from "@/components/portal/export-booking-calendar-dialog";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -78,16 +77,15 @@ export function ManagerSheetLinkPanel() {
   const activeWorkspace = workspaceCtx?.active ?? null;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [channelOpen, setChannelOpen] = useState<ChannelCalendarProvider | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [channelRooms, setChannelRooms] = useState<Record<ChannelCalendarProvider, number | null>>({ airbnb: null, booking_com: null });
+  const [channelRooms, setChannelRooms] = useState<Record<ChannelCalendarProvider, number | null>>({ airbnb: null, booking_com: null, vrbo: null });
   const propertyKey = (activeWorkspace?.propertyIds ?? []).join(",");
   const loadChannels = useCallback(async () => {
     const ids = propertyKey.split(",").filter(Boolean);
-    if (!ids.length) { setChannelRooms({ airbnb: 0, booking_com: 0 }); return; }
+    if (!ids.length) { setChannelRooms({ airbnb: 0, booking_com: 0, vrbo: 0 }); return; }
     try {
       const properties = await fetchManagerChannelBookings(ids);
       const count = (provider: ChannelCalendarProvider) => new Set(properties.flatMap((p) => p.rooms.filter((r) => r.provider === provider && r.hasImportUrl).map((r) => `${p.propertyId}:${r.roomId}`))).size;
-      setChannelRooms({ airbnb: count("airbnb"), booking_com: count("booking_com") });
+      setChannelRooms({ airbnb: count("airbnb"), booking_com: count("booking_com"), vrbo: count("vrbo") });
     }
     catch { showToast("Could not load channel connections."); }
   }, [propertyKey, showToast]);
@@ -355,18 +353,14 @@ export function ManagerSheetLinkPanel() {
           <DropdownMenuItem className="text-danger" onSelect={() => { void removeLink(link); }}>Remove</DropdownMenuItem>
           </DropdownMenuContent></DropdownMenu></div>
         </PortalSettingsRow>)}
-        {([["airbnb", "Airbnb", House, "text-rose-500"], ["booking_com", "Booking.com", Building2, "text-blue-600"]] as const).map(([provider, name, Icon, tone]) => {
+        {([["airbnb", "Airbnb", House, "text-rose-500"], ["booking_com", "Booking.com", Building2, "text-blue-600"], ["vrbo", "Vrbo", Palmtree, "text-indigo-600"]] as const).map(([provider, name, Icon, tone]) => {
           const rooms = channelRooms[provider];
           return <PortalSettingsRow key={provider} label={<span className="flex items-center gap-3"><Icon className={`h-5 w-5 ${tone}`} />{name}</span>}>
             <div className="flex items-center gap-2"><span className="text-xs text-muted" data-attr={`settings-${provider}-status`}>{rooms ? `Connected · ${rooms} ${rooms === 1 ? "room" : "rooms"}` : ""}</span><Button variant="ghost" data-attr={`settings-${provider}-manage`} onClick={() => setChannelOpen(provider)}>{rooms ? "Manage" : "Connect"}</Button></div>
           </PortalSettingsRow>;
         })}
-        <PortalSettingsRow label={<span className="flex items-center gap-3"><CalendarArrowUp className="h-5 w-5 text-primary" />Export booking calendar</span>}>
-          <PortalIconAction icon={Share2} label="Export booking calendar" data-attr="settings-export-booking-calendar" onClick={() => setExportOpen(true)} />
-        </PortalSettingsRow>
       </PortalSettingsGroup>
       <ChannelCalendarLinkModal open={channelOpen !== null} onClose={() => setChannelOpen(null)} initialProvider={channelOpen ?? undefined} propertyIds={activeWorkspace?.propertyIds ?? []} propertyOptions={propertyOptions} showToast={showToast} onChanged={() => { void loadChannels(); }} />
-      <ExportBookingCalendarDialog open={exportOpen} onClose={() => setExportOpen(false)} propertyOptions={propertyOptions} showToast={showToast} />
       <PortalDialog open={Boolean(editingId)} onClose={() => setEditingId(null)} title="Spreadsheet settings" primaryAction={null}>
 
       {links.filter((link) => link.id === editingId).map((link) => (

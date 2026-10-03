@@ -1,4 +1,4 @@
-import { bookedDayKeyCountInMonth, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { bookedDayKeyCountInMonth, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
 import { applicationDetailHref, leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
 
@@ -214,6 +214,7 @@ export function bookingSourceDotClass(source: PropertyBookingEntry["source"]): s
       return "bg-primary";
     case "airbnb":
     case "booking_com":
+    case "vrbo":
       return "bg-[var(--status-pending-fg)]";
     case "hold":
       return "bg-[var(--status-confirmed-fg)]";
@@ -228,6 +229,7 @@ export function bookingSourceBadgeTone(
   switch (source) {
     case "airbnb":
     case "booking_com":
+    case "vrbo":
       return "pending";
     case "hold":
       return "confirmed";
@@ -252,7 +254,7 @@ export function bookingOpenTarget(
   if (entry.source === "proplane" && entry.leaseId) {
     return { href: leaseDetailHref(basePath, "manager", entry.leaseId), label: "Open lease" };
   }
-  if (entry.source === "airbnb" || entry.source === "booking_com") {
+  if (isChannelBookingSource(entry.source)) {
     return { href: propertyDetailHref(basePath, "all", entry.propertyId, "preview"), label: "Open listing" };
   }
   return null;
@@ -281,6 +283,8 @@ export function bookingSourceLabel(source: PropertyBookingEntry["source"]): stri
       return "Airbnb";
     case "booking_com":
       return "Booking.com";
+    case "vrbo":
+      return "Vrbo";
     case "hold":
       return "Hold";
     case "block":
@@ -293,7 +297,7 @@ export function bookingSourceLabel(source: PropertyBookingEntry["source"]): stri
 export function bookingStatusTone(
   entry: PropertyBookingEntry,
 ): "confirmed" | "pending" | "info" {
-  if (entry.source === "airbnb" || entry.source === "booking_com") return "pending";
+  if (isChannelBookingSource(entry.source)) return "pending";
   const status = entry.statusLabel?.toLowerCase() ?? "";
   if (status.includes("sign") || status.includes("pending") || status.includes("draft")) {
     return "pending";

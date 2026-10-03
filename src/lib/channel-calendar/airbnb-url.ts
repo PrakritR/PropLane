@@ -5,6 +5,9 @@ import {
 
 const AIRBNB_ICAL_HOSTS = new Set(["www.airbnb.com", "airbnb.com", "www.airbnb.ca", "airbnb.ca"]);
 const BOOKING_ICAL_HOSTS = new Set(["ical.booking.com", "admin.booking.com"]);
+const VRBO_ICAL_HOSTS = new Set(["vrbo.com", "www.vrbo.com", "homeaway.com", "www.homeaway.com"]);
+/** Vrbo's export is /icalendar/<token>.ics, optionally followed by a query such as ?nonTentative. */
+const VRBO_ICAL_PATH = /^\/icalendar\/[A-Za-z0-9_-]+\.ics$/i;
 
 /** Channel calendar export URLs only — rejects arbitrary fetch targets. */
 /**
@@ -36,7 +39,9 @@ export function parseChannelCalendarProvider(raw: unknown): ChannelCalendarProvi
 }
 
 export function channelCalendarProviderLabel(provider: ChannelCalendarProvider): string {
-  return provider === "booking_com" ? "Booking.com" : "Airbnb";
+  if (provider === "booking_com") return "Booking.com";
+  if (provider === "vrbo") return "Vrbo";
+  return "Airbnb";
 }
 
 function parseHttpsUrl(raw: string): URL | null {
@@ -68,13 +73,25 @@ export function isValidBookingComImportUrl(raw: string): boolean {
   return path.includes("/ical");
 }
 
+export function isValidVrboImportUrl(raw: string): boolean {
+  const url = parseHttpsUrl(raw);
+  if (!url) return false;
+  if (!VRBO_ICAL_HOSTS.has(url.hostname.toLowerCase())) return false;
+  return VRBO_ICAL_PATH.test(url.pathname);
+}
+
 export function isValidChannelImportUrl(provider: ChannelCalendarProvider, raw: string): boolean {
-  return provider === "booking_com" ? isValidBookingComImportUrl(raw) : isValidAirbnbImportUrl(raw);
+  if (provider === "booking_com") return isValidBookingComImportUrl(raw);
+  if (provider === "vrbo") return isValidVrboImportUrl(raw);
+  return isValidAirbnbImportUrl(raw);
 }
 
 export function channelImportUrlErrorMessage(provider: ChannelCalendarProvider): string {
   if (provider === "booking_com") {
     return "That is not a Booking.com calendar link. In Booking.com go to Rates & Availability → Sync calendars → Skip to export, and paste the https://ical.booking.com/v1/export?t=… URL.";
+  }
+  if (provider === "vrbo") {
+    return "That is not a Vrbo calendar link. In Vrbo go to Calendar → Import & export → Export calendar, and paste the https://www.vrbo.com/icalendar/….ics URL.";
   }
   return "That is not an Airbnb calendar link. In Airbnb go to Calendar → Availability → Connect calendars → Export calendar, and paste the https://www.airbnb.com/calendar/ical/… URL.";
 }

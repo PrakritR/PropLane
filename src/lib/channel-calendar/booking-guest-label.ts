@@ -1,10 +1,10 @@
 /** User-facing label for an imported channel event summary. */
 export function bookingGuestLabel(
   summary: string | null | undefined,
-  source: "airbnb" | "booking_com" = "airbnb",
+  source: "airbnb" | "booking_com" | "vrbo" = "airbnb",
 ): string {
   const raw = summary?.trim() ?? "";
-  const channel = source === "booking_com" ? "Booking.com" : "Airbnb";
+  const channel = source === "booking_com" ? "Booking.com" : source === "vrbo" ? "Vrbo" : "Airbnb";
   const fallback = `Booked (${channel})`;
   if (!raw) return fallback;
   const lower = raw.toLowerCase();
@@ -18,7 +18,7 @@ export function bookingGuestLabel(
 export function bookingGuestShortLabel(
   summary: string | null | undefined,
   maxLen = 10,
-  source: "airbnb" | "booking_com" = "airbnb",
+  source: "airbnb" | "booking_com" | "vrbo" = "airbnb",
 ): string {
   const label = bookingGuestLabel(summary, source);
   if (label.length <= maxLen) return label;

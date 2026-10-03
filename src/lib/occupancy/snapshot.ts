@@ -208,7 +208,7 @@ export function dayStayDisplayName(entry: Pick<PropertyBookingEntry, "source" | 
   const named = entry.residentName?.trim();
   if (named) return named;
   const raw = entry.summary?.trim() ?? "";
-  if (!raw) return entry.source === "booking_com" ? "Booked (Booking.com)" : "Booked (Airbnb)";
+  if (!raw) return entry.source === "booking_com" ? "Booked (Booking.com)" : entry.source === "vrbo" ? "Booked (Vrbo)" : "Booked (Airbnb)";
   return raw;
 }
 
