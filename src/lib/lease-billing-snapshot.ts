@@ -25,6 +25,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { resolveStayPricing } from "@/lib/room-pricing";
+import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
 
 /** One monthly fee's prorated line, as the ledger bills it. */
@@ -266,14 +267,21 @@ export function buildLeaseBillingSnapshot(
   const placementCharges = chargesForPlacement(applicant.email ?? "", placement.propertyId, managerUserId, applicant.id);
   const charges = placementCharges.filter((c) => !chargeIsSettled(c));
   const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
-  const sub = listing?.listingSubmission?.v === 1
+  const listingSub = listing?.listingSubmission?.v === 1
     ? normalizeManagerListingSubmissionV1(listing.listingSubmission) : undefined;
   const isShortTerm = applicant.application?.rentalType === "short_term";
-  const selectedRoom = resolveSubmissionRoom(sub, {
+  const roomLookup = {
     roomChoices: [applicant.assignedRoomChoice, applicant.application?.roomChoice1],
     unitLabel: listing?.unitLabel ?? applicant.manualResidentDetails?.roomNumber,
     signedMonthlyRent: applicant.signedMonthlyRent,
-  });
+  };
+  const selectedRoom = resolveSubmissionRoom(listingSub, roomLookup);
+  // The listing as THIS room's tenancy bills it (the room's surcharges and its Lease fee for
+  // this lease's term) - the same overlay the lease document and the charge ledger apply.
+  const sub = submissionWithApplicationRoomFees(listingSub, { ...roomLookup, bundleId: applicant.application?.bundleId }, {
+    leaseTerm: applicant.application?.leaseTerm,
+    rentalType: applicant.application?.rentalType,
+  }) ?? undefined;
   const pricing = resolveStayPricing({
     room: selectedRoom, submission: sub,
     application: { ...applicant.application, signedMonthlyRent: applicant.signedMonthlyRent },

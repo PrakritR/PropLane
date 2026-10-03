@@ -29,11 +29,15 @@ import {
   type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
 import {
-  CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
-import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import { listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import {
+  feeVisibilityForTerms,
+  roomFeeTermScope,
+  roomPricingFeeVisibility,
+} from "@/lib/room-term-fees";
 import {
   termPriceFieldText,
   writeRoomTermPrice,
@@ -204,8 +208,23 @@ export function PropertyRoomPricingWorkspace({
       ),
     [leaseTerms],
   );
-  const allowM2m = leaseTerms.includes("Month-to-Month");
-  const allowCustomStart = leaseTerms.includes(CUSTOM_LEASE_TERM);
+  /*
+   * Month-to-month surcharge, Custom start surcharge and Partial months follow what is
+   * OFFERED: the room's own Leases offered when it restricts them, else the listing's.
+   * (A lease can start mid-month only on Custom, so Partial months rides with it.)
+   */
+  const feeVisibility = useMemo(
+    () =>
+      subject.kind === "room"
+        ? roomPricingFeeVisibility(
+            draft,
+            draft.rooms.find((r) => r.id === subject.roomId),
+          )
+        : feeVisibilityForTerms(listingPricingLeaseTabs(draft)),
+    [draft, subject],
+  );
+  const allowM2m = feeVisibility.monthToMonthSurcharge;
+  const allowCustomStart = feeVisibility.customStartSurcharge;
   const steps: AddWorkspaceStep[] = useMemo(() => {
     const out: AddWorkspaceStep[] = [];
     if (subject.kind === "bundle") {
@@ -267,6 +286,8 @@ export function PropertyRoomPricingWorkspace({
   const activeTerm =
     activeStepId === "bundle" ? LONG_TERM_LEASE_TERM : activeStepId;
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
+  /** Lease fee / Application fee are set per step: Short term has its own, every other step is the shared (long-term) value. */
+  const feeScope = roomFeeTermScope(quoteTerm);
 
   const jumpStep = (index: number) => {
     setSlideDir(index > step ? 1 : index < step ? -1 : 0);
@@ -388,6 +409,7 @@ export function PropertyRoomPricingWorkspace({
                         onPatch={(feePatch) => updateRoom(room.id, mergePrivateArrangementRow(room, feePatch))}
                         showMonthToMonth={false}
                         showCustomStart={false}
+                        scope={feeScope}
                       />
                     </>
                   )
@@ -398,7 +420,7 @@ export function PropertyRoomPricingWorkspace({
                     sub={draft}
                     patch={patch}
                     term={quoteTerm}
-                    prorate={isBaseLong}
+                    prorate={isBaseLong && feeVisibility.partialMonths}
                     showResidentsCapacity
                     showMonthToMonthSurcharge={allowM2m && isBaseLong}
                     showCustomStartSurcharge={allowCustomStart && isBaseLong}
@@ -633,6 +655,7 @@ export function PropertyRoomPricingWorkspace({
                     onPatch={(feePatch) => patchWholeFees(feePatch)}
                     showMonthToMonth={false}
                     showCustomStart={false}
+                    scope="short"
                   />
                 </>
               ) : (

@@ -32,6 +32,13 @@ export type RoomOccupancyPrice = {
   moveInFee?: string;
   monthToMonthSurcharge?: string;
   customStartSurcharge?: string;
+  /**
+   * Short-term step's own Lease fee / Application fee (property Pricing popup).
+   * Absent means the short-term stay pays the shared value above, so every row
+   * saved before these existed reads exactly as it did (`src/lib/room-term-fees.ts`).
+   */
+  shortTermLeaseFee?: string;
+  shortTermApplicationFee?: string;
   /** Nightly rate for this arrangement on short-term stays (property Pricing popup). */
   shortTermRent?: string;
 };
@@ -117,6 +124,8 @@ export function normalizeOccupancyPrices(
       "moveInFee",
       "monthToMonthSurcharge",
       "customStartSurcharge",
+      "shortTermLeaseFee",
+      "shortTermApplicationFee",
     ] as const) {
       const rawMoney = (row as RoomOccupancyPrice)[key];
       if (typeof rawMoney === "string" && rawMoney.trim()) next[key] = rawMoney.trim();

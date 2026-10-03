@@ -26,6 +26,8 @@ import {
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import { leaseCss } from "@/lib/lease-templates/types";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
+import { shouldBillCustomLeaseSurcharge, shouldBillMonthToMonthSurcharge } from "@/lib/custom-lease-billing";
+import { resolveApplicationRoomTermFees } from "@/lib/room-term-fees";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import {
   jurisdictionConfig,
@@ -318,10 +320,25 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
         : pricing.monthlyRate;
   const rateLabel =
     pricing.basis === "daily" ? "Daily rate" : pricing.basis === "weekly" ? "Weekly rent" : "Monthly rent";
+  // The room's own fees for THIS lease's term, from the resolver the Pricing popup's
+  // receipt reads - a fee the manager did not set prints nothing.
+  const roomFees = resolveApplicationRoomTermFees(
+    sub,
+    { roomChoices: [a.roomChoice1], unitLabel: prop?.unitLabel, bundleId: a.bundleId },
+    { leaseTerm: a.leaseTerm, rentalType: a.rentalType },
+  );
+  const surchargeCtx = { leaseStart: a.leaseStart, leaseEnd: a.leaseEnd, leaseTerm: a.leaseTerm, rentalType: a.rentalType };
   const fees = [
     pricing.shortLeaseSurcharge && pricing.shortLeaseSurcharge > 0 && pricing.basis === "monthly"
       ? ["Short-lease surcharge (included in rent)", money(pricing.shortLeaseSurcharge)]
       : null,
+    roomFees && roomFees.monthToMonthSurcharge > 0 && shouldBillMonthToMonthSurcharge(surchargeCtx)
+      ? ["Month-to-month surcharge (monthly)", money(roomFees.monthToMonthSurcharge)]
+      : null,
+    roomFees && roomFees.customStartSurcharge > 0 && shouldBillCustomLeaseSurcharge(surchargeCtx, sub)
+      ? ["Custom start surcharge (monthly)", money(roomFees.customStartSurcharge)]
+      : null,
+    roomFees && roomFees.leaseFee > 0 ? ["Lease fee", money(roomFees.leaseFee)] : null,
     ctx.leaseBilling?.moveInFee ? ["Move-in fee", money(ctx.leaseBilling.moveInFee)] : null,
     ctx.leaseBilling?.applicationFee ? ["Application fee", money(ctx.leaseBilling.applicationFee)] : null,
     ctx.leaseBilling?.otherCostAmount
