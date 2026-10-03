@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { RecordActionItemsContext } from "@/components/ui/record-action-context";
+import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
 import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,7 @@ export function PortalAdaptiveActionRow({
   align?: "start" | "end";
   maxVisible?: number;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const { optional } = useMemo(() => splitAdaptiveActions(actions), [actions]);
@@ -204,7 +205,7 @@ export function PortalAdaptiveActionRow({
     splitAdaptiveActions(visible);
 
   const moreMenu = showMoreMenu ? (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -217,6 +218,7 @@ export function PortalAdaptiveActionRow({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="record-action-menu">
+        <RecordActionCloseContext.Provider value={() => setMenuOpen(false)}>
         {overflow.map((action) => (
           <div key={action.id}>{action.menuItem}</div>
         ))}
@@ -224,6 +226,7 @@ export function PortalAdaptiveActionRow({
         {pinnedMenuItems.map((item, index) => (
           <div key={index}>{item}</div>
         ))}
+        </RecordActionCloseContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
   ) : null;

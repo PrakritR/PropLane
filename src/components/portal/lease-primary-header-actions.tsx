@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, type ReactNode } from "react";
+import { cloneElement, isValidElement, useMemo, useRef, type ReactNode } from "react";
 import {
   BadgeCheck,
   Bell,
@@ -17,6 +17,8 @@ import {
   Upload,
   type LucideIcon,
 } from "lucide-react";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import {
@@ -480,14 +482,19 @@ export function LeasePrimaryHeaderActions({
     />
   ) : null;
 
+  const primaryActionId = ["sign", "review-import", "send", "generate", "new-terms", "mark-signed", "upload", "download"].find((id) => headerActions.some((action) => action.id === id));
+
   return (
     <>
-      <div className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5" data-attr="lease-header-icons">
-        {headerActions.map((action) => (
-          <div key={action.id} className="shrink-0">
-            {action.node}
-          </div>
-        ))}
+      <div className="flex min-w-0 flex-1" data-attr="lease-header-icons">
+        <PortalAdaptiveActionRow align="end" gapPx={6} actions={headerActions.map((action) => {
+          if (isValidElement<Parameters<typeof LeaseHeaderIcon>[0]>(action.node) && action.node.type === LeaseHeaderIcon) {
+            const { icon, label, dataAttr, onClick, disabled, tone } = action.node.props;
+            return portalIconActionSpec({ id: action.id, icon, label, dataAttr, onClick: () => onClick?.(), disabled, tone: action.id === primaryActionId ? "primary" : tone });
+          }
+          return { ...action, menuItem: isValidElement<{ menuItem?: boolean }>(action.node)
+            ? cloneElement(action.node, { menuItem: true }) : action.node };
+        })} />
       </div>
       {uploadInput}
     </>

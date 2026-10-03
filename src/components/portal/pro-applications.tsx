@@ -5,6 +5,8 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { Button } from "@/components/ui/button";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
@@ -1470,64 +1472,21 @@ export function ManagerApplications({
     const showCompletionReminder = showCompletionReminderForRow(row);
     const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
 
-    return (
-      <div
-        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
-        data-attr="application-header-icons"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        {showCompletionReminder ? (
-          <PortalIconAction
-            icon={Bell}
-            label={reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
-            data-attr="application-send-reminder"
-            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-            onClick={() => openReminderPreview(row)}
-          />
-        ) : null}
-        <PortalRecordShareLinkButton
-          kind="application"
-          recordId={row.id}
-          icon
-          dataAttr="application-share"
-          recordTitle={recordTitle}
-        />
-        {isApprovableApplicationRow(row) ? (
-          <PortalIconAction
-            icon={Check}
-            label="Approve"
-            data-attr="application-approve"
-            onClick={() => beginApprovalPreview(row)}
-          />
-        ) : null}
-        {row.bucket === "pending" ? (
-          <PortalIconAction
-            icon={X}
-            label="Reject"
-            data-attr="application-reject"
-            onClick={() => setRejectPreviewRows([row])}
-          />
-        ) : null}
-        <ApplicationPdfDownloadButton row={row} label="Download" icon />
-        {applicationRowCanMoveToPending(row) ? (
-          <PortalIconAction
-            icon={Undo2}
-            label="Move to pending"
-            data-attr="application-move-pending"
-            onClick={() => setRowBucket(row.id, "pending")}
-          />
-        ) : null}
-        <PortalIconAction
-          icon={Trash2}
-          label="Delete"
-          tone="danger"
-          data-attr="application-delete"
-          onClick={() => deleteApplication(row.id)}
-        />
-      </div>
-    );
+    const actions = [];
+    if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder", icon: Bell,
+      dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
+    actions.push({ id: "share",
+      node: <PortalRecordShareLinkButton kind="application" recordId={row.id} icon dataAttr="application-share" recordTitle={recordTitle} />,
+      menuItem: <PortalRecordShareLinkButton kind="application" recordId={row.id} menuItem dataAttr="application-share" recordTitle={recordTitle} />,
+    });
+    actions.push(portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "application-pdf-download", onClick: () => runApplicationPdfDownload(row, showToast) }));
+    if (applicationRowCanMoveToPending(row)) actions.push(portalIconActionSpec({ id: "pending", label: "Move to pending", icon: Undo2, dataAttr: "application-move-pending", onClick: () => setRowBucket(row.id, "pending") }));
+    if (row.bucket === "pending") actions.push(portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "application-reject", onClick: () => setRejectPreviewRows([row]) }));
+    actions.push(portalIconActionSpec({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "application-delete", onClick: () => deleteApplication(row.id) }));
+    if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
+    return <div className="flex min-w-0 flex-1" data-attr="application-header-icons" onClick={(event) => event.stopPropagation()}>
+      <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />
+    </div>;
   };
 
   const renderCosignerDetailActions = (signerRow: DemoApplicantRow, cosigner: CosignerSubmission) => {
@@ -1549,32 +1508,12 @@ export function ManagerApplications({
 
     if (!showsRunCheck && !canDownloadScreening) return undefined;
 
-    return (
-      <div
-        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
-        data-attr="cosigner-header-icons"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        {showsRunCheck ? (
-          <PortalIconAction
-            icon={Shield}
-            label="Run background check"
-            data-attr="run-background-check"
-            onClick={() => openCosignerScreening()}
-          />
-        ) : null}
-        {canDownloadScreening ? (
-          <PortalIconAction
-            icon={Download}
-            label="Download background check"
-            data-attr="screening-pdf-download"
-            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
-          />
-        ) : null}
-      </div>
-    );
+    const actions = [];
+    if (canDownloadScreening) actions.push(portalIconActionSpec({ id: "download", label: "Download background check", icon: Download, dataAttr: "screening-pdf-download", onClick: () => downloadBackgroundCheckForApplication(screeningRow) }));
+    if (showsRunCheck) actions.push(portalIconActionSpec({ id: "run", label: "Run background check", icon: Shield, tone: "primary", dataAttr: "run-background-check", onClick: () => openCosignerScreening() }));
+    return <div className="flex min-w-0 flex-1" data-attr="cosigner-header-icons" onClick={(event) => event.stopPropagation()}>
+      <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />
+    </div>;
   };
 
   const renderApplicationDetail = (row: DemoApplicantRow) => {

@@ -33,7 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { PortalAdaptiveActionRow, type PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -1055,13 +1055,7 @@ function ManagerPropertyInlineDetails({
       }
 
       if (actions.length === 0) return null;
-      return (
-        <>
-          {actions.map((action) => (
-            <Fragment key={action.id}>{action.node}</Fragment>
-          ))}
-        </>
-      );
+      return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
     }
     return null;
   }, [

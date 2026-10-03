@@ -5,7 +5,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Download, FileSearch, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
@@ -462,33 +463,11 @@ export function ApplicationScreeningPanel({
       // "section" placement (the standalone screening list/tab) keeps its own
       // labelled buttons unchanged — only the parent record-page slot converts.
       headerActionsPlacement === "parent" ? (
-        <>
-          {bg?.status === "complete" ? (
-            <PortalIconAction
-              icon={Download}
-              label="Download screening"
-              data-attr="screening-pdf-download"
-              onClick={handleDownload}
-            />
-          ) : null}
-          {canOfferRunBackgroundCheck ? (
-            <PortalIconAction
-              icon={FileSearch}
-              label={testButtonLabel}
-              data-attr="run-background-check"
-              onClick={() => openRunBackgroundCheck()}
-            />
-          ) : null}
-          {canOrder ? (
-            <PortalIconAction
-              icon={RefreshCw}
-              label={screening?.status === "failed" ? "Re-run screening" : "Run screening"}
-              data-attr="run-screening"
-              disabled={busy}
-              onClick={() => runScreening()}
-            />
-          ) : null}
-        </>
+        <PortalAdaptiveActionRow align="end" gapPx={6} actions={[
+          ...(bg?.status === "complete" ? [portalIconActionSpec({ id: "download", label: "Download screening", icon: Download, dataAttr: "screening-pdf-download", onClick: handleDownload })] : []),
+          ...(canOfferRunBackgroundCheck ? [portalIconActionSpec({ id: "run-background", label: testButtonLabel, icon: FileSearch, tone: "primary", dataAttr: "run-background-check", onClick: () => openRunBackgroundCheck() })] : []),
+          ...(canOrder ? [portalIconActionSpec({ id: "run", label: screening?.status === "failed" ? "Re-run screening" : "Run screening", icon: RefreshCw, tone: "primary", dataAttr: "run-screening", disabled: busy, onClick: runScreening })] : []),
+        ]} />
       ) : (
       <>
         {bg?.status === "complete" ? (
@@ -567,47 +546,11 @@ export function ApplicationScreeningPanel({
 
   const compactTabFooterActionButtons = useMemo(
     () => (
-      <>
-        {canOfferRunBackgroundCheck ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            data-attr="run-background-check"
-            onClick={() => openRunBackgroundCheck()}
-          >
-            {testButtonLabel}
-          </Button>
-        ) : null}
-        {canRunBackgroundCheckAgain ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            data-attr="run-background-check-again"
-            onClick={() => onOpenScreeningModal?.({ showPackagePicker: true })}
-          >
-            Run again
-          </Button>
-        ) : null}
-        {/*
-          Download only once a report exists. This tab footer used to publish
-          just the two run actions, so on the Background check page — whose
-          whole subject is the report — there was no way to get the PDF without
-          going back to the application.
-        */}
-        {bg?.status === "complete" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            data-attr="screening-pdf-download"
-            onClick={handleDownload}
-          >
-            Download
-          </Button>
-        ) : null}
-      </>
+      <PortalAdaptiveActionRow align="end" gapPx={6} actions={[
+        ...(bg?.status === "complete" ? [portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "screening-pdf-download", onClick: handleDownload })] : []),
+        ...(canOfferRunBackgroundCheck ? [portalIconActionSpec({ id: "run", label: testButtonLabel, icon: FileSearch, tone: "primary", dataAttr: "run-background-check", onClick: () => openRunBackgroundCheck() })] : []),
+        ...(canRunBackgroundCheckAgain ? [portalIconActionSpec({ id: "run-again", label: "Run again", icon: RefreshCw, tone: "primary", dataAttr: "run-background-check-again", onClick: () => onOpenScreeningModal?.({ showPackagePicker: true }) })] : []),
+      ]} />
     ),
     [
       bg?.status,
