@@ -233,8 +233,8 @@ describe("PortalDialog adoption — source guard", () => {
 
   it("listing, application and tour sends use the shared full-page wizard", () => {
     const source = readSource("src/components/portal/share-lead-link-modal.tsx");
-    expect(source).toContain("<ListingWizardOverlay");
-    expect(source).toContain("<WizardShell");
+    expect(source).toContain("<AddWorkspace");
+    expect(source).not.toContain("<WizardShell");
     expect(source).toContain('label: "Home"');
     expect(source).toContain('label: "Recipient"');
     expect(source).toContain('label: "Review"');
