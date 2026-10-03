@@ -2234,9 +2234,8 @@ function ManagerHousePropertiesPanelBody({
         bareHeader
         dataAttrBack="property-detail-back"
         suppressMobileActions
-        iconTitleActions={
-          sourceBucket === 5 || (sourceBucket === 2 && (detailTabProp ?? "preview") === "preview")
-        }
+        // C2-PR14: record-level icons on every tab, laid out as round icons with the full header width.
+        iconTitleActions
         pinScrollBody
         scrollBody={false}
       >
