@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addApplicationTemplateFromSeed } from "@/lib/property-application-template-sync";
@@ -19,6 +19,7 @@ const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
   usePathname: () => "/portal/properties/all/mgr-house-1",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
@@ -63,7 +64,7 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
       />,
     );
 
-    expect(screen.queryAllByRole("checkbox").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('[data-attr^="property-application-select-"]').length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
   });
 
@@ -79,9 +80,10 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
         showToast={() => {}}
       />,
     );
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
-    expect(screen.getByTestId("application-editor-modal")).toBeTruthy();
+    const row = document.querySelector('[data-attr^="property-application-row-"]') as HTMLElement | null;
+    expect(row).not.toBeNull();
+    fireEvent.click(row!);
+    await waitFor(() => expect(screen.getByTestId("application-editor-modal")).toBeTruthy());
     expect(persistSubmission).not.toHaveBeenCalled();
   });
 });

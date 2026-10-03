@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 vi.mock("@/components/portal/property-lease-form-modal", () => ({
@@ -13,6 +14,7 @@ const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
   usePathname: () => "/portal/properties/all/mgr-house-1",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 describe("ManagerPropertyLeasePanel", () => {
@@ -36,15 +38,17 @@ describe("ManagerPropertyLeasePanel", () => {
       ],
     } as ReturnType<typeof createDefaultListingSubmission>;
     render(
-      <ManagerPropertyLeasePanel
-        sub={sub}
-        saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
-        managerUserId="mgr-1"
-        settingsPropertyId="mgr-house-1"
-        settingsPropertyLabel="Ash Flats 6"
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
+      <AppUiProvider>
+        <ManagerPropertyLeasePanel
+          sub={sub}
+          saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
+          managerUserId="mgr-1"
+          settingsPropertyId="mgr-house-1"
+          settingsPropertyLabel="Ash Flats 6"
+          onUpdated={() => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
     );
 
     // Record editing appears only inside that record’s menu.
@@ -54,7 +58,7 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term lease" }), { key: "ArrowDown" });
     expect(await screen.findByRole("menuitem", { name: "Edit lease" })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: "Delete" })).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     // C228: the gear no longer opens a local automation sheet — it jumps to

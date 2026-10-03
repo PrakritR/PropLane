@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { useState } from "react";
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { vi } from "vitest";
 
@@ -24,6 +24,17 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {} }),
   usePathname: () => "/portal/properties/all/mgr-house-1",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+  useAppUi: () => ({ showToast: () => {} }),
+  AppUiProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 let PERSISTED: unknown = null;
@@ -73,8 +84,9 @@ function writePanel(name: string, caption: string, body: string) {
  * a container-wide text search would read it as a failed delete.
  */
 function leaseRowLabels(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll<HTMLInputElement>('input[data-attr^="property-lease-select-"]'))
-    .map((input) => input.getAttribute("aria-label")!.replace(/^Select /, ""));
+  return Array.from(container.querySelectorAll('[data-attr^="property-lease-row-"]'))
+    .map((row) => row.querySelector(".font-semibold")?.textContent?.trim())
+    .filter((label): label is string => Boolean(label));
 }
 
 function selectLeaseRowByLabel(container: HTMLElement, label: string) {
@@ -109,7 +121,7 @@ describe("evidence · lease templates are opt-in", () => {
     // A. brand-new property — sync must not conjure the old four rows
     const fresh = syncPropertyLeaseTemplatesFromListing(createDefaultListingSubmission());
     const a = render(<Harness initial={fresh} />);
-    expect(a.container.querySelectorAll('[data-attr^="property-lease-select-"]')).toHaveLength(0);
+    expect(a.container.querySelectorAll('[data-attr^="property-lease-row-"]')).toHaveLength(0);
     writePanel(
       "lease-a-empty",
       "A · New property → Lease tab. No lease formats are auto-created; the manager adds one explicitly.",
@@ -130,16 +142,13 @@ describe("evidence · lease templates are opt-in", () => {
       b.container.innerHTML,
     );
 
-    // C. delete Short-term through bulk Edit → Delete flow, then re-sync
+    // C. delete Short-term from the row ⋯ menu, then re-sync
     selectLeaseRowByLabel(b.container, "Short term lease");
+    await new Promise((resolve) => setTimeout(resolve, 160));
     await act(async () => {
-      fireEvent.click(document.querySelector<HTMLButtonElement>('[data-attr="property-lease-bulk-edit"]')!);
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     });
-    const del = document.querySelector<HTMLButtonElement>('button[data-attr="property-lease-delete"]')!;
-    await act(async () => {
-      fireEvent.click(del);
-    });
-    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
+    await waitFor(() => expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]));
     writePanel(
       "lease-c-deleted",
       "C · Deleted 'Short-term lease' from the Edit modal. The row is gone and a re-sync no longer resurrects it — this is the bug the change fixes.",

@@ -4,13 +4,20 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { Check, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
+  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { PropertyLeaseTemplateInlinePreview } from "@/components/portal/property-lease-template-inline-preview";
+import {
+  openPropertyFormTemplateInNewTab,
+  readSoloPropertyFormTemplateId,
+} from "@/components/portal/property-form-template-open-tab";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -112,8 +119,10 @@ export function ManagerPropertyLeasePanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
+  const [inlinePreviewTemplateId, setInlinePreviewTemplateId] = useState<string | null>(null);
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [leaseSearch, setLeaseSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -427,6 +436,17 @@ export function ManagerPropertyLeasePanel({
     showToast("Lease duplicated.");
   };
 
+  const setDefaultLease = useCallback(
+    (templateId: string) => {
+      if (!formSetup.loaded) return;
+      void formSetup.patch({
+        leasingPipeline: { ...formSetup.leasingPipeline, defaultLeaseTemplateId: templateId },
+      });
+      showToast("Default lease updated.");
+    },
+    [formSetup, showToast],
+  );
+
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
@@ -460,23 +480,79 @@ export function ManagerPropertyLeasePanel({
   ) : null;
 
   const renderLeaseTemplateRow = (template: PropertyLeaseTemplate, typeLabel?: string | null) => {
-    const isDefault = Boolean(
-      formSetup.loaded &&
-        formSetup.leasingPipeline.defaultLeaseTemplateId &&
-        formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
+    const notOffered = template.offered === false;
+    const isDefault =
+      !notOffered &&
+      Boolean(
+        formSetup.loaded &&
+          formSetup.leasingPipeline.defaultLeaseTemplateId &&
+          formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
+      );
+    const rowLabel = template.label?.trim() || "Lease";
+    const openPreview = () => setInlinePreviewTemplateId(template.id);
+
+    const rowMenu = (
+      <RowActionsMenu
+        label={rowLabel}
+        items={[
+          { id: "preview", label: "Preview", onSelect: openPreview },
+          { id: "edit", label: "Edit lease", onSelect: () => openEdit(template.id) },
+          {
+            id: "open-in-new-tab",
+            label: "Open in new tab",
+            onSelect: () => openPropertyFormTemplateInNewTab("lease", template.id),
+          },
+          !isDefault && !notOffered && formSetup.loaded
+            ? {
+                id: "set-default",
+                label: "Set as default",
+                onSelect: () => setDefaultLease(template.id),
+              }
+            : null,
+          { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
+          {
+            id: "delete",
+            label: "Delete",
+            danger: true,
+            onSelect: () => {
+              void confirm({ title: "Delete lease", description: `Delete ${rowLabel}?`, confirmLabel: "Delete lease" }).then(
+                (ok) => {
+                  if (ok) handleDelete(template.id);
+                },
+              );
+            },
+          },
+        ]}
+      />
     );
+
     return (
-      <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} onClick={() => openEdit(template.id)}>
+      <div
+        key={template.id}
+        className={`${PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} ${notOffered ? "opacity-60" : ""}`}
+        data-attr={`property-lease-row-${template.id}`}
+        onClick={openPreview}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openPreview();
+          }
+        }}
+      >
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <RowSelectCheckbox
-            aria-label={`Select ${template.label}`}
-            checked={selectedIds.has(template.id)}
-            data-attr={`property-lease-select-${template.id}`}
-            onChange={() => toggleSelected(template.id)}
-            onClick={(event) => event.stopPropagation()}
-          />
+          {embedInModal ? (
+            <RowSelectCheckbox
+              aria-label={`Select ${rowLabel}`}
+              checked={selectedIds.has(template.id)}
+              data-attr={`property-lease-select-${template.id}`}
+              onChange={() => toggleSelected(template.id)}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : null}
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{template.label}</p>
+            <p className={`text-sm font-semibold ${notOffered ? "text-muted" : "text-foreground"}`}>{rowLabel}</p>
             {formSetup.loaded ? (
               <p
                 className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
@@ -485,6 +561,11 @@ export function ManagerPropertyLeasePanel({
                 {typeLabel ? (
                   <PortalRowFact icon={FileText} srLabel="Lease type">
                     {typeLabel}
+                  </PortalRowFact>
+                ) : null}
+                {notOffered ? (
+                  <PortalRowFact icon={AlertTriangle} srLabel="Not offered">
+                    Not offered
                   </PortalRowFact>
                 ) : null}
                 {isDefault ? (
@@ -500,6 +581,9 @@ export function ManagerPropertyLeasePanel({
               </p>
             ) : null}
           </div>
+        </div>
+        <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
+          {rowMenu}
         </div>
       </div>
     );
@@ -684,56 +768,56 @@ export function ManagerPropertyLeasePanel({
     />
   ) : null;
 
+  const soloTemplateId = readSoloPropertyFormTemplateId(searchParams, "lease");
+  const soloTemplate = soloTemplateId ? templates.find((t) => t.id === soloTemplateId) ?? null : null;
+  if (!embedInModal && soloTemplate) {
+    return (
+      <PropertyLeaseTemplateInlinePreview
+        template={soloTemplate}
+        sub={syncedSub}
+        propertyHint={propertyHint}
+        solo
+      />
+    );
+  }
+
+  const inlinePreviewTemplate = inlinePreviewTemplateId
+    ? templates.find((t) => t.id === inlinePreviewTemplateId) ?? null
+    : null;
+
   return (
     <>
       {commandBar}
       {embedInModal || pane === "form" ? (
-      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
-        <>
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-lease-bulk-edit"
-              data-record-action-id="edit"
-              onClick={() => openEdit(selectedTemplateId)}
-            >
-              Edit
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-lease-bulk-preview"
-              data-record-action-id="preview"
-              onClick={() => openEdit(selectedTemplateId)}
-            >
-              Preview
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-lease-bulk-duplicate"
-              data-record-action-id="duplicate"
-              onClick={() => { const template = templates.find((t) => t.id === selectedTemplateId); if (template) void duplicateTemplate(template); }}
-            >
-              Duplicate
-            </Button>
-            <Button
-              type="button"
-              variant="danger"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-lease-bulk-delete"
-              data-record-action-id="delete"
-              onClick={() => { const template = templates.find((t) => t.id === selectedTemplateId); if (!template) return; void confirm({ title: "Delete lease", description: `Delete ${template.label}?`, confirmLabel: "Delete lease" }).then((ok) => { if (ok) handleDelete(template.id); }); }}
-            >
-              Delete
-            </Button>
-          </div>
-        </>
-      ) : null}>{catalogBody}</PortalRecordListSurface>
+        inlinePreviewTemplate ? (
+          <PropertyLeaseTemplateInlinePreview
+            template={inlinePreviewTemplate}
+            sub={syncedSub}
+            propertyHint={propertyHint}
+            onBack={() => setInlinePreviewTemplateId(null)}
+          />
+        ) : (
+          <PortalRecordListSurface
+            className="mt-0 pb-0 max-lg:pb-0"
+            onBulkClear={embedInModal ? clearSelection : undefined}
+            bulkCount={embedInModal ? selectedIds.size : 0}
+            bulkActions={
+              embedInModal && selectedTemplateId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="property-lease-bulk-edit"
+                  onClick={() => openEdit(selectedTemplateId)}
+                >
+                  Edit lease
+                </Button>
+              ) : null
+            }
+          >
+            {catalogBody}
+          </PortalRecordListSurface>
+        )
       ) : null}
 
       {formModals}
