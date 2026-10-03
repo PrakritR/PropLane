@@ -39,9 +39,11 @@ async function upsertManagerInbox(
     fromName: string;
     fromEmail: string;
     topic: string;
+    unverified?: boolean;
   },
 ): Promise<void> {
   await appendManagerPropertyLeadInboxMessage(db, managerUserId, {
+    unverified: input.unverified,
     propertyId: input.propertyId,
     propertyTitle: input.propertyTitle,
     prospectName: input.fromName,
@@ -61,6 +63,8 @@ export async function notifyManagerPropertyLeadMessage(input: {
   phone?: string;
   topic: string;
   body: string;
+  /** The email belongs to an account the sender did not prove they own: file it as a separate lead conversation. */
+  unverified?: boolean;
 }): Promise<void> {
   const db = (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient();
   const recipientIds = await resolvePropertyLeadRecipientIds(db, {
@@ -103,6 +107,7 @@ export async function notifyManagerPropertyLeadMessage(input: {
       fromName: input.name,
       fromEmail: input.email,
       topic: input.topic,
+      unverified: input.unverified,
     });
     await sendManagerNotificationSms(db, {
       managerUserId: recipient.userId,

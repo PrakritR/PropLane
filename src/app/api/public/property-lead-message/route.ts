@@ -84,6 +84,25 @@ export async function POST(req: Request) {
     const { data: residentProfile } = await db.from("profiles").select("id").eq("email", email).maybeSingle();
     const hasResidentAccount = Boolean(residentProfile?.id);
 
+    // Who is actually typing? An email is only theirs if they are signed in as it.
+    const authClient = await createSupabaseServerClient();
+    const {
+      data: { user: signedInUser },
+    } = await authClient.auth.getUser();
+    let signedInAs = "";
+    if (signedInUser?.id) {
+      const { data: signedInProfile } = await db
+        .from("profiles")
+        .select("email")
+        .eq("id", signedInUser.id)
+        .maybeSingle();
+      signedInAs = (signedInProfile?.email as string | undefined)?.trim().toLowerCase() || signedInUser.email?.trim().toLowerCase() || "";
+    }
+    // A typed email that belongs to an existing account, sent by someone who is
+    // not that account, is an unverified lead: it never touches the account's
+    // own conversation with the manager.
+    const unverifiedLead = hasResidentAccount && signedInAs !== email;
+
     // Record the explicit opt-in when the prospect checked the box and gave a
     // phone. This lead flow only emails the manager today (no automated SMS to
     // the prospect), but capturing consent keeps a manager reply-by-text lawful
@@ -101,6 +120,7 @@ export async function POST(req: Request) {
       phone: phone || undefined,
       topic,
       body: message,
+      unverified: unverifiedLead,
     });
 
     const ackBody = [
@@ -111,36 +131,26 @@ export async function POST(req: Request) {
         : "Your message was sent to the property manager. Create a free resident account to read replies in PropLane Communication.",
     ].join("\n");
 
-    await recordResidentProspectInboxMessage(db, {
-      participantEmail: email,
-      subject: `We received your message — ${topic}`,
-      body: ackBody,
-      residentMessage: message,
-      residentName: name,
-      counterpartyEmail: managerEmail || undefined,
-      managerUserId,
-      propertyId,
-      propertyTitle,
-    });
+    if (!unverifiedLead) {
+      await recordResidentProspectInboxMessage(db, {
+        participantEmail: email,
+        subject: `We received your message — ${topic}`,
+        body: ackBody,
+        residentMessage: message,
+        residentName: name,
+        counterpartyEmail: managerEmail || undefined,
+        managerUserId,
+        propertyId,
+        propertyTitle,
+      });
+    }
 
-    const authClient = await createSupabaseServerClient();
-    const {
-      data: { user: signedInUser },
-    } = await authClient.auth.getUser();
-    if (signedInUser?.id) {
-      const { data: signedInProfile } = await db
-        .from("profiles")
-        .select("email")
-        .eq("id", signedInUser.id)
-        .maybeSingle();
-      const authEmail = (signedInProfile?.email as string | undefined)?.trim().toLowerCase() || signedInUser.email?.trim().toLowerCase() || "";
-      if (authEmail && authEmail === email) {
-        await reconcileProspectInboxThreadsForResident(db, {
-          userId: signedInUser.id,
-          contactEmail: email,
-          phone: phone || undefined,
-        }).catch(() => undefined);
-      }
+    if (signedInUser?.id && signedInAs && signedInAs === email) {
+      await reconcileProspectInboxThreadsForResident(db, {
+        userId: signedInUser.id,
+        contactEmail: email,
+        phone: phone || undefined,
+      }).catch(() => undefined);
     }
 
     void notifyProspectPropertyMessageHandoff({

@@ -546,20 +546,49 @@ export async function appendManagerPropertyLeadInboxMessage(
     smsConversationKey?: string;
     /** Never overwrites an already-stamped `recordRef` — the ref belongs to whoever first composed from that record. */
     recordRef?: RecordRef;
+    /**
+     * The sender typed an email that belongs to an account they did not prove
+     * they own (public listing form, not signed in as that account). The
+     * message goes to its own conversation and is never appended to the
+     * account's real property thread.
+     */
+    unverified?: boolean;
   },
 ): Promise<void> {
   const prospectEmail = input.prospectEmail.trim().toLowerCase();
   if (!prospectEmail.includes("@")) return;
 
-  const target = await resolvePropertyManagerThread(db, {
-    side: "manager",
-    residentEmail: prospectEmail,
-    residentUserId: null,
-    managerUserId,
-    managerEmail: "",
-    propertyId: input.propertyId,
-  });
+  const unverified = input.unverified === true;
+  let target: { id: string; existing: StoredThreadRow | null };
+  if (unverified) {
+    const id = `${propertyManagerConversationSideThreadId(
+      { residentEmail: prospectEmail, managerUserId, propertyId: input.propertyId },
+      "manager",
+    )}:unverified`;
+    const { data: found, error: foundError } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, scope, owner_user_id, participant_email, thread_type, row_data")
+      .eq("id", id)
+      .maybeSingle();
+    if (foundError) throw new Error("Could not read the unverified lead thread.");
+    const stored = found as StoredThreadRow | null;
+    // A row already sitting on this id that is not this manager's lead thread is left alone.
+    if (stored && (stored.owner_user_id !== managerUserId || stored.scope !== MANAGER_INBOX_SCOPE)) return;
+    target = { id, existing: stored };
+  } else {
+    target = await resolvePropertyManagerThread(db, {
+      side: "manager",
+      residentEmail: prospectEmail,
+      residentUserId: null,
+      managerUserId,
+      managerEmail: "",
+      propertyId: input.propertyId,
+    });
+  }
   const threadId = target.id;
+  const leadFrom = unverified
+    ? `${input.prospectName.trim() || prospectEmail} (unverified email)`
+    : input.prospectName.trim() || prospectEmail;
   const when = formatPacificDateTime(new Date());
   const propertyLabel = input.propertyTitle.trim() || input.propertyId;
   const threadSubject = `${propertyLabel} — ${input.topic.trim() || input.subject}`;
@@ -568,7 +597,7 @@ export async function appendManagerPropertyLeadInboxMessage(
 
   const inboundTurn: ThreadMessage = {
     id: `lead-${Date.now().toString(36)}`,
-    from: input.prospectName.trim() || prospectEmail,
+    from: leadFrom,
     body: input.body,
     at: when,
     outbound: input.outbound === true,
@@ -586,11 +615,11 @@ export async function appendManagerPropertyLeadInboxMessage(
         id: threadId,
         scope: MANAGER_INBOX_SCOPE,
         owner_user_id: managerUserId,
-        participant_email: prospectEmail,
+        participant_email: unverified ? null : prospectEmail,
         thread_type: "portal_message",
         row_data: {
           ...rowData,
-          from: input.prospectName.trim() || prospectEmail,
+          from: leadFrom,
           email: prospectEmail,
           subject: threadSubject,
           preview: input.body.slice(0, 100).replace(/\n/g, " "),
@@ -598,7 +627,8 @@ export async function appendManagerPropertyLeadInboxMessage(
           unread: input.outbound !== true,
           propertyId: input.propertyId,
           managerUserId,
-          counterpartyRole: input.counterpartyRole ?? "resident",
+          counterpartyRole: unverified ? "prospect" : (input.counterpartyRole ?? "resident"),
+          ...(unverified ? { unverifiedLead: true } : {}),
           propertyTitle: propertyLabel,
           ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
           ...(recordRef ? { recordRef } : {}),
@@ -617,12 +647,12 @@ export async function appendManagerPropertyLeadInboxMessage(
       id: threadId,
       scope: MANAGER_INBOX_SCOPE,
       owner_user_id: managerUserId,
-      participant_email: prospectEmail,
+      participant_email: unverified ? null : prospectEmail,
       thread_type: "portal_message",
       row_data: {
         id: threadId,
         folder: "inbox",
-        from: input.prospectName.trim() || prospectEmail,
+        from: leadFrom,
         email: prospectEmail,
         subject: threadSubject,
         preview: input.body.slice(0, 100).replace(/\n/g, " "),
@@ -634,7 +664,8 @@ export async function appendManagerPropertyLeadInboxMessage(
         scope: MANAGER_INBOX_SCOPE,
         propertyId: input.propertyId,
         managerUserId,
-        counterpartyRole: input.counterpartyRole ?? "resident",
+        counterpartyRole: unverified ? "prospect" : (input.counterpartyRole ?? "resident"),
+          ...(unverified ? { unverifiedLead: true } : {}),
         ...(input.outbound === true ? { rootOutbound: true } : {}),
         propertyTitle: propertyLabel,
         ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
