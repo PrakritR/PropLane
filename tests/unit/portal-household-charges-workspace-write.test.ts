@@ -15,6 +15,7 @@ const getUser = vi.fn();
 const isAdminUser = vi.fn(async () => false);
 const resolveManagerWorkspaceRowScope = vi.fn();
 const managerHasCoManagerPermissionForProperty = vi.fn(async () => false);
+const syncLedgerPaymentEntry = vi.fn(async () => undefined);
 const resolvePropertyPayoutOwners = vi.fn(async () => new Map());
 
 type Row = Record<string, unknown>;
@@ -61,6 +62,7 @@ vi.mock("@/lib/reports/ledger-sync", () => ({
   householdChargeLedgerFingerprint: () => "fp",
   reconcileDuplicateChargeList: async () => undefined,
   syncLedgerChargeEntry: async () => undefined,
+  syncLedgerPaymentEntry: (...args: unknown[]) => syncLedgerPaymentEntry(...(args as [])),
 }));
 vi.mock("@/lib/domain-action-events.server", () => ({ emitHouseholdChargeTransition: async () => undefined }));
 vi.mock("@/lib/payments/property-payout-owner.server", () => ({
@@ -90,6 +92,21 @@ vi.mock("@/lib/supabase/service", () => ({
                 }).then(resolve),
             }),
           }),
+          update: (patch: Row) => {
+            const filters: Record<string, unknown> = {};
+            const query = {
+              eq: (key: string, value: unknown) => { filters[key] = value; return query; },
+              is: (key: string, value: unknown) => { filters[key] = value; return query; },
+              select: () => query,
+              maybeSingle: async () => {
+                const row = state.charges.get(String(filters.id));
+                if (!row || Object.entries(filters).some(([key, value]) => key !== "id" && (row[key] ?? null) !== value)) return { data: null, error: null };
+                state.charges.set(String(filters.id), { ...row, ...patch });
+                return { data: { id: filters.id }, error: null };
+              },
+            };
+            return query;
+          },
           delete: () => ({
             eq: async (_col: string, id: string) => {
               state.deletedIds.push(id);
@@ -188,5 +205,45 @@ describe("charges upsert — a new charge must land in the active workspace", ()
 
     expect(res.status).toBe(200);
     expect(state.upserted.map((r) => r.id)).toEqual(["chg-new"]);
+  });
+});
+
+
+describe("offline receipt server authority", () => {
+  const id = "receipt-charge";
+  const receipt = { action: "recordOfflinePayment", id, paidAt: "2026-01-02T12:00:00.000Z", method: "Check", note: "Check 42" };
+  beforeEach(() => {
+    resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true });
+    state.charges.set(id, { manager_user_id: "mgr-1", property_id: "prop-1", status: "pending", updated_at: "2026-01-01", row_data: { id, status: "pending", amountLabel: "$98.76", balanceLabel: "$98.76", kind: "rent" } });
+  });
+  it("uses current server amount and writes the payment ledger before success", async () => {
+    const response = await post({ ...receipt, amountLabel: "$0.01", charges: [{ amountLabel: "$0.01" }] });
+    expect(response.status).toBe(200);
+    expect((await response.json()).charge).toMatchObject({ amountLabel: "$98.76", paidAt: receipt.paidAt, paidMethod: "Check", paidNote: "Check 42" });
+    expect(syncLedgerPaymentEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ amountLabel: "$98.76", managerUserId: "mgr-1", status: "paid" }));
+  });
+  it("rejects processing and paid charges belonging to a different receipt", async () => {
+    state.charges.get(id)!.status = "processing";
+    expect((await post(receipt)).status).toBe(409);
+    state.charges.get(id)!.status = "paid";
+    expect((await post(receipt)).status).toBe(409);
+    expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
+  });
+  it("rejects an out-of-workspace charge and invalid future payment date", async () => {
+    resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: ["elsewhere"], untaggedOwnedVisible: false });
+    expect((await post(receipt)).status).toBe(403);
+    expect((await post({ ...receipt, paidAt: "2999-01-01" })).status).toBe(400);
+  });
+  it("reports a ledger failure and repairs it on the same receipt retry", async () => {
+    syncLedgerPaymentEntry.mockRejectedValueOnce(new Error("ledger unavailable"));
+    expect((await post(receipt)).status).toBe(500);
+    expect(state.charges.get(id)!.status).toBe("paid");
+    expect((await post(receipt)).status).toBe(200);
+    expect(syncLedgerPaymentEntry).toHaveBeenCalledTimes(2);
+  });
+  it("retries ledger repair for the identical persisted receipt", async () => {
+    expect((await post(receipt)).status).toBe(200);
+    expect((await post(receipt)).status).toBe(200);
+    expect(syncLedgerPaymentEntry).toHaveBeenCalledTimes(2);
   });
 });

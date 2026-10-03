@@ -87,28 +87,28 @@ function railLinks(): HTMLAnchorElement[] {
 }
 
 describe("payment record page hides tabs that can never have content (C095)", () => {
-  it("a plain rent charge offers Overview + Resident only — no Service, Vendor, Documents or Activity", () => {
+  it("a plain rent charge offers Payment + Communication only — no Service, Vendor, Documents or Activity", () => {
     renderDetail(sampleRow({ chargeKind: "rent" }));
     const hrefs = railLinks().map((a) => a.getAttribute("href"));
-    expect(hrefs.some((h) => h?.endsWith("/resident"))).toBe(true);
+    expect(hrefs.some((h) => h?.endsWith("/communication"))).toBe(true);
     expect(hrefs.some((h) => h?.endsWith("/service"))).toBe(false);
     expect(hrefs.some((h) => h?.endsWith("/vendor"))).toBe(false);
     expect(hrefs.some((h) => h?.endsWith("/documents"))).toBe(false);
     expect(hrefs.some((h) => h?.endsWith("/activity"))).toBe(false);
   });
 
-  it("a work-order (service) charge offers the Service tab", () => {
+  it("a service charge keeps the same Payment + Communication rail", () => {
     renderDetail(sampleRow({ chargeKind: "work_order_charge", chargeTitle: "Leaky faucet" }));
     const hrefs = railLinks().map((a) => a.getAttribute("href"));
-    expect(hrefs.some((h) => h?.endsWith("/service"))).toBe(true);
+    expect(hrefs.some((h) => h?.endsWith("/service"))).toBe(false);
     // Still never a vendor tab — the vendor side of that job is a separate, Outgoing record.
     expect(hrefs.some((h) => h?.endsWith("/vendor"))).toBe(false);
   });
 
-  it("an imported charge offers Activity (it has a real migration event to show)", () => {
+  it("an imported charge keeps its events in Payment history", () => {
     renderDetail(sampleRow({ migrationSourceId: "2026-import.xlsx", createdAt: "2026-01-01T00:00:00.000Z" }));
     const hrefs = railLinks().map((a) => a.getAttribute("href"));
-    expect(hrefs.some((h) => h?.endsWith("/activity"))).toBe(true);
+    expect(hrefs.some((h) => h?.endsWith("/activity"))).toBe(false);
     expect(hrefs.some((h) => h?.endsWith("/documents"))).toBe(false);
   });
 });
@@ -117,14 +117,12 @@ describe("payment record page hides tabs that can never have content (C095)", ()
 // (`portal-record-overview-kit.tsx`, docs/agents/record-page.md point 3)
 // instead of the bespoke grid every other kind had already moved off of.
 describe("payment record Overview uses the shared record-page kit (C095)", () => {
-  it("shows the four StatTiles and a Details/Resident RecordFactCard pair, with Resident linking to its tab", () => {
+  it("shows amount, status, due date and days tiles with Details and History", () => {
     const { container } = renderDetail(sampleRow());
     expect(container.querySelector('[data-attr="payment-overview-tile-amount"]')?.textContent).toContain(
       "$1,850.00",
     );
-    expect(container.querySelector('[data-attr="payment-overview-tile-balance"]')?.textContent).toContain(
-      "$1,850.00",
-    );
+    expect(container.querySelector('[data-attr="payment-overview-tile-days"]')).not.toBeNull();
     expect(container.querySelector('[data-attr="payment-overview-tile-due"]')?.textContent).toContain(
       "Jul 1, 2026",
     );
@@ -134,19 +132,17 @@ describe("payment record Overview uses the shared record-page kit (C095)", () =>
     const detailsCard = container.querySelector('[data-attr="payment-overview-card-details"]');
     expect(detailsCard?.textContent).toContain("The Magnolia");
     expect(detailsCard?.textContent).toContain("July rent");
-    const residentCard = container.querySelector('[data-attr="payment-overview-card-resident"]');
-    expect(residentCard?.textContent).toContain("Maya Chen");
-    const residentLink = residentCard?.querySelector("a[href]");
-    expect(residentLink?.getAttribute("href")).toBe("/portal/payments/incoming/pending/hc_test_1/resident");
+    expect(detailsCard?.textContent).toContain("Maya Chen");
+    expect(container.querySelector('[data-attr="payment-overview-history"]')).not.toBeNull();
   });
 
-  it("shows a Resident message card only when the charge carries one", () => {
+  it("preserves resident messages in Details", () => {
     const { container } = renderDetail(
       sampleRow({
         residentChargeMessages: [{ id: "msg1", body: "Can I pay this in two parts?", sentAt: "2026-06-30T12:00:00.000Z" }],
       }),
     );
-    expect(container.querySelector('[data-attr="payment-overview-card-resident-message"]')?.textContent).toContain(
+    expect(container.querySelector('[data-attr="payment-overview-card-details"]')?.textContent).toContain(
       "Can I pay this in two parts?",
     );
   });

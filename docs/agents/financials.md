@@ -34,6 +34,15 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**Offline receipts** use `POST /api/portal-household-charges` with
+`action: "recordOfflinePayment"`, charge id, receipt date, method and note only.
+The server re-reads the charge, checks owner/co-manager and active workspace,
+preserves its stored amount, and compares status + `updated_at` before marking
+paid. It awaits `syncLedgerPaymentEntry` before returning success; the same
+receipt can retry an interrupted ledger write. Processing and partially paid
+charges are refused by this full-receipt path. The client applies the returned
+charge only after success, without sending a replacement snapshot.
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`

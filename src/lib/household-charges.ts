@@ -170,6 +170,7 @@ export type HouseholdCharge = {
   paidAt?: string;
   /** How a hand-recorded payment was received (check, cash, card…). */
   paidMethod?: string;
+  paidNote?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];
   /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
@@ -3171,6 +3172,36 @@ export function uncancelHouseholdChargeReminder(
   return true;
 }
 
+/** Confirm offline receipt through the existing owner-scoped mirror and write-through ledger. */
+export async function recordHouseholdChargeOfflinePayment(
+  chargeId: string,
+  managerUserId: string | null,
+  details: { paidAt: string; method: "Cash" | "Check" | "Bank transfer" | "Other"; note: string },
+  opts?: ChargeManagerScopeOpts,
+): Promise<boolean> {
+  const charge = readAll().find((row) => row.id === chargeId && chargeVisibleToManager(row, managerUserId, opts));
+  if (!charge || !["pending", "failed"].includes(charge.status)) return false;
+  const paidAt = new Date(details.paidAt);
+  if (!Number.isFinite(paidAt.getTime()) || paidAt.getTime() > Date.now()) return false;
+  if (!["Cash", "Check", "Bank transfer", "Other"].includes(details.method)) return false;
+  if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return false;
+  try {
+    const response = await fetch("/api/portal-household-charges", {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: householdWriteSignal(),
+      body: JSON.stringify({ action: "recordOfflinePayment", id: chargeId, paidAt: paidAt.toISOString(), method: details.method, note: details.note.trim().slice(0, 2000) }),
+    });
+    if (!response.ok) return false;
+    const result = await response.json() as { charge?: HouseholdCharge };
+    if (!result.charge || result.charge.id !== chargeId) return false;
+    const confirmed = result.charge;
+    memoryCharges = readAll().map((row) => row.id === chargeId ? confirmed : row);
+    persistHouseholdStateToSession();
+    householdChargesLastSyncedAt = Date.now();
+    emit();
+  } catch { return false; }
+  return true;
+}
+
 export function markHouseholdChargePaid(
   chargeId: string,
   managerUserId: string | null,
@@ -3268,6 +3299,8 @@ export function markHouseholdChargePending(
     ...next[i]!,
     status: "pending" as const,
     paidAt: undefined,
+    paidMethod: undefined,
+    paidNote: undefined,
     balanceLabel: next[i]!.amountLabel,
     dueDateLabel: undefined,
     cancelledReminders: undefined,

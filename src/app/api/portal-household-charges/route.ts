@@ -27,6 +27,7 @@ import {
   householdChargeLedgerFingerprint,
   reconcileDuplicateChargeList,
   syncLedgerChargeEntry,
+  syncLedgerPaymentEntry,
 } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
@@ -176,10 +177,50 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       action?: string;
       id?: string;
+      paidAt?: string;
+      method?: string;
+      note?: string;
       charges?: Record<string, unknown>[];
       rentProfiles?: Record<string, unknown>[];
     };
     const now = new Date().toISOString();
+
+    if (body.action === "recordOfflinePayment") {
+      const id = typeof body.id === "string" ? body.id.trim() : "";
+      const paidAt = typeof body.paidAt === "string" ? new Date(body.paidAt) : new Date(NaN);
+      const method = typeof body.method === "string" ? body.method : "";
+      if (!id || !Number.isFinite(paidAt.getTime()) || paidAt.getTime() > Date.now() || !["Cash", "Check", "Bank transfer", "Other"].includes(method) || (body.note != null && typeof body.note !== "string") || (body.note?.length ?? 0) > 2000) {
+        return NextResponse.json({ error: "Invalid offline receipt." }, { status: 400 });
+      }
+      const { data: existing, error: readError } = await db.from("portal_household_charge_records")
+        .select("manager_user_id, property_id, status, row_data, updated_at").eq("id", id).maybeSingle();
+      if (readError) return NextResponse.json({ error: "Could not read charge." }, { status: 500 });
+      if (!existing) return NextResponse.json({ error: "Charge not found." }, { status: 404 });
+      const ownerId = String(existing.manager_user_id ?? "");
+      const propertyId = existing.property_id ? String(existing.property_id) : null;
+      if (!ownerId || (user.role !== "admin" && (!rowInWorkspaceScope(propertyId, workspaceScope) || (ownerId !== user.id && !(propertyId && await managerHasCoManagerPermissionForProperty(db, user.id, propertyId, "payments", "edit")))))) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      const current = existing.row_data as HouseholdCharge;
+      const note = body.note?.trim() ?? "";
+      // A retry after ledger failure repairs the same receipt; it never changes a paid charge.
+      const sameReceipt = existing.status === "paid" && current.paidAt === paidAt.toISOString() && current.paidMethod === method && (current.paidNote ?? "") === note;
+      if (!sameReceipt && !["pending", "failed"].includes(existing.status)) {
+        return NextResponse.json({ error: "Refresh this charge before recording payment." }, { status: 409 });
+      }
+      const updated: HouseholdCharge = { ...current, id, managerUserId: ownerId, status: "paid", paidAt: paidAt.toISOString(), paidMethod: method, paidNote: note, balanceLabel: "$0.00" };
+      if (!sameReceipt) {
+        // Compare the server snapshot to prevent a concurrent payment or amount edit being overwritten.
+        let update = db.from("portal_household_charge_records").update({ status: "paid", row_data: updated, updated_at: now }).eq("id", id).eq("status", existing.status);
+        update = existing.updated_at == null ? update.is("updated_at", null) : update.eq("updated_at", existing.updated_at);
+        const { data: saved, error } = await update.select("id").maybeSingle();
+        if (error) return NextResponse.json({ error: "Could not record payment." }, { status: 500 });
+        if (!saved) return NextResponse.json({ error: "Charge changed. Refresh and try again." }, { status: 409 });
+      }
+      await syncLedgerPaymentEntry(db, updated);
+      await cancelFuturePaymentRemindersForCharge(db, ownerId, id);
+      return NextResponse.json({ ok: true, charge: updated });
+    }
 
     if (body.action === "deleteCharge") {
       const id = body.id?.trim();
@@ -257,6 +298,8 @@ export async function POST(req: Request) {
         ...rowData,
         status: "pending",
         paidAt: null,
+        paidMethod: null,
+        paidNote: null,
         balanceLabel: restoredBalance,
         // Match the client unmark: drop the (past) due date so it lands in Pending,
         // not Overdue, and reopen reminders.

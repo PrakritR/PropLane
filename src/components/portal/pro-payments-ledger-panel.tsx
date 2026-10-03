@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import Link from "next/link";
+import { escapeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,7 +25,7 @@ import {
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { roomDisplayLabel } from "@/lib/room-display-label";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
-import { paymentDetailHref, paymentListHref, paymentRecordDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
+import { paymentDetailHref, paymentListHref, residentDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
@@ -32,16 +34,15 @@ import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-rela
 import {
   RecordFactCard,
   RecordFactRow,
-  RecordRowsCard,
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Bell, CalendarDays, RotateCcw, Trash2 } from "lucide-react";
+import { Bell, CalendarDays, RotateCcw, Trash2, Check, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
-import { deleteHouseholdCharge, legacyChargeIdAliases, markHouseholdChargePaid, markHouseholdChargePending, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
+import { readHouseholdCharges, recordHouseholdChargeOfflinePayment, deleteHouseholdCharge, legacyChargeIdAliases, markHouseholdChargePaid, markHouseholdChargePending, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import {
   syncResidentAfterStayPaymentEdit,
@@ -316,6 +317,11 @@ export function ManagerPaymentsLedgerPanel({
     () => combineScheduledPaymentMessages(scheduledMessages),
     [scheduledMessages],
   );
+  const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
+  const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
+  const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
+  const [offlineNote, setOfflineNote] = useState("");
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
@@ -1271,77 +1277,36 @@ export function ManagerPaymentsLedgerPanel({
   // Every value is read straight off `row` — nothing here is computed a
   // second way from what the sibling Resident/Service tabs already show.
   const renderPaymentOverviewPanel = (row: DemoManagerPaymentLedgerRow) => {
+    const charge = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
     const roomLabel = formatLedgerRoomLabel(row.roomNumber);
-    const dueDetail = formatDueMeta(row.dueDate ?? "");
-    const overdue = row.bucket === "overdue";
-    const reminders = row.householdChargeId
-      ? manageableRemindersForCharge(displayScheduledMessages, row.householdChargeId)
-          .filter((message) => message.status === "scheduled")
-          .filter((message) => Date.parse(message.sendAt) > Date.now())
-      : [];
-    const residentHref = paymentRecordDetailHref(
-      listBasePath ?? "/portal",
-      direction,
-      activeBucket,
-      row.id,
-      "resident",
-    );
-
+    const dueDays = row.dueDateSortMs == null ? null : Math.ceil((new Date(row.dueDateSortMs).setHours(0, 0, 0, 0) - paymentToday) / 86400000);
+    const events = [
+      ...(charge?.createdAt ? [{ at: charge.createdAt, label: "Created" }] : []),
+      ...(charge?.paidAt ? [{ at: charge.paidAt, label: `Paid${charge.paidMethod ? ` · ${charge.paidMethod}` : ""}` }] : []),
+      ...displayScheduledMessages.filter((message) => message.chargeId === row.householdChargeId && message.status === "sent").map((message) => ({ at: message.sendAt, label: "Reminder sent" })),
+    ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     return (
       <div className="space-y-3 px-3 py-2 sm:px-4" data-attr="payment-overview-panel">
         <RecordStatTiles>
           <StatTile dataAttr="payment-overview-tile-amount" label="Amount" value={row.lineAmount} />
-          <StatTile
-            dataAttr="payment-overview-tile-balance"
-            label="Balance due"
-            value={row.balanceDue}
-            tone={overdue ? "danger" : "default"}
-          />
-          <StatTile
-            dataAttr="payment-overview-tile-due"
-            label="Due date"
-            value={row.dueDate || "—"}
-            detail={dueDetail || undefined}
-            tone={overdue ? "danger" : "default"}
-          />
           <StatTile dataAttr="payment-overview-tile-status" label="Status" value={row.statusLabel} />
+          <StatTile dataAttr="payment-overview-tile-due" label="Due date" value={row.dueDate || "Not set"} />
+          {charge?.paidAt ? <StatTile dataAttr="payment-overview-tile-paid" label="Paid on" value={formatPacificDateTime(charge.paidAt)} detail={charge.paidMethod} /> : dueDays != null ? <StatTile dataAttr="payment-overview-tile-days" label={dueDays < 0 ? "Days overdue" : "Days until due"} value={dueDays === 0 ? "Today" : String(Math.abs(dueDays))} /> : null}
         </RecordStatTiles>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <RecordFactCard title="Details" dataAttr="payment-overview-card-details">
-            <RecordFactRow label="Property" value={row.propertyName || "—"} />
+            <RecordFactRow label="Resident" value={charge?.residentUserId ? <Link className="text-primary" href={residentDetailHref(listBasePath ?? "/portal", "current", charge.residentUserId, "overview")}>{row.residentName}</Link> : row.residentName} />
+            {row.propertyName ? <RecordFactRow label="Property" value={row.propertyName} /> : null}
             {roomLabel ? <RecordFactRow label="Room" value={roomLabel} /> : null}
             <RecordFactRow label="Charge" value={row.chargeTitle} />
+            {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
+            {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
+            <RecordFactRow label="Finances" value={<PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />} />
           </RecordFactCard>
-          <RecordFactCard
-            title="Resident"
-            action={{ label: "Resident", href: residentHref }}
-            dataAttr="payment-overview-card-resident"
-          >
-            <RecordFactRow label="Name" value={row.residentName || "—"} />
+          <RecordFactCard title="History" dataAttr="payment-overview-history">
+            <ol className="space-y-4 p-4">{events.map((event, index) => <li key={`${event.at}-${index}`} className="border-l-2 border-primary/30 pl-3"><span className="block text-sm font-medium">{event.label}</span><time className="text-xs text-muted" dateTime={event.at}>{formatPacificDateTime(event.at)}</time></li>)}</ol>
           </RecordFactCard>
-          {reminders.length > 0 ? (
-            <RecordRowsCard
-              title={reminders.length === 1 ? "Scheduled reminder" : "Scheduled reminders"}
-              dataAttr="payment-overview-card-reminders"
-              rows={reminders.map((message) => ({
-                id: message.id,
-                title: message.typeLabel,
-                sub: formatScheduledSendAt(message.sendAt),
-                figure:
-                  (message.bundledChargeIds?.length ?? 0) > 1
-                    ? `${message.bundledChargeIds!.length} charges`
-                    : undefined,
-              }))}
-            />
-          ) : null}
-          {(row.residentChargeMessages?.length ?? 0) > 0 ? (
-            <RecordFactCard title="Resident message" dataAttr="payment-overview-card-resident-message">
-              {row.residentChargeMessages!.map((entry) => (
-                <RecordFactRow key={entry.id} label={formatPacificDateTime(entry.sentAt)} value={entry.body} />
-              ))}
-            </RecordFactCard>
-          ) : null}
         </div>
       </div>
     );
@@ -2193,6 +2158,20 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
+      <PortalDialog open={Boolean(offlineRow)} title="Mark paid offline" onClose={() => setOfflineRow(null)} primaryAction={{ label: "Mark paid", onClick: async () => {
+        if (!offlineRow?.householdChargeId) { showToast("This payment cannot be recorded offline."); return; }
+        const paidAt = offlineDate === new Date().toLocaleDateString("en-CA") ? new Date().toISOString() : `${offlineDate}T12:00:00`;
+        const ok = await recordHouseholdChargeOfflinePayment(offlineRow.householdChargeId, managerUserId, { paidAt, method: offlineMethod, note: offlineNote }, chargeScopeOpts);
+        if (!ok) { showToast("Could not record payment. Check the date and refresh the charge."); return; }
+        await cancelFutureRemindersForPaidCharge(offlineRow.householdChargeId, scheduledMessages).catch(() => undefined);
+        setOfflineRow(null); setOfflineNote(""); onRowsChanged?.(); onScheduleChanged?.(); showToast("Payment recorded.");
+      } }}>
+        <div className="space-y-4">
+          <label className="block text-sm">Date paid<Input type="date" value={offlineDate} max={new Date().toLocaleDateString("en-CA")} onChange={(event) => setOfflineDate(event.target.value)} /></label>
+          <label className="block text-sm">Method<select className="block w-full rounded-lg border border-border bg-card p-2" value={offlineMethod} onChange={(event) => setOfflineMethod(event.target.value as typeof offlineMethod)}>{["Cash", "Check", "Bank transfer", "Other"].map((method) => <option key={method}>{method}</option>)}</select></label>
+          <label className="block text-sm">Note<Input value={offlineNote} maxLength={2000} onChange={(event) => setOfflineNote(event.target.value)} /></label>
+        </div>
+      </PortalDialog>
     {chargeRemindersRow ? (
       <ChargeRemindersModal
         open
@@ -2226,7 +2205,7 @@ export function ManagerPaymentsLedgerPanel({
         renderPaymentDetailPanel(detailRow)
       ) : (
       <PortalRecordDetailPage
-        pageTitle="Payments"
+        pageTitle="Incoming payments"
         title={detailRow.residentName}
         subtitle={detailRow.chargeTitle}
         avatarName={detailRow.residentName}
@@ -2252,54 +2231,19 @@ export function ManagerPaymentsLedgerPanel({
           // anyone and orphaned the real payment line. C023: a paid charge instead offers Refund
           // (or Return deposit for a security deposit), added here rather than in
           // `record-sections.ts` since only THIS record kind, in only its paid state, offers them.
-          const baseHeaderActions = isMarkableAsPaid(detailRow)
-            ? allSections.headerActions
-            : allSections.headerActions.filter((action) => action.id !== "record-payment");
           const headerActions = [
-            ...baseHeaderActions.filter((action) => action.id !== "delete" || rowDeletable(detailRow)),
-            ...(isReturnableDepositRow(detailRow)
-              ? [{ id: "return-deposit", label: "Return deposit", icon: RotateCcw }]
-              : []),
-            ...(isRefundableChargeRow(detailRow)
-              ? [{ id: "refund", label: "Refund", icon: RotateCcw }]
-              : []),
+            ...(isMarkableAsPaid(detailRow) ? [
+              { id: "mark-paid", label: "Mark paid offline", icon: Check },
+              { id: "send-reminder", label: "Send reminder", icon: Bell },
+              ...(rowEditable(detailRow) ? [{ id: "edit", label: "Edit", icon: Pencil }] : []),
+            ] : []),
+            ...(isReturnableDepositRow(detailRow) ? [{ id: "return-deposit", label: "Return deposit", icon: RotateCcw }] : []),
+            ...(isRefundableChargeRow(detailRow) ? [{ id: "refund", label: "Refund", icon: RotateCcw }] : []),
+            ...(isPaidRow(detailRow) ? [{ id: "move-pending", label: "Move to pending", icon: RotateCcw }] : []),
+            { id: "download", label: "Download", icon: Download },
+            ...(rowDeletable(detailRow) ? [{ id: "delete", label: "Delete", icon: Trash2, tone: "danger" as const }] : []),
           ];
-          // C095: a charge only ever has real data behind Service (a paid
-          // add-on/work-order charge), Resident (always), Documents (never —
-          // no upload path exists for a charge) or Activity (only an imported
-          // charge carries one, via `migrationSourceId`). Before faithfully
-          // rendered the other three tabs anyway, each with an empty-state
-          // message; hiding a tab that can never have content reads truer
-          // than a permanent dead end.
-          const isServiceCharge = detailRow.chargeKind === "work_order_charge";
-          const hasImportedActivity = Boolean(detailRow.migrationSourceId);
-          const groups = allSections.groups
-            .map((group) => {
-              if (group.label === "Linked") {
-                return {
-                  ...group,
-                  items: group.items.filter((item) => {
-                    if (item.id === "service") return isServiceCharge;
-                    // A resident charge is never a vendor payment — that
-                    // money moves on the Outgoing side, a different record.
-                    if (item.id === "vendor") return false;
-                    return true;
-                  }),
-                };
-              }
-              if (group.label === "") {
-                return {
-                  ...group,
-                  items: group.items.filter((item) => {
-                    if (item.id === "documents") return false;
-                    if (item.id === "activity") return hasImportedActivity;
-                    return true;
-                  }),
-                };
-              }
-              return group;
-            })
-            .filter((group) => group.items.length > 0);
+          const groups = allSections.groups;
           const sections = { ...allSections, groups, headerActions };
           // Every action `record-sections.ts` still lists for this record kind
           // (record-payment, send-reminder, delete) now has a real handler,
@@ -2310,12 +2254,17 @@ export function ManagerPaymentsLedgerPanel({
           // handler at all.
           const onHeaderAction = (actionId: string) => {
             if (actionId === "send-reminder") {
-              setChargeRemindersRow(detailRow);
+              openReminderPreview(detailRow);
               return;
             }
-            if (actionId === "record-payment") {
-              if (isMarkableAsPaid(detailRow)) void recordPaid(detailRow, "Marked as paid.");
-              return;
+            if (actionId === "mark-paid") { setOfflineRow(detailRow); return; }
+            if (actionId === "edit") { startEdit(detailRow); return; }
+            if (actionId === "move-pending") { void moveToPending(detailRow); return; }
+            if (actionId === "download") {
+              const fields = ["Resident", "Charge", "Amount", "Status", "Due date"];
+              const values = [detailRow.residentName, detailRow.chargeTitle, detailRow.lineAmount, detailRow.statusLabel, detailRow.dueDate];
+              const url = URL.createObjectURL(new Blob([[fields, values].map((line) => line.map((value) => escapeCsv(/^[\s]*[=+@-]/.test(value) ? `'${value}` : value)).join(",")).join("\n")], { type: "text/csv" }));
+              const anchor = document.createElement("a"); anchor.href = url; anchor.download = "payment.csv"; anchor.click(); URL.revokeObjectURL(url); return;
             }
             if (actionId === "delete") {
               void removePayment(detailRow);
