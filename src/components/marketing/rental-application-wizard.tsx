@@ -110,6 +110,7 @@ import {
   type ApplicationFormVariant,
 } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
+import { applicationTemplateIdForLeaseFirstApplicant } from "@/lib/property-lease-template-sync";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
@@ -580,9 +581,19 @@ function RentalApplicationWizardInner({
   useEffect(() => {
     const propertyId = form.propertyId.trim();
     if (!propertyId || form.applicationTemplateId || templatePreview || variantRestoreRef.current) return;
-    const submission = getPropertyById(propertyId)?.listingSubmission;
+    const property = getPropertyById(propertyId);
+    const submission = property?.listingSubmission;
     if (!submission || submission.v !== 1) return;
-    const resolved = applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType));
+    // Lease first: the application a signer fills in is the one their lease maps to (C2-CP9).
+    const mappedApplicationId =
+      property?.signingOrder === "lease_first"
+        ? applicationTemplateIdForLeaseFirstApplicant(submission, {
+            leaseTerm: form.leaseTerm,
+            rentalType: form.rentalType,
+            bundleId: form.bundleId,
+          })
+        : null;
+    const resolved = applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), mappedApplicationId);
     if (!resolved.templateId || !resolved.templateVersion) return;
     setForm((previous) => previous.applicationTemplateId
       ? previous

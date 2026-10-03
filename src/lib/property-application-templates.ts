@@ -20,8 +20,18 @@ export type PropertyApplicationTemplate = {
   label: string;
   formVariant: ApplicationFormVariant;
   applicationLeaseTerms?: string[];
-  /** Lease documents this application form can be used with. */
+  /**
+   * Legacy mirror of `linkedLeaseTemplateId` (it used to be a many-to-many list). Read only by
+   * `application-lease-mapping.ts` for data stored before the one-to-one rule; every save
+   * collapses it to at most the one lease the application maps to.
+   */
   usedForLeaseTemplateIds?: string[];
+  /**
+   * C2-CP9 (application first): the ONE lease this application maps to. One lease may serve many
+   * applications; an application never maps to two. Set only from Settings -> Applications &
+   * leases. `null`/absent = unmapped, which falls back to the property's default lease.
+   */
+  linkedLeaseTemplateId?: string | null;
   listingSeedKey?: PropertyLeaseListingSeedKey;
   createdAt: string;
   updatedAt: string;
@@ -274,11 +284,21 @@ export function publishedApplicationTemplateForApplicant(
   variant: ApplicationFormVariant,
   templateId?: string | null,
 ): PropertyApplicationTemplate | null {
-  const templates = readPropertyApplicationTemplates(sub).filter((template) =>
-    applicationFormVariantForTemplate(template) === variant && Boolean(template.publishedQuestionConfig),
-  );
-  if (templateId) return templates.find((template) => template.id === templateId) ?? null;
-  return templates[0] ?? null;
+  const published = readPropertyApplicationTemplates(sub).filter((template) => Boolean(template.publishedQuestionConfig));
+  // A template pinned by id (the form a lease maps to, C2-CP9) is honored across the standard and
+  // short-term variants: a lease maps to ONE application whatever its length. A co-signer form is
+  // only ever served to the co-signer variant.
+  if (templateId) {
+    return (
+      published.find(
+        (template) =>
+          template.id === templateId &&
+          (applicationFormVariantForTemplate(template) === variant ||
+            (variant !== "cosigner" && applicationFormVariantForTemplate(template) !== "cosigner")),
+      ) ?? null
+    );
+  }
+  return published.find((template) => applicationFormVariantForTemplate(template) === variant) ?? null;
 }
 
 export function publishedQuestionConfigVersionForTemplate(
@@ -362,6 +382,12 @@ function normalizeApplicationTemplate(
     usedForLeaseTemplateIds: Array.isArray(row.usedForLeaseTemplateIds)
       ? [...new Set(row.usedForLeaseTemplateIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))]
       : undefined,
+    linkedLeaseTemplateId:
+      typeof row.linkedLeaseTemplateId === "string" && row.linkedLeaseTemplateId.trim()
+        ? row.linkedLeaseTemplateId.trim()
+        : row.linkedLeaseTemplateId === null
+          ? null
+          : undefined,
   };
 }
 

@@ -15,6 +15,7 @@ import {
   updateLeasePipelineRow,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
+import { sharedRoomIsOnJointLease } from "@/lib/leasing-pipeline-client-cache";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
@@ -26,7 +27,7 @@ function roomKey(app: DemoApplicantRow): string {
 
 /** True when this application sits in a shared room that is let on one joint lease. */
 export function applicationIsOnJointRoomLease(app: DemoApplicantRow): boolean {
-  return roomForApplicationRow(app)?.sharedRoomLeaseKind === "joint";
+  return sharedRoomIsOnJointLease(roomForApplicationRow(app));
 }
 
 /** The lead application and every roommate who will be on its joint lease; `[]` when the lease is not joint or the resident is alone. */
