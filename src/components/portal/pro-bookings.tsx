@@ -388,7 +388,7 @@ function useBookingsWorkspace({
       }
       activeDestinationId={bucket}
       destinationAriaLabel="Booking views"
-      search={{
+      search={bucket === "occupancy" ? undefined : {
         value: listSearch,
         onChange: setListSearch,
         placeholder: "Search bookings",
@@ -425,7 +425,7 @@ function useBookingsWorkspace({
 
   const content =
     bucket === "occupancy" ? (
-      <BookingsOccupancyPanel propertyIds={scopedPropertyIds} entries={entries} today={startOfLocalDay(new Date())} onOpenDay={goToDayPage} />
+      loading || !authReady ? <div role="status" className="p-6 text-sm">Loading bookings…</div> : <BookingsOccupancyPanel propertyIds={scopedPropertyIds} entries={entries} today={startOfLocalDay(new Date())} onOpenDay={goToDayPage} roomFilterId={roomFilterId} onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })} />
     ) : bucket === "calendar" ? (
       <ManagerPortfolioBookingsCalendar
         propertyIds={scopedPropertyIds}
