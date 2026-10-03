@@ -22,6 +22,7 @@ import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { rateLimit } from "@/lib/rate-limit";
+import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -815,6 +816,17 @@ export async function markWorkOrderDoneByVendor(
       ...(rowData.residentEmail ? [{ audience: "resident" as const, email: rowData.residentEmail }] : []),
     ],
   }).catch(() => undefined);
+
+  try {
+    await ensureSubmittedVendorInvoiceForMarkedDone(db, {
+      workOrderId,
+      managerUserId: String(workOrder.manager_user_id),
+      vendorUserId: String(workOrder.vendor_user_id),
+      row: finalRowData,
+    });
+  } catch (error) {
+    console.error("Failed to create submitted vendor invoice for marked-done service", error);
+  }
 
   track("work_order_vendor_marked_done", actor.userId, { work_order_id: workOrderId });
   return { ok: true, workOrder: finalRowData };

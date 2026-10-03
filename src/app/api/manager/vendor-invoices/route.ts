@@ -47,6 +47,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ services: services.filter(service => rowAllowedInWorkspaceScope(scope, service.property_id)).map(service => ({ id: service.id, vendorUserId: service.vendor_user_id, title: (service.row_data as { title?: string })?.title || "Service" })) });
     }
     const vendorUserId = url.searchParams.get("vendorUserId")?.trim() || null;
+    const workOrderId = url.searchParams.get("workOrderId")?.trim() || null;
     const statusParam = url.searchParams.getAll("status").flatMap((s) => s.split(","));
     const statuses = (statusParam.length > 0 ? statusParam : ["approved", "scheduled"])
       .map((s) => s.trim())
@@ -60,6 +61,7 @@ export async function GET(req: Request) {
       .in("status", statuses)
       .order("submitted_at", { ascending: false }).order("id", { ascending: true });
     if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
+    if (workOrderId) query = query.eq("work_order_id", workOrderId);
 
     const rows = (await allRows(query)).filter(row => !row.voided_at);
 

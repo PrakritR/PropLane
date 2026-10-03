@@ -640,16 +640,7 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {active && tab === "payments" ? (
-        <PaymentsSettingsPanel
-          defaultsForProperties={defaultsForProperties}
-          onFooterReady={setPanelFooter}
-          formRef={paymentsFormRef}
-          mode={paymentsMode}
-          propertyOptions={scopedPropertyOptions}
-          initialPropertyId={initialPropertyId}
-        />
-      ) : null}
+      {active && tab === "payments" ? <PortalPayoutsSettingsPage portal="manager" /> : null}
 
       {active && tab === "payouts" ? <PortalPayoutsSettingsPage portal="manager" /> : null}
 

@@ -45,6 +45,7 @@ import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
+import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -265,6 +266,8 @@ export function ManagerWorkOrdersPanel({
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
+  const [approveInvoiceBusy, setApproveInvoiceBusy] = useState(false);
+  const [pendingServiceInvoiceId, setPendingServiceInvoiceId] = useState<string | null>(null);
   // night/vendor-pay: an additional payment source in the confirm modal,
   // shown only once the flag-gated balance read comes back enabled. Defaults
   // to "ach" — unchanged behavior for everyone until they explicitly pick it.
@@ -377,6 +380,30 @@ export function ManagerWorkOrdersPanel({
   useEffect(() => {
     if (routeWorkOrder) openExpand(routeWorkOrder);
   }, [routeWorkOrder, openExpand]);
+
+  useEffect(() => {
+    if (!routeWorkOrder || routeWorkOrder.automationStatus !== "vendor_marked_done" || isDemoModeActive()) {
+      setPendingServiceInvoiceId(null);
+      return;
+    }
+    let active = true;
+    void fetch(
+      `/api/manager/vendor-invoices?status=submitted&workOrderId=${encodeURIComponent(routeWorkOrder.id)}`,
+      { credentials: "include" },
+    )
+      .then((response) => response.json())
+      .then((body) => {
+        if (!active) return;
+        const invoice = (body.invoices as Array<{ id: string }> | undefined)?.[0];
+        setPendingServiceInvoiceId(invoice?.id ?? null);
+      })
+      .catch(() => {
+        if (active) setPendingServiceInvoiceId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [routeWorkOrder?.id, routeWorkOrder?.automationStatus]);
 
   const openWorkOrderDetail = useCallback(
     (row: DemoManagerWorkOrderRow) => {
@@ -768,6 +795,45 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
+  const approveInvoiceForRow = useCallback(
+    async (row: DemoManagerWorkOrderRow) => {
+      if (isDemoModeActive()) {
+        approvePay(row);
+        return;
+      }
+      setApproveInvoiceBusy(true);
+      try {
+        const lookup = await fetch(
+          `/api/manager/vendor-invoices?status=submitted&workOrderId=${encodeURIComponent(row.id)}`,
+          { credentials: "include" },
+        );
+        const lookupBody = await lookup.json();
+        const invoice = (lookupBody.invoices as Array<{ id: string }> | undefined)?.[0];
+        if (!invoice?.id) {
+          approvePay(row);
+          return;
+        }
+        const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(invoice.id)}/decision`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: "approved" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Could not approve invoice.");
+        setPendingServiceInvoiceId(null);
+        showToast("Invoice approved — pay it from Outgoing payments.");
+        void syncManagerWorkOrdersFromServer({ force: true });
+        window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not approve invoice.");
+      } finally {
+        setApproveInvoiceBusy(false);
+      }
+    },
+    [approvePay, showToast],
+  );
+
   /** Auto-save the Cost field and, once a resident is linked and the amount warrants it,
    * auto-create or update the payment line. Locked only when a vendor fixed the price
    * (set-vendor-price or accepted bid). */
@@ -1063,12 +1129,12 @@ export function ManagerWorkOrdersPanel({
         <Button
           type="button"
           variant="primary"
-          data-attr="work-order-approve-pay"
+          data-attr="work-order-approve-invoice"
           className={`${PORTAL_DETAIL_BTN} rounded-full`}
-          disabled={approvePayBusy}
-          onClick={() => approvePay(row)}
+          disabled={approveInvoiceBusy || approvePayBusy}
+          onClick={() => void approveInvoiceForRow(row)}
         >
-          Approve &amp; pay
+          {approveInvoiceBusy ? "Approving…" : "Approve invoice"}
         </Button>
       ) : row.bucket === "scheduled" ? (
         <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
@@ -1469,7 +1535,7 @@ export function ManagerWorkOrdersPanel({
         return;
       }
       if (actionId === "close") {
-        if (routeWorkOrder.automationStatus === "vendor_marked_done") approvePay(routeWorkOrder);
+        if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
         else markComplete(routeWorkOrder);
         return;
       }
@@ -1590,6 +1656,18 @@ export function ManagerWorkOrdersPanel({
                     (routeWorkOrder.vendorCostCents ?? 0) + (routeWorkOrder.materialsCostCents ?? 0),
                   ) || "Awaiting line items"}
                 </p>
+                {pendingServiceInvoiceId ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="mt-3 w-full rounded-full sm:w-auto"
+                    data-attr="service-approve-invoice"
+                    disabled={approveInvoiceBusy}
+                    onClick={() => void approveInvoiceForRow(routeWorkOrder)}
+                  >
+                    {approveInvoiceBusy ? "Approving…" : "Approve invoice"}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
