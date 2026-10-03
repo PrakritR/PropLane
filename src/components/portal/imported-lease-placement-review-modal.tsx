@@ -41,7 +41,7 @@ export function ImportedLeasePlacementReviewModal({
         loading: busy,
         dataAttr: "imported-lease-placement-confirm",
       }}
-      secondaryAction={{ label: "Cancel", onClick: onClose }}
+      secondaryAction={null}
     >
       <div className="space-y-4">
         <div className="grid gap-4 lg:grid-cols-2">

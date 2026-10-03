@@ -20,4 +20,13 @@ describe("portal list dates — rent receipts", () => {
     );
     expect(source).toMatch(/formatPortalListDate\(row\.date\)/);
   });
+
+  it("pro-bills-panel formats due dates in the bills table", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-bills-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("formatPortalListDate");
+    expect(source).toMatch(/formatPortalListDate\(bill\.dueDate\)/);
+  });
 });

@@ -654,7 +654,7 @@ export function ManagerProperties({
         open={planLimitDialogOpen}
         onClose={() => setPlanLimitDialogOpen(false)}
         title="You've reached your plan limit"
-        secondaryAction={{ label: "Cancel", onClick: () => setPlanLimitDialogOpen(false) }}
+        secondaryAction={null}
         primaryAction={{
           label: "Upgrade",
           onClick: () => {

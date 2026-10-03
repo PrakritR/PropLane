@@ -42,7 +42,7 @@ describe("ADD PROPERTY at the plan limit", () => {
     const dialogBody = planLimitDialogBody();
     expect(dialogBody).toContain('label: "Upgrade"');
     expect(dialogBody).toContain("router.push(MANAGER_PLAN_PORTAL_URL)");
-    expect(dialogBody).toContain('secondaryAction={{ label: "Cancel"');
+    expect(dialogBody).toContain("secondaryAction={null}");
   });
 
   it("still refuses to open the wizard", () => {
