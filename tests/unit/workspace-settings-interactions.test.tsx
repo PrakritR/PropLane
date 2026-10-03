@@ -53,7 +53,7 @@ it("keeps an empty workspace when confirmation is cancelled", async () => {
 it("moves houses and deletes through one request to the selected owned destination", async () => {
   mount([workspace("Original", ["house-1"], true), workspace("Second"), workspace("Third")]);
   fireEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
-  const select = await screen.findByRole("button", { name: "Destination workspace" });
+  const select = await screen.findByRole("button", { name: /Move 1 house to/ });
   fireEvent.click(select);
   const options = await screen.findAllByRole("option");
   expect(options.map(o => o.textContent?.replace(/^✓/, ""))).toEqual(["Second · 0 houses", "Third · 0 houses"]);

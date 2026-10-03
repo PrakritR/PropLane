@@ -15,9 +15,9 @@ describe("workspace settings delete", () => {
 
   it("deletes an empty workspace on a plain confirm and a full one through the move dialog", () => {
     expect(src).toContain("It has no properties, so it will be removed now.");
-    expect(src).toContain("data-attr=\"workspace-delete-move-to\"");
+    expect(src).toContain("dataAttr=\"workspace-delete-move-to\"");
     expect(src).toContain("Move and delete");
-    expect(src).toContain("data-attr=\"workspace-delete-add-first\"");
+    expect(src).toContain("dataAttr: \"workspace-delete-add-first\"");
     expect(src).not.toContain("Move its properties to another workspace first.");
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsSection, PortalSettingsGroup, PortalSettingsRow } from "./portal-settings-ui";
 
 /**
@@ -28,8 +29,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Home, Lock, Pencil } from "lucide-react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -77,8 +77,6 @@ function WorkspaceCard({ workspace, canManage, atWorkspaceCap, onRename, onDelet
       })}
       {!workspace.propertyIds.length ? <PortalSettingsRow label="No properties" /> : null}
     </PortalSettingsGroup></PortalSettingsSection>
-    {/* C2-CP7–CP9: the workspace's one signing order and its application ↔ lease map. */}
-    <WorkspaceApplicationsLeasesSettings />
     {workspace.owned && plan ? <PlanCard plan={plan} /> : null}
     {workspace.owned ? <PortalSettingsGroup>
       <button type="button" className="flex min-h-12 w-full items-center gap-2 px-4 text-left text-[15px] font-semibold text-primary disabled:opacity-50" disabled={atWorkspaceCap} onClick={onNew} data-attr="workspace-new">
@@ -231,33 +229,68 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           ))}
         </WorkspaceCards>
       )}
-      <Modal open={editing !== null} onClose={closeEditor} title={editing === "new" ? "Add workspace" : "Rename workspace"}>
+      {/* Standard popup frame: one field, the primary bottom right, no rail or preview. */}
+      <PortalDialog
+        open={editing !== null}
+        onClose={closeEditor}
+        title={editing === "new" ? "Add workspace" : "Rename workspace"}
+        contextPanel={null}
+        preview={null}
+        fullScreenMobile={false}
+        dataAttr="workspace-name-dialog"
+        primaryAction={{
+          label: "Save",
+          disabled: !name.trim(),
+          dataAttr: "workspace-name-save",
+          onClick: () =>
+            run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor),
+        }}
+      >
         <form
           onSubmit={(event) => {
             event.preventDefault();
             void run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor);
           }}
         >
-          <label className="block text-sm font-medium">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-muted" htmlFor="workspace-name-input">
             Workspace name
-            <Input autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
           </label>
+          <Input id="workspace-name-input" className="mt-1.5" autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
           {error ? (
             <p role="alert" className="mt-2 text-sm text-danger">
               {error}
             </p>
           ) : null}
-          <ModalFooter>
-            <Button
-              type="button"
-              onClick={() => run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor)}
-            >
-              Save
-            </Button>
-          </ModalFooter>
         </form>
-      </Modal>
-      <Modal open={deleting !== null} onClose={() => setDeleting(null)} title={deleting ? `Delete ${deleting.workspace.name}?` : "Delete workspace?"}>
+      </PortalDialog>
+      <PortalDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title={deleting ? `Delete ${deleting.workspace.name}?` : "Delete workspace?"}
+        tone={deleting?.destination ? "danger" : "default"}
+        contextPanel={null}
+        preview={null}
+        fullScreenMobile={false}
+        dataAttr="workspace-delete-dialog"
+        primaryAction={
+          deleting?.destination
+            ? {
+                label: "Move and delete",
+                dataAttr: "workspace-delete-move",
+                onClick: () => deleteWorkspace(deleting.workspace, deleting.destination),
+              }
+            : {
+                label: "Add a workspace",
+                dataAttr: "workspace-delete-add-first",
+                disabled: atWorkspaceCap,
+                onClick: () => {
+                  setDeleting(null);
+                  setName("");
+                  setEditing("new");
+                },
+              }
+        }
+      >
         {deleting ? (
           deleting.destination ? (
             <>
@@ -266,23 +299,18 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                   ? "Its house keeps ownership and permissions — it just moves."
                   : `Its ${deleting.workspace.propertyIds.length} houses keep ownership and permissions — they just move.`}
               </p>
-              <label className="block text-sm font-medium">
-                Move {deleting.workspace.propertyIds.length === 1 ? "1 house" : `${deleting.workspace.propertyIds.length} houses`} to
-                <Select
-                  aria-label="Destination workspace"
-                  value={deleting.destination}
-                  onChange={(event) => setDeleting((value) => value && { ...value, destination: event.target.value })}
-                  data-attr="workspace-delete-move-to"
-                >
-                  {owned
-                    .filter((workspace) => workspace.id !== deleting.workspace.id)
-                    .map((workspace) => (
-                      <option key={workspace.id} value={workspace.id}>
-                        {workspace.name} · {workspace.propertyIds.length} {workspace.propertyIds.length === 1 ? "house" : "houses"}
-                      </option>
-                    ))}
-                </Select>
-              </label>
+              <FieldSingleSelect
+                label={`Move ${deleting.workspace.propertyIds.length === 1 ? "1 house" : `${deleting.workspace.propertyIds.length} houses`} to`}
+                value={deleting.destination}
+                onChange={(value) => setDeleting((current) => current && { ...current, destination: value })}
+                dataAttr="workspace-delete-move-to"
+                options={owned
+                  .filter((workspace) => workspace.id !== deleting.workspace.id)
+                  .map((workspace) => ({
+                    value: workspace.id,
+                    label: `${workspace.name} · ${workspace.propertyIds.length} ${workspace.propertyIds.length === 1 ? "house" : "houses"}`,
+                  }))}
+              />
             </>
           ) : (
             <p className="mb-3 text-sm text-muted" data-attr="workspace-delete-only-copy">
@@ -296,27 +324,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
             {error}
           </p>
         ) : null}
-        <ModalFooter>
-          
-          {deleting?.destination ? (
-            <Button variant="danger" onClick={() => deleteWorkspace(deleting.workspace, deleting.destination)} data-attr="workspace-delete-move">
-              Move and delete
-            </Button>
-          ) : (
-            <Button
-              onClick={() => {
-                setDeleting(null);
-                setName("");
-                setEditing("new");
-              }}
-              disabled={atWorkspaceCap}
-              data-attr="workspace-delete-add-first"
-            >
-              Add a workspace
-            </Button>
-          )}
-        </ModalFooter>
-      </Modal>
+      </PortalDialog>
     </div>
   );
 }
