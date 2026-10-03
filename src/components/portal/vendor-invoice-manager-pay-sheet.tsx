@@ -93,7 +93,7 @@ export function VendorInvoiceManagerPaySheet({
       assistantStrip={false}
       contextPanel={<PopupRecordPreview rows={[{ label: "Vendor", value: invoice?.vendorName }, { label: "Invoice", value: invoice?.invoiceNumber }]} />}
       previewLabel="Payment preview"
-      preview={invoice ? <PopupRecordPreview rows={[{ label: "Invoice amount", value: formatMoney(invoice.totalCents) }, ...invoice.lineItems.map((line, index) => ({ label: `${index + 1}. ${line.description || "Line item"}`, value: formatMoney(line.amountCents) }))]} /> : undefined}
+      preview={invoice ? <PopupRecordPreview rows={[{ label: "Invoice amount", value: formatMoney(invoice.totalCents) }, ...(invoice.lineItems ?? []).map((line, index) => ({ label: `${index + 1}. ${line.description || "Line item"}`, value: formatMoney(line.amountCents) }))]} /> : undefined}
       scrollableContent
       panelClassName={MODAL_LARGE_PANEL_CLASS}
     >

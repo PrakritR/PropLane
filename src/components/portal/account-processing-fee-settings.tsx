@@ -27,7 +27,7 @@ export function AccountProcessingFeeSettings() {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
-    void Promise.all([loadManagerSubscriptionTierClient(), loadManagerPaymentWaiverGrantedClient()]).then(([value, grant]) => { if (active) { setTier(normalizeManagerSkuTier(value)); setWaiverGranted(grant); } }).catch(() => { if (active) setError("Could not load your plan."); });
+    void Promise.all([loadManagerSubscriptionTierClient(), loadManagerPaymentWaiverGrantedClient()]).then(([value, grant]) => { if (active) { setTier(normalizeManagerSkuTier(value)); setWaiverGranted(grant === true); } }).catch(() => { if (active) setError("Could not load your plan."); });
     void fetch(endpoint, { credentials: "include" }).then(async (res) => {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Could not load processing fees.");

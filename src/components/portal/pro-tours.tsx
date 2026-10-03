@@ -1498,13 +1498,8 @@ export function ManagerTours({
           dismissBlocked={deleteBusy}
           onClose={() => { if (!deleteBusy) setDeleteConfirm(null); }}
           previewLabel="What gets removed"
-          preview={<div className="divide-y divide-border rounded-xl border border-border bg-card px-4">{deleteConfirm.map((row) => <div key={row.id} className="py-4"><p className="font-semibold">{row.guestName}</p><p className="text-sm">{row.propertyLabel}</p><p className="text-sm">{row.whenLabel}</p></div>)}</div>}
+          preview={<div className="divide-y divide-border rounded-xl border border-border bg-card px-4">{deleteConfirm.map((row) => <div key={row.id} className="py-4"><p className="font-semibold">{row.guestName}</p><p className="text-sm">{row.propertyTitle}</p><p className="text-sm">{row.whenLabel}</p></div>)}</div>}
           primaryAction={{ label: deleteBusy ? "Deleting…" : deleteConfirm.length === 1 ? "Delete tour" : "Delete tours", onClick: () => submitDeleteConfirm(), disabled: deleteBusy, loading: deleteBusy, dataAttr: "tours-delete-confirm" }}
-        >
-                {deleteBusy ? "Deleting…" : deleteConfirm.length === 1 ? "Delete tour" : "Delete tours"}
-              </Button>
-            </ModalFooter>
-          }
         >
           <p className="text-sm text-muted" data-attr="tours-delete-confirm-body">
             {deleteConfirm.length === 1

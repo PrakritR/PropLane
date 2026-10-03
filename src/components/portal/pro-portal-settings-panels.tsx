@@ -1435,9 +1435,8 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
-      {defaultsForProperties ? <PortalSettingsSection title="Defaults for properties"><ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} /></PortalSettingsSection> : null}
       <PortalSettingsSection title="Receiving from residents">
-        <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href={managerSettingsProfilePath("account")} dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
+        <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href="/portal/profile?tab=account" dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );

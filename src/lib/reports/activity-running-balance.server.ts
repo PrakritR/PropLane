@@ -56,7 +56,7 @@ export async function loadActivityRunningBalances(db: SupabaseClient, owner: str
   if (!profile?.stripe_connect_account_id) return;
   const options = { stripeAccount: String(profile.stripe_connect_account_id) };
   const stripe = getStripe();
-  const balance = await stripe.balance.retrieve(options);
+  const balance = await stripe.balance.retrieve({}, options);
   const closing = [...balance.available, ...balance.pending].filter(value => value.currency === "usd").reduce((total, value) => total + value.amount, 0);
   const earliest = Math.min(...rows.map(row => Date.parse(String(row.date))).filter(Number.isFinite));
   if (!Number.isFinite(earliest)) return;
@@ -67,7 +67,7 @@ export async function loadActivityRunningBalances(db: SupabaseClient, owner: str
   }
   // Stripe reads are not a database transaction. Do not publish an anchor
   // that changed while its history was being read.
-  const after = await stripe.balance.retrieve(options);
+  const after = await stripe.balance.retrieve({}, options);
   const verified = [...after.available, ...after.pending].filter(value => value.currency === "usd").reduce((total, value) => total + value.amount, 0);
   if (verified === closing) annotateRunningBalances(rows, movements, closing);
 }

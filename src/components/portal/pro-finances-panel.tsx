@@ -13,6 +13,7 @@ import { ReceiptText } from "lucide-react";
 import { ExpenseRowMenu } from "@/components/portal/expense-row-menu";
 import { Input } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -1150,7 +1151,7 @@ export function ManagerFinancesPanel({
           ) : null
         }
       />
-      <Modal open={entryChooser} onClose={() => setEntryChooser(false)} title="Financial entry"><label>Type<select value={entryKind} onChange={e => setEntryKind(e.target.value)}><option value="expense">Expense</option><option value="income">Income</option></select></label><ModalFooter><Button onClick={() => { setEntryChooser(false); if (entryKind === "income") openAddIncome(); else openAddExpense(); }}>Continue</Button></ModalFooter></Modal>
+      <PortalDialog open={entryChooser} onClose={() => setEntryChooser(false)} title="Financial entry" primaryAction={{ label: "Continue", dataAttr: "finances-entry-continue", onClick: () => { setEntryChooser(false); if (entryKind === "income") openAddIncome(); else openAddExpense(); } }}><FieldSingleSelect label="Type" value={entryKind} onChange={(value) => setEntryKind(value)} options={[{ value: "expense", label: "Expense" }, { value: "income", label: "Income" }]} /></PortalDialog>
       {tabId === "profitability" ? <PropertyFinanceWorksheet onAdd={propertyId => { setFilters(current => ({ ...current, propertyId })); setEntryChooser(true); }} /> : isActivityTab ? <ManagerFinancesActivity userId={userId} key={`${tabId}:${userId}`} direction={tabId === "income" ? "in" : tabId === "expenses" ? "out" : undefined} /> : isOverviewTab ? (
         <ManagerFinancesOverview
           key={userId}
@@ -1374,7 +1375,7 @@ export function ManagerFinancesPanel({
         contextPanel={<PreviewPanel title="Expense" name={String(expenseToDelete?.category ?? "Expense")} facts={[
           { label: "Amount", value: formatCellValue({ key: "amount", label: "Amount", format: "money" }, expenseToDelete?.amount ?? null) },
           { label: "Property", value: String(expenseToDelete?.property ?? "Portfolio") },
-        ]} />}
+        ]} creates={[]} />}
         preview={<section className="rounded-xl border border-border bg-card p-4"><h3 className="font-semibold">Removed</h3><p className="mt-3 text-sm">{String(expenseToDelete?.category ?? "Expense")}</p>{expenseToDelete?.memo ? <p className="mt-2 whitespace-pre-wrap text-sm">{String(expenseToDelete.memo)}</p> : null}</section>}
         previewLabel="After deletion"
       >

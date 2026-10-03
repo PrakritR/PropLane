@@ -283,7 +283,7 @@ export function BookingsBlockDatesModal({
   };
 
   const workspaceDraft = useWorkspaceDraft({
-    scope: `booking:${editingBlock?.id ?? initialPropertyId ?? "new"}:${initialRoomId ?? ""}:${initialDayKey ?? ""}`,
+    scope: `booking:${editingBlock?.blockId ?? initialPropertyId ?? "new"}:${initialRoomId ?? ""}:${initialDayKey ?? ""}`,
     open, value: { stepIdx, propertyId, roomChoice, checkIn, checkOut, reason, residentChoice, newResidentName, newResidentEmail, newResidentPhone, editingBlockId },
     restore: (saved) => { setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
   });

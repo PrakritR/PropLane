@@ -618,6 +618,15 @@ export function ManagerMessagingSettingsPanel({
   // manager with a second workspace sees at a glance which has a number and
   // whose it is — and never mistakes a neighbour's for this one's.
   const allWorkspaces = status.workspaces ?? [];
+  const unverifiedEntitlement = entitlementIsUnverified(status);
+  // Only advertise a number that can actually carry a reply (canSend) — never an
+  // unusable or foreign number (see the announce modal).
+  const announceChannelsLive: WorkContactChannels = {
+    phone: phoneNumber && status.canSend ? phoneNumber : null,
+    email: workEmail,
+  };
+  const announceReady = hasAnyWorkContactChannel(announceChannelsLive);
+
   // One work number per workspace. A co-manager reads the owner's line here —
   // nothing to request, no plan upsell, no area code. A legacy line of their
   // own (bought before numbers were workspace-owned) is named so they know it

@@ -13,7 +13,7 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { Textarea } from "@/components/ui/textarea";
+import { Textarea } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
 const AUDIENCE: Record<AutomatedMessageAudience, string> = { manager: "You", resident: "Resident", vendor: "Vendor", team: "Your team" };
@@ -133,7 +133,7 @@ export function WhatProplaneSends() {
         {editing?.event && editing.event.audiences.length > 1 ? <FieldSingleSelect label="Recipient" value={audience} options={editing.event.audiences.map((value) => ({ value, label: AUDIENCE[value] }))} onChange={(value) => open(editing, value as AutomatedMessageAudience)} /> : null}
         <CheckboxMultiSelect label="Channels" selected={channels} options={CHANNELS} onChange={(next) => setChannels([...new Set(["inbox", ...next])])} />
         {editing?.kind ? <CheckboxMultiSelect label="When" selected={when} options={[...when.filter((key) => !timingOptions(reminderSubjectSettingsMeta(editing.kind!)?.directions ?? ["before"]).some((option) => option.value === key)).map((value) => ({ value, label: timingLabel([value]) })), ...timingOptions(reminderSubjectSettingsMeta(editing.kind)?.directions ?? ["before"])]} onChange={setWhen} /> : <FieldSingleSelect label="When" value={when[0] ?? "immediately"} options={EVENT_TIMINGS} onChange={(value) => setWhen([value])} />}
-        <label className="block space-y-2 text-xs font-medium uppercase text-muted">Message<Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={7} /></label>
+        <label className="block space-y-2 text-xs font-medium uppercase text-muted">Message<Textarea value={message} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(e.target.value)} rows={7} /></label>
         {editError ? <p role="alert" className="text-sm text-danger">{editError}</p> : null}
       </div>
     </PortalDialog>

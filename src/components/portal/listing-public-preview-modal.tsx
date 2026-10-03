@@ -56,7 +56,7 @@ export function ListingPublicPreviewModal({
       title={[property.buildingName, property.unitLabel].filter(Boolean).join(" · ") || "Listing preview"}
       assistantContext="Listing preview"
       contextPanel={<dl className="space-y-3 text-sm"><div><dt className="text-muted">Property</dt><dd>{property.buildingName}</dd></div>{property.unitLabel ? <div><dt className="text-muted">Unit</dt><dd>{property.unitLabel}</dd></div> : null}</dl>}
-      headerAction={publicHref ? <Link href={publicHref} target="_blank" rel="noopener noreferrer" data-attr="listing-open-public-page" aria-label="Open public page" title="Open public page" className="flex size-11 items-center justify-center rounded-full border border-border"><ExternalLink className="size-5" aria-hidden /></Link> : undefined}
+      status={publicHref ? <Link href={publicHref} target="_blank" rel="noopener noreferrer" data-attr="listing-open-public-page" aria-label="Open public page" title="Open public page" className="flex size-11 items-center justify-center rounded-full border border-border"><ExternalLink className="size-5" aria-hidden /></Link> : undefined}
       footer={footer}
     >
       <ListingPreviewScrollShell className="min-h-0 flex-1">

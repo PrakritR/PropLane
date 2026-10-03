@@ -24,7 +24,7 @@ import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/event
 
 function SettingsActions({ label, actions }: { label: string; actions: { label: string; run: () => Promise<void>; danger?: boolean }[] }) {
   const confirm = useConfirm();
-  return <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">{actions.map((action) => <DropdownMenuItem key={action.label} className={action.danger ? "text-danger" : undefined} onSelect={async () => { if (action.danger && !await confirm({ title: `${action.label} ${label}?`, confirmLabel: action.label })) return; await action.run(); }}>{action.label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+  return <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">{actions.map((action) => <DropdownMenuItem key={action.label} className={action.danger ? "text-danger" : undefined} onSelect={async () => { if (action.danger && !await confirm({ title: action.label, description: `${action.label} ${label}?`, confirmLabel: action.label })) return; await action.run(); }}>{action.label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
 }
 
 type ApiKey = {

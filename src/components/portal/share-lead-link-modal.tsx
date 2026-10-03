@@ -395,14 +395,9 @@ export function ShareLeadLinkModal({
       kind,
       prospectName: prospectName.trim() || undefined,
       propertyTitle,
-      linkUrl: kind === "listing" ? buildManagerApplyUrl(typeof window !== "undefined" ? linkOrigin : "", {
-        propertyId: singlePropertyId,
-      }) : linkUrl,
-      listingPageUrl: kind === "listing" ? linkUrl : undefined,
-      tourUrl:
-        kind === "listing" && singlePropertyId && typeof window !== "undefined"
-          ? buildManagerTourUrl(linkOrigin, singlePropertyId)
-          : undefined,
+      linkUrl,
+      listingPageUrl: undefined,
+      tourUrl: undefined,
       listingSummary: listingSummary ?? undefined,
       managerNote: note.trim() || undefined,
     });

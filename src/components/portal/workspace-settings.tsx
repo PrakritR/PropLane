@@ -205,7 +205,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
             canManage={workspace.owned}
             plan={plan}
             onLeave={async () => {
-              if (!await confirm({ title: `Leave ${workspace.name}?`, confirmLabel: "Leave" })) return;
+              if (!await confirm({ title: "Leave workspace", description: `Leave ${workspace.name}?`, confirmLabel: "Leave" })) return;
               setError(null);
               try {
                 const response = await fetch("/api/pro/account-links", { cache: "no-store" });

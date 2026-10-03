@@ -759,7 +759,7 @@ export function PropertyLeaseFormModal({
       steps={workspaceSteps}
       current={current}
       onJump={setStepIdx}
-      onClose={() => { workspaceDraft.preserve(); (dismiss)(); }}
+      onClose={() => { workspaceDraft.preserve(); if (dirty) showToast("Draft saved"); dismiss(); }}
       dirty={dirty}
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}
