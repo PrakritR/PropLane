@@ -56,6 +56,7 @@ export type ResidentReportFilters = {
 };
 
 export const MANAGER_REPORT_IDS = [
+  "financial-activity",
   "tax-summary",
   "rent-receipts",
   "rental-days",

@@ -71,6 +71,7 @@ import {
 } from "@/lib/manager-payments-scope";
 import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
+import { FinancialCashflowChart } from "@/components/portal/finances/financial-cashflow-chart";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import {
   applicationVisibleToPortalUser,
@@ -1325,7 +1326,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
 
         {/* Financial trend graphs — payments collected vs. expenses, last 6 months. */}
         {visibility.cashflow ? (
-          <MonthlyProfitChart points={mergeMonthlyCashflow(paymentsByMonth, expensesByMonth)} />
+          isDemoModeActive() ? <MonthlyProfitChart points={mergeMonthlyCashflow(paymentsByMonth, expensesByMonth)} /> : <FinancialCashflowChart key={userId} userId={userId} />
         ) : null}
 
         {/* Needs attention — a live, colour-coded queue: big all-caps heading over

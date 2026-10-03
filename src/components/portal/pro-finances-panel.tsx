@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { ManagerFinancesActivity } from "@/components/portal/finances/finances-activity";
+import { ArrowDownToLine } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -20,7 +22,7 @@ import {
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
@@ -49,7 +51,7 @@ import {
   ManagerFinancesOverview,
   type FinancesPeriodKind,
 } from "@/components/portal/finances/finances-overview";
-import { FINANCES_REPORT_TAB_IDS, ManagerFinancesReports } from "@/components/portal/finances/finances-reports";
+import { ManagerFinancesReports } from "@/components/portal/finances/finances-reports";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import {
   PORTAL_DATA_TABLE,
@@ -368,13 +370,16 @@ function FinancesDataTable({
 // statement tab hangs off, so a report tab lights the Reports door.
 const FINANCE_TAB_DESTINATIONS = [
   { id: "overview", label: "Overview" },
-  { id: "income", label: "Income" },
-  { id: "expenses", label: "Expenses" },
+  { id: "activity", label: "Activity" },
   { id: "reports", label: "Reports" },
 ] as const;
 
 const FINANCE_TABS = [
   ...FINANCE_TAB_DESTINATIONS,
+  { id: "income", label: "Income" },
+  { id: "expenses", label: "Expenses" },
+  { id: "profitability", label: "By property" },
+  { id: "income-statement", label: "Profit and loss" },
   { id: "trial-balance", label: "Trial balance" },
   { id: "balance-sheet", label: "Balance sheet" },
   { id: "general-ledger", label: "General ledger" },
@@ -405,6 +410,8 @@ const LEDGER_TAB_IDS = new Set([
 ]);
 
 const TAB_TO_REPORT: Record<string, string> = {
+  profitability: "profitability",
+  "income-statement": "income-statement",
   income: "rent-receipts",
   expenses: "expenses",
   "trial-balance": "trial-balance",
@@ -612,7 +619,7 @@ export function ManagerFinancesPanel({
   });
 
   const reportId: string | null =
-    tabId === "overview" || tabId === "reports" ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
+    ["overview", "reports", "activity", "income", "expenses"].includes(tabId) ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
   const [sortKey, setSortKey] = useState(DEFAULT_SORT[tabId]?.key ?? "date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT[tabId]?.dir ?? "desc");
 
@@ -882,14 +889,10 @@ export function ManagerFinancesPanel({
 
   const isOverviewTab = tabId === "overview";
   const isReportsHubTab = tabId === "reports";
-  const activeFinanceDestinationId =
-    tabId === "income" || tabId === "expenses" || isOverviewTab || isReportsHubTab
-      ? tabId
-      : FINANCES_REPORT_TAB_IDS.has(tabId)
-        ? "reports"
-        : "income";
+  const isActivityTab = ["activity", "income", "expenses"].includes(tabId);
+  const activeFinanceDestinationId = isActivityTab ? "activity" : isOverviewTab ? "overview" : "reports";
 
-  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "overview", "reports"]);
+  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "overview", "reports", "activity", "income", "expenses"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
   const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
@@ -1144,34 +1147,18 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={financesCommandActions}
-        primary={
-          tabId === "income" ? (
-            <PortalPrimaryIconAction
-              label="Add income"
-              data-attr="finances-add-income-top"
-              onClick={openAddIncome}
-            />
-          ) : tabId === "expenses" || isOverviewTab ? (
-            // Overview used to swap this for a labelled outline "+ Add
-            // expense" button in the actions band — the one list header that
-            // dropped the round primary '+' every other section keeps (AXI
-            // night sweep area 2c).
-            <PortalPrimaryIconAction
-              label="Add expense"
-              data-attr="finances-add-expense-top"
-              onClick={openAddExpense}
-            />
-          ) : undefined
-        }
+        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={ArrowDownToLine} label="Withdraw" onClick={() => window.location.assign(`${basePath}/profile?tab=payouts`)} /> : financesCommandActions}
+        primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={openAddExpense} /> : undefined}
+
         activeFilterChips={
-          activeFinanceFilterChips.length > 0 ? (
+          !isActivityTab && activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />
           ) : null
         }
       />
-      {isOverviewTab ? (
+      {isActivityTab ? <ManagerFinancesActivity userId={userId} key={`${tabId}:${userId}`} direction={tabId === "income" ? "in" : tabId === "expenses" ? "out" : undefined} /> : isOverviewTab ? (
         <ManagerFinancesOverview
+          key={userId}
           userId={userId ?? null}
           ready={ready}
           propertyId={filters.propertyId}
