@@ -64,9 +64,15 @@ export function ConfirmDeleteModal({
       title={title}
       tone={tone === "danger" ? "danger" : "default"}
       dismissBlocked={busy}
-      fullScreenMobile={false}
-      // A short confirm has no side preview — the question is the whole dialog.
-      preview={null}
+      // Dropping unsaved input is a short question: a content-sized sheet. A delete
+      // keeps the full frame with its "What gets removed" preview (C2-POP9).
+      fullScreenMobile={guard === "hold"}
+      previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
+      preview={
+        guard === "tap" ? null : (
+          <div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>
+        )
+      }
       primaryAction={{
         label: busy ? busyLabel : confirmLabel,
         onClick: onConfirm,
