@@ -53,8 +53,11 @@ describe("ManagerPropertyLeasePanel", () => {
 
     expect(screen.queryByRole("checkbox")).toBeNull();
     fireEvent.keyDown(screen.getAllByRole("button", { name: "Actions for Long-term lease" })[0]!, { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: "Edit lease" })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
+    // UI standard (4c2dbda10, ui-page-structure.md): one ⋯ per row, Edit first, other actions after,
+    // red Delete last — the surface's own menu, not a second hand-rolled one.
+    const items = (await screen.findAllByRole("menuitem")).map((el) => el.textContent?.trim());
+    expect(items[0]).toBe("Edit");
+    expect(items).toEqual(["Edit", "Preview", "Duplicate", "Delete"]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     // C228: the gear no longer opens a local automation sheet — it jumps to
