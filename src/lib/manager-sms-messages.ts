@@ -102,6 +102,13 @@ export type ManagerSmsResidentConversation = {
    * untagged — nobody has said which house yet — never "every house".
    */
   houses?: ConversationHouse[];
+  /**
+   * The person-conversation this text thread belongs to (`conversation-key.ts`):
+   * the same value the in-app thread with this person carries, so the two join
+   * into one Communication row. Absent before keys / when identity is unknown.
+   */
+  personConversationKey?: string;
+  personWorkspaceId?: string;
   messages: ManagerSmsMessageRow[];
 };
 

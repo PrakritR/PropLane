@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { managerAgentNoticeVisibleInWorkspace } from "@/lib/communication-manager-assistant-thread";
+import { restrictThreadToHouses, threadHouseIds } from "@/lib/communication/conversation-house-filter";
 
 /**
  * The ONE answer to "may this viewer see this conversation" in manager
@@ -75,6 +76,14 @@ export type VisibilityInput = {
    * default-workspace rule applies.
    */
   lines?: readonly string[];
+  /**
+   * The conversation's turns carry no house of their own (SMS: a turn has no
+   * property). Another owner's person is then shared only with a viewer who
+   * holds EVERY house of that person - a partial grant would otherwise read
+   * texts about houses it was never granted. Email / in-app threads stamp a
+   * house on each turn and are filtered turn by turn instead.
+   */
+  untaggedTurns?: boolean;
 };
 
 const AGENT_NOTICE_PREFIX = "agent_notice_";
@@ -150,6 +159,9 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   }
   const granted = scope.grantedHousesByOwner.get(ownerId);
   if (!granted || granted.size === 0 || houses.length === 0) return false;
+  if (input.untaggedTurns) {
+    return houses.every((houseId) => granted.has(houseId)) && houses.some(inWorkspace);
+  }
   return houses.some((houseId) => granted.has(houseId) && inWorkspace(houseId));
 }
 
@@ -451,7 +463,18 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
   const housesById = await emailThreadHouses(db, records, houseLabels);
   const visible: (T & { houses: ConversationHouseRef[] })[] = [];
   for (const record of records) {
-    const houses = housesById.get(record.id) ?? [];
+    // One conversation spans houses: every house a turn names counts toward the
+    // coarse "is any of it theirs" gate below, and the turns are filtered next.
+    const baseHouses = housesById.get(record.id) ?? [];
+    const rowData = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
+    const houseIds = new Set(baseHouses.map((h) => h.propertyId));
+    for (const id of threadHouseIds(rowData)) houseIds.add(id);
+    const houses = [
+      ...baseHouses,
+      ...[...houseIds]
+        .filter((id) => !baseHouses.some((h) => h.propertyId === id))
+        .map((id) => ({ propertyId: id, label: houseLabels.get(id)?.label ?? id })),
+    ];
     if (
       conversationVisible(scope, {
         ownerId: record.owner_user_id,
@@ -464,7 +487,57 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
       visible.push({ ...record, houses });
     }
   }
-  return visible;
+  return restrictOtherOwnersThreads(db, scope, visible, houseLabels);
+}
+
+/** Threads that are another owner's person-conversation, not an assistant / team / agent thread. */
+function isSharedPersonThread(record: StoredInboxThreadRecord, viewerId: string): boolean {
+  const owner = clean(record.owner_user_id);
+  if (!owner || owner === viewerId) return false;
+  const type = String(record.thread_type ?? "");
+  if (type === "agent_notice" || type === "team" || type === "vendor_agent" || type === "resident_agent") return false;
+  return !clean(record.id).startsWith(AGENT_NOTICE_PREFIX);
+}
+
+/**
+ * D2: a co-manager granted only some houses reads only the turns about those
+ * houses. A turn with no house shows only when the viewer holds every house of
+ * that person. A conversation with no turn left is dropped.
+ */
+async function restrictOtherOwnersThreads<T extends StoredInboxThreadRecord>(
+  db: SupabaseClient,
+  scope: CommunicationScope,
+  visible: (T & { houses: ConversationHouseRef[] })[],
+  houseLabels: HouseLabelMap,
+): Promise<(T & { houses: ConversationHouseRef[] })[]> {
+  const shared = visible.filter((record) => isSharedPersonThread(record, scope.viewerId));
+  if (shared.length === 0) return visible;
+  const owners = [...new Set(shared.map((record) => clean(record.owner_user_id)))];
+  const personHouses = await loadPersonHousesByOwner(db, owners, houseLabels);
+  const out: (T & { houses: ConversationHouseRef[] })[] = [];
+  for (const record of visible) {
+    if (!shared.includes(record)) {
+      out.push(record);
+      continue;
+    }
+    const owner = clean(record.owner_user_id);
+    const granted = scope.grantedHousesByOwner.get(owner) ?? new Set<string>();
+    const allowed = new Set([...granted].filter((id) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(id)));
+    const rowData = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
+    const email = normalizeEmail(record.participant_email) || normalizeEmail(rowData.email);
+    const person = new Set<string>([
+      ...record.houses.map((h) => h.propertyId),
+      ...(personHouses.get(`${owner} ${email}`) ?? []),
+    ]);
+    const restricted = restrictThreadToHouses(rowData, { allowed, personHouses: person });
+    if (!restricted) continue;
+    out.push({
+      ...record,
+      row_data: restricted,
+      houses: record.houses.filter((h) => allowed.has(h.propertyId)),
+    });
+  }
+  return out;
 }
 
 /** One stored thread, checked at `level`. `null` when the viewer may not see it. */

@@ -1142,6 +1142,7 @@ export async function fetchManagerSmsConversations(
             conversationVisible(scope, {
               ownerId: String(conversation.ownerManagerUserId ?? "").trim() || managerUserId,
               houseIds: (conversation.houses ?? []).map((house) => house.propertyId),
+              untaggedTurns: true,
               // The work line the thread went through: the number texted on an
               // inbound, the number sent from on an outbound. Places a thread
               // about no house in the workspace that holds that line.

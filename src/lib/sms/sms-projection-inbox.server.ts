@@ -76,13 +76,33 @@ type Context = {
   residencyLabels: Map<string, string>;
   viewStates: Map<string, SmsProjectionViewState>;
   directory: Map<string, { name: string | null; email: string | null; savedName: string | null }>;
+  /** The person-conversation key stamped on each summary (best-effort; empty before the key migration). */
+  personKeys: Map<string, { key: string; workspaceId: string }>;
 };
+
+/** Read the conversation key apart from the summary columns, so a database without the key columns still lists. */
+async function loadPersonConversationKeys(db: SupabaseClient, ids: string[]): Promise<Map<string, { key: string; workspaceId: string }>> {
+  const out = new Map<string, { key: string; workspaceId: string }>();
+  if (!ids.length) return out;
+  try {
+    const { data, error } = await db.from("sms_projection_conversations").select("id,conversation_key,workspace_id").in("id", ids);
+    if (error) return out;
+    for (const row of data ?? []) {
+      const key = String((row as { conversation_key?: unknown }).conversation_key ?? "").trim();
+      const workspaceId = String((row as { workspace_id?: unknown }).workspace_id ?? "").trim();
+      if (key && workspaceId) out.set(String((row as { id: unknown }).id), { key, workspaceId });
+    }
+  } catch {
+    return new Map();
+  }
+  return out;
+}
 
 async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: SmsProjectionSummary[]): Promise<Context> {
   const aliases = new Map<string, string[]>();
   const ids = summaries.map((summary) => summary.id);
   const owners = [...new Set(summaries.map((summary) => summary.ownerManagerUserId))];
-  if (!ids.length) return { aliases, lastSourceIds: new Map(), houseIds: new Map(), houseLabels: new Map(), archived: new Set(), residencyLabels: new Map(), viewStates: new Map(), directory: new Map() };
+  if (!ids.length) return { aliases, lastSourceIds: new Map(), houseIds: new Map(), houseLabels: new Map(), archived: new Set(), residencyLabels: new Map(), viewStates: new Map(), directory: new Map(), personKeys: new Map() };
   const lastIds = summaries.map((summary) => summary.lastEventId).filter((id): id is string => Boolean(id));
   const { data: lastTurns, error: lastTurnsError } = lastIds.length
     ? await db.from("sms_projection_turns").select("id,source_event_id").in("id", lastIds)
@@ -190,6 +210,7 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
     residencyLabels,
     viewStates: new Map(states.map((state) => [state.conversationId, state])),
     directory,
+    personKeys: await loadPersonConversationKeys(db, ids),
   };
 }
 
@@ -222,6 +243,9 @@ function asResident(summary: SmsProjectionSummary, context: Context): ManagerSms
     ownerManagerUserId: summary.ownerManagerUserId,
     houses: (context.houseIds.get(summary.id) ?? []).map((propertyId) => ({ propertyId, label: context.houseLabels.get(propertyId) ?? propertyId, source: "manual" as const })),
     archived: state?.isArchived ?? context.archived.has(summary.id),
+    ...(context.personKeys.get(summary.id)
+      ? { personConversationKey: context.personKeys.get(summary.id)!.key, personWorkspaceId: context.personKeys.get(summary.id)!.workspaceId }
+      : {}),
     messages: previewTurn(summary, linePhone, summary.lastEventId ? context.lastSourceIds.get(summary.lastEventId) ?? null : null),
   };
 }
@@ -243,6 +267,7 @@ export async function visibleManagerSmsProjectionIds(
   return new Set(candidates.filter((summary) => conversationVisible(scope, {
     ownerId: summary.ownerManagerUserId,
     houseIds: context.houseIds.get(summary.id) ?? [],
+    untaggedTurns: true,
     lines: summary.workLinePhone ? [summary.workLinePhone] : [],
   })).map((summary) => summary.id));
 }
@@ -268,7 +293,7 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
       processed += 1;
       const houseIds = context.houseIds.get(summary.id) ?? [];
       const line = summary.workLinePhone;
-      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, lines: line ? [line] : [] })) {
+      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [] })) {
         visible.push(asResident(summary, context));
       }
       cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
@@ -312,7 +337,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   };
   const context = await loadPageContext(db, viewerId, [summary]);
   const line = summary.workLinePhone;
-  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], lines: line ? [line] : [] })) return null;
+  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [] })) return null;
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
   const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];
   const { data: outboxRows, error: outboxError } = outboundSids.length
