@@ -328,7 +328,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   payment: {
     basePathDefault: "/portal",
     ownGroups: [{ label: "", ids: [{ id: "overview", label: "Payment" }] }],
-    headerActions: [],
+    headerActions: [
+      { id: "record-payment", label: "Record payment", icon: CreditCard },
+      { id: "send-reminder", label: "Send reminder", icon: Bell },
+      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+    ],
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => {

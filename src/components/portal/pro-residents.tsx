@@ -1224,7 +1224,7 @@ export function ManagerResidents({
       appendManagerResidentActivityLog(selected.id, label);
       setActivityLogTick((n) => n + 1);
     },
-    [selected?.id],
+    [selected],
   );
 
   if (activeResidentId !== prevSelectedId) {
@@ -3658,29 +3658,26 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               {!paymentIdProp ? (
-                                <ManagerResidentSectionToolbar
-                                  actions={residentSectionHeaderActions}
-                                  onAction={onResidentSectionHeaderAction}
-                                  destinationRow={
-                                    <LocalDestinationNav
-                                      items={PAYMENT_BUCKETS.map((id) => ({
-                                        id,
-                                        label:
-                                          id === "overdue"
-                                            ? "Overdue"
-                                            : id === "pending"
-                                              ? "Pending"
-                                              : "Paid",
-                                        count: residentPaymentBucketCounts[id],
-                                        dataAttr: `resident-payments-bucket-${id}`,
-                                      }))}
-                                      activeId={chargeBucket}
-                                      onChange={(id: string) => setChargeBucket(id as ManagerPaymentBucket)}
-                                      ariaLabel="Payment status"
-                                      size="toolbar"
-                                      itemLayout="equal"
-                                    />
-                                  }
+                                <ResidentDetailSubsectionChrome
+                                  bucketItems={PAYMENT_BUCKETS.map((id) => ({
+                                    id,
+                                    label:
+                                      id === "overdue"
+                                        ? "Overdue"
+                                        : id === "pending"
+                                          ? "Pending"
+                                          : "Paid",
+                                    count: residentPaymentBucketCounts[id],
+                                    dataAttr: `resident-payments-bucket-${id}`,
+                                  }))}
+                                  activeBucketId={chargeBucket}
+                                  onBucketChange={(id: string) => setChargeBucket(id as ManagerPaymentBucket)}
+                                  bucketAriaLabel="Payment status"
+                                  onSettings={() => openResidentDetailSettings("payments")}
+                                  settingsLabel={paymentsSettingsEntry.label}
+                                  settingsDataAttr={paymentsSettingsEntry.dataAttr}
+                                  onEdit={() => setResidentPaymentSettingsOpen(true)}
+                                  editLabel="Edit"
                                 />
                               ) : null}
                               <PortalPageScrollBody

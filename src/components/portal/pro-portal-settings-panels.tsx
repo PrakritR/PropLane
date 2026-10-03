@@ -83,6 +83,7 @@ import {
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
 import { WorkspacePricingDefaultsPanel } from "@/components/portal/workspace-pricing-defaults-panel";
+import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -1417,7 +1418,6 @@ export function PaymentsSettingsPanel({
 }) {
   useImperativeHandle(formRef, () => ({ saveIfDirty: async () => true }), []);
   useReportSettingsPanelFooter(onFooterReady, null);
-  const activeWorkspaceId = useWorkspaces()?.active?.id ?? null;
 
   if (mode === "outgoing") {
     return (
@@ -1437,10 +1437,19 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <WorkspacePricingDefaultsPanel workspaceId={activeWorkspaceId} />
+      <PortalSettingsSection title="Payment setup">
+        <ManagerPaymentSetupPanel active section="setup" propertyOptions={propertyOptions} />
+        <ManagerPaymentSetupPanel active section="fee" propertyOptions={propertyOptions} />
+      </PortalSettingsSection>
 
       <PortalSettingsSection title="Receiving from residents">
-        <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href="/portal/profile?tab=account" dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Processing fee paid by"
+            href="/portal/profile?tab=account"
+            dataAttr="payments-processing-fee-account"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );

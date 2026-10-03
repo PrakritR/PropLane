@@ -36,6 +36,16 @@ vi.mock("@/lib/payment-policy", () => ({
 vi.mock("@/lib/manager-manual-payment-settings", () => ({
   loadManagerManualPaymentSettings: vi.fn().mockResolvedValue({ serviceFeePayer: "resident" }),
 }));
+vi.mock("@/lib/payment-policy.server", () => ({
+  listingPaymentWaiverCodeMatchesServer: vi.fn(() => false),
+  resolveAccountOrListingWaiverGrantedServer: vi.fn(() => false),
+}));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+vi.mock("@/lib/proplane-balance/flag", () => ({
+  proplaneBalanceEnabled: vi.fn(() => false),
+}));
 vi.mock("@/lib/stripe-household-charge", () => ({
   householdChargeAmountCents: (charge: { amountCents?: number }) => charge.amountCents ?? 250000,
   HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE: "household_charge",
@@ -71,7 +81,7 @@ function makeDb(opts: {
   const charge = {
     id: "charge_1",
     kind: "rent",
-    status: "due",
+    status: "pending",
     amountCents: 250000,
     residentEmail: "resident@example.com",
     residentUserId: "res_1",
@@ -93,7 +103,7 @@ function makeDb(opts: {
     chain.maybeSingle = async () => {
       if (table === "portal_household_charge_records") {
         return {
-          data: { id: charge.id, row_data: charge, status: "due", manager_user_id: opts.rowManagerUserId },
+          data: { id: charge.id, row_data: charge, status: "pending", manager_user_id: opts.rowManagerUserId },
           error: null,
         };
       }

@@ -255,6 +255,7 @@ type ManagerApplicationTabId = ApplicationListTabId;
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   if (row.bucket === "rejected") return "rejected";
   if (row.bucket === "approved") return "approved";
+  if (row.bucket === "pending" && isWithdrawnApplicationRow(row)) return "rejected";
   return "pending";
 }
 

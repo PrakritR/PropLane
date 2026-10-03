@@ -15,10 +15,9 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const navigate = vi.fn();
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
-vi.mock("@/lib/demo/demo-session", () => ({
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
-  subscribeDemoPath: () => () => {},
-  DEMO_MANAGER_USER_ID: "demo-manager",
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/vendor/financials/income",

@@ -139,7 +139,12 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
       setSummary(JSON.parse(String(activity.meta?.summary)));
       setMonth(pacificCalendarDateYmd().slice(0, 7)); setClock(Date.now());
     }).catch(err => { if (!cancelled) setError(err.message); });
-    Promise.all([fetchJson("/api/portal/proplane-balance").catch(() => null), fetchJson("/api/stripe/payouts/balance").catch(() => null)]).then(([ledger, stripe]) => { if (!cancelled) setBalance(ledger?.enabled ? ledger : stripe); });
+    Promise.all([fetchJson("/api/portal/proplane-balance").catch(() => null), fetchJson("/api/stripe/payouts/balance").catch(() => null)]).then(([ledger, stripe]) => {
+      if (cancelled) return;
+      if (ledger && ledger.enabled) setBalance(ledger);
+      else if (ledger && ledger.enabled === false) setBalance(null);
+      else setBalance(stripe ?? null);
+    });
     fetchJson("/api/manager/vendor-invoices?outgoing=1&status=approved,scheduled").then(invoices => { if (!cancelled) { setOwed(invoices.totals?.owedCents); setBillCount(invoices.totals?.billCount); } }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [ready, propertyId, userId, revision]);

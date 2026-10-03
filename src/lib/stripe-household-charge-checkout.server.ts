@@ -153,7 +153,7 @@ export async function loadHouseholdChargesForCheckout(
 
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge?.id) return { ok: false, status: 500, error: "Invalid charge record." };
-    if (!["pending", "failed"].includes(row.status ?? charge.status)) {
+    if (!["pending", "partially_paid", "failed"].includes(row.status ?? charge.status)) {
       return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {

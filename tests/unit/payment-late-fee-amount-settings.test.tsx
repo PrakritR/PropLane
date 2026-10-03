@@ -48,10 +48,13 @@ afterEach(() => {
 // `propertyOptions`" — with exactly one property passed in, that degenerates
 // to the same single-listing write the old "Applies to" picker used to do.
 describe("Payment settings late fee amount", () => {
-  it("exposes amount and grace days on the payments settings panel", () => {
-    const src = readFileSync(join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"), "utf8");
-    expect(src).toContain("PaymentListingLateFeeSettings");
-    expect(src).toContain("Late fees");
+  it("exposes amount and grace days on the late-fee settings component (S022: not stacked on Payments settings)", () => {
+    const lateFeeSrc = readFileSync(join(process.cwd(), "src/components/portal/payment-late-fee-settings.tsx"), "utf8");
+    expect(lateFeeSrc).toContain("PaymentListingLateFeeSettings");
+    expect(lateFeeSrc).toContain("Late fee amount");
+    const panels = readFileSync(join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"), "utf8");
+    expect(panels).not.toContain('title="Late fees"');
+    expect(panels).not.toContain("PaymentListingLateFeeSettings");
     const compact = readFileSync(join(process.cwd(), "src/components/portal/payment-schedule-ui.tsx"), "utf8");
     expect(compact).not.toContain("Account-wide gate for automatic late fees");
   });
