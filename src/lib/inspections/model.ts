@@ -244,10 +244,25 @@ export class InspectionError extends Error {
  * write is the rule.
  */
 export function assertInspectionWritable(report: InspectionRecord, role: InspectionRole) {
+  if (report.status === "completed") {
+    throw new InspectionError("This inspection is completed and locked.", 409);
+  }
   if (role === "resident" && report.document.residentSubmission) {
     throw new InspectionError("You have submitted these photos. Ask your manager to reopen the report before adding more.", 409);
   }
 }
+
+export function inspectionRoomsProgress(document: InspectionDocument): { done: number; total: number } {
+  let done = 0;
+  for (const area of document.areas) {
+    if (area.items.every((item) => item.manager.condition !== "unchecked")) done += 1;
+  }
+  return { done, total: document.areas.length };
+}
+
+export const completeInspectionSchema = z.object({
+  revision: z.number().int().positive(),
+}).strict();
 
 /**
  * The resident submits once; only the manager reopens. Nothing here freezes the MANAGER's

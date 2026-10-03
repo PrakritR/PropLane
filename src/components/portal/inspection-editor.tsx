@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Camera, ChevronRight, Download, MoreHorizontal, Printer } from "lucide-react";
+import { Camera, ChevronDown, ChevronRight, Download, Lock, MoreHorizontal, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
@@ -19,9 +19,9 @@ import {
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { useNativeCamera, type CapturedPhoto, type PhotoCaptureSource } from "@/lib/native/use-native-camera";
 import { inspectionDraftKey, appendUnsentRecovery, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft, type InspectionEditorSnapshot } from "@/lib/inspections/editor-drafts";
-import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
+import { completeInspectionReport, downloadInspection, inspectionRequest } from "@/lib/inspections/client";
 import { downloadBlobFile } from "@/lib/portal-document-download";
-import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
+import { inspectionRoomLabel, inspectionRoomsProgress, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
 
 const observations = (detail: InspectionDetail, role: InspectionRole) => detail.report.document.areas.flatMap(a => a.items).map(i => ({ itemId: i.id, condition: i[role].condition, notes: i[role].notes }));
 
@@ -47,6 +47,7 @@ function PhotoList({ photos, label, onRemove, disabled }: { photos: InspectionOb
 export type InspectionEditorHandle = {
   addPhotos: () => void;
   downloadReport: () => void;
+  completeAndLock?: () => void;
 };
 
 export const InspectionEditor = forwardRef<InspectionEditorHandle, {
@@ -91,7 +92,8 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
   const working = useRef(false);
   const discardConfirmed = useRef(false);
   const leaveHref = useRef<string | null>(null);
-  const [confirm, setConfirm] = useState<"leave" | "reload" | null>(null);
+  const [confirm, setConfirm] = useState<"leave" | "reload" | "complete" | null>(null);
+  const [openRoomIds, setOpenRoomIds] = useState<Set<string>>(() => new Set());
   const { capture } = useNativeCamera();
   const { report, baseline, canEdit } = detail;
   const dirty = JSON.stringify(observations(detail, role)) !== saved;
@@ -235,10 +237,24 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
   // C137: a real print-styled report (photos included), not another PDF download —
   // saves first so the export reads the same snapshot the resident/manager just edited.
   const exportReport = () => run(async () => { await save(); window.open(`/print/inspection/${report.id}?portal=${role}`, "_blank", "noopener,noreferrer"); });
+  const roomProgress = inspectionRoomsProgress(report.document);
+  const completeReady = roomProgress.total > 0 && roomProgress.done === roomProgress.total;
+  const locked = report.status === "completed";
+  const completeAndLock = () => {
+    if (!completeReady || locked || role !== "manager") return;
+    setConfirm("complete");
+  };
+  const runCompleteAndLock = () => run(async () => {
+    const current = await save();
+    accept(await completeInspectionReport(role, report.id, current.report.revision));
+    setConfirm(null);
+    setNotice("Inspection completed and locked.");
+  });
   useImperativeHandle(ref, () => ({
-    addPhotos: () => { if (editable && !pendingPhoto) startUpload(activeArea?.id); },
+    addPhotos: () => { if (editable && !pendingPhoto) startUpload(activeArea?.id ?? roomAreas[0]?.id); },
     downloadReport,
-  }), [editable, pendingPhoto, activeArea?.id, downloadReport]);
+    completeAndLock: role === "manager" && completeReady && !locked ? completeAndLock : undefined,
+  }), [editable, pendingPhoto, activeArea?.id, downloadReport, role, completeReady, locked, roomAreas]);
   const pickUploadSource = (source: PhotoCaptureSource) => {
     setUploadSourceOpen(false);
     const area = roomAreas.find(a => a.id === uploadArea) ?? activeArea;
@@ -267,10 +283,26 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
   const confirmAction = () => run(async () => {
     if (confirm === "leave") { discardConfirmed.current = true; if (leaveHref.current) window.location.assign(leaveHref.current); else onBack(); return; }
     if (confirm === "reload") { accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}`)); setConfirm(null); return; }
+    if (confirm === "complete") { await runCompleteAndLock(); return; }
   });
+  const toggleEmbeddedRoom = (areaId: string) => {
+    setOpenRoomIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(areaId)) next.delete(areaId);
+      else next.add(areaId);
+      return next;
+    });
+  };
+  const embeddedRoomStats = (area: InspectionArea) => {
+    const total = area.items.length;
+    const done = area.items.filter((item) => item.manager.condition !== "unchecked").length;
+    const issues = area.items.filter((item) => item.manager.condition === "damaged" || item.resident.condition === "damaged").length;
+    const photos = area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
+    return { total, done, issues, photos };
+  };
   const hasObservation = (value: InspectionObservation) => value.photos.length > 0 || Boolean(value.notes.trim()) || value.condition !== "unchecked";
   const renderItem = (item: InspectionItem) => <div key={item.id} className="space-y-5 py-4">
-    {activeArea && activeArea.items.length > 1 && <h3 className="text-base font-semibold">{item.label}</h3>}
+    {((activeArea && activeArea.items.length > 1) || embedded) && <h3 className="text-base font-semibold">{item.label}</h3>}
     {editable ? <div className="space-y-4">
       {item[role].photos.length ? <PhotoList photos={item[role].photos} label={item.label} disabled={busy} onRemove={item[role].photos.every(p => p.uploadedBy === userId) ? remove : undefined} /> : <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-border bg-card/30 p-6 text-center text-sm text-muted"><span><Camera className="mx-auto mb-3 h-7 w-7 text-primary" />No photos in this section yet.</span></div>}
       <label className="block text-sm font-medium">Note <span className="font-normal text-muted">(optional)</span><Textarea aria-label={`${item.label} notes`} placeholder="For example: a small mark beside the door." value={item[role].notes} maxLength={3000} disabled={busy} className="ph-no-capture ph-no-record mt-2" data-attr="inspection-notes" onChange={e => update(item.id, { notes: e.target.value })} /></label>
@@ -358,9 +390,24 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
           <PortalIconAction icon={Download} label="Download PDF" ring={!showAddPhotos} ringPrimary={!showAddPhotos} disabled={busy} onClick={downloadReport} data-attr="inspection-download" />
         </div>
       </div>
-    ) : activeArea ? (
-      <button type="button" className="px-2 text-sm font-semibold text-foreground" onClick={back} data-attr="inspection-back">{backLabel}</button>
-    ) : null}
+    ) : (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-2">
+        {activeArea ? (
+          <button type="button" className="text-sm font-semibold text-foreground" onClick={back} data-attr="inspection-back">{backLabel}</button>
+        ) : (
+          <span className="text-sm font-semibold text-foreground">Rooms</span>
+        )}
+        <div className="flex items-center gap-1">
+          {showAddPhotos ? <PortalIconAction icon={Camera} label="Add photos" ring disabled={busy} onClick={() => startUpload()} data-attr="inspection-photo-add" /> : null}
+          <PortalIconAction icon={Download} label="Download PDF" ring disabled={busy} onClick={downloadReport} data-attr="inspection-download" />
+          {role === "manager" && locked ? (
+            <PortalIconAction icon={Lock} label="Completed and locked" disabled data-attr="inspection-locked" />
+          ) : role === "manager" && completeReady && editable ? (
+            <PortalIconAction icon={Lock} label="Complete and lock" ring ringPrimary disabled={busy} onClick={completeAndLock} data-attr="inspection-complete-lock" />
+          ) : null}
+        </div>
+      </div>
+    )}
     {(busy || dirty || submittedByResident) && <p role="status" className="px-2 text-sm text-muted">{busy ? "Saving…" : dirty ? "Changes waiting to save" : role === "resident" ? "Submitted. Ask your manager to reopen this to add more." : `Resident submitted ${new Date(submission!.at).toLocaleDateString()}.`}</p>}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
@@ -376,28 +423,81 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
         {role === "manager" && canEdit && submittedByResident ? <Button disabled={busy} onClick={() => changeSubmission("reopen")} data-attr="inspection-resident-reopen">Allow changes</Button> : null}
       </div>
     ) : null}
-    {activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
-      {!editable && <p className="px-2 pb-4 text-sm text-muted">Open a section to read its photos and notes. {readOnlyNotice}</p>}
-      {roomAreas.map(area => <div key={area.id} className="flex min-h-24 items-center gap-3 border-b border-l-2 border-b-border border-l-transparent px-3 py-5" data-attr="inspection-section-row">
-        <button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"}` : "No photos yet"}</span></button>
-        {editable ? (
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger
-              type="button"
-              aria-label={`Actions for ${area.label}`}
-              disabled={busy}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground"
-              data-attr="inspection-section-actions"
-            >
-              <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={busy} data-attr="inspection-section-photo-add" onSelect={() => startUpload(area.id)}>Add photos</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>)}
-    </div>}
+    {embedded && !activeArea ? (
+      <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm" data-attr="inspection-rooms-inline">
+        <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+          <h3 className="text-[13.5px] font-bold tracking-tight text-foreground">Rooms</h3>
+          {locked ? <Lock className="h-4 w-4 text-muted" aria-hidden /> : null}
+        </div>
+        {roomAreas.map((area) => {
+          const stats = embeddedRoomStats(area);
+          const isOpen = openRoomIds.has(area.id);
+          return (
+            <div key={area.id} className={`border-t border-border/60 ${isOpen ? "bg-card/40" : ""}`} data-attr="inspection-room-row">
+              <div className="flex items-center gap-2 px-3 py-2.5">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  aria-expanded={isOpen}
+                  onClick={() => toggleEmbeddedRoom(area.id)}
+                  data-attr="inspection-area-open"
+                >
+                  <ChevronDown className={`h-4 w-4 shrink-0 text-muted transition-transform ${isOpen ? "rotate-0" : "-rotate-90"}`} />
+                  <span className="truncate text-[13.5px] font-semibold text-foreground">{area.label}</span>
+                  <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted">
+                    <span>{stats.done}/{stats.total}</span>
+                    {stats.issues ? <span className="text-amber-700">{stats.issues} issue{stats.issues === 1 ? "" : "s"}</span> : null}
+                    {stats.photos ? <span>{stats.photos} photo{stats.photos === 1 ? "" : "s"}</span> : null}
+                  </span>
+                </button>
+                {editable ? (
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger
+                      type="button"
+                      aria-label={`Actions for ${area.label}`}
+                      disabled={busy}
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground"
+                      data-attr="inspection-section-actions"
+                    >
+                      <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem disabled={busy} data-attr="inspection-section-photo-add" onSelect={() => startUpload(area.id)}>Add photos</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
+              {isOpen ? <div className="space-y-4 border-t border-border/40 px-4 pb-4 pt-2">{area.items.map(renderItem)}</div> : null}
+            </div>
+          );
+        })}
+      </div>
+    ) : activeArea ? (
+      <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div>
+    ) : (
+      <div>
+        {!editable && <p className="px-2 pb-4 text-sm text-muted">Open a section to read its photos and notes. {readOnlyNotice}</p>}
+        {roomAreas.map(area => <div key={area.id} className="flex min-h-24 items-center gap-3 border-b border-l-2 border-b-border border-l-transparent px-3 py-5" data-attr="inspection-section-row">
+          <button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"}` : "No photos yet"}</span></button>
+          {editable ? (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger
+                type="button"
+                aria-label={`Actions for ${area.label}`}
+                disabled={busy}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground"
+                data-attr="inspection-section-actions"
+              >
+                <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={busy} data-attr="inspection-section-photo-add" onSelect={() => startUpload(area.id)}>Add photos</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>)}
+      </div>
+    )}
     {hasUnsentMaterial && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={unsentPhotos.length > 0}>
       <p className="pb-3 text-sm text-muted">These never reached the server, so they are <strong>not part of the report</strong> above.{editable ? " Reopening the report did not add them — retype anything you still want recorded." : ""} Keep anything you still need, then discard them.</p>
       {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
@@ -469,15 +569,27 @@ export const InspectionEditor = forwardRef<InspectionEditorHandle, {
       open={confirm !== null}
       onClose={() => { if (!busy) setConfirm(null); }}
       dismissBlocked={busy}
-      title={confirm === "leave" ? "Leave without saving?" : "Review the latest saved report?"}
+      title={
+        confirm === "leave"
+          ? "Leave without saving?"
+          : confirm === "complete"
+            ? "Complete and lock this inspection?"
+            : "Review the latest saved report?"
+      }
       primaryAction={{
-        label: confirm === "leave" ? "Discard and leave" : "Review latest",
+        label: confirm === "leave" ? "Discard and leave" : confirm === "complete" ? "Complete and lock" : "Review latest",
         onClick: confirmAction,
         disabled: busy,
         dataAttr: "inspection-confirm",
       }}
     >
-      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and notes remain." : "Unsaved notes will be discarded. Your pending photo is kept — retry its upload once the latest report has loaded."}</p>
+      <p className="text-sm text-muted">
+        {confirm === "leave"
+          ? "Unsaved notes and pending uploads will be discarded. Saved photos and notes remain."
+          : confirm === "complete"
+            ? "After you lock it, no one can change this report."
+            : "Unsaved notes will be discarded. Your pending photo is kept — retry its upload once the latest report has loaded."}
+      </p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
     </PortalDialog>
   </div>;

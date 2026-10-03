@@ -11,8 +11,8 @@ import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
-  applyInspectionObservations, assertInspectionWritable, createInspectionSchema, ensureInspectionSchema,
-  transitionResidentSubmission,
+  applyInspectionObservations, assertInspectionWritable, completeInspectionSchema, createInspectionSchema, ensureInspectionSchema,
+  inspectionRoomsProgress, transitionResidentSubmission,
   inspectionPhotoCounts, inspectionRoomProgress, inspectionToday, InspectionError, residencyOccupancy,
   type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
@@ -432,7 +432,23 @@ export async function inspectionDetail(actor: InspectionActor, id: string): Prom
   const editScope = await scopeFor(actor, "edit");
   const baseline = report.baseline_id ? await getInspection(actor, report.baseline_id) : null;
   return { report: await signPhotos(actor, report), baseline: baseline ? await signPhotos(actor, baseline) : null,
-    canEdit: authorized(actor, editScope, report) };
+    canEdit: authorized(actor, editScope, report) && report.status !== "completed" };
+}
+
+export async function completeInspection(actor: InspectionActor, id: string, raw: unknown) {
+  if (actor.role !== "manager") throw new InspectionError("Only the manager can complete an inspection.", 403);
+  const report = await getInspection(actor, id, "edit");
+  if (report.status === "completed") throw new InspectionError("This inspection is already completed.", 409);
+  const input = completeInspectionSchema.parse(raw);
+  if (report.revision !== input.revision) throw new InspectionError("This report changed in another session. Reload before continuing.", 409);
+  const { done, total } = inspectionRoomsProgress(report.document);
+  if (!total || done < total) throw new InspectionError("Finish every room before completing this inspection.", 409);
+  const document = structuredClone(report.document);
+  const now = new Date().toISOString();
+  document.history.push({ action: "complete", role: actor.role, userId: actor.context.userId, at: now });
+  const saved = await updateInspection(actor, report, document, "completed");
+  track("inspection_completed", actor.context.userId, { inspection_id: id, kind: report.kind, portal: actor.role });
+  return saved;
 }
 
 export async function addInspectionPhoto(actor: InspectionActor, id: string, itemId: string, revision: number, file: File, sourceRef?: string) {

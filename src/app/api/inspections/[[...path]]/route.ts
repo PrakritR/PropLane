@@ -4,7 +4,7 @@ import { resolveAgentContext } from "@/lib/tools/context";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { InspectionError } from "@/lib/inspections/model";
 import {
-  addInspectionPhoto, changeResidentSubmission, ensureInspection, inspectionDetail,
+  addInspectionPhoto, changeResidentSubmission, completeInspection, ensureInspection, inspectionDetail,
   listInspectionResidencies, listInspections, removeInspectionPhoto, saveInspection,
   type InspectionActor,
 } from "@/lib/inspections/server";
@@ -87,6 +87,10 @@ async function handle(req: NextRequest, context: RouteContext) {
       }
       if (path[1] === "submission") {
         await changeResidentSubmission(actor, id, await body(req));
+        return json(await inspectionDetail(actor, id));
+      }
+      if (path[1] === "complete") {
+        await completeInspection(actor, id, await body(req));
         return json(await inspectionDetail(actor, id));
       }
       if (path[1] === "photos") {
