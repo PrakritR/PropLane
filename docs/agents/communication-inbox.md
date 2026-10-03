@@ -573,3 +573,7 @@ start a brand-new request regardless of how recently that was — the sidebar's
 routes. A 20s TTL now sits in front of the refresher; `force: true` (e.g.
 after a send/delete) still always starts a fresh fetch. Any new caller should
 go through this client rather than calling the route directly.
+
+## Work identity disclosure
+
+Public listing contacts, preview contacts, resident manager cards, manager thread contact details, and new flyer defaults use the relevant workspace work number and work email. Personal profile phone/email and the retired sharing opt-in never provide fallback contact values. `resident-manager-contact.server.ts` and the authorized `/api/manager/work-contact` relationship read enforce this server-side.

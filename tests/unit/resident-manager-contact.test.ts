@@ -254,7 +254,7 @@ describe("resolveResidentManagerPhones", () => {
     expect(await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW })).toEqual([]);
   });
 
-  it("shows the profile phone and account email when the manager turned sharing on", async () => {
+  it("withholds personal contacts even when the retired sharing flag is on", async () => {
     workNumber.mockResolvedValueOnce(null);
     workEmail.mockResolvedValueOnce(null);
     const db = createMemoryDb({
@@ -263,13 +263,7 @@ describe("resolveResidentManagerPhones", () => {
       manager_automation_settings: [shareProfile],
     });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
-    expect(contact).toMatchObject({
-      managerName: "Test Manager",
-      phone: "+15103098345",
-      phoneKind: "profile",
-      email: "manager@test.proplane.local",
-      emailKind: "account",
-    });
+    expect(contact).toBeUndefined();
   });
 
   it("lets the work number and work email win over the profile when they exist", async () => {
@@ -285,7 +279,7 @@ describe("resolveResidentManagerPhones", () => {
     });
   });
 
-  it("mixes per channel: a work number with the account email, once sharing is on", async () => {
+  it("does not substitute an account email for missing work email", async () => {
     workNumber.mockResolvedValueOnce("+12065559000");
     workEmail.mockResolvedValueOnce(null);
     const db = createMemoryDb({
@@ -294,7 +288,7 @@ describe("resolveResidentManagerPhones", () => {
       manager_automation_settings: [shareProfile],
     });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
-    expect(contact).toMatchObject({ phoneKind: "work", email: "manager@test.proplane.local", emailKind: "account" });
+    expect(contact).toMatchObject({ phoneKind: "work", email: null, emailKind: null });
   });
 
   it("drops a manager who has no phone and no email anywhere", async () => {
@@ -307,7 +301,7 @@ describe("resolveResidentManagerPhones", () => {
     expect(await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW })).toEqual([]);
   });
 
-  it("normalizes a free-form profile phone into E.164 before it reaches the card", async () => {
+  it("never discloses a free-form personal phone", async () => {
     // `PATCH /api/profile` only trims the phone it stores — no E.164
     // normalization — so a stored value like "(510) 309-8345" must not reach
     // the card's `tel:`/`sms:` hrefs unnormalized.
@@ -319,7 +313,7 @@ describe("resolveResidentManagerPhones", () => {
       profiles: [{ id: "mgr-a", full_name: "Test Manager", phone: "(510) 309-8345", email: "manager@test.proplane.local" }],
     });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
-    expect(contact).toMatchObject({ phone: "+15103098345", phoneKind: "profile" });
+    expect(contact).toBeUndefined();
   });
 
   it("drops an unnormalizable profile phone rather than emit a broken tel/sms link", async () => {
@@ -331,7 +325,7 @@ describe("resolveResidentManagerPhones", () => {
       profiles: [{ id: "mgr-a", full_name: "Test Manager", phone: "call the office", email: "manager@test.proplane.local" }],
     });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
-    expect(contact).toMatchObject({ phone: null, phoneKind: null, email: "manager@test.proplane.local" });
+    expect(contact).toBeUndefined();
   });
 });
 

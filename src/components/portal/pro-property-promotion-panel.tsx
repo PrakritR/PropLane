@@ -1,4 +1,6 @@
 "use client";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
+import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -145,7 +147,7 @@ export function ManagerPropertyPromotionPanel({
   saveTarget?: PromotionSaveTarget;
   propertyLabel?: string;
 }) {
-  const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
+  const { userId, ready: authReady } = useManagerUserId();
   // Aborts the copy request owned by whichever compose modal is open.
   const generateAbortRef = useRef<AbortController | null>(null);
   const [tick, setTick] = useState(0);
@@ -189,12 +191,14 @@ export function ManagerPropertyPromotionPanel({
     return buildManagerPromotionPropertyOptions(userId);
   }, [userId, propertyTick]);
 
+  const workEmail = useListingContactWorkEmail({ listingId, viewerManagerUserId: userId });
+  const workPhone = useListingContactSmsPhone({ listingId, viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: managerEmail ?? "",
+      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
-    [managerEmail],
+    [workPhone, workEmail],
   );
 
   const propertyId = listingId.trim();

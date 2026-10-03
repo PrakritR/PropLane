@@ -1,4 +1,6 @@
 "use client";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
+import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -163,7 +165,7 @@ export function ManagerPromotion({
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
-  const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
+  const { userId, ready: authReady } = useManagerUserId();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -268,12 +270,14 @@ export function ManagerPromotion({
     return opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [userId, propertyTick, promotions]);
 
+  const workEmail = useListingContactWorkEmail({ viewerManagerUserId: userId });
+  const workPhone = useListingContactSmsPhone({ viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: managerEmail ?? "",
+      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
-    [managerEmail],
+    [workPhone, workEmail],
   );
 
   // Seed the flyer draft (optionally from a property) and open the unified

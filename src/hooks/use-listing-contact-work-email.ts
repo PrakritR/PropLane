@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useEffect, useState } from "react";
 import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaEmailAddress } from "@/lib/listing-cta-email";
@@ -21,9 +22,9 @@ async function contactEmailFromPublicCatalog(listingId: string): Promise<string 
  * Review must show what that page will print, not what Settings says about
  * billing.
  */
-async function ownManagerWorkEmail(): Promise<string | null> {
+async function ownManagerWorkEmail(workspaceId?: string): Promise<string | null> {
   try {
-    const res = await fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" });
+    const res = await fetch(`/api/manager/assistant-email${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { credentials: "include", cache: "no-store" });
     if (!res.ok) return null;
     const data: unknown = await res.json();
     if (!isManagerAssistantEmailStatus(data)) return null;
@@ -47,6 +48,8 @@ export function useListingContactWorkEmail(opts: {
   viewerManagerUserId?: string | null;
   enabled?: boolean;
 }): string | null {
+  const workspace = useWorkspaces();
+  const workspaceId = workspace?.workspaces.find((w) => opts.listingId && w.propertyIds.includes(opts.listingId))?.id ?? workspace?.active?.id;
   const [email, setEmail] = useState<string | null>(null);
   const enabled = opts.enabled !== false;
   const listingId = opts.listingId?.trim() || null;
@@ -69,7 +72,7 @@ export function useListingContactWorkEmail(opts: {
       }
       const viewerIsOwner = !ownerId || (Boolean(viewerId) && ownerId === viewerId);
       if (viewerIsOwner) {
-        const own = await ownManagerWorkEmail();
+        const own = await ownManagerWorkEmail(workspaceId);
         if (!cancelled) setEmail(own);
         return;
       }
@@ -78,7 +81,7 @@ export function useListingContactWorkEmail(opts: {
     return () => {
       cancelled = true;
     };
-  }, [enabled, listingId, ownerId, viewerId]);
+  }, [enabled, listingId, ownerId, viewerId, workspaceId]);
 
   return email;
 }
