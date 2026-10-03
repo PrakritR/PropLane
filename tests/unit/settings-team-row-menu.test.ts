@@ -12,7 +12,10 @@ describe("Settings Team row actions", () => {
     expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
     expect(blocks).toContain('data-attr="team-member-actions"');
-    expect(blocks).toContain('DropdownMenuContent backdrop={false}');
+    // The row menu keeps the liquid default (dropdown-menu-callers-use-default.test.ts, c82a2eefe):
+    // only the in-modal question menu opts out of the backdrop.
+    expect(blocks).toContain('<DropdownMenuContent align="end" aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">');
+    expect(blocks).not.toContain("backdrop={false}");
   });
 
   it("labels the ⋯ menu's ownership-transfer item exactly \"Transfer ownership\" (workspace transfer, no trailing ellipsis)", () => {
