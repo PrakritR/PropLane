@@ -281,7 +281,7 @@ export function FinancesPeriodSelect({
       onChange={(next) => onChange(next as FinancesPeriodKind)}
       options={(Object.keys(FINANCES_PERIOD_LABELS) as FinancesPeriodKind[]).map((k) => ({ value: k, label: FINANCES_PERIOD_LABELS[k] }))}
       dataAttr="finances-period"
-      triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS}
+      triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-md:min-h-11`}
     />
   );
 }

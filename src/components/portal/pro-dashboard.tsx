@@ -274,7 +274,7 @@ function IssueRow({
     <Link
       href={href}
       data-attr={dataAttr}
-      className="group flex items-center gap-3 px-3.5 py-2.5 transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_40%,transparent)] [html[data-native]_&]:gap-2.5 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+      className="group flex items-center gap-3 px-3.5 py-3 transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_40%,transparent)] [html[data-native]_&]:gap-2.5 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
     >
       {dot ? (
         <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: dot }} />
@@ -284,7 +284,7 @@ function IssueRow({
           {title}
         </span>
         {subtitle ? (
-          <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
+          <span className="mt-0.5 block line-clamp-2 text-xs text-muted [html[data-native]_&]:text-[11px]">
             {subtitle}
           </span>
         ) : null}
@@ -529,7 +529,7 @@ function AiDraftsGroup({
                     <span className="block truncate text-sm font-semibold text-foreground [html[data-native]_&]:text-[13px]">
                       {title}
                     </span>
-                    <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
+                    <span className="mt-0.5 block line-clamp-2 text-xs text-muted [html[data-native]_&]:text-[11px]">
                       {subtitle}
                     </span>
                   </span>
@@ -1251,7 +1251,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           </Link>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6">
           <KpiCard
             label="Occupancy"
             value={kpis?.occupancy.value ?? "0%"}
@@ -1304,7 +1304,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         </div>
 
         {/* What needs a decision now, and what the next fortnight holds. */}
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-6">
           <AttentionPanel rows={attentionShown} />
           <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
         </div>
@@ -1330,16 +1330,16 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
 
         {/* Needs attention — a live, colour-coded queue: big all-caps heading over
             status-railed group cards that stream in with a staggered entrance. */}
-        <div className="space-y-4 [html[data-native]_&]:space-y-3">
+        <div className="space-y-4 lg:space-y-6">
           <div className="flex items-center gap-2.5">
             <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
               ✦
             </span>
-            <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
+            <h2 className="min-w-0 truncate text-[14.5px] font-bold leading-tight tracking-[-0.02em] text-foreground md:text-xl">
               Everything open
             </h2>
             {openCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">
+              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">
                 <span
                   aria-hidden
                   className="pl-attn-pulse size-1.5 rounded-full"

@@ -18,8 +18,8 @@ function approxLabelPx(label: string): number {
 }
 
 describe("the calendar time gutter fits its widest label", () => {
-  it("no longer sizes the week grid at 44px", () => {
-    expect(src).not.toContain("grid-cols-[44px_repeat(7,minmax(0,1fr))]");
+  it("uses the approved 44px phone gutter and keeps desktop at 64px", () => {
+    expect(src).toContain("grid-cols-[44px_repeat(7,minmax(0,1fr))]");
     expect(src).toContain("grid-cols-[64px_repeat(7,minmax(0,1fr))]");
   });
 
@@ -28,9 +28,8 @@ describe("the calendar time gutter fits its widest label", () => {
     expect(src).toContain("grid-cols-[4rem_1fr]");
   });
 
-  it("the label still cannot wrap, so the column has to be the thing that fits", () => {
-    // Removing nowrap would "fix" the overlap by making every row two lines tall.
-    expect(src).toContain("whitespace-nowrap text-[10px] font-semibold tabular-nums");
+  it("allows the phone meridiem to wrap without overflowing into a day column", () => {
+    expect(src).toContain("whitespace-normal leading-tight text-[10px] font-semibold tabular-nums sm:whitespace-nowrap");
   });
 
   it("64px clears the widest half-hour label plus its padding", () => {

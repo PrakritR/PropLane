@@ -8,7 +8,7 @@ import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components
 import { cn } from "@/lib/utils";
 
 export function PortalSettingsSections({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("space-y-8 [html[data-native]_&]:space-y-6", className)}>{children}</div>;
+  return <div className={cn("space-y-4 lg:space-y-6", className)}>{children}</div>;
 }
 
 /**

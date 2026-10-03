@@ -582,8 +582,8 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 3px;
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 h1,
@@ -2589,7 +2589,7 @@ html[data-native] .portal-mobile-nav-bar {
    individual panels so new sections inherit the same interaction language. */
 @layer base {
   .portal-shell :where(button, a, input, select, textarea):focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
 
@@ -3863,3 +3863,31 @@ html[data-native] [data-listing-subnav] {
 }
 .field-dropdown-menu-surface, .field-dropdown-menu-option { background-color: transparent !important; }
 [data-theme="dark"] .field-dropdown-menu { background: var(--card) !important; background-color: var(--card) !important; }
+
+/* Studio 0930: page rhythm is independent of popup sizing. */
+.portal-shell {
+  --portal-page-gap: 24px;
+  --portal-card-padding: 20px;
+  --portal-calendar-time-gutter: 64px;
+}
+.portal-record-content > :is(div, section):not([data-viewport-fill-body]) {
+  row-gap: var(--portal-page-gap);
+}
+.portal-record-content > :is(.space-y-3, .space-y-4) > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--portal-page-gap);
+}
+.portal-shell :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.portal-shell :is(.portal-property-row button, .portal-service-row button, [role="tab"], [data-slot="portal-property-rail"] a):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+@media (max-width: 767px) {
+  .portal-shell {
+    --portal-page-gap: 16px;
+    --portal-card-padding: 16px;
+    --portal-calendar-time-gutter: 44px;
+  }
+}

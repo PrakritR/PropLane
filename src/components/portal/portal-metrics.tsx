@@ -422,7 +422,7 @@ export const PORTAL_DASHBOARD_SECTION_CARD =
  *  Needs-attention control stays clickable (PRP-377). Uses the shared floating
  *  gap knob — do not invent a per-panel `bottom`. */
 export const PORTAL_DASHBOARD_STACK =
-  "space-y-5 max-lg:space-y-3 [html[data-native]_&]:space-y-3 pb-[calc(var(--portal-floating-bottom-gap)+3.5rem)] max-lg:pb-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap)+3.5rem)]";
+  "space-y-6 max-lg:space-y-4 pb-[calc(var(--portal-floating-bottom-gap)+3.5rem)] max-lg:pb-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap)+3.5rem)]";
 
 /** KPI row: two up on a phone, three from `sm` — the same rhythm as the manager dashboard. */
 export function PortalDashboardKpiRow({ children }: { children: ReactNode }) {

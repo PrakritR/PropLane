@@ -98,7 +98,7 @@ export function PortalMobileNavBar({
   return (
     <div
       ref={barRef}
-      className="portal-mobile-nav-bar relative mb-0 flex min-h-11 w-full items-center justify-between gap-2 lg:mb-3 lg:hidden [html[data-native]_&]:mb-0"
+      className="portal-mobile-nav-bar relative mb-0 flex h-14 min-h-14 w-full items-center justify-between gap-2 lg:mb-3 lg:hidden [html[data-native]_&]:mb-0"
     >
       {/* Brand mark on tablet-only. */}
       <Link

@@ -203,7 +203,7 @@ export function PortalPropertyRecordRow({
         ) : null}
         <span className="truncate">{title}</span>
       </p>
-      {address ? <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p> : null}
+      {address ? <p className="text-[13px] leading-relaxed text-muted md:truncate">{address}</p> : null}
       {facts ? (
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
           {facts}
@@ -253,13 +253,13 @@ export function PortalPropertyRecordRow({
         // record and a separate 44px selection target. Inside a
         // `PortalListGroup`, `flush` drops the card chrome so the row reads
         // as one line inside the group's single container instead.
-        "portal-property-row flex w-full items-center gap-1 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5",
+        "portal-property-row flex w-full items-center min-h-[92px] gap-1 px-4 py-4 transition-colors max-md:min-h-[76px] max-md:px-3.5 max-md:py-3.5",
         flush
           ? selected || checked
             ? "bg-primary/[0.04]"
             : "hover:bg-foreground/[0.03]"
           : cn(
-              "mb-2 rounded-xl border bg-card shadow-sm",
+              "mb-3 rounded-xl border bg-card shadow-sm",
               selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
             ),
       )}
@@ -306,6 +306,7 @@ export function PortalPropertyRecordRow({
 
 /** One glyph fact on a record row — an icon and a short value. */
 export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {
+  if (typeof children === "string" && /^Moved (?:in|out)\s*[—–-]$/.test(children.trim())) return null;
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
       <Icon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
@@ -375,7 +376,7 @@ export function PortalApplicantRecordRow({
               // square tile keeps its existing wider, photo-like proportions.
               leadingShape === "round"
                 ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
-                : "h-[4.125rem] w-[5.5rem] max-md:h-[3.125rem] max-md:w-16",
+                : "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14",
             )}
           >
             {initials || "?"}
