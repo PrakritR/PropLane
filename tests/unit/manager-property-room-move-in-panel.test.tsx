@@ -9,7 +9,8 @@ const { updateExtraListingFromSubmission, updatePendingManagerProperty } = vi.ho
   updatePendingManagerProperty: vi.fn(() => true),
 }));
 
-vi.mock("@/lib/demo-property-pipeline", () => ({
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   updateExtraListingFromSubmission,
   updatePendingManagerProperty,
 }));
@@ -114,6 +115,30 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       const add = within(stack as HTMLElement).getByRole("button", { name: "Add resident" });
       fireEvent.click(add);
       expect(onAddResident).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads Whole house | Rooms | Forms in that one bar, with no Details tab, Whole house first", () => {
+      const { container } = render(
+        <ManagerPropertyRoomMoveInPanel
+          sub={roomListing()}
+          saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+          managerUserId="mgr-1"
+          canEdit
+          onUpdated={() => {}}
+          showToast={() => {}}
+          onAddResident={() => {}}
+        />,
+      );
+      const stack = container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement;
+      expect(within(stack).queryByRole("button", { name: /^Details/ })).toBeNull();
+      expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeTruthy();
+      fireEvent.click(within(stack).getByRole("button", { name: /^Forms/ }));
+      expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeNull();
+      expect(container.querySelectorAll('[data-slot="portal-list-control-stack"]')).toHaveLength(1);
+      expect(within(container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement).getByRole("button", { name: "Add move-in form" })).toBeTruthy();
+      fireEvent.click(within(container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement).getByRole("button", { name: /^Rooms/ }));
+      expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeNull();
+      expect(container.querySelector('[data-attr^="property-move-in-room-row-"]')).toBeTruthy();
     });
 
     it("has no round + when nothing can open it", () => {

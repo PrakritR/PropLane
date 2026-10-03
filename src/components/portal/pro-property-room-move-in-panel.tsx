@@ -437,8 +437,8 @@ export function ManagerPropertyRoomMoveInPanel({
   const moveNav = (
     <LocalDestinationNav
       items={[
-        { id: "house", label: "Whole house", count: 1, dataAttr: "property-move-in-tab-details" },
-        ...(showRooms ? [{ id: "rooms", label: "Rooms", count: sub.rooms.length }] : []),
+        { id: "house", label: "Whole house", count: 1, dataAttr: "property-move-in-tab-house" },
+        ...(showRooms ? [{ id: "rooms", label: "Rooms", count: sub.rooms.length, dataAttr: "property-move-in-tab-rooms" }] : []),
         { id: "forms", label: "Forms", count: formCount, dataAttr: "property-move-in-tab-forms" },
       ]}
       activeId={activeNavId}
