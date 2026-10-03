@@ -1,9 +1,11 @@
-import type { ReactNode } from "react";
+import { isValidElement, type ReactNode } from "react";
 
 export type PortalAdaptiveAction = {
   id: string;
   node: ReactNode;
   menuItem: ReactNode;
+  /** Header ordering: primary stays at the right edge; danger folds first. */
+  tone?: "default" | "primary" | "danger";
   /** Higher priority stays visible longer when horizontal space is tight. */
   keepPriority?: number;
   /** Never tuck into the … menu — always rendered inline. */
@@ -19,7 +21,12 @@ export function splitAdaptiveActions(actions: PortalAdaptiveAction[]) {
   const leading: PortalAdaptiveAction[] = [];
   const optional: PortalAdaptiveAction[] = [];
   const trailing: PortalAdaptiveAction[] = [];
+  const danger: PortalAdaptiveAction[] = [];
   for (const action of actions) {
+    const props = isValidElement<{ tone?: string; variant?: string; primary?: boolean }>(action.node) ? action.node.props : undefined;
+    const tone = action.tone ?? (props?.primary ? "primary" : props?.tone ?? props?.variant);
+    if (tone === "primary") { trailing.push(action); continue; }
+    if (tone === "danger") { danger.push(action); continue; }
     if (action.alwaysVisible) {
       if (action.pinEdge === "end") trailing.push(action);
       else leading.push(action);
@@ -27,6 +34,7 @@ export function splitAdaptiveActions(actions: PortalAdaptiveAction[]) {
       optional.push(action);
     }
   }
+  optional.push(...danger);
   return { leading, optional, trailing };
 }
 

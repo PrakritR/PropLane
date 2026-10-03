@@ -308,9 +308,7 @@ export function computePortalFilterDropdownRect(
   const spaceBelow = viewportH - rect.bottom - padBottom;
   const spaceAbove = rect.top - padTop;
   const preferOpenDown = options?.preferOpenDown ?? false;
-  const openUp = preferOpenDown
-    ? false
-    : spaceBelow < panelHeightPx && spaceAbove > spaceBelow;
+  const openUp = resolveOpenUp(spaceBelow - gap, spaceAbove - gap, panelHeightPx, preferOpenDown);
   // The 120px floor exists so a menu is never a useless sliver — but it must not exceed the space
   // that actually exists, or the menu runs past the viewport edge and its last rows become
   // unreachable: the list cannot scroll to content that was laid out off-screen. Clamp to the
@@ -320,7 +318,7 @@ export function computePortalFilterDropdownRect(
   const roomiest = Math.max(spaceAbove - gap, spaceBelow - gap);
   const maxHeight = Math.min(
     panelHeightPx,
-    Math.max(Math.min(120, roomiest), spaceFor),
+    Math.max(0, Math.min(roomiest, spaceFor)),
   );
   const top = openUp
     ? Math.max(padTop, rect.top - maxHeight - gap)
@@ -569,15 +567,11 @@ export function computeFieldSelectMenuRect(
     ? Math.min(contentHeight, Math.max(0, spaceBelow))
     : Math.min(
         contentHeight,
-        Math.max(FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12, openUp ? spaceAbove - 8 : spaceBelow - 8),
+        Math.max(0, openUp ? spaceAbove - gap : spaceBelow),
       );
   const minWidth = options?.minWidth ?? 0;
-  const width = matchTriggerWidth
-    ? rect.width
-    : Math.min(minWidth > 0 ? minWidth : rect.width, viewportW - viewportPadding * 2);
-  const left = matchTriggerWidth
-    ? rect.left
-    : Math.min(Math.max(viewportPadding, rect.left), viewportW - width - viewportPadding);
+  const width = Math.max(0, Math.min(matchTriggerWidth ? rect.width : minWidth > 0 ? minWidth : rect.width, viewportW - viewportPadding * 2));
+  const left = Math.min(Math.max(viewportPadding, rect.left), viewportW - width - viewportPadding);
   const top = openUp
     ? Math.max(topBound, rect.top - maxHeight - gap)
     : Math.max(topBound, rect.bottom + gap);

@@ -68,19 +68,9 @@ export function resolveMobileFilterPopover(args: {
   hasExtraModalContent: boolean;
   insets: { bottom: number; bottomNav: number };
 }): boolean {
-  const { trigger, desktopPresentation, compactPanel, filterFieldCount, hasExtraModalContent, insets } = args;
-  // `panel` and `inline` keep the sheet — only `dropdown` has an anchored path at all.
-  if (desktopPresentation !== "dropdown") return false;
-  if (!compactPanel) return false;
-  if (filterFieldCount > PORTAL_FILTER_POPOVER_MAX_FIELDS) return false;
-  if (hasExtraModalContent) return false;
-  // An unmeasurable trigger cannot honestly claim there is room below it — fail safe to the sheet.
-  if (!trigger) return false;
-  const rect = trigger.getBoundingClientRect();
-  if (!(rect.width > 0 && rect.height > 0)) return false;
-  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-  const spaceBelow = viewportHeight - rect.bottom - 12 - insets.bottom - insets.bottomNav;
-  return spaceBelow >= PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX;
+  // Every phone filter stays anchored. The positioning helper flips to the
+  // roomier side and caps the scroll area, including near the bottom edge.
+  return args.desktopPresentation === "dropdown";
 }
 
 function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {

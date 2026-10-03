@@ -155,6 +155,7 @@ export function PortalAdaptiveActionRow({
         moreWidth,
         Math.max(0, containerWidth - WIDTH_FUDGE_PX),
         gapPx,
+        { reserveMore: pinnedCount > 0 },
       );
       setOptionalFitCount(count);
     };
@@ -173,7 +174,7 @@ export function PortalAdaptiveActionRow({
       ro?.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, [actions, fixed, gapPx, optional.length]);
+  }, [actions, fixed, gapPx, optional.length, pinnedCount]);
 
   useLayoutEffect(() => {
     if (fixed) return;
@@ -198,7 +199,7 @@ export function PortalAdaptiveActionRow({
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);
-  const showMoreMenu = overflow.length > 0;
+  const showMoreMenu = overflow.length > 0 || pinnedCount > 0;
   const { leading: visibleLeading, optional: visibleMiddle, trailing: visibleTrailing } =
     splitAdaptiveActions(visible);
 
@@ -235,6 +236,7 @@ export function PortalAdaptiveActionRow({
         className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex gap-0.5"
         style={{ gap: gapPx }}
         aria-hidden
+        inert
       >
         {actions.map((action) => (
           <div key={action.id} data-portal-adaptive-fit-action>
@@ -263,12 +265,12 @@ export function PortalAdaptiveActionRow({
             {action.node}
           </div>
         ))}
+        {moreMenu ? <div className="shrink-0">{moreMenu}</div> : null}
         {visibleTrailing.map((action) => (
           <div key={action.id} className="shrink-0">
             {action.node}
           </div>
         ))}
-        {moreMenu ? <div className="shrink-0">{moreMenu}</div> : null}
       </div>
     </div>
   );
