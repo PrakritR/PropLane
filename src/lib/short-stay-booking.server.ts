@@ -14,7 +14,12 @@ import {
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { resolveStayPricing } from "@/lib/room-pricing";
+import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { shortStayRangeHasRoom } from "@/lib/short-stay-availability";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
+import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
 import { shortStayScreeningRequired } from "@/lib/short-stay-screening";
 import {
@@ -44,6 +49,48 @@ export type ShortStayBookingResult =
   | { ok: true; mode: "request"; confirmationPath: string; bookingId: string }
   | { ok: true; mode: "checkout"; checkoutUrl: string; bookingId: string; chargeIds: string[] }
   | { ok: false; status: number; error: string };
+
+function dayKey(raw: unknown): string | null {
+  const value = String(raw ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
+/** Confirmed and held short-stay blocks count toward public availability. */
+async function loadShortStayBlockSpans(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+  roomId: string,
+  excludeBookingId?: string,
+): Promise<PublicRoomOccupancy["spans"]> {
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("manager_user_id", managerUserId)
+    .eq("property_id", propertyId)
+    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
+  if (error) throw error;
+  const spans: PublicRoomOccupancy["spans"] = [];
+  for (const row of data ?? []) {
+    if (excludeBookingId && String(row.id) === excludeBookingId) continue;
+    const block = row.row_data as {
+      roomId?: string;
+      checkIn?: string;
+      checkOut?: string;
+      bookingStatus?: string;
+      stayDetails?: { guests?: string };
+    } | null;
+    if (!block || block.roomId !== roomId) continue;
+    if (block.bookingStatus === "cancelled") continue;
+    const start = dayKey(block.checkIn);
+    const end = dayKey(block.checkOut);
+    if (!start || !end) continue;
+    const guests = Math.max(1, Number.parseInt(String(block.stayDetails?.guests ?? "1"), 10) || 1);
+    spans.push({ start, end, count: guests });
+  }
+  return spans;
+}
 
 async function loadManagerId(db: SupabaseClient, propertyId: string): Promise<string | null> {
   const { data } = await db
@@ -80,7 +127,9 @@ export async function createShortStayBooking(
   const choice = `${input.propertyId}${LISTING_ROOM_CHOICE_SEP}${input.roomId}`;
   const occ = occupancy.find((row) => row.roomChoice === choice);
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
-  if (!shortStayRangeHasRoom(occ?.spans ?? [], capacity, input.checkIn, input.checkOut)) {
+  const blockSpans = await loadShortStayBlockSpans(db, managerUserId, input.propertyId, input.roomId);
+  const mergedSpans = [...(occ?.spans ?? []), ...blockSpans];
+  if (!shortStayRangeHasRoom(mergedSpans, capacity, input.checkIn, input.checkOut)) {
     return { ok: false, status: 409, error: "Those dates are no longer available." };
   }
 
@@ -151,7 +200,13 @@ export async function createShortStayBooking(
     { onConflict: "id" },
   );
   if (blockErr) {
-    return { ok: false, status: 409, error: "Those dates are no longer available." };
+    const code = String((blockErr as { code?: string }).code ?? "");
+    const status = ["P4001", "40001", "40P01"].includes(code) ? 409 : 500;
+    return {
+      ok: false,
+      status,
+      error: status === 409 ? "Those dates are no longer available." : "Could not reserve those dates.",
+    };
   }
 
   const confirmationQuery = new URLSearchParams({
@@ -342,6 +397,43 @@ export async function finalizeShortStayAfterPayment(
       resident_email: guestEmail,
       property_id: propertyId,
       row_data: pipelineRow,
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
+
+  const applicationId = normalizeApplicationAxisId(`stay-${bookingId.replace(/[^a-z0-9]/gi, "").slice(0, 20)}`);
+  const guestApplication: DemoApplicantRow = {
+    id: applicationId,
+    axisId: applicationId,
+    name: guestName,
+    email: guestEmail,
+    propertyId,
+    assignedPropertyId: propertyId,
+    property: charge.propertyLabel?.trim() || propertyId,
+    bucket: "approved",
+    stage: "Approved",
+    detail: `Short stay · ${checkIn} – ${checkOut}`,
+    managerUserId,
+    application: {
+      propertyId,
+      roomChoice1: `${propertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`,
+      rentalType: "short_term",
+      leaseStart: checkIn,
+      leaseEnd: checkOut,
+      fullLegalName: guestName,
+      leaseTerm: "Short-Term Stay",
+    } as RentalWizardFormState,
+  };
+  const sealed = sealApplicantRow(guestApplication, applicationId, managerUserId);
+  await db.from("manager_application_records").upsert(
+    {
+      id: applicationId,
+      manager_user_id: managerUserId,
+      resident_email: guestEmail,
+      property_id: propertyId,
+      assigned_property_id: propertyId,
+      row_data: sealed,
       updated_at: now,
     },
     { onConflict: "id" },

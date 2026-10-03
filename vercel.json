@@ -98,6 +98,14 @@
       "schedule": "30 8 * * *"
     },
     {
+      "path": "/api/cron/short-stay-hold-expiry",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/lease-uncountersigned-refund",
+      "schedule": "0 7 * * *"
+    },
+    {
       "path": "/api/cron/vendor-banking-reconcile",
       "schedule": "45 8 * * *"
     },
