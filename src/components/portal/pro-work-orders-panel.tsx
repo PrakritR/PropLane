@@ -65,6 +65,13 @@ import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { ServiceWorkflowStepper } from "@/components/portal/service-workflow-stepper";
+import {
+  formatServiceMoney,
+  managerServiceNextStep,
+  managerServiceWorkflowSteps,
+  resolveWorkOrderAssignee,
+} from "@/lib/manager-service-workflow";
 
 function WorkOrderFact({ label, value }: { label: string; value: string }) {
   return (
@@ -1225,12 +1232,20 @@ export function ManagerWorkOrdersPanel({
         ) : null}
 
         {bids.length > 0 ? (
-          <div className="mt-3 border-t border-border pt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Bids</p>
+          <div className="mt-3 border-t border-border pt-3" data-attr="work-order-compare-quotes">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Compare quotes</p>
             <div className="mt-2 space-y-1.5">
-                {bids.map((bid) => {
+                {(() => {
+                  const pricedTotals = bids
+                    .filter((b) => b.amountCents != null)
+                    .map((b) => (b.amountCents ?? 0) + b.materialsCents);
+                  const lowestTotal =
+                    pricedTotals.length > 0 ? Math.min(...pricedTotals) : null;
+                  return bids.map((bid) => {
                   const pricingPending = bid.amountCents == null;
                   const totalCents = (bid.amountCents ?? 0) + bid.materialsCents;
+                  const isLowest =
+                    lowestTotal != null && !pricingPending && totalCents === lowestTotal;
                   // C105: comparison facts — plain text, never a pill — so a manager can see
                   // rating and verification at a glance across every bid.
                   const bidVendor = activeVendors.find((v) => v.id === bid.vendorDirectoryId);
@@ -1246,7 +1261,8 @@ export function ManagerWorkOrdersPanel({
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
                   >
                     <div>
-                      <span className="font-medium text-foreground">{bid.vendorName || "Vendor"}</span>{" "}
+                      <span className="font-medium text-foreground">{bid.vendorName || "Vendor"}</span>
+                      {isLowest ? <span className="ml-1 text-muted">· Lowest</span> : null}{" "}
                       <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
                         {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
                       </span>
@@ -1313,13 +1329,14 @@ export function ManagerWorkOrdersPanel({
                           disabled={acceptingBidId === bid.id}
                           onClick={() => acceptBidHandler(bid)}
                         >
-                          Accept
+                          Hire
                         </Button>
                       ) : null}
                     </div>
                   </div>
                   );
-                })}
+                });
+                })()}
             </div>
           </div>
         ) : (
@@ -1538,6 +1555,44 @@ export function ManagerWorkOrdersPanel({
               },
             ],
           })}
+          <div className="px-3 pb-4 sm:px-4">
+            <ServiceWorkflowStepper
+              steps={managerServiceWorkflowSteps(routeWorkOrder, {
+                bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
+                acceptedBid: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).find((b) => b.status === "accepted"),
+              })}
+            />
+            {resolveWorkOrderAssignee(routeWorkOrder) ? (
+              <p className="mt-2 text-xs text-muted">
+                Assigned to{" "}
+                <span className="font-medium text-foreground">
+                  {resolveWorkOrderAssignee(routeWorkOrder)?.name}
+                </span>
+              </p>
+            ) : null}
+            {managerServiceNextStep(routeWorkOrder, {
+              bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
+            }) ? (
+              <p className="mt-1 text-xs font-medium text-foreground" data-attr="manager-service-next-step">
+                Next: {managerServiceNextStep(routeWorkOrder, {
+                  bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
+                })?.label}
+              </p>
+            ) : null}
+            {routeWorkOrder.automationStatus === "vendor_marked_done" ? (
+              <div
+                className="mt-4 rounded-xl border border-border bg-accent/20 px-3 py-3"
+                data-svc-invoice
+              >
+                <p className="text-sm font-semibold text-foreground">Invoice to approve</p>
+                <p className="mt-1 text-xs text-muted">
+                  {formatServiceMoney(
+                    (routeWorkOrder.vendorCostCents ?? 0) + (routeWorkOrder.materialsCostCents ?? 0),
+                  ) || "Awaiting line items"}
+                </p>
+              </div>
+            ) : null}
+          </div>
           {/*
             The full action set (Schedule visit / Confirm time / Edit / Auto-schedule /
             Approve & pay / Mark complete / Delete, gated by bucket and automation state)

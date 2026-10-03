@@ -541,7 +541,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // PLAN-0921-1029, area 2: Overview · Communication. "Payments", "Vendor"
     // and "Resident" fold into Overview's own fact cards.
     ownGroups: [
-      { label: "Task", ids: [{ id: "overview", label: "Overview" }] },
+      { label: "Task", ids: [{ id: "overview", label: "Task" }] },
     ],
     headerActions: [
       { id: "mark-done", label: "Mark done", icon: CheckCircle2 },

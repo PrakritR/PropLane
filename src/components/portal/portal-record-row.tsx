@@ -391,25 +391,32 @@ export function PortalApplicantRecordRow({
 export function PortalServiceRecordRow({
   title,
   subtitle,
+  figure,
   selected = false,
   checked = false,
   onSelectedChange,
   onOpen,
   dataAttr,
+  rowId,
 }: {
   title: string;
   subtitle?: string;
+  /** Plain stage or money figure — never a pill. */
+  figure?: string;
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
   dataAttr?: string;
+  rowId?: string;
 }) {
   const selectable = Boolean(onSelectedChange);
   const highlighted = selected || checked;
 
   return (
     <div
+      id={rowId}
+      data-svc-row={rowId?.replace(/^svc-/, "") || undefined}
       className={`portal-service-row flex w-full items-center gap-3 border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
         highlighted
           ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
@@ -436,6 +443,9 @@ export function PortalServiceRecordRow({
           {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
         </div>
       </button>
+      {figure ? (
+        <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{figure}</span>
+      ) : null}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
+import { ResidentServiceTracker } from "@/components/portal/resident-service-tracker";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -1340,13 +1341,16 @@ export function ResidentServicesPanel({
               reminderSending={requestReminderSendingId === req.id}
             />
           ) : row ? (
-            <WorkOrderDetail
-              row={row}
-              onEdit={() => openWorkOrderEdit(row)}
-              onCancel={() => cancelWorkOrder(row.id)}
-              onSendReminder={() => void sendWorkOrderReminder(row)}
-              reminderSending={reminderSendingId === row.id}
-            />
+            <>
+              <ResidentServiceTracker row={row} />
+              <WorkOrderDetail
+                row={row}
+                onEdit={() => openWorkOrderEdit(row)}
+                onCancel={() => cancelWorkOrder(row.id)}
+                onSendReminder={() => void sendWorkOrderReminder(row)}
+                reminderSending={reminderSendingId === row.id}
+              />
+            </>
           ) : null}
         </div>
       );

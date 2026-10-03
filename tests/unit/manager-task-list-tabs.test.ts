@@ -6,8 +6,13 @@ import {
 } from "@/lib/portal-detail-routes";
 
 describe("manager task list tabs", () => {
-  it("exposes three manager tabs", () => {
-    expect(MANAGER_TASK_LIST_TABS).toEqual(["in-progress", "overdue", "completed"]);
+  it("exposes manager task tabs including arrivals", () => {
+    expect(MANAGER_TASK_LIST_TABS).toEqual([
+      "in-progress",
+      "overdue",
+      "completed",
+      "arrivals-departures",
+    ]);
   });
 
   it("parses manager tab slugs including late alias", () => {
@@ -16,6 +21,7 @@ describe("manager task list tabs", () => {
     expect(parseManagerTaskListTab("overdue")).toBe("overdue");
     expect(parseManagerTaskListTab("late")).toBe("overdue");
     expect(parseManagerTaskListTab("completed")).toBe("completed");
+    expect(parseManagerTaskListTab("arrivals-departures")).toBe("arrivals-departures");
   });
 
   it("parses vendor tabs without overdue", () => {

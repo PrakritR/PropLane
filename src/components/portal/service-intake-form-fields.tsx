@@ -68,6 +68,8 @@ export function ServiceIntakeFormFields({
   voice = "resident",
   /** C133: repair categories the workspace has disabled — never offered here either. */
   disabledRepairCategories,
+  /** Resident repair report: photos, category, description only (studio 0929). */
+  compactRepairReport = false,
 }: {
   catalogOffers: readonly ManagerListingServiceOption[];
   form: ServiceIntakeFormState;
@@ -76,6 +78,7 @@ export function ServiceIntakeFormFields({
   photoSlot?: ReactNode;
   voice?: ServiceIntakeVoice;
   disabledRepairCategories?: readonly string[] | null;
+  compactRepairReport?: boolean;
 }) {
   const enabledRepairCategories = filterEnabledRepairCategories(disabledRepairCategories);
   const options = buildServiceIntakeOptions(mergeResidentServiceCatalogOffers(catalogOffers), disabledRepairCategories);
@@ -93,8 +96,11 @@ export function ServiceIntakeFormFields({
   // that order; group headers inside the menu are deliberately not drawn.
   const typeOptions = options.map((option) => ({ value: option.key, label: option.label }));
 
+  const repairReport = compactRepairReport && isRepair && !managerVoice;
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-attr={repairReport ? "repair-report-form" : undefined}>
+      {repairReport && photoSlot ? <div className="space-y-2">{photoSlot}</div> : null}
       <FieldSingleSelect
         label="Service type"
         labelClassName="mb-1 block text-[11px] font-medium text-muted"
@@ -133,6 +139,26 @@ export function ServiceIntakeFormFields({
       ) : null}
 
       {isRepair ? (
+        repairReport ? (
+          <div>
+            <p className="mb-1 text-[11px] font-medium text-muted">Category</p>
+            <Select
+              value={form.categoryLabel}
+              onChange={(e) =>
+                onChange({ categoryLabel: e.target.value as ResidentMaintenanceCategoryLabel })
+              }
+              className="bg-card"
+              disabled={disabled}
+              data-attr="service-intake-category"
+            >
+              {enabledRepairCategories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <p className="mb-1 text-[11px] font-medium text-muted">Category</p>
@@ -169,6 +195,7 @@ export function ServiceIntakeFormFields({
             </Select>
           </div>
         </div>
+        )
       ) : isCustomAddOn ? (
         <div>
           <p className="mb-1 text-[11px] font-medium text-muted">Priority</p>
@@ -188,7 +215,7 @@ export function ServiceIntakeFormFields({
         </div>
       ) : null}
 
-      {(isCustomAddOn || (isRepair && !managerVoice)) ? (
+      {(isCustomAddOn || (isRepair && !managerVoice && !repairReport)) ? (
         <div>
           <p className="mb-1 text-[11px] font-medium text-muted">
             Title <span className="text-rose-500">*</span>
@@ -243,7 +270,7 @@ export function ServiceIntakeFormFields({
         </div>
       ) : null}
 
-      {isRepair ? (
+      {isRepair && !repairReport ? (
         <>
           {managerVoice ? null : (
             <>
@@ -294,13 +321,17 @@ export function ServiceIntakeFormFields({
 export function ServiceIntakePhotoPicker({
   onPick,
   disabled = false,
+  photoCount = 0,
 }: {
   onPick: () => void;
   disabled?: boolean;
+  photoCount?: number;
 }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium text-muted">Photos (up to 6)</p>
+      <p className="mb-1 text-[11px] font-medium text-muted">
+        Photos ({photoCount}/6)
+      </p>
       <Button
         type="button"
         variant="outline"
