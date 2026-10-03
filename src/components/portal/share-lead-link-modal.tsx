@@ -65,6 +65,21 @@ function shareLinkRowLabel(kind: LeadInviteKind): string {
   return "Lease link";
 }
 
+/** Portfolio labels sometimes repeat the same room-count fragment ("3 rooms · 3 rooms"). */
+function normalizeSharePropertyLabel(label: string): string {
+  const parts = label.split(" · ").map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return label.trim();
+  const tail = parts[parts.length - 1]!;
+  if (parts.length >= 2 && parts[parts.length - 2]!.endsWith(tail)) {
+    return parts.slice(0, -1).join(" · ");
+  }
+  const out: string[] = [];
+  for (const part of parts) {
+    if (out[out.length - 1] !== part) out.push(part);
+  }
+  return out.join(" · ");
+}
+
 /** True when the manager has not painted any open tour windows for this property. */
 function propertyHasPublishedTourSlots(managerUserId: string, propertyId: string): boolean {
   if (!managerUserId.trim() || !propertyId.trim()) return false;
@@ -234,7 +249,8 @@ export function ShareLeadLinkModal({
       return kind === "tour" ? `${propertyIds.length} properties` : `${propertyIds.length} homes`;
     }
     if (!singlePropertyId) return "";
-    return properties.find((p) => p.id === singlePropertyId)?.label ?? singlePropertyId;
+    const raw = properties.find((p) => p.id === singlePropertyId)?.label ?? singlePropertyId;
+    return normalizeSharePropertyLabel(raw);
   }, [properties, singlePropertyId, isMultiProperty, propertyIds.length, kind]);
 
   const portfolioTourUrl = useMemo(() => {
@@ -533,6 +549,23 @@ export function ShareLeadLinkModal({
   };
   const linkLabel = shareLinkRowLabel(kind);
 
+  const invitePreviewPanel = (
+    <ShareLeadLinkPreviewPanel
+      kind={kind}
+      prospectName={prospectName}
+      prospectEmail={prospectEmail}
+      prospectPhone={prospectPhone}
+      propertyTitle={propertyTitle}
+      viaEmail={viaEmail}
+      viaSms={viaSms}
+      senderName={sender?.name ?? ""}
+      workNumber={workNumber}
+      previewBody={previewBody}
+      propertyMissing={propertyIds.length === 0}
+      recipientReady={recipientReady}
+    />
+  );
+
   if (!open) return null;
 
   return (
@@ -579,23 +612,9 @@ export function ShareLeadLinkModal({
         return true;
       }}
       onFinish={() => void sendInvite()}
-      sidePanel={
-        <ShareLeadLinkPreviewPanel
-          kind={kind}
-          prospectName={prospectName}
-          prospectEmail={prospectEmail}
-          prospectPhone={prospectPhone}
-          propertyTitle={propertyTitle}
-          viaEmail={viaEmail}
-          viaSms={viaSms}
-          senderName={sender?.name ?? ""}
-          workNumber={workNumber}
-          previewBody={previewBody}
-          propertyMissing={propertyIds.length === 0}
-          recipientReady={recipientReady}
-        />
-      }
     >
+      <div className="grid min-h-0 grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,380px)]">
+        <div className="min-w-0">
       {stepId === "home" ? (
         <StepColumn>
           <StepHeading title="Home" />
@@ -610,7 +629,7 @@ export function ShareLeadLinkModal({
                     dataAttr="share-lead-property-multi"
                     emptyLabel="Select properties"
                     emptyMenuText="No properties"
-                    options={properties.map((p) => ({ value: p.id, label: p.label }))}
+                    options={properties.map((p) => ({ value: p.id, label: normalizeSharePropertyLabel(p.label) }))}
                     selected={propertyIds}
                     onChange={(next) => {
                       setPropertyIds(next);
@@ -626,7 +645,7 @@ export function ShareLeadLinkModal({
                       setPropertyIds(next ? [next] : []);
                       setRoomChoice("");
                     }}
-                    options={properties.map((p) => ({ value: p.id, label: p.label }))}
+                    options={properties.map((p) => ({ value: p.id, label: normalizeSharePropertyLabel(p.label) }))}
                     placeholder="Select property…"
                     dataAttr="share-lead-property"
                     required
@@ -766,6 +785,14 @@ export function ShareLeadLinkModal({
           ) : null}
         </StepColumn>
       ) : null}
+        </div>
+        <div className="hidden min-w-0 lg:block" aria-label="Invite preview column">
+          {invitePreviewPanel}
+        </div>
+      </div>
+      <div className="mt-8 border-t border-border/60 pt-6 lg:hidden" aria-label="Invite preview">
+        {invitePreviewPanel}
+      </div>
     </AddWorkspace>
   );
 }
