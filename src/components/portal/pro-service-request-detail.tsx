@@ -5,6 +5,8 @@ import { Check, CheckCircle2, Pencil, Trash2, XCircle } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/input";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { PopupMessagePreview, PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalTableDetailActions,
@@ -405,6 +407,9 @@ export function ManagerServiceRequestDetail({
         open={denyReasonOpen}
         onClose={() => setDenyReasonOpen(false)}
         title="Decline request"
+        contextPanel={<PopupSubjectCard title={req.offerName || "Service request"} lines={[req.residentName?.trim(), getPropertyById(req.propertyId)?.title?.trim()]} />}
+        previewLabel="Resident sees"
+        preview={<PopupMessagePreview subject="Service request declined" recipient={recipientLabel} body={denyReason.trim() || "Your reason shows here"} />}
         primaryAction={{
           label: "Continue",
           onClick: confirmDenyReason,
@@ -412,9 +417,7 @@ export function ManagerServiceRequestDetail({
         }}
       >
         <div>
-          <p className="mb-1 text-[11px] font-medium text-muted">
-            Reason <span className="text-rose-500">*</span>
-          </p>
+          <p className="mb-1 text-[11px] font-medium text-muted">Reason</p>
           <Textarea
             value={denyReason}
             onChange={(e) => setDenyReason(e.target.value)}

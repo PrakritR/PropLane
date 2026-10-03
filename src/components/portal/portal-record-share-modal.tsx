@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import {
   PortalNotificationPreviewModal,
   type NotificationDeliveryChannels,
@@ -217,6 +218,23 @@ export function PortalRecordShareModal({
         description={`Anyone with the link can view this ${docLabel} without signing in. Links expire in 90 days.`}
         panelClassName="max-w-lg"
         dense
+        contextPanel={
+          <PopupRecordPreview
+            rows={[
+              { label: kind === "lease" ? "Lease" : "Application", value: titleLabel },
+              { label: "Expires", value: "In 90 days" },
+            ]}
+          />
+        }
+        previewLabel="Recipient receives"
+        preview={
+          <PopupMessagePreview
+            subject={viaSms && !viaEmail ? undefined : recordShareSubject(kind, titleLabel)}
+            recipient={viaEmail ? recipientEmail.trim() || recipientName.trim() : recipientPhone.trim() || recipientName.trim()}
+            channel={viaEmail && viaSms ? "Email and text" : viaSms ? "Text" : "Email"}
+            body={previewBody || "The link appears once it is created."}
+          />
+        }
         footer={
           <ModalFooter>
             <Button

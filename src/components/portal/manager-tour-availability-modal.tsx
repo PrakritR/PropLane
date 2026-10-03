@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { Modal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import {
   managerPropertyAvailabilityStorageKey,
   readAvailabilityDateSetForStorageKey,
@@ -127,24 +128,21 @@ export function ManagerTourAvailabilityModal({
       title="Tour availability"
       description={`Publish open tour windows for ${activePropertyLabel}.`}
       panelClassName="max-w-6xl"
+      contextPanel={<PopupRecordPreview rows={[{ label: "Property", value: activePropertyLabel }]} />}
+      preview={null}
       scrollableContent={false}
       dataAttr="tour-availability-modal"
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {showPropertyPicker ? (
           <div className="max-w-sm">
-            <label className="mb-1 block text-sm font-medium text-foreground">Property</label>
-            <Select
+            <FieldSingleSelect
+              label="Property"
               value={selectedPropertyId}
-              onChange={(event) => setSelectedPropertyId(event.target.value)}
-              aria-label="Property for tour availability"
-            >
-              {(propertyOptions ?? []).map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+              onChange={setSelectedPropertyId}
+              options={(propertyOptions ?? []).map((option) => ({ value: option.id, label: option.label }))}
+              dataAttr="tour-availability-property"
+            />
           </div>
         ) : null}
         {/* `flex flex-col` is load-bearing: the calendar shell inside sizes with

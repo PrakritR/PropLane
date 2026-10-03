@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
+import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { Input, Select } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
@@ -11,6 +13,13 @@ import { bookingRoomRate } from "@/lib/channel-calendar/booking-presentation";
 import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
+
+/** "2026-10-02" read as a calendar day: "Oct 2, 2026". */
+function dayLabel(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClose, onSave, onSaveStayMeta }: {
   entry: PropertyBookingEntry; entries: readonly PropertyBookingEntry[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
@@ -63,7 +72,26 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save booking."); }
     finally { setBusy(false); }
   };
-  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" primaryAction={lockedDetails ? null : { label: "Save booking", onClick: save, disabled: metaOnly ? busy : !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>
+  const nights = !openEnded && checkIn && checkOut && checkOut > checkIn ? Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000) : null;
+  const preview = (
+    <PreviewPanel
+      title="Booking"
+      name={entry.residentName || entry.summary}
+      sub={openEnded ? "Open-ended" : nights != null ? `${nights} ${nights === 1 ? "night" : "nights"}` : undefined}
+      facts={[
+        { label: "Check-in", value: checkIn ? dayLabel(checkIn) : "Not set", warn: !checkIn },
+        { label: "Check-out", value: openEnded ? "Open-ended" : checkOut ? dayLabel(checkOut) : "Not set", warn: !openEnded && !checkOut },
+        { label: "Rate", value: rate === "" ? "Not set" : `$${Number(rate).toLocaleString("en-US")} / ${basis === "daily" ? "day" : basis === "weekly" ? "week" : "month"}` },
+        { label: "Notes", value: notes.trim() || "None" },
+      ]}
+      creates={[
+        conflicts.length && !locked
+          ? { tone: "warn", text: "These dates overlap another booking" }
+          : { tone: "yes", text: "The calendar and the guest's dates update" },
+      ]}
+    />
+  );
+  return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" contextPanel={<PopupSubjectCard title={entry.residentName || entry.summary} lines={[[entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · "), entry.bookingStatus === "confirmed" ? "Confirmed" : "Hold"]} />} previewLabel="Booking preview" preview={preview} primaryAction={lockedDetails ? null : { label: "Save booking", onClick: save, disabled: metaOnly ? busy : !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Guest</span><div className="py-2 font-medium">{entry.residentName || entry.summary}</div></div>
       <label htmlFor="booking-edit-property"><span className={MODAL_FIELD_LABEL_CLASS}>Property</span><Select id="booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(event) => { setPropertyId(event.target.value); chooseRoom("", event.target.value); }}>{properties.map((property) => <option key={property.id} value={property.id}>{property.label}</option>)}</Select></label>

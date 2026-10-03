@@ -498,7 +498,7 @@ export function AddResidentWizard({
     } finally {
       setBusy(false);
     }
-  }, [assignee, busy, discardDraft, executedLeaseKeys, form, goTo, managerUserId, mode, onAdded, onClose, propertyOptions, showToast]);
+  }, [assignee, busy, executedLeaseKeys, form, discardDraft, goTo, managerUserId, mode, onAdded, onClose, propertyOptions, showToast]);
 
   const onFinish = useCallback(() => {
     if (todo.length) {

@@ -62,7 +62,7 @@ function draftHtmlFromApplication(application: Partial<RentalWizardFormState> | 
  * `postMessage`, which means `allow-scripts` — executing that content. That is a security call,
  * not a layout one, so it is deliberately not made here.
  */
-function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
+export function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
 import {
@@ -134,6 +135,12 @@ export function ResidentScheduleTourModal({
       onClose={handleClose}
       dense
       assistantContext="Schedule tour"
+      contextPanel={
+        flowProperty ? (
+          <PopupSubjectCard title={flowProperty.title} lines={[flowProperty.address, flowProperty.rentLabel]} />
+        ) : undefined
+      }
+      previewLabel={flowProperty ? "Tour request" : "Preview"}
       panelClassName={flowProperty ? "max-w-2xl" : "max-w-lg"}
       footer={flowProperty ? (flowFooter ? <ModalFooter className="w-full">{flowFooter}</ModalFooter> : null) : pickerFooter}
     >

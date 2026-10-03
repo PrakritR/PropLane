@@ -3,8 +3,7 @@
 import { useMemo } from "react";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { LEASE_PREVIEW_DOCUMENT_SCOPE } from "@/components/portal/property-lease-form-modal";
-import { scopeLeaseDocumentHtmlForInlinePreview } from "@/lib/property-lease-document-display";
+import { AutoHeightLeaseHtmlFrame } from "@/components/portal/lease-document-preview";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
@@ -63,16 +62,13 @@ export function PropertyLeaseTemplateInlinePreview({
           fileName={template.leaseTemplateDocName || "lease.pdf"}
         />
       ) : html.trim() ? (
+        // The one lease frame every surface draws (the lease record, Send lease, the resident record):
+        // the property's lease reads exactly like the lease it makes, with its placement fields unfilled.
         <div
-          className="overflow-auto rounded-2xl border border-border bg-card p-4 text-[13px] leading-relaxed text-foreground"
+          className="overflow-hidden rounded-2xl border border-border bg-card"
           data-attr="property-lease-inline-preview-document"
         >
-          <div
-            className={LEASE_PREVIEW_DOCUMENT_SCOPE}
-            dangerouslySetInnerHTML={{
-              __html: scopeLeaseDocumentHtmlForInlinePreview(html, LEASE_PREVIEW_DOCUMENT_SCOPE),
-            }}
-          />
+          <AutoHeightLeaseHtmlFrame srcDoc={html} title={template.label || "Lease document"} />
         </div>
       ) : (
         <p className="text-sm text-muted">No lease document yet.</p>

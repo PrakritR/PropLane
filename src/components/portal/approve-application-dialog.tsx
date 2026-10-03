@@ -24,6 +24,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
+import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
@@ -54,12 +56,6 @@ import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 function firstNameOf(row: DemoApplicantRow): string {
   return applicantDisplayName(row).trim().split(/\s+/)[0] || "the applicant";
-}
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return (parts[0]![0]! + (parts.length > 1 ? parts[parts.length - 1]![0]! : "")).toUpperCase();
 }
 
 function houseTitle(row: DemoApplicantRow): string {
@@ -288,6 +284,24 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       }}
       dismissBlocked={busy}
       dataAttr="approve-application-dialog"
+      contextPanel={<PopupSubjectCard title={name} lines={[row.email, placeLine(row) || "No room yet"]} />}
+      previewLabel="Applicant sees"
+      preview={
+        <PreviewPanel
+          title="Approved"
+          name={name}
+          sub={house}
+          facts={[
+            { label: "Room", value: placeLine(row) || "Not assigned", warn: !placeLine(row) },
+            { label: "Rent", value: (() => { const typed = perResident ? parseMoneyAmount(rentValue) : baseRent; return typed > 0 ? `${formatRoomPriceAmount(typed)} / month` : "Not set"; })() },
+            { label: "Message", value: sendsMessage ? channelsLabel(channels.viaEmail, channels.viaSms) : "None" },
+          ]}
+          creates={[
+            { tone: "yes", text: "The applicant is told and a lease can be sent" },
+            { tone: "no", text: "Nothing is charged yet" },
+          ]}
+        />
+      }
       primaryAction={{
         label: "Approve",
         loading: busy,
@@ -297,16 +311,6 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       }}
     >
       <div className="space-y-1" data-attr="approve-application-body">
-        <div className="flex items-center gap-3 pb-3">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-[14px] bg-accent text-[15px] font-bold text-foreground">
-            {initialsOf(name)}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold text-foreground">{name}</p>
-            {row.email ? <p className="truncate text-[13px] text-muted">{row.email}</p> : null}
-          </div>
-        </div>
-
         <ApproveRow label="Room">
           <span className="text-sm font-bold text-foreground">{placeLine(row) || "Not assigned"}</span>
         </ApproveRow>

@@ -29,8 +29,8 @@ describe("add-workspace close stack", () => {
     expect(modalZ).toBeLessThan(10060);
   });
 
-  it("empty close skips confirm; Esc uses the same close path", () => {
-    expect(workspaceSource).toMatch(/if \(!dirty\) \{\s*onClose\(\);/);
+  it("empty close skips confirm, and a form that keeps its draft closes without one; Esc uses the same close path", () => {
+    expect(workspaceSource).toMatch(/if \(!dirty \|\| keepsDraft\) \{\s*onClose\(\);/);
     expect(workspaceSource).toMatch(/event\.key !== "Escape"/);
     expect(workspaceSource).toContain("close()");
   });
