@@ -105,12 +105,11 @@ export async function loadReminderSettingsForManagers(
 
 /** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettingsForProperty(
-  db: SupabaseClient,
-  managerUserId: string,
-  propertyId: string | null,
+  _db: SupabaseClient,
+  _managerUserId: string,
+  _propertyId: string | null,
 ): Promise<ReminderSettings> {
-  const resolver = await loadReminderSettingsResolver(db, [managerUserId]);
-  return resolver.resolve(managerUserId, propertyId);
+  return DEFAULT_REMINDER_SETTINGS;
 }
 
 export type ReminderSettingsResolver = {
@@ -169,29 +168,12 @@ export async function loadReminderWorkspaceOverride(db: SupabaseClient, workspac
 
 /** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */
 export async function loadReminderSettingsResolver(
-  db: SupabaseClient,
-  managerUserIds: readonly string[],
+  _db: SupabaseClient,
+  _managerUserIds: readonly string[],
 ): Promise<ReminderSettingsResolver> {
-  const ids = [...new Set(managerUserIds.filter(Boolean))];
-  if (!ids.length) return { resolve: () => DEFAULT_REMINDER_SETTINGS };
-  const [accounts, workspaceResult, propertyResult] = await Promise.all([
-    loadReminderSettingsForManagers(db, ids),
-    db.from("portal_workspaces").select("id,owner_user_id").in("owner_user_id", ids),
-    db.from("manager_property_records").select("id,manager_user_id,workspace_id").in("manager_user_id", ids),
-  ]);
-  if (workspaceResult.error) throw workspaceResult.error;
-  if (propertyResult.error) throw propertyResult.error;
-  const owners = new Map((workspaceResult.data ?? []).map((w) => [w.id, w.owner_user_id]));
-  const properties = new Map((propertyResult.data ?? []).map((p) => [p.id, p]));
-  const workspaceRules = await loadWorkspaceReminderRowsForWorkspaces(db, [...owners.keys()]);
-  return { resolve: (managerUserId, propertyId, explicitWorkspaceId) => {
-    const base = accounts.get(managerUserId) ?? DEFAULT_REMINDER_SETTINGS;
-    const property = propertyId ? properties.get(propertyId) : null;
-    const workspaceId = explicitWorkspaceId || (property?.manager_user_id === managerUserId ? property.workspace_id : null);
-    if (!workspaceId || owners.get(workspaceId) !== managerUserId) return base;
-    const raw = workspaceRules.get(workspaceId);
-    return raw ? mergeReminderSettingsOverride(base, raw) : base;
-  } };
+  // S020 (captain 2026-09-27): delivery always uses the built-in defaults;
+  // stored workspace/house/account rows are preserved but never read here.
+  return { resolve: () => DEFAULT_REMINDER_SETTINGS };
 }
 
 /** Workspace message edits are read by the delivery spine; property-era overrides remain inactive. */

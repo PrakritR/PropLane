@@ -306,8 +306,11 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * stage (PRP-394): a Current/Past tenant's tour history is still reachable from
  * their profile, scoped to the viewing manager's portfolio in the panel.
  */
+/** Prospects have no tenancy — Services has nothing to list or add yet. */
+const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services");
+
 export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
-  potential: RESIDENT_DETAIL_TABS,
+  potential: RESIDENT_DETAIL_TABS_POTENTIAL,
   current: RESIDENT_DETAIL_TABS,
   past: RESIDENT_DETAIL_TABS,
 };
