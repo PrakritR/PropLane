@@ -129,6 +129,8 @@ export type DestinationNavItem = {
   /** Highlight when this destination has urgent work (overdue, etc.). */
   alert?: boolean;
   dataAttr?: string;
+  /** A small dot before the label in a type colour — the tab doubles as that type's legend (Calendar). Command appearance only. */
+  dotColor?: string;
 };
 
 /**
@@ -231,6 +233,14 @@ export function DestinationNav({
             )}
             aria-current={active ? "page" : undefined}
           >
+            {appearance === "command" && item.dotColor ? (
+              <span
+                aria-hidden
+                data-slot="destination-nav-dot"
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.dotColor }}
+              />
+            ) : null}
             <span
               className={
                 itemLayout === "equal"

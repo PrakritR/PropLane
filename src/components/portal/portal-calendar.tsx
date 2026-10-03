@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -10,7 +11,7 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Share2 } from "lucide-react";
 import { ManagerPortalPageShell } from "./portal-metrics";
-import { PortalCalendarPanels } from "./portal-calendar-panels";
+import { PortalCalendarPanels, type CalendarMode } from "./portal-calendar-panels";
 import {
   ADMIN_AVAILABILITY_STORAGE_KEY,
   managerPropertyAvailabilityStorageKey,
@@ -22,10 +23,16 @@ import {
   writeCalendarShareAvailability,
 } from "@/lib/demo-admin-scheduling";
 import {
+  MANAGER_KIND_AVAILABILITY_KINDS,
   defaultAvailabilityKindForCalendarView,
   managerKindAvailabilityStorageKey,
   type AvailabilityKind,
 } from "@/lib/manager-availability-kinds";
+import { CALENDAR_KIND_COLOR } from "@/lib/calendar-grid";
+import {
+  managerTourSettingsToDefaultAvailability,
+  normalizeManagerTourSettings,
+} from "@/lib/manager-tour-settings";
 import {
   coManagerOverlaysFromPeers,
   listPropertyCalendarPeers,
@@ -56,12 +63,13 @@ import {
 import {
   buildScheduledTourMeetings,
   calendarMeetingMatchesQuery,
-  meetingsInWeek,
+  meetingsInRange,
 } from "@/lib/manager-calendar-tour-meetings";
 import {
   CALENDAR_VIEW_TABS,
   CALENDAR_VIEW_TAB_LABELS,
   calendarViewHref,
+  managerTourDetailHref,
   parseCalendarViewTab,
   toursHubHref,
   type CalendarViewTabId,
@@ -95,6 +103,11 @@ export function PortalCalendar(props: PortalCalendarProps) {
   return <PortalCalendarManager {...props} portal={props.portal} />;
 }
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
+const CALENDAR_TAB_DOT_COLOR: Partial<Record<CalendarViewTabId, string>> = {
+  tours: CALENDAR_KIND_COLOR.tour,
+  services: CALENDAR_KIND_COLOR.service,
+  tasks: CALENDAR_KIND_COLOR.task,
+};
 
 function PortalCalendarManager({
   portal,
@@ -123,7 +136,11 @@ function PortalCalendarManager({
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
+  const [calendarViewMode, setCalendarViewMode] = useState<CalendarMode>("week");
   const [listSearch, setListSearch] = useState("");
+  const router = useRouter();
+  /** What guests are offered by default (the 9 to 5 grid) comes from the manager's own tour settings. */
+  const [tourDefaultAvailability, setTourDefaultAvailability] = useState(NO_DEFAULT_TOUR_AVAILABILITY);
 
   useEffect(() => {
     if (portal !== "manager") return;
@@ -392,13 +409,14 @@ function PortalCalendarManager({
       propertyIds: scopedCalendarPropertyIds,
       peers: [],
     };
-    const plannedInWeek = meetingsInWeek(
+    const plannedInRange = meetingsInRange(
       buildScheduledTourMeetings(tourFilter, storageKey),
       calendarAnchorDate,
+      calendarViewMode,
     );
-    const tours = plannedInWeek.filter((meeting) => meeting.kind !== "task").length;
-    const tasks = plannedInWeek.length - tours;
-    const services = meetingsInWeek(serviceCalendarMeetings, calendarAnchorDate).length;
+    const tours = plannedInRange.filter((meeting) => meeting.kind !== "task").length;
+    const tasks = plannedInRange.length - tours;
+    const services = meetingsInRange(serviceCalendarMeetings, calendarAnchorDate, calendarViewMode).length;
     return { all: tours + tasks + services, tours, tasks, bookings: 0, services };
   }, [
     portal,
@@ -408,6 +426,7 @@ function PortalCalendarManager({
     calendarRefreshSignal,
     workOrderTick,
     calendarAnchorDate,
+    calendarViewMode,
     serviceCalendarMeetings,
     scopedCalendarPropertyIds,
   ]);
@@ -438,6 +457,8 @@ function PortalCalendarManager({
             count: calendarTabCounts[id],
             href: calendarViewHref(MANAGER_PORTAL_BASE, id),
             dataAttr: `calendar-view-tab-${id}`,
+            // The tabs are the legend: a dot in the colour the blocks of that type wear (C2-CALP2).
+            dotColor: CALENDAR_TAB_DOT_COLOR[id],
           })),
     [calendarTabCounts, schedulingHub],
   );
@@ -499,14 +520,15 @@ function PortalCalendarManager({
       peers: [],
     };
     const viewFilter = scheduledMeetingViewFilter;
-    const planned = meetingsInWeek(
+    const planned = meetingsInRange(
       buildScheduledTourMeetings(tourFilter, storageKey),
       calendarAnchorDate,
+      calendarViewMode,
     ).filter((meeting) => {
       if (viewFilter && !viewFilter(meeting)) return false;
       return calendarMeetingMatchesQuery(meeting, calendarSearchNeedle);
     });
-    return planned.length + meetingsInWeek(mergedExternalMeetings, calendarAnchorDate).length;
+    return planned.length + meetingsInRange(mergedExternalMeetings, calendarAnchorDate, calendarViewMode).length;
   }, [
     calendarSearchNeedle,
     portal,
@@ -517,6 +539,7 @@ function PortalCalendarManager({
     scopedCalendarPropertyIds,
     storageKey,
     calendarAnchorDate,
+    calendarViewMode,
     scheduledMeetingViewFilter,
     mergedExternalMeetings,
   ]);
@@ -535,39 +558,28 @@ function PortalCalendarManager({
       ? "No tasks with a due time yet. Give a task a due date and time and it appears here."
       : "Add a property before setting tour availability.";
 
-  /** Manager-only per-kind services/tasks keys — tours keeps its existing per-house storage. */
+  /** Manager-only per-kind keys (services, tasks, inspections, moves) — tours keeps its existing per-house storage. */
   const managerKindKeys = useMemo(() => {
     if (portal !== "manager" || !userId) return null;
-    return {
-      services: [managerKindAvailabilityStorageKey(userId, "services")],
-      tasks: [managerKindAvailabilityStorageKey(userId, "tasks")],
-    };
+    return Object.fromEntries(
+      MANAGER_KIND_AVAILABILITY_KINDS.map((kind) => [kind, [managerKindAvailabilityStorageKey(userId, kind)]]),
+    ) as Record<(typeof MANAGER_KIND_AVAILABILITY_KINDS)[number], string[]>;
   }, [portal, userId]);
 
   /**
-   * Which kind(s) `PortalCalendarPanels` reads/writes for the current view.
-   * Absent for admin (and whenever there is nothing manager-owned to key off
-   * of) so it falls back to EXACTLY today's single-union behaviour there.
+   * Which kind(s) `PortalCalendarPanels` reads/writes. Every tab reads every
+   * kind, because a band's type (Tours, Services, Everything …) is only known
+   * from all of them together; the tab then decides which bands to draw
+   * (C2-CALA6). Absent for admin (and whenever there is nothing manager-owned
+   * to key off of) so it falls back to EXACTLY today's single-union behaviour.
    */
   const availabilityKeysByKind = useMemo<Partial<Record<AvailabilityKind, string[]>> | undefined>(() => {
     if (portal !== "manager" || !userId || !managerKindKeys) return undefined;
-    if (schedulingHub) {
-      // The hub's Services tab renders its own read-only visits panel (below) —
-      // this call site only ever reaches the Tours tab, so always tours-only.
-      return availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : undefined;
-    }
-    if (calendarView === "services") return { services: managerKindKeys.services };
-    if (calendarView === "tasks") return { tasks: managerKindKeys.tasks };
-    if (calendarView === "tours") {
-      return availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : undefined;
-    }
-    // "all"
     return {
       ...(availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : {}),
-      services: managerKindKeys.services,
-      tasks: managerKindKeys.tasks,
+      ...managerKindKeys,
     };
-  }, [portal, userId, managerKindKeys, schedulingHub, calendarView, availabilityStorageKeys]);
+  }, [portal, userId, managerKindKeys, availabilityStorageKeys]);
 
   const editKind: AvailabilityKind = defaultAvailabilityKindForCalendarView(schedulingHub ? "all" : calendarView);
 
@@ -625,13 +637,42 @@ function PortalCalendarManager({
     [managerProperties],
   );
 
-  // One band, in order: Filter · nav · Availability · Share · + (studio calendar header).
+  /** Agenda ⋯ → Reschedule: the tour's own page opens with its Pick a new tour time popup. */
+  const rescheduleTourFromCalendar = useCallback(
+    (meeting: DemoMeeting) => {
+      const bucket = meeting.source === "inquiry" ? "pending" : "upcoming";
+      router.push(`${managerTourDetailHref(MANAGER_PORTAL_BASE, bucket, meeting.sourceId)}?reschedule=1`);
+    },
+    [router],
+  );
+
+  useEffect(() => {
+    if (portal !== "manager" || !authReady || !userId || isDemoModeActive()) return;
+    let cancelled = false;
+    const query = soleCalendarPropertyId ? `?propertyId=${encodeURIComponent(soleCalendarPropertyId)}` : "";
+    void fetch(`/api/portal/manager-tour-settings${query}`, { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ settings?: unknown }>) : null))
+      .then((body) => {
+        if (cancelled || !body?.settings) return;
+        setTourDefaultAvailability(
+          managerTourSettingsToDefaultAvailability(normalizeManagerTourSettings(body.settings)),
+        );
+      })
+      .catch(() => {
+        /* the calendar still draws published windows without the default band */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [portal, authReady, userId, soleCalendarPropertyId]);
+
+  // One band, in order: tabs · search · < Today > range · view · Filter · Availability · Share · + (studio calendar header, C2-CALP1).
   const calendarCommandActions =
     portal === "manager" ? (
       <>
+        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center" data-slot="calendar-nav-host" />
         {calendarFilterSheet}
         {calendarSettingsButton}
-        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center" data-slot="calendar-nav-host" />
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
         {calendarShareTourButton}
         <div ref={setWeekPrimaryActionHost} className="flex items-center" data-slot="calendar-primary-action-host" />
@@ -683,6 +724,7 @@ function PortalCalendarManager({
               href: tab.href,
               count: tab.count,
               dataAttr: tab.dataAttr,
+              dotColor: "dotColor" in tab ? tab.dotColor : undefined,
             }))}
             activeDestinationId={schedulingHub ? toursHubTab : calendarView}
             destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
@@ -766,6 +808,11 @@ function PortalCalendarManager({
             weekActionsHost={weekActionsHost}
             weekPrimaryActionHost={weekPrimaryActionHost}
             navControlsHost={navControlsHost}
+            studioGrid={portal === "manager"}
+            calendarTab={schedulingHub ? "tours" : calendarView}
+            filteredPropertyId={soleCalendarPropertyId || undefined}
+            onViewModeChange={setCalendarViewMode}
+            onRescheduleTour={rescheduleTourFromCalendar}
             scheduleTourPropertyOptions={calendarTourPropertyOptions}
             extraAvailabilityAction={calendarGoogleCalendarButton}
             availabilityHeading={
@@ -777,7 +824,7 @@ function PortalCalendarManager({
                     : "Schedule"
                 : "Schedule meeting"
             }
-            defaultTourAvailability={portal === "manager" ? NO_DEFAULT_TOUR_AVAILABILITY : undefined}
+            defaultTourAvailability={portal === "manager" ? tourDefaultAvailability : undefined}
             scheduledTourFilter={
               (availabilityView || tasksOnlyView) && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
             }

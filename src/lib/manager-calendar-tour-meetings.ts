@@ -37,6 +37,27 @@ export function meetingsInWeek(meetings: DemoMeeting[], anchorDate: Date): DemoM
   return meetings.filter((meeting) => weekDates.has(meeting.dateStr));
 }
 
+/**
+ * Meetings in the range a view shows: the day, the Monday-Sunday week (Week and
+ * Agenda), or the calendar month. The header tab counts follow it, so a Month
+ * view's "Tours 6" is the month's tours rather than the week's.
+ */
+export function meetingsInRange(
+  meetings: DemoMeeting[],
+  anchorDate: Date,
+  mode: "day" | "week" | "month" | "agenda",
+): DemoMeeting[] {
+  if (mode === "day") {
+    const ds = toLocalDateStr(anchorDate);
+    return meetings.filter((meeting) => meeting.dateStr === ds);
+  }
+  if (mode === "month") {
+    const prefix = toLocalDateStr(anchorDate).slice(0, 7);
+    return meetings.filter((meeting) => meeting.dateStr.startsWith(prefix));
+  }
+  return meetingsInWeek(meetings, anchorDate);
+}
+
 /** Command-bar search on Calendar — title, people, house, notes. Empty query keeps every meeting. */
 export function calendarMeetingMatchesQuery(meeting: DemoMeeting, query: string): boolean {
   const needle = query.trim().toLowerCase();

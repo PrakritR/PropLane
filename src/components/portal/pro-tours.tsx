@@ -4,7 +4,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -790,6 +790,20 @@ export function ManagerTours({
     },
     [showToast],
   );
+
+  // The Calendar's Agenda ⋯ → Reschedule lands here with ?reschedule=1: open this tour's
+  // Pick a new tour time popup once, then drop the flag so a refresh doesn't reopen it.
+  const rescheduleFlagHandled = useRef(false);
+  useEffect(() => {
+    if (!detailRow || rescheduleFlagHandled.current || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reschedule") !== "1") return;
+    rescheduleFlagHandled.current = true;
+    params.delete("reschedule");
+    const rest = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+    openReschedulePreview([detailRow]);
+  }, [detailRow, openReschedulePreview]);
 
   const buildRescheduleNotifyContext = useCallback((row: ManagerTourRow, times: TourRescheduleTimes) => {
     const property = row.propertyId ? getPropertyById(row.propertyId) : undefined;

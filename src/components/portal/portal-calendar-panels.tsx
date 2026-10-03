@@ -25,7 +25,7 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { CalendarClock, Mail, Plus, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Mail, Plus, X } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ConfirmRows, PortalDialog, type PortalDialogAction } from "@/components/portal/portal-dialog";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -69,6 +69,7 @@ import {
   deletePartnerInquiryFromServer,
   deletePlannedEventFromServer,
   endIsoForDuration,
+  managerPropertyAvailabilityStorageKey,
   formatRangeLabel,
   formatAvailabilitySlotLabel,
   readPlannedEvents,
@@ -79,6 +80,34 @@ import {
   writeAvailabilityDateSetForStorageKeyToServer,
 } from "@/lib/demo-admin-scheduling";
 import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availability-block";
+import {
+  CalendarAgendaView,
+  CalendarBandLegend,
+  CalendarDayPanel,
+  CalendarEmptyStrip,
+  CalendarMonthView,
+  CalendarTimeGrid,
+  dayLabel,
+  meetingToGridItems,
+  type CalendarGridItem,
+} from "@/components/portal/manager-calendar-views";
+import { CalendarAvailabilityDialog } from "@/components/portal/calendar-availability-dialog";
+import {
+  ALL_HOUSES,
+  addKeys,
+  choicesForStorageKinds,
+  clearWeek as clearWeekSlots,
+  copyPreviousWeek as copyPreviousWeekSlots,
+  draftSlotKeys,
+  mondayOfDateStr,
+  normalizeDraftStart,
+  removeRun,
+  shiftDateStr as shiftDateString,
+  storageKindsForChoices,
+  weekdayOfDateStr,
+  type AvailabilityDraft,
+} from "@/lib/calendar-availability-window";
+import { bandsForTab, calendarRangeLabel, fitGridWindow, openRunsSummary, type CalendarTabId } from "@/lib/calendar-grid";
 import {
   addExplicitTourSlotKeys,
   defaultTourSlotExclusionKey,
@@ -417,6 +446,14 @@ const CALENDAR_OPEN_RUN_TINTS: Record<AvailabilityKind, { fill: string; border: 
   tasks: {
     fill: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)] hover:brightness-95",
     border: "border-[var(--status-pending-fg)]/25",
+  },
+  inspections: {
+    fill: "bg-slate-100 text-slate-700 hover:brightness-95 [html[data-theme=dark]_&]:bg-slate-500/15 [html[data-theme=dark]_&]:text-slate-200",
+    border: "border-slate-300",
+  },
+  moves: {
+    fill: "bg-violet-50 text-violet-700 hover:brightness-95 [html[data-theme=dark]_&]:bg-violet-500/15 [html[data-theme=dark]_&]:text-violet-200",
+    border: "border-violet-300",
   },
 };
 /**
@@ -1004,6 +1041,11 @@ export function PortalCalendarPanels({
   hideViewModeControl = false,
   onVendorAvailabilityEdit,
   onVendorAvailabilityRemove,
+  studioGrid = false,
+  calendarTab = "all",
+  filteredPropertyId,
+  onRescheduleTour,
+  onViewModeChange,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -1059,6 +1101,21 @@ export function PortalCalendarPanels({
    * (legacy schedule-record) storage the vendor never writes to.
    */
   onVendorAvailabilityRemove?: (dateStr: string, startSlot: number, endSlotExclusive: number) => void;
+  /**
+   * The manager Calendar page (studio-redesign-0929): block-based Week / Day
+   * grid with hatched availability bands, the redesigned Month / Agenda /
+   * Day panel, and the one Add availability popup. Off for admin, vendor and
+   * the property availability modal, which keep the cell grid.
+   */
+  studioGrid?: boolean;
+  /** The Calendar tab the grid is on — decides which availability bands draw. */
+  calendarTab?: CalendarTabId;
+  /** The one house the page is filtered to (defaults the popup's Properties field). */
+  filteredPropertyId?: string;
+  /** Agenda ⋯ → Reschedule for a tour: the page opens that tour's reschedule popup. */
+  onRescheduleTour?: (meeting: DemoMeeting) => void;
+  /** Lets the page count tabs for the range the view shows (day / week / month). */
+  onViewModeChange?: (mode: CalendarMode) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1496,17 +1553,21 @@ export function PortalCalendarPanels({
     });
   }, [hasEditableKeys, isVendorViewer, refreshPaintedAvailability]);
 
-  /** Writes to one kind's keys (defaults to `editKind` — the view's current target). */
-  const mutateAvailability = useCallback(
-    (mutate: (current: Set<string>) => Set<string>, kind: AvailabilityKind = editKind) => {
-      if (isVendorViewer) return;
-      const keys = kindKeysMap[kind];
-      if (!keys?.length) return;
+  /**
+   * Writes a set of storage keys, one read-modify-write per key. `mutate` also
+   * receives the key so a caller can treat the keys it wants to strip from and
+   * the keys it wants to add to differently (the Add availability popup writes
+   * Tours to the picked houses while an edit strips the band from the scope
+   * that was on screen).
+   */
+  const writeAvailabilityKeys = useCallback(
+    (keys: readonly string[], mutate: (current: Set<string>, key: string) => Set<string>) => {
+      if (isVendorViewer || keys.length === 0) return;
       setSaveStatus("saving");
       void Promise.all(
         keys.map((key) => {
           const current = new Set(readAvailabilityDateSetForStorageKey(key));
-          const next = mutate(current);
+          const next = mutate(current, key);
           return writeAvailabilityDateSetForStorageKeyToServer(next, key, { adminLabel: scheduleOwnerLabel });
         }),
       )
@@ -1525,7 +1586,17 @@ export function PortalCalendarPanels({
           reloadAvailability();
         });
     },
-    [editKind, isVendorViewer, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
+    [isVendorViewer, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
+  );
+
+  /** Writes to one kind's keys (defaults to `editKind` — the view's current target). */
+  const mutateAvailability = useCallback(
+    (mutate: (current: Set<string>) => Set<string>, kind: AvailabilityKind = editKind) => {
+      const keys = kindKeysMap[kind];
+      if (!keys?.length) return;
+      writeAvailabilityKeys(keys, (current) => mutate(current));
+    },
+    [editKind, kindKeysMap, writeAvailabilityKeys],
   );
 
   const mutateAvailabilityAllKinds = useCallback(
@@ -2206,6 +2277,317 @@ export function PortalCalendarPanels({
     return map;
   }, [coManagerAvailabilityOverlays]);
 
+  /* ---------------------------------------------------------------- manager Calendar (studio-redesign-0929) */
+  const studioActive = studioGrid && compactAvailability && !vendorViewer && !vendorDayFlexibility;
+  const canEditWeekStudio = studioActive && !isVendorViewer && canEditAvailability;
+  const nowMinutes = nowClock.getHours() * 60 + nowClock.getMinutes();
+  const anchorDateStr = toLocalDateStr(anchorDate);
+  const monthStartStr = `${monthYear}-${String(monthIndex + 1).padStart(2, "0")}-01`;
+  const monthLastStr = toLocalDateStr(new Date(monthYear, monthIndex + 1, 0, 12, 0, 0, 0));
+
+  const [expandEarly, setExpandEarly] = useState(false);
+  const [expandLate, setExpandLate] = useState(false);
+  const [availDialog, setAvailDialog] = useState<{
+    initial: AvailabilityDraft;
+    origin: { dateStr: string; startSlot: number; endSlotExclusive: number; kinds: AvailabilityKind[] } | null;
+  } | null>(null);
+  const [tourPrefill, setTourPrefill] = useState<{ dateStr: string; slotIdx: number } | undefined>(undefined);
+
+  useEffect(() => {
+    onViewModeChange?.(viewMode);
+  }, [onViewModeChange, viewMode]);
+
+  // The page's command bar is sticky; Agenda's date headers stick directly under it.
+  useLayoutEffect(() => {
+    if (!studioActive) return;
+    const shell = compactShellRef.current;
+    const stack = typeof document === "undefined" ? null : document.querySelector<HTMLElement>('[data-slot="portal-list-control-stack"]');
+    if (!shell || !stack) return;
+    const publish = () => {
+      shell.style.setProperty(
+        "--portal-calendar-header-top",
+        `calc(var(--portal-mobile-top-chrome, 0px) + ${Math.round(stack.offsetHeight)}px)`,
+      );
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(stack);
+    return () => observer.disconnect();
+  }, [studioActive]);
+
+  const rangeDates = useMemo<string[]>(
+    () => (viewMode === "day" ? [anchorDateStr] : fullWeekDateStrs),
+    [anchorDateStr, fullWeekDateStrs, viewMode],
+  );
+  const rangeBounds = useMemo(() => {
+    if (viewMode === "day") return { start: anchorDateStr, last: anchorDateStr };
+    if (viewMode === "month") return { start: monthStartStr, last: monthLastStr };
+    return { start: fullWeekDateStrs[0]!, last: fullWeekDateStrs[6]! };
+  }, [anchorDateStr, fullWeekDateStrs, monthLastStr, monthStartStr, viewMode]);
+
+  /** Everything the grid draws (Google busy time included) and the lists show (real items only). */
+  const gridItems = useMemo(() => gridPaintedMeetings.flatMap(meetingToGridItems), [gridPaintedMeetings]);
+  const listItems = useMemo(() => scheduledMeetings.flatMap(meetingToGridItems), [scheduledMeetings]);
+  const rangeGridItems = useMemo(() => {
+    const dates = new Set(rangeDates);
+    return gridItems.filter((item) => dates.has(item.dateStr));
+  }, [gridItems, rangeDates]);
+  const rangeListItems = useMemo(
+    () => listItems.filter((item) => item.dateStr >= rangeBounds.start && item.dateStr <= rangeBounds.last),
+    [listItems, rangeBounds],
+  );
+  const gridWindow = useMemo(
+    () =>
+      fitGridWindow(
+        rangeGridItems.filter((item) => !item.allDay),
+        { early: expandEarly, late: expandLate },
+      ),
+    [expandEarly, expandLate, rangeGridItems],
+  );
+  const bandsByDate = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof bandsForTab>>();
+    for (const ds of rangeDates) map.set(ds, bandsForTab(openRunsByDate.get(ds) ?? [], calendarTab));
+    return map;
+  }, [calendarTab, openRunsByDate, rangeDates]);
+  const rangeBands = useMemo(() => [...bandsByDate.values()].flat(), [bandsByDate]);
+
+  /** Tour starts (minutes) the manager is open for on a date — published tour windows plus the default band. */
+  const toursPublishedSlots = useMemo(
+    () => new Set(partitionTourAvailabilityStoredKeys([...toursActiveSlots]).publishedSlots),
+    [toursActiveSlots],
+  );
+  const tourOpenStartsFor = useCallback(
+    (ds: string): number[] =>
+      slotRowIndices
+        .filter((slot) => {
+          const key = dateSlotKey(ds, slot);
+          return toursPublishedSlots.has(key) || defaultOnlySlots.has(key);
+        })
+        .map((slot) => slot * SLOT_DURATION_MINUTES),
+    [defaultOnlySlots, toursPublishedSlots],
+  );
+  /** The starts a guest could still book: offered by the tour rules and not held by a meeting. */
+  const tourChipStartsFor = useCallback(
+    (ds: string): number[] =>
+      slotRowIndices
+        .filter((slot) => {
+          const key = dateSlotKey(ds, slot);
+          return offeredSlots.has(key) && !takenSlotKeys.has(key);
+        })
+        .map((slot) => slot * SLOT_DURATION_MINUTES),
+    [offeredSlots, takenSlotKeys],
+  );
+  const openHalfHoursForTab = useCallback(
+    (ds: string): number => {
+      const kindSlots =
+        calendarTab === "services"
+          ? activeSlotsByKind.services
+          : calendarTab === "tasks"
+            ? activeSlotsByKind.tasks
+            : null;
+      let count = 0;
+      for (const slot of slotRowIndices) {
+        const key = dateSlotKey(ds, slot);
+        if (kindSlots ? kindSlots.has(key) : offeredSlots.has(key) && !takenSlotKeys.has(key)) count += 1;
+      }
+      return count;
+    },
+    [activeSlotsByKind.services, activeSlotsByKind.tasks, calendarTab, offeredSlots, takenSlotKeys],
+  );
+
+  const toDateAtNoon = (ds: string) => new Date(`${ds}T12:00:00`);
+  const openDay = useCallback(
+    (ds: string) => {
+      setAnchorDate(toDateAtNoon(ds));
+      setViewMode("day");
+    },
+    [setAnchorDate, setViewMode],
+  );
+  const openGridItem = useCallback(
+    (item: CalendarGridItem, target: HTMLElement | null) => {
+      openSlotDetails(item.meeting.dateStr, item.meeting.startSlot, target ?? document.body, item.meeting);
+    },
+    [openSlotDetails],
+  );
+
+  /* ---- Add availability: the clock menu, the Day panel, a drag and a band all open the one popup */
+  const portfolioHouses = useMemo(() => scheduleTourPropertyOptions ?? [], [scheduleTourPropertyOptions]);
+  const defaultAvailabilityDraft = useCallback(
+    (seed: Partial<AvailabilityDraft> = {}): AvailabilityDraft => ({
+      kinds: ["everything"],
+      on: "days",
+      weekdays: [0, 1, 2, 3, 4],
+      date: anchorDateStr,
+      repeat: "weekly",
+      startSlot: 18,
+      endSlotExclusive: 34,
+      propertyIds: filteredPropertyId ? [filteredPropertyId] : [ALL_HOUSES],
+      weekMonday: mondayOfDateStr(anchorDateStr),
+      ...seed,
+    }),
+    [anchorDateStr, filteredPropertyId],
+  );
+  const openAddAvailability = useCallback(
+    (dateStr?: string) => {
+      setAvailDialog({
+        origin: null,
+        initial: dateStr
+          ? defaultAvailabilityDraft({
+              weekdays: [weekdayOfDateStr(dateStr)],
+              date: dateStr,
+              weekMonday: mondayOfDateStr(dateStr),
+            })
+          : defaultAvailabilityDraft(),
+      });
+    },
+    [defaultAvailabilityDraft],
+  );
+  const dragAddAvailability = useCallback(
+    (dateStr: string, fromMin: number, toMin: number) => {
+      setAvailDialog({
+        origin: null,
+        initial: defaultAvailabilityDraft({
+          kinds: ["everything"],
+          weekdays: [weekdayOfDateStr(dateStr)],
+          date: dateStr,
+          repeat: "week",
+          weekMonday: mondayOfDateStr(dateStr),
+          startSlot: Math.floor(fromMin / SLOT_DURATION_MINUTES),
+          endSlotExclusive: Math.ceil(toMin / SLOT_DURATION_MINUTES),
+        }),
+      });
+    },
+    [defaultAvailabilityDraft],
+  );
+  const editBand = useCallback(
+    (dateStr: string, band: { startMin: number; endMin: number; kinds: AvailabilityKind[] }) => {
+      const startSlot = Math.floor(band.startMin / SLOT_DURATION_MINUTES);
+      const endSlotExclusive = Math.ceil(band.endMin / SLOT_DURATION_MINUTES);
+      setAvailDialog({
+        origin: { dateStr, startSlot, endSlotExclusive, kinds: band.kinds },
+        initial: defaultAvailabilityDraft({
+          kinds: choicesForStorageKinds(band.kinds),
+          on: "date",
+          date: dateStr,
+          weekdays: [weekdayOfDateStr(dateStr)],
+          repeat: "week",
+          weekMonday: mondayOfDateStr(dateStr),
+          startSlot,
+          endSlotExclusive,
+        }),
+      });
+    },
+    [defaultAvailabilityDraft],
+  );
+  const saveAvailabilityDraft = useCallback(
+    (rawDraft: AvailabilityDraft) => {
+      if (!availDialog) return;
+      const draft = normalizeDraftStart(rawDraft, todayDs);
+      const origin = availDialog.origin;
+      const kinds = storageKindsForChoices(draft.kinds);
+      const originKinds = origin?.kinds ?? [];
+      const slotKeys = draftSlotKeys(draft);
+      const dates = [...new Set(slotKeys.map((key) => key.split(":")[0]!))];
+      const pickedHouseIds = draft.propertyIds.includes(ALL_HOUSES)
+        ? portfolioHouses.map((house) => house.id)
+        : draft.propertyIds;
+      const pickedTourKeys = userId
+        ? pickedHouseIds.map((id) => managerPropertyAvailabilityStorageKey(userId, id))
+        : [];
+      if (kinds.includes("tours") && pickedTourKeys.length === 0) {
+        showToast("Add a house before setting tour availability.");
+        return;
+      }
+      for (const kind of new Set<AvailabilityKind>([...kinds, ...originKinds])) {
+        const shownKeys = kindKeysMap[kind] ?? [];
+        const addKeysForKind = kinds.includes(kind) ? (kind === "tours" ? pickedTourKeys : shownKeys) : [];
+        const stripKeys = origin && originKinds.includes(kind) ? shownKeys : [];
+        const targets = [...new Set([...addKeysForKind, ...stripKeys])];
+        if (targets.length === 0) continue;
+        writeAvailabilityKeys(targets, (current, key) => {
+          let next = new Set(current);
+          if (origin && stripKeys.includes(key)) {
+            next = removeRun(next, origin.dateStr, origin.startSlot, origin.endSlotExclusive);
+          }
+          if (addKeysForKind.includes(key)) {
+            if (kind === "tours" && resolvedDefaultTourAvailability.enabled) {
+              // The first window on a day that was on the implicit 9 to 5 carries that band
+              // along, exactly as a single painted slot does (PRP-397).
+              for (const date of dates) {
+                next = new Set(
+                  addExplicitTourSlotKeys([...next], date, draft.startSlot, resolvedDefaultTourAvailability),
+                );
+              }
+            }
+            next = addKeys(next, slotKeys);
+          }
+          return next;
+        });
+      }
+      const anchorWeek = mondayOfDateStr(anchorDateStr);
+      if (draft.on === "date" && draft.date && mondayOfDateStr(draft.date) !== anchorWeek) {
+        setAnchorDate(toDateAtNoon(draft.date));
+      }
+      setAvailDialog(null);
+      showToast(origin ? "Availability saved" : "Availability added");
+    },
+    [
+      anchorDateStr,
+      availDialog,
+      kindKeysMap,
+      portfolioHouses,
+      resolvedDefaultTourAvailability,
+      setAnchorDate,
+      showToast,
+      todayDs,
+      userId,
+      writeAvailabilityKeys,
+    ],
+  );
+  const deleteEditedBand = useCallback(() => {
+    const origin = availDialog?.origin;
+    if (!origin) return;
+    removeOpenRun(origin.dateStr, origin.startSlot, origin.endSlotExclusive, origin.kinds);
+    setAvailDialog(null);
+  }, [availDialog, removeOpenRun]);
+
+  const bookTourSlot = useCallback(
+    (ds: string, startMin: number) => {
+      setTourPrefill({ dateStr: ds, slotIdx: Math.floor(startMin / SLOT_DURATION_MINUTES) });
+      setScheduleTourOpen(true);
+    },
+    [],
+  );
+
+  /** The empty-range line (C2-CALP6): a jump to the nearest item and the same + as the header. */
+  const nearestItem = useMemo(() => {
+    const real = listItems
+      .filter((item) => item.kind !== "busy")
+      .sort((a, b) =>
+        a.dateStr === b.dateStr ? a.startMin - b.startMin : a.dateStr.localeCompare(b.dateStr),
+      );
+    const later = real.find((item) => item.dateStr > rangeBounds.last);
+    if (later) return { item: later, prefix: "Next" };
+    const earlier = [...real].reverse().find((item) => item.dateStr < rangeBounds.start);
+    return earlier ? { item: earlier, prefix: "Last" } : null;
+  }, [listItems, rangeBounds]);
+  const rangeIsEmpty = rangeListItems.filter((item) => item.kind !== "busy").length === 0;
+  const emptyLabel =
+    viewMode === "day"
+      ? rangeBounds.start === todayDs
+        ? "Nothing scheduled today"
+        : `Nothing scheduled on ${dayLabel(rangeBounds.start)}`
+      : viewMode === "month"
+        ? `Nothing scheduled in ${new Date(monthYear, monthIndex, 1).toLocaleDateString(undefined, { month: "long" })}`
+        : "Nothing scheduled this week";
+  const jumpToDate = useCallback(
+    (ds: string) => {
+      setAnchorDate(toDateAtNoon(ds));
+    },
+    [setAnchorDate],
+  );
+
   const startTimeOptions = useMemo(
     () =>
       slotRowIndices.map((slot) => ({
@@ -2390,33 +2772,16 @@ export function PortalCalendarPanels({
     setMobileDayIndex(mondayBasedDayIndex(anchorDate));
   }, [compactAvailability, weekMonday, anchorDate]);
 
+  /**
+   * Copy previous week: this week's windows (of every type) become last week's,
+   * shifted seven days, and a default window last week had cleared stays
+   * cleared (C2-CALA7). Only this week changes.
+   */
   const copyPreviousWeek = useCallback(() => {
-    const currentDates = activeBlockDates;
-    const previousBlockDates = currentDates.map((date) => addDays(date, -7));
-
-    mutateAvailabilityAllKinds((activeSlotsForKey) => {
-      const next = new Set(activeSlotsForKey);
-
-      for (const targetDate of currentDates) {
-        const targetDateStr = toLocalDateStr(targetDate);
-        for (const slot of slotRowIndices) {
-          next.delete(dateSlotKey(targetDateStr, slot));
-        }
-      }
-
-      previousBlockDates.forEach((sourceDate, idx) => {
-        const sourceDateStr = toLocalDateStr(sourceDate);
-        const targetDateStr = toLocalDateStr(currentDates[idx]!);
-        for (const slot of slotRowIndices) {
-          if (activeSlotsForKey.has(dateSlotKey(sourceDateStr, slot))) {
-            next.add(dateSlotKey(targetDateStr, slot));
-          }
-        }
-      });
-
-      return next;
-    });
-  }, [activeBlockDates, mutateAvailabilityAllKinds, slotRowIndices]);
+    const monday = toLocalDateStr(weekMonday);
+    mutateAvailabilityAllKinds((current) => copyPreviousWeekSlots(current, monday));
+    showToast("Copied last week's availability");
+  }, [mutateAvailabilityAllKinds, showToast, weekMonday]);
 
   const toggleBlockWeekday = useCallback((weekday: number) => {
     setBlockWeekdays((current) =>
@@ -2594,19 +2959,29 @@ export function PortalCalendarPanels({
     weekMonday,
   ]);
 
+  /**
+   * Clear week: removes this week's windows of every type and nothing from any
+   * other week, so a window that repeats keeps repeating everywhere else
+   * (C2-CALA7). With the 9 to 5 tour default on, the week's default windows are
+   * excluded too so the cleared week stays cleared.
+   */
   const clearCurrentWeek = useCallback(() => {
-    mutateAvailabilityAllKinds((current) => {
-      const next = new Set(current);
-      for (const ds of activeBlockDateStrs) {
-        for (const slot of slotRowIndices) {
-          const key = dateSlotKey(ds, slot);
-          next.delete(key);
-          next.delete(defaultTourSlotExclusionKey(ds, slot));
+    const monday = toLocalDateStr(weekMonday);
+    const defaults = resolvedDefaultTourAvailability.enabled
+      ? {
+          startSlot: resolvedDefaultTourAvailability.startSlot,
+          endSlotExclusive: resolvedDefaultTourAvailability.endSlotExclusive,
         }
-      }
-      return next;
-    });
-  }, [activeBlockDateStrs, mutateAvailabilityAllKinds, slotRowIndices]);
+      : undefined;
+    for (const kind of AVAILABILITY_KINDS) {
+      if ((kindKeysMap[kind]?.length ?? 0) === 0) continue;
+      mutateAvailability(
+        (current) => clearWeekSlots(current, monday, kind === "tours" ? defaults : undefined),
+        kind,
+      );
+    }
+    showToast("Cleared this week's availability");
+  }, [kindKeysMap, mutateAvailability, resolvedDefaultTourAvailability, showToast, weekMonday]);
 
   const blockSummary = useMemo(() => {
     const days = blockWeekdays.length > 0 ? weekdayLabelList(blockWeekdays) : "No days selected";
@@ -3299,6 +3674,431 @@ export function PortalCalendarPanels({
       </div>
     );
   };
+
+  const copyToHousesModal =
+    otherProperties && otherProperties.length > 0 && onCopyWeekToHouses ? (
+        <Modal
+          open={updateToHousesOpen}
+          title="Copy availability to other houses"
+          onClose={() => setUpdateToHousesOpen(false)}
+          footer={
+            <ModalFooter>
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-full"
+                disabled={selectedHouseIds.size === 0}
+                onClick={() => {
+                  onCopyWeekToHouses([...selectedHouseIds], activeBlockDateStrs, copyToHousesScope);
+                  setUpdateToHousesOpen(false);
+                }}
+              >
+                Copy to {selectedHouseIds.size > 0 ? `${selectedHouseIds.size} house${selectedHouseIds.size > 1 ? "s" : ""}` : "houses"}
+              </Button>
+            </ModalFooter>
+          }
+        >
+          <div className="space-y-5">
+            <p className="text-sm text-muted">
+              {copyToHousesScope === "week"
+                ? "Copy this week's open slots to the selected houses. New slots are added on top of existing ones — nothing is removed."
+                : "Copy every open slot from this house to the selected houses. New slots are added on top of existing ones — nothing is removed."}
+            </p>
+            <div className="space-y-2">
+              {otherProperties.map((p) => (
+                <label
+                  key={p.id}
+                  className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
+                    selectedHouseIds.has(p.id)
+                      ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
+                      : "border-border bg-card hover:border-border"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedHouseIds.has(p.id)}
+                    onChange={(e) => {
+                      setSelectedHouseIds((cur) => {
+                        const next = new Set(cur);
+                        if (e.target.checked) next.add(p.id);
+                        else next.delete(p.id);
+                        return next;
+                      });
+                    }}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-medium text-foreground">{p.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label
+                className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition ${
+                  copyToHousesScope === "week"
+                    ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
+                    : "border-border bg-card hover:border-border"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={copyToHousesScope === "week"}
+                  onChange={() => setCopyToHousesScope("week")}
+                  className="h-4 w-4 rounded border-border accent-primary"
+                />
+                <span className="text-sm font-medium text-foreground">This week only</span>
+              </label>
+              <label
+                className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition ${
+                  copyToHousesScope === "entire"
+                    ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
+                    : "border-border bg-card hover:border-border"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={copyToHousesScope === "entire"}
+                  onChange={() => setCopyToHousesScope("entire")}
+                  className="h-4 w-4 rounded border-border accent-primary"
+                />
+                <span className="text-sm font-medium text-foreground">Entire schedule</span>
+              </label>
+            </div>
+          </div>
+        </Modal>
+    ) : null;
+
+  const createModals =
+    userId && !isVendorViewer && !readOnly ? (
+      <>
+        <ManagerTaskFormModal
+          open={taskFormOpen}
+          onClose={() => {
+            setTaskFormOpen(false);
+            setTaskEditId(null);
+          }}
+          managerUserId={userId}
+          editingId={taskEditId}
+          onSaved={() => {
+            showToast(taskEditId ? "Task updated." : "Task added.");
+            setSelectedBlock(null);
+            setMeetingRefresh((n) => n + 1);
+            onMeetingsChanged?.();
+            reloadAvailability();
+          }}
+        />
+        <ScheduleTourSimpleModal
+          open={scheduleTourOpen}
+          onClose={() => {
+            setScheduleTourOpen(false);
+            setTourPrefill(undefined);
+          }}
+          managerUserId={userId}
+          propertyOptions={(scheduleTourPropertyOptions ?? []).map((p) => ({ id: p.id, label: p.label }))}
+          propertyTick={meetingRefresh}
+          defaultPropertyId={
+            filteredPropertyId ??
+            (scheduleTourPropertyOptions?.length === 1 ? scheduleTourPropertyOptions[0]!.id : undefined)
+          }
+          prefill={tourPrefill}
+          onAdded={() => {
+            setMeetingRefresh((n) => n + 1);
+            onMeetingsChanged?.();
+            reloadAvailability();
+          }}
+        />
+        <ManagerAddServiceModal
+          open={addServiceOpen}
+          onClose={() => setAddServiceOpen(false)}
+          managerUserId={userId}
+          onSubmitted={() => {
+            setAddServiceOpen(false);
+            setMeetingRefresh((n) => n + 1);
+            onMeetingsChanged?.();
+          }}
+        />
+      </>
+    ) : null;
+
+  if (studioActive) {
+    const phone = isPhoneLayout;
+    const isDay = viewMode === "day";
+    const rangeLabel = calendarRangeLabel({
+      view: viewMode,
+      start: rangeBounds.start,
+      last: rangeBounds.last,
+      currentYear: nowClock.getFullYear(),
+      phone,
+    });
+    const viewOptions = [
+      { value: "day", label: "Day" },
+      { value: "week", label: "Week" },
+      { value: "month", label: "Month" },
+      { value: "agenda", label: "Agenda" },
+    ];
+    const navUnit = viewMode === "agenda" ? "week" : viewMode;
+    const navButtonClass =
+      "inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground transition hover:bg-accent active:scale-95";
+    const calendarNavControls = (
+      <div
+        className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 max-sm:w-full max-sm:flex-nowrap"
+        data-attr="calendar-nav"
+      >
+        <button
+          type="button"
+          className={navButtonClass}
+          aria-label={`Previous ${navUnit}`}
+          data-attr="calendar-nav-prev"
+          onClick={() => shiftAnchor(-1)}
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="h-8 shrink-0 rounded-full border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition hover:bg-accent"
+          data-attr="calendar-today"
+          onClick={jumpToToday}
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          className={navButtonClass}
+          aria-label={`Next ${navUnit}`}
+          data-attr="calendar-nav-next"
+          onClick={() => shiftAnchor(1)}
+        >
+          <ChevronRight className="size-4" aria-hidden />
+        </button>
+        <span
+          className="min-w-0 truncate whitespace-nowrap px-1 text-sm font-bold text-foreground max-sm:flex-1 max-sm:text-center max-sm:text-[13px]"
+          data-attr="calendar-range-label"
+        >
+          {rangeLabel}
+        </span>
+        {hideViewModeControl ? null : (
+          <FieldSingleSelect
+            hideLabel
+            label="Calendar view"
+            value={viewMode}
+            onChange={(next) => setViewMode(next as CalendarMode)}
+            options={viewOptions}
+            wrapperClassName="w-[6.75rem] shrink-0 max-sm:w-[5.75rem]"
+            triggerClassName="h-8 min-h-8 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground"
+            dataAttr="calendar-view-mode"
+          />
+        )}
+      </div>
+    );
+
+    const copyToHousesDisabledStudio = !onCopyWeekToHouses || !otherProperties?.length;
+    const availabilityMenu =
+      canEditWeekStudio || extraAvailabilityAction ? (
+        <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
+              {canEditWeekStudio ? (
+                <>
+                  <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
+                    Add availability
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
+                    Copy previous week
+                  </DropdownMenuItem>
+                  <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
+                    Clear week
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-attr="calendar-copy-to-houses"
+                    disabled={copyToHousesDisabledStudio}
+                    onSelect={() => {
+                      setSelectedHouseIds(new Set());
+                      setCopyToHousesScope("week");
+                      setUpdateToHousesOpen(true);
+                    }}
+                  >
+                    {copyToHousesDisabledStudio ? "Add another house to copy availability" : "Copy to houses"}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              {canEditWeekStudio && extraAvailabilityAction ? <DropdownMenuSeparator /> : null}
+              {extraAvailabilityAction ? <div className="px-1 py-1">{extraAvailabilityAction}</div> : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : null;
+
+    const renderAddMenu = (trigger: ReactNode) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
+          <DropdownMenuItem
+            data-attr="calendar-create-tour"
+            disabled={!scheduleTourPropertyOptions?.length}
+            onSelect={() => {
+              setTourPrefill(undefined);
+              setScheduleTourOpen(true);
+            }}
+          >
+            New tour
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-attr="calendar-create-task"
+            onSelect={() => {
+              setTaskEditId(null);
+              setTaskFormOpen(true);
+            }}
+          >
+            New task
+          </DropdownMenuItem>
+          <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
+            New service
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+    const addAction =
+      canEditWeekStudio && !readOnly
+        ? renderAddMenu(<PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />)
+        : null;
+
+    const emptyStrip = rangeIsEmpty ? (
+      <CalendarEmptyStrip
+        label={emptyLabel}
+        jump={
+          nearestItem
+            ? {
+                text: `${nearestItem.prefix}: ${nearestItem.item.title} · ${dayLabel(nearestItem.item.dateStr)}`,
+                dateStr: nearestItem.item.dateStr,
+              }
+            : null
+        }
+        onJump={jumpToDate}
+        addMenu={
+          canEditWeekStudio && !readOnly
+            ? renderAddMenu(<PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-empty-add" />)
+            : null
+        }
+      />
+    ) : null;
+
+    const openLabel = calendarTab === "all" ? "Open hours" : `Open for ${calendarTab}`;
+    let body: ReactNode;
+    if (viewMode === "month") {
+      body = (
+        <CalendarMonthView
+          monthStart={monthStartStr}
+          items={listItems}
+          todayDs={todayDs}
+          phone={phone}
+          openHalfHoursFor={openHalfHoursForTab}
+          openLabel={openLabel}
+          onOpenItem={openGridItem}
+          onOpenDay={openDay}
+          emptyStrip={emptyStrip}
+        />
+      );
+    } else if (viewMode === "agenda") {
+      body = (
+        <CalendarAgendaView
+          dates={fullWeekDateStrs}
+          items={listItems}
+          todayDs={todayDs}
+          emptyStrip={emptyStrip}
+          onOpenItem={openGridItem}
+          onRescheduleTour={onRescheduleTour ? (item) => onRescheduleTour(item.meeting) : undefined}
+        />
+      );
+    } else {
+      const grid = (
+        <CalendarTimeGrid
+          dates={rangeDates}
+          items={rangeGridItems}
+          bandsByDate={bandsByDate}
+          window={gridWindow}
+          expandEarly={expandEarly}
+          expandLate={expandLate}
+          onToggleEarly={() => setExpandEarly((on) => !on)}
+          onToggleLate={() => setExpandLate((on) => !on)}
+          todayDs={todayDs}
+          nowMin={nowMinutes}
+          isDay={isDay}
+          canEditAvailability={canEditWeekStudio}
+          onOpenItem={openGridItem}
+          onOpenDay={openDay}
+          onBandClick={(ds, band) => editBand(ds, band)}
+          onDragAdd={dragAddAvailability}
+          emptyStrip={emptyStrip}
+          legend={<CalendarBandLegend bands={rangeBands} tab={calendarTab} />}
+          minColumnPx={phone ? 96 : 128}
+        />
+      );
+      body = isDay ? (
+        <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_300px]" data-attr="calendar-day-view">
+          {grid}
+          <CalendarDayPanel
+            dateStr={anchorDateStr}
+            isToday={anchorDateStr === todayDs}
+            items={listItems}
+            openStarts={tourOpenStartsFor(anchorDateStr)}
+            chipStarts={tourChipStartsFor(anchorDateStr)}
+            openSummary={openRunsSummary(tourOpenStartsFor(anchorDateStr))}
+            canEditAvailability={canEditWeekStudio}
+            onOpenItem={openGridItem}
+            onBookSlot={bookTourSlot}
+            onAddAvailability={openAddAvailability}
+          />
+        </div>
+      ) : (
+        grid
+      );
+    }
+
+    return (
+      <>
+        <div
+          className={cn(
+            "flex min-w-0 max-w-full flex-col gap-3",
+            pageFlowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
+          )}
+          ref={compactShellRef}
+          data-attr="manager-calendar-surface"
+          data-view={viewMode}
+        >
+          {saveStatus === "saving" || saveStatus === "error" ? (
+            <p
+              className={cn("text-xs font-semibold", saveStatus === "error" ? "text-danger" : "text-muted")}
+              role="status"
+            >
+              {saveStatus === "saving" ? "Saving…" : "Save failed"}
+            </p>
+          ) : null}
+          {navControlsHost ? null : calendarNavControls}
+          {body}
+        </div>
+        {navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}
+        {weekActionsHost ? createPortal(availabilityMenu, weekActionsHost) : availabilityMenu}
+        {weekPrimaryActionHost ? createPortal(addAction, weekPrimaryActionHost) : addAction}
+        <CalendarAvailabilityDialog
+          open={Boolean(availDialog)}
+          onClose={() => setAvailDialog(null)}
+          initial={availDialog?.initial ?? defaultAvailabilityDraft()}
+          editing={Boolean(availDialog?.origin)}
+          propertyOptions={portfolioHouses}
+          onSave={saveAvailabilityDraft}
+          onDelete={deleteEditedBand}
+        />
+        {copyToHousesModal}
+        {selectedBlockModal}
+        {tourGuestNotifyPreviewModal}
+        {guestMessageModal}
+        {createModals}
+      </>
+    );
+  }
 
   if (compactAvailability) {
     const vendorMode = Boolean(vendorDayFlexibility);
@@ -4060,99 +4860,11 @@ export function PortalCalendarPanels({
           />
         </Modal>
 
-        {otherProperties && otherProperties.length > 0 && onCopyWeekToHouses ? (
-          <Modal
-            open={updateToHousesOpen}
-            title="Copy availability to other houses"
-            onClose={() => setUpdateToHousesOpen(false)}
-            footer={
-              <ModalFooter>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={selectedHouseIds.size === 0}
-                  onClick={() => {
-                    onCopyWeekToHouses([...selectedHouseIds], activeBlockDateStrs, copyToHousesScope);
-                    setUpdateToHousesOpen(false);
-                  }}
-                >
-                  Copy to {selectedHouseIds.size > 0 ? `${selectedHouseIds.size} house${selectedHouseIds.size > 1 ? "s" : ""}` : "houses"}
-                </Button>
-              </ModalFooter>
-            }
-          >
-            <div className="space-y-5">
-              <p className="text-sm text-muted">
-                {copyToHousesScope === "week"
-                  ? "Copy this week's open slots to the selected houses. New slots are added on top of existing ones — nothing is removed."
-                  : "Copy every open slot from this house to the selected houses. New slots are added on top of existing ones — nothing is removed."}
-              </p>
-              <div className="space-y-2">
-                {otherProperties.map((p) => (
-                  <label
-                    key={p.id}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
-                      selectedHouseIds.has(p.id)
-                        ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
-                        : "border-border bg-card hover:border-border"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedHouseIds.has(p.id)}
-                      onChange={(e) => {
-                        setSelectedHouseIds((cur) => {
-                          const next = new Set(cur);
-                          if (e.target.checked) next.add(p.id);
-                          else next.delete(p.id);
-                          return next;
-                        });
-                      }}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                    <span className="text-sm font-medium text-foreground">{p.name}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <label
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition ${
-                    copyToHousesScope === "week"
-                      ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
-                      : "border-border bg-card hover:border-border"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={copyToHousesScope === "week"}
-                    onChange={() => setCopyToHousesScope("week")}
-                    className="h-4 w-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-sm font-medium text-foreground">This week only</span>
-                </label>
-                <label
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition ${
-                    copyToHousesScope === "entire"
-                      ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
-                      : "border-border bg-card hover:border-border"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={copyToHousesScope === "entire"}
-                    onChange={() => setCopyToHousesScope("entire")}
-                    className="h-4 w-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-sm font-medium text-foreground">Entire schedule</span>
-                </label>
-              </div>
-            </div>
-          </Modal>
-        ) : null}
+        {copyToHousesModal}
         {selectedBlockModal}
         {tourGuestNotifyPreviewModal}
         {guestMessageModal}
+        {createModals}
       </>
     );
   }
@@ -4528,48 +5240,7 @@ export function PortalCalendarPanels({
         />
       </Modal>
       {selectedBlockModal}
-      {userId && !isVendorViewer && !readOnly ? (
-        <>
-          <ManagerTaskFormModal
-            open={taskFormOpen}
-            onClose={() => {
-              setTaskFormOpen(false);
-              setTaskEditId(null);
-            }}
-            managerUserId={userId}
-            editingId={taskEditId}
-            onSaved={() => {
-              showToast(taskEditId ? "Task updated." : "Task added.");
-              setSelectedBlock(null);
-              setMeetingRefresh((n) => n + 1);
-              onMeetingsChanged?.();
-              reloadAvailability();
-            }}
-          />
-          <ScheduleTourSimpleModal
-            open={scheduleTourOpen}
-            onClose={() => setScheduleTourOpen(false)}
-            managerUserId={userId}
-            propertyOptions={(scheduleTourPropertyOptions ?? []).map((p) => ({ id: p.id, label: p.label }))}
-            propertyTick={meetingRefresh}
-            onAdded={() => {
-              setMeetingRefresh((n) => n + 1);
-              onMeetingsChanged?.();
-              reloadAvailability();
-            }}
-          />
-          <ManagerAddServiceModal
-            open={addServiceOpen}
-            onClose={() => setAddServiceOpen(false)}
-            managerUserId={userId}
-            onSubmitted={() => {
-              setAddServiceOpen(false);
-              setMeetingRefresh((n) => n + 1);
-              onMeetingsChanged?.();
-            }}
-          />
-        </>
-      ) : null}
+      {createModals}
       {tourGuestNotifyPreviewModal}
       {guestMessageModal}
     </>

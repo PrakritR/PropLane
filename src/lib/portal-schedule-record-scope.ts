@@ -5,6 +5,7 @@ import {
   vendorFlexiblePreferencesStorageKey,
 } from "@/lib/demo-admin-scheduling";
 import {
+  MANAGER_KIND_AVAILABILITY_KINDS,
   MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
   managerKindAvailabilityStorageKey,
   parseManagerKindAvailabilityStorageKey,
@@ -42,7 +43,7 @@ export function managerScheduleRecordIdOwnedByUser(
     return id.startsWith(`${MANAGER_PROPERTY_AVAIL_PREFIX}${uid}_prop_`);
   }
   if (recordType === MANAGER_KIND_AVAILABILITY_RECORD_TYPE) {
-    return id === managerKindAvailabilityStorageKey(uid, "services") || id === managerKindAvailabilityStorageKey(uid, "tasks");
+    return MANAGER_KIND_AVAILABILITY_KINDS.some((kind) => id === managerKindAvailabilityStorageKey(uid, kind));
   }
   if (recordType === "calendar_share_settings") {
     return id.startsWith(`${CALENDAR_SHARE_PREFIX}${uid}_prop_`);
