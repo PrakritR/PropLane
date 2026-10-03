@@ -28,6 +28,8 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
+import { propertyAllowsShortTermRental } from "@/lib/rental-application/data";
+import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
@@ -175,6 +177,10 @@ function PriceCard({
   // resolved amount (`effectiveLeaseSigningFeeCents`).
   const hasUpfrontApplicationFee = breakdownLines.some((line) => line.label === "Application fee");
   const showDueAtSigning = leaseFirst && !hasUpfrontApplicationFee;
+  const shortStay = propertyAllowsShortTermRental(property.id);
+  const nightly = shortStay
+    ? shortTermNightlyRate(property.listingSubmission?.shortTermDailyCost)
+    : 0;
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
       <p className="text-xs font-semibold text-muted">Base rent from</p>
@@ -201,6 +207,11 @@ function PriceCard({
           ) : null}
         </dl>
       ) : null}
+      {shortStay && nightly > 0 ? (
+        <p className="mt-3 text-sm font-semibold text-foreground">
+          Short stays from ${nightly.toFixed(0)} / night
+        </p>
+      ) : null}
       <div className="mt-4 space-y-2.5">
         <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className={primaryCtaClass} newTab={newTab}>
           Schedule tour
@@ -208,6 +219,15 @@ function PriceCard({
         <ProspectListingCta action="apply" propertyId={property.id} data-attr="listing-web-apply" className={secondaryCtaClass} newTab={newTab}>
           {leaseFirst ? "Sign lease" : "Apply"}
         </ProspectListingCta>
+        {shortStay ? (
+          <Link
+            href={`/rent/stay?propertyId=${encodeURIComponent(property.id)}`}
+            className={secondaryCtaClass}
+            data-act="public.shortStay"
+          >
+            Book a short stay
+          </Link>
+        ) : null}
         <ListingContactCard property={property} />
       </div>
     </div>

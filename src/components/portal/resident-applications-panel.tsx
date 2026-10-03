@@ -82,6 +82,8 @@ import {
 } from "@/lib/rental-application/public-apply-session";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { findApplicationFeeCharge, type HouseholdCharge } from "@/lib/household-charges";
+import { ResidentLifecycleStatusPanel } from "@/components/portal/resident-lifecycle-status-panel";
+import { residentLifecycleInputFromApplicationRow } from "@/lib/resident-lifecycle-journey";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEMO_APPLICATION_SUBMITTED_EVENT,
@@ -1029,6 +1031,9 @@ export function ResidentApplicationsPanel({
     const cosignerSubmissions = cosignerSubmissionsBySigner.get(signerKey) ?? [];
     return (
       <div className="space-y-4">
+        <ResidentLifecycleStatusPanel
+          input={residentLifecycleInputFromApplicationRow(row, residentEmail, basePath)}
+        />
         {row.application?.applyingAsGroup === "yes" && row.application?.groupRole === "first" ? (
           <GroupShareCallout
             leaderAppId={row.id}

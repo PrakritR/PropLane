@@ -136,6 +136,7 @@ export function ResidentAutopayCard({
       className="space-y-3 rounded-2xl border border-border bg-card px-4 py-4"
       data-testid="resident-autopay-card"
       data-attr="resident-autopay-card"
+      data-jr-autopay
     >
       <h3 className="text-sm font-semibold text-foreground">Autopay</h3>
 

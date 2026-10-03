@@ -29,7 +29,7 @@ export function isStripeResidentPayMethod(method: string): method is ResidentAxi
 }
 
 export function isPayableHouseholdCharge(charge: HouseholdCharge): boolean {
-  if (charge.status !== "pending") return false;
+  if (charge.status !== "pending" && charge.status !== "failed") return false;
   return canPayHouseholdChargeWithAxisAch(charge);
 }
 
@@ -40,5 +40,7 @@ export function filterChargesForPayMethod(charges: HouseholdCharge[]): Household
 
 /** True when at least one pending charge can start PropLane / Stripe checkout. */
 export function chargesSupportPlatformCheckout(charges: HouseholdCharge[]): boolean {
-  return charges.some((c) => c.status === "pending" && canPayHouseholdChargeWithAxisAch(c));
+  return charges.some(
+    (c) => (c.status === "pending" || c.status === "failed") && canPayHouseholdChargeWithAxisAch(c),
+  );
 }

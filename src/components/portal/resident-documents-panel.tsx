@@ -59,7 +59,7 @@ import { residentLeaseManagerMessageDraft } from "@/lib/resident-manager-message
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { buildRentReceiptHtml } from "@/lib/rent-receipt-html";
-import { buildReceiptRows, type ReceiptRow } from "@/lib/rent-receipts";
+import { buildReceiptRows, paidChargeToLedgerReportRow, type ReceiptRow } from "@/lib/rent-receipts";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
@@ -538,11 +538,7 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
       const rows = readChargesForResident(sessionEmail, sessionUserId)
         .filter((charge) => charge.status === "paid" && charge.paidAt)
         .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)))
-        .map((charge) => ({
-          date: String(charge.paidAt).slice(0, 10),
-          description: `${charge.title} · ${charge.propertyLabel}`,
-          payment: charge.amountLabel,
-        }));
+        .map((charge) => paidChargeToLedgerReportRow(charge));
       setLedgerReport({ id: "resident-ledger", title: "Resident ledger", columns: [], rows });
       setLoading(false);
       return;
@@ -661,6 +657,8 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
             residentName: demoMode ? DEMO_RESIDENT_NAME : sessionEmail || undefined,
             description: receipt.description,
             amountLabel: receipt.amount,
+            processingFeeLabel: receipt.processingFeeLabel,
+            totalChargedLabel: receipt.totalChargedLabel,
             dateLabel: formatPortalListDate(receipt.date),
           })}
           onDownload={() => downloadReceipt(receipt)}
@@ -676,9 +674,12 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
 function RentReceiptsTab({
   basePath,
   range,
+  paymentsTab = false,
 }: {
   basePath: string;
   range: ReceiptDateRange;
+  /** Documents › Payments — show total charged line when the ledger carries it. */
+  paymentsTab?: boolean;
 }) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
@@ -694,11 +695,7 @@ function RentReceiptsTab({
       const rows = readChargesForResident(sessionEmail, sessionUserId)
         .filter((charge) => charge.status === "paid" && charge.paidAt)
         .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)))
-        .map((charge) => ({
-          date: String(charge.paidAt).slice(0, 10),
-          description: `${charge.title} · ${charge.propertyLabel}`,
-          payment: charge.amountLabel,
-        }));
+        .map((charge) => paidChargeToLedgerReportRow(charge));
       setLedgerReport({ id: "resident-ledger", title: "Resident ledger", columns: [], rows });
       setGenerated(true);
       setLoading(false);
@@ -809,7 +806,9 @@ function RentReceiptsTab({
                 id: row.id,
                 data: row,
                 primary: receiptRowLabel(row.description),
-                meta: formatPortalListDate(row.date),
+                meta: paymentsTab
+                  ? `${formatPortalListDate(row.date)} · ${row.amount}`
+                  : formatPortalListDate(row.date),
                 selected: selectedIds.has(row.id),
                 onSelectedChange: () => toggleSelected(row.id),
                 onClick: () => openReceipt(row),
@@ -985,7 +984,7 @@ export function ResidentDocumentsPanel({
                 dataAttr="resident-documents-kind-select"
               />
             </PortalFilterSortSheet>
-            {activeBucket === "archived" && showKind("receipts") ? (
+            {(activeBucket === "payments" || activeBucket === "archived") && showKind("receipts") ? (
               <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
             ) : null}
           </div>
@@ -997,6 +996,10 @@ export function ResidentDocumentsPanel({
 
       {showKind("lease") && activeBucket !== "archived" ? (
         <SignedLeaseDocumentsTable basePath={basePath} statusFilter={leaseStatusFilter} />
+      ) : null}
+
+      {showKind("receipts") && activeBucket === "payments" ? (
+        <RentReceiptsTab basePath={basePath} range={receiptRange} paymentsTab />
       ) : null}
 
       {showKind("receipts") && activeBucket === "archived" ? (

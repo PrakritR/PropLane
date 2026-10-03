@@ -29,9 +29,10 @@ export function useProspectActionGate(
   const portalReturn = propertyId.trim()
     ? prospectPortalReturnPath(action, { propertyId })
     : "";
-  const gateView = action === "tour" && contactAutofill.userId && !contactAutofill.hasResidentRole
-    ? "action"
-    : resolveProspectGateView({
+  const gateView =
+    action === "tour" && contactAutofill.userId
+      ? "action"
+      : resolveProspectGateView({
     gateKey,
     signedInNonResident,
     hasResidentRole: contactAutofill.ready && contactAutofill.hasResidentRole,

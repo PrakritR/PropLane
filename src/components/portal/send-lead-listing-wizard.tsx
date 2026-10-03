@@ -23,6 +23,7 @@ import {
 } from "@/lib/manager-property-links";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { activeWorkspaceScope } from "@/lib/workspaces/selection";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   portalMessageChannelsFromSelection,
@@ -119,7 +120,9 @@ export function SendLeadListingWizard({
   const linkUrl = useMemo(() => {
     if (propertyIds.length === 0 || typeof window === "undefined") return "";
     const origin = window.location.origin;
-    if (isMultiListing) return buildManagerBrowseUrl(origin, propertyIds);
+    if (isMultiListing) {
+      return buildManagerBrowseUrl(origin, propertyIds, { workspaceName: activeWorkspaceScope()?.name });
+    }
     if (!singlePropertyId) return "";
     return buildManagerListingUrl(origin, singlePropertyId);
   }, [propertyIds, isMultiListing, singlePropertyId]);

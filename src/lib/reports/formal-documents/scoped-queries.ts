@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { humanizeUnitLabel, loadManagerReportDisplayContext } from "@/lib/reports/display-context";
-import type { RecurringRentProfile } from "@/lib/household-charges";
+import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { chartAccountLabel } from "@/lib/reports/categories";
 import { primeSystemChartOfAccounts, systemChartAccountByCode } from "@/lib/reports/chart-of-accounts-store";
 import {
@@ -338,7 +339,7 @@ export async function queryFormalRentReceipts(
 
   let query = db
     .from("ledger_entries")
-    .select("id, posted_date, description, amount_cents, category_code, property_id, resident_email, unit_label, stripe_checkout_session_id")
+    .select("id, posted_date, description, amount_cents, category_code, property_id, resident_email, unit_label, stripe_checkout_session_id, source_charge_id")
     .eq("manager_user_id", managerUserId)
     .eq("entry_type", "payment")
     .gte("posted_date", from)
@@ -357,12 +358,31 @@ export async function queryFormalRentReceipts(
   const issueDate = new Date().toISOString().slice(0, 10);
   const documents: RentReceiptDocument[] = [];
 
+  const chargeIds = [...new Set((data ?? []).map((row) => String(row.source_charge_id ?? "").trim()).filter(Boolean))];
+  const paidByChargeId = new Map<string, HouseholdCharge>();
+  if (chargeIds.length > 0) {
+    const { data: chargeRows } = await db
+      .from("portal_household_charge_records")
+      .select("id, row_data")
+      .eq("manager_user_id", managerUserId)
+      .in("id", chargeIds.slice(0, 200));
+    for (const record of chargeRows ?? []) {
+      const charge = record.row_data as HouseholdCharge | null;
+      if (charge?.id) paidByChargeId.set(charge.id, charge);
+    }
+  }
+
   for (const row of data ?? []) {
     if (!RENT_RECEIPT_CATEGORIES.has(String(row.category_code))) continue;
     const email = String(row.resident_email ?? "").toLowerCase();
     const profile = profileByEmail.get(email);
     const occupancy = profile ? daysRentedForProfile(profile, rangeStart, rangeEnd) : { daysRented: 0, daysAvailable: 0 };
     const ledgerId = String(row.id);
+    const sourceChargeId = String(row.source_charge_id ?? "").trim();
+    const paidCharge = sourceChargeId ? paidByChargeId.get(sourceChargeId) : undefined;
+    const faceCents = paidCharge ? Math.round(parseMoneyAmount(paidCharge.amountLabel) * 100) : Number(row.amount_cents);
+    const paidCents = paidCharge?.paidAmountCents;
+    const feeCents = paidCents && paidCents > faceCents ? paidCents - faceCents : 0;
     documents.push({
       id: ledgerId,
       receiptNumber: receiptNumberForLedgerEntry(ledgerId),
@@ -376,6 +396,8 @@ export async function queryFormalRentReceipts(
       propertyAddress: profile?.propertyLabel || "—",
       paymentDate: String(row.posted_date),
       amount: centsToUsd(Number(row.amount_cents)),
+      ...(feeCents > 0 ? { processingFeeLabel: centsToUsd(feeCents) } : {}),
+      ...(paidCents && paidCents > faceCents ? { totalChargedLabel: centsToUsd(paidCents) } : {}),
       paymentMethod: row.stripe_checkout_session_id ? "Online (Stripe)" : "Manual",
       periodCovered: row.description?.trim() || chartAccountLabel(String(row.category_code)),
       category: chartAccountLabel(String(row.category_code)),

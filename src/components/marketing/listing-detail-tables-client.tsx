@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { roomAvailabilityTextClasses } from "@/lib/room-availability-style";
 import { isListingFallbackBathroom, isListingPlaceholderSharedSpace } from "@/components/marketing/listing-key-facts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 import type {
@@ -34,7 +34,16 @@ import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
 import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
-import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { normalizeRoomOccupancyCapacity, type OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
+import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { ListingSharedRoomBeds } from "@/components/marketing/listing-shared-room-beds";
+import {
+  publicRoomOpenBedCount,
+  sharedRoomListingHeadline,
+  sharedRoomOpenBedsLine,
+  sharedRoomRentCellLabel,
+} from "@/lib/public-shared-room-listing";
+import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 
 const LISTING_TABLE_HEAD =
   "text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]";
@@ -218,6 +227,28 @@ function roomRentLabel(room: ListingRoomRow): string | null {
 }
 
 /** Occupancy capacity when the room holds more than one resident. */
+function publicBedSlotsForRoom(
+  room: ListingRoomRow,
+  openBeds: number,
+): OpenResidentSlot[] {
+  const capacity = roomOccupancyCapacity(room);
+  if (capacity < 2) return [];
+  const monthly = room.priceMonthlyEquivalent ?? room.priceHeadlineAmount ?? 0;
+  const taken = Math.max(0, capacity - openBeds);
+  const slots: OpenResidentSlot[] = [];
+  for (let slot = 1; slot <= capacity; slot += 1) {
+    slots.push({
+      slot,
+      price: {
+        slot,
+        monthlyRent: monthly,
+      },
+      holder: slot <= taken ? { name: "Resident", since: new Date() } : null,
+    });
+  }
+  return slots;
+}
+
 function roomOccupancyCapacity(room: ListingRoomRow): number {
   return normalizeRoomOccupancyCapacity(room.occupancyCapacity);
 }
@@ -431,6 +462,9 @@ export function ListingDetailModal({
   const messageLabel = listingMessageLabel(textEnabled);
   const stageWebMessageCompose = textEnabled ? undefined : stageMessageCompose;
   const messageCtaExtras = { onClick: stageWebMessageCompose };
+  const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
+  const roomApplyHref = (roomId: string) =>
+    buildRentalApplyHref({ propertyId: listingPropertyId, listingRoomId: roomId });
 
   useEffect(() => {
     if (!state) return;
@@ -463,20 +497,33 @@ export function ListingDetailModal({
         {state.kind === "room" ? (
           <ListingModalBody
             footer={
-              // One action per sheet (PLAN-0914-2124): the tour is room-specific;
-              // Apply already sits in the page's own card / sticky bar.
-              <ListingModalCta
-                href={tourHref}
-                label="Schedule tour"
-                variant="primary"
-                dataAttr="listing-room-tour"
-                newTabProps={newTabProps}
-              />
+              <div className="flex w-full flex-wrap gap-2">
+                <ListingModalCta
+                  href={roomApplyHref(state.room.id)}
+                  label={applyLabel}
+                  variant="primary"
+                  dataAttr="listing-room-apply"
+                  newTabProps={newTabProps}
+                />
+                <ListingModalCta
+                  href={tourHref}
+                  label="Schedule tour"
+                  variant="secondary"
+                  dataAttr="listing-room-tour"
+                  newTabProps={newTabProps}
+                />
+              </div>
             }
           >
             {(() => {
               const roomChoiceValue = `${listingPropertyId}${LISTING_ROOM_CHOICE_SEP}${state.room.id}`;
               const roomUnavailableWindows = getRoomUnavailabilityWindows(roomChoiceValue);
+              const capacity = roomOccupancyCapacity(state.room);
+              const occ =
+                occupancyRows.find((entry) => entry.roomChoice === roomChoiceValue) ??
+                occupancyRows.find((entry) => entry.roomChoice.endsWith(`::${state.room.id}`));
+              const openBeds = publicRoomOpenBedCount(capacity, occ?.spans ?? []);
+              const bedSlots = publicBedSlotsForRoom(state.room, openBeds);
               return (
                 <>
                   <ListingModalHeader title={state.room.name} />
@@ -577,6 +624,11 @@ export function ListingDetailModal({
                         : []),
                     ]}
                   />
+                  {bedSlots.length > 0 ? (
+                    <ListingModalSection label="Beds">
+                      <ListingSharedRoomBeds slots={bedSlots} />
+                    </ListingModalSection>
+                  ) : null}
                   {(() => {
                     const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
                     const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
@@ -1295,7 +1347,28 @@ export function SpacesInteractive({
   signingOrder?: "application_first" | "lease_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
+  type RoomFilter = "all" | "private" | "shared";
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
+  const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
+  const openBedsForRoom = useCallback(
+    (roomId: string, capacity: number) => {
+      const choice = `${listingPropertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`;
+      const row =
+        occupancyRows.find((entry) => entry.roomChoice === choice) ??
+        occupancyRows.find((entry) => entry.roomChoice.endsWith(`::${roomId}`));
+      return publicRoomOpenBedCount(capacity, row?.spans ?? []);
+    },
+    [listingPropertyId, occupancyRows],
+  );
   const rooms = floorPlans.flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })));
+  const filteredRooms = useMemo(() => {
+    return rooms.filter(({ room }) => {
+      const capacity = roomOccupancyCapacity(room);
+      if (roomFilter === "private") return capacity < 2;
+      if (roomFilter === "shared") return capacity >= 2;
+      return true;
+    });
+  }, [roomFilter, rooms]);
   // The builder's placeholder rows are words, not records: no thumb, no Details.
   const realBathrooms = bathrooms.filter((b) => !isListingFallbackBathroom(b));
   const realShared = sharedSpaces.filter((r) => !isListingPlaceholderSharedSpace(r));
@@ -1305,7 +1378,30 @@ export function SpacesInteractive({
   return (
     <>
       {rooms.length > 0 ? (
-        <>
+        <div data-sr-rooms>
+          <div className="mb-3 flex flex-wrap gap-2 sr-filter" data-sr-filter>
+            {(
+              [
+                { id: "all" as const, label: "All rooms" },
+                { id: "private" as const, label: "Private rooms" },
+                { id: "shared" as const, label: "Shared rooms" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-attr={`listing-room-filter-${tab.id}`}
+                onClick={() => setRoomFilter(tab.id)}
+                className={`min-h-11 rounded-full border px-3.5 text-xs font-semibold transition ${
+                  roomFilter === tab.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-foreground hover:border-primary/30"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           <div className={SPACE_TABLE_WRAP}>
             <table className={SPACE_TABLE}>
               <thead>
@@ -1324,17 +1420,25 @@ export function SpacesInteractive({
                 </tr>
               </thead>
               <tbody>
-                {rooms.map(({ room, floorLabel }) => (
-                  <tr key={room.id}>
+                {filteredRooms.map(({ room, floorLabel }) => {
+                  const capacity = roomOccupancyCapacity(room);
+                  const openBeds = openBedsForRoom(room.id, capacity);
+                  const sharedHeadline = sharedRoomListingHeadline(capacity, openBeds);
+                  const openLine = sharedRoomOpenBedsLine(capacity, openBeds);
+                  return (
+                  <tr key={room.id} className="sr-detbtn">
                     <td className={SPACE_TD}>
                       <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
                     <td className={`${SPACE_TD} font-bold text-foreground`}>
                       {room.name}
-                      {roomOccupancyCapacity(room) >= 2 ? (
+                      {sharedHeadline ? (
                         <span data-attr="listing-room-occupancy" className="block text-xs font-semibold text-muted">
-                          Up to {roomOccupancyCapacity(room)} residents
+                          {sharedHeadline}
                         </span>
+                      ) : null}
+                      {openLine ? (
+                        <span className="block text-xs font-semibold text-foreground">{openLine}</span>
                       ) : null}
                     </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{floorLabel}</td>
@@ -1343,25 +1447,30 @@ export function SpacesInteractive({
                       <AvailabilityPill text={room.availability} variant="room" />
                     </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-right font-bold tabular-nums text-foreground`}>
-                      {roomRentCell(room)}
+                      {capacity >= 2
+                        ? sharedRoomRentCellLabel([
+                            room.priceMonthlyEquivalent ?? room.priceHeadlineAmount ?? 0,
+                          ])
+                        : roomRentCell(room)}
                     </td>
                     <td className={`${SPACE_TD} text-right`}>
                       <button
                         type="button"
                         data-attr="listing-room-details"
                         onClick={() => setModal({ kind: "room", room, floorLabel })}
-                        className={`${LISTING_DETAIL_BUTTON} !text-xs`}
+                        className={`${LISTING_DETAIL_BUTTON} sr-detbtn !text-xs`}
                       >
                         Details
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <div className={SPACE_ROWS_MOBILE}>
-            {rooms.map(({ room, floorLabel }) => (
+            {filteredRooms.map(({ room, floorLabel }) => (
               <button
                 key={room.id}
                 type="button"
@@ -1387,7 +1496,7 @@ export function SpacesInteractive({
               </button>
             ))}
           </div>
-        </>
+        </div>
       ) : null}
 
       {!bathroomsListed ? (

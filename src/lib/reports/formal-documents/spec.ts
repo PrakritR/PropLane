@@ -72,6 +72,8 @@ export type RentReceiptDocument = {
   propertyAddress: string;
   paymentDate: string;
   amount: string;
+  processingFeeLabel?: string;
+  totalChargedLabel?: string;
   paymentMethod: string;
   periodCovered: string;
   category: string;

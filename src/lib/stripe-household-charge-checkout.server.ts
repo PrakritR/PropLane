@@ -268,8 +268,8 @@ export async function createHouseholdChargeCheckout(
     expectedManagerUserId?: string;
     /** Origin used to build the success/cancel/return URLs. */
     appOrigin: string;
-    /** Server-owned manager collection return path. Never accept a client URL here. */
-    returnPath?: "/portal/payments/incoming/pending";
+    /** Server-owned return path (path + query only). Never accept a full client URL here. */
+    returnPath?: string;
   },
 ): Promise<HouseholdChargeCheckoutResult> {
   try {

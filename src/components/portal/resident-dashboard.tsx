@@ -11,7 +11,6 @@ import {
   PORTAL_DASHBOARD_STACK,
   PortalDashboardKpiRow,
   PortalDashboardKpiTile,
-  formatCompactChargeLine,
 } from "@/components/portal/portal-metrics";
 import {
   PortalTableExpandChevron,
@@ -47,7 +46,6 @@ import {
 import { getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { applicationsForResidentEmail } from "@/lib/rental-application/application-policy";
 import {
-  applicationStageDisplayLabel,
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
@@ -82,10 +80,13 @@ import {
   residentToursViewerKey,
 } from "@/lib/resident-tour-sync-client";
 import {
-  residentJourneySteps,
-  resolveResidentJourneyNextAction,
-  type ResidentJourneyStep,
-} from "@/lib/resident-journey-timeline";
+  residentLifecycleSteps,
+  resolveResidentLifecycleNextAction,
+  type ResidentLifecycleStep,
+} from "@/lib/resident-lifecycle-journey";
+import { ResidentLifecycleCompactTracker } from "@/components/portal/resident-lifecycle-compact-tracker";
+import { sumDueNowCents } from "@/lib/resident-due-now-balance";
+import { aggregateApplicationFeeStatus } from "@/lib/resident-application-fee-status";
 
 import { refreshResidentDashboardApplications, refreshResidentDashboardServices } from "@/lib/resident-dashboard-sync-client";
 
@@ -330,12 +331,6 @@ function AttentionGroup<T>({
   );
 }
 
-/** Parse a "$1,200.00" balance label into a numeric dollar amount for KPI sums. */
-function parseMoneyLabel(label: string): number {
-  const n = Number(String(label).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
-
 function formatUsd(amount: number): string {
   return amount.toLocaleString("en-US", {
     style: "currency",
@@ -381,13 +376,6 @@ function applicationStatusBadge(row: DemoApplicantRow): { label: string; tone: "
   return { label: row.stage?.trim() || "Pending", tone: "amber" };
 }
 
-function applicationSubtitle(row: DemoApplicantRow): string {
-  const property = row.property?.trim() || row.application?.propertyId?.trim() || "";
-  const stage = applicationStageDisplayLabel(row);
-  if (property && stage) return `${property} · ${stage}`;
-  return property || stage || "Application";
-}
-
 type ServicePreviewItem =
   | { kind: "request"; id: string; row: ServiceRequest }
   | { kind: "work-order"; id: string; row: DemoManagerWorkOrderRow };
@@ -417,13 +405,14 @@ export function ResidentJourneyBanner({
   steps,
   action,
 }: {
-  steps: ResidentJourneyStep[];
-  action: ReturnType<typeof resolveResidentJourneyNextAction>;
+  steps: ResidentLifecycleStep[];
+  action: ReturnType<typeof resolveResidentLifecycleNextAction>;
 }) {
-  if (action.id === "none") return null;
+  if (action.title === "You're all caught up") return null;
   return (
     <Link
       href={action.href}
+      data-jr-banner
       data-attr="resident-dashboard-journey"
       className="mb-1 flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
       style={{
@@ -431,33 +420,10 @@ export function ResidentJourneyBanner({
         background: action.urgent ? "var(--status-overdue-bg)" : "var(--card)",
       }}
     >
-      <div className="flex items-center gap-2" aria-hidden data-attr="resident-dashboard-journey-steps">
-        {steps.map((step, index) => (
-          <Fragment key={step.id}>
-            {index > 0 ? (
-              <span
-                className="h-px w-4 shrink-0"
-                style={{ background: step.state === "upcoming" ? "var(--border)" : "var(--primary)" }}
-              />
-            ) : null}
-            <span
-              className="size-2 shrink-0 rounded-full"
-              style={{
-                background:
-                  step.state === "done" ? "var(--primary)" : step.state === "current" ? DOT_CONFIRMED : "var(--border)",
-              }}
-            />
-            <span
-              className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
-                step.state === "upcoming" ? "text-muted" : "text-foreground"
-              }`}
-            >
-              {step.label}
-            </span>
-          </Fragment>
-        ))}
+      <div className="mb-3" data-attr="resident-dashboard-journey-steps">
+        <ResidentLifecycleCompactTracker steps={steps} />
       </div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between [html[data-native]_&]:flex-col [html[data-native]_&]:items-stretch">
         <span className="min-w-0">
           <span
             className="block truncate text-lg font-semibold [html[data-native]_&]:text-base"
@@ -465,7 +431,11 @@ export function ResidentJourneyBanner({
           >
             {action.title}
           </span>
-          <span className="block truncate text-sm text-muted [html[data-native]_&]:text-[12px]">{action.detail}</span>
+          {action.detail ? (
+            <span className="mt-0.5 block truncate text-xs font-semibold text-muted [html[data-native]_&]:text-[11px]">
+              {action.detail}
+            </span>
+          ) : null}
         </span>
         <span
           className="shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold text-white"
@@ -750,7 +720,7 @@ export function ResidentDashboard({
 
   const communicationHref = `${BASE}/communication`;
   const overdueChargeCount = pendingCharges.filter((c) => isHouseholdChargeOverdue(c)).length;
-  const totalBalanceDue = pendingCharges.reduce((sum, c) => sum + parseMoneyLabel(c.balanceLabel), 0);
+  const totalBalanceDue = sumDueNowCents(pendingCharges) / 100;
 
   const navStage = resolveResidentPortalNavStage({
     leaseAccessUnlocked: leaseSigned,
@@ -784,31 +754,43 @@ export function ResidentDashboard({
       : "No lease on file yet.";
 
   // C118 — the one journey timeline this whole dashboard resolves to.
-  const journeyInput = useMemo(
+  const feeStatus = useMemo(
+    () => aggregateApplicationFeeStatus(applicationRows, email ?? ""),
+    [applicationRows, email],
+  );
+  const signingOrder = useMemo((): "application_first" | "lease_first" => {
+    const pid = applicationRows[0]?.propertyId?.trim() || applicationRows[0]?.application?.propertyId?.trim() || "";
+    const order = pid ? getPropertyById(pid)?.signingOrder : undefined;
+    return order === "lease_first" ? "lease_first" : "application_first";
+  }, [applicationRows]);
+  const lifecycleInput = useMemo(
     () => ({
-      hasPendingTour: pendingTourCount > 0,
-      applicationSubmitted: applicationRows.length > 0,
+      signingOrder,
+      applicationFeePaid: feeStatus.paid || !feeStatus.needsPayment,
+      applicationSubmitted: applicationRows.some((row) => !isInProgressApplicationRow(row)),
       applicationApproved,
-      leaseSignatureNeeded: Boolean(lease.cta),
-      leaseSigned,
-      overdueChargeCount,
-      pendingChargeCount: pendingCharges.length,
-      totalBalanceDueLabel: formatUsd(totalBalanceDue),
+      residentSignedLease: leaseSigned,
+      managerCountersigned: leaseSigned,
+      moveInChargesPaid: totalBalanceDue <= 0 && leaseSigned,
+      movedIn: leaseSigned && showHouseDetails,
+      applicationFeeDeclined: feeStatus.declined,
       basePath: BASE,
     }),
     [
-      pendingTourCount,
-      applicationRows.length,
+      signingOrder,
+      feeStatus,
+      applicationRows,
       applicationApproved,
-      lease.cta,
       leaseSigned,
-      overdueChargeCount,
-      pendingCharges.length,
       totalBalanceDue,
+      showHouseDetails,
     ],
   );
-  const journeySteps = useMemo(() => residentJourneySteps(journeyInput), [journeyInput]);
-  const journeyAction = useMemo(() => resolveResidentJourneyNextAction(journeyInput), [journeyInput]);
+  const journeySteps = useMemo(() => residentLifecycleSteps(lifecycleInput), [lifecycleInput]);
+  const journeyAction = useMemo(
+    () => resolveResidentLifecycleNextAction(lifecycleInput),
+    [lifecycleInput],
+  );
 
   const openServiceCount = canUseServices ? serviceItems.length : 0;
   const openCount =
@@ -852,6 +834,7 @@ export function ResidentDashboard({
           </Link>
         ) : null}
         {leaseSigned ? <ResidentInspectionNextSteps userId={userId} basePath={BASE} /> : null}
+        <div className="[html[data-native]_&]:[&_.plp-stats]:flex-col [html[data-native]_&]:[&_.plp-stats]:gap-2">
         <PortalDashboardKpiRow>
             {showTourKpi ? (
             <PortalDashboardKpiTile
@@ -894,14 +877,16 @@ export function ResidentDashboard({
             />
             ) : null}
             {showPaymentsKpi && canUsePayments ? (
-            <PortalDashboardKpiTile
-              label="Balance due"
-              value={formatUsd(totalBalanceDue)}
-              tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
-              emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
-              href={`${BASE}/payments`}
-              dataAttr="resident-dashboard-kpi-balance"
-            />
+            <div className="plp-stats">
+              <PortalDashboardKpiTile
+                label="Balance due"
+                value={formatUsd(totalBalanceDue)}
+                tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
+                emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
+                href={`${BASE}/payments`}
+                dataAttr="resident-dashboard-kpi-balance"
+              />
+            </div>
             ) : null}
             {showInboxKpi ? (
             <PortalDashboardKpiTile
@@ -914,6 +899,7 @@ export function ResidentDashboard({
             />
             ) : null}
         </PortalDashboardKpiRow>
+        </div>
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
         <div className="space-y-4 [html[data-native]_&]:space-y-3">
@@ -957,7 +943,7 @@ export function ResidentDashboard({
                 href={residentTourDetailHref(BASE, "pending", tour.inquiryId)}
                 dot={sectionAccentDot(sectionTone)}
                 title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
-                subtitle={tourWhenLabel(tour)}
+                meta={tourWhenLabel(tour)}
                 pill={<StatusPill tone="pending">Pending</StatusPill>}
                 dataAttr="resident-dashboard-attention-tour"
               />
@@ -982,8 +968,7 @@ export function ResidentDashboard({
                   href={`${BASE}/applications`}
                   dot={sectionAccentDot(sectionTone)}
                   title={row.name?.trim() || "Application"}
-                  subtitle={applicationSubtitle(row)}
-                  pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
+                pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
                   dataAttr="resident-dashboard-attention-application"
                 />
               );
@@ -1006,8 +991,7 @@ export function ResidentDashboard({
                 href={`${BASE}/lease`}
                 dot={sectionAccentDot(sectionTone)}
                 title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
-                subtitle={leaseSubtitle}
-                meta={leaseRow?.signedRentLabel}
+                meta={leaseRow?.signedRentLabel || leaseSubtitle}
                 pill={<StatusPill tone={pillToneForBadgeTone(lease.tone)}>{lease.label}</StatusPill>}
                 dataAttr="resident-dashboard-attention-lease"
               />
@@ -1030,11 +1014,7 @@ export function ResidentDashboard({
                 href={`${BASE}/move-in`}
                 dot={sectionAccentDot("info")}
                 title="House details"
-                subtitle={
-                  appProperty
-                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
-                    : "Move-in placement, keys, and house information"
-                }
+                meta={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
                 pill={<StatusPill tone="success">Ready</StatusPill>}
                 dataAttr="resident-dashboard-attention-house-details"
               />
@@ -1060,7 +1040,7 @@ export function ResidentDashboard({
                     href={servicesHref}
                     dot={sectionAccentDot(sectionTone)}
                     title={item.row.offerName?.trim() || "Add-on service"}
-                    subtitle={propertyName || "Add-on service"}
+                    meta={propertyName || undefined}
                     pill={<StatusPill tone="pending">Pending</StatusPill>}
                     dataAttr="resident-dashboard-attention-service"
                   />
@@ -1071,7 +1051,7 @@ export function ResidentDashboard({
                   href={`${BASE}/services`}
                   dot={sectionAccentDot(sectionTone)}
                   title={item.row.title?.trim() || "Service"}
-                  subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || "Service"}
+                  meta={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || undefined}
                   pill={<StatusPill tone="pending">Open</StatusPill>}
                   dataAttr="resident-dashboard-attention-service"
                 />
@@ -1109,13 +1089,7 @@ export function ResidentDashboard({
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   dot={sectionAccentDot(sectionTone)}
                   title={charge.title || "Charge"}
-                  subtitle={formatCompactChargeLine(
-                    charge.title || "Charge",
-                    charge.balanceLabel,
-                    chargeDueLabel(charge),
-                    { omitBalance: true },
-                  )}
-                  meta={charge.balanceLabel}
+                  meta={`${charge.balanceLabel} · ${chargeDueLabel(charge)}`}
                   pill={
                     <StatusPill tone={overdue ? "danger" : "pending"}>
                       {overdue ? "Overdue" : "Pending"}
@@ -1144,7 +1118,7 @@ export function ResidentDashboard({
                 href={communicationHref}
                 dot={sectionAccentDot(sectionTone)}
                 title={thread.from || "Unknown sender"}
-                subtitle={thread.subject || thread.preview || "—"}
+                meta={thread.subject || thread.preview || undefined}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
                 dataAttr="resident-dashboard-attention-inbox"
               />

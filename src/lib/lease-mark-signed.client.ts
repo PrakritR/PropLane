@@ -96,7 +96,13 @@ export async function markLeaseSignedOffPlatform(
         // listing's price from here on is someone else's business.
         const frozen = freezeSignedLeaseTerms(app, { managerUserId: opts.managerUserId, lease: marked ?? row });
         if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-        recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, { leaseExecuted: true });
+        const residentAlreadySigned = Boolean(
+          (marked ?? row).residentSignature?.signedAtIso || (marked ?? row).signedAtIso,
+        );
+        recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, {
+          leaseExecuted: true,
+          recurringProfileOnly: residentAlreadySigned,
+        });
       }
     }
   } catch {

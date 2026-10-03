@@ -45,6 +45,7 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import { partitionTourAvailabilityStoredKeys } from "@/lib/tour-slot-math";
 import Link from "next/link";
+import { activeWorkspaceScope } from "@/lib/workspaces/selection";
 
 import { DEFAULT_LISTING_SHARED_INTRO, LISTING_SHARED_TEMPLATE_KEY, renderListingSharedIntro } from "@/lib/listing-shared-template";
 import { normalizeAutomatedMessageSettings } from "@/lib/automated-messages-settings";
@@ -317,7 +318,9 @@ export function ShareLeadLinkModal({
       });
     }
     if (isPortfolioTour) return portfolioTourUrl;
-    if (isMultiListing) return buildManagerBrowseUrl(origin, propertyIds);
+    if (isMultiListing) {
+      return buildManagerBrowseUrl(origin, propertyIds, { workspaceName: activeWorkspaceScope()?.name });
+    }
     if (isMultiApply) {
       return buildManagerPortfolioApplyUrl(origin, propertyIds, {
         rentalType: applyLinkRentalType(effectiveApplyRentalTypes),

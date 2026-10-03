@@ -124,12 +124,12 @@ export function ListingKeyFacts({ facts, className = "" }: { facts: ListingKeyFa
   if (facts.length === 0) return null;
   const cols =
     facts.length >= 5
-      ? "lg:grid-cols-5"
+      ? "sm:grid-cols-3 md:grid-cols-5"
       : facts.length === 4
-        ? "lg:grid-cols-4"
+        ? "sm:grid-cols-2 md:grid-cols-4"
         : facts.length === 3
-          ? "lg:grid-cols-3"
-          : "lg:grid-cols-2";
+          ? "sm:grid-cols-3"
+          : "sm:grid-cols-2";
   return (
     <ul className={`grid grid-cols-2 gap-2 ${cols} ${className}`} data-attr="listing-key-facts">
       {facts.map((fact) => {

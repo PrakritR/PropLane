@@ -43,10 +43,13 @@ import {
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   householdChargeCheckoutProcessing,
+  isHouseholdChargeCheckoutSession,
   markHouseholdChargePaidFromStripeSession,
   markHouseholdChargeProcessingFromStripeSession,
   revertHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
+import { releaseShortStayHold } from "@/lib/short-stay-booking.server";
+import type { HouseholdCharge } from "@/lib/household-charges";
 import { runScreeningFromStripeSession, SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
@@ -384,6 +387,27 @@ export async function POST(req: Request) {
       await revertHouseholdChargeProcessingFromStripeSession(db, session).catch((e) => {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
       });
+    }
+
+    if (event.type === "checkout.session.expired" && isHouseholdChargeCheckoutSession(event.data.object as Stripe.Checkout.Session)) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const chargeIds =
+        session.metadata?.charge_ids
+          ?.split(",")
+          .map((id) => id.trim())
+          .filter(Boolean) ?? [];
+      const fallbackId = session.metadata?.charge_id?.trim();
+      const ids = chargeIds.length > 0 ? chargeIds : fallbackId ? [fallbackId] : [];
+      for (const chargeId of ids) {
+        const { data } = await db.from("portal_household_charge_records").select("row_data").eq("id", chargeId).maybeSingle();
+        const charge = data?.row_data as (HouseholdCharge & { shortStayBookingId?: string }) | null;
+        const bookingId = charge?.shortStayBookingId?.trim();
+        if (bookingId) {
+          await releaseShortStayHold(db, bookingId).catch((e) => {
+            console.error("[stripe webhook] short-stay hold release", e);
+          });
+        }
+      }
     }
 
     if (event.type === "invoice.paid") {
