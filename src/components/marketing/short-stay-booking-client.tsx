@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { RoomAvailabilityMonthCalendar } from "@/components/room-availability-month-calendar";
 import { Button } from "@/components/ui/button";
 import { sha256HexFromUtf8 } from "@/lib/document-body-sha256";
 import { shortTermNightlyRate, shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
@@ -12,6 +13,8 @@ import { getListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { publicSpansToCalendarSpans } from "@/lib/short-stay-availability";
+import { shortStayScreeningRequired } from "@/lib/short-stay-screening";
 
 export function ShortStayBookingClient() {
   const searchParams = useSearchParams();
@@ -24,7 +27,9 @@ export function ShortStayBookingClient() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [screeningConsent, setScreeningConsent] = useState(false);
   const [agreementHash, setAgreementHash] = useState<string | null>(null);
+  const [agreementSignedName, setAgreementSignedName] = useState("");
   const [listing, setListing] = useState<MockProperty | null>(null);
   const { rooms: occupancyRooms } = useListingPublicOccupancy(propertyId);
   const [loadingListing, setLoadingListing] = useState(Boolean(propertyId));
@@ -60,6 +65,7 @@ export function ShortStayBookingClient() {
     () => listing?.listingSubmission?.rooms?.find((r) => r.id === (roomId || displayRoom?.id)) ?? null,
     [displayRoom?.id, listing, roomId],
   );
+  const screeningRequired = shortStayScreeningRequired(listing?.listingSubmission ?? null);
 
   const nightly = useMemo(() => {
     if (!listing) return shortTermNightlyRate("0");
@@ -79,6 +85,8 @@ export function ShortStayBookingClient() {
     return occ?.spans ?? [];
   }, [displayRoom?.id, occupancyRooms, propertyId]);
 
+  const calendarSpans = useMemo(() => publicSpansToCalendarSpans(blockedSpans), [blockedSpans]);
+
   const nights = useMemo(() => shortTermStayNightCount(checkIn, checkOut) ?? 0, [checkIn, checkOut]);
   const total = nightly * nights * guests;
   const agreement = useMemo(() => {
@@ -86,6 +94,11 @@ export function ShortStayBookingClient() {
     const roomLabel = displayRoom?.name?.trim() || "the selected room";
     return `Short-term stay agreement for ${propertyLabel}, ${roomLabel}. Guest ${name.trim() || "(name)"} agrees to house rules, quiet hours, and the nightly rate of $${nightly.toFixed(2)} for ${nights} night(s).`;
   }, [displayRoom, listing, name, nightly, nights]);
+
+  useEffect(() => {
+    setAgreementHash(null);
+    setAgreementSignedName("");
+  }, [agreement, name]);
 
   const listingHref =
     propertyId && roomId
@@ -95,13 +108,23 @@ export function ShortStayBookingClient() {
         : "/rent/browse";
 
   const signAgreement = async () => {
-    if (!name.trim()) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
     const hash = await sha256HexFromUtf8(agreement);
     setAgreementHash(hash);
+    setAgreementSignedName(trimmed);
   };
 
   const pay = async () => {
     if (!agreementHash || nights < 1 || !propertyId || !displayRoom?.id) return;
+    if (agreementSignedName.trim() !== name.trim()) {
+      setSubmitError("Re-sign the agreement after changing your name.");
+      return;
+    }
+    if (screeningRequired && !screeningConsent) {
+      setSubmitError("Agree to screening to continue.");
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -118,15 +141,24 @@ export function ShortStayBookingClient() {
           guestEmail: email.trim(),
           guestPhone: phone.trim(),
           agreementSha256: agreementHash,
+          screeningConsent: screeningRequired ? screeningConsent : undefined,
         }),
       });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string; confirmationPath?: string };
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        confirmationPath?: string;
+        checkoutUrl?: string;
+      };
       if (res.status === 409) {
         setSubmitError(payload.error ?? "Those dates are no longer available.");
         return;
       }
       if (!res.ok) {
         setSubmitError(payload.error ?? "Could not start payment.");
+        return;
+      }
+      if (payload.checkoutUrl) {
+        window.location.href = payload.checkoutUrl;
         return;
       }
       if (payload.confirmationPath) router.push(payload.confirmationPath);
@@ -137,6 +169,8 @@ export function ShortStayBookingClient() {
     }
   };
 
+  const payLabel = screeningRequired ? "Continue to request" : "Pay by card";
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6" data-st9-wrap>
       <Link href={listingHref} className="text-sm font-semibold text-primary">Back to listing</Link>
@@ -144,6 +178,12 @@ export function ShortStayBookingClient() {
       <section className="grid gap-4 md:grid-cols-2" data-st9-dates>
         <div className="rounded-2xl border border-border bg-card p-4">
           <h1 className="text-lg font-bold text-foreground">Book a short stay</h1>
+          <p className="mt-2 text-xs font-semibold text-muted">
+            Grey nights are booked. Check-out is the morning you leave.
+          </p>
+          <div className="mt-3" data-st9-calendar>
+            <RoomAvailabilityMonthCalendar spans={calendarSpans} legend />
+          </div>
           <label className="mt-3 block text-sm font-bold text-foreground">
             Check-in
             <input
@@ -178,11 +218,6 @@ export function ShortStayBookingClient() {
           <p className="mt-2 text-sm font-semibold text-foreground">
             {nights} nights × {guests} guest{guests === 1 ? "" : "s"} = ${total.toFixed(2)}
           </p>
-          {blockedSpans.length > 0 ? (
-            <p className="mt-3 text-xs font-semibold text-muted">
-              {blockedSpans.length} occupied range(s) on this room — pick dates outside them.
-            </p>
-          ) : null}
         </div>
       </section>
       <section className="rounded-2xl border border-border bg-card p-4" data-st9-agreement>
@@ -213,10 +248,27 @@ export function ShortStayBookingClient() {
             onChange={(e) => setPhone(e.target.value)}
           />
         </label>
+        {screeningRequired ? (
+          <label className="mt-3 flex items-start gap-2 text-sm font-semibold text-foreground" data-st9-screen-row>
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={screeningConsent}
+              onChange={(e) => setScreeningConsent(e.target.checked)}
+            />
+            <span>
+              I consent to a background and credit screening for this stay. Nothing is screened until I agree here.
+            </span>
+          </label>
+        ) : null}
         <h2 className="mt-4 text-sm font-bold text-foreground">Agreement</h2>
         <p className="mt-2 text-sm text-foreground">{agreement}</p>
         <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-          <input type="checkbox" checked={Boolean(agreementHash)} onChange={() => void signAgreement()} />
+          <input
+            type="checkbox"
+            checked={Boolean(agreementHash) && agreementSignedName === name.trim()}
+            onChange={() => void signAgreement()}
+          />
           I sign with my typed name (must match the form)
         </label>
         {agreementHash ? (
@@ -231,7 +283,7 @@ export function ShortStayBookingClient() {
           disabled={!agreementHash || nights < 1 || !email.trim() || submitting}
           onClick={() => void pay()}
         >
-          Pay by card
+          {payLabel}
         </Button>
       </section>
     </div>

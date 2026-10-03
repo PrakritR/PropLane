@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPublicListings } from "@/lib/public-listings.server";
+import { resolveAppOrigin } from "@/lib/app-url";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { createShortStayBooking } from "@/lib/short-stay-booking.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
 
 export const runtime = "nodejs";
@@ -14,11 +17,16 @@ type Body = {
   guestEmail?: string;
   guestPhone?: string;
   agreementSha256?: string;
+  screeningConsent?: boolean;
 };
 
-/** Public short-stay booking intake — creates checkout session when dates are free. */
+/** Public short-stay booking — holds dates, creates charges, returns Stripe Checkout when instant book applies. */
 export async function POST(req: NextRequest) {
   try {
+    if (!(await rateLimit(`short-stay-booking:${clientIpFrom(req)}`, 15, 60_000)).ok) {
+      return NextResponse.json({ error: "Too many booking attempts. Try again shortly." }, { status: 429 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Body;
     const propertyId = body.propertyId?.trim() ?? "";
     const roomId = body.roomId?.trim() ?? "";
@@ -37,22 +45,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Check-out must be after check-in." }, { status: 400 });
     }
 
-    const listings = await getPublicListings({});
-    const listing = listings.find((row) => row.id === propertyId);
-    if (!listing) {
-      return NextResponse.json({ error: "This listing is not available." }, { status: 404 });
+    const db = createSupabaseServiceRoleClient();
+    const result = await createShortStayBooking(db, {
+      propertyId,
+      roomId,
+      checkIn,
+      checkOut,
+      guests: Math.max(1, Number(body.guests) || 1),
+      guestName,
+      guestEmail,
+      guestPhone: body.guestPhone?.trim(),
+      agreementSha256,
+      screeningConsent: body.screeningConsent === true,
+      appOrigin: resolveAppOrigin(req),
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    const room = listing.listingSubmission?.rooms?.find((r) => r.id === roomId);
-    if (!room) {
-      return NextResponse.json({ error: "This room is not available." }, { status: 404 });
+    if (result.mode === "checkout") {
+      return NextResponse.json({
+        ok: true,
+        bookingId: result.bookingId,
+        chargeIds: result.chargeIds,
+        checkoutUrl: result.checkoutUrl,
+      });
     }
 
     return NextResponse.json({
       ok: true,
-      bookingId: `stay-${propertyId}-${Date.now()}`,
-      nights,
-      confirmationPath: `/rent/stay/confirmation?propertyId=${encodeURIComponent(propertyId)}`,
+      bookingId: result.bookingId,
+      request: true,
+      confirmationPath: result.confirmationPath,
     });
   } catch (error) {
     return NextResponse.json(
