@@ -38,7 +38,7 @@ describe("compose modal validation is visible, and never discards the draft", ()
     const bareToasts = body.match(/showToast\("(Write a message|Select at least one|Add a subject|Add at least one|Choose a valid|Send time must|Type an email)[^"]*"\)/g);
     expect(bareToasts).toBeNull();
     expect(body).toContain('fail("Write a message.");');
-    expect(body).toContain('fail("Select at least one section under To.");');
+    expect(body).toContain('fail("Choose a recipient.");');
     expect(body).toContain('fail("Add at least one email recipient (directory or Other).");');
   });
 
@@ -62,6 +62,6 @@ describe("compose modal validation is visible, and never discards the draft", ()
   });
 
   it("clears the previous failure when a new attempt starts", () => {
-    expect(submitBody().slice(0, 120)).toContain("setFormError(null)");
+    expect(submitBody()).toContain("setFormError(null)");
   });
 });

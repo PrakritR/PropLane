@@ -24,12 +24,12 @@ describe("vendor profile parity", () => {
 
   it("makes history failures visible and starts a fresh coalesced read after work-order changes", () => {
     const detail = read("src/components/portal/pro-vendor-detail.tsx");
-    expect(detail.match(/Could not load vendor history\./g)).toHaveLength(2);
+    expect(detail.match(/Could not load vendor history\./g)).toHaveLength(1);
     expect(detail).toContain("void refreshSummary(true)");
     expect(detail).toContain("const summaryRequest = useRef(0)");
     expect(detail).toContain("if (summaryRequest.current !== request) return");
-    expect(detail).toContain('data-attr="vendor-job-open"');
-    expect(detail).toContain("Accepted quote {jobMoney(job.acceptedQuoteCents)} · Final invoice {jobMoney(job.finalInvoiceCents)} · Paid {jobMoney(job.paidCents)}");
+    expect(detail).toContain("PortalApplicantRecordRow");
+    expect(detail).toContain("onNavigate(managerVendorSummaryJobHref(basePath, job))");
   });
 });
 

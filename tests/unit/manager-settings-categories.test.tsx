@@ -46,6 +46,11 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
+  useModalPresentation: () => "dialog",
+}));
+
 // Panels the Settings layout only slots in; their internals are covered by
 // their own suites. Stubbed so this test fails on composition, not on fetch.
 vi.mock("@/components/portal/pro-plan", () => ({
@@ -221,6 +226,7 @@ describe("manager settings categories", () => {
 
   it("edits profile name in place and confirms only after the profile API succeeds", async () => {
     const fetchMock = vi.mocked(fetch);
+    goto("?tab=profile");
     renderSettings();
     const edit = document.querySelector('[data-attr="settings-edit-fullName"]');
     expect(edit).toBeTruthy();

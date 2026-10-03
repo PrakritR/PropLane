@@ -30,7 +30,8 @@ describe("Billing & plan pages carry no marketing subtext", () => {
   });
 
   it("the Adjust plan sheet states entitlements as one fact line, not a bulleted description", () => {
-    expect(sheetSrc).toContain("entitlementLine(tier)");
-    expect(sheetSrc).not.toMatch(/<ul[^>]*>[\s\S]*?entitlementLine/);
+    expect(sheetSrc).toContain("includedResidentsForTier(tier)");
+    expect(sheetSrc).toContain("WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces");
+    expect(sheetSrc).not.toMatch(/<p className="[^"]*text-muted[^"]*">[\s\S]*?includedResidentsForTier/);
   });
 });

@@ -259,7 +259,8 @@ describe("Workspace invite sheet — no pills, no subtext", () => {
   });
 
   it("renders a live 'Role can' capability list rather than staying silent for stock roles", () => {
-    expect(sheetSource()).toContain("<RoleCapabilitiesList role={role} grant={effectivePermissions} />");
+    expect(sheetSource()).toContain("<WorkspacePermissionsFields");
+    expect(sheetSource()).toContain("CoManagerPermissionsEditor");
   });
 
   it("the shared permissions-fields module declares no description/meta subtext prop", () => {

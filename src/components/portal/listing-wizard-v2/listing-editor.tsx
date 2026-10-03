@@ -2559,6 +2559,13 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
       state: rooms.length > 0 && withPhotos.length === rooms.length ? "done" : "warn",
     },
     { id: "description", label: "Description written", state: sub.houseOverview.trim() ? "done" : "todo" },
+    ...(sub.serviceFeePayer === "proplane" && !isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode)
+      ? [{
+          id: "processing",
+          label: "Add a promo code so PropLane can cover processing",
+          state: "warn" as const,
+        }]
+      : []),
   ];
 }
 

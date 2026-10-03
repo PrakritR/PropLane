@@ -76,11 +76,9 @@ describe("person-record-actions", () => {
     // the registry's `headerActions` only while the resident has no portal
     // account yet (see `residentSections`, PLAN-0920-1058 area 1a). Re-pinned
     // here so this still fails if Send setup ever shows for a logged-in resident.
-    expect(src).toContain(
-      'headerActions: selectedHasPortalAccount\n' +
-        '        ? sections.headerActions\n' +
-        '        : [...sections.headerActions, { id: "setup", label: "Send setup", icon: Mail }],',
-    );
+    expect(src).toContain("residentRecordHeaderActions");
+    expect(src).toContain("const withSetup = selectedHasPortalAccount");
+    expect(src).toContain('{ id: "setup", label: "Send setup", icon: Mail }');
     expect(src).toContain("singleListSelectedNeedsSetup");
     const setupModal = src.slice(src.indexOf('title="Send setup"'), src.indexOf('confirmLabel="Send setup"'));
     expect(setupModal).toContain("defaultViaEmail");
