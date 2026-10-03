@@ -189,6 +189,8 @@ describe("listed Preview header actions — source", () => {
     expect(footerMemo).toContain("PortalAdaptiveActionRow");
     expect(footerMemo).not.toContain("maxVisible");
     expect(footerMemo).not.toContain("alwaysVisible");
+    expect(footerMemo).toContain('setPendingDestructiveAction("delete-listed")');
+    expect(footerMemo).not.toContain('showToast("Coming soon")');
   });
 });
 

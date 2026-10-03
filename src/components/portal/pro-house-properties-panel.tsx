@@ -96,6 +96,7 @@ import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-ses
 import {
   compareAdminPropertyRowsForDisplay,
   deleteManagerPropertyDraft,
+  deleteManagerLiveListing,
   deleteUnlistedManagerProperty,
   duplicateManagerPropertyDraftToServer,
   listAdminRow,
@@ -515,7 +516,7 @@ function ManagerPropertyInlineDetails({
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
-    "delete-queue" | "delete-draft" | "unlist" | null
+    "delete-queue" | "delete-draft" | "delete-listed" | "unlist" | null
   >(null);
   const [destructiveBusy, setDestructiveBusy] = useState(false);
 
@@ -593,7 +594,7 @@ function ManagerPropertyInlineDetails({
       <PortalIconAction
         ring
         icon={Copy}
-        label="Copy"
+        label="Duplicate property"
         data-attr="listing-duplicate"
         disabled={duplicateBusy}
         onClick={() => runDuplicateProperty()}
@@ -668,6 +669,26 @@ function ManagerPropertyInlineDetails({
         showToast("Listing unlisted.");
         onUpdated();
         onAfterUnlist?.(listingId.trim() || row.adminRefId.trim());
+        return;
+      }
+      if (action === "delete-listed") {
+        const liveId = listingId?.trim();
+        if (!liveId || !canDeleteAction) {
+          showToast("Could not delete.");
+          setDestructiveBusy(false);
+          setPendingDestructiveAction(null);
+          return;
+        }
+        const ok = deleteManagerLiveListing(liveId, listingOwnerUserId ?? managerUserId);
+        setDestructiveBusy(false);
+        setPendingDestructiveAction(null);
+        if (!ok) {
+          showToast("Could not delete.");
+          return;
+        }
+        showToast("Listing deleted.");
+        onUpdated();
+        detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
       }
     });
   };
@@ -694,7 +715,14 @@ function ManagerPropertyInlineDetails({
               confirmLabel: "Unlist",
               dataAttr: "listing-unlist-confirm",
             }
-          : null;
+          : pendingDestructiveAction === "delete-listed"
+            ? {
+                title: "Delete",
+                description: `Delete ${propertyShareLabel} permanently? It will be removed from your portfolio and the public site.`,
+                confirmLabel: "Delete",
+                dataAttr: "listing-delete-confirm",
+              }
+            : null;
 
   const listingFormProps = portalSub
     ? {
@@ -873,27 +901,29 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
-        actions.push({
-          id: "delete-listed",
-          node: (
-            <PortalIconAction
-              ring
-              tone="danger"
-              icon={Trash2}
-              label="Delete"
-              data-attr="listing-delete"
-              onClick={() => showToast("Coming soon")}
-            />
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="listing-delete"
-              onSelect={() => showToast("Coming soon")}
-            >
-              Delete
-            </DropdownMenuItem>
-          ),
-        });
+        if (canDeleteAction) {
+          actions.push({
+            id: "delete-listed",
+            node: (
+              <PortalIconAction
+                ring
+                tone="danger"
+                icon={Trash2}
+                label="Delete"
+                data-attr="listing-delete"
+                onClick={() => setPendingDestructiveAction("delete-listed")}
+              />
+            ),
+            menuItem: (
+              <DropdownMenuItem
+                data-attr="listing-delete"
+                onSelect={() => setPendingDestructiveAction("delete-listed")}
+              >
+                Delete
+              </DropdownMenuItem>
+            ),
+          });
+        }
       }
 
       if (bucket === 3) {
@@ -1156,8 +1186,8 @@ function ManagerPropertyInlineDetails({
         }
         return;
       case "delete":
-        if (bucket === 2 && listingId) {
-          showToast("Coming soon");
+        if (bucket === 2 && listingId && canDeleteAction) {
+          setPendingDestructiveAction("delete-listed");
         } else if (bucket === 5) {
           setPendingDestructiveAction("delete-draft");
         } else if (bucket === 3 && canDeleteAction) {
