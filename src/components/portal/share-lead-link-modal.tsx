@@ -1,27 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import {
-  ReviewCard,
-  WizardField,
-  WizardLine,
-  WizardMultiSelect,
-  WizardSection,
-  WizardSelect,
-} from "@/components/portal/add-workspace/parts";
-import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { WizardShell } from "@/components/ui/wizard-shell";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { ShareLeadLinkPreviewPanel } from "@/components/portal/share-lead-link-preview-panel";
-import { Copy, RotateCcw } from "lucide-react";
-import { Input, Textarea } from "@/components/ui/input";
+import { Copy, X, RotateCcw } from "lucide-react";
+import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import {
   buildLeadInviteEmailBody,
+  listingShareButtonLabel,
   leadInviteSubject,
   buildLeadInviteSmsText,
   type LeadInviteKind,
@@ -42,8 +36,6 @@ import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { normalizeManagerSmsConversationsPayload } from "@/lib/manager-sms-messages";
 import {
   portalMessageChannelsFromSelection,
-  PortalMessageSendViaDropdown,
-  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
 } from "@/components/portal/portal-message-compose-fields";
 import type { NotificationDeliveryChannels } from "@/components/portal/portal-notification-preview-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -58,12 +50,7 @@ import { activeWorkspaceScope } from "@/lib/workspaces/selection";
 import { DEFAULT_LISTING_SHARED_INTRO, LISTING_SHARED_TEMPLATE_KEY, renderListingSharedIntro } from "@/lib/listing-shared-template";
 import { normalizeAutomatedMessageSettings } from "@/lib/automated-messages-settings";
 
-function shareLinkRowLabel(kind: LeadInviteKind): string {
-  if (kind === "apply") return "Apply link";
-  if (kind === "tour") return "Tour link";
-  if (kind === "listing") return "Listing link";
-  return "Lease link";
-}
+const FIELD_LABEL_CLASS = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
 
 /** True when the manager has not painted any open tour windows for this property. */
 function propertyHasPublishedTourSlots(managerUserId: string, propertyId: string): boolean {
@@ -86,6 +73,34 @@ function applyLinkRentalType(types: string[]): "short_term" | undefined {
   if (hasShort && !hasStandard) return "short_term";
   return undefined;
 }
+
+function ShareLinkCopyRow({
+  label,
+  url,
+  copyLabel,
+  onCopy,
+  hint,
+}: {
+  label: string;
+  url: string;
+  copyLabel: string;
+  onCopy: () => void;
+  hint?: ReactNode;
+}) {
+  return (
+    <div>
+      <p className={FIELD_LABEL_CLASS}>{label}</p>
+      <div className="flex items-stretch gap-2">
+        <div className="flex min-h-10 min-w-0 flex-1 items-center rounded-xl border border-border bg-accent/30 px-3 py-2 text-xs text-muted">
+          <span className="truncate">{url || "Select a property to generate a link."}</span>
+        </div>
+        <PortalIconAction icon={Copy} label={copyLabel} disabled={!url} onClick={onCopy} />
+      </div>
+      {hint ? <div className="mt-1.5 text-xs leading-relaxed text-muted">{hint}</div> : null}
+    </div>
+  );
+}
+
 
 function ListingIntroEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const ref = useRef<HTMLParagraphElement>(null);
@@ -241,6 +256,19 @@ export function ShareLeadLinkModal({
     if (!isPortfolioTour || typeof window === "undefined") return "";
     return buildManagerPortfolioTourUrl(linkOrigin, propertyIds);
   }, [isPortfolioTour, propertyIds, linkOrigin]);
+
+  const individualTourLinks = useMemo(() => {
+    if (kind !== "tour" || typeof window === "undefined") return [];
+    const origin = linkOrigin;
+    const selected = new Set(propertyIds);
+    return properties
+      .filter((property) => selected.has(property.id))
+      .map((property) => ({
+        id: property.id,
+        label: property.label,
+        url: buildManagerTourUrl(origin, property.id),
+      }));
+  }, [kind, properties, propertyIds, linkOrigin]);
 
   const roomOptions = useMemo(() => {
     if ((kind !== "apply" && kind !== "lease") || !singlePropertyId) return [];
@@ -433,6 +461,30 @@ export function ShareLeadLinkModal({
     showToast(ok ? successMessage : "Could not copy link.");
   };
 
+  const openSendPreview = () => {
+    if (propertyIds.length === 0) {
+      showToast("Select a property first.");
+      return;
+    }
+    if (!viaEmail && !viaSms) {
+      showToast("Choose email, SMS, or both.");
+      return;
+    }
+    if (viaEmail && !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(prospectEmail.trim())) {
+      showToast("Enter a valid prospect email.");
+      return;
+    }
+    if (viaSms && !smsAvailable) {
+      showToast("A work number is required to send text messages.");
+      return;
+    }
+    if (viaSms && prospectPhone.replace(/\D/g, "").length < 10) {
+      showToast("Enter a valid prospect phone number for SMS.");
+      return;
+    }
+    setStep(2);
+  };
+
   const sendInvite = async (channels?: NotificationDeliveryChannels) => {
     const deliverEmail = channels?.viaEmail ?? viaEmail;
     const deliverSms = channels?.viaSms ?? viaSms;
@@ -500,272 +552,79 @@ export function ShareLeadLinkModal({
     }
   };
 
-  const subject = leadInviteSubject(kind, propertyTitle, isMultiProperty ? propertyIds.length : undefined);
-  const emailValid = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(prospectEmail.trim());
-  const phoneValid = prospectPhone.replace(/\D/g, "").length >= 10;
-  const recipientReady =
-    (viaEmail || viaSms) &&
-    (!viaEmail || emailValid) &&
-    (!viaSms || (smsAvailable && phoneValid));
-
-  const workspaceSteps = useMemo<AddWorkspaceStep[]>(() => {
-    const homeIncomplete = propertyIds.length === 0;
-    const recipientIncomplete = !recipientReady;
-    const recipientSummary = prospectName.trim()
-      ? [prospectName.trim(), viaEmail ? prospectEmail.trim() : "", viaSms ? prospectPhone.trim() : ""].filter(Boolean).join(" · ")
-      : "Who receives this";
-    return [
-      { id: "home", label: "Home", incomplete: homeIncomplete, summary: propertyTitle || "No property yet" },
-      { id: "recipient", label: "Recipient", incomplete: recipientIncomplete, summary: recipientSummary },
-      {
-        id: "review",
-        label: "Review",
-        incomplete: homeIncomplete || recipientIncomplete,
-        summary: homeIncomplete || recipientIncomplete ? "Finish required fields" : "Ready to send",
-      },
-    ];
-  }, [propertyIds.length, propertyTitle, prospectEmail, prospectName, prospectPhone, recipientReady, viaEmail, viaSms]);
-
-  const stepId = workspaceSteps[Math.min(step, workspaceSteps.length - 1)]?.id ?? "home";
-  const goTo = (id: string) => {
-    const idx = workspaceSteps.findIndex((s) => s.id === id);
-    if (idx >= 0) setStep(idx);
-  };
-  const linkLabel = shareLinkRowLabel(kind);
-
   if (!open) return null;
-
+  const subject = leadInviteSubject(kind, propertyTitle, isMultiProperty ? propertyIds.length : undefined);
+  const steps = [{ id: "home", label: "Home" }, { id: "recipient", label: "Recipient" }, { id: "review", label: "Review" }];
+  const rowClass = "grid gap-3 border-b border-border px-4 py-4 last:border-0 sm:grid-cols-[140px_1fr] sm:items-center";
+  const individualLinks = properties.filter((property) => propertyIds.includes(property.id)).map((property) => ({
+    id: property.id, label: property.label,
+    url: propertyIds.length === 1 ? linkUrl : kind === "listing" ? buildManagerListingUrl(linkOrigin, property.id)
+      : kind === "apply" ? buildManagerApplyUrl(linkOrigin, { propertyId: property.id, rentalType: applyLinkRentalType(effectiveApplyRentalTypes) })
+      : kind === "tour" ? individualTourLinks.find((entry) => entry.id === property.id)?.url ?? "" : linkUrl,
+  }));
   return (
-    <AddWorkspace
-      title={inviteTitle}
-      steps={workspaceSteps}
-      current={step}
-      onJump={setStep}
-      onClose={onClose}
-      hideFooterStepCount
-      reviewEditLinks
-      assistantContext={inviteTitle}
-      assistantScopeKey={`share-lead-${kind}`}
-      dataAttrPrefix="share-lead"
-      finishDataAttr="share-lead-send"
-      lastLabel="Send"
-      lastDisabled={!propertyIds.length || !recipientReady || !sender}
-      nextDisabled={step === 0 && propertyIds.length === 0}
-      busy={sendBusy}
-      dirty={Boolean(prospectName.trim() || prospectEmail.trim() || prospectPhone.trim() || note.trim())}
-      onBeforeNext={() => {
-        if (stepId === "home" && propertyIds.length === 0) {
-          showToast("Select a property first.");
-          return false;
-        }
-        if (stepId === "recipient") {
-          if (!viaEmail && !viaSms) {
-            showToast("Choose email, SMS, or both.");
-            return false;
-          }
-          if (viaEmail && !emailValid) {
-            showToast("Enter a valid prospect email.");
-            return false;
-          }
-          if (viaSms && !smsAvailable) {
-            showToast("A work number is required to send text messages.");
-            return false;
-          }
-          if (viaSms && !phoneValid) {
-            showToast("Enter a valid prospect phone number for SMS.");
-            return false;
-          }
-        }
-        return true;
-      }}
-      onFinish={() => void sendInvite()}
-      sidePanel={
-        <ShareLeadLinkPreviewPanel
-          kind={kind}
-          prospectName={prospectName}
-          prospectEmail={prospectEmail}
-          prospectPhone={prospectPhone}
-          propertyTitle={propertyTitle}
-          viaEmail={viaEmail}
-          viaSms={viaSms}
-          senderName={sender?.name ?? ""}
-          workNumber={workNumber}
-          previewBody={previewBody}
-          propertyMissing={propertyIds.length === 0}
-          recipientReady={recipientReady}
-        />
-      }
-    >
-      {stepId === "home" ? (
-        <StepColumn>
-          <StepHeading title="Home" />
-          {properties.length === 0 ? (
-            <p role="status">No active properties to share.</p>
-          ) : (
-            <>
-              <WizardSection title="Property" dataAttr="share-lead-home">
-                {multiEnabled && kind !== "lease" ? (
-                  <WizardMultiSelect
-                    label="Properties"
-                    dataAttr="share-lead-property-multi"
-                    emptyLabel="Select properties"
-                    emptyMenuText="No properties"
-                    options={properties.map((p) => ({ value: p.id, label: p.label }))}
-                    selected={propertyIds}
-                    onChange={(next) => {
-                      setPropertyIds(next);
-                      setRoomChoice("");
-                    }}
-                    required
-                  />
-                ) : (
-                  <WizardSelect
-                    label="Property"
-                    value={singlePropertyId}
-                    onChange={(next) => {
-                      setPropertyIds(next ? [next] : []);
-                      setRoomChoice("");
-                    }}
-                    options={properties.map((p) => ({ value: p.id, label: p.label }))}
-                    placeholder="Select property…"
-                    dataAttr="share-lead-property"
-                    required
-                  />
-                )}
-                {kind === "apply" && shortTermApplyAvailable ? (
-                  <div className="mt-3">
-                    <WizardSelect
-                      label="Application"
-                      value={applyRentalTypes[0] ?? "standard"}
-                      onChange={(next) => setApplyRentalTypes([next])}
-                      options={APPLY_RENTAL_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                      dataAttr="share-lead-application-type"
-                    />
+    <ListingWizardOverlay ariaLabel={inviteTitle}>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card" data-attr="share-lead-wizard">
+        <header className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="text-lg font-semibold">{inviteTitle}</h2>
+          <PortalIconAction icon={X} label="Close" onClick={onClose} disabled={sendBusy} />
+        </header>
+        <WizardShell steps={steps} currentStepIndex={step} footer={
+          <div className="flex flex-1 items-center justify-between gap-4">
+            <Button variant="ghost" disabled={step === 0 || sendBusy} onClick={() => setStep((value) => value - 1)}>Back</Button>
+            <span className="text-sm text-muted">Step {step + 1} of 3</span>
+            <Button disabled={!propertyIds.length || sendBusy || (step === 2 && !sender)} onClick={() => {
+              if (step === 0) { setStep(1); return; }
+              if (step === 1) { openSendPreview(); return; }
+              return sendInvite();
+            }}>{step === 2 ? "Send" : "Continue"}</Button>
+          </div>
+        }>
+          <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
+            <div className="min-w-0 space-y-6">
+              <h3 className="text-xl font-semibold">{steps[step].label}</h3>
+              {step === 0 ? <>
+                {properties.length === 0 ? <p role="status">No active properties to share.</p> : <>
+                  <div className="overflow-hidden rounded-2xl border border-border">
+                    <div className={rowClass}><span>Properties</span>{multiEnabled && kind !== "lease" ?
+                      <CheckboxMultiSelect hideLabel label="Properties" dataAttr="share-lead-property-multi" emptyLabel="Select properties" emptyMenuText="No properties" options={properties.map((p) => ({ value: p.id, label: p.label }))} selected={propertyIds} onChange={(next) => { setPropertyIds(next); setRoomChoice(""); }} /> :
+                      <Select aria-label="Property" value={singlePropertyId} onChange={(e) => { setPropertyIds(e.target.value ? [e.target.value] : []); setRoomChoice(""); }}>{properties.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</Select>}
+                    </div>
+                    {kind === "apply" && shortTermApplyAvailable ? <div className={rowClass}><label htmlFor="share-lead-application-type">Application</label><Select id="share-lead-application-type" value={applyRentalTypes[0]} onChange={(e) => setApplyRentalTypes([e.target.value])}>{APPLY_RENTAL_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></div> : null}
+                    {singlePropertyId && roomOptions.length > 0 ? <div className={rowClass}><label htmlFor="share-lead-room">Room</label><Select id="share-lead-room" value={roomChoice} onChange={(e) => setRoomChoice(e.target.value)}><option value="">Any room</option>{roomOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></div> : null}
                   </div>
-                ) : null}
-                {singlePropertyId && roomOptions.length > 0 ? (
-                  <div className="mt-3">
-                    <WizardSelect
-                      label="Room"
-                      value={roomChoice}
-                      onChange={setRoomChoice}
-                      options={[{ value: "", label: "Any room" }, ...roomOptions.map((option) => ({ value: option.value, label: option.label }))]}
-                      dataAttr="share-lead-room"
-                    />
-                  </div>
-                ) : null}
-                <div className="mt-3 border-t border-border/60 pt-3">
-                  <WizardLine
-                    label={linkLabel}
-                    control={
-                      <span className="flex max-w-[min(320px,55vw)] items-center gap-1">
-                        <span className="truncate text-[13px] font-semibold text-foreground">{linkUrl || "—"}</span>
-                        <PortalIconAction
-                          icon={Copy}
-                          label={`Copy ${linkLabel.toLowerCase()}`}
-                          disabled={!linkUrl}
-                          data-attr="share-lead-copy-link"
-                          onClick={() => void handleCopy(linkUrl, "Link copied.")}
-                        />
-                      </span>
-                    }
-                  />
-                </div>
-              </WizardSection>
-              {propertiesMissingTourAvailability.length > 0 ? (
-                <div role="status" data-attr="share-lead-tour-availability-warning" className="rounded-2xl border border-amber-200 bg-card p-4 text-sm">
-                  <p>{propertiesMissingTourAvailability.map((property) => property.label).join(", ")} has no open tour windows yet.</p>
-                  <Link href="/portal/calendar" data-attr="share-lead-tour-availability-calendar-link" className="font-semibold text-primary">
-                    Open Calendar to add availability
-                  </Link>
-                </div>
-              ) : null}
-            </>
-          )}
-        </StepColumn>
-      ) : null}
-
-      {stepId === "recipient" ? (
-        <StepColumn>
-          <StepHeading title="Recipient" />
-          <WizardSection title="Delivery" dataAttr="share-lead-delivery">
-            <PortalMessageSendViaDropdown selected={sendVia} onChange={setSendVia} smsAvailable={smsAvailable} footerNote="" dataAttr="share-lead-send-via" />
-          </WizardSection>
-          <WizardSection title="Contact" dataAttr="share-lead-recipient">
-            <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
-              <WizardField label="Name">
-                <Input id="share-lead-name" value={prospectName} onChange={(e) => setProspectName(e.target.value)} data-attr="share-lead-name" />
-              </WizardField>
-              {viaEmail ? (
-                <WizardField label="Email" required>
-                  <Input id="share-lead-email" type="email" value={prospectEmail} onChange={(e) => setProspectEmail(e.target.value)} data-attr="share-lead-email" />
-                </WizardField>
-              ) : null}
-              {viaSms ? (
-                <WizardField label="Phone" required>
-                  <PhoneNumberField id="share-lead-phone" value={prospectPhone} onChange={setProspectPhone} dataAttr="share-lead-phone" />
-                </WizardField>
-              ) : null}
+                  {propertiesMissingTourAvailability.length > 0 ? <div role="status" data-attr="share-lead-tour-availability-warning" className="rounded-xl border border-amber-200 p-4 text-sm">
+                    <p>{propertiesMissingTourAvailability.map((property) => property.label).join(", ")} has no open tour windows yet.</p>
+                    <Link href="/portal/calendar" data-attr="share-lead-tour-availability-calendar-link">Open Calendar to add availability</Link>
+                  </div> : null}
+                  {individualLinks.map((entry) => <ShareLinkCopyRow key={entry.id} label={entry.label} url={entry.url} copyLabel={`Copy link for ${entry.label}`} onCopy={() => void handleCopy(entry.url, "Link copied.")} />)}
+                  {isMultiProperty ? <ShareLinkCopyRow label="Combined link" url={linkUrl} copyLabel="Copy combined link" onCopy={() => void handleCopy(linkUrl, "Link copied.")} /> : null}
+                </>}
+              </> : step === 1 ? <div className="overflow-hidden rounded-2xl border border-border">
+                <div className={rowClass}><span>Send via</span><CheckboxMultiSelect hideLabel label="Send via" dataAttr="share-lead-send-via" emptyLabel="Select channels" emptyMenuText="No channels" options={[{ value: "email", label: "Email" }, ...(smsAvailable ? [{ value: "sms", label: "Text message" }] : [])]} selected={sendVia} onChange={setSendVia} /></div>
+                <div className={rowClass}><label htmlFor="share-lead-name">Name</label><Input id="share-lead-name" value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="Prospect name" /></div>
+                {viaEmail ? <div className={rowClass}><label htmlFor="share-lead-email">Email</label><Input id="share-lead-email" type="email" value={prospectEmail} onChange={(e) => setProspectEmail(e.target.value)} placeholder="prospect@example.com" /></div> : null}
+                {viaSms ? <div className={rowClass}><label htmlFor="share-lead-phone">Phone number</label><PhoneNumberField id="share-lead-phone" value={prospectPhone} onChange={setProspectPhone} dataAttr="share-lead-phone" /></div> : null}
+              </div> : <div className="space-y-6">
+                {viaEmail ? <section className="overflow-hidden rounded-2xl border border-border" aria-label="Email preview">
+                  <div className="space-y-2 border-b border-border p-4 text-sm"><div>From: {sender?.from || "Loading…"}</div><div>To: {prospectName ? `${prospectName} · ` : ""}{prospectEmail}</div><div>Subject: {subject}</div></div>
+                  {kind === "listing" ? <div className="bg-accent/20 p-4"><div className="rounded-xl border border-border bg-card p-6 text-sm leading-relaxed">
+                    <p className="mb-3">{prospectName.trim() ? `Hi ${prospectName.trim()},` : "Hi there,"}</p>
+                    <div className="mb-4 flex items-start gap-2"><ListingIntroEditor value={listingIntro} onChange={setIntro} /><PortalIconAction icon={RotateCcw} label="Reset to template" disabled={intro === null} onClick={() => setIntro(null)} /></div>
+                    {listingShare.listings.map((listing, index) => <div key={index} className="mb-2 rounded-xl border border-border p-3"><strong>{listing.title}</strong>{listing.detailLines.map((line, lineIndex) => <div key={lineIndex} className="text-xs text-muted">{line}</div>)}</div>)}
+                    <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="my-3 inline-block rounded-xl bg-primary px-6 py-3 font-semibold text-white">{listingShareButtonLabel(listingShare.listings.length)}</a>
+                    <p className="break-all text-xs text-muted">{linkUrl}</p>
+                    <p className="mt-5 whitespace-pre-line">{listingShare.signature?.join("\n")}</p>
+                  </div></div> : <div className="whitespace-pre-wrap break-words bg-accent/20 p-6 text-sm leading-relaxed">{invitePreviewBody}</div>}
+                </section> : null}
+                {viaSms ? <section className="rounded-2xl border border-border p-4" aria-label="Text message preview"><div className="mb-4 text-sm">From: {workNumber}<br />To: {prospectPhone}</div><div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary p-4 text-sm text-white">{inviteSmsBody}</div></section> : null}
+                {kind !== "listing" ? <div><div className="flex items-center justify-between"><label htmlFor="share-lead-message">Message</label><PortalIconAction icon={RotateCcw} label="Reset message" disabled={!note} onClick={() => { setNote(""); setIntro(null); }} /></div><textarea id="share-lead-message" aria-label="Message" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-xl border border-border bg-card p-3 text-sm" rows={3} /></div> : null}
+              </div>}
             </div>
-          </WizardSection>
-        </StepColumn>
-      ) : null}
-
-      {stepId === "review" ? (
-        <StepColumn>
-          <StepHeading title="Review" />
-          <ReviewCard
-            title="Home"
-            status={propertyIds.length === 0 ? "incomplete" : "complete"}
-            onEdit={() => goTo("home")}
-            dataAttr="share-lead-review-home"
-            facts={[
-              { label: "Property", value: propertyTitle || "Not set", missing: propertyIds.length === 0 },
-              { label: linkLabel, value: linkUrl ? "Ready" : "Not set", missing: !linkUrl },
-            ]}
-          />
-          <ReviewCard
-            title="Recipient"
-            status={recipientReady ? "complete" : "incomplete"}
-            onEdit={() => goTo("recipient")}
-            dataAttr="share-lead-review-recipient"
-            facts={[
-              { label: "Name", value: prospectName.trim() || "—" },
-              { label: "Channel", value: viaEmail && viaSms ? "Email and text" : viaSms ? "Text" : viaEmail ? "Email" : "Not set", missing: !viaEmail && !viaSms },
-              ...(viaEmail ? [{ label: "Email", value: prospectEmail.trim() || "Not set", missing: !emailValid }] : []),
-              ...(viaSms ? [{ label: "Phone", value: prospectPhone.trim() || "Not set", missing: !phoneValid }] : []),
-            ]}
-          />
-          {kind === "listing" ? (
-            <WizardSection title="Listing email" dataAttr="share-lead-review-listing">
-              <div className="space-y-2 text-sm">
-                <div>Subject: {subject}</div>
-                <div className="flex items-start gap-2 rounded-xl border border-border bg-accent/20 p-4">
-                  <ListingIntroEditor value={listingIntro} onChange={setIntro} />
-                  <PortalIconAction icon={RotateCcw} label="Reset to template" disabled={intro === null} onClick={() => setIntro(null)} />
-                </div>
-                {listingShare.listings.map((listing, index) => (
-                  <div key={index} className="rounded-xl border border-border p-3">
-                    <strong>{listing.title}</strong>
-                    {listing.detailLines.map((line, lineIndex) => (
-                      <div key={lineIndex} className="text-xs text-muted">{line}</div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </WizardSection>
-          ) : null}
-          {kind !== "listing" ? (
-            <WizardSection
-              title="Note"
-              chip={<PortalIconAction icon={RotateCcw} label="Reset message" disabled={!note} onClick={() => { setNote(""); setIntro(null); }} />}
-              dataAttr="share-lead-review-note"
-            >
-              <Textarea id="share-lead-message" aria-label="Message" value={note} onChange={(e) => setNote(e.target.value)} className="min-h-[96px]" data-attr="share-lead-message" />
-            </WizardSection>
-          ) : null}
-        </StepColumn>
-      ) : null}
-    </AddWorkspace>
+            <aside className="hidden lg:block" aria-label="Inbox preview"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Inbox</h3><div className="rounded-2xl border border-border p-4"><div className="truncate font-semibold">{sender?.name || "Loading…"}</div><div className="my-1 text-sm font-medium">{subject}</div><p className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted">{previewBody}</p></div></aside>
+          </div>
+        </WizardShell>
+      </div>
+    </ListingWizardOverlay>
   );
 }

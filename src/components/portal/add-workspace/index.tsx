@@ -73,6 +73,7 @@ export function AddWorkspace({
   headerActions,
   skipOffPath = false,
   numberedSteps = false,
+  hideFooterStepCount = false,
   reviewEditLinks = true,
 }: {
   title: string;
@@ -136,6 +137,8 @@ export function AddWorkspace({
   skipOffPath?: boolean;
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
   numberedSteps?: boolean;
+  /** Property form popups: Back left, primary right — no centered step count. */
+  hideFooterStepCount?: boolean;
   /**
    * The Review step gets an Edit link per section above its body. A Review that already draws its own
    * Edit on every section card (Add resident) passes false so the link is not offered twice.
@@ -317,7 +320,7 @@ export function AddWorkspace({
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
               {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : steps[current]?.incomplete ? <span className="mb-0.5 block">Complete {steps[current]?.label}</span> : null}
-              Step {current + 1} of {steps.length}
+              {hideFooterStepCount ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             {isLast ? (
               <button
