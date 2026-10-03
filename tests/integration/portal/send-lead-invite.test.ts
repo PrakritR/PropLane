@@ -275,4 +275,50 @@ describe("POST /api/portal/send-lead-invite", () => {
     );
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("stamps prospect email on dual-channel SMS so the inbox can merge with the email row", async () => {
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1", email: "mgr@example.com" } } }) },
+    } as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { role: "manager" }, error: null }),
+          }),
+        }),
+      }),
+    } as never);
+    vi.mocked(getShareablePropertyForUser).mockResolvedValue({
+      id: "mgr-1",
+      title: "Test House",
+      adminPublishLive: true,
+    } as never);
+    vi.mocked(resolveManagerWorkNumber).mockResolvedValue("+15555550100");
+    vi.mocked(sendFromManagerWorkNumber).mockResolvedValue({ ok: true, sid: "SM124", channel: "sms" });
+    vi.stubEnv("RESEND_API_KEY", "re_test_key");
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ id: "email_3" }), { status: 200 }));
+
+    const req = jsonRequest("http://localhost/api/portal/send-lead-invite", {
+      method: "POST",
+      body: {
+        kind: "listing",
+        to: "prospect@example.com",
+        phone: "+15555551234",
+        viaEmail: true,
+        viaSms: true,
+        propertyId: "mgr-1",
+      },
+    });
+    const res = await sendLeadInvite(req);
+    const { status, data } = await parseJsonResponse<{ ok?: boolean }>(res);
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(sendFromManagerWorkNumber).toHaveBeenCalledWith(
+      expect.objectContaining({
+        residentEmail: "prospect@example.com",
+        conversationKey: "user-1:prospect:+15555551234",
+      }),
+    );
+  });
 });

@@ -32,6 +32,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -364,6 +365,11 @@ export async function POST(req: Request) {
     }
 
     if (smsTarget) {
+      const prospectConversationKey = buildConversationKey({
+        ownerManagerUserId: user.id,
+        role: "prospect",
+        counterpartyPhone: smsTarget.to,
+      });
       const smsResult = await sendFromManagerWorkNumber({
         managerUserId: user.id,
         to: smsTarget.to,
@@ -371,6 +377,8 @@ export async function POST(req: Request) {
         fromNumber: smsTarget.fromNumber,
         source: "work_number",
         counterpartyRole: "prospect",
+        conversationKey: prospectConversationKey,
+        residentEmail: to && EMAIL_RE.test(to) ? to : undefined,
       });
       if (!smsResult.ok) {
         return NextResponse.json(
