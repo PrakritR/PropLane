@@ -88,8 +88,8 @@ describe("manager move-in panel", () => {
 
   it("lists whole-house and per-room move-in as rows with share and copy chrome", () => {
     expect(panel).toContain("PortalRecordListSurface");
-    expect(panel).toContain('data-attr="property-move-in-share"');
-    expect(panel).toContain('data-attr="property-move-in-copy"');
+    expect(panel).toContain('dataAttr: "property-move-in-share"');
+    expect(panel).toContain('dataAttr: "property-move-in-copy"');
     expect(panel).toContain('data-attr="property-move-in-list"');
     expect(panel).not.toContain("hideBackText");
     expect(panel).not.toContain("property-move-in-house-select");

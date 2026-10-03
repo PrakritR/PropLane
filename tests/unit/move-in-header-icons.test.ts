@@ -9,8 +9,6 @@ describe("House details Copy/Share are header icons", () => {
     expect(panel).not.toMatch(/>\s*Copy to rooms\s*</);
     expect(panel).not.toMatch(/>\s*Share\s*</);
     expect(panel).toContain("PortalIconAction");
-    expect(panel).toMatch(/icon=\{Copy\}/);
-    expect(panel).toMatch(/icon=\{Share2\}/);
   });
 
   it("uses the house-header actions slot so icon clicks do not toggle", () => {
@@ -21,17 +19,14 @@ describe("House details Copy/Share are header icons", () => {
   });
 
   /**
-   * studio-redesign(property-tabs): the per-room-row Copy/Share pair went away
-   * with the inline room cards; Copy and Share are now header-card icons beside
-   * the Settings gear, in the same single command bar as the tabs and search.
+   * Studio (captain, Oct 3): the Move-in header card holds only the Settings gear
+   * and the round +; the house-wide Copy and Share live in the whole-house row's ⋯.
    */
-  it("Copy / Share / Settings sit in the one header card, never in a floating row", () => {
-    expect(panel).toContain('data-attr="property-move-in-copy"');
-    expect(panel).toContain('data-attr="property-move-in-share"');
+  it("the header holds only the gear; Copy / Share sit in the whole-house row ⋯", () => {
     expect(panel).toContain('data-attr="property-move-in-settings-open"');
-    expect(panel).not.toMatch(/>\s*Copy\s*</);
+    expect(panel).toContain('dataAttr: "property-move-in-copy"');
+    expect(panel).toContain('dataAttr: "property-move-in-share"');
+    expect(panel).not.toMatch(/icon=\{Copy\}|icon=\{Share2\}/);
     expect(panel).not.toContain("<PortalPropertySectionToolbar");
-    expect(panel).not.toContain("justify-end gap-1 px-0.5");
-    expect(panel).toMatch(/<PortalListControlStack[\s\S]*?actions=\{[\s\S]*?icon=\{Copy\}[\s\S]*?icon=\{Share2\}[\s\S]*?icon=\{Settings\}/);
   });
 });

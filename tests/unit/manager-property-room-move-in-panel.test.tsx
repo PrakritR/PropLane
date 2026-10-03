@@ -87,7 +87,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
    * line · exactly one ⋯ — not an empty card of its own plus a second tabs card.
    */
   describe("one header card", () => {
-    it("draws a single command bar holding the tabs, search, gear, copy, share and the round +", () => {
+    it("draws a single command bar holding the tabs, search, gear and the round + (studio)", () => {
       const onAddResident = vi.fn();
       const { container } = render(
         <ManagerPropertyRoomMoveInPanel
@@ -106,8 +106,10 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       expect(within(stack as HTMLElement).getByRole("button", { name: /Whole house/ })).toBeTruthy();
       expect(within(stack as HTMLElement).getByRole("button", { name: /Rooms/ })).toBeTruthy();
       expect(within(stack as HTMLElement).getByPlaceholderText("Search move-in")).toBeTruthy();
-      for (const name of ["Move-in settings", "Copy house details to rooms", "Share house details"]) {
-        expect(within(stack as HTMLElement).getByRole("button", { name })).toBeTruthy();
+      expect(within(stack as HTMLElement).getByRole("button", { name: "Move-in settings" })).toBeTruthy();
+      // Copy / Share moved into the whole-house row's ⋯ (studio header has only the gear).
+      for (const name of ["Copy house details to rooms", "Share house details"]) {
+        expect(within(stack as HTMLElement).queryByRole("button", { name })).toBeNull();
       }
       const add = within(stack as HTMLElement).getByRole("button", { name: "Add resident" });
       fireEvent.click(add);
@@ -163,7 +165,8 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       sub.houseMoveInVideoDataUrl = null;
 
       renderPanel(sub);
-      fireEvent.click(screen.getByRole("button", { name: "Copy house details to rooms" }));
+      fireEvent.keyDown(screen.getByRole("button", { name: /Actions for The whole house/ }), { key: "ArrowDown" });
+      fireEvent.click(screen.getByText("Copy house details to rooms"));
 
       expect(updateExtraListingFromSubmission).toHaveBeenCalledTimes(1);
       const nextSub = updateExtraListingFromSubmission.mock.calls[0]![2] as ReturnType<typeof roomListing>;

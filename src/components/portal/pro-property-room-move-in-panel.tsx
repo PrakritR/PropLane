@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Copy, DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Settings, Share2, Users, Video, Wifi } from "lucide-react";
+import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Settings, Users, Video, Wifi } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -434,23 +434,6 @@ export function ManagerPropertyRoomMoveInPanel({
               }}
               actions={
                 <>
-                  {canEdit && showRooms ? (
-                    <>
-                      <PortalIconAction
-                        icon={Copy}
-                        label="Copy house details to rooms"
-                        data-attr="property-move-in-copy"
-                        disabled={!houseHasSavedDetails || copyingToRooms}
-                        onClick={copyHouseToRooms}
-                      />
-                      <PortalIconAction
-                        icon={Share2}
-                        label="Share house details"
-                        data-attr="property-move-in-share"
-                        onClick={() => void handleShareMoveIn()}
-                      />
-                    </>
-                  ) : null}
                   <PortalIconAction
                     icon={Settings}
                     label="Move-in settings"
@@ -514,7 +497,18 @@ export function ManagerPropertyRoomMoveInPanel({
               facts={moveRowFacts(houseInstructions, housePhotos, houseVideo, true)}
               onOpen={() => openMoveEditor({ kind: "house" })}
               dataAttr="property-move-in-house-row"
-              actions={moveRowMenu("The whole house", { kind: "house" })}
+              // Studio: the header holds only the gear and the +; the house-wide Copy
+              // and Share live in this row's ⋯.
+              actions={moveRowMenu(
+                "The whole house",
+                { kind: "house" },
+                canEdit && showRooms
+                  ? [
+                      { id: "copy-to-rooms", label: "Copy house details to rooms", disabled: !houseHasSavedDetails || copyingToRooms, onSelect: copyHouseToRooms, dataAttr: "property-move-in-copy" },
+                      { id: "share", label: "Share house details", onSelect: () => void handleShareMoveIn(), dataAttr: "property-move-in-share" },
+                    ]
+                  : [],
+              )}
             />
           ) : null}
 
