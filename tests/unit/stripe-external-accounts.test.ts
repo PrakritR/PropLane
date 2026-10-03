@@ -259,6 +259,26 @@ describe("removePayoutDestination", () => {
     expect(stripe.accounts.deleteExternalAccount).not.toHaveBeenCalled();
   });
 
+  it("409s removing the DEFAULT while another destination exists, without calling Stripe delete", async () => {
+    const stripe = makeFakeStripe();
+    (stripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
+      external_accounts: { data: [bankAccount({ default_for_currency: true }), bankAccount({ id: "ba_2" })] },
+    });
+    const result = await removePayoutDestination(stripe, fakeDb.client as never, "acct_1", "ba_1");
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(stripe.accounts.deleteExternalAccount).not.toHaveBeenCalled();
+  });
+
+  it("removes a non-default destination while the default stays", async () => {
+    const stripe = makeFakeStripe();
+    (stripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
+      external_accounts: { data: [bankAccount({ default_for_currency: true }), bankAccount({ id: "ba_2" })] },
+    });
+    const result = await removePayoutDestination(stripe, fakeDb.client as never, "acct_1", "ba_2");
+    expect(result).toEqual({ ok: true });
+    expect(stripe.accounts.deleteExternalAccount).toHaveBeenCalledWith("acct_1", "ba_2");
+  });
+
   it("allows removing the only destination when nothing is pending", async () => {
     const stripe = makeFakeStripe();
     (stripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({

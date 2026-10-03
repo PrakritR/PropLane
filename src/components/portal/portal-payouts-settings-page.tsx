@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowUpFromLine, Check, CreditCard, Landmark, Plus } from "lucide-react";
+import { ArrowUpFromLine, CreditCard, Landmark, Plus } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -23,12 +22,12 @@ import {
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
-import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
+import { AddBankFlow } from "@/components/portal/add-bank-flow";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { VendorPayoutsSettingsExtra } from "@/components/portal/vendor-payouts-settings-extra";
 import { track } from "@/lib/analytics/track-client";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { cn } from "@/lib/utils";
 
 const PORTAL_API_BASE: Record<PortalPayoutsPortalKind, string> = {
   manager: "/api/stripe",
@@ -49,28 +48,6 @@ type BankAccountRow = {
   default: boolean;
 };
 
-type SheetRenderProps = { open: boolean; onClose: () => void };
-
-function StepRow({ index, done, label, action }: { index: number; done: boolean; label: string; action: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span
-          aria-hidden
-          className={cn(
-            "grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold",
-            done ? "bg-primary text-white" : "bg-accent text-muted",
-          )}
-        >
-          {done ? <Check className="size-3.5" strokeWidth={3} /> : index}
-        </span>
-        <span className="truncate text-sm font-medium text-foreground">{label}</span>
-      </div>
-      {action}
-    </div>
-  );
-}
-
 /** A per-row ⋯ that owns its own scope — mirrors `PayoutRowMenu` in `portal-payouts-panel.tsx`. */
 function BankRowMenu({ rowId, label, children }: { rowId: string; label: string; children: ReactNode }) {
   return (
@@ -81,26 +58,19 @@ function BankRowMenu({ rowId, label, children }: { rowId: string; label: string;
 }
 
 /**
- * Profile → Payouts (manager `/portal/profile?tab=payouts`, vendor twin under
- * `Vendor → Settings → Payouts`) — one page: Balance with the Withdraw
- * action, Set up (until ready), Bank accounts (Airbnb "How you get paid"
- * shape), Schedule, and History (PLAN-0920-1500 screen 1).
+ * Settings → Balance & payouts (manager `/portal/profile?tab=payments`, vendor
+ * twin under `Vendor → Settings → Payouts`): balance with Withdraw, paying
+ * vendors and bills, Bank accounts, Payouts.
  *
- * `renderVerifySheet` / `renderBankSheet` are the seam another worker's
- * in-house identity/bank forms mount behind — until those land, Verify and
- * Add a bank account both fall back to the same Stripe embedded onboarding
- * modal `PortalPayoutSetupCard` already uses today, so neither step is ever
- * dead. `/onboard`'s hosted redirect is never used here.
+ * There is no Set up checklist and no separate "Verify identity" step: the
+ * Bank accounts + is the ONE add-bank entry (`AddBankFlow`). When the connected
+ * account cannot receive payouts yet it opens Stripe's embedded onboarding in
+ * our popup (Stripe collects the identity it requires there); otherwise it
+ * opens the in-app bank sheet. One connected Stripe account per payout owner
+ * receives the workspace's money; its default bank gets every automatic payout
+ * and Withdraw to picks among the others.
  */
-export function PortalPayoutsSettingsPage({
-  portal,
-  renderVerifySheet,
-  renderBankSheet,
-}: {
-  portal: PortalPayoutsPortalKind;
-  renderVerifySheet?: (props: SheetRenderProps) => ReactNode;
-  renderBankSheet?: (props: SheetRenderProps) => ReactNode;
-}) {
+export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPortalKind }) {
   const { showToast } = useAppUi();
   const workspace = useWorkspaces()?.active;
   const [creditPurchases, setCreditPurchases] = useState<{ id: string; creditCents: number; createdAt: string; status: string }[]>([]);
@@ -140,11 +110,12 @@ export function PortalPayoutsSettingsPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [retryRow, setRetryRow] = useState<PortalPayoutHistoryRow | null>(null);
-  // Independent per-sheet open state — Verify and Add a bank account must
-  // never share one flag, or opening one (fallback or custom) also pops the
-  // other's fallback modal open behind it.
-  const [verifyOpen, setVerifyOpen] = useState(false);
   const [bankSheetOpen, setBankSheetOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<BankAccountRow | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  // Withdraw to: a per-visit pick among the banks. It never changes the default
+  // (that is Make default); null = follow the default.
+  const [withdrawToId, setWithdrawToId] = useState<string | null>(null);
 
   const [bankRows, setBankRows] = useState<BankAccountRow[] | null>(null);
   const [bankRoute, setBankRoute] = useState<"live" | "fallback" | "loading">("loading");
@@ -213,11 +184,6 @@ export function PortalPayoutsSettingsPage({
     setRetryRow(null);
   }, []);
 
-  const closeVerify = useCallback(() => {
-    setVerifyOpen(false);
-    void loadBalance();
-  }, [loadBalance]);
-
   const closeBankSheet = useCallback(() => {
     setBankSheetOpen(false);
     void loadBalance();
@@ -236,13 +202,16 @@ export function PortalPayoutsSettingsPage({
         showToast("Could not change the default account.");
         return;
       }
+      setWithdrawToId(null);
       void loadBankAccounts();
+      void loadBalance();
     } catch {
       showToast("Could not change the default account.");
     }
   }
 
   async function removeBank(id: string) {
+    setRemoveBusy(true);
     try {
       const res = await fetch(`${connectBase}/bank-accounts/${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -253,41 +222,61 @@ export function PortalPayoutsSettingsPage({
         showToast(body.error ?? "Could not remove that account.");
         return;
       }
+      setRemoveTarget(null);
+      setWithdrawToId(null);
       void loadBankAccounts();
       void loadBalance();
     } catch {
       showToast("Could not remove that account.");
+    } finally {
+      setRemoveBusy(false);
     }
   }
 
-  const withdrawAccounts: PayoutWithdrawAccount[] = useMemo(() => {
-    if (bankRoute === "live" && bankRows) {
-      return bankRows.filter((row) => row.status === "verified").map((row) => ({
-        id: row.id,
-        label: row.label,
-        last4: row.last4,
-        kind: row.kind,
-        instantEligible: row.kind === "card",
-      }));
-    }
-    return balance ? bankToWithdrawAccounts(balance.bank) : [];
-  }, [bankRoute, bankRows, balance]);
+  const effectiveBankRows: BankAccountRow[] = useMemo(
+    () =>
+      bankRoute === "live" && bankRows
+        ? bankRows
+        : balance?.bank
+          ? [
+              {
+                id: "default",
+                kind: "bank",
+                label: balance.bank.bankName,
+                last4: balance.bank.last4,
+                status: balance.bank.verifiedAt ? "verified" : "verifying",
+                default: true,
+              },
+            ]
+          : [],
+    [bankRoute, bankRows, balance],
+  );
 
-  const effectiveBankRows: BankAccountRow[] =
-    bankRoute === "live" && bankRows
-      ? bankRows
-      : balance?.bank
-        ? [
-            {
-              id: "default",
-              kind: "bank",
-              label: balance.bank.bankName,
-              last4: balance.bank.last4,
-              status: balance.bank.verifiedAt ? "verified" : "verifying",
-              default: true,
-            },
-          ]
-        : [];
+  // Withdraw to: the default bank unless the owner picked another; the Withdraw
+  // sheet opens on it (it preselects the first account it is given).
+  const withdrawToDefault = effectiveBankRows.find((row) => row.default) ?? effectiveBankRows[0] ?? null;
+  const withdrawToSelectedId =
+    withdrawToId && effectiveBankRows.some((row) => row.id === withdrawToId) ? withdrawToId : (withdrawToDefault?.id ?? "");
+
+  const withdrawAccounts: PayoutWithdrawAccount[] = useMemo(() => {
+    const accounts: PayoutWithdrawAccount[] =
+      bankRoute === "live" && bankRows
+        ? bankRows
+            .filter((row) => row.status === "verified")
+            .map((row) => ({
+              id: row.id,
+              label: row.label,
+              last4: row.last4,
+              kind: row.kind,
+              instantEligible: row.kind === "card",
+            }))
+        : balance
+          ? bankToWithdrawAccounts(balance.bank)
+          : [];
+    return [...accounts].sort(
+      (a, b) => Number(b.id === withdrawToSelectedId) - Number(a.id === withdrawToSelectedId),
+    );
+  }, [bankRoute, bankRows, balance, withdrawToSelectedId]);
 
   if (loading) {
     return <PortalRecordListSurface loading dataAttr="payouts-settings-loading" />;
@@ -305,90 +294,38 @@ export function PortalPayoutsSettingsPage({
     );
   }
 
-  const identityDone = balance.setup.identity === "done";
-  const bankDone = balance.setup.bank === "done";
   const ready = balance.setup.ready;
+  const hasBank = effectiveBankRows.length > 0;
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
   const pendingFact = balance.onTheWayCents > 0
     ? `${formatMoney(balance.onTheWayCents, balance.currency)} pending`
     : null;
-
-  const verifySheet = renderVerifySheet ? (
-    renderVerifySheet({ open: verifyOpen, onClose: closeVerify })
-  ) : (
-    <Modal open={verifyOpen} title="Verify identity" onClose={closeVerify} panelClassName="max-w-lg" scrollableContent={false}>
-      <StripeConnectEmbedded connectBase={connectBase} component="account_onboarding" onExit={closeVerify} />
-    </Modal>
-  );
-  const bankSheet = renderBankSheet ? (
-    renderBankSheet({ open: bankSheetOpen, onClose: closeBankSheet })
-  ) : (
-    <Modal open={bankSheetOpen} title="Add a bank account" onClose={closeBankSheet} panelClassName="max-w-lg" scrollableContent={false}>
-      <StripeConnectEmbedded connectBase={connectBase} component="account_onboarding" onExit={closeBankSheet} />
-    </Modal>
-  );
+  const removeBlocked = removeTarget != null && removeTarget.default && effectiveBankRows.length > 1;
 
   return (
     <div className="space-y-4" data-attr="payouts-settings-page">
-      {/* Set up — only until ready */}
-      {!ready ? (
-        <PortalSettingsSection title="Set up">
-          <PortalSettingsGroup>
-            <StepRow
-              index={1}
-              done={identityDone}
-              label="Verify identity"
-              action={
-                identityDone ? (
-                  <span className="shrink-0 text-sm font-medium text-muted">Done</span>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setVerifyOpen(true)}
-                    data-attr="payouts-settings-verify"
-                  >
-                    Verify
-                  </Button>
-                )
-              }
-            />
-            <StepRow
-              index={2}
-              done={bankDone}
-              label="Add a bank account"
-              action={
-                bankDone ? (
-                  <span className="shrink-0 text-sm font-medium text-muted">Done</span>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setBankSheetOpen(true)}
-                    data-attr="payouts-settings-add-bank"
-                  >
-                    Add
-                  </Button>
-                )
-              }
-            />
-            <StepRow
-              index={3}
-              done={ready}
-              label="Ready to pay out"
-              action={
-                <span className={cn("shrink-0 text-sm font-medium", ready ? "text-foreground" : "text-muted")} data-ready-text>
-                  {ready ? "Ready" : "After 1 and 2"}
-                </span>
-              }
-            />
-          </PortalSettingsGroup>
-        </PortalSettingsSection>
-      ) : null}
-      {verifySheet}
-      {bankSheet}
+      <AddBankFlow open={bankSheetOpen} onClose={closeBankSheet} portal={portal} onAdded={() => { void loadBalance(); void loadBankAccounts(); }} />
+      <ConfirmDeleteModal
+        open={removeTarget != null}
+        title="Remove bank account"
+        confirmLabel="Remove"
+        busyLabel="Removing…"
+        description={
+          removeTarget
+            ? removeBlocked
+              ? "Make another account the default before removing this one."
+              : `${removeTarget.label} ····${removeTarget.last4}`
+            : ""
+        }
+        note={removeBlocked ? null : "Payouts will stop going to this account."}
+        busy={removeBusy}
+        confirmDisabled={removeBlocked}
+        onClose={() => { if (!removeBusy) setRemoveTarget(null); }}
+        onConfirm={() => { if (removeTarget && !removeBlocked) void removeBank(removeTarget.id); }}
+        dataAttr="payouts-settings-bank-remove-confirm"
+      />
 
-      <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
+      <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
         <PortalSettingsGroup>
           <PortalSettingsRow label="Available"><span data-attr="payouts-settings-available" className="tabular-nums">{formatMoney(balance.availableCents, balance.currency)}</span></PortalSettingsRow>
 
@@ -412,18 +349,18 @@ export function PortalPayoutsSettingsPage({
             <div className="px-4 py-3.5 text-sm text-muted">No bank account yet</div>
           ) : (
             effectiveBankRows.map((row) => (
-              <div key={row.id} className="flex items-center gap-3 border-b border-border px-4 py-3.5 last:border-b-0">
+              <div key={row.id} className="flex items-center gap-3 border-b border-border px-4 py-2 last:border-b-0" data-attr="payouts-settings-bank-row">
                 <div aria-hidden className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/[0.08] text-primary">
                   {row.kind === "card" ? <CreditCard className="size-5" strokeWidth={1.6} /> : <Landmark className="size-5" strokeWidth={1.6} />}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {row.label} {row.default ? <span className="font-normal text-muted">· Default</span> : null}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    ····{row.last4} · {row.status === "verified" ? "Verified" : "Verifying"}
-                  </p>
-                </div>
+                <p className="min-w-0 flex-1 truncate text-[15px] font-normal text-foreground">
+                  {row.label} ····{row.last4}
+                </p>
+                {row.default || row.status !== "verified" ? (
+                  <span className="shrink-0 text-sm text-muted">
+                    {[row.default ? "Default" : null, row.status !== "verified" ? "Verifying" : null].filter(Boolean).join(" · ")}
+                  </span>
+                ) : null}
                 {bankRoute === "live" ? (
                   <BankRowMenu rowId={row.id} label={`${row.label} ····${row.last4}`}>
                     {!row.default ? (
@@ -431,7 +368,7 @@ export function PortalPayoutsSettingsPage({
                         Make default
                       </Button>
                     ) : null}
-                    <Button type="button" variant="outline" onClick={() => removeBank(row.id)} data-attr="payouts-settings-bank-remove">
+                    <Button type="button" variant="danger" onClick={() => setRemoveTarget(row)} data-attr="payouts-settings-bank-remove">
                       Remove
                     </Button>
                   </BankRowMenu>
@@ -469,7 +406,7 @@ export function PortalPayoutsSettingsPage({
 
       {/* History */}
       {portal === "manager" ? <PortalSettingsSection title="Payouts"><PortalSettingsGroup>
-          {portal === "manager" ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={effectiveBankRows.find(row => row.default)?.id ?? effectiveBankRows[0]?.id ?? ""} disabled={bankRoute !== "live" || effectiveBankRows.length === 0} onChange={id => void makeDefault(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: row.status !== "verified" }))} /></PortalSettingsRow> : null}
+          {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: row.status !== "verified" }))} /></PortalSettingsRow> : null}
         {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={formatMoney(row.amountCents, balance.currency)}>
           <span className="text-sm text-muted">{row.method === "instant" ? "Instant" : "Standard"} · ····{row.destinationLast4}</span>
           <span className="text-sm">{row.status.replaceAll("_", " ")} · {formatDate(row.createdAt)}</span>
