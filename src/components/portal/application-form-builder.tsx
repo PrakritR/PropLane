@@ -1,11 +1,12 @@
 "use client";
 
-import { type KeyboardEvent } from "react";
+import { type KeyboardEvent, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApplicationQuestionFields } from "@/components/portal/application-question-edit-modal";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
+import { isCustomFieldHiddenByCondition, isFileCustomFieldType } from "@/lib/rental-application/custom-fields";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -136,6 +137,12 @@ export function ApplicationSectionPreviewPane({
   /** Static wizard position label — not clickable step tabs (C2-L11-7). */
   stepPosition?: { index: number; total: number } | null;
 }) {
+  // Answers typed into the preview live only in this pane (never persisted) so a
+  // conditional question appears the moment its parent is answered, exactly as in the
+  // applicant wizard (`isCustomFieldHiddenByCondition`).
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const answerRows = fields.map((field) => ({ key: field.key, label: field.label, type: field.type, section: field.section, value: answers[field.key] ?? "" }));
+  const visibleFields = fields.filter((field) => !isCustomFieldHiddenByCondition(field, answerRows));
   return (
     <div
       className="space-y-4 rounded-2xl border border-border bg-accent/10 p-4"
@@ -157,13 +164,14 @@ export function ApplicationSectionPreviewPane({
         </p>
       ) : (
         <div className="space-y-4">
-          {fields.map((field) => (
+          {visibleFields.map((field) => (
             <CustomQuestionField
               key={field.id}
               field={previewSafeField(field)}
-              value=""
-              onChange={() => {}}
-              readOnly
+              value={answers[field.key] ?? ""}
+              onChange={(next) => setAnswers((prev) => ({ ...prev, [field.key]: next }))}
+              // An upload would write to storage; every other control only fills this pane's own state.
+              readOnly={isFileCustomFieldType(field.type)}
               getApplicationId={() => applicationPreviewPropertyId ?? ""}
             />
           ))}

@@ -18,6 +18,7 @@ import {
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
+import { leaseIdsUsingApplicationTemplate, linkLeasesToApplicationTemplate } from "@/lib/property-lease-templates";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
@@ -377,7 +378,9 @@ export function ManagerApplicationQuestionsEditorModal({
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
     setLinkedCosignerTemplateId(applicationTemplate?.linkedCosignerApplicationTemplateId ?? null);
-    setUsedForLeaseTemplateIds(applicationTemplate?.usedForLeaseTemplateIds?.slice() ?? []);
+    setUsedForLeaseTemplateIds(
+      applicationTemplate ? leaseIdsUsingApplicationTemplate(sub.propertyLeaseTemplates ?? [], applicationTemplate) : [],
+    );
     const importName =
       templateDraft?.importProvenance?.sourceName ??
       applicationTemplate?.publishedQuestionConfig?.importProvenance?.sourceName;
@@ -885,12 +888,9 @@ export function ManagerApplicationQuestionsEditorModal({
         }
       }
       const templateId = applicationTemplate?.id ?? addModeTemplateId;
-      const selectedLeases = new Set(usedForLeaseTemplateIds);
-      const propertyLeaseTemplates = (sub.propertyLeaseTemplates ?? []).map((lease) => {
-        if (selectedLeases.has(lease.id)) return { ...lease, linkedApplicationTemplateId: templateId };
-        if (lease.linkedApplicationTemplateId === templateId) return { ...lease, linkedApplicationTemplateId: null };
-        return lease;
-      });
+      const propertyLeaseTemplates = templateId
+        ? linkLeasesToApplicationTemplate(sub.propertyLeaseTemplates ?? [], templateId, usedForLeaseTemplateIds)
+        : (sub.propertyLeaseTemplates ?? []);
       const merged = {
         ...withPropertyApplicationTemplatesExplicit(sub, nextTemplates),
         propertyLeaseTemplates,
