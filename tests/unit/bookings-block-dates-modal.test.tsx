@@ -217,7 +217,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
     const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
-    expect(menu.textContent).toContain("Edit dates");
+    expect(menu.textContent).toContain("Edit");
     expect(menu.textContent).toContain("Cancel booking");
     expect(menu.textContent).not.toContain("View");
     expect(menu.textContent).not.toContain("Blocked");

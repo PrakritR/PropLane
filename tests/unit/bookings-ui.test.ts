@@ -87,7 +87,7 @@ describe("bookingOccupancyStats", () => {
 
 describe("formatBookingStayRange", () => {
   it("marks open-ended stays", () => {
-    expect(formatBookingStayRange("2026-09-01", "2028-09-01", true)).toContain("onward");
+    expect(formatBookingStayRange("2026-09-01", "2028-09-01", true)).toContain("Open-ended");
   });
 });
 

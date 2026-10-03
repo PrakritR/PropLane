@@ -8,12 +8,17 @@
  */
 
 import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
-import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
+import { CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE, ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
 
 type BlockRow = {
+  openEnded?: unknown;
+  bookingStatus?: unknown;
+  rate?: unknown;
+  rateBasis?: unknown;
+  stayDetails?: unknown;
   id?: unknown;
   recordType?: unknown;
   propertyId?: unknown;
@@ -31,10 +36,15 @@ type BlockRow = {
 function normalizeBlock(raw: unknown): RoomDateBlock | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as BlockRow;
-  if (row.recordType !== ROOM_DATE_BLOCK_RECORD_TYPE) return null;
+  if (row.recordType !== ROOM_DATE_BLOCK_RECORD_TYPE && row.recordType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) return null;
   if (typeof row.id !== "string" || typeof row.propertyId !== "string") return null;
   if (typeof row.checkIn !== "string" || typeof row.checkOut !== "string") return null;
   return {
+    openEnded: row.openEnded === true,
+    bookingStatus: row.recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE ? "cancelled" : row.bookingStatus === "confirmed" ? "confirmed" : "hold",
+    ...(typeof row.rate === "number" && Number.isFinite(row.rate) && row.rate >= 0 ? { rate: row.rate } : {}),
+    rateBasis: row.rateBasis === "daily" || row.rateBasis === "weekly" ? row.rateBasis : "monthly",
+    ...(row.stayDetails && typeof row.stayDetails === "object" ? { stayDetails: row.stayDetails as RoomDateBlock["stayDetails"] } : {}),
     id: row.id,
     propertyId: row.propertyId,
     roomId: typeof row.roomId === "string" ? row.roomId : "",
@@ -79,6 +89,11 @@ export async function fetchRoomDateBlocks(): Promise<RoomDateBlock[]> {
 export async function saveRoomDateBlock(
   userId: string,
   input: {
+    openEnded?: boolean;
+    bookingStatus?: RoomDateBlock["bookingStatus"];
+    rate?: number;
+    rateBasis?: RoomDateBlock["rateBasis"];
+    stayDetails?: RoomDateBlock["stayDetails"];
     id?: string;
     propertyId: string;
     roomId: string;
@@ -105,8 +120,13 @@ export async function saveRoomDateBlock(
     propertyId: input.propertyId,
     roomId: input.roomId,
     checkIn: input.checkIn,
-    checkOut: input.checkOut,
+    checkOut: input.openEnded ? "9999-12-31" : input.checkOut,
+    openEnded: input.openEnded,
     reason: input.reason.trim(),
+    bookingStatus: input.bookingStatus ?? "hold",
+    rate: input.rate,
+    rateBasis: input.rateBasis,
+    stayDetails: input.stayDetails,
     ...(residentName ? { residentName } : {}),
     ...(residentName && residentEmail ? { residentEmail } : {}),
     ...(residentName && residentPhone ? { residentPhone } : {}),
@@ -121,7 +141,7 @@ export async function saveRoomDateBlock(
       action: "upsert",
       row: {
         ...block,
-        recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
+        recordType: block.bookingStatus === "cancelled" ? CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE : ROOM_DATE_BLOCK_RECORD_TYPE,
         startsAt: `${block.checkIn}T00:00:00`,
         endsAt: `${block.checkOut}T00:00:00`,
       },

@@ -1,6 +1,6 @@
 import { bookedDayKeyCountInMonth, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
-import { leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
+import { applicationDetailHref, leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
 
 export type BookingsListTabId = "all" | "check_ins" | "check_outs";
 
@@ -16,6 +16,9 @@ export type BookingsOccupancyStats = {
 };
 
 export function bookingEntryKey(entry: PropertyBookingEntry): string {
+  if (entry.blockId) return `block:${entry.blockId}`;
+  if (entry.leaseId) return `lease:${entry.leaseId}`;
+  if (entry.applicationId) return `application:${entry.applicationId}`;
   return `${entry.source}:${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.end}:${entry.summary}`;
 }
 
@@ -68,7 +71,8 @@ export function formatBookingStayRange(
       year: "numeric",
     });
   };
-  if (openEnded || start === end) return `${fmt(start)} onward`;
+  if (openEnded) return `${fmt(start)} – Open-ended`;
+  if (start === end) return fmt(start);
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
@@ -92,6 +96,7 @@ export function classifyBookingListBucket(
   entry: PropertyBookingEntry,
   todayKey: string,
 ): ManagerBookingListBucketId {
+  if (entry.bookingStatus === "cancelled") return "past";
   if (entry.openEnded) {
     return entry.start > todayKey ? "upcoming" : "inhouse";
   }
@@ -238,6 +243,7 @@ export function bookingOpenTarget(
   entry: PropertyBookingEntry,
   basePath: string,
 ): { href: string; label: string } | null {
+  if (entry.source === "hold" && entry.applicationId) return { href: applicationDetailHref(basePath, "approved", entry.applicationId), label: "Open application" };
   if (entry.source === "proplane" && entry.leaseId) {
     return { href: leaseDetailHref(basePath, "manager", entry.leaseId), label: "Open lease" };
   }
