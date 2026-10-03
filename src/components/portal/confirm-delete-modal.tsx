@@ -102,12 +102,10 @@ export function ConfirmDeleteModal({
       dismissBlocked={busy}
       // Dropping unsaved input is a short question: a content-sized sheet. A delete
       // keeps the full frame with its "What gets removed" preview (C2-POP9).
-      fullScreenMobile={guard === "hold"}
+      fullScreenMobile
       previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
       preview={
-        guard === "tap" ? null : (
-          <div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>
-        )
+        <div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>
       }
       primaryAction={{
         label: busy ? busyLabel : confirmLabel,
@@ -117,7 +115,7 @@ export function ConfirmDeleteModal({
         dataAttr,
         // M008 — every destructive confirm through this shared modal is a
         // press-and-hold guard rail, not a plain tap.
-        confirmGuard: guard === "hold" ? "hold" : undefined,
+        confirmGuard: "hold",
       }}
     >
       <p className="text-sm text-muted">{description}</p>
