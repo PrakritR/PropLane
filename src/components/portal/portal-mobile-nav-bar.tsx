@@ -1,6 +1,6 @@
 "use client";
 
-import { User } from "lucide-react";
+import { Settings, User, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
@@ -147,18 +147,42 @@ export function PortalMobileNavBar({
               {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
             </div>
 
-            <DropdownMenuItem
-              data-attr="portal-mobile-profile-settings"
-              onSelect={(event) => {
-                // Radix closes the menu before a nested <Link> click fires in
-                // iOS WebView — push explicitly so Settings always opens in-app.
-                event.preventDefault();
-                router.push(`${definition.basePath}/profile`);
-              }}
-            >
-              <User aria-hidden />
-              Settings
-            </DropdownMenuItem>
+            {(definition.kind === "manager" || definition.kind === "pro") ? (
+              <>
+                <DropdownMenuItem
+                  data-attr="portal-mobile-profile"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    router.push(`${definition.basePath}/profile?tab=profile`);
+                  }}
+                >
+                  <UserRound aria-hidden />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-attr="portal-mobile-profile-settings"
+                  onSelect={(event) => {
+                    // Explicit navigation is reliable inside the iOS WebView.
+                    event.preventDefault();
+                    router.push(`${definition.basePath}/profile?tab=workspaces`);
+                  }}
+                >
+                  <Settings aria-hidden />
+                  Settings
+                </DropdownMenuItem>
+              </>
+            ) : (
+              <DropdownMenuItem
+                data-attr="portal-mobile-profile-settings"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  router.push(`${definition.basePath}/profile`);
+                }}
+              >
+                <User aria-hidden />
+                Settings
+              </DropdownMenuItem>
+            )}
 
             <div className="px-1">
               <PortalRoleSwitcher currentKind={definition.kind} />
