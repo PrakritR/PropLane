@@ -438,6 +438,8 @@ type ResidentDeleteCounts = {
   inspections: number;
   documents: number;
   conversations: number;
+  bookings: number;
+  texts: number;
   paidCount: number;
   paidCents: number;
 };
@@ -464,6 +466,8 @@ function emptyResidentDeleteCounts(): ResidentDeleteCounts {
     inspections: 0,
     documents: 0,
     conversations: 0,
+    bookings: 0,
+    texts: 0,
     paidCount: 0,
     paidCents: 0,
   };
@@ -492,7 +496,8 @@ function formatUsdFromCents(cents: number): string {
 /** "1 booking, 9 charges, 2 services" — only the buckets that actually had rows. */
 function describeResidentDeleteCounts(counts: ResidentDeleteCounts): string {
   const parts: string[] = [];
-  if (counts.leases) parts.push(`${counts.leases} booking${counts.leases === 1 ? "" : "s"}`);
+  const bookings = counts.leases + counts.bookings;
+  if (bookings) parts.push(`${bookings} booking${bookings === 1 ? "" : "s"}`);
   if (counts.charges) parts.push(`${counts.charges} charge${counts.charges === 1 ? "" : "s"}`);
   if (counts.services) parts.push(`${counts.services} service${counts.services === 1 ? "" : "s"}`);
   return parts.join(", ");
@@ -504,8 +509,8 @@ function residentDeletePreviewRows(counts: ResidentDeleteCounts): { label: strin
       label: "Application · lease · charges",
       value: `${counts.applications} · ${counts.leases} · ${counts.charges}`,
     },
-    { label: "Bookings", value: String(counts.leases) },
-    { label: "Messages and texts", value: String(counts.conversations) },
+    { label: "Bookings", value: String(counts.leases + counts.bookings) },
+    { label: "Messages and texts", value: String(counts.conversations + counts.texts) },
     {
       label: "Services · inspections · documents",
       value: `${counts.services} · ${counts.inspections} · ${counts.documents}`,
