@@ -13,6 +13,7 @@ import { getMyAvailabilityTool, updateMyAvailabilityTool } from "@/lib/tools/dom
 import { markJobDoneTool, setMyPriceTool, submitBidTool } from "@/lib/tools/domains/vendor/job-actions";
 import { getJobDetailsTool, listMyBidsTool, listMyJobsTool, listMyOffersTool } from "@/lib/tools/domains/vendor/jobs";
 import { contentHash } from "@/lib/tools/domains/vendor/load-vendor-rows";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 import { listMyInboxThreadsTool, sendMessageToManagerTool } from "@/lib/tools/domains/vendor/messaging";
 import { getMyProfileTool, listMyPayoutsTool } from "@/lib/tools/domains/vendor/profile";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
@@ -57,11 +58,11 @@ function eqPredicate(col: string, val: unknown): Predicate {
 
 /** Parse a PostgREST `.or()` expression of `col.eq.value` clauses. */
 function orPredicate(expr: string): Predicate {
-  const clauses = expr.split(",").map((clause) => {
-    const idx = clause.indexOf(".eq.");
-    if (idx < 0) return () => false;
-    return eqPredicate(clause.slice(0, idx), clause.slice(idx + 4));
-  });
+  // Values are quoted by the builder; the shared parser undoes it (a hand-rolled
+  // split(",") models a PostgREST where a comma in a value ends a clause).
+  const clauses = parseOrFilterClauses(expr).map((clause) =>
+    clause.operator === "eq" ? eqPredicate(clause.column, clause.value) : () => false,
+  );
   return (row) => clauses.some((match) => match(row));
 }
 

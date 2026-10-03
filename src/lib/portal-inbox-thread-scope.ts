@@ -33,11 +33,12 @@ export function portalInboxThreadScopeFilter(
   options: PortalInboxThreadScopeOptions = {},
 ): string {
   const ownerIds = [...new Set([user.id, ...extraOwnerIds.map((id) => id.trim()).filter(Boolean)])];
-  // Every interpolated value is quoted: an id or email is data, never filter syntax.
+  // Owner ids are auth user ids (uuids from the session / grant tables), never
+  // free text. The email IS free text, so it is quoted: data, never filter syntax.
   const clauses: string[] =
     ownerIds.length <= 1
-      ? [`owner_user_id.eq.${postgrestFilterValue(ownerIds[0] ?? user.id)}`]
-      : [`owner_user_id.in.(${ownerIds.map(postgrestFilterValue).join(",")})`];
+      ? [`owner_user_id.eq.${ownerIds[0] ?? user.id}`]
+      : [`owner_user_id.in.(${ownerIds.join(",")})`];
   if (user.email) {
     const email = postgrestFilterValue(user.email);
     clauses.push(

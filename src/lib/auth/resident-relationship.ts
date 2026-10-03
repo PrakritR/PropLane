@@ -160,3 +160,102 @@ export async function residentPropertyIdsForManager(
 
   return [...ids];
 }
+
+/**
+ * What a sender may reach right now, per the same rules the inbox applies to
+ * what they may SEE: the active workspace narrows, and another owner's people
+ * are reachable only through a house the sender holds Communication edit on.
+ */
+export type RecipientReach = {
+  /** Houses in the active workspace; null = the account is not narrowing. */
+  workspaceHouseIds: ReadonlySet<string> | null;
+  /** Whether a person tied to no house belongs to the active workspace (its owner's default). */
+  untaggedOk: boolean;
+  /** For each OTHER owner: the houses the sender holds Communication edit on. */
+  grantedHousesByOwner: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The active workspace, when the account is partitioned. */
+  activeWorkspaceId?: string | null;
+};
+
+/** Is a person tied to `ownerId`'s house `houseId` inside the sender's reach? */
+export function recipientInReach(
+  requestorUserId: string,
+  ownerId: string,
+  houseId: string,
+  reach: RecipientReach | undefined,
+): boolean {
+  if (ownerId !== requestorUserId) {
+    // Another owner's people need an explicit grant on the very house.
+    if (!reach) return false;
+    const granted = reach.grantedHousesByOwner.get(ownerId);
+    if (!granted || !houseId || !granted.has(houseId)) return false;
+    return reach.workspaceHouseIds === null || reach.workspaceHouseIds.has(houseId);
+  }
+  if (!reach || reach.workspaceHouseIds === null) return true;
+  return houseId ? reach.workspaceHouseIds.has(houseId) : reach.untaggedOk;
+}
+
+function houseOf(row: { property_id?: unknown; assigned_property_id?: unknown; row_data?: unknown }): string {
+  const rowData = (row.row_data && typeof row.row_data === "object" ? row.row_data : {}) as Record<string, unknown>;
+  return String(
+    row.assigned_property_id ?? rowData.assignedPropertyId ?? row.property_id ?? rowData.propertyId ?? "",
+  ).trim();
+}
+
+/**
+ * Is this resident connected to the sender by a row the SENDER cannot simply
+ * write? An application the resident submitted or a lease. Household charges and the co-manager "relationship" mirror are
+ * client-writable (`residentEmail` is free text), so they prove nothing - a
+ * fresh account used to add a fake charge naming anyone and then message them.
+ *
+ * Owners considered: the sender, and each owner the sender is an accepted
+ * co-manager of - and only through the houses `reach` grants. The reverse
+ * (the sender's own co-managers' residents) is never unioned in.
+ */
+export async function managerHasAuthoritativeResidentLink(
+  db: ServiceClient,
+  requestorUserId: string,
+  target: ResidentTarget,
+  reach?: RecipientReach,
+): Promise<boolean> {
+  if (!requestorUserId) return false;
+  const email = target.email?.trim().toLowerCase() || "";
+  const residentUserId = target.residentUserId?.trim() || "";
+  if (!email && !residentUserId) return false;
+
+  const owners = [requestorUserId, ...(reach ? [...reach.grantedHousesByOwner.keys()] : [])];
+
+  if (email) {
+    try {
+      const { data } = await db
+        .from("manager_application_records")
+        .select("manager_user_id, property_id, assigned_property_id, row_data")
+        .in("manager_user_id", owners)
+        .eq("resident_email", email);
+      for (const row of (data ?? []) as { manager_user_id?: unknown; row_data?: unknown }[]) {
+        if (recipientInReach(requestorUserId, String(row.manager_user_id ?? ""), houseOf(row), reach)) return true;
+      }
+    } catch {
+      // fall through to the lease pipeline
+    }
+  }
+
+  const leaseKeys: Array<[string, string]> = [];
+  if (email) leaseKeys.push(["resident_email", email]);
+  if (residentUserId) leaseKeys.push(["resident_user_id", residentUserId]);
+  for (const [column, value] of leaseKeys) {
+    try {
+      const { data } = await db
+        .from("portal_lease_pipeline_records")
+        .select("manager_user_id, property_id, row_data")
+        .in("manager_user_id", owners)
+        .eq(column, value);
+      for (const row of (data ?? []) as { manager_user_id?: unknown; row_data?: unknown }[]) {
+        if (recipientInReach(requestorUserId, String(row.manager_user_id ?? ""), houseOf(row), reach)) return true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}

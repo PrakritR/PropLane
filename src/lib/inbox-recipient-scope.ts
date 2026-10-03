@@ -2,7 +2,12 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
-import { managerOwnsResident } from "@/lib/auth/resident-relationship";
+import {
+  managerHasAuthoritativeResidentLink,
+  recipientInReach,
+  type RecipientReach,
+} from "@/lib/auth/resident-relationship";
+import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
@@ -36,7 +41,30 @@ export type InboxScopeSender = {
   email: string;
   role: string | null;
   isAdmin: boolean;
+  /**
+   * The workspace and house grants the sender is acting within. A manager or
+   * co-manager send is checked against them; omitted, only the sender's own
+   * people are reachable (never another owner's, never a co-manager's).
+   */
+  reach?: RecipientReach;
 };
+
+export type { RecipientReach };
+
+/** The reach a resolved Communication scope grants: its active workspace and granted houses. */
+export function recipientReachFromScope(scope: {
+  workspaceHouseIds: Set<string> | null;
+  untaggedOwnedVisible: boolean;
+  grantedHousesByOwner: Map<string, Set<string>>;
+  activeWorkspaceId: string | null;
+}): RecipientReach {
+  return {
+    workspaceHouseIds: scope.workspaceHouseIds,
+    untaggedOk: scope.untaggedOwnedVisible,
+    grantedHousesByOwner: scope.grantedHousesByOwner,
+    activeWorkspaceId: scope.activeWorkspaceId,
+  };
+}
 
 export type InboxScopeRecipient = { email: string; userId: string | null };
 
@@ -45,19 +73,22 @@ function isManagerRole(role: string | null): boolean {
   return r === "manager" || r === "owner" || r === "pro";
 }
 
-/** Emails of co-managers linked to any of the given manager ids (via pro relationships). */
+/**
+ * Emails of co-managers linked to any of the given manager ids. Only an
+ * ACCEPTED account link counts: `portal_pro_relationship_records` is a
+ * client-writable mirror (any account can write a row naming any email), so it
+ * is no evidence of a connection.
+ */
 async function coManagerEmailsForManagers(
   db: SupabaseClient,
   managerIds: string[],
 ): Promise<Set<string>> {
   const emails = new Set<string>();
-  if (managerIds.length === 0) return emails;
-  const { data } = await db
-    .from("portal_pro_relationship_records")
-    .select("related_email")
-    .in("manager_user_id", managerIds);
+  const ids = await accountLinkCoManagerIdsForManagers(db, managerIds);
+  if (ids.size === 0) return emails;
+  const { data } = await db.from("profiles").select("id, email").in("id", [...ids]);
   for (const row of data ?? []) {
-    const email = String(row.related_email ?? "").trim().toLowerCase();
+    const email = String(row.email ?? "").trim().toLowerCase();
     if (email) emails.add(email);
   }
   return emails;
@@ -67,16 +98,20 @@ async function coManagerEmailsForManagers(
 async function accountLinkCoManagerIdsForManagers(
   db: SupabaseClient,
   managerIds: string[],
+  /** A membership is per workspace: when given, only members of THAT workspace count. */
+  workspaceId?: string | null,
 ): Promise<Set<string>> {
   const ids = new Set<string>();
   if (managerIds.length === 0) return ids;
   try {
     const { data } = await db
       .from("account_link_invites")
-      .select("invitee_user_id")
+      .select("invitee_user_id, workspace_id")
       .eq("status", "accepted")
       .in("inviter_user_id", managerIds);
-    for (const row of data ?? []) {
+    for (const row of (data ?? []) as { invitee_user_id?: unknown; workspace_id?: unknown }[]) {
+      const rowWorkspace = String(row.workspace_id ?? "").trim();
+      if (workspaceId && rowWorkspace && rowWorkspace !== workspaceId) continue;
       const id = String(row.invitee_user_id ?? "").trim();
       if (id) ids.add(id);
     }
@@ -173,23 +208,34 @@ async function housemateEmailsForResident(
   return emails;
 }
 
-/** Emails of vendors in the given managers' own vendor directory. */
-async function vendorEmailsForManagers(
+/**
+ * Vendors the given managers are actually LINKED to: a directory row whose
+ * `vendor_user_id` is set (the vendor accepted). A directory row is typed by
+ * the manager - an email in it proves nothing about who owns that mailbox.
+ */
+async function linkedVendorsForManagers(
   db: SupabaseClient,
   managerIds: string[],
-): Promise<Set<string>> {
+): Promise<{ userIds: Set<string>; emails: Set<string> }> {
+  const userIds = new Set<string>();
   const emails = new Set<string>();
-  if (managerIds.length === 0) return emails;
+  if (managerIds.length === 0) return { userIds, emails };
   const { data } = await db
     .from("manager_vendor_records")
-    .select("row_data")
+    .select("vendor_user_id")
     .in("manager_user_id", managerIds);
   for (const row of data ?? []) {
-    const rowData = (row.row_data ?? {}) as Record<string, unknown>;
-    const email = String(rowData.email ?? "").trim().toLowerCase();
-    if (email) emails.add(email);
+    const id = String(row.vendor_user_id ?? "").trim();
+    if (id) userIds.add(id);
   }
-  return emails;
+  if (userIds.size > 0) {
+    const { data: profiles } = await db.from("profiles").select("id, email").in("id", [...userIds]);
+    for (const row of profiles ?? []) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email) emails.add(email);
+    }
+  }
+  return { userIds, emails };
 }
 
 /** Manager user ids that invited/own the given vendor (by linked auth user or directory email). */
@@ -200,8 +246,8 @@ export async function managerIdsOwningVendor(
   const email = vendor.email.trim().toLowerCase();
   const ids = new Set<string>();
   const filter = email
-    ? `vendor_user_id.eq.${vendor.userId},row_data->>email.eq.${email}`
-    : `vendor_user_id.eq.${vendor.userId}`;
+    ? `vendor_user_id.eq.${postgrestFilterValue(vendor.userId)},row_data->>email.eq.${postgrestFilterValue(email)}`
+    : `vendor_user_id.eq.${postgrestFilterValue(vendor.userId)}`;
   const { data } = await db
     .from("manager_vendor_records")
     .select("manager_user_id, vendor_user_id, row_data")
@@ -243,54 +289,48 @@ async function managerIdsFromResidentTours(db: SupabaseClient, residentUserId: s
   }
 }
 
-/** Workspace owners linked via accepted account links (mirrors resident-relationship). */
-async function relatedWorkspaceUserIds(db: SupabaseClient, requestorUserId: string): Promise<string[]> {
-  const ids = new Set<string>([requestorUserId]);
-  try {
-    const { data } = await db
-      .from("account_link_invites")
-      .select("inviter_user_id, invitee_user_id, status")
-      .eq("status", "accepted")
-      .or(`inviter_user_id.eq.${requestorUserId},invitee_user_id.eq.${requestorUserId}`);
-    for (const row of (data ?? []) as { inviter_user_id?: unknown; invitee_user_id?: unknown }[]) {
-      if (typeof row.inviter_user_id === "string" && row.inviter_user_id.trim()) ids.add(row.inviter_user_id.trim());
-      if (typeof row.invitee_user_id === "string" && row.invitee_user_id.trim()) ids.add(row.invitee_user_id.trim());
-    }
-  } catch {
-    /* table may not exist */
-  }
-  return [...ids];
-}
-
 /**
  * True when the address is already in the manager's pre-application funnel:
  * tour link, tour inquiry, or a listing-lead / property conversation thread.
- * Defaults closed. Does not replace {@link managerOwnsResident}.
+ * Defaults closed. Does not replace {@link managerHasAuthoritativeResidentLink}.
  */
 async function managerConnectedToFunnelProspect(
   db: SupabaseClient,
   requestorUserId: string,
   target: { email: string; residentUserId?: string | null },
+  reach?: RecipientReach,
 ): Promise<boolean> {
   const email = target.email.trim().toLowerCase();
   const residentUserId = target.residentUserId?.trim() || "";
   if (!requestorUserId || (!email && !residentUserId)) return false;
 
-  const managerIds = await relatedWorkspaceUserIds(db, requestorUserId);
-  if (managerIds.length === 0) return false;
+  // The sender, plus each owner they hold a Communication grant under - no
+  // blanket union of everyone an account link has ever touched.
+  const managerIds = [requestorUserId, ...(reach ? [...reach.grantedHousesByOwner.keys()] : [])];
 
   try {
-    const orFilters: string[] = [];
-    if (email) orFilters.push(`attendee_email.eq.${email}`);
-    if (residentUserId) orFilters.push(`resident_user_id.eq.${residentUserId}`);
-    if (orFilters.length > 0) {
+    const keys: Array<[string, string]> = [];
+    if (email) keys.push(["attendee_email", email]);
+    if (residentUserId) keys.push(["resident_user_id", residentUserId]);
+    for (const [column, value] of keys) {
       const { data, error } = await db
         .from("resident_tour_links")
-        .select("id")
+        .select("manager_user_id, property_id")
         .in("manager_user_id", managerIds)
-        .or(orFilters.join(","))
-        .limit(1);
-      if (!error && Array.isArray(data) && data.length > 0) return true;
+        .eq(column, value);
+      if (error || !Array.isArray(data)) continue;
+      for (const row of data as { manager_user_id?: unknown; property_id?: unknown }[]) {
+        if (
+          recipientInReach(
+            requestorUserId,
+            String(row.manager_user_id ?? ""),
+            String(row.property_id ?? "").trim(),
+            reach,
+          )
+        ) {
+          return true;
+        }
+      }
     }
   } catch {
     /* migration may be partial */
@@ -300,16 +340,22 @@ async function managerConnectedToFunnelProspect(
     try {
       const { data, error } = await db
         .from("portal_inbox_thread_records")
-        .select("id, row_data")
+        .select("id, owner_user_id, row_data")
         .in("owner_user_id", managerIds)
         .eq("participant_email", email)
-        .limit(5);
+        .limit(25);
       if (!error && Array.isArray(data)) {
         for (const row of data) {
           const rowData = (row.row_data ?? {}) as Record<string, unknown>;
           // Property-lead / listing conversations carry a property id; bare
           // accidental threads do not unlock messaging.
-          if (String(rowData.propertyId ?? "").trim()) return true;
+          const propertyId = String(rowData.propertyId ?? "").trim();
+          if (
+            propertyId &&
+            recipientInReach(requestorUserId, String((row as { owner_user_id?: unknown }).owner_user_id ?? ""), propertyId, reach)
+          ) {
+            return true;
+          }
         }
       }
     } catch {
@@ -342,24 +388,8 @@ async function managerConnectedToFunnelProspect(
       /* ignore */
     }
 
-    try {
-      const { data } = await db
-        .from("portal_schedule_records")
-        .select("row_data")
-        .in("manager_user_id", managerIds);
-      for (const row of data ?? []) {
-        const rowData = (row.row_data ?? {}) as Record<string, unknown>;
-        const attendee = String(rowData.attendeeEmail ?? rowData.guestEmail ?? "").trim().toLowerCase();
-        if (attendee === email) return true;
-        const payload = rowData.payload;
-        if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-          const nested = String((payload as Record<string, unknown>).email ?? "").trim().toLowerCase();
-          if (nested === email) return true;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    // The manager's own schedule rows are NOT evidence: they are written by
+    // the manager and can name any attendee email.
   }
 
   return false;
@@ -442,15 +472,17 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
   const senderEmail = sender.email.trim().toLowerCase();
 
   if (isManagerRole(sender.role)) {
-    const coManagers = await coManagerEmailsForManagers(db, [sender.id]);
-    // `portal_pro_relationship_records` is a client-writable mirror, so the
-    // authoritative accepted account_link_invites are resolved too — the same
-    // source the vendor and resident branches use.
-    const [coManagerIds, pendingInviteeIds, inviterIdsForInvitee] = await Promise.all([
-      accountLinkCoManagerIdsForManagers(db, [sender.id]),
+    const reach = sender.reach;
+    // Authoritative sources only (accepted account links, linked vendors,
+    // applications / leases / tours the resident or system wrote), narrowed to
+    // the active workspace and the houses this sender is granted.
+    const [coManagerIds, pendingInviteeIds, inviterIdsForInvitee, linkedVendors] = await Promise.all([
+      accountLinkCoManagerIdsForManagers(db, [sender.id], reach?.activeWorkspaceId ?? null),
       pendingAccountLinkInviteeIdsForManagers(db, [sender.id]),
       coManagerInviterIdsForInvitee(db, sender.id),
+      linkedVendorsForManagers(db, [sender.id]),
     ]);
+    const coManagers = new Set<string>();
     if (coManagerIds.size > 0) {
       const { data: coProfiles } = await db.from("profiles").select("id, email").in("id", [...coManagerIds]);
       for (const row of coProfiles ?? []) {
@@ -458,29 +490,28 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         if (email) coManagers.add(email);
       }
     }
-    const vendors = await vendorEmailsForManagers(db, [sender.id]);
     const keep = await Promise.all(
       recipients.map(async (recipient) => {
         if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
         if (recipient.userId && pendingInviteeIds.has(recipient.userId)) return true;
         if (recipient.userId && inviterIdsForInvitee.has(recipient.userId)) return true;
+        if (recipient.userId && linkedVendors.userIds.has(recipient.userId)) return true;
         const email = recipient.email.trim().toLowerCase();
         if (!email) return false;
         if (email === ADMIN_EMAIL) return true;
         if (coManagers.has(email)) return true;
-        if (vendors.has(email)) return true;
+        if (linkedVendors.emails.has(email)) return true;
         if (
-          await managerOwnsResident(db, sender.id, {
-            email,
-            residentUserId: recipient.userId ?? undefined,
-          })
+          await managerHasAuthoritativeResidentLink(
+            db as never,
+            sender.id,
+            { email, residentUserId: recipient.userId ?? undefined },
+            reach,
+          )
         ) {
           return true;
         }
-        return managerConnectedToFunnelProspect(db, sender.id, {
-          email,
-          residentUserId: recipient.userId,
-        });
+        return managerConnectedToFunnelProspect(db, sender.id, { email, residentUserId: recipient.userId }, reach);
       }),
     );
     return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
@@ -587,9 +618,12 @@ export async function listEligibleInboxContacts(
     await pushCoManagers(db, [sender.id], push);
     const { data: vendorRows } = await db
       .from("manager_vendor_records")
-      .select("id, row_data")
+      .select("id, vendor_user_id, row_data")
       .eq("manager_user_id", sender.id);
     for (const row of vendorRows ?? []) {
+      // Only a vendor who accepted (linked account) is reachable - the same rule
+      // the send gate applies, so the picker never offers a person it refuses.
+      if (!String((row as { vendor_user_id?: unknown }).vendor_user_id ?? "").trim()) continue;
       const rowData = (row.row_data ?? {}) as Record<string, unknown>;
       const name = String(rowData.name ?? "").trim();
       if (!name || name === "__vendor_category_settings__") continue;
@@ -700,20 +734,17 @@ async function pushCoManagers(
   push: (contact: InboxScopedContact) => void,
 ): Promise<void> {
   if (managerIds.length === 0) return;
-  const { data } = await db
-    .from("portal_pro_relationship_records")
-    .select("id, related_user_id, related_email, row_data")
-    .in("manager_user_id", managerIds);
+  // Accepted account links, not the client-writable relationship mirror.
+  const ids = await accountLinkCoManagerIdsForManagers(db, managerIds);
+  if (ids.size === 0) return;
+  const { data } = await db.from("profiles").select("id, email, full_name").in("id", [...ids]);
   for (const row of data ?? []) {
-    const email = String(row.related_email ?? "").trim();
+    const email = String(row.email ?? "").trim();
     if (!email) continue;
-    const rowData = (row.row_data ?? {}) as Record<string, unknown>;
-    const name =
-      String(rowData.linkedDisplayName ?? rowData.displayName ?? rowData.name ?? "").trim() || email;
     push({
       id: `rel-${row.id}`,
-      userId: String(row.related_user_id ?? "").trim() || undefined,
-      name,
+      userId: String(row.id ?? "").trim() || undefined,
+      name: String(row.full_name ?? "").trim() || email,
       email,
       role: "manager",
     });

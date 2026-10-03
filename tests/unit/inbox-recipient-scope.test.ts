@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { filterRecipientsBySenderScope, listEligibleInboxContacts } from "@/lib/inbox-recipient-scope";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 /**
  * In-memory stand-in for the Supabase service client covering exactly the query
@@ -30,17 +31,10 @@ function makeDb(tables: Tables) {
         return api;
       },
       or: (expr: string) => {
-        // Supports "col.eq.val,col2.eq.val2" used by managerOwnsResident / funnel checks.
-        const clauses = String(expr)
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .map((part) => {
-            const match = /^([^.]+)\.eq\.(.+)$/.exec(part);
-            if (!match) return null;
-            return { col: match[1], val: match[2] };
-          })
-          .filter((item): item is { col: string; val: string } => Boolean(item));
+        // Values are quoted by the builder; the shared parser undoes it.
+        const clauses = parseOrFilterClauses(String(expr))
+          .filter((clause) => clause.operator === "eq")
+          .map((clause) => ({ col: clause.column, val: clause.value }));
         if (clauses.length > 0) {
           filters.push((row) =>
             clauses.some((clause) => String(row[clause.col] ?? "") === clause.val),

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 const state = vi.hoisted(() => ({
   ctx: null as null | { user: { id: string; role: string }; db: Record<string, unknown> },
@@ -96,12 +97,16 @@ function query() {
       const owners = new Set<string>();
       let participant: string | null = null;
       let adminScope = false;
-      for (const match of expression.matchAll(/owner_user_id\.eq\.([^,]+)|owner_user_id\.in\.\(([^)]*)\)|participant_email\.eq\.([^,]+)|scope\.eq\.admin/g)) {
+      // The email is a quoted value; unquote it with the one shared parser.
+      const unquotedEmail = parseOrFilterClauses(expression.replace(/owner_user_id\.in\.\([^)]*\)/g, "")).find(
+        (clause) => clause.column === "participant_email",
+      )?.value;
+      for (const match of expression.matchAll(/owner_user_id\.eq\.([^,]+)|owner_user_id\.in\.\(([^)]*)\)|scope\.eq\.admin/g)) {
         if (match[1]) owners.add(match[1]);
         if (match[2]) match[2].split(",").forEach((id) => owners.add(id));
-        if (match[3]) participant = match[3].toLowerCase();
         if (match[0] === "scope.eq.admin") adminScope = true;
       }
+      if (unquotedEmail) participant = unquotedEmail.toLowerCase();
       filters.orMatcher = (row) =>
         (owners.size > 0 && owners.has(String(row.owner_user_id))) ||
         (Boolean(participant) && String(row.participant_email).toLowerCase() === participant) ||

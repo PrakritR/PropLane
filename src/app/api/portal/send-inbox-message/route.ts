@@ -8,7 +8,9 @@ import {
 } from "@/lib/agent/vendor-agent.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
+import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
@@ -128,13 +130,19 @@ async function resolveBroadcastRecipients(
 
   async function linkedCoManagersForManagers(managerIds: string[]) {
     if (managerIds.length === 0) return;
-    const { data } = await db
-      .from("portal_pro_relationship_records")
-      .select("related_user_id, related_email")
-      .in("manager_user_id", managerIds);
-    for (const row of data ?? []) {
-      const email = String(row.related_email ?? "").trim().toLowerCase();
-      if (email) out.push({ email, userId: (row.related_user_id as string | null) ?? null, role: "manager" });
+    // Accepted account links only: `portal_pro_relationship_records` is a
+    // client-writable mirror that can name any email.
+    const { data: links } = await db
+      .from("account_link_invites")
+      .select("invitee_user_id")
+      .eq("status", "accepted")
+      .in("inviter_user_id", managerIds);
+    const inviteeIds = [...new Set((links ?? []).map((row) => String(row.invitee_user_id ?? "").trim()).filter(Boolean))];
+    if (inviteeIds.length === 0) return;
+    const { data: profiles } = await db.from("profiles").select("id, email").in("id", inviteeIds);
+    for (const row of profiles ?? []) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email) out.push({ email, userId: (row.id as string | null) ?? null, role: "manager" });
     }
   }
 
@@ -148,8 +156,8 @@ async function resolveBroadcastRecipients(
   if (normalizedRole === "vendor") {
     if (categories.includes("management")) {
       const filter = senderEmail
-        ? `vendor_user_id.eq.${senderId},row_data->>email.eq.${senderEmail}`
-        : `vendor_user_id.eq.${senderId}`;
+        ? `vendor_user_id.eq.${postgrestFilterValue(senderId)},row_data->>email.eq.${postgrestFilterValue(senderEmail)}`
+        : `vendor_user_id.eq.${postgrestFilterValue(senderId)}`;
       const { data } = await db.from("manager_vendor_records").select("manager_user_id").or(filter);
       const managerIds = [...new Set((data ?? []).map((r) => String(r.manager_user_id ?? "").trim()).filter(Boolean))];
       if (managerIds.length > 0) {
@@ -247,7 +255,6 @@ export async function POST(req: Request) {
       ? "\n\nAttachments:\n" + attachmentUrls.map((url) => `${emailOrigin}${url}`).join("\n")
       : "";
     const text = (rawText + attachmentNote).trim() || (attachmentUrls.length ? "(attachment)" : "");
-    const fromName = String(body.fromName ?? "PropLane Portal").trim();
     const deliverToPortalInbox = body.deliverToPortalInbox !== false;
     const deliverViaEmail = body.deliverViaEmail !== false;
     const deliverViaSms = body.deliverViaSms === true;
@@ -283,6 +290,15 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ ok: false, error: "Inbox access is unavailable for this account." }, { status: 403 });
     }
+
+    // The sender's name is the authenticated account's own, never the request
+    // body's (`body.fromName` is accepted for old clients but no longer read): a
+    // body-supplied name let any account send as "PropLane Support".
+    const { data: senderNameRow } = await db.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+    const fromName =
+      String((senderNameRow as { full_name?: string | null } | null)?.full_name ?? "").trim() ||
+      senderEmail.split("@")[0] ||
+      "PropLane Portal";
 
     // Resolving the thread authorizes the sender against it but writes NOTHING
     // yet: the recipient-scope gate below can still refuse this send with a 403,
@@ -522,9 +538,14 @@ export async function POST(req: Request) {
 
     let recipients = [...recipientsByEmail.values()];
     if (!senderActsAsAdmin) {
+      // A manager send is checked against the active workspace and the houses
+      // they are granted - "All residents" in workspace A reaches only A.
+      const reach = ["manager", "owner", "pro"].includes(String(senderRole ?? "").trim().toLowerCase())
+        ? recipientReachFromScope(await resolveCommunicationScope(db, user.id, "edit"))
+        : undefined;
       const { allowed } = await filterRecipientsBySenderScope(
         db,
-        { id: user.id, email: senderEmail, role: senderRole, isAdmin: false },
+        { id: user.id, email: senderEmail, role: senderRole, isAdmin: false, reach },
         recipients,
       );
       if (allowed.length === 0) {
