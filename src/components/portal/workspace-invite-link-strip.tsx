@@ -372,10 +372,17 @@ export function WorkspaceInviteLinkStrip({
                 </span>
               </span>
             </span>
-            <TeamRowValues row={{ id: link.id, name: "Invite link", detail: "", role: "co_manager", roleLabel: teamRoleListLabel(link.teamRole), roleId: link.teamRole, propertiesLabel: link.houseScope === "all" ? "All houses" : `${link.assignedPropertyIds.length} houses`, joinedAt: null,
-              onEdit: () => openEditor(link, true),
-              onRoleChange: async (role) => { await updateLink(link, { teamRole: role }); },
-            }} />
+            <TeamRowValues
+              row={{
+                id: link.id,
+                name: "Invite link",
+                detail: "",
+                role: "co_manager",
+                roleLabel: teamRoleListLabel(link.teamRole),
+                propertiesLabel: link.houseScope === "all" ? "All houses" : `${link.assignedPropertyIds.length} houses`,
+                joinedAt: null,
+              }}
+            />
             <PortalIconAction icon={Copy} label="Copy invite link" disabled={busy} onClick={() => void copy(link)} data-attr="workspace-invite-link-copy" />
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger
@@ -390,7 +397,7 @@ export function WorkspaceInviteLinkStrip({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
                 <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => workspace ? openEditor(link) : onEdit()}>
-                  Permissions
+                  Edit permissions
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   data-attr="workspace-invite-link-delete"
@@ -404,7 +411,7 @@ export function WorkspaceInviteLinkStrip({
           </div>
         );
       })}
-      <Modal title="Invite link permissions" open={editing !== null} onClose={() => setEditing(null)}>
+      <Modal title="Edit permissions" open={editing !== null} onClose={() => setEditing(null)}>
         <div className="space-y-4"><WorkspacePermissionsFields role={editRole} onRoleChange={(role) => { setEditRole(role); const grant = stampTeamRolePermissions(role); if (grant) setEditGrant(grant); }} houseScope={editScope} onHouseScopeChange={setEditScope} selectedHouseIds={editHouses} onSelectedHouseIdsChange={setEditHouses} workspace={workspace ? { name: workspace.name, houseCount: workspace.propertyIds.length } : null} houseOptions={(workspace?.propertyIds ?? []).map((id) => ({ value: id, label: workspace?.propertyLabels?.[id] ?? id }))} />
         {editRole === "custom" ? <><CoManagerPermissionsEditor hideRole value={editGrant} onChange={setEditGrant} /><WorkspaceGrantFields value={editWorkspace} onChange={setEditWorkspace} /></> : null}</div>
         <ModalFooter><Button disabled={busyId !== null || (editScope === "selected" && !editHouses.length)} onClick={async () => { if (!editing) return; const ids = editScope === "all" ? workspace?.propertyIds ?? [] : editHouses; await updateLink(editing, { teamRole: editRole, houseScope: editScope, assignedPropertyIds: ids, propertyPermissions: Object.fromEntries(ids.map((id) => [id, editGrant])), workspacePermissions: editWorkspace }); }}>Save</Button></ModalFooter>

@@ -4,13 +4,13 @@
  * Members and pending invites, rendered inside each workspace card on
  * Settings → Workspaces (under "Managers & permissions").
  *
- * Per-record actions live in a far-right ⋯ (Edit permissions, Disconnect),
+ * Per-record actions live in a far-right ⋯ (Edit permissions, Remove),
  * matching Properties. Edit permissions opens a sheet on this page — not a
  * member tab. The owner row has no menu. Invite sits on the section header,
  * not inside this block.
  */
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Hourglass, MoreHorizontal } from "lucide-react";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
@@ -21,8 +21,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
-import { TEAM_ROLE_INVITE_OPTIONS, type TeamRoleId } from "@/lib/co-manager-team-roles";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
 export type TeamMemberRow = {
   id: string;
@@ -32,8 +30,6 @@ export type TeamMemberRow = {
   role: "owner" | "co_manager";
   /** Product role stamp on a co-manager (Viewer, Leasing, …). */
   roleLabel?: string;
-  /** The stored role id, so the role dropdown shows the current pick. */
-  roleId?: string | null;
   /** "All houses" or "3 of 10 houses" */
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
@@ -43,8 +39,6 @@ export type TeamMemberRow = {
   /** Menu wording for the destructive action; "Disconnect" when absent. */
   removeLabel?: string;
   onEdit?: () => void;
-  onRoleChange?: (role: TeamRoleId) => Promise<void>;
-  houses?: { options: { value: string; label: string }[]; selected: string[]; all: boolean; onSave: (ids: string[], all: boolean) => Promise<void> };
   /** Promotes this member to main manager of one or more houses. */
   onTransfer?: () => void;
   onDisconnect?: () => void;
@@ -87,85 +81,16 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
   );
 }
 
-const ALL_HOUSES = "__all-houses";
-
-/**
- * Role and houses for one manager, side by side as dropdowns when the viewer may
- * change them, otherwise as plain text. The owner is one read-only line.
- */
+/** Role and houses as one plain line (e.g. "Leasing · All houses"). Editing is via ⋯ → Edit permissions. */
 export function TeamRowValues({ row }: { row: TeamMemberRow }) {
-  const [busy, setBusy] = useState(false);
   if (row.role === "owner") {
     return <span className="whitespace-nowrap text-sm text-foreground" data-attr="team-owner-values">Owner · {row.propertiesLabel}</span>;
   }
-  const roleId = row.roleId === "full" ? "admin" : row.roleId ?? "";
-  const houses = row.houses;
-  const houseIds = houses?.options.map((option) => option.value) ?? [];
-  const allSelected = houses?.all ?? false;
-  const houseSelection = houses ? (allSelected ? [ALL_HOUSES, ...houseIds] : houses.selected) : [];
-  const saveHouses = (next: string[]) => {
-    if (!houses) return;
-    const wantsAll = next.includes(ALL_HOUSES);
-    const picked = next.filter((id) => id !== ALL_HOUSES);
-    let ids: string[];
-    let all: boolean;
-    if (wantsAll && !allSelected) {
-      ids = houseIds;
-      all = true;
-    } else if (!wantsAll && allSelected) {
-      ids = houseIds;
-      all = false;
-    } else {
-      ids = picked;
-      all = false;
-    }
-    // A manager always keeps at least one house; clearing the last one is not a change.
-    if (ids.length === 0) return;
-    setBusy(true);
-    void houses.onSave(ids, all).finally(() => setBusy(false));
-  };
+  const role = row.roleLabel ?? "Co-manager";
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 text-sm" data-attr="team-row-values">
-      {row.onRoleChange ? (
-        <FieldSingleSelect
-          label={`Role for ${row.name}`}
-          hideLabel
-          variant="cell"
-          wrapperClassName="min-w-[9.5rem]"
-          disabled={busy}
-          value={roleId}
-          placeholder={row.roleLabel ?? "Co-manager"}
-          options={TEAM_ROLE_INVITE_OPTIONS.map((option) => ({ value: option.value, label: option.value === "custom" ? "Custom…" : option.label, triggerLabel: option.label }))}
-          dataAttr="team-row-role"
-          onChange={(next) => {
-            if (next === "custom") {
-              row.onEdit?.();
-              return;
-            }
-            setBusy(true);
-            void row.onRoleChange!(next as TeamRoleId).finally(() => setBusy(false));
-          }}
-        />
-      ) : (
-        <span className="text-foreground">{row.roleLabel ?? "Co-manager"}</span>
-      )}
-      {houses ? (
-        <CheckboxMultiSelect
-          label={`Houses for ${row.name}`}
-          hideLabel
-          variant="cell"
-          className="min-w-[9.5rem]"
-          disabled={busy}
-          options={[{ value: ALL_HOUSES, label: "All houses" }, ...houses.options]}
-          selected={houseSelection}
-          selectionTriggerLabel={row.propertiesLabel}
-          onChange={saveHouses}
-          dataAttr="team-row-houses"
-        />
-      ) : (
-        <span className="text-muted">{row.propertiesLabel}</span>
-      )}
-    </div>
+    <span className="whitespace-nowrap text-sm text-foreground" data-attr="team-row-values">
+      {role} · {row.propertiesLabel}
+    </span>
   );
 }
 
@@ -199,7 +124,7 @@ function BlockShell({
 export function TeamMembersBlock({ members, embedded = false }: { members: TeamMemberRow[]; embedded?: boolean }) {
   const rows = <ul>{members.map((m) => {
     const items = ([
-      m.onEdit ? { id: "edit", label: "Permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+      m.onEdit ? { id: "edit", label: "Edit permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
       m.onTransfer ? { id: "transfer", label: "Transfer ownership", onSelect: m.onTransfer, dataAttr: "team-member-transfer" } : null,
       m.onDisconnect ? { id: "disconnect", label: "Remove", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
     ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
@@ -222,9 +147,7 @@ export function TeamPendingInvitesBlock({
   expiryLabel,
   roleLabel,
   embedded = false,
-  controls,
 }: {
-  controls?: (invite: AccountLinkInviteDto) => Pick<TeamMemberRow, "onRoleChange" | "houses">;
   invites: AccountLinkInviteDto[];
   /** Inside a workspace card: plain rows under the members, no card shell. */
   embedded?: boolean;
@@ -246,7 +169,7 @@ export function TeamPendingInvitesBlock({
           const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId) ?? "Invite";
           const items: TeamRowMenuItem[] = outgoing
             ? [
-                { id: "edit", label: "Permissions", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
+                { id: "edit", label: "Edit permissions", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
                 { id: "revoke", label: "Revoke", onSelect: () => onRevoke(inv), destructive: true, dataAttr: "team-pending-revoke" },
               ]
             : [
@@ -266,7 +189,7 @@ export function TeamPendingInvitesBlock({
                   </span>
                 </span>
               </button>
-              <TeamRowValues row={{ id: inv.id, name, detail: "", role: "co_manager", roleLabel: roleLabel?.(inv), roleId: inv.teamRole, propertiesLabel: propertiesLabel(inv), joinedAt: null, onEdit: () => onOpen(inv), ...controls?.(inv) }} />
+              <TeamRowValues row={{ id: inv.id, name, detail: "", role: "co_manager", roleLabel: roleLabel?.(inv), propertiesLabel: propertiesLabel(inv), joinedAt: null }} />
               <TeamRowMenu label={name} items={items} />
             </li>
           );

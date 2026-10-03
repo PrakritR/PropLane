@@ -6,8 +6,8 @@ const blocks = readFileSync(resolve("src/components/portal/pro-team-blocks.tsx")
 const panel = readFileSync(resolve("src/components/portal/pro-account-links-panel.tsx"), "utf8");
 
 describe("Settings Team row actions", () => {
-  it("puts Permissions, Transfer ownership and Remove in the far-right menu", () => {
-    expect(blocks).toContain('label: "Permissions"');
+  it("puts Edit permissions, Transfer ownership and Remove in the far-right menu", () => {
+    expect(blocks).toContain('label: "Edit permissions"');
     expect(blocks).toContain('label: "Remove"');
     expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
