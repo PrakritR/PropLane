@@ -25,8 +25,8 @@ import { cn } from "@/lib/utils";
  */
 
 const TOOL_BTN =
-  "inline-flex h-9 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-0 text-muted outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 sm:h-10 md:h-[42px]";
-const TOOL_BTN_ICON_ONLY = "w-9 sm:w-10 md:w-[42px]";
+  "inline-flex h-10 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-0 text-muted outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 md:h-11";
+const TOOL_BTN_ICON_ONLY = "w-10 md:w-11";
 const TOOL_BTN_ACTIVE = "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15";
 
 export function InboxComposerAiMenu({
@@ -269,7 +269,7 @@ export function InboxComposerChannelMenu({
           aria-label={`Send via: ${label}`}
           title={identity ?? label}
           disabled={disabled}
-          className={cn(TOOL_BTN, "relative w-9 sm:w-10 md:w-auto md:px-3")}
+          className={cn(TOOL_BTN, "relative w-10 md:w-auto md:px-3")}
           data-attr="inbox-reply-send-via"
         >
           <LeadIcon className="h-4 w-4" strokeWidth={2} aria-hidden />

@@ -1,0 +1,25 @@
+import { describe, expect, it } from "vitest";
+import {
+  PORTAL_INBOX_COMPOSER_INPUT_CLASS,
+  PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX,
+  PORTAL_INBOX_COMPOSER_SEND_CLASS,
+  composerAutoHeight,
+} from "@/components/portal/portal-inbox-ui";
+
+describe("reply composer is a one-line auto-growing field", () => {
+  it("is empty-height by CSS (no inline height) and never reads free space", () => {
+    expect(composerAutoHeight(500, false)).toBeNull();
+    expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).not.toMatch(/\bflex-1\b|\bh-full\b|\bmin-h-full\b/);
+  });
+  it("matches the 44px tool buttons on desktop and the send button", () => {
+    expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).toContain("md:h-11");
+    expect(PORTAL_INBOX_COMPOSER_SEND_CLASS).toContain("md:h-11");
+  });
+  it("grows with content and caps at six lines, then scrolls", () => {
+    expect(composerAutoHeight(64, true)).toBe(66);
+    expect(composerAutoHeight(5000, true)).toBe(PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX);
+    expect(PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX).toBe(162);
+    expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).toContain("overflow-y-auto");
+    expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).toContain("max-h-[162px]");
+  });
+});

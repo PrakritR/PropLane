@@ -1653,10 +1653,24 @@ export function InboxReplyChannelPicker({
 
 /** Shared thread-reply field + send affordance — keep identical across email/SMS/resident chat. */
 export const PORTAL_INBOX_COMPOSER_INPUT_CLASS =
-  "portal-inbox-composer-input max-h-[16rem] min-h-10 flex-1 resize-none overflow-y-auto rounded-[1.4rem] border border-input bg-card px-4 py-2.5 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:min-h-[46px] md:px-4.5";
+  "portal-inbox-composer-input box-border block h-10 max-h-[162px] min-h-10 w-full min-w-0 resize-none overflow-y-auto rounded-[1.4rem] border border-input bg-card px-4 py-2 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:h-11 md:min-h-11 md:px-4.5 md:py-2";
+
+/** Six 24px lines, 8px vertical padding each side, 1px border each side. */
+export const PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX = 6 * 24 + 16 + 2;
+
+/**
+ * Height for the reply field: one line when empty (the CSS floor, 40px phone /
+ * 44px desktop — the same as the tool buttons beside it), growing with content
+ * up to six lines, then scrolling inside. Never a function of free space.
+ */
+export function composerAutoHeight(scrollHeight: number, hasText: boolean): number | null {
+  if (!hasText) return null;
+  // scrollHeight excludes the 1px borders of the border-box field.
+  return Math.min(Math.max(scrollHeight, 0) + 2, PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX);
+}
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
-  "portal-inbox-composer-send mb-0.5 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-[46px] md:w-[46px]";
+  "portal-inbox-composer-send flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-11 md:w-11";
 
 
 /** Persistent composer pinned to the bottom of an open thread. */
@@ -1723,8 +1737,10 @@ export function InboxComposer({
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    // Empty: drop the inline height so the one-line CSS height applies.
+    el.style.height = "";
+    const next = composerAutoHeight(el.scrollHeight, value.length > 0);
+    if (next != null) el.style.height = `${next}px`;
   }, [value]);
   useEffect(() => {
     if (!focusSignal) return;
@@ -1795,8 +1811,7 @@ export function InboxComposer({
           {onAttachmentsPick ? (
             <label
               className={cn(
-                "mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]",
-                (trailingControls || resolvedChannel) && "max-md:h-9 max-md:w-9",
+                "flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-11 md:w-11",
               )}
             >
               <Paperclip className="h-4 w-4" strokeWidth={2} />
@@ -1814,7 +1829,7 @@ export function InboxComposer({
               />
             </label>
           ) : null}
-          <div className="relative flex min-w-0 flex-1 items-end">
+          <div className="relative flex min-w-0 flex-1 items-end self-end">
             <textarea
               ref={inputRef}
               rows={composerRows}
@@ -1838,7 +1853,7 @@ export function InboxComposer({
             {resolvedChannel ? <div className="absolute bottom-1 right-1">{resolvedChannel}</div> : null}
           </div>
           {trailingControls || resolvedChannel ? (
-            <div className="mb-0.5 flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
+            <div className="flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
               {trailingControls}
             </div>
           ) : null}
@@ -2149,7 +2164,7 @@ export function AiDraftReplyCard({
         leadingControl={
           <button
             type="button"
-            className="mb-0.5 flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border/80 text-muted hover:bg-accent/40 hover:text-foreground"
+            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border/80 md:h-11 md:w-11 text-muted hover:bg-accent/40 hover:text-foreground"
             aria-label="Discard draft"
             disabled={approving}
             onClick={onDiscard}
@@ -2288,6 +2303,7 @@ export function ScheduledMessageDetailModal({
       description={description}
       dense
       assistantContext={assistantContext}
+      contextPanel={null}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4", panelClassName)}
       dataAttr={dataAttr}
       footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
@@ -2572,6 +2588,7 @@ export function InboxScheduledCard({
         title="Schedule message"
         dense
         assistantContext="Scheduled message"
+        contextPanel={null}
         panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4")}
         dataAttr="inbox-scheduled-detail-modal"
         footer={
@@ -2635,6 +2652,7 @@ export function InboxScheduledThreadList({
   placement?: "summary" | "bar";
 }) {
   const [listOpen, setListOpen] = useState(false);
+  const [barOpen, setBarOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailKey, setDetailKey] = useState<string | null>(null);
 
@@ -2655,51 +2673,87 @@ export function InboxScheduledThreadList({
   if (count <= 0) return null;
 
   if (placement === "bar") {
+    type BarRowProps = {
+      subject?: string;
+      sendLabel?: string;
+      source?: "manual" | "automation";
+      onSendNow?: () => void;
+      busy?: boolean;
+      showSendActions?: boolean;
+    };
+    const rowProps = (child: (typeof childArray)[number]) => (child as React.ReactElement<BarRowProps>).props;
+    const sendNowButton = (props: BarRowProps) =>
+      props.onSendNow && props.showSendActions !== false ? (
+        <button
+          type="button"
+          className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
+          aria-label="Send now"
+          title="Send now"
+          data-attr="inbox-scheduled-bar-send"
+          disabled={props.busy}
+          onClick={() => props.onSendNow?.()}
+        >
+          <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
+        </button>
+      ) : null;
+    // Several sends collapse into ONE Reminder row (next send + "+N more");
+    // a click expands the full list in place. Display only — the list, its
+    // order and every per-row action are unchanged.
+    const collapsible = childArray.length > 1;
+    const next = childArray.length > 0 ? rowProps(childArray[0]) : ({} as BarRowProps);
     return (
       <>
         <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-border bg-accent/20" data-attr="inbox-scheduled-bar">
-          {childArray.map((child, index) => {
-            const props = (child as React.ReactElement<{
-              subject?: string;
-              sendLabel?: string;
-              source?: "manual" | "automation";
-              onSendNow?: () => void;
-              busy?: boolean;
-              showSendActions?: boolean;
-            }>).props;
-            const kind = props.source === "automation" ? "Reminder" : "Scheduled";
-            return (
-              <div key={child.key ?? index} className="flex items-center gap-1 border-t border-border first:border-t-0">
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
-                  aria-label={`Edit ${props.subject?.trim() || "scheduled message"}, ${props.sendLabel || ""}`}
-                  data-attr="inbox-scheduled-bar-row"
-                  onClick={() => openDetail(index)}
-                >
-                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.25} aria-hidden />
-                  <span className="shrink-0 text-[12px] font-semibold text-primary">{kind}</span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-                    {props.subject?.trim() || "Scheduled message"}
-                  </span>
-                  <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
-                </button>
-                {props.onSendNow && props.showSendActions !== false ? (
-                  <button
-                    type="button"
-                    className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
-                    aria-label="Send now"
-                    title="Send now"
-                    data-attr="inbox-scheduled-bar-send"
-                    disabled={props.busy}
-                    onClick={() => props.onSendNow?.()}
+          {collapsible ? (
+            <button
+              type="button"
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
+              aria-expanded={barOpen}
+              aria-label={`${barOpen ? "Collapse" : "Expand"} ${childArray.length} scheduled messages`}
+              data-attr="inbox-scheduled-bar-summary"
+              onClick={() => setBarOpen((open) => !open)}
+            >
+              <Clock className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.25} aria-hidden />
+              <span className="shrink-0 text-[12px] font-semibold text-primary">Reminder</span>
+              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+                {next.subject?.trim() || "Scheduled message"}
+              </span>
+              <span className="shrink-0 text-[12px] text-muted">+{childArray.length - 1} more</span>
+              <span className="shrink-0 text-[12px] text-muted">{next.sendLabel}</span>
+              <ChevronDown
+                className={cn("h-4 w-4 shrink-0 text-muted transition-transform", barOpen && "rotate-180")}
+                aria-hidden
+              />
+            </button>
+          ) : null}
+          {!collapsible || barOpen
+            ? childArray.map((child, index) => {
+                const props = rowProps(child);
+                const kind = props.source === "automation" ? "Reminder" : "Scheduled";
+                return (
+                  <div
+                    key={child.key ?? index}
+                    className={cn("flex items-center gap-1 border-t border-border", !collapsible && "first:border-t-0")}
                   >
-                    <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+                      aria-label={`Edit ${props.subject?.trim() || "scheduled message"}, ${props.sendLabel || ""}`}
+                      data-attr="inbox-scheduled-bar-row"
+                      onClick={() => openDetail(index)}
+                    >
+                      <Clock className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.25} aria-hidden />
+                      <span className="shrink-0 text-[12px] font-semibold text-primary">{kind}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+                        {props.subject?.trim() || "Scheduled message"}
+                      </span>
+                      <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
+                    </button>
+                    {sendNowButton(props)}
+                  </div>
+                );
+              })
+            : null}
         </div>
         <ScheduledMessageDetailModal
           open={detailOpen && detailIdx >= 0}
