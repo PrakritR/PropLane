@@ -174,6 +174,9 @@ export function OptionRowsEditor({
   );
 }
 
+/** A host form's extra answer type (move-in forms add Photos and Signature to the application vocabulary). */
+export type ExtraQuestionType = { id: string; label: string };
+
 export function ApplicationQuestionFields({
   field,
   onPatch,
@@ -184,6 +187,7 @@ export function ApplicationQuestionFields({
   editableOptions,
   editableType = true,
   blockedTypes = [],
+  extraTypes = [],
 }: {
   field: ResolvedApplicationField;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
@@ -202,13 +206,19 @@ export function ApplicationQuestionFields({
   editableOptions?: boolean;
   editableType?: boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
+  /** Types a host form adds beyond the application vocabulary (move-in forms: Photos, Signature). */
+  extraTypes?: readonly ExtraQuestionType[];
 }) {
   const conditionCandidates = (siblingFields ?? []).filter((f) => !f.isStandard && f.id !== field.id);
   const canEditOptions = editableOptions ?? (!field.isStandard || field.options.length === 0);
   const canEditType = editableType;
-  const typeOptions = customApplicationFieldTypeOptionsFor(field.type).filter(
-    (option) => !blockedTypes.includes(option.id) || option.id === field.type,
-  );
+  const baseTypeOptions = customApplicationFieldTypeOptionsFor(field.type);
+  const typeOptions = [
+    ...baseTypeOptions,
+    ...extraTypes.filter((extra) => !baseTypeOptions.some((option) => option.id === extra.id)),
+  ]
+    .map((option) => extraTypes.find((extra) => extra.id === option.id) ?? option)
+    .filter((option) => !blockedTypes.includes(option.id as ManagerCustomApplicationFieldType) || option.id === field.type);
   return (
     <>
       <div>

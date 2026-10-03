@@ -518,7 +518,6 @@ export function ManagerPropertyRoomMoveInPanel({
           saveTarget={saveTarget}
           managerUserId={managerUserId}
           canEdit={canEdit}
-          propertyLabel={propertyLabel ?? "This property"}
           onUpdated={onUpdated}
           showToast={showToast}
           chooserOpen={chooserOpen}

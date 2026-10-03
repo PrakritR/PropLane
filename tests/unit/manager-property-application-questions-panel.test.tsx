@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows per-template action menus and Applications | Leases nav", () => {
+  it("property tab shows per-template action menus and only the Applications tab", () => {
     const sub = addApplicationTemplateFromSeed(
       addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
       "short-term",
@@ -45,8 +45,8 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Application automation" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Applications" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Leases" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Applications/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Leases/ })).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-attr="property-application-row-facts"]')).toBeTruthy();

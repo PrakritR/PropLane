@@ -155,14 +155,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
     if (embedInModal || !pathname) return undefined;
     const match = pathname.match(/^(.*)\/(application|lease)$/);
     if (!match) return undefined;
-    const base = match[1];
-    const tab = match[2];
-    return {
-      activeId: tab === "application" ? ("application" as const) : ("lease" as const),
-      applicationHref: `${base}/application`,
-      leaseHref: `${base}/lease`,
-    };
-  }, [embedInModal, pathname]);
+    return { activeId: "application" as const, href: pathname, count: templates.length };
+  }, [embedInModal, pathname, templates.length]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];

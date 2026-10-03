@@ -300,7 +300,10 @@ async function readProperty(db: SupabaseClient, propertyId: string): Promise<Pro
   return {
     id: String(data.id),
     ownerId: String(data.manager_user_id),
-    templates: readMoveInFormTemplates(submission),
+    // Never-saved defaults are suggestions, not the manager's choice: a property that has not saved its
+    // move-in forms sends nothing on its own (outward messages need the manager's own save).
+    templates: readMoveInFormTemplates(submission).map((template) =>
+      "moveInFormTemplates" in submission ? template : { ...template, trigger: "manual" as const }),
     settings: readMoveInFormSettings(submission),
     rooms,
   };
@@ -396,7 +399,7 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
 /* --------------------------------------------------------------- dispatch */
 
 /**
- * Sends every enabled form whose trigger matches to a residency. Called from server events
+ * Sends every form whose trigger matches to a residency. Called from server events
  * (lease fully signed, application approved) with an id the SERVER read, never one from a
  * request body. Idempotent through the unique index, best-effort, and never throws into its
  * caller: a form that fails to go out must not break signing a lease.
@@ -415,7 +418,7 @@ export async function dispatchMoveInFormsForResidency(
     // The property's actual owner, not a stale stamp on the application.
     const room = resolveRoom(property, residency);
     const dispatchable = property.templates.filter((template) =>
-      template.enabled && template.trigger === trigger &&
+      template.trigger === trigger &&
       // A whole-house form is one per lease: the primary signer gets it, roommates do not.
       !(options.secondaryMember && template.audience.kind === "whole-house") &&
       templateAppliesToRoom(template, room.id));
@@ -541,7 +544,6 @@ async function prepareSend(actor: Extract<MoveInFormActor, { role: "manager" }>,
   if (!authorized(actor, scope, { ...residency.identity, manager_user_id: property.ownerId })) throw new MoveInFormError("Residency not found.", 404);
   const template = property.templates.find((item) => item.id === formId);
   if (!template) throw new MoveInFormError("Form not found.", 404);
-  if (!template.enabled) throw new MoveInFormError("Turn this form on before sending it.", 409);
   return { residency, property, template, room: resolveRoom(property, residency) };
 }
 
@@ -556,7 +558,6 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
   }
   const template = property.templates.find((item) => item.id === input.formId);
   if (!template) throw new MoveInFormError("Form not found.", 404);
-  if (!template.enabled) throw new MoveInFormError("Turn this form on before sending it.", 409);
   const { data: leases, error } = await db.from("portal_lease_pipeline_records")
     .select("axis_id:row_data->>axisId,signed:row_data->>fullySignedAt,voided:row_data->>voidedAt,members:row_data->jointLeaseMembers")
     .eq("manager_user_id", property.ownerId).eq("property_id", property.id);

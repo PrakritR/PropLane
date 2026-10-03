@@ -21,7 +21,7 @@ import {
   removeMoveInSection,
   renameMoveInSection,
   reorderMoveInSection,
-  setMoveInTemplateEnabled,
+  moveMoveInQuestion,
   templateFigure,
   templateSourceLine,
   uniqueQuestionKey,
@@ -207,34 +207,37 @@ describe("template list and wording", () => {
   });
 
   it("a duplicate of an uploaded form drops the PDF reference, which is stored under the original's id", () => {
-    const original = { ...upload(), enabled: true };
+    const original = upload();
     const { copy } = duplicateMoveInTemplate([original], original.id, "mif-copy");
     expect(copy!.pdf).toBeNull();
     expect(copy!.source).toBe("upload");
   });
 
-  it("a duplicate sits after its original, turned off, with its own id and no starter mark", () => {
-    const list = [...MOVE_IN_FORM_STARTERS].map((t, i) => (i === 0 ? { ...t, enabled: true } : t));
+  it("a duplicate sits after its original, sent only by hand, with its own id and no starter mark", () => {
+    const list = [...MOVE_IN_FORM_STARTERS];
     const { list: next, copy } = duplicateMoveInTemplate(list, list[0]!.id, "mif-copy");
     expect(copy).not.toBeNull();
     expect(next[1]!.id).toBe("mif-copy");
-    expect(copy!.enabled).toBe(false);
+    expect(list[0]!.trigger).toBe("lease-signed");
+    expect(copy!.trigger).toBe("manual");
     expect(copy!.starterKey).toBeUndefined();
     expect(copy!.name).toBe("Move-in checklist (copy)");
     expect(duplicateMoveInTemplate(list, "nope", "x").copy).toBeNull();
   });
 
   it("copying to another property clears the PDF and the room list that belonged to the source", () => {
-    const copy = copyTemplateToProperty({ ...upload(), audience: { kind: "rooms", roomIds: ["r1"] }, enabled: true }, "mif-new");
+    const copy = copyTemplateToProperty({ ...upload(), audience: { kind: "rooms", roomIds: ["r1"] }, trigger: "lease-signed" }, "mif-new");
     expect(copy.pdf).toBeNull();
     expect(copy.audience).toEqual({ kind: "every-room" });
-    expect(copy.enabled).toBe(false);
+    expect(copy.trigger).toBe("manual");
   });
 
-  it("turning a form on or off touches only that form", () => {
-    const list = [...MOVE_IN_FORM_STARTERS];
-    const next = setMoveInTemplateEnabled(list, list[2]!.id, true);
-    expect(next.map((t) => t.enabled)).toEqual([false, false, true, false, false]);
+  it("moves a question one place inside its own section and stops at the ends", () => {
+    const list = [q("a", { section: "S" }), q("b", { section: "S" }), q("c", { section: "T" })];
+    expect(moveMoveInQuestion(list, list[0]!.id, "down").map((x) => x.key)).toEqual(["b", "a", "c"]);
+    expect(moveMoveInQuestion(list, list[1]!.id, "up").map((x) => x.key)).toEqual(["b", "a", "c"]);
+    expect(moveMoveInQuestion(list, list[1]!.id, "down").map((x) => x.key)).toEqual(["a", "b", "c"]);
+    expect(moveMoveInQuestion(list, list[0]!.id, "up").map((x) => x.key)).toEqual(["a", "b", "c"]);
   });
 
   it("row wording: source line, audience and figure", () => {
@@ -248,9 +251,8 @@ describe("template list and wording", () => {
     expect(audienceSummary({ kind: "rooms", roomIds: ["r1", "r2", "r3"] }, rooms)).toBe("3 rooms");
     expect(audienceSummary({ kind: "rooms", roomIds: [] }, rooms)).toBe("No rooms picked");
 
-    const t = { id: "f1", enabled: true };
-    expect(templateFigure({ id: "f1", enabled: false }, [])).toBe("Turned off");
-    expect(templateFigure(t, [])).toBe("0 sent");
+    const t = { id: "f1" };
+    expect(templateFigure(t, [])).toBe("");
     expect(
       templateFigure(t, [
         { formId: "f1", status: "submitted" },

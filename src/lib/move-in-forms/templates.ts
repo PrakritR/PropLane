@@ -89,7 +89,7 @@ const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
   },
   "key-receipt": {
     name: "Key receipt",
-    trigger: "lease-signed",
+    trigger: "manual",
     due: "move-in-day",
     questions: [
       question("keys_received", "Keys you received", "multi_select", {
@@ -104,7 +104,7 @@ const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
   },
   "vehicle-parking": {
     name: "Vehicle and parking",
-    trigger: "lease-signed",
+    trigger: "manual",
     due: "3-days-before",
     questions: [
       question("has_vehicle", "Will you park a vehicle at the property?", "yes_no", { required: true }),
@@ -120,7 +120,7 @@ const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
   },
   "pet-agreement": {
     name: "Pet agreement",
-    trigger: "lease-signed",
+    trigger: "manual",
     due: "3-days-before",
     questions: [
       question("has_pet", "Are you bringing a pet?", "yes_no", { required: true }),
@@ -141,7 +141,7 @@ const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
   },
   "emergency-contacts": {
     name: "Emergency contacts",
-    trigger: "lease-signed",
+    trigger: "manual",
     due: "3-days-before",
     questions: [
       question("contact_name", "Emergency contact name", "text", { required: true }),
@@ -159,7 +159,10 @@ function starterTimestamp(): string {
   return new Date().toISOString();
 }
 
-/** The five starter templates. Every one ships OFF: nothing reaches a resident by surprise. */
+/**
+ * The five starter templates. The checklist sends itself when the lease is signed; the other four
+ * ship as "manual" (only when the manager sends them), so nothing else reaches a resident by surprise.
+ */
 export const MOVE_IN_FORM_STARTERS: readonly MoveInFormTemplate[] = STARTER_KEYS.map((starterKey) => {
   const definition = STARTER_DEFINITIONS[starterKey];
   return {
@@ -171,7 +174,6 @@ export const MOVE_IN_FORM_STARTERS: readonly MoveInFormTemplate[] = STARTER_KEYS
     audience: { kind: "every-room" } as MoveInFormAudience,
     trigger: definition.trigger,
     due: definition.due,
-    enabled: false,
     starterKey,
     createdAt: "2026-10-03T00:00:00.000Z",
     updatedAt: "2026-10-03T00:00:00.000Z",
@@ -181,7 +183,6 @@ export const MOVE_IN_FORM_STARTERS: readonly MoveInFormTemplate[] = STARTER_KEYS
 /**
  * A fresh template to edit. With `starterKey` it is a deep copy of that starter (new id, so
  * editing it never touches the shared starter); without, an empty form of the given source.
- * Always created OFF.
  */
 export function newMoveInFormTemplate(source: MoveInFormSource, starterKey?: MoveInFormStarterKey): MoveInFormTemplate {
   const now = starterTimestamp();
@@ -191,7 +192,6 @@ export function newMoveInFormTemplate(source: MoveInFormSource, starterKey?: Mov
       ...structuredClone(starter),
       id: `mif-${randomId()}`,
       source: "built",
-      enabled: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -207,7 +207,6 @@ export function newMoveInFormTemplate(source: MoveInFormSource, starterKey?: Mov
     audience: { kind: "every-room" },
     trigger: "lease-signed",
     due: "day-before",
-    enabled: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -282,6 +281,10 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
     .filter((item): item is MoveInFormQuestion => item !== null);
   const pdf = source === "upload" ? normalizePdf(raw.pdf) : null;
   const now = starterTimestamp();
+  // Retired on/off switch: a form that was stored turned off never sent itself, so it keeps not sending
+  // itself ("manual"). Nothing that was sending stops, and nothing that was off starts.
+  const storedTrigger = TRIGGERS.includes(raw.trigger as MoveInFormTrigger) ? (raw.trigger as MoveInFormTrigger) : "lease-signed";
+  const trigger: MoveInFormTrigger = raw.enabled === false ? "manual" : storedTrigger;
   const starterKey = STARTER_KEYS.includes(raw.starterKey as MoveInFormStarterKey) ? (raw.starterKey as MoveInFormStarterKey) : undefined;
   return {
     id,
@@ -290,9 +293,8 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
     questions,
     pdf,
     audience: normalizeAudience(raw.audience),
-    trigger: TRIGGERS.includes(raw.trigger as MoveInFormTrigger) ? (raw.trigger as MoveInFormTrigger) : "lease-signed",
+    trigger,
     due: DUE_RULES.includes(raw.due as MoveInFormDueRule) ? (raw.due as MoveInFormDueRule) : "day-before",
-    enabled: raw.enabled === true,
     ...(starterKey ? { starterKey } : {}),
     createdAt: text(raw.createdAt, 40) || now,
     updatedAt: text(raw.updatedAt, 40) || now,
@@ -319,7 +321,7 @@ function submissionRecord(listingSubmission: unknown): Record<string, unknown> |
 
 /**
  * The property's forms. When the key was never written (a property nobody has touched here)
- * the five starters come back, all off, so every property shows five rows. Once the manager
+ * the five starters come back, so every property shows five rows. Once the manager
  * saves anything the stored list is the truth, even if it is empty.
  */
 export function readMoveInFormTemplates(listingSubmission: unknown): MoveInFormTemplate[] {

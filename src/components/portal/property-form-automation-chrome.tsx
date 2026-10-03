@@ -61,32 +61,38 @@ export function PropertyFormAutomationCommandBar({
    * (`FormAutomationPaneSwitch`) is untouched and still offers both.
    */
   panes?: { id: FormAutomationPane; label: string }[];
-  /** Property record Application / Lease tabs — routed underline nav (no settings gear). */
+  /**
+   * Property record Applications / Leases header: ONE underlined tab for the section this page is
+   * (never the other section's tab), with its count when known. No settings gear.
+   */
   propertyFormsSectionNav?: {
     activeId: "application" | "lease";
-    applicationHref: string;
-    leaseHref: string;
+    href: string;
+    count?: number;
   };
 }) {
   const destinationRow = propertyFormsSectionNav
     ? (
         <DestinationNav
           items={[
-            {
-              id: "application",
-              label: "Applications",
-              href: propertyFormsSectionNav.applicationHref,
-              dataAttr: "property-form-section-application",
-            },
-            {
-              id: "lease",
-              label: "Leases",
-              href: propertyFormsSectionNav.leaseHref,
-              dataAttr: "property-form-section-lease",
-            },
+            propertyFormsSectionNav.activeId === "application"
+              ? {
+                  id: "application",
+                  label: "Applications",
+                  href: propertyFormsSectionNav.href,
+                  count: propertyFormsSectionNav.count,
+                  dataAttr: "property-form-section-application",
+                }
+              : {
+                  id: "lease",
+                  label: "Leases",
+                  href: propertyFormsSectionNav.href,
+                  count: propertyFormsSectionNav.count,
+                  dataAttr: "property-form-section-lease",
+                },
           ]}
           activeId={propertyFormsSectionNav.activeId}
-          ariaLabel="Applications and leases"
+          ariaLabel={propertyFormsSectionNav.activeId === "application" ? "Applications" : "Leases"}
           appearance="command"
         />
       )

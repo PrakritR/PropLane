@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Property › Move-in › Forms: this property's move-in forms as rows, and the chooser + builder
- * behind the header's round blue "+". Definitions live on the property
+ * Property › Move-in › Forms: this property's move-in forms as plain rows (title, fact line, ⋯; no
+ * on/off state, like the Applications list), and the chooser + editor behind the header's round
+ * blue "+". Whether a form sends itself is the form's own "Sends" setting. Definitions live on the property
  * (`listingSubmission.moveInFormTemplates`) and save through the same server-confirmed path
  * the Application tab uses for `propertyApplicationTemplates`; sent copies are resident rows
  * and never live here.
@@ -23,16 +24,15 @@ import {
   moveInFormPreviewHtml,
   questionCountLabel,
   removeMoveInTemplate,
-  setMoveInTemplateEnabled,
   templateFigure,
   templateSourceLine,
   triggerSummary,
   upsertMoveInTemplate,
 } from "@/components/portal/move-in-forms/move-in-form-model";
-import { ConfirmRows, PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
@@ -54,7 +54,6 @@ import {
 import { newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
-import { cn } from "@/lib/utils";
 
 type EditorState = { mode: "add" | "edit"; template: MoveInFormTemplate; startStep: number } | null;
 
@@ -99,7 +98,6 @@ export function PropertyMoveInFormsPanel({
   saveTarget,
   managerUserId,
   canEdit,
-  propertyLabel,
   onUpdated,
   showToast,
   chooserOpen,
@@ -109,7 +107,6 @@ export function PropertyMoveInFormsPanel({
   saveTarget: ManagerPropertySaveTarget | null;
   managerUserId: string | null;
   canEdit: boolean;
-  propertyLabel: string;
   onUpdated: () => void;
   showToast: (message: string) => void;
   chooserOpen: boolean;
@@ -121,7 +118,7 @@ export function PropertyMoveInFormsPanel({
   const rooms = useMemo(() => templateRooms(sub), [sub]);
   const copySources = useCopySources(managerUserId, propertyId);
   const [editor, setEditor] = useState<EditorState>(null);
-  const [deleting, setDeleting] = useState<MoveInFormTemplate | null>(null);
+  const confirm = useConfirm();
   const [sent, setSent] = useState<MoveInFormSummary[]>([]);
 
   const refreshSent = useCallback(
@@ -146,7 +143,14 @@ export function PropertyMoveInFormsPanel({
   }, [refreshSent]);
 
   /** First save materialises the starters array too: `templates` already includes them. */
-  const persist = async (next: MoveInFormTemplate[], message: string): Promise<boolean> => {
+  const persist = async (list: MoveInFormTemplate[], message: string, savedId?: string): Promise<boolean> => {
+    // The first save writes the starters out too. Only the form the manager actually saved keeps its
+    // own Sends; the untouched starters are stored as "Only when I send it" so saving one form never
+    // arms another to message residents.
+    const firstSave = !Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates);
+    const next = firstSave
+      ? list.map((item) => (item.id.startsWith("starter-") && item.id !== savedId ? { ...item, trigger: "manual" as const } : item))
+      : list;
     if (!managerUserId || !saveTarget || !canEdit) {
       showToast("Could not save move-in forms.");
       return false;
@@ -176,7 +180,7 @@ export function PropertyMoveInFormsPanel({
 
   const saveFromEditor = async (template: MoveInFormTemplate, options: MoveInEditorSaveOptions): Promise<boolean> => {
     const adding = editor?.mode === "add";
-    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.");
+    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.", template.id);
     if (!ok) return false;
     if (options.sendToCurrent && propertyId) {
       try {
@@ -211,18 +215,14 @@ export function PropertyMoveInFormsPanel({
   const duplicate = async (template: MoveInFormTemplate) => {
     const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate(template.source).id);
     if (!copy) return;
-    await persist(list, template.source === "upload" ? "Duplicated. Upload its PDF before turning it on." : "Duplicated. The copy is turned off.");
+    await persist(list, template.source === "upload" ? "Duplicated. Upload its PDF before sending it." : "Duplicated. The copy is sent only when you send it.");
   };
 
-  const toggle = async (template: MoveInFormTemplate) => {
-    const enabled = !template.enabled;
-    await persist(setMoveInTemplateEnabled(templates, template.id, enabled), enabled ? "Turned on." : "Turned off. Nothing new goes out.");
-  };
+  const deleteTemplate = (template: MoveInFormTemplate): Promise<boolean> => persist(removeMoveInTemplate(templates, template.id), "Form deleted.");
 
-  const confirmDelete = async () => {
-    if (!deleting) return;
-    const ok = await persist(removeMoveInTemplate(templates, deleting.id), "Form deleted.");
-    if (ok) setDeleting(null);
+  const confirmAndDelete = async (template: MoveInFormTemplate) => {
+    const label = template.name.trim() || "Untitled form";
+    if (await confirm({ description: `Delete ${label}?` })) await deleteTemplate(template);
   };
 
   if (!saveTarget) return null;
@@ -250,7 +250,7 @@ export function PropertyMoveInFormsPanel({
                     clear: () => {},
                     actions: (
                       <>
-                        <Button type="button" variant="outline" data-attr="move-in-form-row-preview" onClick={() => setEditor({ mode: "edit", template, startStep: 3 })}>
+                        <Button type="button" variant="outline" data-attr="move-in-form-row-preview" onClick={() => setEditor({ mode: "edit", template, startStep: 1 })}>
                           Preview
                         </Button>
                         {canEdit ? (
@@ -267,12 +267,7 @@ export function PropertyMoveInFormsPanel({
                           </Button>
                         ) : null}
                         {canEdit ? (
-                          <Button type="button" variant="outline" data-attr="move-in-form-row-toggle" onClick={() => void toggle(template)}>
-                            {template.enabled ? "Turn off" : "Turn on"}
-                          </Button>
-                        ) : null}
-                        {canEdit ? (
-                          <Button type="button" variant="danger" data-attr="move-in-form-row-delete" onClick={() => setDeleting(template)}>
+                          <Button type="button" variant="danger" data-attr="move-in-form-row-delete" onClick={() => void confirmAndDelete(template)}>
                             Delete
                           </Button>
                         ) : null}
@@ -280,7 +275,7 @@ export function PropertyMoveInFormsPanel({
                     ),
                   }}
                 >
-                  <div role="listitem" className={cn("transition-[opacity,transform] duration-(--motion-base) ease-(--motion-crossfade) hover:-translate-y-px motion-reduce:transition-none", !template.enabled && "opacity-60")} data-attr="move-in-form-row">
+                  <div role="listitem" className="transition-transform duration-(--motion-base) ease-(--motion-crossfade) hover:-translate-y-px motion-reduce:transition-none" data-attr="move-in-form-row">
                     <PortalPropertyRecordRow
                       title={name}
                       address={templateSourceLine(template)}
@@ -307,7 +302,7 @@ export function PropertyMoveInFormsPanel({
                         </div>
                       }
                       leadingShape="square"
-                      amount={templateFigure(template, sent)}
+                      amount={templateFigure(template, sent) || undefined}
                       selectLabel={name}
                       onOpen={() => setEditor({ mode: "edit", template, startStep: 0 })}
                       onSelectedChange={() => {}}
@@ -331,28 +326,12 @@ export function PropertyMoveInFormsPanel({
           initial={editor.template}
           rooms={rooms}
           propertyId={propertyId}
-          propertyLabel={propertyLabel}
           startStep={editor.startStep}
           onSave={saveFromEditor}
+          onDelete={editor.mode === "edit" && canEdit ? deleteTemplate : undefined}
           onClose={() => setEditor(null)}
         />
       ) : null}
-
-      <PortalDialog
-        open={Boolean(deleting)}
-        onClose={() => setDeleting(null)}
-        title="Delete this form?"
-        tone="danger"
-        primaryAction={{ label: "Delete form", onClick: confirmDelete, dataAttr: "move-in-form-delete-confirm" }}
-        dataAttr="move-in-form-delete-dialog"
-      >
-        <ConfirmRows
-          rows={[
-            { label: "Form", value: deleting?.name.trim() || "Untitled form" },
-            { label: "Submitted copies", value: "Stay on each resident's record" },
-          ]}
-        />
-      </PortalDialog>
     </>
   );
 }

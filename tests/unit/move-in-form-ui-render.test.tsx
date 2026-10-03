@@ -3,7 +3,7 @@
  * Render-level proof for the move-in form UI: the shared question renderer draws every type, the
  * resident checklist and one-question-per-screen flow save and submit through the move-in forms
  * client (mocked here, since the API has its own tests), and the property Forms tab lists the five
- * starter forms OFF until the manager turns one on.
+ * starter forms as plain rows (no on/off state), like the Applications list.
  */
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -159,7 +159,6 @@ function summary(patch: Partial<MoveInFormSummary>): MoveInFormSummary {
     applicationId: "app-1",
     managerUserId: "m1",
     propertyId: "p1",
-    propertyLabel: "Brooklyn House",
     roomLabel: "Room 1",
     residentName: "Ada Lovelace",
     residentEmail: "ada@example.com",
@@ -300,23 +299,24 @@ describe("property Move-in › Forms", () => {
     onChooserOpenChange: vi.fn(),
   };
 
-  it("lists the five starters, every one turned off, before anything is saved", () => {
+  it("lists the five starters as plain rows: no Turned off, no greyed rows", () => {
     render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(5);
     for (const starter of MOVE_IN_FORM_STARTERS) expect(screen.getByText(starter.name)).toBeTruthy();
-    // The figure is drawn once for the phone layout and once for desktop; CSS shows one.
-    expect(screen.getAllByText("Turned off").length).toBeGreaterThanOrEqual(5);
+    expect(screen.queryByText("Turned off")).toBeNull();
+    expect(screen.queryByText("0 sent")).toBeNull();
+    for (const row of rows) expect(row.className).not.toMatch(/opacity-/);
     expect(screen.getAllByText("Built in PropLane")).toHaveLength(5);
   });
 
-  it("shows how many residents finished a form that is on", async () => {
-    const on = { ...MOVE_IN_FORM_STARTERS[0]!, enabled: true };
+  it("shows how many residents finished a form that has been sent", async () => {
+    const sent = MOVE_IN_FORM_STARTERS[0]!;
     client.loadMoveInForms.mockResolvedValue({
-      forms: [summary({ formId: on.id, status: "submitted" }), summary({ id: "r2", formId: on.id }), summary({ id: "r3", formId: on.id })],
+      forms: [summary({ formId: sent.id, status: "submitted" }), summary({ id: "r2", formId: sent.id }), summary({ id: "r3", formId: sent.id })],
       unread: 0,
     });
-    render(<PropertyMoveInFormsPanel {...base} sub={{ ...sub, moveInFormTemplates: [on] }} />);
+    render(<PropertyMoveInFormsPanel {...base} sub={{ ...sub, moveInFormTemplates: [sent] }} />);
     expect((await screen.findAllByText("1 of 3 residents")).length).toBeGreaterThan(0);
   });
 
@@ -334,95 +334,161 @@ describe("property Move-in › Forms", () => {
     expect(screen.getByText("Start from a template")).toBeTruthy();
   });
 
-  it("saves the whole starter list plus the new form on the first save", async () => {
-    // Turn-on goes through the same persist path the editor uses.
+  it("a row menu offers Edit, Duplicate and Delete, and no on/off switch", async () => {
     const user = await import("@testing-library/user-event").then((m) => m.default);
     render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
     const row = screen.getAllByRole("listitem")[1]!;
-    const trigger = within(row).getByRole("button", { name: "Actions for Key receipt" });
     await act(async () => {
-      await user.click(trigger);
+      await user.click(within(row).getByRole("button", { name: "Actions for Key receipt" }));
+    });
+    for (const name of ["Edit", "Duplicate", "Delete"]) expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /turn o(n|ff)/i })).toBeNull();
+  });
+
+  it("saves the whole starter list plus the copy on the first save, the copy sent only by hand", async () => {
+    const user = await import("@testing-library/user-event").then((m) => m.default);
+    render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
+    const row = screen.getAllByRole("listitem")[0]!;
+    await act(async () => {
+      await user.click(within(row).getByRole("button", { name: "Actions for Move-in checklist" }));
     });
     await act(async () => {
-      await user.click(await screen.findByRole("menuitem", { name: "Turn on" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
     });
     await waitFor(() => expect(persist).toHaveBeenCalled());
-    const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string; enabled: boolean }> };
-    expect(saved.moveInFormTemplates).toHaveLength(5);
-    expect(saved.moveInFormTemplates.filter((t) => t.enabled).map((t) => t.id)).toEqual([MOVE_IN_FORM_STARTERS[1]!.id]);
+    const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string; name: string; trigger: string; enabled?: boolean }> };
+    expect(saved.moveInFormTemplates).toHaveLength(6);
+    // Nothing was saved before, so the untouched checklist is stored by-hand too: no form messages
+    // residents until the manager saves it with that trigger.
+    expect(saved.moveInFormTemplates.map((t) => t.trigger)).toEqual(["manual", "manual", "manual", "manual", "manual", "manual"]);
+    expect(saved.moveInFormTemplates[1]!.name).toBe("Move-in checklist (copy)");
+    expect(saved.moveInFormTemplates.some((t) => "enabled" in t)).toBe(false);
+  });
+
+  it("Delete asks first, then removes just that form", async () => {
+    const user = await import("@testing-library/user-event").then((m) => m.default);
+    render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
+    const row = screen.getAllByRole("listitem")[2]!;
+    await act(async () => {
+      await user.click(within(row).getByRole("button", { name: "Actions for Vehicle and parking" }));
+    });
+    await act(async () => {
+      await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    });
+    // The confirm provider is not mounted in this harness, so nothing is deleted without one.
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 
 describe("builder popup", () => {
   const rooms = [{ id: "room-1", label: "Room 1" }, { id: "room-2", label: "Room 2" }];
+  const labels = () => Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="application-question-label"]')).map((input) => input.value);
 
-  async function openBuilder(initial = newMoveInFormTemplate("built"), mode: "add" | "edit" = "add", startStep = 0) {
+  async function openBuilder(initial = newMoveInFormTemplate("built"), mode: "add" | "edit" = "add", startStep = 0, onDelete?: () => Promise<boolean>) {
     const { MoveInFormEditorModal } = await import("@/components/portal/move-in-forms/move-in-form-editor-modal");
     const onSave = vi.fn().mockResolvedValue(true);
     const onClose = vi.fn();
     render(
-      <MoveInFormEditorModal mode={mode} initial={initial} rooms={rooms} propertyId="p1" propertyLabel="Brooklyn House" startStep={startStep} onSave={onSave} onClose={onClose} />,
+      <MoveInFormEditorModal mode={mode} initial={initial} rooms={rooms} propertyId="p1" startStep={startStep} onSave={onSave} onDelete={onDelete} onClose={onClose} />,
     );
     return { onSave, onClose };
   }
 
-  it("shows the four steps, the property as context, and the live resident view", async () => {
+  it("uses the application editor's frame: Add title, Form and Questions steps, and the live resident view", async () => {
     await openBuilder();
-    expect(screen.getByText("New move-in form")).toBeTruthy();
-    for (const label of ["Form", "Questions", "Who & when", "Review"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
-    expect(screen.getByText("Brooklyn House")).toBeTruthy();
+    expect(screen.getAllByText("Add move-in form").length).toBeGreaterThan(0);
+    for (const label of ["Form", "Questions"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Review")).toBeNull();
+    expect(screen.queryByText("Who & when")).toBeNull();
     expect(screen.getAllByText("What the resident sees · live").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Step 1 of 4/).length).toBeTruthy();
+    expect(screen.getAllByText("Not saved yet").length).toBeGreaterThan(0);
   });
 
-  it("an uploaded form names its first step Upload", async () => {
+  it("the Form step holds name, Sends, Due and Who, and the Sends options include only-by-hand", async () => {
+    await openBuilder({ ...newMoveInFormTemplate("built"), name: "Rules" });
+    expect(document.querySelector('[data-attr="move-in-form-name"]')).toBeTruthy();
+    for (const attr of ["move-in-form-trigger", "move-in-form-due", "move-in-form-audience"]) {
+      expect(document.querySelector(`[data-attr="${attr}"]`)).toBeTruthy();
+    }
+    expect(screen.getByText("When the lease is signed")).toBeTruthy();
+  });
+
+  it("an uploaded form offers the PDF drop on the Form step", async () => {
     await openBuilder(newMoveInFormTemplate("upload"));
-    expect(screen.getAllByText("Upload").length).toBeGreaterThan(0);
     expect(screen.getByText("Drop a PDF here or browse")).toBeTruthy();
+  });
+
+  it("Start from can switch a new form to Upload a PDF", async () => {
+    const user = await import("@testing-library/user-event").then((m) => m.default);
+    await openBuilder();
+    expect(screen.queryByText("Drop a PDF here or browse")).toBeNull();
+    await act(async () => {
+      await user.click(document.querySelector('[data-attr="move-in-form-starts-from"]') as HTMLElement);
+    });
+    await act(async () => {
+      await user.click(await screen.findByRole("option", { name: "Upload a PDF" }));
+    });
+    expect(await screen.findByText("Drop a PDF here or browse")).toBeTruthy();
   });
 
   it("will not leave the first step without a name, and says why", async () => {
     await openBuilder();
     fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
-    // The popup frame now stops on the empty required field itself ("<field>: Required").
-    expect((await screen.findAllByText(/Required/)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Step 1 of 4/).length).toBeTruthy();
+    expect((await screen.findAllByText(/Name this form|Required/)).length).toBeGreaterThan(0);
+    expect(labels()).toEqual([]);
   });
 
-  it("walks the steps and creates the form turned on, sending it to current residents by default", async () => {
+  it("walks Form then Questions and creates a by-hand starter without pushing it to residents", async () => {
     const starter = newMoveInFormTemplate("built", "key-receipt");
     const { onSave, onClose } = await openBuilder(starter);
+    expect(screen.queryByText("Already-signed residents")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
-    expect((await screen.findAllByText(/Step 2 of 4/)).length).toBeTruthy();
-    expect(screen.getAllByRole("textbox", { name: "Question" }).length).toBe(starter.questions.length);
-    fireEvent.click(screen.getByRole("button", { name: /continue to who/i }));
-    expect((await screen.findAllByText(/Step 3 of 4/)).length).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /continue to review/i }));
-    expect((await screen.findAllByText(/Step 4 of 4/)).length).toBeTruthy();
+    for (const question of starter.questions) expect((await screen.findAllByText(question.label)).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Create form" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const [saved, options] = onSave.mock.calls[0]!;
-    expect(saved.enabled).toBe(true);
+    expect("enabled" in saved).toBe(false);
+    expect(saved.trigger).toBe("manual");
     expect(saved.name).toBe("Key receipt");
-    expect(options).toEqual({ sendToCurrent: true });
+    expect(options).toEqual({ sendToCurrent: false });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it("opening a saved form to Preview lands on Review with Save form", async () => {
-    await openBuilder({ ...MOVE_IN_FORM_STARTERS[1]!, enabled: true }, "edit", 3);
-    expect(screen.getByRole("button", { name: "Save form" })).toBeTruthy();
-    expect(screen.getAllByText(/Step 4 of 4/).length).toBeTruthy();
+  it("a form that sends on lease signing is offered to already-signed residents by default", async () => {
+    const { onSave } = await openBuilder(newMoveInFormTemplate("built", "move-in-checklist"));
+    expect(screen.getByText("Already-signed residents")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create form" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0].trigger).toBe("lease-signed");
+    expect(onSave.mock.calls[0]![1]).toEqual({ sendToCurrent: true });
   });
 
-  it("adds a question and a section, and removes a question", async () => {
+  it("opening a saved form to Preview lands on Questions with Save", async () => {
+    await openBuilder(MOVE_IN_FORM_STARTERS[1]!, "edit", 1);
+    expect(screen.getAllByText("Edit move-in form").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
+  });
+
+  it("edit shows a red Delete on the left; add does not", async () => {
+    const onDelete = vi.fn().mockResolvedValue(true);
+    await openBuilder(MOVE_IN_FORM_STARTERS[1]!, "edit", 0, onDelete);
+    expect(document.querySelector('[data-attr="move-in-form-delete"]')).toBeTruthy();
+    cleanup();
+    await openBuilder(newMoveInFormTemplate("built"), "add", 0, onDelete);
+    expect(document.querySelector('[data-attr="move-in-form-delete"]')).toBeNull();
+  });
+
+  it("draws questions with the application editor's question rows and adds, edits and removes one", async () => {
     await openBuilder({ ...newMoveInFormTemplate("built"), name: "Blank", questions: [q("a", { label: "First" })] }, "add", 1);
-    expect(screen.getAllByRole("textbox", { name: "Question" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /^question$/i }));
-    expect(screen.getAllByRole("textbox", { name: "Question" })).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: /^section$/i }));
-    expect(screen.getAllByRole("textbox", { name: "Question" })).toHaveLength(3);
-    expect(screen.getAllByRole("textbox", { name: "Section name" })).toHaveLength(2);
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete question" })[2]!);
-    expect(screen.getAllByRole("textbox", { name: "Question" })).toHaveLength(2);
+    expect(screen.getAllByText("First").length).toBeGreaterThan(0);
+    // The shared row subtitle names the type; the move-in vocabulary adds Signature and Photos.
+    fireEvent.click(screen.getByRole("button", { name: "Add question" }));
+    expect(labels()).toEqual([""]);
+    fireEvent.change(document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement, { target: { value: "Second" } });
+    expect(labels()).toEqual(["Second"]);
+    fireEvent.click(screen.getByText("+ Add section"));
+    expect(screen.getAllByText("Section 2").length).toBeGreaterThan(0);
   });
 });

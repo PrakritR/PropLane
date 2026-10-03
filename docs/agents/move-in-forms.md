@@ -9,7 +9,8 @@ resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`.
 - **Definitions** live on the property: `listingSubmission.moveInFormTemplates`
   (and `moveInFormSettings`), beside `propertyApplicationTemplates`. Read them
   only through `src/lib/move-in-forms/templates.ts` (`readMoveInFormTemplates`
-  returns the five starters, all off, when the key was never written).
+  returns the five starters when the key was never written: the checklist sends on lease
+  signing, the other four are manual).
 - **Instances** are rows of `public.resident_move_in_forms`
   (`supabase/migrations/20261003120000_resident_move_in_forms.sql`), one per
   (residency, form): `status` is `sent | submitted | cancelled`. A partial
@@ -35,7 +36,7 @@ the action-event bus, domain `move_in_form`).
 
 ## Dispatch
 
-`dispatchMoveInFormsForResidency(applicationId, trigger)` sends every enabled
+`dispatchMoveInFormsForResidency(applicationId, trigger)` sends every
 template whose trigger matches and whose audience covers the residency's room.
 Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
 `dispatchMoveInFormsForSignedLease`) and application approved
@@ -61,7 +62,16 @@ Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
   it no longer matches the snapshot; the hash is stored as `signed_document_sha256`.
 - **Dispatch is best-effort and idempotent.** It never throws into a lease or
   application save, and running it twice sends nothing new.
-- **Off means off.** A disabled form is not auto-sent and cannot be sent by hand;
-  copies already sent are unaffected.
+- **No on/off switch.** A form is a plain row, like an application template. Whether it
+  sends itself is its own `trigger` ("Sends": when the lease is signed / when the application
+  is approved / only when I send it, edited in the form editor); any form can be sent by hand.
+  Stored forms that carried `enabled: false` are read as `trigger: "manual"`, so nothing that
+  was sending stops and nothing that was off starts. Duplicates and copies to another property
+  start as "only when I send it". A property that never saved its forms auto-sends nothing: the
+  server reads unsaved built-in defaults as "manual", and the first save stores untouched starters
+  as manual, so only a form the manager saved with a trigger messages residents.
+- **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, live
+  resident view, red Delete on the left in edit) and its Questions step draws each question
+  through `BuilderQuestionCard`, the same row the application editor uses.
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
