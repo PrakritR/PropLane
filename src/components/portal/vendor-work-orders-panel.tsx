@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, CircleDot, Clock, MapPin, Settings, Sparkles } from "lucide-react";
+import { CalendarDays, Check, CircleDot, Clock, MapPin, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -1071,13 +1071,13 @@ export function VendorWorkOrdersPanel({
     };
     const bid = bidsByWorkOrderId[row.id];
     const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
-    const vendorPrimary =
+    const vendorPrimary: { label: string; icon: LucideIcon; onClick: () => void } | null =
       row.biddingOpen && !bid
-        ? { label: "Send quote", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
+        ? { label: "Send quote", icon: Send, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
         : canMarkDone
-          ? { label: "Mark done", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
+          ? { label: "Mark done", icon: Check, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
           : bid?.status === "accepted" && (!row.scheduled || row.scheduled === "—")
-            ? { label: "Schedule visit", onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "schedule")) }
+            ? { label: "Schedule visit", icon: CalendarDays, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "schedule")) }
             : null;
     const ownContent =
       activeTab === "schedule" ? (
@@ -1200,6 +1200,7 @@ export function VendorWorkOrdersPanel({
           <div className="flex items-center justify-end gap-1">
             {vendorPrimary ? (
               <PortalPrimaryIconAction
+                icon={vendorPrimary.icon}
                 label={vendorPrimary.label}
                 data-attr="vendor-job-primary"
                 onClick={vendorPrimary.onClick}

@@ -569,7 +569,7 @@ function SubmitInvoiceModal({
       }}
       dismissBlocked={saving}
       primaryAction={{
-        label: saving ? "Submitting…" : editingInvoice ? `Save ${formatInvoiceMoney(totalCents)}` : `Submit ${formatInvoiceMoney(totalCents)}`,
+        label: saving ? (editingInvoice ? "Saving…" : "Submitting…") : editingInvoice ? "Save" : `Submit ${formatInvoiceMoney(totalCents)}`,
         onClick: handleSubmit,
         disabled: saving || totalCents === 0,
         loading: saving,
