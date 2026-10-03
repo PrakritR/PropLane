@@ -3,6 +3,7 @@ import {
   isResidentPathAllowedForAccess,
   resolveResidentPortalNavStage,
   residentBottomNavPrimarySections,
+  residentLeaseFirstApplicationRedirectLeaseId,
   residentNavSectionVisibleInNav,
   residentSectionLockedForStage,
   residentSectionUnlockedForStage,
@@ -135,5 +136,64 @@ describe("resident portal nav stages", () => {
     expect(residentNavSectionVisibleInNav("move-in", "post_approval_pre_lease")).toBe(true);
     expect(residentNavSectionVisibleInNav("move-in", "post_lease")).toBe(true);
     expect(residentNavSectionVisibleInNav("lease", "pre_approval")).toBe(true);
+  });
+});
+
+/**
+ * Lease-first (captain, Oct 3): a resident who has a lease-first draft for a home gets Lease
+ * unlocked in the sidebar, the phone bar, the server guard and the client guard — all four read
+ * the one stage, so the two tables cannot disagree. Application-first is unchanged.
+ */
+describe("resident portal nav — lease-first draft", () => {
+  const startedApplication = {
+    leaseAccessUnlocked: false,
+    applicationApproved: false,
+    hasCompletedApplicationSubmission: false,
+  };
+  const withDraft = { ...startedApplication, hasLeaseFirstDraft: true };
+
+  it("a lease-first draft unlocks Lease even when the workspace order is unknown", () => {
+    expect(resolveResidentPortalNavStage(startedApplication)).toBe("pre_approval");
+    expect(resolveResidentPortalNavStage(withDraft)).toBe("post_approval_pre_lease");
+    // An in-progress application alongside the draft changes nothing.
+    expect(resolveResidentPortalNavStage({ ...withDraft, hasCompletedApplicationSubmission: true })).toBe(
+      "post_approval_pre_lease",
+    );
+  });
+
+  it("sidebar and phone bar agree: Lease is unlocked and on the bar, not locked", () => {
+    const stage = resolveResidentPortalNavStage(withDraft);
+    expect(residentSectionUnlockedForStage("lease", stage)).toBe(true);
+    expect(residentSectionLockedForStage("lease", stage)).toBe(false);
+    expect(residentBottomNavPrimarySections(stage)).toContain("lease");
+    for (const section of residentBottomNavPrimarySections(stage)) {
+      expect(residentSectionLockedForStage(section, stage)).toBe(false);
+    }
+  });
+
+  it("server and client guards let the draft's resident open Lease", () => {
+    expect(isResidentPathAllowedForAccess("/resident/lease/pending/lease_first_1", withDraft)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/lease", withDraft)).toBe(true);
+    // Without the draft the same resident is still held at the application stage.
+    expect(isResidentPathAllowedForAccess("/resident/lease", startedApplication)).toBe(false);
+  });
+
+  it("application-first is unchanged: Lease still unlocks only on approval", () => {
+    const appFirst = { ...startedApplication, pipelineOrder: "application_then_lease" as const, hasLeaseFirstDraft: false };
+    expect(resolveResidentPortalNavStage(appFirst)).toBe("pre_approval");
+    expect(isResidentPathAllowedForAccess("/resident/lease", appFirst)).toBe(false);
+    expect(resolveResidentPortalNavStage({ ...appFirst, applicationApproved: true })).toBe("post_approval_pre_lease");
+  });
+
+  it("Application hands off to the unsigned lease only in a lease-first workspace", () => {
+    const base = { pipelineOrder: "lease_then_application" as const, leaseFirstPendingLeaseId: "lease_first_1" };
+    expect(residentLeaseFirstApplicationRedirectLeaseId(base)).toBe("lease_first_1");
+    // Signed (no pending lease) -> the application is next.
+    expect(residentLeaseFirstApplicationRedirectLeaseId({ ...base, leaseFirstPendingLeaseId: null })).toBeNull();
+    // Application-first workspace, or a lease already fully executed -> never redirected.
+    expect(
+      residentLeaseFirstApplicationRedirectLeaseId({ ...base, pipelineOrder: "application_then_lease" }),
+    ).toBeNull();
+    expect(residentLeaseFirstApplicationRedirectLeaseId({ ...base, leaseAccessUnlocked: true })).toBeNull();
   });
 });
