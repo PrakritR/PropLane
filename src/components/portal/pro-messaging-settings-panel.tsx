@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { WorkIdentityRow } from "./work-identity-row";
 import { AlertCircle, Phone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -13,9 +12,8 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { ChannelRow, ChannelRowMenu, type ChannelRowMenuItem } from "@/components/portal/portal-channel-row";
 import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { WorkNumberSetupModal } from "@/components/portal/pro-work-number-setup-modal";
 import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
@@ -136,12 +134,6 @@ function messagingUpsellMessage(
   }
 }
 
-function inferredUsAreaCode(phone: unknown): string {
-  const digits = typeof phone === "string" ? phone.replace(/\D/g, "") : "";
-  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1, 4);
-  return digits.length === 10 ? digits.slice(0, 3) : "";
-}
-
 function isMessagingNumberStatus(
   value: unknown,
 ): value is ManagerMessagingNumberStatus {
@@ -171,9 +163,7 @@ export function ManagerMessagingSettingsPanel() {
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [areaCode, setAreaCode] = useState("");
   const [announceOpen, setAnnounceOpen] = useState(false);
   const [announceBusy, setAnnounceBusy] = useState(false);
   const [announceSubject, setAnnounceSubject] = useState("");
@@ -192,7 +182,6 @@ export function ManagerMessagingSettingsPanel() {
   const channelFilter = scope.workspaceId || status?.workspace?.id || "";
   const [addNumberOpen, setAddNumberOpen] = useState(false);
   const [addNumberWorkspaceId, setAddNumberWorkspaceId] = useState("");
-  const [addNumberBusy, setAddNumberBusy] = useState(false);
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
 
 
@@ -237,11 +226,6 @@ export function ManagerMessagingSettingsPanel() {
         throw new Error("Messaging settings returned an invalid response.");
       }
       setStatus(body);
-      setAreaCode((current) =>
-        current || !body.personalPhone.verifiedAt
-          ? current
-          : inferredUsAreaCode(body.personalPhone.phone),
-      );
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       setError(
@@ -322,73 +306,6 @@ export function ManagerMessagingSettingsPanel() {
       setAnnounceOpen(true);
     },
     [channelsFor],
-  );
-
-  const postAction = useCallback(
-    async (action: "request_number" | "refresh_eligibility") => {
-      setError(null);
-      setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
-      try {
-        const res = await fetch(ENDPOINT, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action,
-            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
-            ...(action === "request_number" && areaCode ? { areaCode } : {}),
-          }),
-        });
-        const body = (await res
-          .json()
-          .catch(() => ({}))) as ManagerMessagingNumberStatus & {
-          error?: string;
-        };
-        if (!res.ok) {
-          // Failed provision responses include the updated public status (e.g.
-          // quarantined provisioning with canRequest: false). Apply it so Retry
-          // does not stay enabled against a server that will refuse another buy.
-          if (isMessagingNumberStatus(body)) setStatus(body);
-          setError(body.error ?? (action === "refresh_eligibility"
-            ? "Could not refresh messaging eligibility."
-            : "Could not request a messaging number."));
-          return;
-        }
-        if (!isMessagingNumberStatus(body)) {
-          setError("Messaging settings returned an invalid response.");
-          return;
-        }
-        setStatus(body);
-        const assignedPhone =
-          typeof body.number?.phoneNumber === "string"
-            ? body.number.phoneNumber.trim() || null
-            : null;
-        if (action === "request_number" && assignedPhone) {
-          const channels = { phone: assignedPhone, email: workEmail };
-          const alreadyAnnounced =
-            typeof window !== "undefined" &&
-            window.localStorage.getItem(workContactAnnounceStorageKey(channels)) === "1";
-          // Only invite the broadcast once the number can actually carry a
-          // reply. See `announceReady` below for why an unusable number must
-          // never be advertised to residents.
-          if (!alreadyAnnounced && body.canSend) openAnnounceModal(channels, body.canSend);
-          showToast(
-            body.canSend
-              ? "Messaging number ready."
-              : "Messaging number assigned. Carrier registration may still be finishing.",
-          );
-        } else {
-          showToast(action === "refresh_eligibility"
-            ? "Messaging eligibility refreshed."
-            : "Messaging number request received.");
-        }
-      } catch {
-        setError("Network error. Check your connection and try again.");
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [areaCode, openAnnounceModal, scope.workspaceId, showToast, workEmail],
   );
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
@@ -476,38 +393,6 @@ export function ManagerMessagingSettingsPanel() {
     const copied = await copyTextToClipboard(phone);
     showToast(copied ? "Work number copied." : "Could not copy work number.");
   }, [showToast, statusPhoneNumber]);
-
-  /** A workspace other than the account's own default line — `?workspaceId=` +
-   * a full reload, same contract `ManagerWorkNumbersPanel` used before folding. */
-  const requestNumberForWorkspace = useCallback(
-    async (workspaceId: string) => {
-      setAddNumberBusy(true);
-      setError(null);
-      try {
-        const res = await fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "request_number", ...(areaCode ? { areaCode } : {}) }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const message = body.error ?? "Could not add a work number.";
-          setError(message);
-          showToast(message);
-          return;
-        }
-        showToast("Work number requested.");
-        setAddNumberOpen(false);
-        void load();
-      } catch {
-        setError("Network error. Check your connection and try again.");
-      } finally {
-        setAddNumberBusy(false);
-      }
-    },
-    [areaCode, load, showToast],
-  );
 
   const removeNumber = useCallback(
     async (workspaceId: string, numberId: string) => {
@@ -662,21 +547,13 @@ export function ManagerMessagingSettingsPanel() {
   };
   const openAddNumberSheet = (workspaceId: string) => {
     setAddNumberWorkspaceId(workspaceId);
-    setAreaCode((current) => current || inferredUsAreaCode(status.personalPhone.phone));
     setError(null);
     setAddNumberOpen(true);
   };
-  const addNumberEligibleWorkspaces = ownedWorkspaces.filter(canAddNumberTo);
-  const addNumberTargetsActiveWorkspace = addNumberWorkspaceId === status.workspace?.id;
-  const submitAddNumber = () => {
-    if (!addNumberWorkspaceId) return;
-    if (addNumberTargetsActiveWorkspace) {
-      void postAction("request_number");
-      setAddNumberOpen(false);
-    } else {
-      void requestNumberForWorkspace(addNumberWorkspaceId);
-    }
-  };
+  const addNumberWorkspaceName =
+    ownedWorkspaces.find((w) => w.workspaceId === addNumberWorkspaceId)?.workspaceName ??
+    status.workspace?.name ??
+    "Workspace";
 
   return (
     <>
@@ -758,90 +635,41 @@ export function ManagerMessagingSettingsPanel() {
       </PortalSettingsGroup>
     </PortalSettingsSection>
 
-    <Modal
-      open={addNumberOpen}
-      onClose={() => setAddNumberOpen(false)}
-      title="Set up a work number"
-      panelClassName="max-w-md"
-      dataAttr="add-work-number-modal"
-      footer={
-        <ModalFooter>
-          
-          <Button
-            type="button"
-            variant="primary"
-            disabled={
-              !addNumberWorkspaceId ||
-              (Boolean(planMessage) && !unverifiedEntitlement) ||
-              (addNumberTargetsActiveWorkspace ? pendingAction !== null : addNumberBusy) ||
-              (areaCode.length > 0 && areaCode.length !== 3)
-            }
-            aria-busy={addNumberTargetsActiveWorkspace ? pendingAction === "request" : addNumberBusy}
-            onClick={submitAddNumber}
-            data-attr="add-work-number-submit"
-          >
-            {(addNumberTargetsActiveWorkspace ? pendingAction === "request" : addNumberBusy)
-              ? "Requesting…"
-              : "Request number"}
-          </Button>
-        </ModalFooter>
-      }
-    >
-      <div className="space-y-4">
-        {addNumberEligibleWorkspaces.length > 1 ? (
-          <FieldSingleSelect
-            label="Workspace"
-            value={addNumberWorkspaceId}
-            options={addNumberEligibleWorkspaces.map((w) => ({ value: w.workspaceId, label: w.workspaceName }))}
-            onChange={setAddNumberWorkspaceId}
-            dataAttr="add-work-number-workspace"
-          />
-        ) : null}
-        {planMessage ? (
-          <div
-            className="space-y-3 rounded-xl border border-[var(--status-overdue-fg)]/40 bg-[var(--status-overdue-bg)] px-3 py-3"
-            data-attr="messaging-work-number-plan-lock"
-            role="alert"
-          >
-            <div className="flex items-start gap-2 text-sm text-[var(--status-overdue-fg)]">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <p className="font-medium leading-relaxed">{planMessage}</p>
-            </div>
-            {unverifiedEntitlement ? null : (
-              <Button asChild variant="primary" data-attr="messaging-open-billing">
-                <Link
-                  href={
-                    !status.entitlement.eligible && status.entitlement.reason === "trialing"
-                      ? "/portal/profile?tab=billing&activatePaid=1"
-                      : "/portal/profile?tab=billing"
-                  }
-                >
-                  {!status.entitlement.eligible && status.entitlement.reason === "trialing"
-                    ? "Start Pro"
-                    : "Upgrade to a paid plan"}
-                </Link>
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            <label htmlFor="messaging-number-area-code" className="text-xs font-semibold text-muted">
-              Preferred area code <span className="font-normal">(optional)</span>
-            </label>
-            <Input
-              id="messaging-number-area-code"
-              inputMode="numeric"
-              autoComplete="tel-area-code"
-              maxLength={3}
-              placeholder="206"
-              value={areaCode}
-              onChange={(event) => setAreaCode(event.target.value.replace(/\D/g, "").slice(0, 3))}
-              disabled={addNumberTargetsActiveWorkspace ? pendingAction !== null : addNumberBusy}
-            />
-          </div>
-        )}
-      </div>
-    </Modal>
+    {addNumberOpen && addNumberWorkspaceId ? (
+      <WorkNumberSetupModal
+        open={addNumberOpen}
+        onClose={() => {
+          setAddNumberOpen(false);
+          void load();
+        }}
+        workspaceId={addNumberWorkspaceId}
+        workspaceName={addNumberWorkspaceName}
+        status={status}
+        planMessage={planMessage}
+        unverifiedEntitlement={unverifiedEntitlement}
+        onStatusChange={(next) => {
+          const workspace = next.workspaces?.find((w) => w.workspaceId === addNumberWorkspaceId);
+          const prevEntry = status.workspaces?.find((w) => w.workspaceId === addNumberWorkspaceId);
+          const hadPhone = Boolean(
+            prevEntry?.numbers?.find((n) => n.isPrimary)?.phoneNumber?.trim(),
+          );
+          setStatus(next);
+          const assignedPhone =
+            workspace?.numbers?.find((n) => n.isPrimary)?.phoneNumber?.trim() ||
+            (next.workspace?.id === addNumberWorkspaceId
+              ? next.number?.phoneNumber?.trim()
+              : "") ||
+            null;
+          if (assignedPhone && !hadPhone && next.canSend) {
+            const channels = { phone: assignedPhone, email: workEmail };
+            const alreadyAnnounced =
+              typeof window !== "undefined" &&
+              window.localStorage.getItem(workContactAnnounceStorageKey(channels)) === "1";
+            if (!alreadyAnnounced) openAnnounceModal(channels, next.canSend);
+          }
+        }}
+      />
+    ) : null}
 
     <Modal
       open={announceOpen}
