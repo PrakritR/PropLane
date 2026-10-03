@@ -231,6 +231,7 @@ function PortalCalendarManager({
   );
   const [weekActionsHost, setWeekActionsHost] = useState<HTMLDivElement | null>(null);
   const [weekPrimaryActionHost, setWeekPrimaryActionHost] = useState<HTMLDivElement | null>(null);
+  const [navControlsHost, setNavControlsHost] = useState<HTMLDivElement | null>(null);
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -619,16 +620,18 @@ function PortalCalendarManager({
   */
   const calendarSettingsButton = null;
 
-  // One band, in order: Filter · Availability · Share · + (PLAN-0920-1058 area
-  // 1d). "Availability" (the copy/clear/copy-to-houses menu, portaled from
-  // `PortalCalendarPanels`) folds in Google Calendar connect as an extra row
-  // so the persistent icon set never grows past four; "+" is the band's one
-  // primary, portaled separately so it always renders last, after Share.
+  const calendarTourPropertyOptions = useMemo(
+    () => managerProperties.map((p) => ({ id: p.id, label: p.name })),
+    [managerProperties],
+  );
+
+  // One band, in order: Filter · nav · Availability · Share · + (studio calendar header).
   const calendarCommandActions =
     portal === "manager" ? (
       <>
         {calendarFilterSheet}
         {calendarSettingsButton}
+        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center" data-slot="calendar-nav-host" />
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
         {calendarShareTourButton}
         <div ref={setWeekPrimaryActionHost} className="flex items-center" data-slot="calendar-primary-action-host" />
@@ -762,6 +765,8 @@ function PortalCalendarManager({
             compactAvailability
             weekActionsHost={weekActionsHost}
             weekPrimaryActionHost={weekPrimaryActionHost}
+            navControlsHost={navControlsHost}
+            scheduleTourPropertyOptions={calendarTourPropertyOptions}
             extraAvailabilityAction={calendarGoogleCalendarButton}
             availabilityHeading={
               portal === "manager"

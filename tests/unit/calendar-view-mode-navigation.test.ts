@@ -104,11 +104,12 @@ describe("shiftCalendarAnchor across DST", () => {
         });
       });
 
-      it("calendarVisibleDateCount reports 1/7/N for day/week/month, N covering a DST-crossing month", () => {
+      it("calendarVisibleDateCount reports 1/7/N for day/week/agenda/month, N covering a DST-crossing month", () => {
         withProcessTimeZone(zone, () => {
           const anchor = new Date(2026, 2, 15, 12, 0, 0, 0); // March 2026, 31 days
           expect(calendarVisibleDateCount("day", anchor)).toBe(1);
           expect(calendarVisibleDateCount("week", anchor)).toBe(7);
+          expect(calendarVisibleDateCount("agenda", anchor)).toBe(7);
           expect(calendarVisibleDateCount("month", anchor)).toBe(31);
         });
       });
@@ -123,7 +124,7 @@ describe("shiftCalendarAnchor across DST", () => {
   }
 });
 
-const CALENDAR_MODES: CalendarMode[] = ["day", "week", "month"];
+const CALENDAR_MODES: CalendarMode[] = ["day", "week", "month", "agenda"];
 
 describe("shiftCalendarAnchor direction symmetry", () => {
   for (const mode of CALENDAR_MODES) {

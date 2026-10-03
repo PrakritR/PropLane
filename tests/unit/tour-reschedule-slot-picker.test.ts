@@ -8,7 +8,7 @@ import {
 describe("tour reschedule slot picker", () => {
   it("marks days with no open slots disabled", () => {
     const hosts = slotHostsForReschedule(
-      { "2026-10-07:20": [{ userId: "mgr-1", label: "Alex", email: "a@test.com" }] },
+      { "2026-10-07:20": [{ userId: "mgr-1", label: "Alex" }] },
       "2026-10-07T17:00:00.000Z",
     );
     const days = buildRescheduleDayOptions({
@@ -23,8 +23,8 @@ describe("tour reschedule slot picker", () => {
 
   it("offers half-hour slots for a day with availability", () => {
     const hosts = {
-      "2026-10-07:20": [{ userId: "mgr-1", label: "Alex", email: "a@test.com" }],
-      "2026-10-07:21": [{ userId: "mgr-1", label: "Alex", email: "a@test.com" }],
+      "2026-10-07:20": [{ userId: "mgr-1", label: "Alex" }],
+      "2026-10-07:21": [{ userId: "mgr-1", label: "Alex" }],
     };
     const { options } = buildRescheduleTimeOptions({
       slotHosts: hosts,
