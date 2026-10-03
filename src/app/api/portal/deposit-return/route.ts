@@ -5,6 +5,7 @@ import {
   depositReturnIdempotencyKey,
   type DepositReturnContext,
 } from "@/lib/deposit-return";
+import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
     const ctx: DepositReturnContext = {
       kind: String(charge.kind ?? ""),
       status: String(row.status ?? charge.status ?? ""),
-      paidCents: Number(payment?.amount_cents ?? 0),
+      paidCents: resolveChargePaidCents(payment?.amount_cents, charge),
       alreadyReturnedCents: Number(charge.depositReturnedCents ?? 0),
       stripeChargeId: (payment?.stripe_charge_id as string | null) ?? null,
       // An ACH debit can bounce after it looks paid; only a settled payment may be sent back.

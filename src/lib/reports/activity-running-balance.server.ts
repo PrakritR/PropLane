@@ -7,7 +7,7 @@ import type { ReportRow } from "./types";
 
 type Movement = { id: string; at: string; cents: number; reference: string | null };
 /** Unknown/offline movements never change a provider balance. */
-export function annotateRunningBalances(rows: ReportRow[], movements: Movement[], closingCents: number): void {
+export function annotateRunningBalances(rows: ReportRow[], movements: Movement[], closingCents: number): number {
   if (!Number.isSafeInteger(closingCents)) throw new Error("Invalid closing balance.");
   let balance = closingCents;
   const matched = new Set<string>();
@@ -25,15 +25,16 @@ export function annotateRunningBalances(rows: ReportRow[], movements: Movement[]
     balance -= movement.cents;
     if (!Number.isSafeInteger(balance)) throw new Error("Balance exceeds supported precision.");
   }
+  return balance;
 }
 
 /** Reads historical provider deltas, never derives balance from rent or expenses. */
-export async function loadActivityRunningBalances(db: SupabaseClient, owner: string, rows: ReportRow[]): Promise<void> {
-  if (!rows.length) return;
+export async function loadActivityRunningBalances(db: SupabaseClient, owner: string, rows: ReportRow[]): Promise<number> {
+  if (!rows.length) return 0;
   if (proplaneBalanceEnabled()) {
     const { data: account, error } = await db.from("proplane_balance_accounts").select("id").eq("owner_kind", "workspace").eq("owner_key", owner).eq("currency", "usd").maybeSingle();
     if (error) throw new Error(error.message);
-    if (!account) return;
+    if (!account) return 0;
     const movements: Movement[] = [];
     let closing = 0;
     for (let offset = 0; ; offset += 500) {
@@ -47,19 +48,18 @@ export async function loadActivityRunningBalances(db: SupabaseClient, owner: str
       }
       if (!data || data.length < 500) break;
     }
-    annotateRunningBalances(rows, movements, closing);
-    return;
+    return annotateRunningBalances(rows, movements, closing);
   }
-  if ((await resolveTestWorkspaceClassification(owner, db)).kind !== "normal") return;
+  if ((await resolveTestWorkspaceClassification(owner, db)).kind !== "normal") return 0;
   const { data: profile, error } = await db.from("profiles").select("stripe_connect_account_id").eq("id", owner).maybeSingle();
   if (error) throw new Error(error.message);
-  if (!profile?.stripe_connect_account_id) return;
+  if (!profile?.stripe_connect_account_id) return 0;
   const options = { stripeAccount: String(profile.stripe_connect_account_id) };
   const stripe = getStripe();
   const balance = await stripe.balance.retrieve({}, options);
   const closing = [...balance.available, ...balance.pending].filter(value => value.currency === "usd").reduce((total, value) => total + value.amount, 0);
   const earliest = Math.min(...rows.map(row => Date.parse(String(row.date))).filter(Number.isFinite));
-  if (!Number.isFinite(earliest)) return;
+  if (!Number.isFinite(earliest)) return 0;
   const movements: Movement[] = [];
   for await (const entry of stripe.balanceTransactions.list({ limit: 100, created: { gte: Math.floor(earliest / 1000) } }, options)) {
     if (entry.currency !== "usd") continue;
@@ -69,5 +69,6 @@ export async function loadActivityRunningBalances(db: SupabaseClient, owner: str
   // that changed while its history was being read.
   const after = await stripe.balance.retrieve({}, options);
   const verified = [...after.available, ...after.pending].filter(value => value.currency === "usd").reduce((total, value) => total + value.amount, 0);
-  if (verified === closing) annotateRunningBalances(rows, movements, closing);
+  if (verified === closing) return annotateRunningBalances(rows, movements, closing);
+  return 0;
 }

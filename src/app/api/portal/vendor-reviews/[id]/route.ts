@@ -4,12 +4,7 @@ import { canEditVendorReview, normalizeVendorReviewStars, normalizeVendorReviewB
 
 export const runtime = "nodejs";
 
-/**
- * C158: reviews can never be edited once posted, regardless of age or who is
- * asking. `canEditVendorReview` always returns false now — this route still
- * calls it (rather than inlining `false`) so there is exactly one place that
- * decision lives, the same contract the dialog reads client-side.
- */
+/** Manager may edit their own review for fourteen days (`canEditVendorReview`). */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
