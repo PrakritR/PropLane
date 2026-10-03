@@ -7,7 +7,7 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
@@ -224,7 +224,7 @@ export function ManagerLeases({
           actions={leasesListActions}
           primary={
             <PortalPrimaryIconAction
-              label="Send lease"
+              label={portalListAddPrimaryLabel("lease")}
               data-attr="leases-add-top"
               onClick={() => setAddLeaseOpen(true)}
             />
