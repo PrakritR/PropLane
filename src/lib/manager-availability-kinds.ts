@@ -14,27 +14,46 @@
  * which the public route never touches.
  */
 
-export type AvailabilityKind = "tours" | "services" | "tasks";
+export type AvailabilityKind = "tours" | "services" | "tasks" | "inspections" | "moves";
 export type ManagerKindAvailabilityKind = Exclude<AvailabilityKind, "tours">;
 
-export const AVAILABILITY_KINDS: readonly AvailabilityKind[] = ["tours", "services", "tasks"];
+export const AVAILABILITY_KINDS: readonly AvailabilityKind[] = ["tours", "services", "tasks", "inspections", "moves"];
+
+/** Every kind that is stored under the per-manager kind key (everything except tours). */
+export const MANAGER_KIND_AVAILABILITY_KINDS: readonly ManagerKindAvailabilityKind[] = [
+  "services",
+  "tasks",
+  "inspections",
+  "moves",
+];
 
 export const AVAILABILITY_KIND_LABELS: Record<AvailabilityKind, string> = {
   tours: "Tours",
   services: "Services",
   tasks: "Tasks",
+  inspections: "Inspections",
+  moves: "Move-ins and move-outs",
 };
+
+/**
+ * "Everything" is not a stored kind: it is a window written to every kind. A
+ * painted run that is open for all of them reads as Everything (the plain
+ * hatch); anything narrower is a typed band (C2-CALA2/CALA6).
+ */
+export function isEverythingKinds(kinds: readonly AvailabilityKind[]): boolean {
+  return AVAILABILITY_KINDS.every((kind) => kinds.includes(kind));
+}
 
 /** Record type for a manager's services/tasks availability — never tours, see header. */
 export const MANAGER_KIND_AVAILABILITY_RECORD_TYPE = "manager_kind_availability";
 
 export function isAvailabilityKind(raw: unknown): raw is AvailabilityKind {
-  return raw === "tours" || raw === "services" || raw === "tasks";
+  return raw === "tours" || raw === "services" || raw === "tasks" || raw === "inspections" || raw === "moves";
 }
 
-const KIND_KEY_RE = /^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks)$/;
+const KIND_KEY_RE = /^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks|inspections|moves)$/;
 
-/** Storage key for a manager's services/tasks availability. There is no tours variant — see header. */
+/** Storage key for a manager's services/tasks/inspections/moves availability. There is no tours variant — see header. */
 export function managerKindAvailabilityStorageKey(userId: string, kind: ManagerKindAvailabilityKind): string {
   return `axis_mgr_avail_slots_v2_${userId.trim()}_kind_${kind}`;
 }

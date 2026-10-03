@@ -15,7 +15,7 @@ import { isActivePlannedTourEvent, rowPayload, windowsFromPayload, type TourBloc
 
 /** The two non-tour scheduling flows this suggestion engine serves. Tours have
  * their own availability grid and are never suggested here. */
-export type ManagerSuggestKind = ManagerKindAvailabilityKind;
+export type ManagerSuggestKind = Extract<ManagerKindAvailabilityKind, "services" | "tasks">;
 
 function toBusyWindow(block: TourBlock): SuggestBusyWindow {
   return { startIso: block.start, endIso: block.end };

@@ -25,13 +25,15 @@ describe("portal calendar copy to houses wiring", () => {
     expect(panelsSrc).not.toContain("PortalPageFooterActions");
   });
 
-  it("Copy previous week and Clear persist across All and Tours keys", () => {
+  it("Copy previous week and Clear week work on every type of availability (C2-CALA7)", () => {
     expect(panelsSrc).toContain("const mutateAvailabilityAllKinds = useCallback(");
-    expect(panelsSrc).toContain("mutateAvailabilityAllKinds((activeSlotsForKey) => {");
+    // Copy previous week goes through the shared week helper on every kind.
+    expect(panelsSrc).toContain("mutateAvailabilityAllKinds((current) => copyPreviousWeekSlots(current, monday));");
+    // Clear week visits each kind; only tours gets the default-window exclusion.
     expect(panelsSrc).toContain("const clearCurrentWeek = useCallback(() => {");
-    expect(panelsSrc).toContain("mutateAvailabilityAllKinds((current) => {");
-    expect(calendarSrc).toContain('// "all"');
-    expect(calendarSrc).toContain("services: managerKindKeys.services");
-    expect(calendarSrc).toContain("tasks: managerKindKeys.tasks");
+    expect(panelsSrc).toContain('clearWeekSlots(current, monday, kind === "tours" ? defaults : undefined)');
+    // Every tab reads every kind's keys: a band's type is only known from all of them together (C2-CALA6).
+    expect(calendarSrc).toContain("...managerKindKeys,");
+    expect(calendarSrc).toContain("MANAGER_KIND_AVAILABILITY_KINDS.map(");
   });
 });

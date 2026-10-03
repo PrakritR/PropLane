@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Select } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   fetchOpenTourSlotsForProperty,
@@ -109,46 +109,25 @@ export function TourRescheduleTimePickerFields({
   return (
     <div className="space-y-3 rounded-xl border border-border bg-accent/20 p-3" data-attr="tour-reschedule-picker">
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs font-semibold text-foreground">
-          Day
-          <Select
-            name="rs-day"
-            className="mt-1 min-h-9 w-full rounded-xl"
-            value={dayYmd}
-            onChange={(e) => {
-              setDayYmd(e.target.value);
-              onSlotKeyChange(null);
-            }}
-            data-attr="tour-reschedule-day"
-          >
-            {dayOptions.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.disabled}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="block text-xs font-semibold text-foreground">
-          Time
-          <Select
-            name="rs-time"
-            className="mt-1 min-h-9 w-full rounded-xl"
-            value={slotKey ?? ""}
-            disabled={timeOptions.length === 0}
-            onChange={(e) => onSlotKeyChange(e.target.value || null)}
-            data-attr="tour-reschedule-time"
-          >
-            {timeOptions.length === 0 ? (
-              <option value="">No open times</option>
-            ) : (
-              timeOptions.map((opt: RescheduleTimeOption) => (
-                <option key={opt.slotKey} value={opt.slotKey}>
-                  {opt.label}
-                </option>
-              ))
-            )}
-          </Select>
-        </label>
+        <FieldSingleSelect
+          label="Day"
+          value={dayYmd}
+          onChange={(next) => {
+            setDayYmd(next);
+            onSlotKeyChange(null);
+          }}
+          options={dayOptions.map((opt) => ({ value: opt.value, label: opt.label, disabled: opt.disabled }))}
+          dataAttr="tour-reschedule-day"
+        />
+        <FieldSingleSelect
+          label="Time"
+          value={slotKey ?? ""}
+          disabled={timeOptions.length === 0}
+          onChange={(next) => onSlotKeyChange(next || null)}
+          options={timeOptions.map((opt: RescheduleTimeOption) => ({ value: opt.slotKey, label: opt.label }))}
+          placeholder="No open times"
+          dataAttr="tour-reschedule-time"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <div className="flex flex-col gap-0.5">

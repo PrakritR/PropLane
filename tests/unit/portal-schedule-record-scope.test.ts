@@ -6,6 +6,7 @@ import {
 import {
   MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
   managerKindAvailabilityStorageKey,
+  parseManagerKindAvailabilityStorageKey,
 } from "@/lib/manager-availability-kinds";
 import {
   expectedManagerScheduleRecordIds,
@@ -40,6 +41,22 @@ describe("portal-schedule-record-scope", () => {
   it("never lets a kind-scoped availability key validate as the tour-visible manager_availability type", () => {
     const kindKey = managerKindAvailabilityStorageKey(userId, "services");
     expect(managerScheduleRecordIdOwnedByUser(kindKey, userId, "manager_availability")).toBe(false);
+  });
+
+  it("treats Inspections and Move-ins/outs availability (C2-CALA2) as kind-scoped, owner-only and never tour-visible", () => {
+    for (const kind of ["inspections", "moves"] as const) {
+      const own = managerKindAvailabilityStorageKey(userId, kind);
+      expect(parseManagerKindAvailabilityStorageKey(own)).toEqual({ userId, kind });
+      expect(managerScheduleRecordIdOwnedByUser(own, userId, MANAGER_KIND_AVAILABILITY_RECORD_TYPE)).toBe(true);
+      expect(
+        managerScheduleRecordIdOwnedByUser(
+          managerKindAvailabilityStorageKey(victimId, kind),
+          userId,
+          MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
+        ),
+      ).toBe(false);
+      expect(managerScheduleRecordIdOwnedByUser(own, userId, "manager_availability")).toBe(false);
+    }
   });
 
   it("allows calendar share keys only for the owning manager", () => {

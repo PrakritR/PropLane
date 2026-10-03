@@ -42,6 +42,7 @@ export function ScheduleTourSimpleModal({
   propertyOptions,
   propertyTick,
   defaultPropertyId,
+  prefill,
   onAdded,
 }: {
   open: boolean;
@@ -50,6 +51,8 @@ export function ScheduleTourSimpleModal({
   propertyOptions: PropertyOption[];
   propertyTick: number;
   defaultPropertyId?: string;
+  /** A day and half-hour slot to start on (the calendar's open-time chips); applied once the open times load. */
+  prefill?: { dateStr: string; slotIdx: number };
   onAdded: (outcome: CommitOutcome) => void;
 }) {
   const { showToast } = useAppUi();
@@ -70,12 +73,13 @@ export function ScheduleTourSimpleModal({
     if (!open) return;
     setForm({ ...emptyAddPersonForm("prospect"), propertyId: defaultPropertyId ?? "" });
     setSlotKey(null);
-    setSelectedDateStr(todayLocalDateStr());
+    setSelectedDateStr(prefill?.dateStr || todayLocalDateStr());
     setSlotHosts({});
-    setCurrent(0);
+    // A chip already names the day and time; with the house known, start on Date & time.
+    setCurrent(prefill && defaultPropertyId ? 1 : 0);
     setError("");
     savedVisitor.current = null;
-  }, [open, defaultPropertyId]);
+  }, [open, defaultPropertyId, prefill]);
 
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
   const derived = useResidentWizardDerived(form, propertyTick, patch);
@@ -96,13 +100,22 @@ export function ScheduleTourSimpleModal({
         setAvailability("error");
         return;
       }
-      setSlotHosts(tourSlotsForManager(result.slotHosts, managerUserId));
+      const hosts = tourSlotsForManager(result.slotHosts, managerUserId);
+      setSlotHosts(hosts);
       setAvailability("idle");
+      if (prefill) {
+        const key = `${prefill.dateStr}:${prefill.slotIdx}`;
+        const fields = hosts[key]?.length ? slotKeyToTourFields(key) : null;
+        if (fields) {
+          setSlotKey(key);
+          setForm((prev) => ({ ...prev, tourDate: fields.tourDate, tourStart: fields.tourStart }));
+        }
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [open, form.propertyId, managerUserId]);
+  }, [open, form.propertyId, managerUserId, prefill]);
 
   const daySlotKeys = useMemo(() => openSlotKeysForDate(slotHosts, selectedDateStr), [slotHosts, selectedDateStr]);
 

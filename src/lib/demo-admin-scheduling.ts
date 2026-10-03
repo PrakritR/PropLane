@@ -218,7 +218,7 @@ function scheduleRecordScope(key: string): { managerUserId: string | null; prope
   // which would otherwise swallow a kind key as portfolio `manager_availability`
   // — the record type the public tour route reads. Services/tasks availability
   // must never be offered to a prospect (see manager-availability-kinds.ts).
-  const kindScoped = key.match(/^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks)$/);
+  const kindScoped = key.match(/^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks|inspections|moves)$/);
   if (kindScoped) {
     return {
       managerUserId: kindScoped[1] ?? null,

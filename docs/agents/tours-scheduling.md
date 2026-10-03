@@ -441,9 +441,36 @@ Coverage: `tests/unit/tools/tours.test.ts`, `tests/unit/tools/calendar-tools.tes
 
 ## Services and tasks availability
 
-Kind-scoped calendar availability lives at `axis_mgr_avail_slots_v2_<uid>_kind_<services|tasks>`
+Kind-scoped calendar availability lives at `axis_mgr_avail_slots_v2_<uid>_kind_<services|tasks|inspections|moves>`
 (record type `manager_kind_availability`, `src/lib/manager-availability-kinds.ts`) — never read
 by the public tour route, unlike tours' own `manager_availability` / `manager_property_availability`
 keys. `src/lib/manager-schedule-suggest.ts` is the one time-suggestion engine for these kinds:
 painted availability books, a PropLane pick only proposes, and neither ever overrides anything
 already scheduled.
+
+## The manager Calendar's availability popup (studio-redesign-0929)
+
+Calendar → clock → **Add availability** (also a drag on an empty part of Week / Day, the Day
+panel's link, and a click on a painted band) is one popup, `CalendarAvailabilityDialog`. Its model
+lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the grid geometry in
+`src/lib/calendar-grid.ts`.
+
+- **Storage is unchanged: dated slot sets.** Tours still go to the per-house
+  `manager_property_availability` keys (the picked **Properties**, or every house for All houses);
+  Services, Tasks, Inspections and Move-ins/outs go to the per-manager kind keys. **Everything** is
+  not a stored kind — it writes every kind, Tasks included — and a run open for all five reads as
+  the plain hatch, anything narrower as a tinted band with a stripe per type. The public tour route
+  and `listOpenTourSlots` still read only the tour keys, so a Services-only or Inspections-only
+  window is never offered to a guest and an Everything or Tours window is.
+- **"Every week" is dated slots for the next 26 weeks** (`EVERY_WEEK_HORIZON_WEEKS`), never a
+  recurrence rule the tour readers would not know. That is what makes **Clear week** honest: it
+  removes only the viewed week's slots (and, with the 9 to 5 default on, excludes the week's default
+  windows) and leaves every other week's copy of a repeating window in place. **Copy previous
+  week** shifts last week's slots (and cleared-default markers) by seven days for every kind.
+  A weekly window never starts in a past week (`normalizeDraftStart`).
+- **Editing a band edits that day's run.** Delete removes that run from every kind it was open
+  for; to change a repeating window going forward, edit the run and choose Every week.
+- **Copy to houses copies tours only**, because tours is the only per-house kind; the other kinds
+  are per manager and already apply to every house.
+- The grid draws the same default band guests are offered (the manager's tour settings,
+  `defaultTourGridEnabled`), never clickable; only painted bands open the popup.

@@ -4,7 +4,7 @@ import type { ScheduleSuggestion } from "@/lib/manager-schedule-suggest";
 // Same set as `ManagerSuggestKind` in `manager-schedule-suggest.server.ts` — kept
 // as its own alias here rather than importing from a `.server` module, which a
 // client component must never do even for a type-only import.
-export type ManagerSuggestKind = ManagerKindAvailabilityKind;
+export type ManagerSuggestKind = Extract<ManagerKindAvailabilityKind, "services" | "tasks">;
 
 /**
  * Ask the server for a time suggestion (services/tasks scheduling only — never
