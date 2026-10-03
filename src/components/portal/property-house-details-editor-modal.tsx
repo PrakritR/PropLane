@@ -46,6 +46,7 @@ export type HouseDetailsEditorTarget =
   | { kind: "facts" }
   | { kind: "amenities" }
   | { kind: "info"; sectionId: HouseInfoSectionId }
+  | { kind: "infoOther" }
   | { kind: "managerNotes" };
 
 export function PropertyHouseDetailsEditorModal({
@@ -107,6 +108,7 @@ export function PropertyHouseDetailsEditorModal({
     if (target.kind === "facts") return "Property facts";
     if (target.kind === "amenities") return "Amenities";
     if (target.kind === "managerNotes") return "Manager notes";
+    if (target.kind === "infoOther") return "Anything else";
     return "House details";
   }, [target, room, bath, space]);
 
@@ -285,6 +287,16 @@ export function PropertyHouseDetailsEditorModal({
             setDraftInfo((prev) => setHouseInfoValue(prev, sectionId, key, value));
           }}
           onOtherChange={(value) => setDraftInfo((prev) => ({ ...prev, other: value }))}
+        />
+      ) : null}
+
+      {target.kind === "infoOther" ? (
+        <textarea
+          className="min-h-[120px] w-full rounded-xl border border-border bg-card p-3 text-sm"
+          aria-label="Anything else residents should know"
+          value={draftInfo.other}
+          placeholder="Free text. Whatever did not fit a section above."
+          onChange={(e) => setDraftInfo((prev) => ({ ...prev, other: e.target.value }))}
         />
       ) : null}
 

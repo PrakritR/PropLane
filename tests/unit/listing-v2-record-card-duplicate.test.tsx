@@ -61,12 +61,19 @@ function openStep(step: "rooms" | "bathrooms" | "spaces") {
   fireEvent.click(document.querySelector(`[data-attr="listing-v2-rail-${step}"]`)!);
 }
 
+function duplicateViaMenu(cardLabel: string) {
+  const trigger = screen.getByRole("button", { name: `Actions for ${cardLabel}` });
+  fireEvent.pointerDown(trigger, { button: 0 });
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByText("Duplicate"));
+}
+
 describe("listing v2 record-card Duplicate", () => {
   it("duplicates a room", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("rooms");
-    fireEvent.click(screen.getByRole("button", { name: "Duplicate Studio" }));
+    duplicateViaMenu("Studio");
     const next = seen.at(-1)!;
     expect(next.rooms).toHaveLength(2);
     expect(next.rooms[1]!.name).toBe("Studio (copy)");
@@ -77,7 +84,7 @@ describe("listing v2 record-card Duplicate", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("bathrooms");
-    fireEvent.click(screen.getByRole("button", { name: "Duplicate Full bathroom" }));
+    duplicateViaMenu("Full bathroom");
     const next = seen.at(-1)!;
     expect(next.bathrooms).toHaveLength(2);
     expect(next.bathrooms[1]!.name).toBe("Full bathroom (copy)");
@@ -87,7 +94,7 @@ describe("listing v2 record-card Duplicate", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("spaces");
-    fireEvent.click(screen.getByRole("button", { name: "Duplicate Kitchen" }));
+    duplicateViaMenu("Kitchen");
     const next = seen.at(-1)!;
     expect(next.sharedSpaces).toHaveLength(2);
     expect(next.sharedSpaces[1]!.name).toBe("Kitchen (copy)");

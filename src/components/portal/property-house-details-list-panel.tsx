@@ -20,13 +20,14 @@ import {
 } from "@/components/portal/property-house-details-editor-modal";
 import { HousePrintablesCard } from "@/components/portal/house-printables-card";
 import {
-  HOUSE_INFO_MOVE_IN_SECTION_IDS,
   HOUSE_INFO_SECTIONS,
-  houseInfoSectionCount,
-  houseInfoSectionIsEmpty,
-  type HouseInfoSectionId,
+  houseInfoRenderSections,
+  houseInfoResidentsReadTabSections,
+  houseInfoSectionSummaryLine,
+  type HouseInfoSectionSpec,
   type HouseInfoV1,
 } from "@/lib/house-info";
+import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { bathFactLabel, roomBathroomState } from "@/lib/listing-room-editor/bathroom-link";
 import { roomFurnitureItems, roomFurnishingLabel } from "@/lib/listing-room-editor";
@@ -79,6 +80,11 @@ export function PropertyHouseDetailsListPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  const [infoPreview, setInfoPreview] = useState<
+    | { kind: "section"; spec: HouseInfoSectionSpec }
+    | { kind: "other" }
+    | null
+  >(null);
 
   const wholePlace = isEntireHomeListing(sub);
   const rooms = sub.rooms ?? [];
@@ -95,16 +101,13 @@ export function PropertyHouseDetailsListPanel({
     setEditorOpen(true);
   };
 
-  const infoSections = useMemo(
-    () =>
-      HOUSE_INFO_SECTIONS.filter(
-        (s) => !HOUSE_INFO_MOVE_IN_SECTION_IDS.includes(s.id as HouseInfoSectionId),
-      ),
-    [],
+  const residentReadSections = useMemo(
+    () => houseInfoResidentsReadTabSections(houseInfo),
+    [houseInfo],
   );
 
   const tabs = useMemo(() => {
-    const infoCount = infoSections.filter((s) => !houseInfoSectionIsEmpty(houseInfo, s)).length;
+    const infoCount = residentReadSections.length + 1;
     return [
       { id: "rooms" as const, label: "Rooms", count: rooms.length },
       { id: "baths" as const, label: "Bathrooms", count: baths.length },
@@ -113,7 +116,7 @@ export function PropertyHouseDetailsListPanel({
       { id: "info" as const, label: "Residents read this", count: infoCount },
       { id: "manager" as const, label: "Manager tools", count: 3 },
     ].filter((t) => !t.hide);
-  }, [rooms.length, baths.length, spaces.length, infoSections, houseInfo]);
+  }, [rooms.length, baths.length, spaces.length, residentReadSections.length, houseInfo]);
 
   const activeTab = tabs.find((t) => t.id === tab)?.id ?? tabs[0]?.id ?? "rooms";
 
@@ -251,12 +254,14 @@ export function PropertyHouseDetailsListPanel({
 
   const filteredInfo = useMemo(
     () =>
-      infoSections.filter((spec) => {
-        const count = houseInfoSectionCount(houseInfo, spec);
-        return matches(`${spec.label} ${count.filled} ${count.total}`);
-      }),
-    [infoSections, houseInfo, matches],
+      residentReadSections.filter((spec) =>
+        matches(`${spec.label} ${houseInfoSectionSummaryLine(houseInfo, spec)}`),
+      ),
+    [residentReadSections, houseInfo, matches],
   );
+
+  const otherSummary = houseInfo.other.trim() ? "Filled in" : "Nothing added yet";
+  const otherRowVisible = matches(`Anything else ${otherSummary}`);
 
   const tabHasRows =
     activeTab === "rooms"
@@ -266,7 +271,7 @@ export function PropertyHouseDetailsListPanel({
         : activeTab === "spaces"
           ? spaces.length > 0
           : activeTab === "info"
-            ? infoSections.length > 0
+            ? residentReadSections.length > 0 || true
             : activeTab === "house"
               ? true
               : activeTab === "manager";
@@ -279,7 +284,7 @@ export function PropertyHouseDetailsListPanel({
         : activeTab === "spaces"
           ? filteredSpaces.length
           : activeTab === "info"
-            ? filteredInfo.length
+            ? filteredInfo.length + (otherRowVisible ? 1 : 0)
             : activeTab === "house"
               ? (matches("Rules") ? 1 : 0) +
                 (matches(`Property facts ${propertyFactsSummary(sub)}`) ? 1 : 0) +
@@ -480,24 +485,45 @@ export function PropertyHouseDetailsListPanel({
           : null}
 
         {activeTab === "info"
-          ? filteredInfo.map((spec) => {
-              const count = houseInfoSectionCount(houseInfo, spec);
-              return (
+          ? (
+            <>
+              {filteredInfo.map((spec) => (
                 <PortalPropertyRecordRow
                   key={spec.id}
                   title={spec.label}
-                  summary={count.filled ? `${count.filled} of ${count.total} filled` : "Nothing added yet"}
+                  summary={houseInfoSectionSummaryLine(houseInfo, spec)}
                   onOpen={() => openEditor({ kind: "info", sectionId: spec.id })}
                   dataAttr={`property-house-details-info-${spec.id}`}
                   actions={
                     <RowActionsMenu
                       label={spec.label}
-                      items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: spec.id }) }]}
+                      items={[
+                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec }) },
+                        { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: spec.id }) },
+                      ]}
                     />
                   }
                 />
-              );
-            })
+              ))}
+              {otherRowVisible ? (
+                <PortalPropertyRecordRow
+                  title="Anything else"
+                  summary={otherSummary}
+                  onOpen={() => openEditor({ kind: "infoOther" })}
+                  dataAttr="property-house-details-info-other"
+                  actions={
+                    <RowActionsMenu
+                      label="Anything else"
+                      items={[
+                        { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "other" }) },
+                        { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "infoOther" }) },
+                      ]}
+                    />
+                  }
+                />
+              ) : null}
+            </>
+          )
           : null}
 
         {activeTab === "house" ? (
@@ -540,20 +566,19 @@ export function PropertyHouseDetailsListPanel({
                 }
               />
             ) : null}
-            {matches("Rules") ? (
+            {matches("Rules") && rulesSpec ? (
             <PortalPropertyRecordRow
               title="Rules"
-              summary={
-                rulesSpec && !houseInfoSectionIsEmpty(houseInfo, rulesSpec)
-                  ? `${houseInfoSectionCount(houseInfo, rulesSpec).filled} of ${houseInfoSectionCount(houseInfo, rulesSpec).total} filled`
-                  : "Nothing added yet"
-              }
+              summary={houseInfoSectionSummaryLine(houseInfo, rulesSpec)}
               onOpen={() => openEditor({ kind: "info", sectionId: "rules" })}
               dataAttr="property-house-details-house-rules-row"
               actions={
                 <RowActionsMenu
                   label="Rules"
-                  items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: "rules" }) }]}
+                  items={[
+                    { id: "preview", label: "Preview", onSelect: () => setInfoPreview({ kind: "section", spec: rulesSpec }) },
+                    { id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "info", sectionId: "rules" }) },
+                  ]}
                 />
               }
             />
@@ -584,6 +609,45 @@ export function PropertyHouseDetailsListPanel({
           </>
         ) : null}
       </PortalRecordListSurface>
+
+      <PropertySectionPreviewModal
+        open={infoPreview !== null}
+        title={
+          infoPreview?.kind === "other"
+            ? "Anything else"
+            : infoPreview?.spec.label ?? ""
+        }
+        onClose={() => setInfoPreview(null)}
+        onEdit={() => {
+          if (!infoPreview) return;
+          if (infoPreview.kind === "other") openEditor({ kind: "infoOther" });
+          else openEditor({ kind: "info", sectionId: infoPreview.spec.id });
+          setInfoPreview(null);
+        }}
+      >
+        {infoPreview?.kind === "other" ? (
+          houseInfo.other.trim() ? (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">{houseInfo.other}</p>
+          ) : (
+            <p className="text-sm text-muted">Nothing added yet</p>
+          )
+        ) : infoPreview?.kind === "section" ? (
+          (() => {
+            const section = houseInfoRenderSections(houseInfo).find((s) => s.id === infoPreview.spec.id);
+            if (!section?.rows.length) return <p className="text-sm text-muted">Nothing added yet</p>;
+            return (
+              <dl className="space-y-2">
+                {section.rows.map((row) => (
+                  <div key={row.label} className="flex flex-wrap justify-between gap-2 border-b border-border/50 py-2 last:border-0">
+                    <dt className="text-xs text-muted">{row.label}</dt>
+                    <dd className="max-w-[70%] text-right text-sm font-medium">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            );
+          })()
+        ) : null}
+      </PropertySectionPreviewModal>
 
       <PropertyHouseDetailsEditorModal
         open={editorOpen}

@@ -328,6 +328,18 @@ export function houseInfoSectionIsEmpty(info: HouseInfoV1, spec: HouseInfoSectio
   return houseInfoSectionCount(info, spec).filled === 0;
 }
 
+/** House details → Residents read this (rules live on The house; access/Wi-Fi on Move-in). */
+export function houseInfoResidentsReadTabSections(
+  info: HouseInfoV1,
+): readonly HouseInfoSectionSpec[] {
+  return HOUSE_INFO_SECTIONS.filter(
+    (spec) =>
+      spec.id !== "rules" &&
+      !HOUSE_INFO_MOVE_IN_SECTION_IDS.includes(spec.id) &&
+      (!spec.optional || !houseInfoSectionIsEmpty(info, spec)),
+  );
+}
+
 /** True when nothing at all is set — the caller should fall back to legacy text. */
 export function houseInfoIsEmpty(info: HouseInfoV1 | null | undefined): boolean {
   if (!info) return true;
@@ -379,6 +391,17 @@ export function houseInfoRenderSections(info: HouseInfoV1 | null | undefined): H
     if (rows.length > 0) out.push({ id: spec.id, label: spec.label, rows });
   }
   return out;
+}
+
+/** One-line row summary for list rows (not “N of M filled”). */
+export function houseInfoSectionSummaryLine(info: HouseInfoV1, spec: HouseInfoSectionSpec): string {
+  if (houseInfoSectionIsEmpty(info, spec)) return "Nothing added yet";
+  const section = houseInfoRenderSections(info).find((s) => s.id === spec.id);
+  if (!section?.rows.length) return "Filled in";
+  const [first] = section.rows;
+  const tail = section.rows.length > 1 ? ` · +${section.rows.length - 1}` : "";
+  const value = first.value.length > 48 ? `${first.value.slice(0, 45)}…` : first.value;
+  return `${first.label}: ${value}${tail}`;
 }
 
 /** Plain-text rendering for the move-in email and any non-HTML surface. */

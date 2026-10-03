@@ -15,6 +15,8 @@ import {
   PropertyMoveInEditorModal,
   type MoveInEditorTarget,
 } from "@/components/portal/property-move-in-editor-modal";
+import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
+import { MoveInResidentPreviewCard } from "@/components/portal/move-in-resident-preview-card";
 import { getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
@@ -117,6 +119,7 @@ export function ManagerPropertyRoomMoveInPanel({
   const [moveEditorTarget, setMoveEditorTarget] = useState<MoveInEditorTarget | null>(null);
   const [houseInfoDraft, setHouseInfoDraft] = useState<HouseInfoV1>(() => normalizeHouseInfo(sub.houseInfo));
   const [moveSaving, setMoveSaving] = useState(false);
+  const [movePreview, setMovePreview] = useState<MoveInEditorTarget | null>(null);
 
   useEffect(() => {
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
@@ -202,6 +205,56 @@ export function ManagerPropertyRoomMoveInPanel({
 
   const houseRowSummary = moveRowSummary(houseInstructions, housePhotos, houseVideo);
   const houseRowVisible = moveMatches(`The whole house ${houseRowSummary}`);
+
+  const movePreviewCard = (target: MoveInEditorTarget) => {
+    const label = propertyLabel?.trim() || "Property";
+    if (target.kind === "house") {
+      return (
+        <MoveInResidentPreviewCard
+          propertyLabel={label}
+          title="The whole house"
+          instructions={houseInstructions}
+          photoDataUrls={housePhotos}
+          videoDataUrl={houseVideo}
+          houseInfo={houseInfoDraft}
+          showWholeHouseAccess
+        />
+      );
+    }
+    const room = sub.rooms.find((r) => r.id === target.roomId);
+    const roomTitle = room?.name.trim() || "Room";
+    if (target.kind === "roomResident") {
+      const entry = room?.moveInResidentDetails?.[target.slotIndex];
+      return (
+        <MoveInResidentPreviewCard
+          propertyLabel={label}
+          title={`${roomTitle} · Resident ${target.slotIndex + 1}`}
+          instructions={entry?.moveInInstructions ?? ""}
+          photoDataUrls={entry?.moveInPhotoDataUrls ?? []}
+          videoDataUrl={entry?.moveInVideoDataUrl ?? null}
+        />
+      );
+    }
+    return (
+      <MoveInResidentPreviewCard
+        propertyLabel={label}
+        title={roomTitle}
+        instructions={room?.moveInInstructions ?? ""}
+        photoDataUrls={room?.moveInPhotoDataUrls ?? []}
+        videoDataUrl={room?.moveInVideoDataUrl ?? null}
+      />
+    );
+  };
+
+  const moveRowMenu = (rowLabel: string, target: MoveInEditorTarget) => (
+    <RowActionsMenu
+      label={rowLabel}
+      items={[
+        { id: "preview", label: "Preview", onSelect: () => setMovePreview(target) },
+        { id: "edit", label: "Edit", onSelect: () => openMoveEditor(target) },
+      ]}
+    />
+  );
 
   const saveMoveHouse = (payload: {
     houseInfo: HouseInfoV1;
@@ -394,12 +447,7 @@ export function ManagerPropertyRoomMoveInPanel({
               summary={houseRowSummary}
               onOpen={() => openMoveEditor({ kind: "house" })}
               dataAttr="property-move-in-house-row"
-              actions={
-                <RowActionsMenu
-                  label="The whole house"
-                  items={[{ id: "edit", label: "Edit", onSelect: () => openMoveEditor({ kind: "house" }) }]}
-                />
-              }
+              actions={moveRowMenu("The whole house", { kind: "house" })}
             />
           ) : null}
 
@@ -422,12 +470,7 @@ export function ManagerPropertyRoomMoveInPanel({
                     summary={roomSummary}
                     onOpen={() => openMoveEditor({ kind: "room", roomId: room.id })}
                     dataAttr={`property-move-in-room-row-${room.id}`}
-                    actions={
-                      <RowActionsMenu
-                        label={label}
-                        items={[{ id: "edit", label: "Edit", onSelect: () => openMoveEditor({ kind: "room", roomId: room.id }) }]}
-                      />
-                    }
+                    actions={moveRowMenu(label, { kind: "room", roomId: room.id })}
                   />,
                 );
                 }
@@ -448,18 +491,7 @@ export function ManagerPropertyRoomMoveInPanel({
                         summary={residentSummary}
                         onOpen={() => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot })}
                         dataAttr={`property-move-in-resident-row-${room.id}-${slot}`}
-                        actions={
-                          <RowActionsMenu
-                            label={residentLabel}
-                            items={[
-                              {
-                                id: "edit",
-                                label: "Edit",
-                                onSelect: () => openMoveEditor({ kind: "roomResident", roomId: room.id, slotIndex: slot }),
-                              },
-                            ]}
-                          />
-                        }
+                        actions={moveRowMenu(residentLabel, { kind: "roomResident", roomId: room.id, slotIndex: slot })}
                       />,
                     );
                   }
@@ -468,6 +500,25 @@ export function ManagerPropertyRoomMoveInPanel({
               })
             : null}
         </PortalRecordListSurface>
+
+        <PropertySectionPreviewModal
+          open={movePreview !== null}
+          title={
+            movePreview?.kind === "house"
+              ? "The whole house"
+              : movePreview?.kind === "roomResident"
+                ? `${sub.rooms.find((r) => r.id === movePreview.roomId)?.name.trim() || "Room"} · Resident ${movePreview.slotIndex + 1}`
+                : sub.rooms.find((r) => r.id === movePreview?.roomId)?.name.trim() || "Room"
+          }
+          onClose={() => setMovePreview(null)}
+          onEdit={() => {
+            if (!movePreview) return;
+            openMoveEditor(movePreview);
+            setMovePreview(null);
+          }}
+        >
+          {movePreview ? movePreviewCard(movePreview) : null}
+        </PropertySectionPreviewModal>
 
         <PropertyMoveInEditorModal
           open={moveEditorOpen}

@@ -14,22 +14,22 @@ import {
 const rooms = ["r1", "r2", "r3"] as const;
 
 describe("sharedSpaceIsEveryone", () => {
-  it("reads empty and the full current list as Everyone", () => {
+  it("reads empty and the full current list as All rooms", () => {
     expect(sharedSpaceIsEveryone([], rooms)).toBe(true);
     expect(sharedSpaceIsEveryone(undefined, rooms)).toBe(true);
     expect(sharedSpaceIsEveryone(["r1", "r2", "r3"], rooms)).toBe(true);
     expect(sharedSpaceIsEveryone(["r1", "r2"], rooms)).toBe(false);
   });
 
-  it("is Everyone when there are no rooms", () => {
+  it("is All rooms when there are no rooms", () => {
     expect(sharedSpaceIsEveryone(["r1"], [])).toBe(true);
   });
 
-  it("reads a list of only stale ids as Everyone, never nobody", () => {
+  it("reads a list of only stale ids as All rooms, never nobody", () => {
     expect(sharedSpaceIsEveryone(["gone-1", "gone-2"], rooms)).toBe(true);
     expect(sharedSpaceAccessMenuSelected(["gone-1"], rooms)).toEqual([EVERYONE_ACCESS_VALUE, ...rooms]);
-    expect(sharedSpaceAccessTriggerLabel(["gone-1"], rooms)).toBe("Everyone");
-    expect(sharedSpaceAccessNames(["gone-1"], [{ id: "r1", name: "Room A" }])).toBe("Everyone");
+    expect(sharedSpaceAccessTriggerLabel(["gone-1"], rooms)).toBe("All rooms");
+    expect(sharedSpaceAccessNames(["gone-1"], [{ id: "r1", name: "Room A" }])).toBe("All rooms");
   });
 
   it("ignores stale ids when judging full coverage", () => {
@@ -39,7 +39,7 @@ describe("sharedSpaceIsEveryone", () => {
 });
 
 describe("encodeSharedSpaceAccessPick", () => {
-  it("stores Everyone as an empty list", () => {
+  it("stores All rooms as an empty list", () => {
     expect(encodeSharedSpaceEveryone()).toEqual([]);
     expect(
       encodeSharedSpaceAccessPick({
@@ -50,7 +50,7 @@ describe("encodeSharedSpaceAccessPick", () => {
     ).toEqual([]);
   });
 
-  it("unticking one room from Everyone stores the rest", () => {
+  it("unticking one room from All rooms stores the rest", () => {
     expect(
       encodeSharedSpaceAccessPick({
         nextSelected: [EVERYONE_ACCESS_VALUE, "r1", "r3"],
@@ -60,7 +60,7 @@ describe("encodeSharedSpaceAccessPick", () => {
     ).toEqual(["r1", "r3"]);
   });
 
-  it("ticking the last missing room returns Everyone", () => {
+  it("ticking the last missing room returns All rooms", () => {
     expect(
       encodeSharedSpaceAccessPick({
         nextSelected: ["r1", "r2", "r3"],
@@ -70,7 +70,7 @@ describe("encodeSharedSpaceAccessPick", () => {
     ).toEqual([]);
   });
 
-  it("unticking Everyone while every room is still selected stays Everyone", () => {
+  it("unticking All rooms while every room is still selected stays All rooms", () => {
     expect(
       encodeSharedSpaceAccessPick({
         nextSelected: [...rooms],
@@ -99,10 +99,10 @@ describe("encodeSharedSpaceAccessPick", () => {
 });
 
 describe("menu + trigger", () => {
-  it("checks Everyone and every room when access is empty", () => {
+  it("checks All rooms and every room when access is empty", () => {
     expect(sharedSpaceAccessMenuSelected([], rooms)).toEqual([EVERYONE_ACCESS_VALUE, "r1", "r2", "r3"]);
-    expect(sharedSpaceAccessTriggerLabel([], rooms)).toBe("Everyone");
-    expect(sharedSpaceAccessTriggerLabel(["r1", "r2", "r3"], rooms)).toBe("Everyone");
+    expect(sharedSpaceAccessTriggerLabel([], rooms)).toBe("All rooms");
+    expect(sharedSpaceAccessTriggerLabel(["r1", "r2", "r3"], rooms)).toBe("All rooms");
   });
 
   it("shows a room count when narrowed", () => {
@@ -111,14 +111,14 @@ describe("menu + trigger", () => {
     expect(sharedSpaceAccessTriggerLabel(["r1", "r2"], rooms)).toBe("2 rooms");
   });
 
-  it("pins Everyone as the first option", () => {
+  it("pins All rooms as the first option", () => {
     expect(
       sharedSpaceAccessOptions([
         { id: "r1", name: "Room A" },
         { id: "r2", name: "" },
       ]),
     ).toEqual([
-      { value: EVERYONE_ACCESS_VALUE, label: "Everyone" },
+      { value: EVERYONE_ACCESS_VALUE, label: "All rooms" },
       { value: "r1", label: "Room A" },
       { value: "r2", label: "Room 2" },
     ]);
@@ -126,7 +126,7 @@ describe("menu + trigger", () => {
 });
 
 describe("retainSharedSpaceAccessAfterRoomsChange", () => {
-  it("keeps Everyone when a room is added or removed", () => {
+  it("keeps All rooms when a room is added or removed", () => {
     expect(retainSharedSpaceAccessAfterRoomsChange([], ["r1", "r2"], ["r1", "r2", "r3"])).toEqual([]);
     expect(retainSharedSpaceAccessAfterRoomsChange(["r1", "r2"], ["r1", "r2"], ["r1", "r2", "r3"])).toEqual([]);
     expect(retainSharedSpaceAccessAfterRoomsChange([], ["r1", "r2", "r3"], ["r1", "r2"])).toEqual([]);
@@ -137,7 +137,7 @@ describe("retainSharedSpaceAccessAfterRoomsChange", () => {
     expect(retainSharedSpaceAccessAfterRoomsChange(["r1", "r2"], ["r1", "r2", "r3"], ["r2", "r3"])).toEqual(["r2"]);
   });
 
-  it("bounces a subset that lost its last room back to Everyone", () => {
+  it("bounces a subset that lost its last room back to All rooms", () => {
     expect(retainSharedSpaceAccessAfterRoomsChange(["r1"], ["r1", "r2"], ["r2"])).toEqual([]);
   });
 });
@@ -148,9 +148,9 @@ describe("sharedSpaceAccessNames", () => {
     { id: "r2", name: "Room B" },
   ];
 
-  it("says Everyone instead of listing every room", () => {
-    expect(sharedSpaceAccessNames([], named)).toBe("Everyone");
-    expect(sharedSpaceAccessNames(["r1", "r2"], named)).toBe("Everyone");
+  it("says All rooms instead of listing every room", () => {
+    expect(sharedSpaceAccessNames([], named)).toBe("All rooms");
+    expect(sharedSpaceAccessNames(["r1", "r2"], named)).toBe("All rooms");
   });
 
   it("lists a narrowed subset by name", () => {

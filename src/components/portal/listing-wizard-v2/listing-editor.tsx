@@ -136,6 +136,7 @@ import {
   sharedSpaceAccessMenuSelected,
   sharedSpaceAccessOptions,
   sharedSpaceAccessTriggerLabel,
+  sharedSpaceIsEveryone,
 } from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
@@ -1744,7 +1745,12 @@ export function ListingSharedSpaceEditorBody({
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
   const roomIds = rooms.map((room) => room.id);
-  const accessEveryone = sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds) === "Everyone";
+  const accessEveryone = sharedSpaceIsEveryone(space.roomAccessIds, roomIds);
+  const [roomPickerOpen, setRoomPickerOpen] = useState(() => !accessEveryone);
+  useEffect(() => {
+    setRoomPickerOpen(!sharedSpaceIsEveryone(space.roomAccessIds, roomIds));
+  }, [space.id]);
+  const whoUsesMode = roomPickerOpen ? "pick" : "all";
   return (
     <>
       {sameAsOptions && sameAsOptions.length > 1 ? (
@@ -1775,23 +1781,25 @@ export function ListingSharedSpaceEditorBody({
           <FactRow label={<span className="inline-flex items-center gap-1.5">Who uses it <ColumnHelp title="Who uses it" text={SPACE_HELP.who} /></span>}>
             <RowSelectCell
               ariaLabel={`Who uses ${who}`}
-              value={accessEveryone ? "all" : "pick"}
+              value={whoUsesMode}
               options={[
                 { value: "all", label: "All rooms" },
                 { value: "pick", label: "Select rooms" },
               ]}
-              onChange={(mode) =>
-                onChange({
-                  roomAccessIds: mode === "all" ? encodeSharedSpaceEveryone() : encodeSharedSpaceAccessPick({
-                    nextSelected: sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds),
-                    roomIds,
-                    previousAccessIds: space.roomAccessIds,
-                  }),
-                })
-              }
+              onChange={(mode) => {
+                if (mode === "all") {
+                  setRoomPickerOpen(false);
+                  onChange({ roomAccessIds: encodeSharedSpaceEveryone() });
+                  return;
+                }
+                setRoomPickerOpen(true);
+                if (sharedSpaceIsEveryone(space.roomAccessIds, roomIds)) {
+                  onChange({ roomAccessIds: [...roomIds] });
+                }
+              }}
             />
           </FactRow>
-          {!accessEveryone ? (
+          {roomPickerOpen ? (
             <FactRow label="Rooms">
               <CheckboxMultiSelect
                 hideLabel
@@ -1803,15 +1811,17 @@ export function ListingSharedSpaceEditorBody({
                 selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
                 selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
                 emptyLabel="Pick rooms"
-                onChange={(next) =>
-                  onChange({
-                    roomAccessIds: encodeSharedSpaceAccessPick({
-                      nextSelected: next,
-                      roomIds,
-                      previousAccessIds: space.roomAccessIds,
-                    }),
-                  })
-                }
+                onChange={(next) => {
+                  const nextIds = encodeSharedSpaceAccessPick({
+                    nextSelected: next,
+                    roomIds,
+                    previousAccessIds: space.roomAccessIds,
+                  });
+                  if (sharedSpaceIsEveryone(nextIds, roomIds)) {
+                    setRoomPickerOpen(false);
+                  }
+                  onChange({ roomAccessIds: nextIds });
+                }}
               />
             </FactRow>
           ) : null}
