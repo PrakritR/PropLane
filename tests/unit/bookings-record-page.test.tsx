@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
+import { bookingEntryKey, bookingLegacyEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
 const navigate = vi.fn();
@@ -58,6 +58,10 @@ describe("booking record and actions", () => {
     expect(document.querySelector('[data-attr="record-header-action-edit"]')).toBeNull();
     expect(screen.getByText("Calendar event")).toBeTruthy();
     expect(screen.getByText("event-uid")).toBeTruthy();
+  });
+  it("resolves previously shared links and replaces them with stable ids", () => {
+    render(<AppUiProvider><BookingsRecordPage bookingId={bookingLegacyEntryKey(block)} basePath="/portal" entries={[block]} loading={false} residentOptions={[]} onSaveBlock={noop} onRemoveBlock={noop} showToast={() => {}} /></AppUiProvider>);
+    expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(block)));
   });
   it("list View opens the same stable record route", () => {
     render(<ManagerBookingsListView entries={[block]} bucket="upcoming" selectedKeys={new Set()} onToggleSelected={() => {}} />);

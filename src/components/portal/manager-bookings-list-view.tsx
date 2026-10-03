@@ -10,6 +10,7 @@ import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
+  addDaysToDateKey,
   bookingEntryKey,
   bookingSourceLabel,
   formatBookingStayRange,
@@ -125,7 +126,7 @@ export function ManagerBookingsListView({
                 amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                     {showStayDetails ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
                     {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}

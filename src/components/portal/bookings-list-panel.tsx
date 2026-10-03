@@ -11,6 +11,7 @@ import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
+  addDaysToDateKey,
   bookingEntryKey,
   bookingsForListTab,
   formatBookingStayRange,
@@ -118,7 +119,7 @@ export function ManagerBookingsListPanel({
                 amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                   </>
                 }

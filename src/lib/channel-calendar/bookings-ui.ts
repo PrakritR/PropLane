@@ -19,6 +19,11 @@ export function bookingEntryKey(entry: PropertyBookingEntry): string {
   if (entry.blockId) return `block:${entry.blockId}`;
   if (entry.leaseId) return `lease:${entry.leaseId}`;
   if (entry.applicationId) return `application:${entry.applicationId}`;
+  return bookingLegacyEntryKey(entry);
+}
+
+/** Keeps previously shared booking links resolvable after stable ids were introduced. */
+export function bookingLegacyEntryKey(entry: PropertyBookingEntry): string {
   return `${entry.source}:${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.end}:${entry.summary}`;
 }
 

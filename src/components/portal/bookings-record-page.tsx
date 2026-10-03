@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Download, Mail, Pencil } from "lucide-react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -16,7 +16,7 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import { bookingConflictsFor, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { addDaysToDateKey, bookingEntryKey, bookingOpenTarget, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { addDaysToDateKey, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRateLabel, bookingStatusLabel, canCancelBooking } from "@/lib/channel-calendar/booking-presentation";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref } from "@/lib/portal-detail-routes";
@@ -35,7 +35,10 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const [undo, setUndo] = useState<BlockDatesDraft | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const entry = entries.find((candidate) => bookingEntryKey(candidate) === bookingId);
+  const entry = entries.find((candidate) => bookingEntryKey(candidate) === bookingId || bookingLegacyEntryKey(candidate) === bookingId);
+  useEffect(() => {
+    if (entry && bookingEntryKey(entry) !== bookingId) navigate(bookingRecordHref(basePath, bookingEntryKey(entry), tabProp === "communication" ? "communication" : "overview"));
+  }, [entry, bookingId, basePath, tabProp, navigate]);
   if (!entry) return <PortalDataTableEmpty icon="default" message={loading ? "Loading…" : "Booking not found."} />;
   const tab = tabProp === "communication" ? "communication" : "overview";
   const channel = entry.source === "airbnb" || entry.source === "booking_com";
@@ -43,7 +46,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
   const backHref = managerBookingListHref(basePath, "upcoming");
-  const range = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
+  const range = formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded);
   const nights = Math.max(1, Math.round((Date.parse(entry.end) - Date.parse(entry.start)) / 86400000) + 1);
   const conflicts = channel ? bookingConflictsFor(entries.filter((candidate) => candidate !== entry), entry) : [];
   const sections = { ...recordSections("manager", "booking", { basePath }), headerActions: [
