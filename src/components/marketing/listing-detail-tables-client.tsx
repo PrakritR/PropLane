@@ -41,7 +41,7 @@ const LISTING_TABLE_HEAD =
 const LISTING_FLOOR_CARD =
   "overflow-hidden rounded-xl border border-border bg-card shadow-sm listing-detail-surface";
 const LISTING_DETAIL_BUTTON =
-  "listing-detail-control inline-flex min-h-[36px] shrink-0 items-center justify-center rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35 hover:text-primary sm:min-h-0";
+  "listing-detail-control inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35 hover:text-primary sm:min-h-0";
 
 function AvailabilityPill({ text, variant = "default" }: { text: string; variant?: "default" | "room" }) {
   if (variant === "room") {

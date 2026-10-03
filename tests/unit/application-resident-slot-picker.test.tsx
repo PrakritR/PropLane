@@ -30,10 +30,10 @@ describe("ApplicationResidentSlotPicker", () => {
     const onChange = vi.fn();
     render(<ApplicationResidentSlotPicker slots={slots()} value={2} onChange={onChange} />);
 
-    expect(screen.getByText(/Resident 1 · \$900\/mo/)).toBeTruthy();
-    expect(screen.getByText(/Resident 2 · \$900\/mo/)).toBeTruthy();
-    expect(screen.queryByText(/Resident 2 · \$800\/mo/)).toBeNull();
-    expect(screen.getByText(/Aaron · since Sep 1/)).toBeTruthy();
+    expect(screen.getByText(/Bed A · \$900\/mo/)).toBeTruthy();
+    expect(screen.getByText(/Bed B · \$800\/mo/)).toBeTruthy();
+    expect(screen.getByText("Occupied")).toBeTruthy();
+    expect(screen.queryByText(/Aaron/)).toBeNull();
     expect(screen.getByText("Open")).toBeTruthy();
 
     const radios = screen.getAllByRole("radio") as HTMLInputElement[];

@@ -144,19 +144,19 @@ function tourWhenLabel(tour: ResidentTourView): string {
   return whenStart && whenEnd ? formatRangeLabel(whenStart, whenEnd) : "Time to be confirmed";
 }
 
-/** Small theme-aware status pill (light/dark flip via `.portal-badge-*`). */
+/** Status is a plain colored fact; the row itself carries no badge or chip. */
 function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
-  if (tone === "neutral") {
-    return (
-      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-border bg-[var(--secondary)] px-2 py-0.5 text-[10px] font-semibold text-muted [html[data-native]_&]:text-[9px]">
-        {children}
-      </span>
-    );
-  }
+  const color = tone === "neutral"
+    ? "var(--muted)"
+    : tone === "success"
+      ? "var(--status-confirmed-fg)"
+      : tone === "danger"
+        ? "var(--status-overdue-fg)"
+        : tone === "info"
+          ? "var(--status-approved-fg)"
+          : "var(--status-pending-fg)";
   return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-${tone} [html[data-native]_&]:text-[9px]`}
-    >
+    <span className="whitespace-nowrap text-xs font-semibold" style={{ color }}>
       {children}
     </span>
   );
@@ -844,11 +844,6 @@ export function ResidentDashboard({
               </span>
               <span className="mt-0.5 block truncate text-lg font-semibold text-foreground [html[data-native]_&]:text-base">
                 {appProperty || "Move-in details"}
-              </span>
-              <span className="block truncate text-sm text-muted [html[data-native]_&]:text-[12px]">
-                {appProperty
-                  ? appRoom || "Placement, keys, and house information"
-                  : "Placement, keys, and house information"}
               </span>
             </span>
             <span aria-hidden className="shrink-0 text-lg text-primary">
