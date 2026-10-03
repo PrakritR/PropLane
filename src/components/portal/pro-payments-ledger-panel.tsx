@@ -2061,11 +2061,42 @@ export function ManagerPaymentsLedgerPanel({
     <>{listRows.map((row) => renderChargeRow(row))}</>
   );
 
+  const residentPaymentsSummary = useMemo(() => {
+    if (!embeddedInResident) return null;
+    let paidCents = 0;
+    let totalCents = 0;
+    for (const row of rows) {
+      const parsed = Number.parseFloat(String(row.amountDue ?? "0").replace(/[^0-9.-]/g, ""));
+      const cents = Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+      totalCents += cents;
+      if (row.bucket === "paid") paidCents += cents;
+    }
+    if (totalCents <= 0) return null;
+    const fmt = (c: number) =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(
+        c / 100,
+      );
+    return `${fmt(paidCents)} paid of ${fmt(totalCents)}`;
+  }, [embeddedInResident, rows]);
+
   const renderResidentStatusSections = () => {
     // One section only (or none) reads better as the plain list it already was.
-    if (residentStatusSections.length <= 1) return renderChargeList(rows);
+    const summary = residentPaymentsSummary ? (
+      <p className="mb-3 px-1 text-sm font-semibold text-foreground" data-er="payments-summary">
+        {residentPaymentsSummary}
+      </p>
+    ) : null;
+    if (residentStatusSections.length <= 1) {
+      return (
+        <>
+          {summary}
+          {renderChargeList(rows)}
+        </>
+      );
+    }
     return (
       <div className="space-y-4" data-attr="payments-resident-status-sections">
+        {summary}
         {residentStatusSections.map((section) => (
           <div key={section.bucket} data-attr={`payments-status-section-${section.bucket}`}>
             <div className="mb-1.5 flex items-baseline gap-2 px-1">

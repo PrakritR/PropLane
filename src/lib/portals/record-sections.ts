@@ -10,6 +10,7 @@ import {
   Download,
   FileSignature,
   Lock,
+  Shield,
   Mail,
   Pencil,
   Plus,
@@ -280,7 +281,35 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "edit", label: "Edit", icon: Pencil },
       { id: "share", label: "Share", icon: Share2 },
       { id: "archive", label: "Archive", icon: Archive },
+      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
+    sectionActions: {
+      application: [
+        { id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" },
+        { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
+        { id: "edit", label: "Edit", icon: Pencil },
+        { id: "download", label: "Download PDF", icon: Download },
+        { id: "upload", label: "Upload", icon: Upload },
+      ],
+      "background-check": [
+        { id: "run-check", label: "Run check", icon: Shield, tone: "primary" },
+        { id: "upload", label: "Upload report", icon: Upload },
+      ],
+      lease: [
+        { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" },
+        { id: "remind-sign", label: "Remind to sign", icon: Bell },
+        { id: "download", label: "Download", icon: Download },
+        { id: "upload", label: "Upload", icon: Upload },
+      ],
+      payments: [
+        { id: "remind-payment", label: "Payment reminder", icon: Bell },
+        { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" },
+      ],
+      services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
+      inspections: [{ id: "add-inspection", label: "Add inspection", icon: Plus, tone: "primary" }],
+      tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
+      documents: [{ id: "upload", label: "Upload", icon: Upload, tone: "primary" }],
+    },
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -445,29 +474,17 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   inspection: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Rooms · Payments · Communication.
-    // "Resident" and "Vendor" fold into Overview's Home fact card.
-    ownGroups: [
-      { label: "Inspection", ids: [
-        { id: "overview", label: "Overview" },
-        { id: "rooms", label: "Rooms" },
-      ] },
-      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
-    ],
+    ownGroups: [{ label: "Inspection", ids: [{ id: "overview", label: "Inspection" }] }],
     headerActions: [
-      { id: "request-photos", label: "Request photos", icon: Camera },
+      { id: "add-photos", label: "Add photos", icon: Camera },
       { id: "download-report", label: "Download report", icon: Download },
-      { id: "lock", label: "Lock", icon: Lock },
+      { id: "lock", label: "Complete & lock", icon: Lock, tone: "primary" },
     ],
     sectionActions: {
-      rooms: [
+      overview: [
         { id: "add-photos", label: "Add photos", icon: Camera },
-        { id: "download-report", label: "Download PDF", icon: Download },
-        { id: "lock", label: "Lock", icon: Lock },
-      ],
-      payments: [
-        { id: "add-charge", label: "Add charge", icon: Plus },
-        { id: "export", label: "Export", icon: Download },
+        { id: "download-report", label: "Download report", icon: Download },
+        { id: "lock", label: "Complete & lock", icon: Lock, tone: "primary" },
       ],
       communication: [
         { id: "compose", label: "New message", icon: Mail },
