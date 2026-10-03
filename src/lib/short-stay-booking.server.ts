@@ -148,7 +148,8 @@ export async function createShortStayBooking(
       ? pricing.dailyRate
       : shortTermNightlyRate(submission.shortTermDailyCost);
   const weeklyRate = pricing.weeklyRate ?? 0;
-  const guests = Math.max(1, input.guests);
+  // Never trust the browser's guest count past what the room holds — it multiplies the price.
+  const guests = Math.min(Math.max(1, Math.floor(input.guests) || 1), Math.max(1, capacity));
   const rentTotal = shortTermStayTotalAmount(nightly, nights, weeklyRate) * guests;
   const rentCents = Math.round(rentTotal * 100);
   if (rentCents < 100) {

@@ -30,7 +30,7 @@ begin
     guests := greatest(1, coalesce(nullif(btrim(new.row_data#>>'{stayDetails,guests}'), '')::numeric, 1));
   exception when invalid_text_representation or numeric_value_out_of_range then
     guests := 1;
-  end if;
+  end;
 
   update public.manager_property_records p
     set occupancy_revision = p.occupancy_revision + 1

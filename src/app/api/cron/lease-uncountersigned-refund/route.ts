@@ -20,6 +20,11 @@ export async function GET(req: Request) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Automatic refunds move real money; they run only once the captain turns this on.
+  const flag = process.env.LEASE_UNCOUNTERSIGNED_REFUND_ENABLED?.trim().toLowerCase();
+  if (flag !== "1" && flag !== "true" && flag !== "on") {
+    return NextResponse.json({ skipped: "LEASE_UNCOUNTERSIGNED_REFUND_ENABLED is off" });
+  }
   const db = createSupabaseServiceRoleClient();
   const stripe = getStripe();
   const result = await refundUncountersignedMoveInCharges(stripe, db);
