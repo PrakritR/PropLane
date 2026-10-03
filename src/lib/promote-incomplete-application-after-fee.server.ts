@@ -13,6 +13,7 @@ import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
+import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
@@ -255,6 +256,8 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     void notifyManagerApplicationSubmitted(db, row).catch(
       bestEffortFailed("application submitted notice after fee promote", { id: row.id }),
     );
+    // Forms set to go out once the application is submitted (the default Intake form).
+    dispatchMoveInFormsForResidencyAfterResponse(row.id, "application-submitted");
   }
 
   return {

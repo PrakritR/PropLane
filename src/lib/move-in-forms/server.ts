@@ -23,10 +23,11 @@ import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION } from "./limits";
 import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "./move-in-form-events.server";
 import {
-  MOVE_IN_FORM_ID_PATTERN, moveInFormDueAt, readMoveInFormSettings, readMoveInFormTemplates, templateAppliesToRoom,
+  MOVE_IN_FORM_ID_PATTERN, moveInFormDefaultKindOfId, moveInFormDueFor, readMoveInFormSettings, readMoveInFormTemplates,
+  templateAppliesToRoom, templateLinkMatches,
 } from "./templates";
 import type {
-  MoveInFormAnswer, MoveInFormQuestion, MoveInFormRecord, MoveInFormStatus, MoveInFormSummary, MoveInFormTemplate,
+  MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormRecord, MoveInFormStatus, MoveInFormSummary, MoveInFormTemplate,
   MoveInFormTrigger,
 } from "./types";
 
@@ -192,7 +193,7 @@ function toRecord(row: MoveInFormRow, viewer: "manager" | "resident"): MoveInFor
     formId: row.form_id,
     formName: row.form_name,
     source: row.source,
-    snapshot: { questions: questionsOf(row), pdf: row.snapshot?.pdf ?? null },
+    snapshot: { questions: questionsOf(row), pdf: row.snapshot?.pdf ?? null, ...(row.snapshot?.kind ? { kind: row.snapshot.kind } : {}) },
     status: row.status,
     answers: Array.isArray(row.answers) ? row.answers : [],
     signedDocumentSha256: row.signed_document_sha256,
@@ -208,6 +209,7 @@ function toSummary(row: MoveInFormRow, viewer: "manager" | "resident"): MoveInFo
   const { answers, snapshot, ...summary } = toRecord(row, viewer);
   return {
     ...summary,
+    kind: snapshot.kind ?? moveInFormDefaultKindOfId(row.form_id) ?? "other",
     questionCount: snapshot.questions.length,
     photoCount: answers.reduce((total, answer) => total + ("files" in answer ? answer.files.length : 0), 0),
     signed: answers.some((answer) => "signature" in answer),
@@ -233,11 +235,18 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   + "app_resident_user_id:row_data->>residentUserId,app_room_choice:row_data->>assignedRoomChoice,"
   + "app_manual_room:row_data->manualResidentDetails->>roomNumber,"
   + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
-  + "app_lease_start:row_data->application->>leaseStart";
+  + "app_lease_start:row_data->application->>leaseStart,"
+  + "app_lease_end:row_data->application->>leaseEnd,"
+  + "app_template_id:row_data->application->>applicationTemplateId";
 
 type Residency = {
   id: string;
   approved: boolean;
+  /** Submitted and not withdrawn or declined: still in play (pending) or already approved. */
+  inPlay: boolean;
+  /** The application template the applicant filled in (`propertyApplicationTemplates` id), when it recorded one. */
+  applicationTemplateId: string;
+  leaseEnd: string;
   name: string;
   propertyLabel: string;
   roomChoice: string;
@@ -259,6 +268,9 @@ function residencyFromRecord(record: Record<string, unknown>): Residency {
   return {
     id: String(record.id),
     approved: text("app_bucket") === "approved" && !text("app_withdrawn_at"),
+    inPlay: (text("app_bucket") === "approved" || text("app_bucket") === "pending") && !text("app_withdrawn_at"),
+    applicationTemplateId: text("app_template_id").trim(),
+    leaseEnd: isoDate(text("app_lease_end")),
     name: text("app_name") || "Resident",
     propertyLabel: text("app_property") || "Property",
     roomChoice: text("app_room_choice"),
@@ -298,6 +310,12 @@ async function readProperty(db: SupabaseClient, propertyId: string): Promise<Pro
   const submission: Record<string, unknown> = {};
   if (Array.isArray(record.templates)) submission.moveInFormTemplates = record.templates;
   if (record.settings && typeof record.settings === "object") submission.moveInFormSettings = record.settings;
+  const storedIds = new Set(
+    Array.isArray(record.templates)
+      ? (record.templates as unknown[]).flatMap((entry) =>
+        entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string" ? [(entry as { id: string }).id] : [])
+      : [],
+  );
   const rawRooms = Array.isArray(record.rooms) ? record.rooms : Array.isArray(record.legacy_rooms) ? record.legacy_rooms : [];
   const rooms = (rawRooms as unknown[]).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
@@ -308,9 +326,11 @@ async function readProperty(db: SupabaseClient, propertyId: string): Promise<Pro
     id: String(data.id),
     ownerId: String(data.manager_user_id),
     // Never-saved defaults are suggestions, not the manager's choice: a property that has not saved its
-    // move-in forms sends nothing on its own (outward messages need the manager's own save).
+    // move-in forms sends nothing on its own (outward messages need the manager's own save). The same
+    // holds per form: a default form the saved list does not actually hold (older data) is read as
+    // "Only when I send it" until the manager saves it.
     templates: readMoveInFormTemplates(submission).map((template) =>
-      "moveInFormTemplates" in submission ? template : { ...template, trigger: "manual" as const }),
+      "moveInFormTemplates" in submission && storedIds.has(template.id) ? template : { ...template, trigger: "manual" as const }),
     settings: readMoveInFormSettings(submission),
     rooms,
   };
@@ -354,7 +374,8 @@ async function buildSnapshot(
   cache: PdfCache = new Map(),
 ): Promise<MoveInFormRecord["snapshot"] | null> {
   const questions = structuredClone(template.questions);
-  if (template.source !== "upload") return { questions, pdf: null };
+  const kind: MoveInFormKind = template.kind;
+  if (template.source !== "upload") return { questions, pdf: null, kind };
   const pdf = template.pdf;
   if (!pdf || !pdfPathTrusted(pdf.storagePath, ownerId, template.id)) return null;
   // An uploaded form is read and signed: without a signature question there is nothing to sign.
@@ -366,7 +387,7 @@ async function buildSnapshot(
     cache.set(pdf.storagePath, entry);
   }
   if (!entry) return null;
-  return { questions, pdf: { storagePath: pdf.storagePath, fileName: pdf.fileName, pageCount: pdf.pageCount, sha256: entry.sha256 } };
+  return { questions, pdf: { storagePath: pdf.storagePath, fileName: pdf.fileName, pageCount: pdf.pageCount, sha256: entry.sha256 }, kind };
 }
 
 type NewRow = {
@@ -414,6 +435,44 @@ async function liveFormIds(db: SupabaseClient, applicationId: string): Promise<S
   return new Set(((data ?? []) as { form_id: string }[]).map((row) => String(row.form_id)));
 }
 
+function dueFor(template: MoveInFormTemplate, residency: Residency): string | null {
+  return moveInFormDueFor(template.due, { moveInDate: residency.moveInDate, leaseEnd: residency.leaseEnd });
+}
+
+/**
+ * The lease template a residency is on, for matching a form's linked leases: the lease row's own
+ * template (generated or lease-first), else the lease its application template maps to. Read lazily,
+ * only when some form actually links to leases. Null = not known yet (no lease, no mapping).
+ */
+async function residencyLeaseTemplateId(db: SupabaseClient, property: PropertyFacts, residency: Residency): Promise<string | null> {
+  const { data } = await db.from("portal_lease_pipeline_records")
+    .select("generated:row_data->>leaseGenerationTemplateId,first:row_data->>leaseTemplateId,voided:row_data->>voidedAt")
+    .eq("row_data->>axisId", residency.id);
+  for (const lease of (data ?? []) as unknown as { generated: string | null; first: string | null; voided: string | null }[]) {
+    if (lease.voided) continue;
+    const id = (lease.generated || lease.first || "").trim();
+    if (id) return id;
+  }
+  if (!residency.applicationTemplateId) return null;
+  const mapped = await db.from("manager_property_records")
+    .select("templates:property_data->listingSubmission->propertyApplicationTemplates")
+    .eq("id", property.id).maybeSingle();
+  for (const entry of Array.isArray((mapped.data as { templates?: unknown } | null)?.templates) ? ((mapped.data as { templates: unknown[] }).templates) : []) {
+    const template = entry as { id?: unknown; linkedLeaseTemplateId?: unknown };
+    if (template?.id === residency.applicationTemplateId && typeof template.linkedLeaseTemplateId === "string" && template.linkedLeaseTemplateId) {
+      return template.linkedLeaseTemplateId;
+    }
+  }
+  return null;
+}
+
+/** Whether a form's linked application and lease templates admit this residency (empty list = all). */
+async function templateLinksAdmit(db: SupabaseClient, property: PropertyFacts, residency: Residency, template: MoveInFormTemplate): Promise<boolean> {
+  if (!templateLinkMatches(template.linkedApplicationTemplateIds, residency.applicationTemplateId)) return false;
+  if (template.linkedLeaseTemplateIds.length === 0) return true;
+  return templateLinkMatches(template.linkedLeaseTemplateIds, await residencyLeaseTemplateId(db, property, residency));
+}
+
 /* --------------------------------------------------------------- dispatch */
 
 /**
@@ -426,32 +485,43 @@ async function liveFormIds(db: SupabaseClient, applicationId: string): Promise<S
 export async function dispatchMoveInFormsForResidency(
   applicationId: string,
   trigger: Exclude<MoveInFormTrigger, "manual">,
-  options: { secondaryMember?: boolean; db?: SupabaseClient } = {},
+  options: {
+    secondaryMember?: boolean;
+    db?: SupabaseClient;
+    /** `before-move-out` only: days left on the lease. A form goes once its "N days before" has been reached. */
+    daysUntilLeaseEnd?: number;
+  } = {},
 ): Promise<{ sent: number }> {
   try {
     const db = options.db ?? createSupabaseServiceRoleClient();
     const residency = await readResidency(db, applicationId);
-    if (!residency?.approved || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0 };
+    // An intake form goes out the moment an application is submitted; everything else waits for approval.
+    const eligible = trigger === "application-submitted" ? residency?.inPlay : residency?.approved;
+    if (!residency || !eligible || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0 };
     const property = await readProperty(db, residency.identity.property_id);
     if (!property) return { sent: 0 };
     // The property's actual owner, not a stale stamp on the application.
     const room = resolveRoom(property, residency);
     const dispatchable = property.templates.filter((template) =>
       template.trigger === trigger &&
+      (trigger !== "before-move-out" ||
+        (options.daysUntilLeaseEnd !== undefined && options.daysUntilLeaseEnd >= 0 && options.daysUntilLeaseEnd <= template.moveOutDaysBefore)) &&
       // A whole-house form is one per lease: the primary signer gets it, roommates do not.
       !(options.secondaryMember && template.audience.kind === "whole-house") &&
       templateAppliesToRoom(template, room.id));
+    if (dispatchable.length === 0) return { sent: 0 };
     const cache: PdfCache = new Map();
     const already = await liveFormIds(db, residency.id);
     let sent = 0;
     for (const template of dispatchable) {
       if (already.has(template.id)) continue;
       try {
+        if (!(await templateLinksAdmit(db, property, residency, template))) continue;
         const snapshot = await buildSnapshot(db, template, property.ownerId, cache);
         if (!snapshot) continue;
         const result = await insertRow(db, {
           residency, ownerId: property.ownerId, roomLabel: room.label, template, snapshot,
-          dueAt: moveInFormDueAt(template.due, residency.moveInDate),
+          dueAt: dueFor(template, residency),
         });
         if (!result.created) continue;
         sent++;
@@ -572,7 +642,7 @@ export async function sendMoveInForm(actor: MoveInFormActor, raw: unknown): Prom
   const auditKey = await audit(actor, "send", { application_id: residency.id, form_id: template.id });
   const result = await insertRow(actor.context.db, {
     residency, ownerId: property.ownerId, roomLabel: room.label, template, snapshot,
-    dueAt: input.dueAt ?? moveInFormDueAt(template.due, residency.moveInDate),
+    dueAt: input.dueAt ?? dueFor(template, residency),
   });
   await updateAuditResult(actor.context, auditKey, { status: result.created ? "success" : "duplicate", form_id: result.row?.id ?? null });
   // Only a copy still waiting on the resident blocks this; a submitted one stays as history and the form goes out again.
@@ -636,11 +706,12 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
     if (secondary && template.audience.kind === "whole-house") continue;
     const room = resolveRoom(property, residency);
     if (!templateAppliesToRoom(template, room.id)) continue;
+    if (!(await templateLinksAdmit(db, property, residency, template))) continue;
     const snapshot = await buildSnapshot(db, template, property.ownerId, cache);
     if (!snapshot) throw new MoveInFormError("This form is not ready to send. Finish its questions, add a signature, and upload its PDF first.", 409);
     const result = await insertRow(db, {
       residency, ownerId: property.ownerId, roomLabel: room.label, template, snapshot,
-      dueAt: moveInFormDueAt(template.due, residency.moveInDate),
+      dueAt: dueFor(template, residency),
     });
     if (!result.created) continue;
     sent++;

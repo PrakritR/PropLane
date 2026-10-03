@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  MOVE_IN_FORM_ID_PATTERN, MOVE_IN_FORM_STARTERS, moveInFormDueAt, newMoveInFormTemplate, normalizeMoveInFormTemplates,
-  readMoveInFormSettings, readMoveInFormTemplates, templateAppliesToRoom,
+  defaultMoveInForm, isDefaultMoveInForm, MOVE_IN_FORM_DEFAULT_IDS, MOVE_IN_FORM_ID_PATTERN, MOVE_IN_FORM_STARTERS,
+  moveInFormDueAt, moveInFormDueFor, newMoveInFormTemplate, normalizeMoveInFormTemplates, readMoveInFormSettings,
+  readMoveInFormTemplates, resetMoveInFormToDefault, templateAppliesToRoom, templateLinkMatches, withDefaultMoveInForms,
 } from "@/lib/move-in-forms/templates";
 import { DEFAULT_MOVE_IN_FORM_SETTINGS } from "@/lib/move-in-forms/types";
 
@@ -108,25 +109,30 @@ describe("normalizeMoveInFormTemplates", () => {
 });
 
 describe("readMoveInFormTemplates / readMoveInFormSettings", () => {
-  it("returns the five starters when the key was never written", () => {
+  it("returns the three default forms and the five starters when the key was never written", () => {
     for (const absent of [undefined, null, {}, { moveInFormSettings: {} }, "junk"]) {
       const out = readMoveInFormTemplates(absent);
-      expect(out).toHaveLength(5);
-      expect(out.filter((t) => t.trigger !== "manual").map((t) => t.starterKey)).toEqual(["move-in-checklist"]);
+      expect(out).toHaveLength(8);
+      expect(out.slice(0, 3).map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
+      expect(out.filter((t) => t.trigger !== "manual").map((t) => t.starterKey ?? t.kind)).toEqual(["intake", "move-in", "move-out", "move-in-checklist"]);
     }
   });
 
-  it("returns exactly what was stored once the key exists, even when empty", () => {
-    expect(readMoveInFormTemplates({ moveInFormTemplates: [] })).toEqual([]);
+  it("returns the stored forms once the key exists, with the three default forms always pinned first", () => {
+    const empty = readMoveInFormTemplates({ moveInFormTemplates: [] });
+    expect(empty.map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
+    // A list saved before these existed must not start messaging residents on its own.
+    expect(empty.every((t) => t.trigger === "manual")).toBe(true);
     const stored = newMoveInFormTemplate("built");
     stored.name = "Mine";
-    expect(readMoveInFormTemplates({ moveInFormTemplates: [stored] }).map((t) => t.name)).toEqual(["Mine"]);
+    expect(readMoveInFormTemplates({ moveInFormTemplates: [stored] }).map((t) => t.name)).toEqual(["Intake form", "Move-in form", "Move-out form", "Mine"]);
   });
 
   it("returns a fresh copy of the starters each time", () => {
     const first = readMoveInFormTemplates(undefined);
-    first[0]!.trigger = "manual";
-    expect(readMoveInFormTemplates(undefined)[0]!.trigger).toBe("lease-signed");
+    const checklist = first.find((t) => t.starterKey === "move-in-checklist")!;
+    checklist.trigger = "manual";
+    expect(readMoveInFormTemplates(undefined).find((t) => t.starterKey === "move-in-checklist")!.trigger).toBe("lease-signed");
   });
 
   it("defaults and sanitizes settings", () => {
@@ -184,5 +190,92 @@ describe("MOVE_IN_FORM_ID_PATTERN", () => {
   it("accepts plain ids and refuses anything path-like", () => {
     for (const ok of ["mif-abc123", "a_b-c", "x".repeat(120)]) expect(MOVE_IN_FORM_ID_PATTERN.test(ok)).toBe(true);
     for (const bad of ["", "a/b", "../a", "a b", "a.pdf", "x".repeat(121)]) expect(MOVE_IN_FORM_ID_PATTERN.test(bad)).toBe(false);
+  });
+});
+
+describe("default kind forms", () => {
+  it("ships Intake, Move-in and Move-out with the spec's sends, due and questions", () => {
+    const intake = defaultMoveInForm("intake");
+    const moveIn = defaultMoveInForm("move-in");
+    const moveOut = defaultMoveInForm("move-out");
+    expect([intake.id, moveIn.id, moveOut.id]).toEqual(Object.values(MOVE_IN_FORM_DEFAULT_IDS));
+    expect([intake.trigger, moveIn.trigger, moveOut.trigger]).toEqual(["application-submitted", "lease-signed", "before-move-out"]);
+    expect([intake.due, moveIn.due, moveOut.due]).toEqual(["3-days-after-sent", "day-before", "move-out-day"]);
+    expect(moveOut.moveOutDaysBefore).toBe(14);
+    for (const form of [intake, moveIn, moveOut]) {
+      expect(form.questions.at(-1)!.type).toBe("signature");
+      expect(form.questions.every((q) => q.id.startsWith("q-"))).toBe(true);
+      expect(normalizeMoveInFormTemplates([form])[0]).toEqual(form);
+    }
+    // Vehicle and pets follow-ups only show on "yes".
+    const showIf = (key: string) => intake.questions.find((q) => q.key === key)!.showIf;
+    expect(showIf("vehicle_make")).toEqual({ fieldKey: "has_vehicle", equals: "yes" });
+    expect(showIf("pet_description")).toEqual({ fieldKey: "has_pets", equals: "yes" });
+    expect(moveOut.questions.find((q) => q.key === "deposit_refund_method")!.options).toEqual(["Direct deposit", "Check", "Other"]);
+  });
+
+  it("re-adds a deleted default and keeps every default before the other forms", () => {
+    const mine = newMoveInFormTemplate("built");
+    const edited = { ...defaultMoveInForm("move-in"), name: "Our move-in", trigger: "manual" as const };
+    const out = withDefaultMoveInForms([mine, edited]);
+    expect(out.map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out", mine.id]);
+    expect(out[1]!.name).toBe("Our move-in");
+    expect(isDefaultMoveInForm(out[0]!)).toBe(true);
+    expect(isDefaultMoveInForm(mine)).toBe(false);
+  });
+
+  it("reads a form stored before kinds existed as 'other', and pins a default's kind to its id", () => {
+    const [legacy, spoofed] = normalizeMoveInFormTemplates([
+      { id: "old", name: "Old", source: "built", questions: [], trigger: "lease-signed" },
+      { id: "default-intake", name: "X", source: "built", questions: [], kind: "other" },
+    ]);
+    expect(legacy!.kind).toBe("other");
+    expect(legacy!.linkedApplicationTemplateIds).toEqual([]);
+    expect(legacy!.linkedLeaseTemplateIds).toEqual([]);
+    expect(legacy!.moveOutDaysBefore).toBe(14);
+    expect(legacy!.trigger).toBe("lease-signed");
+    expect(spoofed!.kind).toBe("intake");
+  });
+
+  it("normalizes the new sends, the days before move-out and the linked ids", () => {
+    const [form] = normalizeMoveInFormTemplates([{
+      id: "f1", name: "F", source: "built", questions: [], trigger: "before-move-out", moveOutDaysBefore: 30,
+      due: "3-days-before-move-out", linkedApplicationTemplateIds: ["a", "a", " b ", 4, ""], linkedLeaseTemplateIds: "nope",
+    }, ]);
+    expect(form!.trigger).toBe("before-move-out");
+    expect(form!.moveOutDaysBefore).toBe(30);
+    expect(form!.due).toBe("3-days-before-move-out");
+    expect(form!.linkedApplicationTemplateIds).toEqual(["a", "b"]);
+    expect(form!.linkedLeaseTemplateIds).toEqual([]);
+    expect(normalizeMoveInFormTemplates([{ id: "f2", name: "F", moveOutDaysBefore: 5 }])[0]!.moveOutDaysBefore).toBe(14);
+  });
+
+  it("resets a default to its shipped questions but keeps its audience and links", () => {
+    const edited = { ...defaultMoveInForm("intake"), questions: [], trigger: "manual" as const, linkedApplicationTemplateIds: ["a"], audience: { kind: "whole-house" as const } };
+    const reset = resetMoveInFormToDefault(edited);
+    expect(reset.questions).toEqual(defaultMoveInForm("intake").questions);
+    expect(reset.trigger).toBe("application-submitted");
+    expect(reset.linkedApplicationTemplateIds).toEqual(["a"]);
+    expect(reset.audience).toEqual({ kind: "whole-house" });
+  });
+});
+
+describe("linked templates and due anchors", () => {
+  it("an empty link list admits everyone; a listed one admits only its own ids, never an unknown", () => {
+    expect(templateLinkMatches([], null)).toBe(true);
+    expect(templateLinkMatches([], "a")).toBe(true);
+    expect(templateLinkMatches(["a"], "a")).toBe(true);
+    expect(templateLinkMatches(["a"], "b")).toBe(false);
+    expect(templateLinkMatches(["a"], "")).toBe(false);
+    expect(templateLinkMatches(["a"], undefined)).toBe(false);
+  });
+
+  it("anchors due on move-in, on the day it is sent, or on the lease end (end of the Pacific day)", () => {
+    expect(moveInFormDueFor("day-before", { moveInDate: "2026-10-10" })).toBe(moveInFormDueAt("day-before", "2026-10-10"));
+    expect(moveInFormDueFor("move-out-day", { leaseEnd: "2026-12-31" })).toBe("2027-01-01T07:59:59.000Z");
+    expect(moveInFormDueFor("7-days-before-move-out", { leaseEnd: "2026-12-31" })).toBe("2026-12-25T07:59:59.000Z");
+    // Sent Oct 1, 2026 at noon Pacific: 3 days later is the end of Oct 4 Pacific (PDT).
+    expect(moveInFormDueFor("3-days-after-sent", { sentAt: new Date("2026-10-01T19:00:00Z") })).toBe("2026-10-05T06:59:59.000Z");
+    expect(moveInFormDueFor("move-out-day", { moveInDate: "2026-10-10" })).toBeNull();
   });
 });

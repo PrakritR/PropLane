@@ -181,7 +181,7 @@ For each section: **load URL → heading visible → no error toast → primary 
 - [ ] No erroneous "Previous" tab
 - [ ] Links to application / lease / communication work
 
-### 1.6b Inspections (`/portal/inspections/move-in`)
+### 1.6b Inspections (`/portal/move-in/inspections`)
 
 - [ ] Move-in / Move-out tabs list reports; ADD creates one for the resident's assigned room
 - [ ] Report detail: photo upload, notes autosave, document preview, request confirmation / request changes / approve

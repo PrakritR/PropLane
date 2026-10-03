@@ -1217,6 +1217,8 @@ export async function POST(req: Request) {
         void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
         );
+        // Forms set to go out once the application is submitted (the default Intake form).
+        dispatchMoveInFormsForResidencyAfterResponse(row.id, "application-submitted");
       }
       void syncApplicationLifecycleTasks(db, previousRow, row).catch(
         bestEffortFailed("application lifecycle task sync", { application: row.id }),
@@ -1440,6 +1442,7 @@ export async function POST(req: Request) {
       void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
         );
+      dispatchMoveInFormsForResidencyAfterResponse(row.id, "application-submitted");
     }
     void syncApplicationLifecycleTasks(db, previousRow, row).catch(
         bestEffortFailed("application lifecycle task sync", { application: row.id }),

@@ -20,7 +20,7 @@ export function ResidentPreApplicationGuard({
     | "hasTourLink"
     | "isPreLeaseResident"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>;
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms">>;
   /** @deprecated Pass `access` instead */
   isPreApplicationResident?: boolean;
   leaseAccessUnlocked?: boolean;

@@ -6,7 +6,6 @@ import { useMemo, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { parseResidentDocumentTab } from "@/lib/resident-documents-tabs";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
 import { ManagerMoveInFormsPage } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
@@ -173,12 +172,10 @@ export function DemoSectionRenderer({
         return <PortalCalendar portal="manager" initialUserId={managerUserId} />;
       case "applications":
         return <ManagerApplications />;
-      case "inspections":
-        return <ManagerInspectionsPage kind={tabId === "move-out" ? "move-out" : "move-in"} basePath={basePath} />;
       // The demo never writes: the page renders its empty state (no forms are ever loaded
       // or sent while demo mode is on).
       case "move-in":
-        return <ManagerMoveInFormsPage tab={tabId === "waiting" ? "waiting" : "submitted"} basePath={basePath} />;
+        return <ManagerMoveInFormsPage tab={tabId === "submitted" || tabId === "inspections" ? tabId : "waiting"} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

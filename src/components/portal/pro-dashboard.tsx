@@ -1208,10 +1208,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       const moveOut = toMs(r.moveOutDate);
       const where = [r.property, r.room ? inspectionRoomLabel(r.room) : ""].filter(Boolean).join(" · ") || "—";
       if (moveIn != null && moveIn >= nowTick - 24 * 60 * 60 * 1000 && moveIn <= horizonMs) {
-        rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/inspections/move-in` });
+        rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/move-in/inspections/move-in` });
       }
       if (moveOut != null && moveOut >= nowTick - 24 * 60 * 60 * 1000 && moveOut <= horizonMs) {
-        rows.push({ id: `moveout-${r.id}`, kind: "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/inspections/move-out` });
+        rows.push({ id: `moveout-${r.id}`, kind: "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
       }
       return rows;
     }),

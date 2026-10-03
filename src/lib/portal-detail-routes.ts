@@ -328,16 +328,24 @@ export function residentDetailTabsForStage(stage: ResidentsTabId): readonly Resi
   return RESIDENT_DETAIL_TABS_BY_STAGE[stage];
 }
 
-/** Manager Move-in forms section: the Submitted / Waiting inbox across properties. */
-export const MOVE_IN_FORM_LIST_TABS = ["submitted", "waiting"] as const;
+/**
+ * Manager Move-in hub (the one sidebar row): the Waiting / Submitted form inbox across properties,
+ * then the move-in / move-out Inspections. Waiting is first and the default.
+ */
+export const MOVE_IN_FORM_LIST_TABS = ["waiting", "submitted", "inspections"] as const;
 export type MoveInFormListTabId = (typeof MOVE_IN_FORM_LIST_TABS)[number];
 
 export function parseMoveInFormListTab(raw: string | undefined | null): MoveInFormListTabId {
-  return raw === "waiting" ? "waiting" : "submitted";
+  return raw === "submitted" || raw === "inspections" ? raw : "waiting";
 }
 
-export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "submitted"): string {
+export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "waiting"): string {
   return `${basePath}/move-in/${tab}`;
+}
+
+/** The Inspections tab of the Move-in hub; `kind` is the Move-in / Move-out type inside it. */
+export function moveInInspectionsHref(basePath: string, kind?: "move-in" | "move-out"): string {
+  return kind ? `${basePath}/move-in/inspections/${kind}` : `${basePath}/move-in/inspections`;
 }
 
 /** The resident record's Move-in tab. `residentId` is the application id the Residents routes use. */
@@ -1482,7 +1490,7 @@ export function inspectionDetailHref(
   reportId: string,
   tab: ServiceRecordTabId = "overview",
 ): string {
-  const path = `${basePath}/inspections/${kind}/${encodeURIComponent(reportId)}`;
+  const path = `${moveInInspectionsHref(basePath, kind)}/${encodeURIComponent(reportId)}`;
   return tab === "overview" ? path : `${path}/${tab}`;
 }
 

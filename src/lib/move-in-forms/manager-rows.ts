@@ -4,7 +4,7 @@
  * filters. No React, no I/O, so the row copy is unit-tested without rendering anything.
  */
 import { MOVE_IN_FORM_STARTERS } from "./templates";
-import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary } from "./types";
+import type { MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormSummary } from "./types";
 
 export type MoveInFormListTab = "submitted" | "waiting";
 
@@ -102,9 +102,24 @@ export function moveInFormPlaceLine(form: Pick<MoveInFormSummary, "propertyLabel
   return [form.propertyLabel, form.roomLabel].map((part) => part.trim()).filter(Boolean).join(" · ");
 }
 
+/** The Form filter on Waiting and Submitted, in the order the filter offers it. */
+export const MOVE_IN_FORM_KIND_OPTIONS: ReadonlyArray<{ value: MoveInFormKind; label: string }> = [
+  { value: "intake", label: "Intake" },
+  { value: "move-in", label: "Move-in" },
+  { value: "move-out", label: "Move-out" },
+  { value: "other", label: "Other" },
+];
+
+/** "Move-in" for `move-in`; an unknown or missing kind reads as "Other". */
+export function moveInFormKindLabel(kind: MoveInFormKind | string | null | undefined): string {
+  return MOVE_IN_FORM_KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Other";
+}
+
 export type MoveInFormFilters = {
   tab?: MoveInFormListTab;
   propertyId?: string;
+  /** Narrow to one kind of form (Intake, Move-in, Move-out, Other). A copy with no kind counts as Other. */
+  kind?: MoveInFormKind;
   formName?: string;
   query?: string;
 };
@@ -117,6 +132,7 @@ export function filterMoveInForms(forms: MoveInFormSummary[], filters: MoveInFor
     if (!tab) return false;
     if (filters.tab && tab !== filters.tab) return false;
     if (filters.propertyId && form.propertyId !== filters.propertyId) return false;
+    if (filters.kind && (form.kind ?? "other") !== filters.kind) return false;
     if (filters.formName && form.formName.trim().toLowerCase() !== filters.formName.trim().toLowerCase()) return false;
     if (words.length === 0) return true;
     const haystack = [form.residentName, form.formName, form.propertyLabel, form.roomLabel, ...moveInFormFacts(form, now).map((fact) => fact.text)]

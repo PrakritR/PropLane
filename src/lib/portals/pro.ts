@@ -18,16 +18,17 @@ export const proPortal: PortalDefinition = {
       tabs: [{ id: "current", label: "Residents" }],
     },
     {
-      // Every move-in form residents filled out (Submitted) or still owe (Waiting), across
-      // properties. Forms are defined on the property; this is the manager's inbox for them.
+      // The one Move-in hub: forms residents still owe (Waiting) or filled out (Submitted),
+      // across properties, plus the move-in / move-out Inspections. There is no separate
+      // Inspections sidebar row; `/portal/inspections/...` redirects to the Inspections tab.
       section: "move-in",
       label: "Move-in",
       tabs: [
-        { id: "submitted", label: "Submitted" },
         { id: "waiting", label: "Waiting" },
+        { id: "submitted", label: "Submitted" },
+        { id: "inspections", label: "Inspections" },
       ],
     },
-    { section: "inspections", label: "Inspections", tabs: [{ id: "move-in", label: "Move-in" }, { id: "move-out", label: "Move-out" }] },
     {
       section: "payments",
       label: "Incoming payments",
@@ -113,8 +114,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
-  { label: "Move-in forms", path: "/portal/move-in/submitted" },
-  { label: "Inspections", path: "/portal/inspections/move-in" },
+  { label: "Move-in forms", path: "/portal/move-in/waiting" },
+  { label: "Inspections", path: "/portal/move-in/inspections" },
   { label: "Incoming payments", path: "/portal/payments/incoming/pending" },
   { label: "Outgoing payments", path: "/portal/outgoing/to-pay" },
   { label: "Services", path: "/portal/services/requests" },

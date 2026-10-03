@@ -2,7 +2,7 @@
 
 The same inspection record appears in three places:
 
-- Manager sidebar: `/portal/inspections/move-in` and `/portal/inspections/move-out`; append a report UUID to open a saved report directly.
+- Manager Move-in page, Inspections tab (there is no Inspections sidebar row): `/portal/move-in/inspections/move-in` and `/portal/move-in/inspections/move-out`; append a report UUID to open a saved report directly (`/portal/move-in/inspections/{move-in|move-out}/{id}`). Move-in / Move-out is the list's Type filter. The old `/portal/inspections/...` URLs redirect here and keep the report path (`next.config.ts`).
 - Manager resident detail: `/portal/residents/current/{applicationId}/inspections` (also under `past`).
 - Resident My home: the dedicated `/resident/move-in/inspections` tab is the only workspace. My home no longer has a separate "Move-in" tab — it read as a second inspection beside this one — so the arrival details it held (keys, parking, access codes) render under Info & rules, and `/resident/move-in/instructions` resolves there rather than dropping a resident on Placement.
 

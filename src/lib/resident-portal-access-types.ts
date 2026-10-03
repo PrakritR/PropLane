@@ -23,6 +23,13 @@ export type ResidentPortalAccessState = {
   applicationId: string | null;
   applicationStage: string | null;
   applicationProperty: string | null;
+  /**
+   * True when a move-in form (sent or submitted, not cancelled) has been sent to this resident before
+   * they have lease access. The Intake form goes out when the application is submitted, so this opens
+   * My home › Forms (that tab only) for a resident who is neither approved nor under lease. Only looked up
+   * for such a resident; absent reads as false.
+   */
+  hasMoveInForms?: boolean;
   /** Both manager and resident have signed the active lease. */
   leaseSigned: boolean;
   /** Full workspace (services, payments, move-in) — requires a signed lease. */
