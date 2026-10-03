@@ -15,7 +15,7 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
 - Utilities are `PortalIconAction`: a bare glyph at every width; the word is
   the `aria-label` and tooltip, never visible text. `badge="dot"` / a number
   marks an applied filter, `badge="warn"` an open setup step (messaging
-  number, payouts). Vocabulary: Filter `SlidersHorizontal` · Settings/Defaults
+  number, payouts). Vocabulary: Filter `Filter` (funnel) · Settings/Defaults
   `Settings` (the gear) · Share link `Share2` · Add availability `CalendarPlus` · Block
   dates `CalendarOff` · Link calendars `CalendarSync` · Update from sheet
   `RefreshCw` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·

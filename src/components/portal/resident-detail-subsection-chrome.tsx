@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Pencil, Settings, SlidersHorizontal } from "lucide-react";
+import { Filter, Pencil, Settings } from "lucide-react";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
 import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entry-points";
@@ -84,7 +84,7 @@ export function ResidentDetailCommandToolbar({
     <>
       {filter ?? (
         <ChromeAction
-          icon={SlidersHorizontal}
+          icon={Filter}
           label="Filter"
           dataAttr="resident-detail-filter"
           disabled
