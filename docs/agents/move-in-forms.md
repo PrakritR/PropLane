@@ -67,7 +67,9 @@ Hooks: lease fully signed (`portal-lease-pipeline` save and `mark-signed`, via
   is approved / only when I send it, edited in the form editor); any form can be sent by hand.
   Stored forms that carried `enabled: false` are read as `trigger: "manual"`, so nothing that
   was sending stops and nothing that was off starts. Duplicates and copies to another property
-  start as "only when I send it".
+  start as "only when I send it". A property that never saved its forms auto-sends nothing: the
+  server reads unsaved built-in defaults as "manual", and the first save stores untouched starters
+  as manual, so only a form the manager saved with a trigger messages residents.
 - **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, live
   resident view, red Delete on the left in edit) and its Questions step draws each question
   through `BuilderQuestionCard`, the same row the application editor uses.

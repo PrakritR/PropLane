@@ -358,7 +358,9 @@ describe("property Move-in › Forms", () => {
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string; name: string; trigger: string; enabled?: boolean }> };
     expect(saved.moveInFormTemplates).toHaveLength(6);
-    expect(saved.moveInFormTemplates.map((t) => t.trigger)).toEqual(["lease-signed", "manual", "manual", "manual", "manual", "manual"]);
+    // Nothing was saved before, so the untouched checklist is stored by-hand too: no form messages
+    // residents until the manager saves it with that trigger.
+    expect(saved.moveInFormTemplates.map((t) => t.trigger)).toEqual(["manual", "manual", "manual", "manual", "manual", "manual"]);
     expect(saved.moveInFormTemplates[1]!.name).toBe("Move-in checklist (copy)");
     expect(saved.moveInFormTemplates.some((t) => "enabled" in t)).toBe(false);
   });

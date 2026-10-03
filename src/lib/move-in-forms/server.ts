@@ -300,7 +300,10 @@ async function readProperty(db: SupabaseClient, propertyId: string): Promise<Pro
   return {
     id: String(data.id),
     ownerId: String(data.manager_user_id),
-    templates: readMoveInFormTemplates(submission),
+    // Never-saved defaults are suggestions, not the manager's choice: a property that has not saved its
+    // move-in forms sends nothing on its own (outward messages need the manager's own save).
+    templates: readMoveInFormTemplates(submission).map((template) =>
+      "moveInFormTemplates" in submission ? template : { ...template, trigger: "manual" as const }),
     settings: readMoveInFormSettings(submission),
     rooms,
   };

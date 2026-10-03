@@ -143,7 +143,14 @@ export function PropertyMoveInFormsPanel({
   }, [refreshSent]);
 
   /** First save materialises the starters array too: `templates` already includes them. */
-  const persist = async (next: MoveInFormTemplate[], message: string): Promise<boolean> => {
+  const persist = async (list: MoveInFormTemplate[], message: string, savedId?: string): Promise<boolean> => {
+    // The first save writes the starters out too. Only the form the manager actually saved keeps its
+    // own Sends; the untouched starters are stored as "Only when I send it" so saving one form never
+    // arms another to message residents.
+    const firstSave = !Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates);
+    const next = firstSave
+      ? list.map((item) => (item.id.startsWith("starter-") && item.id !== savedId ? { ...item, trigger: "manual" as const } : item))
+      : list;
     if (!managerUserId || !saveTarget || !canEdit) {
       showToast("Could not save move-in forms.");
       return false;
@@ -173,7 +180,7 @@ export function PropertyMoveInFormsPanel({
 
   const saveFromEditor = async (template: MoveInFormTemplate, options: MoveInEditorSaveOptions): Promise<boolean> => {
     const adding = editor?.mode === "add";
-    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.");
+    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.", template.id);
     if (!ok) return false;
     if (options.sendToCurrent && propertyId) {
       try {

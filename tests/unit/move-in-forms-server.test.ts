@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import type { MoveInFormQuestion, MoveInFormTemplate } from "@/lib/move-in-forms/types";
-import { newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
+import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
@@ -395,8 +395,13 @@ describe("dispatch", () => {
     expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
   });
 
-  it("from the five untouched starters, sends only the checklist; the other four are by hand", async () => {
+  it("a property that never saved its forms sends nothing at lease signing; saving the checklist with that trigger sends it", async () => {
     properties[0]!.templates = null;
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(forms).toEqual([]);
+    const checklist = MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "move-in-checklist")!;
+    expect(checklist.trigger).toBe("lease-signed");
+    properties[0]!.templates = [checklist];
     expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
     expect(forms.map((row) => row.form_id)).toEqual(["starter-move-in-checklist"]);
   });
