@@ -9,10 +9,10 @@ import { useIsClient } from "@/hooks/use-is-client";
 import { lockPortalScroll } from "@/lib/native/lock-portal-scroll";
 import { animateModalExitClone, useInertOutsideModalRef } from "@/components/ui/motion/inert-boundary";
 import {
-  MODAL_FULL_PAGE_CENTER_CLASS,
   MODAL_FULL_PAGE_PANEL_CLASS,
   MODAL_FULL_PAGE_STACK_CLASS,
   MODAL_PANEL_CLASS,
+  MODAL_STANDARD_PANEL_CLASS,
   MODAL_TALL_PANEL_CLASS,
   MODAL_OVERLAY_BACKDROP_CLASS,
   PORTAL_MOBILE_DRAWER_EDGE_CLASS,
@@ -28,6 +28,7 @@ export {
   MODAL_INSET_BOX_CLASS,
   MODAL_INSET_BOX_PRE_CLASS,
   MODAL_PANEL_CLASS,
+  MODAL_STANDARD_PANEL_CLASS,
   MODAL_TALL_PANEL_CLASS,
   MODAL_WARNING_BOX_CLASS,
   MODAL_FIELD_LABEL_CLASS,
@@ -583,7 +584,7 @@ export function Modal({
   const resolvedPanelClassName = cn(
     stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
     panelClassName,
-    "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]",
+    MODAL_STANDARD_PANEL_CLASS,
   );
 
   // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment
@@ -751,12 +752,12 @@ export function Modal({
       presentation="dialog"
       dismissBlocked={dismissBlocked}
       stackClassName={fullPage ? MODAL_FULL_PAGE_STACK_CLASS : stackClassName}
-      centerClassName={fullPage ? MODAL_FULL_PAGE_CENTER_CLASS : "relative z-[91] flex min-h-full items-center justify-center p-0 sm:p-5"}
+      centerClassName="relative z-[91] flex min-h-full items-center justify-center p-0 sm:p-5"
       ariaDescribedBy={description ? "modal-description" : undefined}
       dataAttr={dataAttr}
       panelClassName={cn(
         fullPage
-          ? cn(dense ? "px-4" : "px-5", resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS)
+          ? cn(resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[20px]")
           : cn(MODAL_PANEL_CLASS, "min-h-0 @container", resolvedPanelClassName),
       )}
     >
