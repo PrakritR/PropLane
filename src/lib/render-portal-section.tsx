@@ -728,22 +728,22 @@ export async function renderPortalSection(
         const inspectionKind = tabParts[1] ?? "move-in";
         if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 4) notFound();
         if (tabParts[2] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
-        const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
-        return subscriptionGated(
-          tabParts[2] ? (
+        // One report is the inspections page on its own; only the tab itself needs the Move-in chunk.
+        let inspectionsBody;
+        if (tabParts[2]) {
+          inspectionsBody = (
             <ManagerInspectionsPage
               kind={inspectionKind}
               reportId={tabParts[2]}
               recordTab={tabParts[3]}
               basePath={def.basePath}
             />
-          ) : (
-            <ManagerMoveInFormsPage tab="inspections" basePath={def.basePath} inspectionKind={inspectionKind} />
-          ),
-          kind,
-          "move-in",
-          managerOwnerSubscriptionTier,
-        );
+          );
+        } else {
+          const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
+          inspectionsBody = <ManagerMoveInFormsPage tab="inspections" basePath={def.basePath} inspectionKind={inspectionKind} />;
+        }
+        return subscriptionGated(inspectionsBody, kind, "move-in", managerOwnerSubscriptionTier);
       }
       if ((moveInTab !== "submitted" && moveInTab !== "waiting") || tabParts.length > 1) notFound();
       const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();

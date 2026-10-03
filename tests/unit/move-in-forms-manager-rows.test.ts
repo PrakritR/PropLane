@@ -7,7 +7,6 @@ import {
   lateMoveInForms,
   moveInFormDaysLate,
   moveInFormFacts,
-  moveInFormFilterNames,
   moveInFormPlaceLine,
   moveInFormTabCounts,
   moveInFormTitle,
@@ -125,13 +124,6 @@ describe("list filtering", () => {
     expect(filterMoveInForms(list, { formName: "move-in CHECKLIST" }).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { query: "maya 8th" }, NOW).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { query: "maya brooklyn" }, NOW)).toEqual([]);
-  });
-
-  it("the Form filter offers the starters plus any other name in the list, once", () => {
-    const names = moveInFormFilterNames([form({ formName: "Roof access" }), form({ formName: "move-in CHECKLIST" })]);
-    expect(names).toContain("Roof access");
-    expect(names.filter((n) => n.toLowerCase() === "move-in checklist")).toHaveLength(1);
-    expect(names).toHaveLength(6);
   });
 });
 

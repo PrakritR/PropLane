@@ -3,7 +3,6 @@
  * which tab a form belongs to, the glyph facts a row shows, how late a form is, and the list
  * filters. No React, no I/O, so the row copy is unit-tested without rendering anything.
  */
-import { MOVE_IN_FORM_STARTERS } from "./templates";
 import type { MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormSummary } from "./types";
 
 export type MoveInFormListTab = "submitted" | "waiting";
@@ -149,23 +148,6 @@ export function moveInFormTabCounts(forms: MoveInFormSummary[]): Record<MoveInFo
     if (tab) counts[tab] += 1;
   }
   return counts;
-}
-
-/**
- * Names offered by the Form filter: the five starters plus every name that actually appears in the
- * loaded list (a custom or renamed form), de-duplicated case-insensitively, starters first.
- */
-export function moveInFormFilterNames(forms: MoveInFormSummary[]): string[] {
-  const seen = new Set<string>();
-  const names: string[] = [];
-  for (const name of [...MOVE_IN_FORM_STARTERS.map((starter) => starter.name), ...forms.map((form) => form.formName)]) {
-    const clean = name.trim();
-    const key = clean.toLowerCase();
-    if (!clean || seen.has(key)) continue;
-    seen.add(key);
-    names.push(clean);
-  }
-  return names;
 }
 
 /** Waiting forms that are past due, most overdue first. Feeds the resident Overview's "Needs you". */

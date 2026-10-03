@@ -555,11 +555,6 @@ function pacificDateOf(instant: Date): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-/** Which of the three dates a rule counts from. */
-export function moveInFormDueAnchor(rule: MoveInFormDueRule): DueAnchor {
-  return DUE_OFFSETS[rule]?.anchor ?? "move-in";
-}
-
 export type MoveInFormDueDates = {
   /** Move-in date (`YYYY-MM-DD`). */
   moveInDate?: string | null;

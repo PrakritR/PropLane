@@ -57,8 +57,10 @@ export function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<Point | null>(null);
-  // Every stroke drawn so far, in CSS pixels, so a resize can redraw the signature instead of wiping it.
+  // Every stroke drawn so far, as 0..1 fractions of the pad, so a resize redraws the whole signature
+  // at the new size instead of clipping whatever fell outside the narrower bitmap.
   const strokes = useRef<Point[][]>([]);
+  const size = useRef<{ width: number; height: number }>({ width: 0, height: PAD_HEIGHT });
   const [hasInk, setHasInk] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -72,6 +74,7 @@ export function SignaturePad({
     canvas.height = Math.floor(PAD_HEIGHT * ratio);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${PAD_HEIGHT}px`;
+    size.current = { width, height: PAD_HEIGHT };
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(ratio, ratio);
@@ -81,10 +84,11 @@ export function SignaturePad({
     ctx.strokeStyle = "#0b1b3a";
     // Redraw what was already signed (empty after a Clear, so a blank pad stays blank).
     for (const stroke of strokes.current) {
-      const first = stroke[0];
+      const points = stroke.map((point) => ({ x: point.x * width, y: point.y * PAD_HEIGHT }));
+      const first = points[0];
       if (!first) continue;
       drawDot(ctx, first);
-      for (let i = 1; i < stroke.length; i++) drawSegment(ctx, stroke[i - 1]!, stroke[i]!);
+      for (let i = 1; i < points.length; i++) drawSegment(ctx, points[i - 1]!, points[i]!);
     }
   }, []);
 
@@ -108,6 +112,12 @@ export function SignaturePad({
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
 
+  /** A drawn point as fractions of the pad: what gets stored, so a resize can replay it. */
+  const fraction = (p: Point): Point => {
+    const { width, height } = size.current;
+    return { x: width > 0 ? p.x / width : 0, y: height > 0 ? p.y / height : 0 };
+  };
+
   const onDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (disabled || busy) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -117,7 +127,7 @@ export function SignaturePad({
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     drawDot(ctx, p);
-    strokes.current.push([p]);
+    strokes.current.push([fraction(p)]);
     setHasInk(true);
     setFailed(false);
   };
@@ -129,7 +139,7 @@ export function SignaturePad({
     if (!ctx || !from) return;
     const to = point(event);
     drawSegment(ctx, from, to);
-    strokes.current[strokes.current.length - 1]?.push(to);
+    strokes.current[strokes.current.length - 1]?.push(fraction(to));
     last.current = to;
   };
 

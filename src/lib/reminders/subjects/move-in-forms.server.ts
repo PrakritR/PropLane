@@ -124,23 +124,63 @@ function daysBetween(fromKey: string, toKey: string): number {
   return Math.round((to - from) / 86_400_000);
 }
 
+/** The scope column for a pass that belongs to no one manager: the whole fleet's leases. */
+const SWEEP_SCOPE_ID = "00000000-0000-0000-0000-000000000000";
+const MOVE_OUT_SWEEP_ACTION = "move_in_form_move_out_sweep";
+
+/**
+ * Claim a Pacific day for the move-out pass. The claim *is* the audit insert: `audit_log.dedupe_key`
+ * is unique, so exactly one tick wins the day and every later or overlapping tick skips the pass
+ * instead of re-reading every signed lease. A pass that fails outright releases the day, because
+ * dispatch is idempotent and a retry is cheaper than losing a morning's sends.
+ */
+async function claimMoveOutDay(db: SupabaseClient, dayKey: string): Promise<boolean> {
+  const { error } = await db.from("audit_log").insert({
+    actor_user_id: null,
+    landlord_id: SWEEP_SCOPE_ID,
+    action: MOVE_OUT_SWEEP_ACTION,
+    tool_name: "move-in-forms",
+    input_summary: { day: dayKey },
+    dedupe_key: `${MOVE_OUT_SWEEP_ACTION}:${dayKey}`,
+    created_at: new Date().toISOString(),
+  });
+  if (!error) return true;
+  if ((error as { code?: string }).code === "23505") return false;
+  throw new Error(error.message);
+}
+
+async function closeMoveOutDay(db: SupabaseClient, dayKey: string, patch: Record<string, unknown>): Promise<void> {
+  await db.from("audit_log").update(patch).eq("dedupe_key", `${MOVE_OUT_SWEEP_ACTION}:${dayKey}`);
+}
+
 /**
  * The daily "Before move-out" send: for every fully signed, not voided lease whose end date is within
  * the next 30 days, dispatch the forms whose trigger is "Before move-out" and whose "N days before the
  * lease ends" has been reached. The due date is anchored on the lease end (`move-out-day`,
- * `N-days-before-move-out`). Idempotent twice over: it only does work in the 8 o'clock Pacific hour
- * (the 5-minute tick lands in it a dozen times), and dispatch skips any form a residency already holds
- * (`liveFormIds`), so a re-run, a missed day or an overlapping run never sends the same form twice.
- * A form is sent once the lease is within its window, so a lease signed with 10 days left still gets a
- * "14 days before" form the next morning. Returns how many forms went out.
+ * `N-days-before-move-out`). It runs exactly once a day: the first tick in the 8 o'clock Pacific hour
+ * claims the day (`claimMoveOutDay`) and the dozen later ticks of that hour do no reads at all —
+ * paginating every signed lease twelve times is egress this project cannot spend. Dispatch also skips
+ * any form a residency already holds (`liveFormIds`), so a retry, a missed day or an overlapping run
+ * never sends the same form twice. A form is sent once the lease is within its window, so a lease
+ * signed with 10 days left still gets a "14 days before" form the next morning. Returns how many
+ * forms went out.
  */
 export async function sweepMoveOutForms(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hour12: false }).format(now)) % 24;
   if (hour !== 8) return 0;
-  return runMoveOutDispatch(db, now);
+  const dayKey = pacificTodayKey(now);
+  if (!(await claimMoveOutDay(db, dayKey))) return 0;
+  try {
+    const sent = await runMoveOutDispatch(db, now);
+    await closeMoveOutDay(db, dayKey, { result_summary: { sent } });
+    return sent;
+  } catch (error) {
+    await closeMoveOutDay(db, dayKey, { dedupe_key: null, result_summary: { outcome: "failed" } });
+    throw error;
+  }
 }
 
-/** The sweep without the hour gate (the cron tick and the tests call `sweepMoveOutForms`). */
+/** The pass itself, without the hour gate or the day claim (the cron tick calls `sweepMoveOutForms`). */
 export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   // Loaded here, not at the top: the reminder sweep above stays light (and testable) without the send machinery.
   const { dispatchMoveInFormsForResidency } = await import("@/lib/move-in-forms/server");

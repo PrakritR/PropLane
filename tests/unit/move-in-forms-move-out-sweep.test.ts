@@ -1,6 +1,6 @@
 /**
- * The daily "Before move-out" send: `sweepMoveOutForms` (gated to the 8 o'clock Pacific hour) and the
- * ungated `runMoveOutDispatch` it calls. The send itself (`dispatchMoveInFormsForResidency`) has its own
+ * The daily "Before move-out" send: `sweepMoveOutForms` (gated to the 8 o'clock Pacific hour and to one
+ * claimed pass per Pacific day) and the ungated `runMoveOutDispatch` it calls. The send itself (`dispatchMoveInFormsForResidency`) has its own
  * tests in move-in-forms-server.test.ts; here it is mocked so the sweep's own choices are what is
  * asserted: which leases are looked at, which residencies get a dispatch, with which `daysUntilLeaseEnd`
  * and `secondaryMember`.
@@ -19,6 +19,8 @@ let leaseRows: Row[];
 let applicationRows: Row[];
 let failTable: string | null;
 let selects: { table: string; ids?: number }[];
+/** The unique `audit_log.dedupe_key` column, which is what makes the day claim a claim. */
+let auditKeys: Map<string, Row>;
 
 /** `alias:column->>key` and `alias:column->a->>key` selects, resolved against a row_data-shaped record. */
 function project(row: Row, columns: string): Row {
@@ -59,6 +61,25 @@ function builder(table: string) {
     not: (key: string, op: string, v: unknown) => { filters.push((row) => op === "is" ? cell(row, key) !== v : true); return q; },
     is: (key: string, v: unknown) => { filters.push((row) => cell(row, key) === v); return q; },
     in: (key: string, v: unknown[]) => { selects.push({ table, ids: v.length }); filters.push((row) => v.includes(cell(row, key))); return q; },
+    // audit_log: the insert is the claim, so a repeated dedupe_key is a 23505 like the real unique index.
+    insert: (row: Row) => {
+      if (failTable === table) return Promise.resolve({ error: { message: `${table} down` } });
+      const key = String(row.dedupe_key ?? "");
+      if (auditKeys.has(key)) return Promise.resolve({ error: { code: "23505", message: "duplicate key" } });
+      auditKeys.set(key, { ...row });
+      return Promise.resolve({ error: null });
+    },
+    update: (patch: Row) => ({
+      eq: (_column: string, value: unknown) => {
+        const found = auditKeys.get(String(value));
+        if (found) {
+          auditKeys.delete(String(value));
+          const next = { ...found, ...patch };
+          if (next.dedupe_key) auditKeys.set(String(next.dedupe_key), next);
+        }
+        return Promise.resolve({ error: null });
+      },
+    }),
     then: (resolve: (v: ReturnType<typeof run>) => unknown) => Promise.resolve(run()).then(resolve),
   };
   return q;
@@ -81,6 +102,7 @@ beforeEach(() => {
   applicationRows = [];
   failTable = null;
   selects = [];
+  auditKeys = new Map();
 });
 
 describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
@@ -89,10 +111,9 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
     applicationRows = [application("A", "2026-10-20")];
   });
 
-  it("runs at 08:00 and 08:59 Pacific", async () => {
+  it("runs on the first tick of the 8 o'clock Pacific hour", async () => {
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(1);
-    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:59:59Z"))).toBe(1);
-    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing at 07:59 or 09:00 Pacific", async () => {
@@ -101,7 +122,7 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("runs in exactly one hour of the day, on the 5-minute tick's every slot", async () => {
+  it("runs the pass once a day, however many ticks land in its hour", async () => {
     const ran: number[] = [];
     for (let hour = 0; hour < 24; hour++) {
       for (const minute of [0, 5, 30, 55]) {
@@ -111,8 +132,38 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
         if (dispatch.mock.calls.length > 0) ran.push(hour);
       }
     }
-    // 08:00-08:59 PDT is 15:00-15:59Z; every other slot of the day does nothing.
-    expect(ran).toEqual([15, 15, 15, 15]);
+    // 08:00-08:59 PDT is 15:00-15:59Z: the first of its four ticks claims the day, the rest skip.
+    expect(ran).toEqual([15]);
+  });
+
+  it("the twelve later ticks of the hour read no leases at all", async () => {
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(1);
+    selects = [];
+    const from = vi.fn(builder);
+    const counted = { from } as never;
+    for (let minute = 5; minute < 60; minute += 5) {
+      expect(await sweepMoveOutForms(counted, new Date(Date.UTC(2026, 9, 10, 15, minute)))).toBe(0);
+    }
+    expect(from.mock.calls.map(([table]) => table)).toEqual(Array.from({ length: 11 }, () => "audit_log"));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("claims each Pacific day on its own, so the next morning runs again", async () => {
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(1);
+    expect(await sweepMoveOutForms(db, new Date("2026-10-11T15:00:00Z"))).toBe(1);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect([...auditKeys.keys()]).toEqual([
+      "move_in_form_move_out_sweep:2026-10-10",
+      "move_in_form_move_out_sweep:2026-10-11",
+    ]);
+  });
+
+  it("releases the day when the pass fails, so a later tick retries it", async () => {
+    failTable = "portal_lease_pipeline_records";
+    await expect(sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).rejects.toThrow(/portal_lease_pipeline_records down/);
+    expect(auditKeys.size).toBe(0);
+    failTable = null;
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(1);
   });
 
   it("follows the Pacific clock through the change to standard time (08:00 PST is 16:00Z)", async () => {

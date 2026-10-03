@@ -19,7 +19,7 @@ import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { sendMoveInForm } from "@/lib/move-in-forms/client";
 import { formatMoveInDate, formatWallDate, pacificDay } from "@/lib/move-in-forms/manager-rows";
-import { moveInFormDueAt, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { moveInFormDueAt, moveInFormDueFor, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -86,8 +86,11 @@ export function SendMoveInFormPopup({
   const forms = useMemo(() => (residency ? sendableMoveInForms(userId, residency.propertyId) : []), [userId, residency]);
   const template = forms.find((f) => f.id === pickedForm) ?? forms[0] ?? null;
 
-  // The due day the property's own rule gives for this resident's move-in, unless the manager picks another.
-  const ruleDue = template && residency ? pacificDay(moveInFormDueAt(template.due, residency.moveInDate)) : "";
+  // The due day the property's own rule gives for this residency, unless the manager picks another. A
+  // move-out rule counts from the lease end, so both of the residency's dates are offered as anchors.
+  const ruleDue = template && residency
+    ? pacificDay(moveInFormDueFor(template.due, { moveInDate: residency.moveInDate, leaseEnd: residency.moveOutDate }))
+    : "";
   const due = dueOverride ?? ruleDue;
   const dueAt = due ? moveInFormDueAt("move-in-day", due) : null;
 

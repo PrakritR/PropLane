@@ -75,6 +75,24 @@ export type MoveInEditorRoom = { id: string; label: string };
 export type MoveInEditorLinkOption = { id: string; label: string };
 export type MoveInEditorSaveOptions = { sendToCurrent: boolean };
 
+/**
+ * The "Linked application" / "Linked lease" choices. A linked template the property no longer has
+ * still gets an option, labelled as removed, so the manager can clear it back to "All" instead of
+ * being stuck filtering on an id they cannot see.
+ */
+function moveInLinkOptions(
+  templates: readonly MoveInEditorLinkOption[],
+  linkedIds: readonly string[],
+  noun: "application" | "lease",
+) {
+  return [
+    ...templates.map((item) => ({ value: item.id, label: item.label })),
+    ...linkedIds
+      .filter((id) => !templates.some((item) => item.id === id))
+      .map((id) => ({ value: id, label: `Removed ${noun}` })),
+  ];
+}
+
 function deriveFormName(fileName: string): string {
   const base = fileName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim();
   return base ? base.charAt(0).toUpperCase() + base.slice(1) : "";
@@ -156,8 +174,14 @@ export function MoveInFormEditorModal({
   const allProblems = [...problems.form, ...problems.questions, ...problems.who];
   const pdfUrl = pdfBlobUrl ?? (draft.pdf ? moveInFormTemplatePdfUrl("manager", draft.id, propertyId) : null);
   const roomOptions = useMemo(() => rooms.map((room) => ({ value: room.id, label: room.label })), [rooms]);
-  const applicationOptions = useMemo(() => applicationTemplates.map((item) => ({ value: item.id, label: item.label })), [applicationTemplates]);
-  const leaseOptions = useMemo(() => leaseTemplates.map((item) => ({ value: item.id, label: item.label })), [leaseTemplates]);
+  const applicationOptions = useMemo(
+    () => moveInLinkOptions(applicationTemplates, draft.linkedApplicationTemplateIds, "application"),
+    [applicationTemplates, draft.linkedApplicationTemplateIds],
+  );
+  const leaseOptions = useMemo(
+    () => moveInLinkOptions(leaseTemplates, draft.linkedLeaseTemplateIds, "lease"),
+    [leaseTemplates, draft.linkedLeaseTemplateIds],
+  );
 
   const patch = (next: Partial<MoveInFormTemplate>) => setDraft((prev) => ({ ...prev, ...next }));
   const setQuestions = (questions: MoveInFormQuestion[]) => patch({ questions });

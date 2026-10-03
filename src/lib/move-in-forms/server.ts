@@ -681,6 +681,10 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
   }
   const template = property.templates.find((item) => item.id === input.formId);
   if (!template) throw new MoveInFormError("Form not found.", 404);
+  // The snapshot depends on the form and the property, never on the resident: build it once, before
+  // anything is inserted, so an unfinished form fails the whole send instead of half of it.
+  const snapshot = await buildSnapshot(db, template, property.ownerId);
+  if (!snapshot) throw new MoveInFormError("This form is not ready to send. Finish its questions, add a signature, and upload its PDF first.", 409);
   const { data: leases, error } = await db.from("portal_lease_pipeline_records")
     .select("axis_id:row_data->>axisId,signed:row_data->>fullySignedAt,voided:row_data->>voidedAt,members:row_data->jointLeaseMembers")
     .eq("manager_user_id", property.ownerId).eq("property_id", property.id);
@@ -696,7 +700,6 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
     }
   }
   const auditKey = await audit(actor, "send_existing", { property_id: property.id, form_id: template.id });
-  const cache: PdfCache = new Map();
   let sent = 0;
   for (const [applicationId, secondary] of applicationIds) {
     const residency = await readResidency(db, applicationId);
@@ -707,8 +710,6 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
     const room = resolveRoom(property, residency);
     if (!templateAppliesToRoom(template, room.id)) continue;
     if (!(await templateLinksAdmit(db, property, residency, template))) continue;
-    const snapshot = await buildSnapshot(db, template, property.ownerId, cache);
-    if (!snapshot) throw new MoveInFormError("This form is not ready to send. Finish its questions, add a signature, and upload its PDF first.", 409);
     const result = await insertRow(db, {
       residency, ownerId: property.ownerId, roomLabel: room.label, template, snapshot,
       dueAt: dueFor(template, residency),
