@@ -23,6 +23,7 @@ import { usePortalSurface } from "@/components/ui/portal-surface";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
+import { PopupFormContext, PopupFormSnapshot } from "@/components/ui/popup-form-context";
 
 export {
   MODAL_INSET_BOX_CLASS,
@@ -323,7 +324,7 @@ function ModalPanelInner({
   subheader?: ReactNode;
   /** Real record context for the desktop rail. */
   contextPanel?: ReactNode;
-  /** Live, caller-owned preview. Never inferred from form DOM. Hidden on phones. */
+  /** Domain output preview. Omit to show a read-only snapshot of labelled form values. Hidden on phones. */
   preview?: ReactNode;
   previewLabel?: string;
   dense: boolean;
@@ -342,6 +343,7 @@ function ModalPanelInner({
   DescriptionPrimitive: ComponentType<ModalDescriptionPrimitiveProps>;
   ClosePrimitive: ComponentType<ModalClosePrimitiveProps>;
 }) {
+  const formRef = useRef<HTMLDivElement>(null);
   const pinActionsToBottom = Boolean(footer);
   const bodyFillsPanel = scrollableContent || pinActionsToBottom;
   /** Side-by-side chat needs the middle band to grow; footer modals fill the panel so actions sit on the bottom edge. */
@@ -410,8 +412,10 @@ function ModalPanelInner({
       >
         <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] lg:block">
           {contextPanel}
+          <div className={contextPanel ? "mt-4" : undefined}><PopupFormContext formRef={formRef} hasContext={contextPanel != null} /></div>
         </aside>
         <div
+          ref={formRef}
           data-popup-form=""
           className={cn(
             bodyFillsPanel
@@ -436,10 +440,10 @@ function ModalPanelInner({
         >
           {children}
         </div>
-        {preview != null ? (
+        {preview !== null ? (
           <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 lg:block xl:w-[380px]">
             <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted">{previewLabel}</div>
-            {preview}
+            {preview ?? <PopupFormSnapshot formRef={formRef} />}
           </aside>
         ) : null}
         {showAssistantStrip ? (
@@ -531,7 +535,7 @@ export function Modal({
   subheader?: ReactNode;
   /** Real record context for the desktop rail. */
   contextPanel?: ReactNode;
-  /** Live, caller-owned preview. Never inferred from form DOM. Hidden on phones. */
+  /** Domain output preview. Omit to show a read-only snapshot of labelled form values. Hidden on phones. */
   preview?: ReactNode;
   previewLabel?: string;
   panelClassName?: string;
