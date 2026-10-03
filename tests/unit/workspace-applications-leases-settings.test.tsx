@@ -25,6 +25,7 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
 vi.mock("@/lib/demo-property-pipeline", () => ({
   readExtraListingsForUser: () => [{ id: "prop-1" }],
   readPendingManagerPropertiesForUser: () => [],
+  syncPropertyPipelineFromServer: () => Promise.resolve(),
 }));
 vi.mock("@/lib/manager-property-save-target", () => ({
   resolveManagerListingSubmissionForPropertyId: () => ({

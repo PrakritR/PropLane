@@ -20,6 +20,9 @@
  * "Who signs first" used to be a second label for the signing order (the Lease tab's gear and the
  * application row's signature icon both read `pipelineOrder`), so it is the Signing order row.
  */
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -174,10 +177,20 @@ export function WorkspaceApplicationsLeasesSettings() {
     };
   }, [demo, showToast, workspaceId]);
 
+  // The property store is filled by the portfolio sync; opening Settings directly
+  // must not show an empty map, so pull it here and re-read on every change.
   useEffect(() => {
     if (!managerUserId) return;
-    setProperties(loadPropertyEntries(managerUserId));
-  }, [managerUserId]);
+    const reload = () => setProperties(loadPropertyEntries(managerUserId));
+    reload();
+    if (!demo) void syncPropertyPipelineFromServer().then(reload).catch(() => {});
+    window.addEventListener(PROPERTY_PIPELINE_EVENT, reload);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, reload);
+    return () => {
+      window.removeEventListener(PROPERTY_PIPELINE_EVENT, reload);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, reload);
+    };
+  }, [demo, managerUserId]);
 
   const withSaveStatus = useCallback(
     async (run: () => Promise<void>, failure: string) => {
