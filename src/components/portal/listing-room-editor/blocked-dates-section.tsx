@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +22,23 @@ function managerBlocksForRoom(blocks: RoomDateBlock[], propertyId: string, roomI
   );
 }
 
+type BlockRow = {
+  /** Stable React key; equals the saved block's id once it exists. */
+  key: string;
+  /** The saved block's id; absent until both dates are set and saved. */
+  id?: string;
+  checkIn: string;
+  checkOut: string;
+  reason: string;
+};
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Blocked dates (captain, Oct 3): every span is its own row of two dates you can
+ * always edit, with a ⋯ that deletes it. The round + only adds an empty row; a
+ * row saves itself as soon as both dates are set (end on or after start).
+ */
 export function BlockedDatesSection({
   propertyId,
   roomId,
@@ -33,20 +50,30 @@ export function BlockedDatesSection({
   managerUserId: string | null;
   showToast?: (message: string) => void;
 }) {
-  const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
+  const [rows, setRows] = useState<BlockRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [checkIn, setCheckIn] = useState("");
-  const [checkOut, setCheckOut] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     if (!propertyId) {
-      setBlocks([]);
+      setRows([]);
       return;
     }
     setLoading(true);
     fetchRoomDateBlocks()
-      .then((rows) => setBlocks(managerBlocksForRoom(rows, propertyId, roomId)))
+      .then((all) => {
+        const saved = managerBlocksForRoom(all, propertyId, roomId)
+          .sort((a, b) => a.checkIn.localeCompare(b.checkIn))
+          .map<BlockRow>((b) => ({
+            key: b.id,
+            id: b.id,
+            checkIn: b.checkIn,
+            checkOut: b.openEnded ? "" : b.checkOut,
+            reason: b.reason || "Blocked by manager",
+          }));
+        // Keep any row still being typed (no id yet) below the saved ones.
+        setRows((prev) => [...saved, ...prev.filter((r) => !r.id)]);
+      })
       .catch(() => showToast?.("Could not load blocked dates."))
       .finally(() => setLoading(false));
   }, [propertyId, roomId, showToast]);
@@ -61,44 +88,56 @@ export function BlockedDatesSection({
     return () => window.removeEventListener(ROOM_DATE_BLOCKS_CHANGED, onChange);
   }, [refresh]);
 
-  const rows = useMemo(() => blocks.sort((a, b) => a.checkIn.localeCompare(b.checkIn)), [blocks]);
+  const addRow = () => {
+    setRows((prev) => [...prev, { key: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, checkIn: "", checkOut: "", reason: "Blocked by manager" }]);
+  };
 
-  const addBlock = async () => {
+  const saveRow = async (row: BlockRow) => {
     if (!propertyId || !managerUserId) {
       showToast?.("Save the property before blocking dates.");
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn)) {
-      showToast?.("Pick a move-in date.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
-      showToast?.("Pick an end date.");
-      return;
-    }
-    if (checkOut < checkIn) {
+    if (!ISO_DATE.test(row.checkIn) || !ISO_DATE.test(row.checkOut)) return;
+    if (row.checkOut < row.checkIn) {
       showToast?.("The end date is before the start date.");
       return;
     }
-    setBusy(true);
+    setSavingKey(row.key);
     try {
-      await saveRoomDateBlock(managerUserId, {
+      const saved = await saveRoomDateBlock(managerUserId, {
+        id: row.id,
         propertyId,
         roomId,
-        checkIn,
-        checkOut,
+        checkIn: row.checkIn,
+        checkOut: row.checkOut,
         openEnded: false,
-        reason: "Blocked by manager",
+        reason: row.reason,
         bookingStatus: "hold",
       });
-      setCheckIn("");
-      setCheckOut("");
-      refresh();
+      setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, id: saved.id } : r)));
     } catch (e) {
       showToast?.(e instanceof Error ? e.message : "Could not block those dates.");
     } finally {
-      setBusy(false);
+      setSavingKey(null);
     }
+  };
+
+  const changeRow = (key: string, patch: Partial<Pick<BlockRow, "checkIn" | "checkOut">>) => {
+    const current = rows.find((r) => r.key === key);
+    if (!current) return;
+    const next = { ...current, ...patch };
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    void saveRow(next);
+  };
+
+  const removeRow = (row: BlockRow) => {
+    if (!row.id) {
+      setRows((prev) => prev.filter((r) => r.key !== row.key));
+      return;
+    }
+    void deleteRoomDateBlock(row.id)
+      .then(() => setRows((prev) => prev.filter((r) => r.key !== row.key)))
+      .catch(() => showToast?.("Could not remove that block."));
   };
 
   if (!propertyId) {
@@ -109,57 +148,46 @@ export function BlockedDatesSection({
     );
   }
 
-  const shortDate = (iso: string) => {
-    const [y, m, d] = iso.split("-").map(Number);
-    return y && m && d ? new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : iso;
-  };
-
   return (
     <div className="space-y-3 px-3.5 py-2" data-attr="room-blocked-dates">
-      {/* Captain, Oct 3: the add is a round + beside the heading; no Open-ended. */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-semibold text-foreground">Blocked dates</span>
-        <PortalPrimaryIconAction
-          label="Block dates"
-          disabled={busy}
-          onClick={() => void addBlock()}
-          data-attr="room-blocked-dates-add"
-        />
+        <PortalPrimaryIconAction label="Add blocked dates" onClick={addRow} data-attr="room-blocked-dates-add" />
       </div>
-      {loading ? <p className="text-xs text-muted">Loading…</p> : null}
+      {loading && rows.length === 0 ? <p className="text-xs text-muted">Loading…</p> : null}
       {rows.length > 0 ? (
         <ul className="space-y-2">
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <li
-              key={row.id}
-              className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px]"
+              key={row.key}
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2"
+              data-attr="room-blocked-dates-row"
+              aria-busy={savingKey === row.key || undefined}
             >
-              <span>
-                {shortDate(row.checkIn)} → {row.openEnded ? "Open-ended" : shortDate(row.checkOut)}
-              </span>
+              <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+                <Input
+                  type="date"
+                  aria-label={`Start date, blocked span ${index + 1}`}
+                  value={row.checkIn}
+                  max={row.checkOut || undefined}
+                  onChange={(e) => changeRow(row.key, { checkIn: e.target.value })}
+                />
+                <Input
+                  type="date"
+                  aria-label={`End date, blocked span ${index + 1}`}
+                  value={row.checkOut}
+                  min={row.checkIn || undefined}
+                  onChange={(e) => changeRow(row.key, { checkOut: e.target.value })}
+                />
+              </div>
               <RowActionsMenu
-                label="Blocked dates"
-                items={[
-                  {
-                    id: "remove",
-                    label: "Remove",
-                    danger: true,
-                    onSelect: () => {
-                      void deleteRoomDateBlock(row.id)
-                        .then(() => refresh())
-                        .catch(() => showToast?.("Could not remove that block."));
-                    },
-                  },
-                ]}
+                label={`Blocked span ${index + 1}`}
+                items={[{ id: "delete", label: "Delete", danger: true, onSelect: () => removeRow(row) }]}
               />
             </li>
           ))}
         </ul>
       ) : null}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Input type="date" aria-label="Start date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-        <Input type="date" aria-label="End date" value={checkOut} min={checkIn || undefined} onChange={(e) => setCheckOut(e.target.value)} />
-      </div>
     </div>
   );
 }
