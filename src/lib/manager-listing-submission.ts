@@ -694,6 +694,10 @@ export type ManagerListingSubmissionV1 = {
   rentalModelStamp?: "shared_home" | "entire_home";
   /** When listingPlaceCategoryId is entire_home — one monthly lease for the full unit (USD). */
   entireHomeMonthlyRent?: number;
+  /** When true on a by-the-room listing, the public listing may offer a whole-house lease (studio Pricing tab). */
+  entireHomeOffered?: boolean;
+  /** Per-room pricing markers (workspace default fill, copy-from-room). Manager-only metadata. */
+  roomPricingMeta?: Record<string, RoomPricingUiMeta>;
   /**
    * How many people the whole place is let to — asked once on Basics for an
    * entire-home listing, where there is no per-room occupancy to sum.
@@ -1262,6 +1266,14 @@ export function resolveAllowedLeaseTerms(
   );
 }
 
+export type RoomPricingUiMeta = {
+  priceSource?: "default" | "own";
+  /** Lease term id → source room id for mirrored pricing (no chains). */
+  copyFromRoomIdByTerm?: Partial<Record<string, string>>;
+};
+
+export type ServiceBillingCadence = "per_request" | "monthly" | "one_time";
+
 export type ManagerListingServiceOption = {
   id: string;
   name: string;
@@ -1269,6 +1281,8 @@ export type ManagerListingServiceOption = {
   price: string;
   deposit: string;
   available: boolean;
+  /** Drives Requests vs Add-ons on the property Services tab. Inferred from price when absent. */
+  billingCadence?: ServiceBillingCadence;
   residentEmails?: string[];
   createdAt: string;
 };

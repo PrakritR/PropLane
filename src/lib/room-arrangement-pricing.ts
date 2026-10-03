@@ -14,6 +14,11 @@ export type RoomOccupancyPrice = {
   count: number;
   /** Copy figures from this smaller count. Absent or 0 means own figures. */
   sameAs?: number;
+  /**
+   * Whole-room rent split evenly among `count` residents (C2-PRC5). When set,
+   * {@link monthlyRent} is the per-resident floor(total / count).
+   */
+  wholeRoomMonthlyRent?: number;
   monthlyRent?: number;
   utilitiesEstimate?: string;
   securityDeposit?: string;
@@ -78,8 +83,10 @@ export function normalizeOccupancyPrices(
     const sameAs =
       Number.isInteger(sameAsRaw) && sameAsRaw >= 1 && sameAsRaw < count ? sameAsRaw : undefined;
     const rent = positiveRent(row.monthlyRent);
+    const whole = positiveRent((row as RoomOccupancyPrice).wholeRoomMonthlyRent);
     const next: RoomOccupancyPrice = { count };
     if (sameAs) next.sameAs = sameAs;
+    if (whole !== undefined) next.wholeRoomMonthlyRent = whole;
     if (rent !== undefined) next.monthlyRent = rent;
     if (typeof row.utilitiesEstimate === "string" && row.utilitiesEstimate.trim()) {
       next.utilitiesEstimate = row.utilitiesEstimate.trim();
@@ -136,9 +143,12 @@ export function roomPriceForResidentCount(
       cursor = row.sameAs;
       continue;
     }
+    const whole = positiveRent(row.wholeRoomMonthlyRent);
+    const perResident =
+      whole !== undefined && clamped > 1 ? Math.floor(whole / clamped) : positiveRent(row.monthlyRent);
     return {
       count: clamped,
-      monthlyRent: positiveRent(row.monthlyRent) ?? baseRent,
+      monthlyRent: perResident ?? baseRent,
       utilitiesEstimate: row.utilitiesEstimate?.trim() || baseUtil,
       securityDeposit: row.securityDeposit?.trim() || baseDep,
       sameAs: rows.find((r) => r.count === clamped)?.sameAs,

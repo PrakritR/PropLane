@@ -82,6 +82,7 @@ import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
+import { WorkspacePricingDefaultsPanel } from "@/components/portal/workspace-pricing-defaults-panel";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -1435,6 +1436,8 @@ export function PaymentsSettingsPanel({
 
   return (
     <div className="space-y-6">
+      <WorkspacePricingDefaultsPanel workspaceId={effectiveWorkspace?.id ?? null} />
+
       <PortalSettingsSection title="Receiving from residents">
         <PortalSettingsGroup><PortalSettingsLinkRow label="Processing fee paid by" href="/portal/profile?tab=account" dataAttr="payments-processing-fee-account" /></PortalSettingsGroup>
       </PortalSettingsSection>
