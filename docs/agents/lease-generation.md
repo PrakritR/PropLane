@@ -2321,3 +2321,11 @@ visible and gives the persistence layer one narrow attack surface.
 # Durable lease transition notifications
 
 An accepted lease transition and its action-event delivery intents are persisted in one database transaction. The route supplies the previously read `updated_at`; a stale save returns 409 and cannot overwrite newer signatures. External email, SMS, and inbox delivery occurs only from the retryable action-event worker. This does not alter signature order, signed-body immutability, or per-signature document hashes.
+
+## Send lease, who has signed, and payments (studio-redesign leasing)
+
+- **One Send lease screen** (`lease-send-sheet.tsx`): PropLane lease or uploaded PDF beside its terms, one confirm, one send. It runs `leaseSendGateBlocker` for every lease it sends. The old add-lease modal and the notification-preview carousel are gone.
+- **One Approve popup** (`approve-application-dialog.tsx`) from every entry point; bed and rent come from `application-approval-slots.ts`; the last bed is arbitrated by the server (409 `blocked:"capacity"` with the holder) and the popup offers another bed.
+- **Who has signed**: `lease-signers.ts` + `LeaseSignersCard`. A joint shared-room lease is one lease row per roommate linked by `jointRoomGroupId` (`lease-joint-room.ts`); the manager countersigns once, only after every roommate has.
+- **Payments start at the last signature**: `lease-signing-charges.client.ts` calls the existing `freezeSignedLeaseTerms` + `recordApprovedApplicationCharges` (no arithmetic of its own, idempotent). It runs on the manager's countersign, on mark-signed, and from `watchExecutedLeaseCharges` for a lease the resident signed last. It is client-driven because the ledger generator reads the manager's browser-only listing catalog.
+- **Shared-room clauses**: `lease-shared-room-terms.ts` is the one source for the generated lease's clauses and the "Shared room addendum" shown beside an uploaded PDF (the PDF bytes are never edited).
