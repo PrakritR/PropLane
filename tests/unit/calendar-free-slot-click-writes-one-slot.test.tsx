@@ -180,7 +180,7 @@ describe("clicking a free slot on the manager calendar", () => {
 
     await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
     // Clicking a painted block opens the prefilled edit dialog, not a write.
-    expect(screen.getByText("Edit availability block")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Edit availability block" })).toBeTruthy();
     expect(writeAvailability).not.toHaveBeenCalled();
   });
 });
