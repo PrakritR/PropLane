@@ -7,6 +7,7 @@
  */
 
 import { normalizePhoneE164 } from "@/lib/communication-other-recipients";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 export const CLAW_DEFAULT_AGENT_PHONE = "+12053690702";
 
@@ -84,11 +85,7 @@ export function clawLeasingAgentPhoneE164(): string {
     (typeof process !== "undefined" &&
       (process.env.NEXT_PUBLIC_CLAW_MESSENGER_AGENT_PHONE || process.env.CLAW_MESSENGER_AGENT_PHONE)) ||
     CLAW_DEFAULT_AGENT_PHONE;
-  const digits = String(raw).replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (String(raw).trim().startsWith("+") && digits.length >= 10) return `+${digits}`;
-  return CLAW_DEFAULT_AGENT_PHONE;
+  return normalizeE164(String(raw)) ?? CLAW_DEFAULT_AGENT_PHONE;
 }
 
 /**

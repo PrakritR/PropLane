@@ -1044,6 +1044,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  portal_inbox_thread_aliases: "Child of portal_inbox_thread_records; the old ids a folded conversation answers to are deleted by cascade with it.",
   sms_projection_cutover: "Global SMS migration readiness only; contains no account data.",
   vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
   vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",

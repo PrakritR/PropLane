@@ -16,6 +16,8 @@
  * far worse than one that is missing — it becomes a charge against a real person. Nothing here
  * guesses, infers a year, or repairs a typo.
  */
+import { normalizeE164 } from "@/lib/phone-e164";
+
 
 /** A room as the roster describes it. Absent fields mean the sheet did not say. */
 export type RosterRoom = {
@@ -151,9 +153,7 @@ export function readMoneyCell(raw: string): { amount: number | null; problem: st
  */
 export function readPhoneCell(raw: string): string {
   const digits = norm(raw).replace(/[‪-‮⁦-⁩]/g, "").replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return "";
+  return normalizeE164(digits) ?? "";
 }
 
 /**

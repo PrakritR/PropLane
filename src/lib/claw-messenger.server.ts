@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { normalizeE164 } from "@/lib/phone-e164";
 import WebSocket from "ws";
 
 export const CLAW_DEFAULT_AGENT_PHONE = "+12053690702";
@@ -38,11 +39,7 @@ export function isClawMessengerConfigured(): boolean {
 }
 
 export function normalizeE164Us(raw: string): string | null {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (raw.trim().startsWith("+") && digits.length >= 10) return `+${digits}`;
-  return null;
+  return normalizeE164(raw);
 }
 
 export type ClawSendResult = {

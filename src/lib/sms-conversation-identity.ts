@@ -19,6 +19,8 @@
  * different keys because their `personRef` differs.
  */
 
+import { normalizeE164 } from "@/lib/phone-e164";
+
 export type SmsCounterpartyRole =
   | "resident"
   | "applicant"
@@ -50,12 +52,13 @@ export function coerceCounterpartyRole(value: unknown): SmsCounterpartyRole {
 export function conversationPhoneRef(raw: string | null | undefined): string {
   const trimmed = String(raw ?? "").trim();
   if (!trimmed) return "";
+  // The one phone normalizer decides what a valid number is. The legacy
+  // `+digits` fallback below only keeps keys already stored for malformed
+  // numbers stable; it never makes a new number look verified.
+  const e164 = normalizeE164(trimmed);
+  if (e164) return e164;
   const digits = trimmed.replace(/\D/g, "");
   if (!digits) return trimmed;
-  // US 10-digit → +1XXXXXXXXXX; 11-digit leading 1 → +1XXXXXXXXXX; else +digits
-  // (an already-E.164 international number round-trips unchanged).
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return `+${digits}`;
 }
 

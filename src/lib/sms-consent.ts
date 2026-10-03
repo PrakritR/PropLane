@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 /**
  * SMS consent (opt-in/opt-out) ledger. Stored keyed by a normalized digit
@@ -19,6 +20,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * become `5551234567`.
  */
 export function normalizeConsentPhone(phone: string): string {
+  const e164 = normalizeE164(phone);
+  if (e164?.startsWith("+1")) return e164.slice(2);
   const digits = String(phone ?? "").replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
   return digits;

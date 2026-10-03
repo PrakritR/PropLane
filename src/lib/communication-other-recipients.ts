@@ -1,15 +1,10 @@
+import { normalizeE164 } from "@/lib/phone-e164";
+
 /** Split free-typed Other recipients into emails vs E.164 phones. */
 
 export function normalizePhoneE164(phone: string): string | null {
-  const trimmed = phone.trim();
-  if (trimmed.startsWith("+")) {
-    const digits = trimmed.slice(1).replace(/\D/g, "");
-    return /^[1-9]\d{6,14}$/.test(digits) ? `+${digits}` : null;
-  }
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return null;
+  // The one phone normalizer: see `normalizeE164` (src/lib/phone-e164.ts).
+  return normalizeE164(phone);
 }
 
 export type OtherRecipientToken = {
