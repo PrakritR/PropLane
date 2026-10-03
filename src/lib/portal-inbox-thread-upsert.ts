@@ -34,3 +34,38 @@ export function buildPortalInboxThreadUpsert(row: Record<string, unknown>, user:
     updated_at: new Date().toISOString(),
   };
 }
+
+/**
+ * Server-decided inbox row for a CLIENT write (`POST /api/portal-inbox-threads`).
+ *
+ * `buildPortalInboxThreadUpsert` trusts the row it is handed, which is right
+ * for server callers (inbound email, admin shared inbox) and wrong for a
+ * browser: a client-chosen `scope` + `participantEmail` planted a thread in
+ * another account's inbox. Here the scope is the one the route already proved
+ * the caller may write, and the participant is the caller's own email (or null
+ * on a sent copy) - never a value from the body. Only an admin keeps the older
+ * "owner from the row" latitude.
+ */
+export function buildClientPortalInboxThreadUpsert(
+  row: Record<string, unknown>,
+  user: InboxThreadUpsertUser,
+  trusted: { scope: string; isAdmin: boolean },
+) {
+  if (trusted.isAdmin) return { ...buildPortalInboxThreadUpsert(row, user), scope: trusted.scope };
+  const participantEmail = sentLikeInboxFolder(row) ? null : String(user.email ?? "").trim().toLowerCase() || null;
+  return {
+    id: row.id,
+    scope: trusted.scope,
+    owner_user_id: trusted.scope === "admin" ? null : user.id,
+    participant_email: participantEmail,
+    // A browser never mints a typed (team / agent / escalation) thread.
+    thread_type: null,
+    row_data: { ...row, scope: trusted.scope, threadType: undefined, thread_type: undefined },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** Ids the server derives deterministically; a client never creates them. */
+export function isServerReservedInboxThreadId(id: string): boolean {
+  return /^(agent_notice_|property_mgr_|team-thread:)/.test(id);
+}
