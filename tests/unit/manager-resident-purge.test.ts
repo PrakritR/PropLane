@@ -189,7 +189,7 @@ describe("previewManagerResidentPurge", () => {
     expect(rows.manager_application_records).toHaveLength(3);
   });
 
-  it("leaves the other manager's tenancy, the shared support inbox and the ledger out", async () => {
+  it("leaves the other manager's tenancy and the shared support inbox out; the resident's ledger goes (erased fully)", async () => {
     const { db } = database(seattleHomes());
     const preview = await previewManagerResidentPurge(db as never, identity);
     const targeted = new Map(preview.targets.map((target) => [target.table, target.ids]));
@@ -198,7 +198,7 @@ describe("previewManagerResidentPurge", () => {
     expect(targeted.get("manager_application_records")).toEqual(["app-a"]);
     expect(targeted.get("portal_inbox_thread_records")).toEqual(["thread-1"]);
     expect(targeted.get("portal_reminder_records")).toEqual(["rem-resident"]);
-    expect(targeted.has("ledger_entries")).toBe(false);
+    expect(targeted.has("ledger_entries")).toBe(true);
     for (const ids of targeted.values()) {
       expect(ids).not.toContain("charge-other");
       expect(ids).not.toContain("app-other");
@@ -238,7 +238,8 @@ describe("purgeManagerResidentData", () => {
     expect(rows.manager_application_records.map((row) => row.id)).toEqual(["app-b", "app-other"]);
     expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["support"]);
     expect(rows.portal_reminder_records.map((row) => row.id)).toEqual(["rem-manager"]);
-    expect(rows.ledger_entries).toHaveLength(1);
+    // Erased fully (captain, Oct 3): the resident's ledger line goes with them.
+    expect(rows.ledger_entries).toHaveLength(0);
   });
 
   it("reclaims the private bytes only after the rows are gone", async () => {
@@ -389,42 +390,43 @@ describe("purgeManagerResidentData (C2-DT2: delete Noor Halvorsen)", () => {
     expect(rows.manager_sms_messages.map((row) => row.id)).toEqual(["sms-other", "sms-other-mgr"]);
     expect(rows.inbound_sms_log.map((row) => row.id)).toEqual(["log-other"]);
     expect(rows.manager_sms_contacts).toEqual([]);
-    // Unpaid charge and its accrual line are gone; someone else's are not.
-    expect(rows.portal_household_charge_records.map((row) => row.id)).toEqual(["charge-paid", "charge-other"]);
+    // Every charge of theirs (paid too) and its lines are gone; someone else's are not.
+    expect(rows.portal_household_charge_records.map((row) => row.id)).toEqual(["charge-other"]);
     expect(rows.ledger_entries.map((row) => row.id)).not.toContain("ledger-due-charge");
     expect(rows.ledger_entries.map((row) => row.id)).toContain("ledger-other");
 
     expect(result.counts.bookings).toBe(1);
     expect(result.counts.texts).toBe(4); // two messages + the log row + the contact
-    expect(result.counts.charges).toBe(1);
+    expect(result.counts.charges).toBe(2);
     expect(result.counts.leases).toBe(1);
     expect(result.counts.applications).toBe(1);
   });
 
-  it("keeps the paid money, anonymised, so income and deposit totals still add up", async () => {
+  it("erases the paid money too — charges, ledger lines and the deposit row (captain, Oct 3)", async () => {
     const { db, rows } = database(noorHalvorsen());
+    const preview = await previewManagerResidentPurge(db as never, noor);
+    expect(preview.paidKept).toEqual({ count: 1, cents: 97500 });
+    expect(preview.anonymize).toEqual([]);
+
     const result = await purgeManagerResidentData(db as never, noor);
-
-    const paid = rows.portal_household_charge_records.find((row) => row.id === "charge-paid");
-    expect(paid).toMatchObject({ resident_email: null, resident_user_id: null });
-    expect(paid?.row_data).toMatchObject({ amountCents: 97500, residentEmail: "", residentName: "", anonymized: true });
-
-    // Ledger: both lines of the paid charge stay, with no name attached.
+    expect(rows.portal_household_charge_records.find((row) => row.id === "charge-paid")).toBeUndefined();
     for (const id of ["ledger-paid-charge", "ledger-paid-payment"]) {
-      expect(rows.ledger_entries.find((row) => row.id === id)).toMatchObject({ resident_email: null });
+      expect(rows.ledger_entries.find((row) => row.id === id)).toBeUndefined();
     }
-    expect(rows.security_deposit_ledger).toEqual([
-      expect.objectContaining({ id: "deposit-noor", resident_email: "", amount_cents: 25000 }),
-    ]);
-    expect(result.anonymized).toMatchObject({
-      portal_household_charge_records: 1,
-      ledger_entries: 2,
-      security_deposit_ledger: 1,
-    });
+    expect(rows.security_deposit_ledger).toEqual([]);
+    expect(result.anonymized).toEqual({});
     // The other resident is untouched.
     expect(rows.ledger_entries.find((row) => row.id === "ledger-other")).toMatchObject({
       resident_email: "other@example.com",
     });
+  });
+
+  it("deletes deposit and ledger rows before the charges they point at", async () => {
+    const { db } = database(noorHalvorsen());
+    await purgeManagerResidentData(db as never, noor);
+    const order = db.rpcCalls[0].p_targets.map((target) => target.table);
+    expect(order.indexOf("security_deposit_ledger")).toBe(0);
+    expect(order.lastIndexOf("ledger_entries")).toBeLessThan(order.indexOf("portal_household_charge_records"));
   });
 
   it("deletes a charge's accrual line before the charge so the foreign key never orphans it", async () => {

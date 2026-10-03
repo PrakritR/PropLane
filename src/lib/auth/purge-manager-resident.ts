@@ -100,6 +100,8 @@ export type ManagerResidentPurgeTarget = {
    * rest are deleted. Read from the row's `status` column / `row_data.status`.
    */
   keepPaidAnonymized?: boolean;
+  /** Delete the rows' ledger lines first (the foreign key would otherwise detach them). */
+  eraseLedgerLines?: boolean;
 };
 
 /**
@@ -161,7 +163,8 @@ export const MANAGER_RESIDENT_PURGE_TARGETS: readonly ManagerResidentPurgeTarget
     category: "charges",
     managerColumn: "manager_user_id",
     match: { ids: ["resident_user_id"], emails: ["resident_email"] },
-    keepPaidAnonymized: true,
+    // Captain, Oct 3: deleting a resident erases them fully — paid charges too.
+    eraseLedgerLines: true,
   },
   {
     table: "portal_recurring_rent_profile_records",
@@ -258,7 +261,7 @@ export type ManagerResidentPurgePreview = {
   targets: { table: string; ids: string[] }[];
   /** Table + ids kept but stripped of every pointer to the person. */
   anonymize: { table: string; ids: string[] }[];
-  /** Paid charges that stay (anonymized): how many, and how much money. */
+  /** Paid charges in the delete: how many, and how much money (erased with the resident since Oct 3). */
   paidKept: { count: number; cents: number };
   applicationIds: string[];
   /** Private objects reclaimed after the delete commits. */
@@ -420,7 +423,7 @@ async function selectTargetRows(
     table: target.table,
     managerColumn: target.managerColumn,
     storagePathColumn: target.storage?.pathColumn,
-    extraColumns: target.keepPaidAnonymized ? ["status", "row_data"] : undefined,
+    extraColumns: target.keepPaidAnonymized || target.eraseLedgerLines ? ["status", "row_data"] : undefined,
   };
 
   const collect = async (narrow: (query: RowQuery) => RowQuery): Promise<void> => {
@@ -436,7 +439,7 @@ async function selectTargetRows(
       if (!id) continue;
       const storagePath = target.storage ? row[target.storage.pathColumn] : undefined;
       const entry: TargetRow = { id, storagePath: typeof storagePath === "string" ? storagePath : undefined };
-      if (target.keepPaidAnonymized) {
+      if (target.keepPaidAnonymized || target.eraseLedgerLines) {
         const { paid, cents } = chargeIsPaid(row);
         entry.paid = paid;
         entry.paidCents = cents;
@@ -562,7 +565,13 @@ export async function previewManagerResidentPurge(
       paidKept.count += kept.length;
       paidKept.cents += kept.reduce((sum, row) => sum + (row.paidCents ?? 0), 0);
     }
-    if (target.keepPaidAnonymized && rows.length > 0) {
+    if (target.eraseLedgerLines) {
+      // What the delete preview shows as "Paid payments": money received that goes with them.
+      const paid = rows.filter((row) => row.paid);
+      paidKept.count += paid.length;
+      paidKept.cents += paid.reduce((sum, row) => sum + (row.paidCents ?? 0), 0);
+    }
+    if ((target.keepPaidAnonymized || target.eraseLedgerLines) && rows.length > 0) {
       // A deleted charge takes its accrual line with it; the line must go first
       // or the foreign key detaches it and it is left in the books unattached.
       const lines = await selectChargeLedgerLines(db, managerUserId, rows.map((row) => row.id));
@@ -578,13 +587,15 @@ export async function previewManagerResidentPurge(
     }
   }
 
-  // Money received stays on the books without the person: every remaining
-  // ledger line and held deposit that names them is anonymized, not deleted.
+  // Erased fully (captain, Oct 3): every remaining ledger line and deposit row
+  // that names them goes too, deleted BEFORE the charges they may point at.
   const deletedLedger = new Set(targets.filter((t) => t.table === "ledger_entries").flatMap((t) => t.ids));
   const ledger = (await selectFinancialRows(db, "ledger_entries", scoped)).filter((id) => !deletedLedger.has(id));
-  if (ledger.length > 0) anonymize.push({ table: "ledger_entries", ids: ledger });
   const deposits = await selectFinancialRows(db, "security_deposit_ledger", scoped);
-  if (deposits.length > 0) anonymize.push({ table: "security_deposit_ledger", ids: deposits });
+  const financial: { table: string; ids: string[] }[] = [];
+  if (deposits.length > 0) financial.push({ table: "security_deposit_ledger", ids: deposits });
+  if (ledger.length > 0) financial.push({ table: "ledger_entries", ids: ledger });
+  targets.unshift(...financial);
 
   return {
     counts,
@@ -640,9 +651,8 @@ async function reclaimStorage(
 
 /**
  * Remove every row in this manager's portfolio linked to the resident, in one
- * transaction: bookings, messages, texts, unpaid charges and the rest. Paid
- * money (charges, their ledger lines, held deposits) stays, anonymized, so
- * income and deposit totals still add up. Throws without changing anything when
+ * transaction: bookings, messages, texts, every charge (paid too), their ledger
+ * lines and deposit rows — the resident is erased fully (captain, Oct 3). Throws without changing anything when
  * the transaction cannot complete, so the caller can leave the row in the list
  * and say so.
  */
