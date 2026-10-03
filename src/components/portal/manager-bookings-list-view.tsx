@@ -6,6 +6,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -129,7 +130,7 @@ export function ManagerBookingsListView({
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                     {showStayDetails ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
-                    {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
+                    {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
                   </>
                 }
                 checked={selectedKeys.has(key)}

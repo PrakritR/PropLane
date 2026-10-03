@@ -3,6 +3,7 @@
 import { Fragment, useSyncExternalStore, useState, type ReactNode } from "react";
 import { ArrowUpRight, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import Link from "next/link";
+import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
@@ -55,7 +56,7 @@ function BookingBar({ entry, today, children, className, style, onEdit }: { entr
   const status = calendarStatus(entry, today);
   const checkout = bookingCheckout(entry);
   return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${entry.summary}, ${status}`}>
-    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <svg aria-label="Airbnb" role="img" viewBox="0 0 24 24" className="mr-1 inline h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 3c-2 0-3 3-5 7l-3 6c-2 5 2 7 5 4l3-3 3 3c3 3 7 1 5-4l-3-6c-2-4-3-7-5-7Z"/><path d="M12 17c-5-4-3-8 0-8s5 4 0 8Z"/></svg> : entry.source === "booking_com" ? "B · " : ""}{entry.residentName || entry.summary}</span>{children}
+    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : ""}{entry.residentName || entry.summary}</span>{children}
   </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]" backdrop={false}>
     <div className="grid gap-2 p-3 text-sm"><strong>{entry.residentName || entry.summary}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
     {onEdit && entry.source !== "airbnb" && entry.source !== "booking_com" ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
