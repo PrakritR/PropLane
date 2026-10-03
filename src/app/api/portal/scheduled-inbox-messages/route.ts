@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
+import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import {
   createScheduledInboxMessage,
   generateScheduledInboxMessageId,
@@ -10,6 +11,20 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+
+/**
+ * The workspace the manager is composing in, stamped on the row so delivery -
+ * which runs in a cron with no cookie - narrows the recipients to it. Null when
+ * the account is not partitioned, which narrows nothing, as today.
+ */
+async function composingWorkspaceId(ctx: { db: PortalActor["db"]; userId: string }): Promise<string | null> {
+  try {
+    const scope = await resolveCommunicationScope(ctx.db, ctx.userId, "edit");
+    return scope.activeWorkspaceId;
+  } catch {
+    return null;
+  }
+}
 
 type PortalRole = "manager" | "resident";
 
@@ -239,6 +254,7 @@ export async function POST(req: Request) {
         senderUserId: ctx.userId,
         senderName: ctx.name,
         senderEmail: ctx.email,
+        workspaceId: await composingWorkspaceId(ctx),
       });
 
       return NextResponse.json({ ok: true, message: record });
@@ -269,6 +285,7 @@ export async function POST(req: Request) {
       deliverViaSms: body.deliverViaSms === true,
       senderPortal: "manager",
       senderUserId: ctx.userId,
+      workspaceId: await composingWorkspaceId(ctx),
     });
 
     return NextResponse.json({ ok: true, message: record });

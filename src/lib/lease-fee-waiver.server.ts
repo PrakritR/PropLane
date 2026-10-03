@@ -95,7 +95,17 @@ async function loadLeaseFeeCharges(
   row: ReturnType<typeof normalizeLeasePipelineRow>,
 ): Promise<{ ok: true; charges: ChargeRecord[] } | { ok: false; status: number; error: string }> {
   const propertyId = (record.property_id ?? row.propertyId ?? "").trim();
-  let query = db.from(CHARGE_TABLE).select("id, status, manager_user_id, row_data").eq("kind", "lease_fee");
+  // The LEASE's owner, not the caller: a co-manager waives on the owner's behalf,
+  // and `property_id` is nullable, so without this the query reads every
+  // `lease_fee` charge in the product and the email filter below then cancelled
+  // another manager's charge for the same person.
+  const ownerUserId = (record.manager_user_id ?? "").trim();
+  if (!ownerUserId) return { ok: false, status: 409, error: "This lease has no owner; the lease fee cannot be waived." };
+  let query = db
+    .from(CHARGE_TABLE)
+    .select("id, status, manager_user_id, row_data")
+    .eq("kind", "lease_fee")
+    .eq("manager_user_id", ownerUserId);
   if (propertyId) query = query.eq("property_id", propertyId);
   const { data, error } = await query;
   if (error) return { ok: false, status: 500, error: error.message };
@@ -183,7 +193,7 @@ export async function waiveLeaseFee(
   for (const c of found.charges) {
     const status = c.status ?? c.row_data.status;
     if (status === "cancelled") continue;
-    const ownerId = c.manager_user_id ?? input.managerUserId;
+    const ownerId = c.manager_user_id ?? record.manager_user_id ?? input.managerUserId;
     const next: HouseholdCharge = {
       ...c.row_data,
       status: "cancelled",
@@ -241,7 +251,7 @@ export async function reinstateLeaseFee(
     const status = c.status ?? c.row_data.status;
     // Only a charge a waiver cancelled comes back; a charge cancelled for another reason stays cancelled.
     if (status !== "cancelled" || !c.row_data.waivedAt) continue;
-    const ownerId = c.manager_user_id ?? input.managerUserId;
+    const ownerId = c.manager_user_id ?? record.manager_user_id ?? input.managerUserId;
     const { waivedAt: _a, waivedByUserId: _b, waiverReason: _c, ...base } = c.row_data;
     void _a; void _b; void _c;
     const next: HouseholdCharge = {

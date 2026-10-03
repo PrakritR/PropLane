@@ -260,12 +260,33 @@ async function createPotentialResident(
 export type OutboundVendorResult = { vendorId: string; name: string; created: boolean };
 
 /**
+ * Has this account PROVED it holds `phone`? `profiles.phone_verified_at` with
+ * the same number is the one verification PropLane performs; a self-typed
+ * `vendor_business_profiles.work_phone` is not evidence of anything.
+ * Fails closed: an unreadable profile is not verified.
+ */
+async function accountVerifiedPhone(db: Db, userId: string, phone: string): Promise<boolean> {
+  const id = userId.trim();
+  if (!id || !phone) return false;
+  const { data, error } = await db
+    .from("profiles")
+    .select("phone, phone_verified_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return false;
+  const row = data as { phone?: string | null; phone_verified_at?: string | null };
+  if (!row.phone_verified_at) return false;
+  return normalizeE164(row.phone ?? "") === phone;
+}
+
+/**
  * After a manager texts a number from PropLane: make sure a vendor ends up on
  * their list when the number IS a vendor (C2-DT5). The manager ticking "This is
- * a vendor" is the signal for a stranger; a number that already belongs to a
- * PropLane vendor account is added without the tick, linked to that account.
- * A number already on the list changes nothing. Returns null when the number is
- * not a vendor, so an ordinary text creates nothing.
+ * a vendor" is the signal for a stranger; a number a PropLane vendor account has
+ * VERIFIED is added without the tick, linked to that account. An account that
+ * merely lists the number is not linked - the text goes out and the roster is
+ * left alone. A number already on the list changes nothing. Returns null when the
+ * number is not a vendor, so an ordinary text creates nothing.
  */
 export async function ensureVendorForOutboundText(
   db: Db,
@@ -305,7 +326,13 @@ export async function ensureVendorForOutboundText(
     trades: unknown;
   }[]).find((row) => normalizeE164(row.work_phone) === phone);
 
-  if (account) {
+  // `work_phone` is free text the vendor types about themselves, so a match is a
+  // CLAIM on the number, not proof of it. Linking on the claim alone let any
+  // account that typed a real contractor's number be pulled onto the manager's
+  // roster - reachable by roster messaging, offers and task assignments - the
+  // moment the manager texted that contractor. Only an account that VERIFIED
+  // this number is linked; everyone else gets the ordinary unlinked path below.
+  if (account && (await accountVerifiedPhone(db, account.user_id, phone))) {
     const { data: linked, error: linkedError } = await db
       .from("manager_vendor_records")
       .select("id,row_data")

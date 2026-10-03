@@ -8,8 +8,18 @@ import { fakeSupabaseClient, type Row } from "./helpers/fake-supabase-tables";
 
 vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
   // The property takes PropLane payments and the payout account is ready.
-  enrichHouseholdChargesFromPropertyRecords: async (_db: unknown, charges: Array<Record<string, unknown>>) =>
-    charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: payable.on, managerStripeConnectReadySnapshot: true })),
+  // `payable.on = null` is the third answer: the listing did not resolve at all.
+  enrichHouseholdChargesFromPropertyRecordsResult: async (
+    _db: unknown,
+    charges: Array<Record<string, unknown>>,
+  ) => ({
+    charges: charges.map((c) => ({
+      ...c,
+      ...(payable.on === null ? {} : { axisPaymentsEnabledSnapshot: payable.on }),
+      managerStripeConnectReadySnapshot: true,
+    })),
+    lookupFailed: payable.lookupFailed,
+  }),
 }));
 vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeEntry: vi.fn(async () => undefined) }));
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
@@ -21,7 +31,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
     record.manager_user_id === userId,
 }));
 
-const payable = vi.hoisted(() => ({ on: true }));
+const payable = vi.hoisted(() => ({ on: true as boolean | null, lookupFailed: false }));
 
 import { checkResidentAtSigningGate } from "@/lib/lease-at-signing.server";
 import { listLeaseFeeWaivers, reinstateLeaseFee, waiveLeaseFee } from "@/lib/lease-fee-waiver.server";
@@ -67,6 +77,7 @@ let tables: Record<string, Row[]>;
 
 beforeEach(() => {
   payable.on = true;
+  payable.lookupFailed = false;
   tables = {
     portal_household_charge_records: [
       charge({}),
@@ -144,6 +155,28 @@ describe("the signing gate reads the server's charges", () => {
     expect(gate.ok && gate.unpaid).toEqual([]);
   });
 
+  it("fails closed when the listing cannot be resolved - it is not 'collects offline'", async () => {
+    // No `axisPaymentsEnabledSnapshot` anywhere and no catalog on the server:
+    // treating that as offline let the signature through with everything owed.
+    payable.on = null;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok).toBe(false);
+  });
+
+  it("fails closed when the property read itself failed", async () => {
+    payable.lookupFailed = true;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok).toBe(false);
+  });
+
   it("only the signer's own lines gate them, and only for this lease", async () => {
     tables.portal_household_charge_records!.push(
       charge({ id: "other-person", residentUserId: "99999999-9999-4999-8999-999999999999", residentEmail: "other@example.com" }),
@@ -216,6 +249,34 @@ describe("waiving the lease fee", () => {
     const stranger = await waiveLeaseFee(db, { managerUserId: "33333333-3333-4333-8333-333333333333", leaseId: LEASE_ID });
     expect(stranger).toMatchObject({ ok: false, status: 404 });
     expect(tables.portal_household_charge_records![0]!.status).toBe("pending");
+  });
+
+  it("never cancels another manager's lease_fee for the same person", async () => {
+    // The lease names no property, so only the owner filter keeps this apart.
+    const leaseRow = tables.portal_lease_pipeline_records![0]!;
+    leaseRow.property_id = null;
+    leaseRow.row_data = { ...(leaseRow.row_data as object), propertyId: "" };
+    const otherManager = "44444444-4444-4444-8444-444444444444";
+    tables.portal_household_charge_records!.push({
+      ...charge({ id: "other-manager-lease-fee", applicationId: "" }),
+      id: "other-manager-lease-fee",
+      manager_user_id: otherManager,
+      property_id: null,
+      row_data: {
+        ...(charge({ id: "other-manager-lease-fee", applicationId: undefined }).row_data as object),
+        id: "other-manager-lease-fee",
+        applicationId: undefined,
+        managerUserId: otherManager,
+        propertyId: "",
+      },
+    });
+
+    const db = fakeSupabaseClient(tables) as never;
+    const result = await waiveLeaseFee(db, { managerUserId: MANAGER, leaseId: LEASE_ID, reason: "Referral" });
+    expect(result.ok && result.cancelledChargeIds).toEqual(["hc_app_app_signer_lease_fee"]);
+    expect(tables.portal_household_charge_records!.find((r) => r.id === "other-manager-lease-fee")!.status).toBe(
+      "pending",
+    );
   });
 
   it("can be reversed: the fee is owed again for its original amount", async () => {

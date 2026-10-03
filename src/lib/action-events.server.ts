@@ -3,7 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationCategory } from "@/lib/notification-preferences";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { isWithinQuietHours } from "@/lib/sms/number-registration-policy";
+import { DEFAULT_QUIET_HOURS, hourInTimezone, isWithinQuietHours } from "@/lib/sms/number-registration-policy";
+import { DEFAULT_PROPERTY_TIME_ZONE, propertyTimeZoneForZip } from "@/lib/property-time-zone";
 import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
@@ -100,15 +101,21 @@ export function actionDeliveryPolicy(input: {
   now: Date;
   urgent?: boolean;
   recentEventCount: number;
+  /**
+   * The zone the quiet window is read in - the PROPERTY's, so "nothing after
+   * 8pm" means 8pm where the house is. Omitted keeps the policy default.
+   */
+  timeZone?: string;
 }): ActionDeliveryPolicy {
   if (input.urgent) return { deferSms: false, digest: false, nextAttemptAt: null };
   const digest = input.recentEventCount >= 4;
-  const quiet = isWithinQuietHours(input.now);
+  const config = input.timeZone ? { ...DEFAULT_QUIET_HOURS, tz: input.timeZone } : DEFAULT_QUIET_HOURS;
+  const quiet = isWithinQuietHours(input.now, config);
   if (!quiet && !digest) return { deferSms: false, digest: false, nextAttemptAt: null };
   const next = new Date(input.now);
   if (quiet) {
     next.setMinutes(0, 0, 0);
-    do next.setHours(next.getHours() + 1); while (isWithinQuietHours(next));
+    do next.setHours(next.getHours() + 1); while (isWithinQuietHours(next, config));
   } else {
     next.setMinutes(next.getMinutes() + 10, 0, 0);
   }
@@ -117,7 +124,8 @@ export function actionDeliveryPolicy(input: {
 
 /**
  * A vendor's text waits for THEIR quiet window (default 8pm to 7am), not only
- * the workspace default: inside it the text is deferred to the window's end
+ * the workspace default, and the window is read on the PROPERTY's clock rather
+ * than Pacific everywhere: inside it the text is deferred to the window's end
  * while the in-app message and email go at once. An emergency skips the wait
  * only when the vendor kept "emergencies can text me anytime" on. An unreadable
  * settings row leaves the policy as it was, never silencing the message.
@@ -128,21 +136,46 @@ async function withVendorQuietHours(
   recipient: { audience: ActionEventAudience; userId?: string },
   now: Date,
   urgent?: boolean,
+  timeZone: string = DEFAULT_PROPERTY_TIME_ZONE,
 ): Promise<ActionDeliveryPolicy> {
   if (recipient.audience !== "vendor" || !recipient.userId?.trim()) return policy;
   try {
-    const [{ loadVendorNotificationSettings }, { vendorQuietHoursDeferral }, { losAngelesHour }] = await Promise.all([
+    const [{ loadVendorNotificationSettings }, { vendorQuietHoursDeferral }] = await Promise.all([
       import("@/lib/vendor-notification-settings.server"),
       import("@/lib/vendor-notification-settings"),
-      import("@/lib/reminders/rules"),
     ]);
     const settings = await loadVendorNotificationSettings(db, recipient.userId.trim());
-    const until = vendorQuietHoursDeferral(settings, now, losAngelesHour, { urgent });
+    const until = vendorQuietHoursDeferral(settings, now, (at) => hourInTimezone(at, timeZone), { urgent });
     if (!until) return policy;
     const later = policy.nextAttemptAt && Date.parse(policy.nextAttemptAt) > Date.parse(until) ? policy.nextAttemptAt : until;
     return { ...policy, deferSms: true, nextAttemptAt: later };
   } catch {
     return policy;
+  }
+}
+
+/**
+ * The zone this event's quiet hours are read in: the house's, from its ZIP.
+ * Pacific when there is no house, no ZIP, or the read fails - the assumption
+ * the product made everywhere before this.
+ */
+async function eventTimeZone(db: SupabaseClient, propertyId: string | null): Promise<string> {
+  if (!propertyId) return DEFAULT_PROPERTY_TIME_ZONE;
+  try {
+    const { data } = await db
+      .from("manager_property_records")
+      .select("row_data, property_data")
+      .eq("id", propertyId)
+      .maybeSingle();
+    const rowData = (data?.row_data ?? {}) as { zip?: unknown; submission?: { zip?: unknown } };
+    const propertyData = (data?.property_data ?? {}) as { listingSubmission?: { zip?: unknown } };
+    const zip =
+      String(rowData.zip ?? "").trim() ||
+      String(rowData.submission?.zip ?? "").trim() ||
+      String(propertyData.listingSubmission?.zip ?? "").trim();
+    return propertyTimeZoneForZip(zip);
+  } catch {
+    return DEFAULT_PROPERTY_TIME_ZONE;
   }
 }
 
@@ -487,6 +520,9 @@ export async function emitActionEvent(
     eventRow = data as { id: string };
   }
 
+  // One lookup per event: quiet hours are read on the clock where the house is.
+  const timeZone = await eventTimeZone(db, propertyId);
+
   let delivered = 0;
   let submitted = 0;
   let deferred = 0;
@@ -501,10 +537,11 @@ export async function emitActionEvent(
     const { count } = await db.from("action_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
     const policy = await withVendorQuietHours(
       db,
-      actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0 }),
+      actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone }),
       recipient,
       now,
       input.urgent,
+      timeZone,
     );
     const initialStatus = smsTest ? "captured" : policy.deferSms ? "deferred" : "pending";
     const { data: delivery } = await db.from("action_event_deliveries").upsert({

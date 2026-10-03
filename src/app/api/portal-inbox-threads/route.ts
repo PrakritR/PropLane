@@ -10,6 +10,7 @@ import {
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
 import { buildClientPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
+import { mergeOtherOwnersThreadRowData } from "@/lib/communication/shared-thread-merge";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -473,12 +474,20 @@ export async function POST(req: Request) {
           owner_user_id?: string | null;
           participant_email?: string | null;
           scope?: string | null;
+          row_data?: unknown;
         };
         // Ownership, recipient, scope and type are the stored row's, never the body's.
         record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
         record.participant_email = prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
         record.thread_type = (existing[0] as { thread_type?: string | null }).thread_type ?? null;
+        // Another owner's conversation: this caller was handed a copy with the
+        // turns about houses they do not hold REMOVED, so the body is not a
+        // complete row. Merge append-only instead of replacing (S9/D2).
+        const priorOwner = String(prior.owner_user_id ?? "").trim();
+        if (priorOwner && priorOwner !== ctx.user.id) {
+          record.row_data = mergeOtherOwnersThreadRowData(prior.row_data, normalized);
+        }
       } else if (isTeamThreadId(id) || (ctx.user.role !== "admin" && isServerReservedInboxThreadId(id))) {
         continue;
       } else if (ctx.user.role !== "admin") {

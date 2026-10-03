@@ -56,8 +56,12 @@ export async function ensureSubmittedVendorInvoiceForMarkedDone(
   const totalCents = await workOrderInvoiceTotalCents(db, input.workOrderId, input.row);
   if (totalCents <= 0) return;
 
+  // The roster row under the work order's OWN manager, or none. `links` spans
+  // every manager this vendor is on, so falling back to the first one filed the
+  // bill under an unrelated manager - who could then see and pay an invoice for
+  // a job that was never theirs, while the real manager never saw it.
   const links = await resolveOwnVendorRecords(db, input.vendorUserId);
-  const target = links.find((link) => link.managerUserId === input.managerUserId) ?? links[0];
+  const target = links.find((link) => link.managerUserId === input.managerUserId);
   if (!target) return;
 
   const title = input.row.title?.trim() || "Service";

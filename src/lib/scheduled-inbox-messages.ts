@@ -17,6 +17,14 @@ export type ScheduledInboxMessageRecord = {
   senderPortal?: "resident" | "manager"; senderUserId?: string | null; senderName?: string; senderEmail?: string;
   createdAt: string; sentAt?: string | null; cancelledAt?: string | null; messageKind?: string;
   tourPlannedEventId?: string; tourStartIso?: string; tourReminderMinutesBefore?: number; smsTestSessionId?: string;
+  /**
+   * The workspace the manager composed this in. Stamped at schedule time because
+   * delivery runs in a cron with no browser cookie to read one from: without it
+   * an "All residents" broadcast scheduled in one workspace went out to the
+   * residents of every workspace the manager owns. Absent on legacy rows and on
+   * resident-composed messages.
+   */
+  workspaceId?: string | null;
 };
 
 export const RESIDENT_SCHEDULED_MESSAGE_CONTENT_FORBIDDEN = "Managers cannot edit resident-scheduled message content.";

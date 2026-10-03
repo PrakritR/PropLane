@@ -76,14 +76,17 @@ export async function POST(req: Request) {
   const signature = req.headers.get("x-twilio-signature");
   const authToken = twilioWebhookAuthToken();
 
-  // Signature over the exact URL Twilio was configured with. Only local dev
-  // may run unsigned — any deployed environment fails closed (Checkr precedent).
+  // Signature over the exact URL Twilio was configured with. A configured auth
+  // token ALWAYS requires a valid signature - leaving the header off is not a
+  // local-dev convenience, and a self-hosted or staging runtime that is neither
+  // Vercel nor NODE_ENV=production was accepting forged inbound SMS (STOP/START
+  // keywords included). With no token at all, only a local, non-production
+  // runtime may run unsigned. Same shape as the inbound email webhook.
   // Set TWILIO_WEBHOOK_URL when a proxy rewrites the request origin.
-  if (!authToken || !signature) {
-    if (process.env.VERCEL || process.env.NODE_ENV === "production") {
-      return new Response("Forbidden", { status: 403 });
-    }
-  } else {
+  const deployed = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
+  if (authToken ? !signature : deployed) {
+    return new Response("Forbidden", { status: 403 });
+  } else if (authToken && signature) {
     const url = process.env.TWILIO_WEBHOOK_URL?.trim() || `${resolveAppOrigin(req)}/api/webhooks/twilio/sms`;
     if (!twilio.validateRequest(authToken, signature, url, params)) {
       return new Response("Forbidden", { status: 403 });

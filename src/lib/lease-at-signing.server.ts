@@ -3,8 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { canPayHouseholdChargeWithAxisAch } from "@/lib/household-charge-payment-eligibility";
-import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
+import { householdChargeProplanePayability } from "@/lib/household-charge-payment-eligibility";
+import { enrichHouseholdChargesFromPropertyRecordsResult } from "@/lib/household-charge-payment-eligibility.server";
 import {
   atSigningTotalCents,
   chargesForLeaseSigning,
@@ -14,6 +14,10 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 const CHARGE_TABLE = "portal_household_charge_records";
+
+/** Reason the gate could not answer: the signature waits and the resident retries (503). */
+export const AT_SIGNING_ELIGIBILITY_UNRESOLVED =
+  "Could not confirm how this property collects payment; the signature was not recorded.";
 
 type LeaseLike = {
   axisId?: string | null;
@@ -79,10 +83,14 @@ export async function loadAtSigningChargesForLease(
  * May this resident's signature be recorded? Only when none of THEIR at-signing lines is unpaid.
  * Fails closed: if the charges cannot be read, the signature waits rather than slipping through.
  *
- * Only a line the resident can actually PAY in PropLane gates the signature. A property whose manager
- * collects offline (PropLane payments off, or no payout account yet) offers the resident no checkout, so
- * blocking on it would trap them behind a payment they cannot make; there the manager records the payment
- * and the line is collected exactly as it was before this gate existed.
+ * Only a line the resident can actually PAY in PropLane gates the signature. A property whose listing
+ * SAYS it collects offline (PropLane payments off, or no usable payout account) offers the resident no
+ * checkout, so blocking on it would trap them behind a payment they cannot make; there the manager records
+ * the payment and the line is collected exactly as it was before this gate existed.
+ *
+ * A line whose listing could not be resolved at all is NOT that case. "Cannot determine" fails closed -
+ * `ok: false`, which the signature route answers 503 and the resident retries - because reading it as
+ * "collects offline" is what let every owed line drop out of `unpaid` after one failed property read.
  */
 export async function checkResidentAtSigningGate(
   db: SupabaseClient,
@@ -97,7 +105,13 @@ export async function checkResidentAtSigningGate(
     return charge.residentEmail.trim().toLowerCase() === input.residentEmail.trim().toLowerCase();
   });
   const owed = unpaidAtSigningCharges(mine);
-  const enriched = owed.length > 0 ? await enrichHouseholdChargesFromPropertyRecords(db, owed) : owed;
-  const unpaid = enriched.filter((charge) => canPayHouseholdChargeWithAxisAch(charge));
+  if (owed.length === 0) return { ok: true, unpaid: [], unpaidCents: 0 };
+  const { charges: enriched, lookupFailed } = await enrichHouseholdChargesFromPropertyRecordsResult(db, owed);
+  if (lookupFailed) return { ok: false, error: AT_SIGNING_ELIGIBILITY_UNRESOLVED };
+  const payability = enriched.map((charge) => householdChargeProplanePayability(charge));
+  if (payability.some((answer) => answer === "unknown")) {
+    return { ok: false, error: AT_SIGNING_ELIGIBILITY_UNRESOLVED };
+  }
+  const unpaid = enriched.filter((_, index) => payability[index] === "payable");
   return { ok: true, unpaid, unpaidCents: atSigningTotalCents(unpaid) };
 }

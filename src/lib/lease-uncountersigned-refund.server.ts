@@ -65,9 +65,16 @@ export async function listUncountersignedLeasesPastDeadline(
   const cutoff = now.getTime() - UNCOUNTER_SIGN_REFUND_AFTER_DAYS * 24 * 60 * 60 * 1000;
   const out: StaleLease[] = [];
   for (let offset = 0; ; offset += 500) {
+    // Filtered in the DATABASE, not in JS. `row_data` carries the uploaded lease
+    // PDF as a base64 data URL plus the generated HTML, so paging the whole
+    // table pulled potentially hundreds of MB through the egress budget on every
+    // daily run. `parseStaleLease` re-checks both conditions, so narrowing here
+    // can only ever reduce what crosses the wire.
     const { data, error } = await db
       .from("portal_lease_pipeline_records")
       .select("id, manager_user_id, resident_email, row_data")
+      .eq("row_data->>status", "Manager Signature Pending")
+      .lte("row_data->residentSignature->>signedAtIso", new Date(cutoff).toISOString())
       .order("id")
       .range(offset, offset + 499);
     if (error) throw new Error(`Could not list leases: ${error.message}`);

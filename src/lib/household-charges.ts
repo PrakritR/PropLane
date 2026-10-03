@@ -4485,7 +4485,10 @@ export function recordApprovedApplicationCharges(
       status: "pending",
       blocksLeaseUntilPaid,
       dueDateLabel,
-      ...(dueAtSigning ? { dueAtSigning: true } : {}),
+      // Stamped at creation, while the manager's own listing catalog is in
+      // reach: the at-signing gate runs on the SERVER, where the catalog is
+      // not, and an unstamped line there reads as "cannot determine".
+      ...(dueAtSigning ? { dueAtSigning: true, ...paymentSnapshotsFromListing(sub) } : {}),
       ...(customFeeId ? { customFeeId } : {}),
       ...split.split,
     });

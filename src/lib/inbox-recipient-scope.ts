@@ -375,13 +375,17 @@ async function managerConnectedToFunnelProspect(
         const inquiry = item as Record<string, unknown>;
         const inquiryEmail = String(inquiry.email ?? "").trim().toLowerCase();
         if (inquiryEmail !== email) continue;
+        // The house the inquiry is about narrows it, exactly as the tour-link
+        // and lead-thread branches above do: naming an owner as host is not a
+        // grant on every house in every workspace that owner holds.
+        const inquiryHouse = String(inquiry.propertyId ?? "").trim();
         const hostId = String(inquiry.managerUserId ?? "").trim();
-        if (hostId && managerIds.includes(hostId)) return true;
+        if (hostId && recipientInReach(requestorUserId, hostId, inquiryHouse, reach)) return true;
         const windows = Array.isArray(inquiry.requestedWindows) ? inquiry.requestedWindows : [];
         for (const window of windows) {
           if (!window || typeof window !== "object" || Array.isArray(window)) continue;
           const adminId = String((window as Record<string, unknown>).adminUserId ?? "").trim();
-          if (adminId && managerIds.includes(adminId)) return true;
+          if (adminId && recipientInReach(requestorUserId, adminId, inquiryHouse, reach)) return true;
         }
       }
     } catch {

@@ -18,13 +18,15 @@ const B = "acct-b";
 const state = vi.hoisted(() => ({
   viewer: { id: "", email: "", role: "manager" },
   db: null as unknown,
+  /** Stand in for a Communication grant on another owner's conversation. */
+  seesOtherOwners: false,
 }));
 
 vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveInboxScopeUser: async () => ({ user: { ...state.viewer }, db: state.db }),
   applyPortalInboxThreadScope: (query: { eq: (col: string, id: string) => unknown }, user: { id: string }) =>
-    query.eq("owner_user_id", user.id),
+    state.seesOtherOwners ? query : query.eq("owner_user_id", user.id),
 }));
 vi.mock("@/lib/communication/conversation-visibility.server", () => ({
   resolveCommunicationScope: async () => ({ ownerIds: [] }),
@@ -74,6 +76,7 @@ const forged = (scope: string, extra: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   state.viewer = { id: B, email: "b@example.test", role: "manager" };
+  state.seesOtherOwners = false;
   state.db = seed();
 });
 
@@ -147,6 +150,46 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     });
     expect(res.status).toBe(200);
     expect(rows()[0]).toMatchObject({ owner_user_id: B, participant_email: "b@example.test", scope: MGR, thread_type: null });
+  });
+
+  it("a co-manager's save of another owner's conversation can only ADD turns", async () => {
+    // The co-manager was handed a copy with house B's turns removed, so saving
+    // it wholesale deleted the owner's turns. Marking it read must not.
+    state.seesOtherOwners = true;
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "msg_inbox_shared",
+      scope: MGR,
+      owner_user_id: "owner-1",
+      participant_email: "tenant@example.test",
+      thread_type: null,
+      row_data: {
+        id: "msg_inbox_shared",
+        folder: "inbox",
+        unread: true,
+        messages: [
+          { id: "m1", body: "about house 1", at: "Oct 2", houseId: "H1" },
+          { id: "m2", body: "about house 2", at: "Oct 2", houseId: "H2" },
+        ],
+      },
+    });
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "msg_inbox_shared",
+        scope: MGR,
+        folder: "inbox",
+        unread: false,
+        messages: [
+          { id: "m1", body: "about house 1", at: "Oct 2", houseId: "H1" },
+          { id: "m3", body: "my reply", at: "Oct 3", houseId: "H1", outbound: true },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+    const stored = rows()[0] as { owner_user_id: string; row_data: { unread: boolean; messages: { id: string }[] } };
+    expect(stored.owner_user_id).toBe("owner-1");
+    expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    expect(stored.row_data.unread).toBe(false);
   });
 
   it("lets an admin write the admin inbox", async () => {

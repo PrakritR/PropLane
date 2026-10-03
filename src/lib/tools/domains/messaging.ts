@@ -897,6 +897,9 @@ export const scheduleMessageTool = defineWriteTool({
         deliverViaEmail: true,
         deliverViaSms: false,
         senderPortal: "manager",
+        // The workspace this turn speaks for, so the cron that delivers it
+        // narrows the recipients the same way this turn was narrowed.
+        workspaceId: ctx.workspace?.id ?? null,
       });
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { scheduled: false }, { clearDedupeKey: true });

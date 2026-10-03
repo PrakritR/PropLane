@@ -99,8 +99,44 @@ export function restrictThreadToHouses(
   const latestBody = str(latest?.body) || str(next.body);
   return {
     ...next,
+    ...threadIdentityFromKeptTurns(rowData, next, kept, view),
     preview: latestBody.slice(0, 100).replace(/\n/g, " "),
     ...(latest?.at ? { time: latest.at } : {}),
     housesRestricted: true,
+  };
+}
+
+/**
+ * The list row's own house identity, recomputed from the turns this viewer may
+ * read. A send stamps the thread's top-level `propertyId` / `propertyTitle` /
+ * `subject` from the LATEST turn, so a conversation whose newest turn is about
+ * a house the viewer was never granted still named that house on their row -
+ * the turns were filtered but the address, title and "<house> — topic" subject
+ * were not. The root* fields are already derived this way; these follow.
+ */
+function threadIdentityFromKeptTurns(
+  rowData: Record<string, unknown>,
+  next: Record<string, unknown>,
+  kept: Turn[],
+  view: HouseGrantView,
+): Record<string, unknown> {
+  const stored = str(rowData.propertyId) || str(rowData.assignedPropertyId);
+  if (!stored || view.allowed.has(stored)) return {};
+
+  // The newest kept turn that names a house the viewer holds; else the root,
+  // when the root's own house is one of theirs.
+  const anchor = [...kept].reverse().find((turn) => view.allowed.has(str(turn?.houseId)));
+  const rootHouse = str(next.rootHouseId);
+  const identity = anchor
+    ? { houseId: str(anchor.houseId), label: str(anchor.houseLabel), subject: str(anchor.subject) }
+    : view.allowed.has(rootHouse)
+      ? { houseId: rootHouse, label: str(next.rootHouseLabel), subject: str(next.rootSubject) }
+      : { houseId: "", label: "", subject: "" };
+  return {
+    propertyId: identity.houseId,
+    ...(str(rowData.assignedPropertyId) ? { assignedPropertyId: identity.houseId } : {}),
+    propertyTitle: identity.label,
+    rootHouseLabel: identity.label,
+    subject: identity.subject,
   };
 }

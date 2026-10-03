@@ -214,14 +214,40 @@ describe("ensureVendorForOutboundText (C2-DT5)", () => {
     expect(rows.manager_vendor_records).toHaveLength(1);
   });
 
-  it("a PropLane vendor account on that number is added to the list without the tick", async () => {
+  it("a PropLane vendor account that VERIFIED that number is added without the tick", async () => {
     const { db, rows } = database({
       vendor_business_profiles: [
         { user_id: "u-vendor", business_name: "Apex Plumbing", work_email: "a@apex.test", work_phone: "(206) 555-0123", trades: ["Plumbing"] },
       ],
+      profiles: [{ id: "u-vendor", phone: "+12065550123", phone_verified_at: "2026-09-01T00:00:00.000Z" }],
     });
     const result = await ensureVendorForOutboundText(db, { ...send, markedVendor: false });
     expect(result).toMatchObject({ name: "Apex Plumbing", created: true });
     expect(rows.manager_vendor_records[0]).toMatchObject({ manager_user_id: OWNER, vendor_user_id: "u-vendor" });
+  });
+
+  it("an account that merely TYPED that number is never linked to the manager's roster", async () => {
+    // `work_phone` is self-reported, so a match is a claim, not proof: an
+    // account that types a real contractor's number must not be pulled onto
+    // the manager's roster when the manager texts that contractor.
+    const { db, rows } = database({
+      vendor_business_profiles: [
+        { user_id: "u-impostor", business_name: "Not Apex", work_email: "x@x.test", work_phone: "(206) 555-0123", trades: ["Plumbing"] },
+      ],
+      profiles: [{ id: "u-impostor", phone: "+12065559999", phone_verified_at: "2026-09-01T00:00:00.000Z" }],
+    });
+    expect(await ensureVendorForOutboundText(db, { ...send, markedVendor: false })).toBeNull();
+    expect(rows.manager_vendor_records ?? []).toHaveLength(0);
+  });
+
+  it("an unverified account still gets an UNLINKED roster row when the manager ticks 'this is a vendor'", async () => {
+    const { db, rows } = database({
+      vendor_business_profiles: [
+        { user_id: "u-impostor", business_name: "Not Apex", work_email: "x@x.test", work_phone: "(206) 555-0123", trades: ["Plumbing"] },
+      ],
+    });
+    const result = await ensureVendorForOutboundText(db, { ...send, markedVendor: true });
+    expect(result).toMatchObject({ created: true });
+    expect(rows.manager_vendor_records[0]).toMatchObject({ manager_user_id: OWNER, vendor_user_id: null });
   });
 });

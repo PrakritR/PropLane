@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderWorkOrderEvent, workOrderDeliveryPolicy } from "@/lib/work-order-events.server";
+import { actionDeliveryPolicy } from "@/lib/action-events.server";
 
 const facts = {
   reference: "WO-1042",
@@ -53,6 +54,17 @@ describe("work-order event delivery policy", () => {
     const daytime = new Date("2026-09-04T19:00:00.000Z"); // noon Pacific
     expect(workOrderDeliveryPolicy({ now: daytime, recentEventCount: 3 }).digest).toBe(false);
     expect(workOrderDeliveryPolicy({ now: daytime, recentEventCount: 4 })).toMatchObject({ deferSms: true, digest: true });
+  });
+
+  it("reads the quiet window on the PROPERTY's clock, not Pacific everywhere", () => {
+    // 10:30pm Eastern / 7:30pm Pacific: inside the window where the house is,
+    // outside it in Los Angeles. Reading Pacific unconditionally texted an
+    // Eastern recipient at 10:30pm their time.
+    const now = new Date("2026-09-05T02:30:00.000Z");
+    expect(actionDeliveryPolicy({ now, recentEventCount: 0 }).deferSms).toBe(false);
+    const eastern = actionDeliveryPolicy({ now, recentEventCount: 0, timeZone: "America/New_York" });
+    expect(eastern.deferSms).toBe(true);
+    expect(new Date(eastern.nextAttemptAt!).getTime()).toBeGreaterThan(now.getTime());
   });
 });
 

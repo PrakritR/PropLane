@@ -53,13 +53,34 @@ export function enrichHouseholdChargePaymentFlags(
 }
 
 export function canPayHouseholdChargeWithAxisAch(charge: HouseholdCharge): boolean {
-  if (charge.status === "paid") return false;
-  if (charge.managerStripeConnectReadySnapshot === false) return false;
-  if (charge.axisPaymentsEnabledSnapshot === true) return true;
-  if (charge.axisPaymentsEnabledSnapshot === false) return false;
+  return householdChargeProplanePayability(charge) === "payable";
+}
+
+/**
+ * Can the resident pay this line in PropLane?
+ *
+ *  - `payable`  — PropLane payments are on for the listing and the manager can receive.
+ *  - `offline`  — the listing says so: PropLane payments off, or no usable payout account.
+ *  - `unknown`  — the listing could not be resolved at all (a failed property read,
+ *    or a record carrying no `v === 1` listing submission).
+ *
+ * `unknown` is NOT `offline`. {@link canPayHouseholdChargeWithAxisAch} collapses
+ * the two because every UI caller only ever offers or hides a Pay button, but the
+ * at-signing gate must tell them apart: treating "cannot determine" as "collects
+ * offline" let a signature through with the lease fee, deposit and move-in fee
+ * still owed.
+ */
+export function householdChargeProplanePayability(
+  charge: HouseholdCharge,
+): "payable" | "offline" | "unknown" {
+  if (charge.status === "paid") return "offline";
+  if (charge.managerStripeConnectReadySnapshot === false) return "offline";
+  if (charge.axisPaymentsEnabledSnapshot === true) return "payable";
+  if (charge.axisPaymentsEnabledSnapshot === false) return "offline";
 
   const prop = getPropertyById(charge.propertyId);
   const sub =
     prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
-  return Boolean(sub && axisPaymentsEnabledOnListing(sub));
+  if (!sub) return "unknown";
+  return axisPaymentsEnabledOnListing(sub) ? "payable" : "offline";
 }

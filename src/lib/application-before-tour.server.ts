@@ -60,11 +60,16 @@ export type ApplicationBeforeTourDecision =
 
 /** The property's owner (the workspace whose setting applies), or null when the property is unknown. */
 async function propertyOwnerUserId(db: Db, propertyId: string): Promise<string | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from("manager_property_records")
     .select("manager_user_id")
     .eq("id", propertyId)
     .maybeSingle();
+  // A failed read is NOT "the property has no owner". Swallowing it answered
+  // `{ required: false }` and let an ungated tour through on a workspace that
+  // requires an application first; every other read here throws, which the tour
+  // routes surface as a 500 and the prospect retries.
+  if (error) throw error;
   const owner = text((data as { manager_user_id?: unknown } | null)?.manager_user_id);
   return owner || null;
 }

@@ -97,8 +97,10 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerMayFileLeaseUnderProperty: (...a: unknown[]) => managerMayFileLeaseUnderProperty(...(a as [])),
 }));
 vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
-  enrichHouseholdChargesFromPropertyRecords: async (_db: unknown, charges: Array<Record<string, unknown>>) =>
-    charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: PAYABLE_IN_PROPLANE, managerStripeConnectReadySnapshot: true })),
+  enrichHouseholdChargesFromPropertyRecordsResult: async (_db: unknown, charges: Array<Record<string, unknown>>) => ({
+    charges: charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: PAYABLE_IN_PROPLANE, managerStripeConnectReadySnapshot: true })),
+    lookupFailed: false,
+  }),
 }));
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: (...a: unknown[]) => autoFileLeaseDocument(...(a as [])),

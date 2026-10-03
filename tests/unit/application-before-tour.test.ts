@@ -24,6 +24,7 @@ vi.mock("@/lib/tour-host-enumeration.server", () => ({ listPropertyTourHostUserI
 
 let pipelineRow: Record<string, unknown> | null;
 let applicationRows: { row_data: unknown }[];
+let propertyReadError: { message: string } | null;
 const upserts: unknown[] = [];
 
 function fakeDb() {
@@ -34,7 +35,11 @@ function fakeDb() {
         select: () => builder,
         eq: () => builder,
         maybeSingle: async () => {
-          if (state.table === "manager_property_records") return { data: { manager_user_id: "owner-1" }, error: null };
+          if (state.table === "manager_property_records") {
+            return propertyReadError
+              ? { data: null, error: propertyReadError }
+              : { data: { manager_user_id: "owner-1" }, error: null };
+          }
           if (state.table === "manager_automation_settings") return { data: pipelineRow ? { row_data: pipelineRow } : null, error: null };
           return { data: null, error: null };
         },
@@ -67,6 +72,7 @@ const submitted = (propertyId: string, extra: Record<string, unknown> = {}) => (
 beforeEach(() => {
   pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
   applicationRows = [];
+  propertyReadError = null;
   upserts.length = 0;
 });
 
@@ -100,6 +106,14 @@ describe("resolveApplicationBeforeTour", () => {
       hasApplication: false,
     });
     expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: null })).toBe(APPLICATION_BEFORE_TOUR_MESSAGE);
+  });
+
+  it("a failed property read is not 'no owner' - it throws instead of letting the tour through", async () => {
+    // Swallowing the error answered `{ required: false }`, so a required
+    // workspace accepted an ungated tour whenever the read timed out.
+    propertyReadError = { message: "timeout" };
+    await expect(resolveApplicationBeforeTour(fakeDb(), { propertyId: "prop-1", verifiedEmail: null })).rejects.toThrow();
+    await expect(applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: null })).rejects.toThrow();
   });
 
   it("when Required, a verified email with a submitted application for the property passes; for another property it does not", async () => {

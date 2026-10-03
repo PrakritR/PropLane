@@ -91,16 +91,33 @@ export async function enrichHouseholdChargesFromPropertyRecords(
   db: SupabaseClient,
   charges: HouseholdCharge[],
 ): Promise<HouseholdCharge[]> {
-  if (charges.length === 0) return charges;
+  return (await enrichHouseholdChargesFromPropertyRecordsResult(db, charges)).charges;
+}
+
+/**
+ * The same enrichment, with whether either property read actually succeeded.
+ *
+ * A caller that only renders a Pay button can ignore a failed read (the row
+ * simply shows as not payable); a caller that GATES on payability cannot - a
+ * transient read error would otherwise look exactly like "this property
+ * collects offline". The at-signing gate reads `lookupFailed` and fails closed.
+ */
+export async function enrichHouseholdChargesFromPropertyRecordsResult(
+  db: SupabaseClient,
+  charges: HouseholdCharge[],
+): Promise<{ charges: HouseholdCharge[]; lookupFailed: boolean }> {
+  if (charges.length === 0) return { charges, lookupFailed: false };
+  let lookupFailed = false;
 
   const propertyIds = [...new Set(charges.map((c) => c.propertyId?.trim()).filter(Boolean))] as string[];
   const listingByPropertyId = new Map<string, ManagerListingSubmissionV1 | null>();
 
   if (propertyIds.length > 0) {
-    const { data } = await db
+    const { data, error } = await db
       .from("manager_property_records")
       .select("id, property_data")
       .in("id", propertyIds);
+    if (error) lookupFailed = true;
     for (const row of data ?? []) {
       listingByPropertyId.set(String(row.id), listingFromPropertyData(row.property_data));
     }
@@ -111,11 +128,12 @@ export async function enrichHouseholdChargesFromPropertyRecords(
   const connectReadyByManager = await managerStripeConnectReadyByManagerId(db, managerIds);
 
   if (managerIds.length > 0) {
-    const { data } = await db
+    const { data, error } = await db
       .from("manager_property_records")
       .select("manager_user_id, property_data")
       .in("manager_user_id", managerIds)
       .limit(500);
+    if (error) lookupFailed = true;
     for (const row of data ?? []) {
       const managerId = String(row.manager_user_id ?? "").trim();
       if (!managerId) continue;
@@ -128,7 +146,7 @@ export async function enrichHouseholdChargesFromPropertyRecords(
     }
   }
 
-  return charges.map((charge) => {
+  const enriched = charges.map((charge) => {
     const managerId = charge.managerUserId?.trim() ?? "";
     let listing = listingByPropertyId.get(charge.propertyId?.trim() ?? "") ?? null;
     if (!listing) {
@@ -144,4 +162,5 @@ export async function enrichHouseholdChargesFromPropertyRecords(
       managerStripeConnectReadySnapshot: managerId ? connectReadyByManager.get(managerId) : undefined,
     };
   });
+  return { charges: enriched, lookupFailed };
 }
