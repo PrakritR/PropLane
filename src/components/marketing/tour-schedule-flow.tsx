@@ -723,7 +723,7 @@ export function TourScheduleFlow({
               const inquiryIds = results
                 .map((item) => item.row?.id?.trim() ?? "")
                 .filter(Boolean);
-              if (signedInUserId && inquiryIds.length > 0) {
+              if (signedInUserId && hasResidentRole && inquiryIds.length > 0) {
                 const linked = await linkBookedToursToSignedInResident(inquiryIds);
                 if (!linked) {
                   showToast("Your tour was booked but could not be linked to your account yet.");
