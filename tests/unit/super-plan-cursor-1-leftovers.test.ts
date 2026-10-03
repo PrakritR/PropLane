@@ -26,10 +26,15 @@ describe("cursor-1 Super plan leftovers", () => {
     expect(occupied).toContain("RoomAvailabilityMonthCalendar");
   });
 
-  it("bathroom Who uses it is a dropdown on the main card", () => {
+  it("bathroom card: who uses it is the Room / Rooms dropdown link on the main card", () => {
+    // C2-RE5: the bathroom editor mirrors the room (Type Private/Shared, Location, Room or Rooms),
+    // so the old "Who uses it" row is the shared mirror-fields dropdown, not a bespoke row.
     const editor = src("src/components/portal/listing-wizard-v2/listing-editor.tsx");
-    expect(editor).toContain('label="Who uses it"');
-    expect(editor).toContain('dataAttr="listing-v2-bath-who-uses"');
+    const mirror = src("src/components/portal/listing-room-editor/bathroom-editor-mirror-fields.tsx");
+    expect(editor).toContain("<BathroomEditorMirrorFields");
+    expect(mirror).toContain('<FactRow label="Room">');
+    expect(mirror).toContain('<FactRow label="Rooms">');
     expect(editor).not.toContain("Doesn't use it");
+    expect(mirror).not.toContain("Doesn't use it");
   });
 });

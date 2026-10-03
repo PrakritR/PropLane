@@ -1295,8 +1295,18 @@ function StepRooms({
     for (const key of Object.keys(ROOM_DESCRIPTION_FIELD_BY_KEY) as (keyof ManagerRoomSubmission)[]) {
       Object.assign(roomPatch, { [key]: copied[key] });
     }
-    writeRoom(room.id, roomPatch);
-    patch(copyRoomBathroomLinkFrom(sub, room.id, otherId));
+    // One patch, not two: `copyRoomBathroomLinkFrom` returns a whole submission,
+    // so applying it after `writeRoom` on the same stale `sub` would overwrite
+    // the description just copied. Fold the room copy in first, then the link.
+    const touched = (Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[])
+      .map((key) => ROOM_DESCRIPTION_FIELD_BY_KEY[key])
+      .filter((field): field is RoomDescriptionField => Boolean(field));
+    const nextRooms = rooms.map((r) =>
+      r.id === room.id
+        ? { ...r, ...roomPatch, ...(touched.length > 0 ? { ownRoomFields: Array.from(new Set([...(r.ownRoomFields ?? []), ...touched])) } : {}) }
+        : r,
+    );
+    patch(copyRoomBathroomLinkFrom({ ...sub, rooms: nextRooms }, room.id, otherId));
   };
 
   const factsFor = (room: ManagerRoomSubmission, i: number) => {
@@ -1952,6 +1962,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => toggle(space.id)}>Edit</DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
                         const idx = spaces.findIndex((s) => s.id === space.id);
@@ -1962,7 +1973,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                     >
                       Duplicate
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => toggle(space.id)}>Edit</DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-red-700"
                       onClick={() => {
