@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { loadFinancialActivity, invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
 import { HOUSEHOLD_CHARGES_EVENT } from "@/lib/household-charges";
@@ -111,12 +112,13 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   const [summary, setSummary] = useState<ReturnType<typeof summarizeFinancialActivity> | null>(null);
   const [balance, setBalance] = useState<{ availableCents: number; pendingCents: number } | null>(null);
   const [owed, setOwed] = useState<number>();
+  const [billCount, setBillCount] = useState<number>();
   const [error, setError] = useState("");
   const [month, setMonth] = useState("");
   const [clock, setClock] = useState(0);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const refresh = () => { setSummary(null); setBalance(null); setOwed(undefined); setError(""); setRevision(n => n + 1); };
+    const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setSummary(null); setBalance(null); setOwed(undefined); setBillCount(undefined); setError(""); setRevision(n => n + 1); };
     const events = [WORKSPACE_SELECTION_EVENT, MANAGER_OUTGOING_PAYMENTS_EVENT, HOUSEHOLD_CHARGES_EVENT];
     events.forEach(name => window.addEventListener(name, refresh));
     return () => events.forEach(name => window.removeEventListener(name, refresh));
@@ -125,14 +127,13 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
     if (!ready) return;
     let cancelled = false;
     const fetchJson = async (url: string) => { const res = await fetch(url); const data = await res.json(); if (!res.ok) throw new Error(data.error || "Could not load finances."); return data; };
-    const query = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
-    fetchJson(`/api/reports/financial-activity${query}`).then(activity => {
+    loadFinancialActivity(userId, propertyId).then(activity => {
       if (cancelled) return;
-      setSummary(JSON.parse(activity.meta.summary));
+      setSummary(JSON.parse(String(activity.meta?.summary)));
       setMonth(pacificCalendarDateYmd().slice(0, 7)); setClock(Date.now());
     }).catch(err => { if (!cancelled) setError(err.message); });
     fetchJson("/api/portal/proplane-balance").then(snapshot => { if (!cancelled) setBalance(snapshot.enabled ? snapshot : null); }).catch(() => undefined);
-    fetchJson("/api/manager/vendor-invoices?outgoing=1&status=approved,scheduled").then(invoices => { if (!cancelled) setOwed(invoices.totals?.owedCents); }).catch(() => undefined);
+    fetchJson("/api/manager/vendor-invoices?outgoing=1&status=approved,scheduled").then(invoices => { if (!cancelled) { setOwed(invoices.totals?.owedCents); setBillCount(invoices.totals?.billCount); } }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [ready, propertyId, userId, revision]);
   if (error) return <p role="alert">{error}</p>;
@@ -140,15 +141,15 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   const totals = summary.months[month] ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
   const months = lastNMonths(clock, 24);
   const activityHref = (direction?: string, category?: string) => `${basePath}/financials/activity?${new URLSearchParams(category ? { category } : { month, ...(direction ? { direction } : {}) })}`;
-  const tile = (label: string, value: number | undefined, href?: string) => {
-    const body = <><span className="block text-xs text-muted">{label}</span><span className="mt-2 block text-xl font-semibold tabular-nums">{money(value)}</span></>;
+  const tile = (label: string, value: number | undefined, href?: string, fact?: string) => {
+    const body = <><span className="block text-xs text-muted">{label}</span><span className="mt-2 block text-xl font-semibold tabular-nums">{money(value)}</span>{fact ? <span className="mt-1 block text-xs text-muted">{fact}</span> : null}</>;
     return href ? <Link key={label} href={href} className="min-w-0 p-4 hover:bg-accent/30">{body}</Link> : <div key={label} className="min-w-0 p-4">{body}</div>;
   };
   return <div className="space-y-4 pb-6" data-attr="finances-overview">
     <div className="grid grid-cols-2 divide-border rounded-xl border border-border bg-card md:grid-cols-4" data-attr="finances-balance-strip">
       {tile("Available", balance?.availableCents)}{tile("Pending", balance?.pendingCents)}
       {tile("Held deposits", summary.heldDepositsCents, activityHref(undefined, "deposits"))}
-      {tile("To pay", owed, `${basePath}/outgoing/to-pay`)}
+      {tile("To pay", owed, `${basePath}/outgoing/to-pay`, billCount === undefined ? undefined : `${billCount} ${billCount === 1 ? "bill" : "bills"}`)}
     </div>
     <div className="rounded-xl border border-border bg-card">
       <div className="border-b border-border p-3"><input aria-label="Month" type="month" className="bg-transparent" value={month} onChange={e => setMonth(e.target.value)} /></div>

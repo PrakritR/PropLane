@@ -1,4 +1,5 @@
 "use client";
+import { loadFinancialActivity, invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { useEffect, useState } from "react";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
@@ -14,7 +15,7 @@ export function ManagerFinancesActivity({ direction, userId }: { direction?: "in
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const refresh = () => { setReport(null); setError(""); setRevision(n => n + 1); };
+    const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setReport(null); setError(""); setRevision(n => n + 1); };
     const events = [WORKSPACE_SELECTION_EVENT, MANAGER_OUTGOING_PAYMENTS_EVENT, HOUSEHOLD_CHARGES_EVENT];
     events.forEach(name => window.addEventListener(name, refresh));
     return () => events.forEach(name => window.removeEventListener(name, refresh));
@@ -28,9 +29,7 @@ export function ManagerFinancesActivity({ direction, userId }: { direction?: "in
   const category = clear ? "" : params.get("category") || "";
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/reports/financial-activity").then(async res => {
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not load activity.");
+    loadFinancialActivity(userId).then(data => {
       if (!cancelled) setReport(data);
     }).catch(err => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };

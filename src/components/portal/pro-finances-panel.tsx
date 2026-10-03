@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { ManagerFinancesActivity } from "@/components/portal/finances/finances-activity";
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -411,7 +411,7 @@ const LEDGER_TAB_IDS = new Set([
 
 const TAB_TO_REPORT: Record<string, string> = {
   profitability: "profitability",
-  "income-statement": "income-statement",
+  "income-statement": "monthly-profit-loss",
   income: "rent-receipts",
   expenses: "expenses",
   "trial-balance": "trial-balance",
@@ -1046,6 +1046,7 @@ export function ManagerFinancesPanel({
     const base = `/api/reports/${reportId}/export?${query}`;
     const hasRows = Boolean(report && report.rows.length > 0);
     const items: FinancesExportItem[] = [];
+    if (hasRows && tabId !== "general-ledger") items.push({ id: "pdf", label: "Download PDF", href: `${base}&format=pdf`, dataAttr: "finances-export-pdf" });
     if (hasRows) items.push({ id: "csv", label: "Export CSV", href: `${base}&format=csv`, dataAttr: "finances-export-csv" });
     if (tabId === "general-ledger") {
       if (hasRows) items.push({ id: "pdf", label: "Export PDF", href: `${base}&format=pdf`, dataAttr: "finances-export-pdf" });
@@ -1147,7 +1148,7 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={ArrowDownToLine} label="Withdraw" onClick={() => window.location.assign(`${basePath}/profile?tab=payouts`)} /> : financesCommandActions}
+        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={ArrowDownToLine} label="Withdraw" onClick={() => window.location.assign(`${basePath}/profile?tab=payouts`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={openAddExpense} /> : undefined}
 
         activeFilterChips={

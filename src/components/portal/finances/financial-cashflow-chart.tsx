@@ -1,4 +1,5 @@
 "use client";
+import { loadFinancialActivity, invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { useEffect, useState } from "react";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
@@ -14,14 +15,13 @@ export function FinancialCashflowChart({ userId }: { userId: string | null }) {
   useEffect(() => {
     let disposed = false;
     let sequence = 0;
-    async function load() {
+    async function load(event?: Event) {
+      if (event && !invalidateFinancialActivity(event)) return;
       const request = ++sequence;
       setPoints(null); setError("");
       try {
-        const res = await fetch("/api/reports/financial-activity");
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Could not load cash flow.");
-        const summary = JSON.parse(data.meta.summary) as ReturnType<typeof summarizeFinancialActivity>;
+        const data = await loadFinancialActivity(userId);
+        const summary = JSON.parse(String(data.meta?.summary)) as ReturnType<typeof summarizeFinancialActivity>;
         if (!disposed && request === sequence) setPoints(lastNMonths(Date.now(), 24).map(month => {
           const totals = summary.months[month.key];
           return { ...month, revenue: (totals?.revenueCents ?? 0) / 100, expense: (totals?.expenseCents ?? 0) / 100, profit: (totals?.profitCents ?? 0) / 100 };

@@ -23,6 +23,8 @@ function formatUsd(amount: number): string {
   return amount < 0 ? `−${formatted}` : formatted;
 }
 
+const axisUsd = (amount: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(amount);
+
 function rangeLabel(months: CashflowChartRangeMonths): string {
   if (months === 12) return "1Y";
   if (months === 24) return "2Y";
@@ -158,11 +160,11 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
     </div>)}</div> : null}
     {points.length === 0 ? <p className="py-6 text-sm text-muted">No cash flow data yet.</p> : table ? <div className="overflow-auto"><table className="w-full text-sm"><thead><tr>{["Month", "Revenue", "Expenses", "Net profit", "Margin"].map(x => <th className="p-2 text-left" key={x}>{x}</th>)}</tr></thead><tbody>{points.map(p => <tr key={p.key} className="border-t border-border"><td className="p-2"><button onClick={() => pick(p.key)}>{p.key}</button></td><td>{formatUsd(p.revenue)}</td><td>{formatUsd(p.expense)}</td><td>{formatUsd(p.profit)}</td><td>{p.revenue ? `${(p.profit / p.revenue * 100).toFixed(1)}%` : "—"}</td></tr>)}</tbody></table></div> : <>
       <div className="mt-4 flex gap-4 text-xs"><span className="text-primary">● Revenue</span><span className="text-muted">● Expenses</span></div>
-      <div className="mt-3 flex h-44 gap-2 border-b border-border" aria-label="Monthly revenue and expenses">{points.map((p, i) => <button key={p.key} type="button" title={`${p.key}: Revenue ${formatUsd(p.revenue)}, Expenses ${formatUsd(p.expense)}, Net profit ${formatUsd(p.profit)}`} aria-label={`${p.key}, open activity`} onMouseEnter={() => setSelected(p.key)} onFocus={() => setSelected(p.key)} onClick={() => pick(p.key)} className={cn("flex min-w-0 flex-1 items-end justify-center gap-1", i < points.length - 6 && "hidden sm:flex")}>
+      <div className="relative pl-14"><div aria-hidden="true" className="absolute bottom-0 left-0 top-0 flex w-12 flex-col justify-between text-right text-[10px] text-muted"><span>{axisUsd(max)}</span><span>{axisUsd(max / 2)}</span><span>$0</span></div><div className="mt-3 flex h-44 gap-2 border-b border-border" aria-label="Monthly revenue and expenses">{points.map((p, i) => <button key={p.key} type="button" title={`${p.key}: Revenue ${formatUsd(p.revenue)}, Expenses ${formatUsd(p.expense)}, Net profit ${formatUsd(p.profit)}`} aria-label={`${p.key}, open activity`} onMouseEnter={() => setSelected(p.key)} onFocus={() => setSelected(p.key)} onClick={() => pick(p.key)} className={cn("flex min-w-0 flex-1 items-end justify-center gap-1", i < points.length - 6 && "hidden sm:flex")}>
         <span className="w-1/3 rounded-t bg-primary" style={{ height: `${Math.max(0, p.revenue) / max * 100}%` }} /><span className="w-1/3 rounded-t bg-muted/40" style={{ height: `${Math.max(0, p.expense) / max * 100}%` }} />
-      </button>)}</div>
-      <div className="flex gap-2 pt-2 text-center text-xs text-muted">{points.map((p, i) => <span key={p.key} className={cn("min-w-0 flex-1", i < points.length - 6 && "hidden sm:block")}>{p.label}</span>)}</div>
-      <div className="mt-4 text-xs font-semibold">Net profit</div><div className="relative mt-2 flex h-20 gap-2"><div className="absolute inset-x-0 top-1/2 border-t border-border" />{points.map((p, i) => <div key={p.key} className={cn("relative flex-1", i < points.length - 6 && "hidden sm:block")}><span className={cn("absolute left-1/3 w-1/3", p.profit < 0 ? "top-1/2 bg-red-500" : "bottom-1/2 bg-emerald-600")} style={{ height: `${Math.abs(p.profit) / profitMax * 50}%` }} /></div>)}</div>
+      </button>)}</div></div>
+      <div className="flex gap-2 pl-14 pt-2 text-center text-xs text-muted">{points.map((p, i) => <span key={p.key} className={cn("min-w-0 flex-1", i < points.length - 6 && "hidden sm:block")}>{p.label}</span>)}</div>
+      <div className="mt-4 text-xs font-semibold">Net profit</div><div className="relative pl-14"><div aria-hidden="true" className="absolute bottom-0 left-0 top-0 flex w-12 flex-col justify-between text-right text-[10px] text-muted"><span>{axisUsd(profitMax)}</span><span>$0</span><span>{axisUsd(-profitMax)}</span></div><div className="relative mt-2 flex h-20 gap-2"><div className="absolute inset-x-0 top-1/2 border-t border-border" />{points.map((p, i) => <div key={p.key} className={cn("relative flex-1", i < points.length - 6 && "hidden sm:block")}><span className={cn("absolute left-1/3 w-1/3", p.profit < 0 ? "top-1/2 bg-red-500" : "bottom-1/2 bg-emerald-600")} style={{ height: `${Math.abs(p.profit) / profitMax * 50}%` }} /></div>)}</div></div>
     </>}
   </section>;
 }

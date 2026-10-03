@@ -79,7 +79,7 @@ export const FINANCES_REPORT_TAB_IDS = new Set(REPORT_GROUPS.flatMap((g) => g.re
 
 export function ManagerFinancesReports({ basePath }: { basePath: string }) {
   const specialPanels = new Set(["bills", "security-deposits", "owner-distributions", "bank-reconciliation"]);
-  const reportIds: Record<string, string> = { "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
+  const reportIds: Record<string, string> = { "income-statement": "monthly-profit-loss", "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
   return <div className="divide-y divide-border pb-6" data-attr="finances-reports">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
     const Icon = report.icon;
     const href = report.id === "financial-activity" ? `${basePath}/financials/activity` : report.id === "security-deposits" ? `${basePath}/financials/activity?category=deposits` : `${basePath}/financials/${report.id}`;

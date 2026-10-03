@@ -13,13 +13,15 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
   const display = await loadManagerReportDisplayContext(db, managerUserId);
   const from = filters.from || "1900-01-01";
   const to = filters.to || "9999-12-31";
-  let receipts = applyReportPropertyScope(db.from("ledger_entries")
+  let receipts = db.from("ledger_entries")
     .select("id, posted_date, description, amount_cents, category_code, property_id, resident_email, entry_type")
     .eq("manager_user_id", managerUserId).in("entry_type", ["payment", "refund"])
-    .gte("posted_date", from).lte("posted_date", to), filters);
-  let expenses = applyReportPropertyScope(db.from("manager_expense_entries")
+    .gte("posted_date", from).lte("posted_date", to);
+  receipts = applyReportPropertyScope(receipts, filters);
+  let expenses = db.from("manager_expense_entries")
     .select("id, expense_date, memo, amount_cents, category_code, property_id, vendor_id, source_work_order_id")
-    .eq("manager_user_id", managerUserId).gte("expense_date", from).lte("expense_date", to), filters);
+    .eq("manager_user_id", managerUserId).gte("expense_date", from).lte("expense_date", to);
+  expenses = applyReportPropertyScope(expenses, filters);
   receipts = receipts.order("id", { ascending: true });
   expenses = expenses.order("id", { ascending: true });
   const rows: ReportResult["rows"] = [];
@@ -43,7 +45,8 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
     if (!data || data.length < 500) break;
   }
   let heldDepositsCents = 0;
-  const deposits = applyReportPropertyScope(db.from("security_deposit_ledger").select("id, amount_held_cents").eq("manager_user_id", managerUserId).order("id", { ascending: true }), filters);
+  let deposits = db.from("security_deposit_ledger").select("id, amount_held_cents").eq("manager_user_id", managerUserId).order("id", { ascending: true });
+  deposits = applyReportPropertyScope(deposits, filters);
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await deposits.range(offset, offset + 499);
     if (error) throw new Error(error.message);
@@ -60,4 +63,23 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
     { key: "date", label: "Date", format: "date" }, { key: "who", label: "Who" }, { key: "description", label: "Description" },
     { key: "property", label: "Property" }, { key: "category", label: "Category" }, { key: "source", label: "Source" }, { key: "amount", label: "Amount", format: "money", align: "right" },
   ], rows, meta: { from, to, summary: JSON.stringify({ ...summarizeFinancialActivity(rows), heldDepositsCents }) } };
+}
+
+/** The month report uses the same cash classification as Overview and Dashboard. */
+export async function queryMonthlyProfitLoss(db: SupabaseClient, managerUserId: string, filters: ManagerReportFilters): Promise<ReportResult> {
+  const activity = await queryFinancialActivity(db, managerUserId, filters);
+  const summary = summarizeFinancialActivity(activity.rows);
+  const months = Object.entries(summary.months).sort(([a], [b]) => a.localeCompare(b));
+  let revenue = 0;
+  let expense = 0;
+  const rows = months.map(([month, totals]) => {
+    revenue += totals.revenueCents;
+    expense += totals.expenseCents;
+    if (![revenue, expense, revenue - expense].every(Number.isSafeInteger)) throw new Error("Report total exceeds supported precision.");
+    return { month, revenue: centsToUsd(totals.revenueCents), expenses: centsToUsd(totals.expenseCents), profit: centsToUsd(totals.profitCents), margin: totals.revenueCents ? `${(totals.profitCents / totals.revenueCents * 100).toFixed(1)}%` : "—" };
+  });
+  return { id: "monthly-profit-loss", title: "Profit and loss by month", columns: [
+    { key: "month", label: "Month" }, { key: "revenue", label: "Revenue", format: "money", align: "right" },
+    { key: "expenses", label: "Expenses", format: "money", align: "right" }, { key: "profit", label: "Profit", format: "money", align: "right" }, { key: "margin", label: "Margin", align: "right" },
+  ], rows, totals: { month: "Total", revenue: centsToUsd(revenue), expenses: centsToUsd(expense), profit: centsToUsd(revenue - expense), margin: revenue ? `${((revenue - expense) / revenue * 100).toFixed(1)}%` : "—" } };
 }
