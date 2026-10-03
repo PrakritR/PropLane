@@ -43,6 +43,7 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import { partitionTourAvailabilityStoredKeys } from "@/lib/tour-slot-math";
 import Link from "next/link";
+import { SendLeadListingWizard } from "@/components/portal/send-lead-listing-wizard";
 
 const FIELD_LABEL_CLASS = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
 
@@ -509,6 +510,18 @@ export function ShareLeadLinkModal({
 
   const title = inviteTitle;
 
+  if (kind === "listing") {
+    return (
+      <SendLeadListingWizard
+        open={open}
+        onClose={onClose}
+        properties={properties}
+        preselectedPropertyId={preselectedPropertyId}
+        preselectedPropertyIds={preselectedPropertyIds}
+      />
+    );
+  }
+
   return (
     <>
       <PortalDialog
@@ -651,22 +664,6 @@ export function ShareLeadLinkModal({
                     <option value="short_term">Short-term stay</option>
                   </Select>
                 </div>
-              ) : null}
-
-              {kind === "listing" ? (
-                <ShareLinkCopyRow
-                  label={isMultiListing ? "Public browse link" : "Public listing link"}
-                  url={linkUrl}
-                  copyLabel={isMultiListing ? "Copy browse link" : "Copy listing link"}
-                  onCopy={() =>
-                    void handleCopy(linkUrl, isMultiListing ? "Browse link copied." : "Listing link copied.")
-                  }
-                  hint={
-                    isMultiListing
-                      ? `Opens the browse page filtered to the ${propertyIds.length} homes you selected.`
-                      : undefined
-                  }
-                />
               ) : null}
 
               {kind === "tour" ? (
