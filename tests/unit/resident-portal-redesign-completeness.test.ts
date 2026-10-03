@@ -226,7 +226,7 @@ describe("resident portal redesign completeness", () => {
       expect(moveIn).toContain('variant="command"');
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TABS");
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_LABELS");
-      expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_SHORT_LABELS");
+      // Phone tabs use the full labels (studio After, cee81a4aa), so no short-label map.
       expect(moveIn).toContain("destinationDenseEqualRow");
       expect(moveIn).toContain("residentMoveInHref");
       expect(moveIn).toContain("Assigned room");
@@ -275,12 +275,12 @@ describe("resident portal redesign completeness", () => {
      * Never both an ungated title band AND a mobile row.
      */
     it("header actions reach mobile exactly once — band OR mobile row, never both", () => {
-      // Services uses a dashed list-footer add row, not a command-strip action.
+      // Services adds from the one round + in the list header (Pricing reference), shown once on every width.
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("ResidentAddServiceModal");
-      expect(services).toContain("renderServiceAddRow");
-      expect(services).toContain('dataAttr="resident-services-apply"');
-      expect(services).toContain('label="Service"');
+      expect(services).toContain("PortalPrimaryIconAction");
+      expect(services).toContain('data-attr="resident-services-apply"');
+      expect(services).toContain('portalListAddPrimaryLabel("service")');
       expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 

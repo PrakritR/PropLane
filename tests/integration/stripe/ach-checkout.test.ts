@@ -85,7 +85,8 @@ vi.mock("@/lib/rental-application/application-fee-channel", () => ({
   listingApplicationFeeChannels: vi.fn(() => ({ ach: true, axisPlatformFee: true })),
 }));
 
-vi.mock("@/lib/manager-listing-submission", () => ({
+vi.mock("@/lib/manager-listing-submission", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-listing-submission")>()),
   normalizeManagerListingSubmissionV1: vi.fn((s: unknown) => s),
 }));
 
@@ -183,12 +184,12 @@ describe("ACH checkout routes", () => {
                   maybeSingle: vi.fn().mockResolvedValue({
                     data: {
                       id: "charge_1",
-                      status: "due",
+                      status: "pending",
                       manager_user_id: "mgr_1",
                       row_data: {
                         id: "charge_1",
                         kind: "rent",
-                        status: "due",
+                        status: "pending",
                         amountCents: 250000,
                         residentEmail: "resident@example.com",
                         residentUserId: "res_1",
@@ -226,7 +227,7 @@ describe("ACH checkout routes", () => {
       const res = await householdChargeCheckout(req);
       const { status, data } = await parseJsonResponse<{ clientSecret?: string; sessionId?: string }>(res);
 
-      expect(status, JSON.stringify(data)).toBe(200);
+      expect(status).toBe(200);
       expect(data.clientSecret).toBe("cs_ach_secret");
       expect(data.sessionId).toBe("cs_ach_session");
       expect(captureTestWorkspaceEffectForUser).toHaveBeenCalledWith(
@@ -244,12 +245,12 @@ describe("ACH checkout routes", () => {
                   maybeSingle: vi.fn().mockResolvedValue({
                     data: {
                       id: "charge_1",
-                      status: "due",
+                      status: "pending",
                       manager_user_id: "mgr_1",
                       row_data: {
                         id: "charge_1",
                         kind: "rent",
-                        status: "due",
+                        status: "pending",
                         amountCents: 250000,
                         residentEmail: "resident@example.com",
                         residentUserId: "res_1",
