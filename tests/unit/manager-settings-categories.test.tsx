@@ -219,6 +219,22 @@ describe("manager settings categories", () => {
     expect(screen.queryByText("Add spreadsheet")).toBeNull();
   });
 
+  it("edits profile name in place and confirms only after the profile API succeeds", async () => {
+    const fetchMock = vi.mocked(fetch);
+    renderSettings();
+    const edit = document.querySelector('[data-attr="settings-edit-fullName"]');
+    expect(edit).toBeTruthy();
+    fireEvent.click(edit!);
+    const input = await screen.findByLabelText("Full name");
+    fireEvent.change(input, { target: { value: "Changed Manager" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/profile",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ fullName: "Changed Manager", phone: "+15105550123" }) }),
+    ));
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-edit-fullName"]')?.textContent).toContain("Changed Manager"));
+  });
+
   it("returns to the root list from the back chevron and from browser back", async () => {
     const view = renderSettings();
     // Re-render through the real component so the mocked navigation hooks

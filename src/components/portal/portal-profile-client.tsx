@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
+  Check,
+  Copy,
   CreditCard,
   KeyRound,
   Lock,
@@ -17,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter, useModalPresentation } from "@/components/ui/modal";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { coercePhoneInput, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -30,11 +33,10 @@ import { ManagerApplicationFormSettings } from "@/components/portal/manager-appl
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
-  PortalSettingsAutosaveField,
   PortalSettingsField,
-  PortalSettingsFormBody,
   PortalSettingsGroup,
   PortalSettingsLinkRow,
   PortalSettingsNav,
@@ -49,6 +51,7 @@ import {
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
+import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
@@ -68,8 +71,6 @@ import { AssistantCustomInstructionsSetting } from "@/components/portal/assistan
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { DEFAULT_REMINDER_SETTINGS, normalizeReminderSettings } from "@/lib/reminders/rules";
-import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
@@ -195,103 +196,21 @@ type SettingsGroup = {
   group: "Account" | "Workspace";
 };
 
-/**
- * Fixed reminders (S020, captain 2026-09-27): the one reminder-related choice
- * left anywhere in Settings. Reads and writes `automationSendMode.partyFacing`
- * through the same `/api/portal/reminder-settings` endpoint the old Reminders
- * hub used — every other field on that endpoint's `settings` now always
- * resolves to the built-in defaults (`loadReminderSettings`), so this never
- * needs a scope (`propertyId`/`workspaceId`): there is nothing left to scope.
- */
-function ManagerReminderApprovalToggle() {
-  const { showToast } = useAppUi();
-  const demo = isDemoModeActive();
-  const [partyFacing, setPartyFacing] = useState<AutomationSendMode | null>(null);
-  const [team, setTeam] = useState<AutomationSendMode>(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (demo) {
-        if (!cancelled) {
-          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
-          setTeam(DEFAULT_REMINDER_SETTINGS.automationSendMode.team);
-        }
-        return;
-      }
-      try {
-        const res = await fetch("/api/portal/reminder-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
-        if (cancelled) return;
-        if (!res.ok) throw new Error(body.error ?? "Could not load settings.");
-        const settings = normalizeReminderSettings(body.settings);
-        setPartyFacing(settings.automationSendMode.partyFacing);
-        setTeam(settings.automationSendMode.team);
-      } catch (e) {
-        if (!cancelled) {
-          showToast(e instanceof Error ? e.message : "Could not load settings.");
-          setPartyFacing(DEFAULT_REMINDER_SETTINGS.automationSendMode.partyFacing);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [demo, showToast]);
-
-  const flip = async (checked: boolean) => {
-    const next: AutomationSendMode = checked ? "draft" : "auto";
-    const previous = partyFacing;
-    setPartyFacing(next);
-    if (demo) return;
-    try {
-      const res = await fetch("/api/portal/reminder-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { automationSendMode: { team, partyFacing: next } } }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not save.");
-      const settings = normalizeReminderSettings(body.settings);
-      setPartyFacing(settings.automationSendMode.partyFacing);
-      setTeam(settings.automationSendMode.team);
-    } catch (e) {
-      setPartyFacing(previous);
-      showToast(e instanceof Error ? e.message : "Could not save.");
-    }
-  };
-
-  return (
-    <PortalSettingsGroup>
-      <PortalSettingsRow label="Resident & vendor messages need my approval first">
-        <PortalSettingsToggle
-          checked={partyFacing === "draft"}
-          onChange={(next) => void flip(next)}
-          label="Resident and vendor messages draft for review"
-          disabled={partyFacing === null}
-          dataAttr="settings-toggle-party-facing-draft"
-        />
-      </PortalSettingsRow>
-    </PortalSettingsGroup>
-  );
-}
-
 function ManagerMessagingSettingsPane() {
   const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
   return (
     <>
+      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
       <PortalTextNotificationsBlock
         dataAttrPrefix="manager"
         title="Personal mobile"
         description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
-      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
-      <CommunicationSettingsPanel />
-      <PortalSettingsSection title="Reminders">
-        <ManagerReminderApprovalToggle />
+      <PortalSettingsSection title="Automation">
+        <AutoSendAiDraftsRow />
       </PortalSettingsSection>
+      <CommunicationSettingsPanel />
       <WhatProplaneSends />
     </>
   );
@@ -333,9 +252,11 @@ export function PortalProfileClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const editPresentation = useModalPresentation();
   const workspaces = useWorkspaces();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
+  const [editingField, setEditingField] = useState<ProfileField | null>(null);
   /** Per-field outcome, so a failure is reported on the row it happened to. */
   const [fieldState, setFieldState] = useState<Record<ProfileField, PortalSettingsSaveState>>({
     fullName: "idle",
@@ -381,11 +302,11 @@ export function PortalProfileClient({
    */
   const commit = useCallback(async (field: ProfileField) => {
     const next = { fullName, phone };
-    if (next[field] === savedRef.current[field]) return;
+    if (next[field] === savedRef.current[field]) return true;
     if (demo) {
       savedRef.current = next;
       markSaved(field);
-      return;
+      return true;
     }
     setFieldState((prev) => ({ ...prev, [field]: "saving" }));
     setFieldError((prev) => ({ ...prev, [field]: undefined }));
@@ -404,70 +325,128 @@ export function PortalProfileClient({
       } catch {
         setFieldState((prev) => ({ ...prev, [field]: "error" }));
         setFieldError((prev) => ({ ...prev, [field]: "The server sent something unreadable." }));
-        return;
+        return false;
       }
       if (!res.ok) {
         setFieldState((prev) => ({ ...prev, [field]: "error" }));
         setFieldError((prev) => ({ ...prev, [field]: body.error ?? "Could not save." }));
-        return;
+        return false;
       }
       if (variant === "manager") {
         cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
       }
       savedRef.current = next;
       markSaved(field);
+      return true;
     } catch {
       setFieldState((prev) => ({ ...prev, [field]: "error" }));
       setFieldError((prev) => ({ ...prev, [field]: "No connection. Your change is still here." }));
+      return false;
     } finally {
       inFlightRef.current = false;
     }
   }, [demo, fullName, phone, markSaved, variant]);
 
+  const beginEdit = (field: ProfileField) => {
+    setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    if (field === "fullName") setFullName(savedRef.current.fullName);
+    else setPhone(savedRef.current.phone);
+    setEditingField(field);
+  };
+  const cancelEdit = (field: ProfileField) => {
+    if (field === "fullName") setFullName(savedRef.current.fullName);
+    else setPhone(savedRef.current.phone);
+    setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    setEditingField(null);
+  };
+  const saveEdit = async (field: ProfileField) => {
+    if (await commit(field)) setEditingField(null);
+  };
+
+  const renderEditableProfileRow = (field: ProfileField, label: string, value: string) => {
+    const editing = editingField === field && editPresentation === "dialog";
+    const inputId = field === "fullName" ? "pf-name" : "pf-phone";
+    return (
+      <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr={`profile-${field}-row`}>
+        <div className="flex min-h-11 items-center justify-between gap-4">
+          <span className="text-sm font-medium text-foreground">{label}</span>
+          {editing ? (
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+              <Input
+                id={inputId}
+                value={field === "fullName" ? fullName : phone}
+                onChange={(event) => field === "fullName" ? setFullName(event.target.value) : setPhone(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void saveEdit(field);
+                  if (event.key === "Escape") cancelEdit(field);
+                }}
+                autoComplete={field === "fullName" ? "name" : "tel"}
+                aria-label={label}
+                data-attr={field === "fullName" ? "settings-full-name" : "settings-phone"}
+                className="h-9 max-w-[18rem] rounded-lg"
+              />
+              <Button type="button" variant="ghost" onClick={() => cancelEdit(field)}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={() => saveEdit(field)}>Save</Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-2 text-right text-sm text-foreground hover:text-primary"
+              onClick={() => beginEdit(field)}
+              data-attr={`settings-edit-${field}`}
+            >
+              <span className="max-w-[22rem] truncate">{value || "Add"}</span>
+              {fieldState[field] === "saved" ? <Check className="size-4 text-emerald-600" aria-label="Saved" /> : null}
+              {fieldState[field] !== "saved" ? <span aria-hidden className="text-muted">Edit</span> : null}
+            </button>
+          )}
+        </div>
+        {editing && fieldError[field] ? <p className="mt-1 text-sm text-danger" role="alert">{fieldError[field]}</p> : null}
+      </div>
+    );
+  };
+
   const personalInfoSection = (
-    <PortalSettingsSection title="Personal information">
-      <PortalSettingsGroup>
-        <PortalSettingsAutosaveField
-          label="Full name"
-          htmlFor="pf-name"
-          state={fieldState.fullName}
-          error={fieldError.fullName}
-          onRetry={() => void commit("fullName")}
-        >
-          <Input
-            id="pf-name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            onBlur={() => void commit("fullName")}
-            autoComplete="name"
-            data-attr="settings-full-name"
-          />
-        </PortalSettingsAutosaveField>
-        <PortalSettingsField label="Email" value={initialEmail} />
-        <PortalSettingsAutosaveField
-          label="Phone"
-          htmlFor="pf-phone"
-          state={fieldState.phone}
-          error={fieldError.phone}
-          onRetry={() => void commit("phone")}
-        >
-          <PhoneNumberField
-            id="pf-phone"
-            value={phone}
-            onChange={setPhone}
-            onBlur={() => void commit("phone")}
-          />
-        </PortalSettingsAutosaveField>
-        {/*
-          Through the display formatter. Accounts created before the rebrand
-          still STORE an `AXIS-` id — every lookup accepts both prefixes and
-          renaming the stored value is a migration, not a label change — but
-          a field captioned "PropLane ID" must never read AXIS to the person
-          whose id it is.
-        */}
-        <PortalSettingsField label={idLabel} value={formatProplaneIdForDisplay(idValue)} mono />
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+    <>
+      <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
+      <PortalSettingsSection title="Personal information">
+        <PortalSettingsGroup>
+          {renderEditableProfileRow("fullName", "Full name", fullName)}
+          <PortalSettingsField label="Email" value={initialEmail} />
+          {renderEditableProfileRow("phone", "Phone", formatSmsPhoneLabel(phone) || "")}
+          <PortalSettingsRow label={idLabel}>
+            <span className="font-mono text-sm text-foreground">{formatProplaneIdForDisplay(idValue)}</span>
+            <PortalIconAction icon={Copy} label={`Copy ${idLabel}`} onClick={() => void navigator.clipboard?.writeText(formatProplaneIdForDisplay(idValue))} data-attr="profile-copy-id" />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <Modal
+        open={editingField !== null && editPresentation === "drawer"}
+        title={editingField === "fullName" ? "Full name" : "Phone"}
+        onClose={() => editingField && cancelEdit(editingField)}
+        dataAttr="profile-edit-sheet"
+        footer={editingField ? (
+          <ModalFooter>
+            <Button type="button" variant="ghost" onClick={() => cancelEdit(editingField)}>Cancel</Button>
+            <Button type="button" variant="primary" onClick={() => saveEdit(editingField)}>Save</Button>
+          </ModalFooter>
+        ) : null}
+      >
+        {editingField ? (
+          <>
+            <label htmlFor={editingField === "fullName" ? "pf-name-sheet" : "pf-phone-sheet"} className="mb-2 block text-sm font-medium text-foreground">
+              {editingField === "fullName" ? "Full name" : "Phone"}
+            </label>
+            {editingField === "fullName" ? (
+              <Input id="pf-name-sheet" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" />
+            ) : (
+              <PhoneNumberField id="pf-phone-sheet" value={phone} onChange={setPhone} />
+            )}
+            {fieldError[editingField] ? <p className="mt-2 text-sm text-danger" role="alert">{fieldError[editingField]}</p> : null}
+          </>
+        ) : null}
+      </Modal>
+    </>
   );
 
   const groups = useMemo<SettingsGroup[]>(() => {
@@ -762,7 +741,7 @@ export function PortalProfileClient({
         // mounts nothing else around it.
         return (
           <div className="min-w-0">
-            <ManagerPlan embedded showCurrentPlan={false} />
+            <ManagerPlan embedded showCurrentPlan={false} showInvoices={false} />
           </div>
         );
       case "messaging":

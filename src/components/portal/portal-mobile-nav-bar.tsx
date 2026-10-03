@@ -164,7 +164,7 @@ export function PortalMobileNavBar({
                   onSelect={(event) => {
                     // Explicit navigation is reliable inside the iOS WebView.
                     event.preventDefault();
-                    router.push(`${definition.basePath}/profile?tab=workspaces`);
+                    router.push(`${definition.basePath}/profile?tab=workspaces&settingsHome=1`);
                   }}
                 >
                   <Settings aria-hidden />

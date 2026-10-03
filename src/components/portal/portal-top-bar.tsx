@@ -190,7 +190,7 @@ export function PortalTopBar({
                 data-attr="portal-top-bar-settings"
                 onSelect={(event) => {
                   event.preventDefault();
-                  router.push(`${basePath}/profile?tab=workspaces`);
+                  router.push(`${basePath}/profile?tab=workspaces&settingsHome=1`);
                 }}
               >
                 <Settings aria-hidden />
