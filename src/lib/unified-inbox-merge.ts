@@ -59,6 +59,22 @@ export type UnifiedInboxListItem = {
   smsBindingKeys?: string[];
   /** The record this thread is about (`PersistedInboxThread.recordRef`), when it has one. */
   recordRef?: { kind: RecordKind; id: string; label: string };
+  /**
+   * Conversation-key join values (`conversationJoinKey`): rows that share one
+   * are the same person in the same workspace, whatever their channel. Joins
+   * alongside {@link personKey}, never instead of it.
+   */
+  joinKeys?: string[];
+  /**
+   * Identity was ambiguous (two accounts verified one phone). A flagged row
+   * joins ONLY on its own conversation key - never on an email it shares with
+   * anyone - so nothing is merged on a guess.
+   */
+  identityFlag?: boolean;
+  /** Every house the conversation has a turn about, for the row's house label. */
+  houseLabels?: string[];
+  /** Ids of threads that were folded into this conversation; a deep link to one still opens it. */
+  aliasThreadIds?: string[];
 };
 
 export function sortUnifiedInboxItems(
@@ -104,16 +120,39 @@ export function mergeUnifiedInboxItems(
   const groups = new Map<string, UnifiedInboxListItem[]>();
   const loners: UnifiedInboxListItem[] = [];
 
-  for (const item of items) {
-    const person = item.personKey;
-    if (!person) {
-      loners.push(item);
-      continue;
+  // Rows join when they share ANY identity value: the email-derived personKey
+  // (as before) or a conversation key. A flagged (ambiguous) row contributes
+  // only its conversation key.
+  const identityOf = (item: UnifiedInboxListItem): string[] =>
+    (item.identityFlag ? [...(item.joinKeys ?? [])] : [item.personKey, ...(item.joinKeys ?? [])]).filter(
+      (value): value is string => Boolean(value),
+    );
+  const parent = items.map((_, index) => index);
+  const find = (index: number): number => {
+    while (parent[index] !== index) {
+      parent[index] = parent[parent[index]!]!;
+      index = parent[index]!;
     }
-    const bucket = groups.get(person);
+    return index;
+  };
+  const owner = new Map<string, number>();
+  items.forEach((item, index) => {
+    for (const value of identityOf(item)) {
+      const seen = owner.get(value);
+      if (seen === undefined) owner.set(value, index);
+      else parent[find(index)] = find(seen);
+    }
+  });
+  items.forEach((item, index) => {
+    if (identityOf(item).length === 0) {
+      loners.push(item);
+      return;
+    }
+    const root = String(find(index));
+    const bucket = groups.get(root);
     if (bucket) bucket.push(item);
-    else groups.set(person, [item]);
-  }
+    else groups.set(root, [item]);
+  });
 
   const merged: UnifiedInboxListItem[] = [];
   for (const bucket of groups.values()) {
@@ -184,6 +223,10 @@ export function mergeUnifiedInboxItems(
       address: winner.address ?? ordered.find((row) => row.address)?.address,
       category: winner.category ?? ordered.find((row) => row.category)?.category,
       recordRef: winner.recordRef ?? ordered.find((row) => row.recordRef)?.recordRef,
+      joinKeys: dedupe(ordered.flatMap((row) => row.joinKeys ?? [])),
+      identityFlag: ordered.some((row) => row.identityFlag) || undefined,
+      houseLabels: dedupe(ordered.flatMap((row) => row.houseLabels ?? [])),
+      aliasThreadIds: dedupe(ordered.flatMap((row) => row.aliasThreadIds ?? [])),
       // A merged row is one conversation, so its unread badge is the total
       // across the channels folded into it.
       unreadCount: ordered.reduce((sum, row) => sum + (row.unreadCount ?? 0), 0) || undefined,
@@ -270,4 +313,20 @@ export function smsItemMatchesInboxTab(
   if (tabId === "unopened") return item.unread;
   if (tabId === "opened") return !item.unread;
   return true;
+}
+
+/**
+ * Resident / vendor side: "Text messages" stops being a separate row when the
+ * person is talking to exactly ONE manager workspace. The text stream carries no
+ * workspace of its own, so with several workspaces it stays separate rather than
+ * be guessed onto one of them.
+ */
+export function foldTextRowIntoSoleWorkspace(
+  emailItems: UnifiedInboxListItem[],
+  smsItems: UnifiedInboxListItem[],
+): UnifiedInboxListItem[] {
+  const keys = new Set(emailItems.flatMap((item) => item.joinKeys ?? []));
+  if (keys.size !== 1) return smsItems;
+  const only = [...keys];
+  return smsItems.map((item) => ({ ...item, joinKeys: only }));
 }

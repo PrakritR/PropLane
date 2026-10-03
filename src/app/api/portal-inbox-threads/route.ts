@@ -17,6 +17,7 @@ import {
   MANAGER_INBOX_SCOPE,
   RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
+  VENDOR_INBOX_SCOPE,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
@@ -229,8 +230,10 @@ export async function GET(request: Request) {
       scopeParam === MANAGER_INBOX_SCOPE
         ? collapsePersonInboxThreads(rows, { mergeFolders: true })
         : scopeParam === RESIDENT_INBOX_SCOPE
-          ? collapseAssistantInboxThreads(rows)
-          : rows;
+          ? collapseAssistantInboxThreads(collapsePersonInboxThreads(rows, { mergeFolders: true, keyedOnly: true }))
+          : scopeParam === VENDOR_INBOX_SCOPE
+            ? collapsePersonInboxThreads(rows, { mergeFolders: true, keyedOnly: true })
+            : rows;
 
     return NextResponse.json({
       rows:

@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  commitInboxThreadReply,
   deliverPortalMessageThreadSide,
   findExistingPortalMessageThread,
+  resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
 import { resolveConversationRef } from "@/lib/communication/conversation-key.server";
+import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { resetConversationSchemaProbe } from "@/lib/communication/conversation-thread.server";
 import { createConversationFakeDb, type FakeDb } from "../helpers/conversation-fake-db";
 
@@ -323,5 +326,89 @@ describe("deploy safety: the migration may not be applied yet", () => {
     const rows = managerRows(db);
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows.every((row) => row.conversation_key === undefined)).toBe(true);
+  });
+});
+
+describe("S7: mail to a workspace's work address is filed under THAT workspace and remembers the line", () => {
+  it("files the thread under the address's workspace, not the owner's default, and stamps workLine", async () => {
+    const db = seededDb();
+    await mirrorAssistantEmailConversation(db, {
+      managerUserId: M,
+      managerEmail: "manager@x.co",
+      senderEmail: "prospect@x.co",
+      senderName: "Prospect",
+      subject: "Tour?",
+      inboundText: "Is it open?",
+      replyText: null,
+      inboundEmailId: "em-1",
+      workspaceId: W2,
+      workLine: "workspace-b@mail.proplane.test",
+    });
+    const rows = managerRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.workspace_id).toBe(W2);
+    expect((rows[0]!.row_data as { workLine?: string }).workLine).toBe("workspace-b@mail.proplane.test");
+  });
+
+  it("a second mail to the OTHER workspace's address is a different conversation", async () => {
+    const db = seededDb();
+    const args = {
+      managerUserId: M,
+      managerEmail: "manager@x.co",
+      senderEmail: "prospect@x.co",
+      senderName: "Prospect",
+      subject: "Tour?",
+      inboundText: "Is it open?",
+      replyText: null,
+    };
+    await mirrorAssistantEmailConversation(db, { ...args, inboundEmailId: "em-1", workspaceId: W1, workLine: "a@mail.proplane.test" });
+    await mirrorAssistantEmailConversation(db, { ...args, inboundEmailId: "em-2", workspaceId: W2, workLine: "b@mail.proplane.test" });
+    expect(managerRows(db).map((row) => row.workspace_id).sort()).toEqual([W1, W2]);
+  });
+});
+
+describe("a reply typed in the conversation is recorded once", () => {
+  it("the thread the reply was committed to IS the sent copy: the sent-copy write is skipped, not duplicated", async () => {
+    const db = seededDb();
+    await deliverPortalMessageThreadSide(db, managerSide({ conversation: { propertyId: "H1" }, body: "Question?" }));
+    const rowId = managerRows(db)[0]!.id as string;
+    const target = await resolveInboxThreadReplyTarget(db, { threadId: rowId, senderUserId: M, senderEmail: "manager@x.co" });
+    expect(target).not.toBeNull();
+    await commitInboxThreadReply(db, target!, { fromName: "Manager", text: "Answer", channel: "email" });
+    const sentCopy = await deliverPortalMessageThreadSide(
+      db,
+      managerSide({
+        folder: "sent",
+        outbound: true,
+        unread: false,
+        participantEmail: null,
+        body: "Answer",
+        alreadyRecordedIn: rowId,
+        conversation: { propertyId: "H1" },
+      }),
+    );
+    expect(sentCopy).toMatchObject({ action: "skipped", threadId: rowId });
+    const messages = (managerRows(db)[0]!.row_data as { messages: { body: string }[] }).messages;
+    expect(messages.filter((m) => m.body === "Answer")).toHaveLength(1);
+  });
+
+  it("without the marker (a reply to a DIFFERENT conversation) the sent copy is still written", async () => {
+    const db = seededDb();
+    await deliverPortalMessageThreadSide(db, managerSide({ conversation: { propertyId: "H1" } }));
+    await deliverPortalMessageThreadSide(
+      db,
+      managerSide({ folder: "sent", outbound: true, unread: false, participantEmail: null, body: "Hello", conversation: { propertyId: "H1" } }),
+    );
+    const messages = (managerRows(db)[0]!.row_data as { messages: { body: string }[] }).messages;
+    expect(messages.filter((m) => m.body === "Hello")).toHaveLength(1);
+  });
+
+  it("an old thread id that a folded conversation answers to still resolves for a reply", async () => {
+    const db = seededDb();
+    await deliverPortalMessageThreadSide(db, managerSide({ conversation: { propertyId: "H1" } }));
+    const rowId = managerRows(db)[0]!.id as string;
+    db.tables.portal_inbox_thread_aliases = [{ alias_id: "property_mgr_old", thread_id: rowId }];
+    const target = await resolveInboxThreadReplyTarget(db, { threadId: "property_mgr_old", senderUserId: M, senderEmail: "manager@x.co" });
+    expect(target?.threadId).toBe(rowId);
   });
 });

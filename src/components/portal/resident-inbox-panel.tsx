@@ -1363,6 +1363,7 @@ export const ResidentInboxPanel = forwardRef<
         direction,
         delivery,
         channel: m.channel,
+        houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;

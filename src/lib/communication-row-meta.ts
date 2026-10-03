@@ -71,6 +71,26 @@ export function inboxRowAddressLabel(value: string | null | undefined): string |
   return street;
 }
 
+/** Street labels of every house a conversation has a turn about (a merged conversation spans houses). */
+export function conversationHouseLabels(
+  houses: readonly { propertyId: string; label: string }[] | null | undefined,
+): string[] | undefined {
+  const labels = [
+    ...new Set((houses ?? []).map((house) => inboxRowAddressLabel(house.label)).filter((label): label is string => Boolean(label))),
+  ];
+  return labels.length > 0 ? labels : undefined;
+}
+
+/** "4709A 8th Ave" for one house, "4709A 8th Ave +1" when the conversation spans several. */
+export function conversationAddressLabel(
+  single: string | undefined,
+  houses: readonly { propertyId: string; label: string }[] | null | undefined,
+): string | undefined {
+  const labels = conversationHouseLabels(houses);
+  if (!labels || labels.length < 2) return single;
+  return `${labels[0]} +${labels.length - 1}`;
+}
+
 /**
  * A lease row that carried no human label falls back to the property id, and
  * ids come in two shapes: a uuid, and a hand-made slug like

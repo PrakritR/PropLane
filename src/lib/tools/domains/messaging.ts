@@ -791,6 +791,8 @@ export const replyToThreadTool = defineWriteTool({
       ...(recipient.userId ? { toUserIds: [recipient.userId] } : { toEmails: [recipient.email] }),
       eventCategory: "messages",
       senderRole: "manager",
+      // Written into this thread just above; with one conversation per person it is the sent copy.
+      alreadyRecordedInThreadId: row.id,
     });
     if (!delivery.ok) {
       await updateAuditResult(ctx, dedupeKey, { delivered: false }, { clearDedupeKey: true });

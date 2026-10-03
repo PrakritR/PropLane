@@ -41,6 +41,8 @@ import {
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import {
+  conversationAddressLabel,
+  conversationHouseLabels,
   inboxRowAddressLabel,
   inboxThreadCategoryLabel,
   inboxThreadUnreadCount,
@@ -48,7 +50,9 @@ import {
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   buildActiveCommunicationThreads,
+  emailThreadJoinKeys,
   emailThreadPersonKey,
+  smsConversationJoinKeys,
   smsConversationPersonKey,
   smsConversationRowId,
 } from "@/lib/communication-active-rows";
@@ -159,6 +163,8 @@ function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
     ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
     personKey: emailThreadPersonKey(t),
+    joinKeys: emailThreadJoinKeys(t),
+    identityFlag: t.identityFlag ? true : undefined,
   };
 }
 
@@ -782,6 +788,11 @@ export function ManagerUnifiedInbox({
         // Who this is with, so a text thread with the same person folds in —
         // shared with the sidebar badge (`communication-active-rows.ts`).
         personKey: emailThreadPersonKey(t),
+        // One conversation per person per workspace: rows sharing this key join,
+        // whatever channel or thread type each started as.
+        joinKeys: emailThreadJoinKeys(t),
+        identityFlag: t.identityFlag ? true : undefined,
+        aliasThreadIds: t.aliasIds,
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -805,11 +816,15 @@ export function ManagerUnifiedInbox({
         // The house the server resolved the thread to be about — the same set
         // that decided the row is visible at all. The contact directory (joined
         // by email) is the fallback for rows the server could not place.
-        address: inboxRowAddressLabel(
-          t.houses?.[0]?.label ??
-            filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
-              ?.propertyLabel,
+        address: conversationAddressLabel(
+          inboxRowAddressLabel(
+            t.houses?.[0]?.label ??
+              filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
+                ?.propertyLabel,
+          ),
+          t.houses,
         ),
+        houseLabels: conversationHouseLabels(t.houses),
         category: inboxThreadCategoryLabel(t),
         recordRef: t.recordRef,
         // Sort on the SAME field the row is labelled with. `lastMsg.at` is the
@@ -869,6 +884,7 @@ export function ManagerUnifiedInbox({
           // resident. Shared with the sidebar badge
           // (`communication-active-rows.ts`).
           personKey: smsConversationPersonKey(resident, explicitlyBoundSmsKeys),
+          joinKeys: smsConversationJoinKeys(resident),
           personEmail: resident.residentEmail?.trim() || undefined,
           smsBindingKey: resident.conversationKey?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
@@ -1257,7 +1273,7 @@ export function ManagerUnifiedInbox({
 
   useEffect(() => {
     if (!initialListReady || !routeThreadId) return;
-    const match = listRows.find((r) => r.threadId === routeThreadId);
+    const match = listRows.find((r) => r.threadId === routeThreadId || r.aliasThreadIds?.includes(routeThreadId));
     if (match) {
       explicitlyOpened.current = { key: match.key, context: selectionContext };
       setSelectedKey(match.key);
@@ -1269,7 +1285,7 @@ export function ManagerUnifiedInbox({
   // the authorized detail endpoint and keep the returned summary in the same
   // list model used for ordinary selection.
   useEffect(() => {
-    if (!initialListReady || !routeThreadId || listRows.some((row) => row.threadId === routeThreadId)) {
+    if (!initialListReady || !routeThreadId || listRows.some((row) => row.threadId === routeThreadId || row.aliasThreadIds?.includes(routeThreadId))) {
       setRoutedSmsError(null);
       return;
     }
@@ -1341,7 +1357,7 @@ export function ManagerUnifiedInbox({
         selectedRow !== null &&
         !selectedRow.unread;
       if (routeThreadId) {
-        const routed = listRows.find((r) => r.threadId === routeThreadId);
+        const routed = listRows.find((r) => r.threadId === routeThreadId || r.aliasThreadIds?.includes(routeThreadId));
         if (routed) return routed.key;
         const resolved = resolvedSmsRouteRef.current;
         if (resolved?.requested === routeThreadId && resolved.context === selectionContext) {

@@ -1,6 +1,9 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function digitsOf(raw: string): string {
+  const e164 = normalizeE164(raw);
+  if (e164?.startsWith("+1")) return e164.slice(2);
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
   return digits;

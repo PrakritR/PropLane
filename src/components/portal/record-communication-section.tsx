@@ -58,6 +58,8 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
+import { phoneKey } from "@/lib/communication/conversation-key";
+import { normalizeE164 } from "@/lib/phone-e164";
 import { inboxThreadHasEmail } from "@/lib/manager-inbox-reply-channels";
 import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
@@ -135,6 +137,7 @@ function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
       at: message.at,
       direction: inboxTurnDirection(thread, message, i, folder),
       channel,
+      ...(message.houseLabel ? { houseLabel: message.houseLabel } : {}),
       ...(fields.subject ? { subject: fields.subject } : {}),
       attachments: message.attachments,
     });
@@ -231,6 +234,10 @@ export function RecordCommunicationSection({
     () => new Set((contactIds ?? []).map((id) => id.trim().toLowerCase()).filter(Boolean)),
     [contactIds],
   );
+  const contactPhoneKey = useMemo(() => {
+    const e164 = normalizeE164(contactPhone);
+    return e164 ? phoneKey(e164) : "";
+  }, [contactPhone]);
   const normalizedContactPhone = useMemo(
     () => (contactPhone?.trim() ? smsNoticePhone(contactPhone) : ""),
     [contactPhone],
@@ -252,9 +259,12 @@ export function RecordCommunicationSection({
         if (normalizedContactPhone && t.smsNoticePhone && smsNoticePhone(t.smsNoticePhone) === normalizedContactPhone) {
           return true;
         }
+        // The person-conversation key: a thread keyed to this contact's phone is
+        // theirs whatever email (or none) it was stored under. Flagged keys stay out.
+        if (contactPhoneKey && !t.identityFlag && t.conversationKey === contactPhoneKey) return true;
         return false;
       }),
-    [threads, threadFilters, contactEmailSet, normalizedContactPhone],
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey],
   );
 
   // Replying still targets exactly one thread: prefer the one stamped with

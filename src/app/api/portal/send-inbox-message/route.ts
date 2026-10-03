@@ -10,7 +10,7 @@ import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notif
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
-import { loadThreadConversation, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
+import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { sendPushToUser } from "@/lib/push-notifications.server";
@@ -586,7 +586,13 @@ export async function POST(req: Request) {
 
     // Every gate is now clear, so the reply may finally land in its thread. A
     // send refused above returns before this line and writes nothing.
-    if (replyTarget) await commitInboxThreadReply(db, replyTarget, { ...replyBody, houseId: propertyId || undefined });
+    if (replyTarget) {
+      await commitInboxThreadReply(db, replyTarget, {
+        ...replyBody,
+        houseId: propertyId || undefined,
+        houseLabel: propertyId ? await propertyLabelFor(db, propertyId) : undefined,
+      });
+    }
 
     // PRP-109: a resident who TEXTS "the sink is leaking" has had a work order
     // opened for them since the Claw work; the same sentence typed here did
@@ -848,6 +854,9 @@ export async function POST(req: Request) {
           ownerUserId: user.id,
           participantEmail: null,
           otherPartyEmail: recipientLower,
+          // The reply was committed to the thread the sender was looking at; with
+          // one conversation per person that thread IS the sent copy.
+          alreadyRecordedIn: replyTarget?.threadId,
           conversation: {
             propertyId: propertyId || null,
             otherPartyUserId: recipient.userId,

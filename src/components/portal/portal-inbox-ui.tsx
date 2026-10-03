@@ -23,7 +23,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, MessageSquare, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -655,6 +655,11 @@ export type InboxBubbleMessage = {
   /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
   channel?: InboxChannel;
   /**
+   * The house this turn is about (one conversation spans houses). The bubble
+   * names it only when the open conversation has turns about more than one.
+   */
+  houseLabel?: string;
+  /**
    * Email subject to show as the bubble's first line. The builder sets it only
    * when the subject is new to the thread or changed since the previous email
    * turn, so a run of "Re: …" replies shows it once.
@@ -798,9 +803,25 @@ function InboxAttachmentChip({
 
 /** Small omnichannel channel tag rendered on a bubble / scheduled card. */
 export function InboxChannelTag({ channel }: { channel: InboxChannel }) {
+  // A glyph per channel so a mixed conversation reads at a glance; the word stays.
+  const Glyph = channel === "email" || channel === "gmail" ? Mail : channel === "sms" || channel === "whatsapp" ? MessageSquare : null;
   return (
-    <span className="rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+    <span className="inline-flex items-center gap-0.5 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+      {Glyph ? <Glyph className="h-2.5 w-2.5 shrink-0" strokeWidth={2.4} aria-hidden data-inbox-channel-glyph={channel} /> : null}
       {INBOX_CHANNEL_LABEL[channel]}
+    </span>
+  );
+}
+
+/** The house a turn is about, shown on turns of a conversation that spans houses. */
+export function InboxHouseTag({ label }: { label: string }) {
+  return (
+    <span
+      className="inline-flex max-w-[12rem] items-center gap-0.5 truncate rounded-full border border-border bg-secondary px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-muted"
+      data-inbox-house-tag
+    >
+      <House className="h-2.5 w-2.5 shrink-0" strokeWidth={2.4} aria-hidden />
+      <span className="truncate">{label}</span>
     </span>
   );
 }
@@ -1421,6 +1442,11 @@ export function InboxMessageTimeline({
             className={`w-full min-w-0 ${item.clusterStart ? "mt-3 first:mt-0" : "mt-0.5"}`}
             data-inbox-cluster-start={item.clusterStart ? "true" : "false"}
           >
+            {item.showHouse && item.message.houseLabel ? (
+              <div className="mb-1 flex px-1" data-inbox-house-header>
+                <InboxHouseTag label={item.message.houseLabel} />
+              </div>
+            ) : null}
             <InboxBubble
               message={item.message}
               showAuthor={showAuthors}

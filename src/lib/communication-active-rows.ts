@@ -5,6 +5,7 @@ import {
 import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assistant-thread";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { conversationJoinKey } from "@/lib/communication/conversation-key";
 import type { InboxListSegment } from "@/lib/communication-assistant-inbox-list";
 import {
   mergeUnifiedInboxItems,
@@ -108,6 +109,26 @@ export function emailThreadPersonKey(
 }
 
 /**
+ * The conversation-key values an email thread joins other rows on (one per
+ * person per workspace), shared with the Communication list so the sidebar badge
+ * and the list can never disagree about which rows are one conversation.
+ */
+export function emailThreadJoinKeys(
+  thread: Pick<PersistedInboxThread, "conversationKey" | "workspaceId">,
+): string[] | undefined {
+  const key = conversationJoinKey(thread.workspaceId, thread.conversationKey);
+  return key ? [key] : undefined;
+}
+
+/** The same join value for a text thread whose projection carries the person's key. */
+export function smsConversationJoinKeys(
+  resident: Pick<ManagerSmsResidentConversation, "personConversationKey" | "personWorkspaceId">,
+): string[] | undefined {
+  const key = conversationJoinKey(resident.personWorkspaceId, resident.personConversationKey);
+  return key ? [key] : undefined;
+}
+
+/**
  * Who an SMS conversation is with — the SAME expression the manager
  * Communication list uses (`pro-unified-inbox.tsx`'s `allSmsItems`) to decide
  * whether a text thread folds into an email thread's row or stays its own.
@@ -164,6 +185,8 @@ function emailThreadToUnreadMergeItem(
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
     ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
     personKey: emailThreadPersonKey(thread),
+    joinKeys: emailThreadJoinKeys(thread),
+    identityFlag: thread.identityFlag ? true : undefined,
   };
 }
 
@@ -185,6 +208,7 @@ function smsConversationToUnreadMergeItem(
     unread: resident.projectionId ? resident.unread === true : smsThreadHasUnread(messages, smsOpenedIds),
     smsBindingKey: resident.conversationKey?.trim() || undefined,
     personKey: smsConversationPersonKey(resident, explicitlyBoundSmsKeys),
+    joinKeys: smsConversationJoinKeys(resident),
   };
 }
 

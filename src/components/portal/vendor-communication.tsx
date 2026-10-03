@@ -31,7 +31,9 @@ import { PortalCommunicationShell } from "@/components/portal/portal-communicati
 import { inboxThreadCategoryLabel, inboxThreadUnreadCount } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { communicationInboxListPreview } from "@/lib/communication-assistant-inbox-list";
+import { emailThreadJoinKeys } from "@/lib/communication-active-rows";
 import {
+  foldTextRowIntoSoleWorkspace,
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
@@ -211,6 +213,9 @@ function VendorUnifiedInbox({
         // job is not on the conversation row. No address rather than a wrong one.
         category: inboxThreadCategoryLabel(t),
         recordRef: t.recordRef,
+        // One conversation per manager workspace: rows sharing a key are one row.
+        joinKeys: emailThreadJoinKeys(t),
+        identityFlag: t.identityFlag ? true : undefined,
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -244,7 +249,13 @@ function VendorUnifiedInbox({
     return [item];
   }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
 
-  const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]).filter((row) => !readOnly || !row.unread), [emailItems, smsItems, readOnly]);
+  const merged = useMemo(
+    () =>
+      mergeUnifiedInboxItems([...emailItems, ...foldTextRowIntoSoleWorkspace(emailItems, smsItems)]).filter(
+        (row) => !readOnly || !row.unread,
+      ),
+    [emailItems, smsItems, readOnly],
+  );
 
   // Pinned on every tab (Active/Unread/Archived) — it cannot itself be
   // archived away — but still respects an active search, like every other row.

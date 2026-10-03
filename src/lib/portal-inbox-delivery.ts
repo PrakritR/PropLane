@@ -605,6 +605,13 @@ export async function deliverPortalMessageThreadSide(
     rootOutbound?: boolean;
     /** Turns that follow the root on a brand-new row (a resident's message, then the acknowledgement). */
     followUps?: { id: string; from: string; body: string; at: string; outbound?: boolean }[];
+    /**
+     * The caller already wrote this very turn into this thread (a reply
+     * committed to the thread the user was looking at). With ONE conversation
+     * per person the sender's sent copy IS that thread, so appending again would
+     * show the turn twice; when the conversation found is this one, skip.
+     */
+    alreadyRecordedIn?: string;
     /** Internal: one re-read after losing a create race. */
     retried?: boolean;
   },
@@ -619,6 +626,10 @@ export async function deliverPortalMessageThreadSide(
   const houseId = String(args.conversation?.propertyId ?? "").trim() || undefined;
   const houseLabel = houseId ? await propertyLabelFor(db, houseId) : undefined;
   const workLine = String(args.conversation?.workLine ?? "").trim() || undefined;
+
+  if (existing && args.alreadyRecordedIn && existing.id === args.alreadyRecordedIn) {
+    return { action: "skipped", threadId: existing.id };
+  }
 
   if (existing) {
     // See the `folder`/`previousFolder` comment further below.
@@ -958,6 +969,8 @@ export async function deliverPortalInboxMessage(
      * both the recipient's inbox copy and the sender's sent copy.
      */
     automated?: boolean;
+    /** The thread this turn was already written into by the caller (see `deliverPortalMessageThreadSide`). */
+    alreadyRecordedInThreadId?: string;
   },
 ): Promise<
   | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
@@ -1127,6 +1140,7 @@ export async function deliverPortalInboxMessage(
         ownerUserId: opts.senderUserId,
         participantEmail: null,
         otherPartyEmail: recipientLower,
+        alreadyRecordedIn: opts.alreadyRecordedInThreadId,
         conversation: {
           propertyId: conversationPropertyId,
           otherPartyUserId: recipient.userId,

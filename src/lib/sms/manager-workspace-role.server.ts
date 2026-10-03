@@ -1,3 +1,4 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listViewerWorkspaces, loadWorkspaceById, resolveActiveWorkspace, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
@@ -345,6 +346,9 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
 }
 
 const lineDigits = (raw: unknown): string => {
+  // A work line is compared by its 10 national digits; `normalizeE164` decides what a valid number is.
+  const e164 = normalizeE164(raw);
+  if (e164?.startsWith("+1")) return e164.slice(2);
   const digits = String(raw ?? "").replace(/\D/g, "");
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 };

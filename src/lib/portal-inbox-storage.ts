@@ -1,4 +1,5 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
+import { conversationJoinKey } from "@/lib/communication/conversation-key";
 import {
   assistantInboxCollapseKey,
   boundManagerUserIdFromThread,
@@ -61,6 +62,13 @@ export type InboxThreadMessage = {
    * an ordinary bubble, never a guessed system notice.
    */
   automated?: boolean;
+  /**
+   * The house this turn is about. One conversation spans every house a person
+   * is tied to, so each turn names its own; absent = the turn is about no house.
+   */
+  houseId?: string;
+  /** Display label of {@link houseId}, stamped by the writer that knew it. */
+  houseLabel?: string;
 };
 
 export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
@@ -178,6 +186,26 @@ export type PersistedInboxThread = {
    * and renders no chip — never a guessed one.
    */
   recordRef?: RecordRef;
+  /**
+   * The person-conversation this row IS (see `conversation-key.ts`): one per
+   * person per workspace. Rows that share it are one conversation, whatever
+   * channel or thread type each started as. Absent on a row written before keys.
+   */
+  conversationKey?: string;
+  /** The workspace the conversation lives in. */
+  workspaceId?: string;
+  /**
+   * Set when identity was ambiguous (two accounts verified one phone): the
+   * conversation stands alone and the manager chooses. Never merged.
+   */
+  identityFlag?: { reason: "ambiguous_phone" | "identity_conflict"; accountIds: string[]; phone?: string };
+  /** Root turn's house (the root lives in `body`). */
+  rootHouseId?: string;
+  rootHouseLabel?: string;
+  /** True when a co-manager's grant hid turns about houses they do not hold. */
+  housesRestricted?: boolean;
+  /** Old ids this conversation absorbed (tour links, deep links, archive state keep working). */
+  aliasIds?: string[];
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -1002,6 +1030,8 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
     ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
     ...(thread.rootAutomated ? { automated: true } : {}),
+    ...(thread.rootHouseId ? { houseId: thread.rootHouseId } : {}),
+    ...(thread.rootHouseLabel ? { houseLabel: thread.rootHouseLabel } : {}),
   });
   // Merged person-threads can carry a prior thread's synthetic root in `messages`.
   // A collapsed row may itself later be persisted and merged again, which can
@@ -1160,6 +1190,13 @@ function dedupeSentCopyRoots(ordered: InboxThreadMessage[]): void {
   }
 }
 
+/** `ck:<workspace>:<key>` for a keyed person-conversation row (a flagged one carries its own phone key and stands alone); undefined for everything else. */
+export function personConversationGroupKey(
+  thread: Pick<PersistedInboxThread, "conversationKey" | "workspaceId" | "identityFlag">,
+): string | undefined {
+  return conversationJoinKey(thread.workspaceId, thread.conversationKey);
+}
+
 /**
  * Collapse duplicate person-threads into one row for display. Payment reminders
  * and manual sends used to mint a fresh thread id per message; this merges their
@@ -1167,19 +1204,49 @@ function dedupeSentCopyRoots(ordered: InboxThreadMessage[]): void {
  */
 export function collapsePersonInboxThreads(
   threads: PersistedInboxThread[],
-  opts?: { mergeFolders?: boolean },
+  opts?: {
+    mergeFolders?: boolean;
+    /**
+     * Fold ONLY rows that carry a conversation key. A resident or vendor sees
+     * one conversation per manager workspace; their unkeyed legacy rows keep
+     * the rows they already had.
+     */
+    keyedOnly?: boolean;
+  },
 ): PersistedInboxThread[] {
   const mergeFolders = opts?.mergeFolders === true;
+  const keyedOnly = opts?.keyedOnly === true;
   const solo: PersistedInboxThread[] = [];
   const groups = new Map<string, PersistedInboxThread[]>();
 
+  // A conversation key is the identity: rows that share one (in one workspace)
+  // are the same conversation. An unkeyed legacy row with the same address as a
+  // keyed one joins it, unless that address belongs to more than one keyed
+  // conversation (then it stays on its own rather than guess).
+  const keyedGroupByEmail = new Map<string, string | null>();
   for (const thread of threads) {
-    const counterparty = smsNoticeIdentity(thread) || inboxThreadCounterpartyEmail(thread);
-    const isNoticeIdentity = counterparty.startsWith("sms-notice:");
-    if (!counterparty.includes("@") && !isNoticeIdentity) {
+    const ck = personConversationGroupKey(thread);
+    if (!ck) continue;
+    const email = inboxThreadCounterpartyEmail(thread);
+    if (!email.includes("@")) continue;
+    const seen = keyedGroupByEmail.get(email);
+    keyedGroupByEmail.set(email, seen === undefined || seen === ck ? ck : null);
+  }
+  for (const thread of threads) {
+    const keyed = personConversationGroupKey(thread);
+    if (keyedOnly && !keyed) {
       solo.push(thread);
       continue;
     }
+    const counterparty = keyed
+      ? keyed
+      : smsNoticeIdentity(thread) || inboxThreadCounterpartyEmail(thread);
+    const isNoticeIdentity = counterparty.startsWith("sms-notice:");
+    if (!keyed && !counterparty.includes("@") && !isNoticeIdentity) {
+      solo.push(thread);
+      continue;
+    }
+    const bridged = !keyed ? keyedGroupByEmail.get(counterparty) : undefined;
     // The ordinary, folder-scoped listing (`mergeFolders` false) keeps an
     // archived thread its own row — Active must never show an Archived row.
     // Only the cross-folder MERGED person view (`mergeFolders`, e.g. the open
@@ -1193,7 +1260,8 @@ export function collapsePersonInboxThreads(
       solo.push(thread);
       continue;
     }
-    const key = mergeFolders ? counterparty : `${thread.folder}:${counterparty}`;
+    const groupId = bridged ?? counterparty;
+    const key = mergeFolders ? groupId : `${thread.folder}:${groupId}`;
     const bucket = groups.get(key) ?? [];
     bucket.push(thread);
     groups.set(key, bucket);
@@ -1238,6 +1306,16 @@ export function collapsePersonInboxThreads(
     merged.push({
       ...canonical,
       sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
+      // Every house any member is about: one conversation spans houses.
+      ...(group.some((t) => t.houses?.length)
+        ? {
+            houses: [
+              ...new Map(
+                group.flatMap((t) => t.houses ?? []).map((house) => [house.propertyId, house] as const),
+              ).values(),
+            ],
+          }
+        : {}),
       ...mergeInboxReadSourceState(group),
       body: first.body,
       attachments: first.attachments,
@@ -1248,6 +1326,8 @@ export function collapsePersonInboxThreads(
       rootChannel: first.channel,
       rootSubject: first.subject,
       rootAutomated: first.automated === true,
+      rootHouseId: first.houseId,
+      rootHouseLabel: first.houseLabel,
       from: first.from,
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),

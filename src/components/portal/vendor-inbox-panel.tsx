@@ -925,6 +925,7 @@ export const VendorInboxPanel = forwardRef<
         direction,
         delivery: m.delivery,
         channel: m.channel,
+        houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;

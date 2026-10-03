@@ -1520,6 +1520,7 @@ export const ManagerInbox = forwardRef<
         // turns show no tag — a guessed "Email" is how an in-app reply that never
         // left PropLane used to look sent.
         channel: m.channel,
+        houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;

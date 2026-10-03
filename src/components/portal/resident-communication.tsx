@@ -23,6 +23,7 @@ import {
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { canonicalResidentAgentThreadId } from "@/lib/agent/resident-inbox-agent-ids";
 import {
+  foldTextRowIntoSoleWorkspace,
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
@@ -39,7 +40,7 @@ import {
   stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
-import { buildActiveCommunicationThreads } from "@/lib/communication-active-rows";
+import { buildActiveCommunicationThreads, emailThreadJoinKeys } from "@/lib/communication-active-rows";
 import {
   buildResidentAssistantPlaceholderThread,
   communicationInboxListPreview,
@@ -314,6 +315,9 @@ function ResidentUnifiedInbox({
         address: homeAddress,
         category: inboxThreadCategoryLabel(t),
         recordRef: t.recordRef,
+        // One conversation per manager workspace: rows sharing a key are one row.
+        joinKeys: emailThreadJoinKeys(t),
+        identityFlag: t.identityFlag ? true : undefined,
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -348,7 +352,10 @@ function ResidentUnifiedInbox({
   }, [listSegment, query, smsMessages, smsOpened, smsUiEnabled]);
 
   const merged = useMemo(() => {
-    const rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
+    const rows = mergeUnifiedInboxItems(
+      [...emailItems, ...foldTextRowIntoSoleWorkspace(emailItems, smsItems)],
+      "recent",
+    );
     return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId).filter((row) => !readOnly || !row.unread);
   }, [assistantThreadId, emailItems, smsItems, readOnly]);
 

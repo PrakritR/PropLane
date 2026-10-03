@@ -13,6 +13,12 @@ export type InboxTimelineItem =
       cluster: InboxBubbleClusterPosition;
       showMeta: boolean;
       showChannel: boolean;
+      /**
+       * The conversation spans houses and this turn is about a different one
+       * than the turn before: a small house header sits above it (and breaks
+       * the run, like a day separator).
+       */
+      showHouse: boolean;
       clusterStart: boolean;
       /** First bubble of an inbound run — the only one that shows an avatar. */
       showAvatar: boolean;
@@ -75,12 +81,23 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
   const items: InboxTimelineItem[] = [];
   const keyOccurrences = new Map<string, number>();
   const mixedChannels = new Set(messages.flatMap((message) => message.channel ? [message.channel] : [])).size > 1;
+  // One conversation spans every house a person is tied to: name the house on a
+  // turn only when the open conversation really has turns about more than one.
+  const spansHouses = new Set(messages.flatMap((message) => message.houseLabel ? [message.houseLabel] : [])).size > 1;
 
   let lastDayKey: string | null = null;
+  let lastHouseLabel = "";
+  const houseHeaderAt = (index: number, previousLabel: string): boolean => {
+    const label = messages[index]?.houseLabel ?? "";
+    return spansHouses && Boolean(label) && label !== previousLabel;
+  };
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!;
     const prev = messages[i - 1];
     const next = messages[i + 1];
+    const houseHeader = houseHeaderAt(i, lastHouseLabel);
+    if (message.houseLabel) lastHouseLabel = message.houseLabel;
+    const nextHouseHeader = next ? houseHeaderAt(i + 1, lastHouseLabel) : false;
 
     // A separator both labels the day AND breaks the run above it: without the
     // break a cluster's rounded corners span the divider, which reads as one
@@ -95,8 +112,8 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const nextDayKey = next ? inboxDayKey(next.at) : null;
     const nextDayChanged = nextDayKey != null && dayKey != null && nextDayKey !== dayKey;
 
-    const sameDirAsPrev = prev?.direction === message.direction && !dayChanged;
-    const sameDirAsNext = next?.direction === message.direction && !nextDayChanged;
+    const sameDirAsPrev = prev?.direction === message.direction && !dayChanged && !houseHeader;
+    const sameDirAsNext = next?.direction === message.direction && !nextDayChanged && !nextHouseHeader;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
     // Single-channel threads need no repeated channel chrome.
@@ -114,6 +131,7 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
       cluster,
       showMeta,
       showChannel,
+      showHouse: houseHeader,
       clusterStart: !sameDirAsPrev,
       showAvatar: !sameDirAsPrev,
     });
