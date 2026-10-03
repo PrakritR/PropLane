@@ -428,7 +428,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review" | "begin_lease_first_signing";
       id?: string;
       leaseId?: string;
       acknowledgeTermsRiderConflicts?: boolean;
