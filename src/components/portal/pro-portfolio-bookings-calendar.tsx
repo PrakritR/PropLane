@@ -310,6 +310,9 @@ export function ManagerPortfolioBookingsCalendar({
   variant = "embedded",
   calendarOnly = false,
   onDayClick,
+  onAddBooking,
+  onEditBooking,
+  preferenceKey,
   selectedDayKey,
   searchQuery = "",
 }: {
@@ -325,6 +328,9 @@ export function ManagerPortfolioBookingsCalendar({
   calendarOnly?: boolean;
   /** Open the day popup. Defaults to `/portal/bookings/<date>` when absent (an embedded, unrouted caller). */
   onDayClick?: (dayKey: string) => void;
+  onAddBooking?: () => void;
+  onEditBooking?: (entry: PropertyBookingEntry) => void;
+  preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
 }) {
@@ -341,6 +347,9 @@ export function ManagerPortfolioBookingsCalendar({
       variant={variant}
       calendarOnly={calendarOnly}
       onDayClick={onDayClick}
+      onAddBooking={onAddBooking}
+      onEditBooking={onEditBooking}
+      preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
       searchQuery={searchQuery}
     />
@@ -358,6 +367,9 @@ export function ManagerBookingsHub({
   variant = "embedded",
   calendarOnly = false,
   onDayClick,
+  onAddBooking,
+  onEditBooking,
+  preferenceKey,
   selectedDayKey,
   searchQuery = "",
 }: {
@@ -374,6 +386,9 @@ export function ManagerBookingsHub({
   calendarOnly?: boolean;
   /** Open the day popup. Defaults to `/portal/bookings/<date>` when absent. */
   onDayClick?: (dayKey: string) => void;
+  onAddBooking?: () => void;
+  onEditBooking?: (entry: PropertyBookingEntry) => void;
+  preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
 }) {
@@ -516,6 +531,10 @@ export function ManagerBookingsHub({
                   entries={entries}
                   today={today}
                   onOpenDay={openDay}
+                  onAddBooking={onAddBooking}
+                  onEditBooking={onEditBooking}
+                  preferenceKey={preferenceKey}
+                  roomFilterId={roomFilterId}
                   occupancyDays={occupancyDays}
                   emptyMessage={emptyMessage}
                 />
