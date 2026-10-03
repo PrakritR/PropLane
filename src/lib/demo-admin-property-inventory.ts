@@ -281,7 +281,16 @@ export function mockToAdminRow(prop: MockProperty, listingId: string): AdminProp
 
 /** Rent to show on property cards: the formatted range label when rooms have distinct rents, else a plain single price. */
 export function adminPropertyRentDisplayLabel(row: AdminPropertyRow): string {
-  return row.rentRangeLabel || `$${row.monthlyRent}/mo`;
+  // Money reads "$1,050/mo" or "$1,050–$1,150/mo" — never "$1050.00-1150.00/mo".
+  const dollars = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+  const nums = (row.rentRangeLabel ?? "").match(/\d[\d,]*(?:\.\d+)?/g)?.map((t) => Number(t.replace(/,/g, ""))).filter((n) => n > 0) ?? [];
+  if (nums.length >= 2) {
+    const [lo, hi] = [Math.min(...nums), Math.max(...nums)];
+    return lo === hi ? `${dollars(lo)}/mo` : `${dollars(lo)}–${dollars(hi)}/mo`;
+  }
+  if (nums.length === 1) return `${dollars(nums[0]!)}/mo`;
+  if (row.rentRangeLabel) return row.rentRangeLabel;
+  return `${dollars(row.monthlyRent ?? 0)}/mo`;
 }
 
 /** Stable display label for sorting manager property tables (matches picker labels). */
