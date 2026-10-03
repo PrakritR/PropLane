@@ -63,6 +63,8 @@ import {
 } from "@/components/portal/application-resident-slot-picker";
 import type { OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { roomResidentPriceForSlot } from "@/lib/room-pricing";
 import {
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
   applicationVisibleToPortalUser,
@@ -282,6 +284,58 @@ function applicationRoomLabel(row: DemoApplicantRow): string {
   const bundleId = row.application?.bundleId?.trim() || "";
   const propertyId = row.application?.propertyId?.trim() || row.propertyId?.trim() || "";
   return bundleId && propertyId ? getBundleChoiceLabel(propertyId, bundleId) : "";
+}
+
+function applicationRoomChoice(row: DemoApplicantRow): string {
+  return row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
+}
+
+function sharedRoomOverviewRows(row: DemoApplicantRow, allRows: DemoApplicantRow[]) {
+  const choice = applicationRoomChoice(row);
+  if (!choice) return null;
+  const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
+  const property = getPropertyById(propertyId);
+  if (!property?.listingSubmission || property.listingSubmission.v !== 1) return null;
+  const submission = normalizeManagerListingSubmissionV1(property.listingSubmission);
+  const room = submission.rooms.find((candidate) => candidate.id === listingRoomId);
+  const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
+  if (!room || capacity < 2) return null;
+
+  const residents = allRows.filter((candidate) => {
+    if (candidate.bucket === "rejected" || candidate.withdrawnAt) return false;
+    const candidateChoice = applicationRoomChoice(candidate);
+    if (!candidateChoice) return false;
+    const parsed = parseRoomChoiceValue(candidateChoice);
+    return parsed.propertyId === propertyId && parsed.listingRoomId === listingRoomId;
+  });
+  const slot = Number(row.application?.residentSlot);
+  const price = roomResidentPriceForSlot(room, Number.isInteger(slot) && slot > 0 ? slot : 1, row.application?.leaseTerm);
+  const residentRows = residents.map((resident, index) => {
+    const residentSlot = Number(resident.application?.residentSlot);
+    const residentPrice = Number.isInteger(residentSlot) && residentSlot > 0
+      ? roomResidentPriceForSlot(room, residentSlot, resident.application?.leaseTerm)
+      : null;
+    const status = resident.bucket === "approved"
+      ? "Approved"
+      : isInProgressApplicationRow(resident)
+        ? "Invited · not applied yet"
+        : "Submitted";
+    const rent = residentPrice?.monthlyRent ?? Number(resident.application?.managerRentOverride?.replace(/[^\d.]/g, ""));
+    return {
+      label: `Roommate ${index + 1}`,
+      residentId: resident.id,
+      value: `${resident.name || resident.email || "Applicant"} · ${status}${residentSlot ? ` · Bed ${String.fromCharCode(64 + residentSlot)}` : ""}${typeof rent === "number" && rent > 0 ? ` · $${rent.toLocaleString()}/mo` : ""}`,
+    };
+  });
+
+  return [
+    { label: "Room", value: room.name || applicationRoomLabel(row) },
+    { label: "Bed", value: slot > 0 ? `Bed ${String.fromCharCode(64 + slot)}` : "Not assigned" },
+    { label: "Rent", value: price?.monthlyRent ? `$${price.monthlyRent.toLocaleString()}/mo` : "Not set" },
+    { label: "Lease type", value: row.application?.leaseTerm || "Not set" },
+    { label: "Approved applications", value: `${residents.filter((resident) => resident.bucket === "approved").length} of ${capacity}` },
+    ...residentRows,
+  ];
 }
 
 /** Server PDF endpoint for an application, with the client-resolved room label as a display hint. */
@@ -2071,6 +2125,30 @@ export function ManagerApplications({
                 { label: "Status", value: applicationDecisionStatusLabel(detailRow) },
               ],
             },
+            ...(sharedRoomOverviewRows(detailRow, rows)
+              ? [{
+                  id: "shared-room",
+                  title: "Shared room",
+                  rows: sharedRoomOverviewRows(detailRow, rows)!.map((fact) => {
+                    const residentId = "residentId" in fact ? fact.residentId : undefined;
+                    const roommate = residentId ? rows.find((candidate) => candidate.id === residentId) : null;
+                    const action = roommate && isInProgressApplicationRow(roommate)
+                      ? <PortalIconAction icon={Bell} label="Send reminder" data-attr="shared-room-send-reminder" onClick={() => void openReminderPreview(roommate)} />
+                      : roommate && isApprovableApplicationRow(roommate)
+                        ? <PortalIconAction icon={Check} label="Approve" data-attr="shared-room-approve" onClick={() => beginApprovalPreview(roommate)} />
+                        : null;
+                    return {
+                      label: fact.label,
+                      value: residentId ? (
+                        <span className="flex min-w-0 items-center justify-end gap-2">
+                          <span className="min-w-0">{fact.value}</span>
+                          {action}
+                        </span>
+                      ) : fact.value,
+                    };
+                  }),
+                }]
+              : []),
             // C050/C065: one primary action directly under Overview on an
             // APPROVED application in an application-first workspace opens the
             // same lease wizard the Leases tab's own + uses, pre-filled with
