@@ -1,8 +1,10 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
 
@@ -148,14 +150,21 @@ export function ProplaneBalanceCard({
     <>
       {trigger}
 
-      <Modal open={withdrawOpen} onClose={() => setWithdrawOpen(false)} title="Withdraw from PropLane balance">
+      <Modal open={withdrawOpen} onClose={() => setWithdrawOpen(false)} title="Withdraw from PropLane balance"
+        contextPanel={<PopupRecordPreview rows={[{ label: "Available", value: formatMoney(snapshot.availableCents, snapshot.currency) }]} />}
+        previewLabel="Withdrawal preview"
+        preview={<PopupRecordPreview rows={[{ label: "Amount", value: Number.isFinite(amountCents) && amountCents > 0 ? formatMoney(amountCents, snapshot.currency) : "Not set" }, { label: "Destination", value: "Connected bank account" }]} />}
+        footer={<ModalFooter><Button type="button" onClick={submitWithdraw} disabled={!canSubmit || submitting} data-attr="proplane-balance-withdraw-confirm">Withdraw</Button></ModalFooter>}
+      >
         <div className="space-y-4 p-1">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-foreground">Amount</span>
             <input
               type="number"
               inputMode="decimal"
+              required
               min="0.01"
+              max={snapshot.availableCents / 100}
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -167,15 +176,7 @@ export function ProplaneBalanceCard({
           <p className="text-xs text-muted">
             Up to {formatMoney(snapshot.availableCents, snapshot.currency)} available. Sent to your connected bank account.
           </p>
-          <Button
-            type="button"
-            onClick={submitWithdraw}
-            disabled={!canSubmit || submitting}
-            data-attr="proplane-balance-withdraw-confirm"
-            className="w-full"
-          >
-            Withdraw
-          </Button>
+
         </div>
       </Modal>
     </>

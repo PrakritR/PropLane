@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 /**
  * VD48/VD49 — the manager's in-app "Pay" screen for a vendor invoice
  * (`vendor_invoices`, gated on VENDOR_BANKING_ENABLED). Posts to
@@ -89,6 +91,9 @@ export function VendorInvoiceManagerPaySheet({
       title={invoice?.invoiceNumber ? `Pay invoice ${invoice.invoiceNumber}` : "Pay invoice"}
       onClose={onClose}
       assistantStrip={false}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Vendor", value: invoice?.vendorName }, { label: "Invoice", value: invoice?.invoiceNumber }]} />}
+      previewLabel="Payment preview"
+      preview={invoice ? <PopupRecordPreview rows={[{ label: "Invoice amount", value: formatMoney(invoice.totalCents) }, ...invoice.lineItems.map((line, index) => ({ label: `${index + 1}. ${line.description || "Line item"}`, value: formatMoney(line.amountCents) }))]} /> : undefined}
       scrollableContent
       panelClassName={MODAL_LARGE_PANEL_CLASS}
     >

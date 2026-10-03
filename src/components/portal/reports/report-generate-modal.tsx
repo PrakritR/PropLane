@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -47,6 +49,9 @@ export function ReportGenerateModal({
     <Modal
       open={open}
       title={`Generate ${tabLabel.toLowerCase()}`}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Report", value: tabLabel }, ...(showScope ? [{ label: "Scope", value: scopeFilters.scope }] : [])]} />}
+      previewLabel="Export preview"
+      preview={<PopupRecordPreview rows={[{ label: "Report", value: tabLabel }, ...(showProperty ? [{ label: "Property", value: propertyOptions?.find(property => property.id === filters.propertyId)?.label || "All properties" }] : []), ...(showDateRange ? [{ label: "From", value: filters.from }, { label: "To", value: filters.to }] : []), ...(showTaxYear ? [{ label: "Tax year", value: filters.taxYear }] : [])]} />}
       onClose={onClose}
       panelClassName="max-w-lg"
       footer={
@@ -65,7 +70,7 @@ export function ReportGenerateModal({
       }
     >
       <div className="space-y-5">
-        <p className="text-sm text-muted">Choose scope and dates, then generate the report.</p>
+
 
         {showScope ? (
           <div className="space-y-3">

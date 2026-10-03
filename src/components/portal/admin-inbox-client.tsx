@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -352,6 +354,9 @@ function ComposeModal({
       open={open}
       onClose={onClose}
       title={initialSchedule ? "Schedule message" : "New message"}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Audience", value: ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label }, { label: "Recipients", value: pickPool.filter(person => selectedIds.has(person.id)).map(person => person.name).join(", ") || ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label }]} />}
+      previewLabel="Message preview"
+      preview={<PopupMessagePreview subject={topic} body={body} recipient={pickPool.filter(person => selectedIds.has(person.id)).map(person => person.name).join(", ") || ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label} sendAt={sendMode === "schedule" ? sendAtLocal : undefined} />}
       description={
         initialSchedule
           ? "Choose recipients, write the message, and set when it should be delivered."

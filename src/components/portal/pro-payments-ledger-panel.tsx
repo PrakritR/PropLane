@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -1066,6 +1068,9 @@ export function ManagerPaymentsLedgerPanel({
         }
         onClose={cancelEdit}
         dataAttr="payments-edit-modal"
+        contextPanel={<PopupRecordPreview rows={[{ label: "Resident", value: row.residentName }, { label: "Property", value: row.propertyName }, { label: "Charge", value: row.chargeTitle }]} />}
+        previewLabel="Charge preview"
+        preview={<PopupRecordPreview rows={[{ label: "Amount", value: editAmountDraft ? `$${editAmountDraft}` : "Not set" }, { label: "Due date", value: editDueDateDraft }, ...(stay ? [{ label: "Nights", value: editNightsDraft }] : [])]} />}
         primaryAction={{
           label: "Save",
           onClick: () => saveEdit(row),

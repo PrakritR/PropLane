@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -342,6 +344,9 @@ export function PortalNotificationPreviewModal({
 
   return (
     <PortalDialog
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipient", value: recipient }, ...(recipientPhone ? [{ label: "Phone", value: recipientPhone }] : [])]} />}
+      previewLabel="Message preview"
+      preview={skipMessage ? <PopupRecordPreview rows={[{ label: "Delivery", value: "No message" }]} /> : <PopupMessagePreview subject={draftSubject} body={draftBody} recipient={recipient} channel={[viaEmail && "Email", viaSms && "SMS"].filter(Boolean).join(" · ")} sendAt={scheduleLater ? sendAt : undefined} />}
       open={open}
       title={title}
       onClose={onClose}

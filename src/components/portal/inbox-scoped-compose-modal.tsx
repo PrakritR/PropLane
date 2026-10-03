@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -514,6 +516,9 @@ export function ScopedInboxComposeModal({
     <Modal
       open={open}
       title={title}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: personGroups.flatMap(group => group.options).filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ") || "Not selected" }, ...(propertyContext?.propertyTitle ? [{ label: "Property", value: propertyContext.propertyTitle }] : [])]} />}
+      previewLabel="Message preview"
+      preview={<PopupMessagePreview subject={subject} body={body} recipient={personGroups.flatMap(group => group.options).filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ")} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       onClose={closeCompose}
       dense
       assistantStrip={portal !== "resident"}

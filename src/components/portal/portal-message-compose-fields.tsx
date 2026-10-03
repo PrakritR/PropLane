@@ -392,6 +392,7 @@ export function PortalMessageSubjectField({
       ) : (
         <Input
           id={id}
+          required
           className="mt-1"
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
@@ -570,6 +571,7 @@ export function PortalMessageBodyField({
         <>
           <Textarea
             id={id}
+            required
             className={cn("mt-1 resize-y", minHeightClass)}
             value={value}
             onChange={(e) => onChange?.(e.target.value)}

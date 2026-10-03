@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -98,6 +100,9 @@ export function PortalDataExportButton({ className }: { className?: string }) {
 
       <Modal
         open={open}
+        contextPanel={<PopupRecordPreview rows={[{ label: "Scope", value: "My account" }]} />}
+        previewLabel="Export preview"
+        preview={<PopupRecordPreview rows={[{ label: "File type", value: ".proplane" }, { label: "Protection", value: "Password-encrypted" }]} />}
         title="Export my data"
         onClose={close}
         footer={

@@ -1,5 +1,7 @@
 "use client";
 
+import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS } from "@/components/ui/modal";
@@ -306,6 +308,9 @@ export function PortalBulkMessageCarouselModal({
     <Modal
       open
       title={title}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipient", value: activeItem?.recipient }, { label: "Selected messages", value: includedCount }]} />}
+      previewLabel="Message preview"
+      preview={skipMessage ? <PopupRecordPreview rows={[{ label: "Delivery", value: "No message" }]} /> : <PopupMessagePreview subject={activeDraft?.subject ?? ""} body={activeDraft?.body ?? ""} recipient={activeItem?.recipient} channel={sendVia.join(" · ")} />}
       onClose={onClose}
       dense
       footer={footer}
@@ -533,7 +538,11 @@ export function PortalBulkMessageReadonlyCarouselModal({
   if (!open || count === 0) return null;
 
   return (
-    <Modal open title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
+    <Modal open title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipient", value: activeItem?.recipient }, { label: "Messages", value: count }]} />}
+      previewLabel="Message preview"
+      preview={<PopupMessagePreview subject={activeItem?.subject} body={activeItem?.body ?? ""} recipient={activeItem?.recipient} />}
+    >
       <PortalMessageComposeModalBody>
         {count > 1 ? (
           <div className="flex items-center justify-between gap-2">
