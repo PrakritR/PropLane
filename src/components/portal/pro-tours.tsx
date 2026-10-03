@@ -98,6 +98,9 @@ import {
 } from "@/lib/tour-notifications";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { TourRescheduleTimePickerFields } from "@/components/portal/tour-reschedule-time-picker-fields";
+import { rescheduleSlotKeyToStartIso } from "@/lib/tour-reschedule-slot-picker";
+import { slotKeyForInstant } from "@/lib/tour-slot-math";
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
@@ -137,18 +140,6 @@ function isLiveTour(row: ManagerTourRow): boolean {
 
 function tourHasGuestContact(row: ManagerTourRow): boolean {
   return Boolean(row.guestEmail?.includes("@") || row.guestPhone?.trim());
-}
-
-function isoToDatetimeLocal(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function datetimeLocalToIso(value: string): string {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
 function tourEndIsoFromStart(startIso: string, row: ManagerTourRow): string {
@@ -374,7 +365,7 @@ export function ManagerTours({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [rescheduleTimePicker, setRescheduleTimePicker] = useState<{
     rows: ManagerTourRow[];
-    startLocals: Record<string, string>;
+    slotKeys: Record<string, string | null>;
   } | null>(null);
   const [tourProposals, setTourProposals] = useState<TourProposalListItem[]>([]);
   const [proposalBusy, setProposalBusy] = useState(false);
@@ -791,11 +782,11 @@ export function ManagerTours({
         showToast("Select only pending or only upcoming tours to reschedule together.");
         return;
       }
-      const startLocals: Record<string, string> = {};
+      const slotKeys: Record<string, string | null> = {};
       for (const row of rows) {
-        startLocals[row.id] = isoToDatetimeLocal(row.startIso);
+        slotKeys[row.id] = slotKeyForInstant(row.startIso);
       }
-      setRescheduleTimePicker({ rows, startLocals });
+      setRescheduleTimePicker({ rows, slotKeys });
     },
     [showToast],
   );
@@ -830,7 +821,8 @@ export function ManagerTours({
     if (!rescheduleTimePicker) return;
     const rowTimes: Record<string, TourRescheduleTimes> = {};
     for (const row of rescheduleTimePicker.rows) {
-      const newStartIso = datetimeLocalToIso(rescheduleTimePicker.startLocals[row.id] ?? "");
+      const key = rescheduleTimePicker.slotKeys[row.id];
+      const newStartIso = key ? rescheduleSlotKeyToStartIso(key) : "";
       if (!newStartIso) {
         showToast(`Pick a valid new time for ${row.guestName}.`);
         return;
@@ -1532,30 +1524,26 @@ export function ManagerTours({
           }
           panelClassName="max-w-md"
         >
-          <div className="max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
+          <div className="max-h-[min(60vh,24rem)] space-y-4 overflow-y-auto">
             {rescheduleTimePicker.rows.map((row) => (
-              <label key={row.id} className="block text-xs font-medium text-muted">
-                <span className="text-foreground">
-                  {row.guestName} · {row.propertyTitle}
-                </span>
-                <span className="mt-0.5 block font-normal">Current: {row.whenLabel}</span>
-                <Input
-                  type="datetime-local"
-                  className="mt-1"
-                  value={rescheduleTimePicker.startLocals[row.id] ?? ""}
-                  onChange={(e) =>
+              <div key={row.id} className="space-y-2">
+                {rescheduleTimePicker.rows.length > 1 ? (
+                  <p className="text-xs font-semibold text-foreground">
+                    {row.guestName} · {row.propertyTitle}
+                  </p>
+                ) : null}
+                <TourRescheduleTimePickerFields
+                  row={row}
+                  slotKey={rescheduleTimePicker.slotKeys[row.id] ?? null}
+                  onSlotKeyChange={(next) =>
                     setRescheduleTimePicker((prev) =>
                       prev
-                        ? {
-                            ...prev,
-                            startLocals: { ...prev.startLocals, [row.id]: e.target.value },
-                          }
+                        ? { ...prev, slotKeys: { ...prev.slotKeys, [row.id]: next } }
                         : prev,
                     )
                   }
-                  data-attr="tour-reschedule-datetime"
                 />
-              </label>
+              </div>
             ))}
           </div>
         </Modal>

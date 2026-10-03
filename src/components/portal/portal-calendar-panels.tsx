@@ -115,13 +115,21 @@ import {
   scheduledTaskTitleForTour,
 } from "@/lib/manager-scheduled-work-tasks";
 import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
+import { ScheduleTourSimpleModal } from "@/components/portal/schedule-tour-simple-modal";
+import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
+import {
+  defaultManagerCalendarViewMode,
+  readManagerCalendarViewMode,
+  writeManagerCalendarViewMode,
+  type ManagerCalendarViewMode,
+} from "@/lib/manager-calendar-view-preference";
 import { deleteManagerTask } from "@/lib/manager-tasks";
 import {
   compactTaskPropertyLabel,
   compactTaskRoomLabel,
   taskNotesPreview,
 } from "@/lib/manager-task-display";
-export type CalendarMode = "day" | "week" | "month";
+export type CalendarMode = "day" | "week" | "month" | "agenda";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
   dateStr: string;
@@ -132,8 +140,8 @@ type DragSelection = {
 
 const SLOT_ROW_START = 0;
 const SLOT_ROW_END = SLOTS_PER_DAY - 1;
-const DEFAULT_VISIBLE_START_SLOT = 12; // 6:00 AM
-const DEFAULT_VISIBLE_END_SLOT_EXCLUSIVE = 44; // 10:00 PM
+const DEFAULT_VISIBLE_START_SLOT = 16; // 8:00 AM
+const DEFAULT_VISIBLE_END_SLOT_EXCLUSIVE = 38; // 7:00 PM
 const WEEKDAY_OPTIONS = [
   { value: 0, label: "Mon" },
   { value: 1, label: "Tue" },
@@ -467,7 +475,8 @@ function addMonths(d: Date, n: number): Date {
 /** Calendar navigation is noon-anchored so DST cannot skip a local date. */
 export function shiftCalendarAnchor(anchor: Date, mode: CalendarMode, direction: -1 | 1): Date {
   if (mode === "month") return addMonths(anchor, direction);
-  return addDays(anchor, mode === "week" ? direction * 7 : direction);
+  if (mode === "week" || mode === "agenda") return addDays(anchor, direction * 7);
+  return addDays(anchor, direction);
 }
 
 /** A fresh value prevents a mutating Date caller from changing the clock anchor. */
@@ -477,7 +486,7 @@ export function calendarTodayAnchor(today: Date): Date {
 
 export function calendarVisibleDateCount(mode: CalendarMode, anchor: Date): number {
   if (mode === "day") return 1;
-  if (mode === "week") return 7;
+  if (mode === "week" || mode === "agenda") return 7;
   return buildMonthCells(anchor.getFullYear(), anchor.getMonth()).filter(Boolean).length;
 }
 
@@ -567,7 +576,7 @@ function formatNavTitle(anchor: Date, mode: CalendarMode): string {
   if (mode === "month") {
     return formatPacificDate(anchor, { month: "long", year: "numeric" });
   }
-  if (mode === "week") {
+  if (mode === "week" || mode === "agenda") {
     return formatWeekRangeMonSun(startOfWeekMonday(anchor));
   }
   return formatPacificDate(anchor, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
@@ -988,6 +997,8 @@ export function PortalCalendarPanels({
   onDefaultTourGridEnabledChange,
   weekActionsHost,
   weekPrimaryActionHost,
+  navControlsHost,
+  scheduleTourPropertyOptions,
   extraAvailabilityAction,
   vendorViewer = false,
   hideViewModeControl = false,
@@ -1023,6 +1034,10 @@ export function PortalCalendarPanels({
   weekActionsHost?: HTMLElement | null;
   /** Command-bar host for the standalone "+" (Add availability) primary icon — rendered after Share, per the one Filter · Availability · Share · + band shape. */
   weekPrimaryActionHost?: HTMLElement | null;
+  /** Command-bar host for calendar nav (< Today >, range, view dropdown). */
+  navControlsHost?: HTMLElement | null;
+  /** Houses the manager can book when creating a tour from the calendar + menu. */
+  scheduleTourPropertyOptions?: { id: string; label: string }[];
   /** An extra row folded into the Availability menu (Connect Google Calendar) so the band never grows past four icons. */
   extraAvailabilityAction?: ReactNode;
   /**
@@ -1174,8 +1189,31 @@ export function PortalCalendarPanels({
         : AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
     [isVendorViewer, kindKeysMap, onVendorAvailabilityRemove],
   );
-  const [uncontrolledViewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
+  const [uncontrolledViewMode, setUncontrolledViewMode] = useState<CalendarMode>(
+    defaultViewMode ?? defaultManagerCalendarViewMode(false),
+  );
   const viewMode = controlledViewMode ?? uncontrolledViewMode;
+  const [isPhoneLayout, setIsPhoneLayout] = useState(false);
+  const setViewMode = useCallback(
+    (mode: CalendarMode) => {
+      if (!controlledViewMode) setUncontrolledViewMode(mode);
+      writeManagerCalendarViewMode(isPhoneLayout, mode as ManagerCalendarViewMode);
+    },
+    [controlledViewMode, isPhoneLayout],
+  );
+  useEffect(() => {
+    if (controlledViewMode || typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = () => {
+      const phone = mq.matches;
+      setIsPhoneLayout(phone);
+      const saved = readManagerCalendarViewMode(phone);
+      setUncontrolledViewMode(saved ?? defaultManagerCalendarViewMode(phone));
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, [controlledViewMode]);
   const [monthPick, setMonthPick] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [uncontrolledAnchorDate, setUncontrolledAnchorDate] = useState(() => new Date());
   const anchorDate = anchorDateProp ?? uncontrolledAnchorDate;
@@ -1314,6 +1352,8 @@ export function PortalCalendarPanels({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [taskEditId, setTaskEditId] = useState<string | null>(null);
+  const [scheduleTourOpen, setScheduleTourOpen] = useState(false);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [taskNotesExpanded, setTaskNotesExpanded] = useState(false);
 
   useEffect(() => {
@@ -3320,6 +3360,10 @@ export function PortalCalendarPanels({
           <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
             {canEditWeek ? (
               <>
+                <DropdownMenuItem data-attr="calendar-add-availability" onSelect={openBlockModal}>
+                  Add availability
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
                   Copy previous week
                 </DropdownMenuItem>
@@ -3347,16 +3391,36 @@ export function PortalCalendarPanels({
         </DropdownMenu>
       </div>
     ) : null;
-    const availabilityAddAction = canEditWeek ? (
-      <div className="flex shrink-0 items-center" data-slot="calendar-week-add-action">
-        <PortalPrimaryIconAction
-          icon={Plus}
-          label="Add availability"
-          data-attr="calendar-create-block"
-          onClick={openBlockModal}
-        />
-      </div>
-    ) : null;
+    const calendarCreateMenu =
+      canEditWeek && !readOnly ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
+            <DropdownMenuItem
+              data-attr="calendar-create-tour"
+              onSelect={() => setScheduleTourOpen(true)}
+              disabled={!scheduleTourPropertyOptions?.length}
+            >
+              New tour
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-attr="calendar-create-task"
+              onSelect={() => {
+                setTaskEditId(null);
+                setTaskFormOpen(true);
+              }}
+            >
+              New task
+            </DropdownMenuItem>
+            <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
+              New service
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null;
+    const availabilityAddAction = calendarCreateMenu;
 
     /**
      * A thin red marker crossing the CURRENT half hour, but only on the row
@@ -3447,6 +3511,68 @@ export function PortalCalendarPanels({
           Open for tours
         </span>
       </div>
+      );
+    };
+
+    /** Agenda: week list grouped by day with sticky date headers (C2-CALP5). */
+    const renderCompactAgendaView = () => {
+      const weekStrs = new Set(activeBlockDateStrs);
+      const grouped = scheduledMeetings
+        .filter((m) => weekStrs.has(m.dateStr))
+        .sort((a, b) => (a.dateStr === b.dateStr ? a.startSlot - b.startSlot : a.dateStr.localeCompare(b.dateStr)));
+      if (grouped.length === 0) {
+        return (
+          <p className="px-2 py-6 text-center text-sm font-semibold text-muted" data-attr="calendar-empty-agenda">
+            Nothing scheduled this week
+          </p>
+        );
+      }
+      let lastDay = "";
+      return (
+        <div className={cn(compactGridTopGap, "space-y-1")} data-attr="calendar-agenda-view">
+          {grouped.map((meeting) => {
+            const header =
+              meeting.dateStr !== lastDay ? (
+                (() => {
+                  lastDay = meeting.dateStr;
+                  const d = new Date(`${meeting.dateStr}T12:00:00`);
+                  return (
+                    <div
+                      key={`hdr-${meeting.dateStr}`}
+                      className="sticky top-0 z-10 border-b border-border/60 bg-accent/30 px-2 py-1.5 text-xs font-bold text-foreground backdrop-blur-sm"
+                      data-attr="calendar-agenda-day-header"
+                    >
+                      {d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                    </div>
+                  );
+                })()
+              ) : null;
+            return (
+              <Fragment key={meeting.id}>
+                {header}
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-2 rounded-xl border border-border/60 bg-card px-3 py-2 text-left hover:bg-accent/20"
+                  data-attr="calendar-agenda-row"
+                  onClick={(e: MouseEvent<HTMLButtonElement>) =>
+                    openSlotDetails(meeting.dateStr, meeting.startSlot, e.currentTarget, meeting)
+                  }
+                >
+                  <MeetingTypeDot kind={meeting.kind} className="mt-1" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-foreground">
+                      {meeting.allDay ? "All day" : formatAvailabilitySlotLabel(meeting.startSlot)} ·{" "}
+                      {meetingCalendarGridLabel(meeting)}
+                    </span>
+                    {meeting.propertyTitle ? (
+                      <span className="block truncate text-[11px] text-muted">{meeting.propertyTitle}</span>
+                    ) : null}
+                  </span>
+                </button>
+              </Fragment>
+            );
+          })}
+        </div>
       );
     };
 
@@ -3614,6 +3740,73 @@ export function PortalCalendarPanels({
         </>
       );
     };
+    const calendarViewSelect =
+      hideViewModeControl || vendorMode ? null : (
+        <Select
+          aria-label="Calendar view"
+          data-attr="calendar-view-mode"
+          className={cn("h-8 min-w-[6.5rem] shrink-0 rounded-lg px-2 text-xs font-semibold", BLOCK_MODAL_FIELD_CLASS)}
+          value={viewMode}
+          onChange={(e) => setViewMode(e.target.value as CalendarMode)}
+        >
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+          <option value="agenda">Agenda</option>
+        </Select>
+      );
+
+    const calendarNavControls = (
+      <div className="flex min-w-0 flex-wrap items-center justify-center gap-1 sm:gap-1.5" data-attr="calendar-nav">
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
+          onClick={() => shiftAnchor(-1)}
+          aria-label={`Previous ${viewMode === "agenda" ? "week" : viewMode}`}
+        >
+          ←
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-7 shrink-0 rounded-full px-2 text-xs"
+          onClick={jumpToToday}
+          data-attr="calendar-today"
+        >
+          Today
+        </Button>
+        <p
+          className={cn(
+            "shrink-0 whitespace-nowrap px-0.5 text-center text-foreground",
+            CALENDAR_COMPACT_TOOLBAR_TEXT,
+            "lg:text-sm lg:font-semibold",
+          )}
+          data-attr="calendar-range-label"
+        >
+          {viewMode === "week" || viewMode === "agenda" ? (
+            <>
+              <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
+              <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
+              <span className="hidden lg:inline">{formatWeekRangeMonSun(weekMonday)}</span>
+            </>
+          ) : (
+            <span>{formatNavTitle(anchorDate, viewMode)}</span>
+          )}
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
+          onClick={() => shiftAnchor(1)}
+          aria-label={`Next ${viewMode === "agenda" ? "week" : viewMode}`}
+        >
+          →
+        </Button>
+        {calendarViewSelect}
+      </div>
+    );
+
     return (
       <>
         <div className={compactShellClass} ref={compactShellRef}>
@@ -3645,92 +3838,24 @@ export function PortalCalendarPanels({
                   </Button>
                 ) : null}
               </div>
-              <div className="flex min-w-0 items-center justify-center gap-1 sm:gap-1.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-11 w-11 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
-                  onClick={() => shiftAnchor(-1)}
-                  aria-label={`Previous ${viewMode}`}
-                >
-                  ←
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 shrink-0 rounded-full px-2 text-xs"
-                  onClick={jumpToToday}
-                  data-attr="calendar-today"
-                >
-                  Today
-                </Button>
-                <p className={cn("shrink-0 whitespace-nowrap px-0.5 text-center text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT, "lg:text-sm lg:font-semibold")}>
-                  {viewMode === "week" ? (
-                    <>
-                      <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
-                      <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
-                      <span className="hidden lg:inline">{formatWeekRangeMonSun(weekMonday)}</span>
-                    </>
-                  ) : (
-                    <span>{formatNavTitle(anchorDate, viewMode)}</span>
-                  )}
-                </p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-11 w-11 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
-                  onClick={() => shiftAnchor(1)}
-                  aria-label={`Next ${viewMode}`}
-                >
-                  →
-                </Button>
-                {!vendorMode && viewMode !== "month" ? (
-                  <>
-                    <div className="lg:hidden">{renderCompactMobileTimeWindow()}</div>
-                    <div className="hidden lg:block">{renderTimeWindowControl(true)}</div>
-                  </>
-                ) : null}
-              </div>
+              {navControlsHost ? null : calendarNavControls}
               <div className="flex min-w-0 items-center justify-end gap-1">
-                {hideViewModeControl ? null : (
-                  <div className="hidden shrink-0 sm:block" data-attr="calendar-view-mode">
-                    <PortalSegmentedControl<CalendarMode>
-                      options={[
-                        { id: "day", label: "Day" },
-                        { id: "week", label: "Week" },
-                        { id: "month", label: "Month" },
-                      ]}
-                      value={viewMode}
-                      onChange={setViewMode}
-                    />
-                  </div>
-                )}
                 {weekActionsHost ? createPortal(availabilityMenuAction, weekActionsHost) : availabilityMenuAction}
                 {weekPrimaryActionHost
                   ? createPortal(availabilityAddAction, weekPrimaryActionHost)
                   : availabilityAddAction}
               </div>
             </div>
-            {hideViewModeControl ? null : (
-              <div className="mt-1.5 flex justify-center sm:hidden [&_button]:min-h-11" data-attr="calendar-view-mode-mobile">
-                <PortalSegmentedControl<CalendarMode>
-                  options={[
-                    { id: "day", label: "Day" },
-                    { id: "week", label: "Week" },
-                    { id: "month", label: "Month" },
-                  ]}
-                  value={viewMode}
-                  onChange={setViewMode}
-                />
-              </div>
-            )}
           </div>
+          {navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}
 
           <div className={compactBodyClass}>
           {viewMode === "month" ? (
             renderCompactMonthView()
           ) : viewMode === "day" ? (
             renderCompactDayView()
+          ) : viewMode === "agenda" ? (
+            renderCompactAgendaView()
           ) : (
             (() => {
 
@@ -4404,22 +4529,46 @@ export function PortalCalendarPanels({
       </Modal>
       {selectedBlockModal}
       {userId && !isVendorViewer && !readOnly ? (
-        <ManagerTaskFormModal
-          open={taskFormOpen}
-          onClose={() => {
-            setTaskFormOpen(false);
-            setTaskEditId(null);
-          }}
-          managerUserId={userId}
-          editingId={taskEditId}
-          onSaved={() => {
-            showToast("Task updated.");
-            setSelectedBlock(null);
-            setMeetingRefresh((n) => n + 1);
-            onMeetingsChanged?.();
-            reloadAvailability();
-          }}
-        />
+        <>
+          <ManagerTaskFormModal
+            open={taskFormOpen}
+            onClose={() => {
+              setTaskFormOpen(false);
+              setTaskEditId(null);
+            }}
+            managerUserId={userId}
+            editingId={taskEditId}
+            onSaved={() => {
+              showToast(taskEditId ? "Task updated." : "Task added.");
+              setSelectedBlock(null);
+              setMeetingRefresh((n) => n + 1);
+              onMeetingsChanged?.();
+              reloadAvailability();
+            }}
+          />
+          <ScheduleTourSimpleModal
+            open={scheduleTourOpen}
+            onClose={() => setScheduleTourOpen(false)}
+            managerUserId={userId}
+            propertyOptions={(scheduleTourPropertyOptions ?? []).map((p) => ({ id: p.id, label: p.label }))}
+            propertyTick={meetingRefresh}
+            onAdded={() => {
+              setMeetingRefresh((n) => n + 1);
+              onMeetingsChanged?.();
+              reloadAvailability();
+            }}
+          />
+          <ManagerAddServiceModal
+            open={addServiceOpen}
+            onClose={() => setAddServiceOpen(false)}
+            managerUserId={userId}
+            onSubmitted={() => {
+              setAddServiceOpen(false);
+              setMeetingRefresh((n) => n + 1);
+              onMeetingsChanged?.();
+            }}
+          />
+        </>
       ) : null}
       {tourGuestNotifyPreviewModal}
       {guestMessageModal}
