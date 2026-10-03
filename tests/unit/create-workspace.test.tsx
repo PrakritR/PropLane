@@ -107,13 +107,13 @@ async function uploadAndWait() {
 }
 
 describe("CreateWorkspace", () => {
-  it("opens at Basics as step 1 with the Start-from-a-file strip above Property type and no Import step yet", () => {
+  it("opens at Basics with the file action in the header and no Import step yet", () => {
     mount();
     expect(screen.getByText("The home itself")).toBeInTheDocument();
     const strip = document.querySelector("[data-attr='create-file-strip']")!;
     expect(strip.getAttribute("data-state")).toBe("blank");
-    expect(strip.textContent).toContain("Start from a file");
-    expect(strip.textContent).toContain(".xlsx");
+    expect(screen.getByRole("button", { name: "Start from a file" })).toBeInTheDocument();
+    expect(strip.textContent).not.toContain(".xlsx");
     // The strip comes before the first question.
     expect(strip.compareDocumentPosition(document.querySelector("[data-attr='listing-v2-kind-house']")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const rail = screen.getByRole("navigation", { name: "Listing sections" });

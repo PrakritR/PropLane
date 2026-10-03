@@ -3124,6 +3124,7 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
+              hidden={prevStep == null && !leadingStep}
               disabled={busy || (prevStep == null && !leadingStep)}
               onClick={() => {
                 if (prevStep != null) goTo(prevStep);
@@ -3144,7 +3145,7 @@ export function ListingEditorV2({
           </span>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {nextStep != null ? (
-              <Button variant="outline" disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
+              <Button disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
                 Continue
               </Button>
             ) : (

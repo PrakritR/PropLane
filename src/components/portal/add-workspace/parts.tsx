@@ -9,11 +9,12 @@
  * side panel, never as subtext.
  */
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Upload, FileText, Image as ImageIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
+import { WorkspaceUploadAction } from "./upload-action";
 
 /* ─────────────────────────── controls ─────────────────────────── */
 
@@ -212,7 +213,7 @@ export function FileStartStrip({
   title?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
+  void chips;
   const pick = (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -283,47 +284,7 @@ export function FileStartStrip({
       </div>
     );
   }
-  return (
-    <label
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        pick(e.dataTransfer.files);
-      }}
-      data-attr={dataAttr}
-      data-state="blank"
-      className={cn(
-        "mb-5 flex cursor-pointer flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
-        dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)] hover:border-primary/50",
-        disabled && "pointer-events-none opacity-60",
-      )}
-    >
-      {input}
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
-        <Upload className="h-[18px] w-[18px]" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-bold text-foreground">{title}</span>
-        <span className="mt-1 flex flex-wrap gap-1.5">
-          {chips.map((chip) => (
-            <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">
-              {chip}
-            </span>
-          ))}
-        </span>
-      </span>
-      <span className="w-full sm:w-auto">
-        <span className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground sm:w-auto">
-          Choose file
-        </span>
-      </span>
-    </label>
-  );
+  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
 }
 
 export type AttachedDocument = {

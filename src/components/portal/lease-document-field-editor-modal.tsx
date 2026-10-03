@@ -146,9 +146,7 @@ export function LeaseDocumentFieldEditorModal({
       panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS, "h-[min(90dvh,54rem)]")}
       footer={
         <ModalFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving} data-attr="lease-field-editor-cancel">
-            Cancel
-          </Button>
+
           <Button
             type="button"
             variant="primary"

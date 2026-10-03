@@ -43,7 +43,7 @@ describe("ListingEditorV2 without a leading step (Add property)", () => {
     mount();
     const labels = railButtons().map((b) => b.getAttribute("data-attr"));
     expect(labels).toEqual(LISTING_V2_STEPS.map((s) => `listing-v2-rail-${s.id}`));
-    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
     expect(screen.queryByTestId("switcher")).toBeNull();
     expect(screen.getByText(/Step 1 of \d/).textContent).toMatch(/^Step 1 of /);
   });

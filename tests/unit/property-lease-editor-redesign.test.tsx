@@ -148,9 +148,9 @@ describe("F-editor c: footer-only commit", () => {
       />,
     );
     await screen.findByRole("dialog", { name: "New lease" });
-    expect(screen.queryByRole("button", { name: "Start from a file" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start from a file" })).toBeTruthy();
     expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Choose file" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
     // Fill the required name so Continue is reachable, then confirm the
     // footer's commit label is "Add lease" on the last step — never a
     // second in-body commit button anywhere along the way.

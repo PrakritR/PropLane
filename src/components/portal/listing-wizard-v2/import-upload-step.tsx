@@ -10,6 +10,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { FileSpreadsheet, MoreHorizontal, Upload } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
 import { StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { importReadinessLabel } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { describeSourceRows, importedMonthlyRent } from "@/lib/property-import/to-submission";
@@ -92,7 +93,7 @@ export function ImportFileStrip({
   dataAttr?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
+  void chips;
   const [hint, setHint] = useState("");
 
   const pick = (files: FileList | null) => {
@@ -127,42 +128,7 @@ export function ImportFileStrip({
   );
 
   if (state.kind === "blank") {
-    return (
-      <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          pick(e.dataTransfer.files);
-        }}
-        data-attr={dataAttr}
-        data-state="blank"
-        className={cn(
-          "mb-5 flex cursor-pointer flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
-          dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)] hover:border-primary/50",
-        )}
-      >
-        {input}
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
-          <Upload className="h-[18px] w-[18px]" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[14px] font-bold text-foreground">Start from a file</span>
-          <span className="mt-1 flex flex-wrap gap-1.5">
-            {chips.map((chip) => (
-              <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">
-                {chip}
-              </span>
-            ))}
-          </span>
-        </span>
-        <span className="w-full sm:w-auto">{chooseButton("Choose file", "create-file-choose")}</span>
-      </label>
-    );
+    return <WorkspaceUploadAction accept={accept} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" />;
   }
 
   if (state.kind === "reading") {

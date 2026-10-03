@@ -97,6 +97,7 @@ export function ContactStep({
         <WizardRow cols={2}>
           <WizardField label="Full name" required mark={<FieldMark kind={form.marks.name} />}>
             <Input
+              required
               value={form.name}
               onChange={(e) => {
                 patch({ name: e.target.value });
@@ -109,6 +110,7 @@ export function ContactStep({
           <WizardField label="Email" required={!prospect} mark={<FieldMark kind={form.marks.email} />}>
             <Input
               type="email"
+              required={!prospect}
               value={form.email}
               onChange={(e) => {
                 patch({ email: e.target.value });

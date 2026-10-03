@@ -15,7 +15,7 @@
  * manager who has built a listing already knows how to add a person.
  */
 
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
 import { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
@@ -124,6 +124,8 @@ export function AddWorkspace({
   numberedSteps?: boolean;
 }) {
   const confirm = useConfirm();
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const railSteps = useMemo<StepRailItem[]>(
     () => steps.map((s) => ({ ...s, attention: s.incomplete ? 1 : 0 })),
     [steps],
@@ -146,6 +148,7 @@ export function AddWorkspace({
   const isLast = nextPath == null;
 
   const close = useCallback(() => {
+    if (busy) return;
     if (onRequestClose && !onRequestClose()) return;
     if (!dirty) {
       onClose();
@@ -161,7 +164,7 @@ export function AddWorkspace({
     }).then((ok) => {
       if (ok) onClose();
     });
-  }, [confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
+  }, [busy, confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -177,7 +180,18 @@ export function AddWorkspace({
   }, [close]);
 
   const goNext = () => {
-    if (nextDisabled) return;
+    if (nextDisabled || busy) return;
+    const invalid = Array.from(workspaceRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("main input, main select, main textarea") ?? []).find((field) => field.willValidate && !field.checkValidity());
+    if (invalid) {
+      const label = invalid.labels?.[0]?.textContent?.replace(/\s*\(required\)/g, "").trim() || invalid.getAttribute("aria-label") || "Required fields";
+      setValidationError(invalid.validity.valueMissing ? `${label}: Required` : invalid.validationMessage);
+      invalid.setAttribute("aria-invalid", "true");
+      invalid.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      invalid.focus();
+      invalid.reportValidity();
+      return;
+    }
+    setValidationError(null);
     if (onBeforeNext && !onBeforeNext()) return;
     if (nextPath == null) return;
     onJump(nextPath);
@@ -185,16 +199,24 @@ export function AddWorkspace({
 
   return (
     <ListingWizardOverlay ariaLabel={title}>
-      <div className="relative h-full w-full">
+      <div ref={workspaceRef} className="relative h-full w-full" onInput={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+          if (target.validity.valid) target.removeAttribute("aria-invalid");
+          setValidationError(null);
+        }
+      }}>
       <ListingWorkspace
         title={title}
         subtitle={subtitle}
         saveState={saveState}
         onClose={close}
+        closeDisabled={busy}
+        onContinue={isLast ? undefined : goNext}
         headerAside={
           <>
             {headerActions}
-            <ModalAssistantStrip contextHint={assistantContext} storageScopeKey={assistantScopeKey} />
+            <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
         }
         rail={<StepRail steps={railSteps} current={current} onJump={onJump} numbered={numberedSteps} />}
@@ -211,7 +233,8 @@ export function AddWorkspace({
               {dangerAction}
               <button
                 type="button"
-                disabled={prevPath == null}
+                disabled={prevPath == null || busy}
+                hidden={prevPath == null}
                 onClick={() => {
                   if (prevPath != null) onJump(prevPath);
                 }}
@@ -222,7 +245,7 @@ export function AddWorkspace({
               </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
-              {footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
+              {validationError ? <span role="alert" className="mb-0.5 block text-destructive">{validationError}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
               Step {current + 1} of {steps.length}
             </span>
             {isLast ? (
@@ -239,13 +262,12 @@ export function AddWorkspace({
               <button
                 type="button"
                 onClick={goNext}
-                disabled={nextDisabled}
+                disabled={nextDisabled || busy}
                 data-attr={`${dataAttrPrefix}-next`}
                 aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
               >
-                <span className="sm:hidden">Continue</span>
-                <span className="hidden sm:inline">Continue to {nextPath != null ? steps[nextPath]!.label : "next"}</span>
+                Continue
               </button>
             )}
           </>

@@ -46,7 +46,7 @@ describe("add-workspace close stack", () => {
       "utf8",
     );
     expect(primitives).toContain("lg:grid-rows-[minmax(0,1fr)]");
-    expect(primitives).toMatch(/<main className="min-h-0 min-w-0 overflow-y-auto/);
+    expect(primitives).toMatch(/<main\s+className="min-h-0 min-w-0 overflow-y-auto/);
   });
 
   it("Continue skips off-path extras", () => {

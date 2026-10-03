@@ -22,6 +22,7 @@ import { AlertTriangle, Camera, ChevronRight, RotateCcw, type LucideIcon } from 
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
+import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
@@ -81,9 +82,8 @@ export function WizardModal({
  * decoration: every step supplies its own, and a step with nothing useful to
  * show does not get one.
  *
- * Under 1180px the panel drops out of the grid; steps render it at the foot of
- * the body instead (see `sidePanel` / `sideBelow`), so a phone loses the column
- * and keeps the content.
+ * Below xl the preview moves under the desktop body. Phones show only fields
+ * (GAP3); their step navigation is one compact picker.
  */
 export function ListingWorkspace({
   title,
@@ -120,7 +120,7 @@ export function ListingWorkspace({
   /**
    * What sits ABOVE the sections in the rail — the cover photo and, while
    * something still needs doing, the "finish these" card. Desktop only: on a
-   * phone the rail is a strip of chips and has no room for it.
+   * phone the rail is a compact step picker and has no room for it.
    */
   railHeader?: ReactNode;
   /** Pinned to the foot of the rail — the listing's live/draft status. Desktop only. */
@@ -138,6 +138,7 @@ export function ListingWorkspace({
   /** Enter in a single-line field follows the same validated path as Continue. */
   onContinue?: () => void;
 }) {
+  const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -147,6 +148,7 @@ export function ListingWorkspace({
    * `closeDisabled`; PRP-486's in-flight guard still lives in `onClose`.
    */
   return (
+    <WorkspaceUploadTarget.Provider value={uploadTarget}>
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-[20px] sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
       {/*
        * The native shell draws under the status bar, so on a phone the header
@@ -174,6 +176,7 @@ export function ListingWorkspace({
           </div>
         ) : null}
         <div className="flex shrink-0 items-center gap-2">
+          <div ref={setUploadTarget} className="flex items-center gap-2 empty:hidden" />
           {headerAside}
           {onClose ? (
             <button
@@ -189,7 +192,7 @@ export function ListingWorkspace({
         </div>
       </div>
       {/*
-       * On a phone the rail row is as tall as its chips and the body takes the
+       * On a phone the rail row is as tall as its picker and the body takes the
        * rest; without the explicit rows a short step (the import's Upload) let
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
@@ -226,6 +229,7 @@ export function ListingWorkspace({
         {footer}
       </div>
     </div>
+    </WorkspaceUploadTarget.Provider>
   );
 }
 
@@ -287,17 +291,13 @@ export function StepRail({
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
   /**
-   * F-editor / F012: each step shows its number, or a check once nothing on
-   * it is missing, instead of only the plain attention dot. Opt-in per
-   * caller (the Add application / Add lease editors) — every other wizard
-   * using this shared rail keeps today's dot-only look unchanged.
+   * Legacy compatibility prop. POP5 uses the same dot/accent rail for all editors.
    */
   numbered?: boolean;
 }) {
   void visited;
   void numbered;
-  // On a phone the rail is a strip of chips; the one the manager is on must be
-  // in view, or jumping to Pricing leaves the strip showing "Basics · Rooms".
+  // Keep the active desktop section in view when navigation comes from the footer.
   const currentRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.

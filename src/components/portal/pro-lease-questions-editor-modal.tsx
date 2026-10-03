@@ -256,6 +256,7 @@ export function ManagerLeaseQuestionsEditorModal({
       title={localTemplate.label || "Lease form"}
       description="Imported lease questions"
       onClose={onClose}
+      dismissBlocked={saving}
       panelClassName={MODAL_LARGE_PANEL_CLASS}
       footer={
         <ModalFooter>
@@ -264,9 +265,7 @@ export function ManagerLeaseQuestionsEditorModal({
               Delete
             </Button>
           ) : null}
-          <Button type="button" variant="outline" onClick={onClose} data-attr="lease-questions-close">
-            Close
-          </Button>
+
           <Button type="button" onClick={() => void saveLabel()} disabled={saving} data-attr="lease-questions-save">
             {saving ? "Saving…" : "Save"}
           </Button>
