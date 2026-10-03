@@ -5,9 +5,9 @@ import { Textarea } from "@/components/ui/input";
 import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import { HouseDetailsExpandable, HouseInfoEditor } from "@/components/portal/house-info-sections";
+import { HouseDetailsExpandable } from "@/components/portal/house-info-sections";
+import { PropertyHouseDetailsListPanel } from "@/components/portal/property-house-details-list-panel";
 import { HouseInfoSplitReview } from "@/components/portal/house-info-split-review";
-import { HousePrintablesCard } from "@/components/portal/house-printables-card";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
   updateExtraListingFromSubmission,
@@ -17,8 +17,6 @@ import {
   houseInfoIsEmpty,
   legacyHouseTextHasSplittableContent,
   normalizeHouseInfo,
-  setHouseInfoValue,
-  type HouseInfoSectionId,
   type HouseInfoV1,
 } from "@/lib/house-info";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -98,11 +96,11 @@ export function ManagerPropertyHouseDetailsPanel({
   }, [draft]);
 
   const persist = useCallback(
-    (snapshot: HouseDraft) => {
-      if (!noteKey || !managerUserId) return;
+    (snapshot: HouseDraft, submission: ManagerListingSubmissionV1 = sub) => {
+      if (!noteKey || !managerUserId) return false;
       setStatus("saving");
       const next: ManagerListingSubmissionV1 = {
-        ...sub,
+        ...submission,
         houseDescription: snapshot.houseDescription ?? "",
         houseRulesText: snapshot.houseRulesText ?? "",
         generalHouseInfo: snapshot.generalHouseInfo ?? "",
@@ -124,7 +122,7 @@ export function ManagerPropertyHouseDetailsPanel({
         // Stay dirty so the next keystroke retries. A failed autosave must never
         // look like a saved one — there is no button here to tell them otherwise.
         setStatus("error");
-        return;
+        return false;
       }
       savePortalListingNote(noteKey, {
         houseDescription: snapshot.houseDescription,
@@ -140,6 +138,7 @@ export function ManagerPropertyHouseDetailsPanel({
       setStatus("saved");
       setNotesTick((t) => t + 1);
       onUpdated();
+      return true;
     },
     [managerUserId, noteKey, onUpdated, saveTarget, sub],
   );
@@ -190,11 +189,6 @@ export function ManagerPropertyHouseDetailsPanel({
   const updateText = (key: "houseDescription" | "houseRulesText" | "generalHouseInfo", value: string) => {
     setDirty(true);
     setDraft((d) => ({ ...d, [key]: value }));
-  };
-
-  const updateSection = (sectionId: HouseInfoSectionId, key: string, value: string) => {
-    setDirty(true);
-    setDraft((d) => ({ ...d, houseInfo: setHouseInfoValue(d.houseInfo, sectionId, key, value) }));
   };
 
   // The review screen has already folded the manager's keep-or-remove choice
@@ -279,20 +273,35 @@ export function ManagerPropertyHouseDetailsPanel({
           </div>
         ) : null}
 
-        <HouseInfoEditor
-          info={draft.houseInfo}
-          onChange={updateSection}
-          onOtherChange={(value) => {
+        <PropertyHouseDetailsListPanel
+          propertyId={propertyId ?? ""}
+          sub={sub}
+          houseInfo={draft.houseInfo}
+          managerNotes={draft.houseDescription}
+          managerUserId={managerUserId}
+          showToast={showToast}
+          onPersist={(payload) => {
             setDirty(true);
-            setDraft((d) => ({ ...d, houseInfo: { ...d.houseInfo, other: value } }));
+            setDraft((d) => ({
+              ...d,
+              houseInfo: payload.houseInfo,
+              houseDescription: payload.managerNotes,
+            }));
+            return persist(
+              {
+                houseDescription: payload.managerNotes,
+                houseRulesText: draft.houseRulesText,
+                generalHouseInfo: draft.generalHouseInfo,
+                houseInfo: payload.houseInfo,
+              },
+              payload.sub,
+            );
           }}
         />
 
-        {/* Legacy free text. Present only while it still holds something, so a
-            migrated house is not left with two empty boxes at the bottom. */}
         {draft.generalHouseInfo || draft.houseRulesText ? (
           <HouseDetailsExpandable
-            defaultOpen={houseInfoIsEmpty(draft.houseInfo)}
+            defaultOpen={false}
             dataAttr="house-info-legacy"
             title="Your earlier notes"
             badge={
@@ -302,9 +311,6 @@ export function ManagerPropertyHouseDetailsPanel({
             }
           >
             <div className="space-y-3">
-              <p className="text-xs text-muted">
-                Still shown to residents. Move it into the sections above and this goes away.
-              </p>
               {draft.generalHouseInfo ? (
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold text-muted">General house info</label>
@@ -329,31 +335,6 @@ export function ManagerPropertyHouseDetailsPanel({
               ) : null}
             </div>
           </HouseDetailsExpandable>
-        ) : null}
-
-        <HouseDetailsExpandable
-          dataAttr="house-info-manager-notes"
-          title="Manager notes"
-          badge={
-            <span className="portal-badge-notice rounded-full px-2 py-0.5 text-[10px] font-semibold">
-              Manager only
-            </span>
-          }
-        >
-          <p className="mb-3 text-xs text-muted">
-            Never shown to a resident, never on a listing. Your own reminders about this house.
-          </p>
-          <Textarea
-            rows={3}
-            aria-label="Manager notes"
-            value={draft.houseDescription}
-            placeholder="Owner prefers text over calls. Boiler replaced March 2026."
-            onChange={(e) => updateText("houseDescription", e.target.value)}
-          />
-        </HouseDetailsExpandable>
-
-        {propertyId ? (
-          <HousePrintablesCard propertyId={propertyId} rooms={sub.rooms ?? []} showToast={showToast} />
         ) : null}
 
         <div className="rounded-2xl border border-dashed border-border px-4 py-3">

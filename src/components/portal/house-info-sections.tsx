@@ -220,18 +220,22 @@ export function HouseInfoEditor({
   info,
   onChange,
   onOtherChange,
+  sectionIds,
 }: {
   info: HouseInfoV1;
   onChange: (sectionId: HouseInfoSectionId, key: string, value: string) => void;
   onOtherChange: (value: string) => void;
+  /** When set, only these sections render (single-section popup). */
+  sectionIds?: readonly HouseInfoSectionId[];
 }) {
   const [showOptional, setShowOptional] = useState(
     () => !HOUSE_INFO_SECTIONS.every((spec) => !spec.optional || houseInfoSectionIsEmpty(info, spec)),
   );
 
-  const visible = HOUSE_INFO_SECTIONS.filter(
-    (spec) => !spec.optional || showOptional || !houseInfoSectionIsEmpty(info, spec),
-  );
+  const visible = HOUSE_INFO_SECTIONS.filter((spec) => {
+    if (sectionIds?.length && !sectionIds.includes(spec.id)) return false;
+    return !spec.optional || showOptional || !houseInfoSectionIsEmpty(info, spec);
+  });
   const hiddenCount = HOUSE_INFO_SECTIONS.length - visible.length;
 
   return (
