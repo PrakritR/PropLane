@@ -61,11 +61,22 @@ function stubImportFetch() {
   );
 }
 
+// Redesign (studio-redesign-0929, property-lease-apps): the Sections-step strip is
+// gone. A saved application re-imports through the "Start from" row's Replace action
+// (hidden input); a new one picks "Upload PDF" in "Start from", which reveals the strip.
 function pickFile() {
-  const input = document.querySelector('[data-attr="property-application-start-from-file"] input[type="file"]') as HTMLInputElement;
+  const input = (document.querySelector('[data-attr="property-application-start-from-file"] input[type="file"]') ??
+    document.querySelector('[data-attr="application-replace-upload-input"]')) as HTMLInputElement;
   expect(input).not.toBeNull();
   const file = new File(["%PDF-1.4"], "lease.pdf", { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
+}
+
+async function chooseUploadPdf() {
+  const trigger = document.querySelector('[data-attr="property-application-start-from"]') as HTMLElement;
+  expect(trigger).not.toBeNull();
+  fireEvent.click(trigger);
+  fireEvent.click(await screen.findByText("Upload PDF"));
 }
 
 beforeEach(() => {
@@ -216,6 +227,7 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
   it("does not create or persist anything until the footer commit, and Discard leaves an empty new form", async () => {
     const onPersistSubmission = renderAddModal();
     await screen.findByRole("dialog", { name: "Add application" });
+    await chooseUploadPdf();
 
     pickFile();
 
@@ -237,6 +249,7 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
   it("Apply only fills the working copy — the footer commit is the first and only persist call", async () => {
     const onPersistSubmission = renderAddModal();
     await screen.findByRole("dialog", { name: "Add application" });
+    await chooseUploadPdf();
 
     pickFile();
     await waitFor(() => expect(document.querySelector('[data-attr="application-pending-import"]')).not.toBeNull());
