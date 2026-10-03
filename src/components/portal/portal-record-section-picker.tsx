@@ -6,6 +6,8 @@ import { ChevronDown, X } from "lucide-react";
 
 import type { RecordSectionGroup } from "@/lib/portals/record-sections";
 import { cn } from "@/lib/utils";
+import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
+import { PROPERTY_RECORD_SECTION_INFO } from "@/lib/property-record-section-info";
 
 /**
  * Phone section menu. Closed: the current section and a chevron. Open: every
@@ -68,7 +70,16 @@ export function PortalRecordSectionPicker({
                   )}
                   onClick={() => setOpen(false)}
                 >
-                  {item.label}
+                  <span className="inline-flex min-w-0 items-center gap-0.5">
+                    {item.label}
+                    {PROPERTY_RECORD_SECTION_INFO[item.id] ? (
+                      <PortalPropertySectionInfo
+                        title={PROPERTY_RECORD_SECTION_INFO[item.id]!.title}
+                        body={PROPERTY_RECORD_SECTION_INFO[item.id]!.body}
+                        dataAttr={`property-section-picker-info-${item.id}`}
+                      />
+                    ) : null}
+                  </span>
                 </Link>
               ))}
             </div>
