@@ -89,9 +89,9 @@ export function PropertyRoomPricingWorkspace({
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
   const steps: AddWorkspaceStep[] = useMemo(() => {
-    const out: AddWorkspaceStep[] = [{ id: LONG_TERM_LEASE_TERM, title: "Long-term", summary: "" }];
+    const out: AddWorkspaceStep[] = [{ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" }];
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
-      out.push({ id: SHORT_TERM_LEASE_TERM, title: "Short term", summary: "" });
+      out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
     }
     return out.map((s) => {
       if (subject.kind !== "room") return s;
@@ -174,14 +174,14 @@ export function PropertyRoomPricingWorkspace({
                   <>
                     <FactRow label="Nightly rate">
                       <MoneyInput
-                        ariaLabel="Nightly rate"
+                        label="Nightly rate"
                         value={room.shortTermRent ?? ""}
                         onChange={(v) => updateRoom(room.id, { ...room, shortTermRent: v })}
                       />
                     </FactRow>
                     <FactRow label="Deposit">
                       <MoneyInput
-                        ariaLabel="Deposit"
+                        label="Deposit"
                         value={room.shortTermDeposit ?? room.securityDeposit ?? ""}
                         onChange={(v) => updateRoom(room.id, { ...room, shortTermDeposit: v })}
                       />
@@ -191,7 +191,7 @@ export function PropertyRoomPricingWorkspace({
                   <>
                     <FactRow label="Rent /mo">
                       <MoneyInput
-                        ariaLabel="Rent"
+                        label="Rent"
                         value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
                         onChange={(v) =>
                           updateRoom(room.id, {
@@ -203,14 +203,14 @@ export function PropertyRoomPricingWorkspace({
                     </FactRow>
                     <FactRow label="Utilities /mo">
                       <MoneyInput
-                        ariaLabel="Utilities"
+                        label="Utilities"
                         value={room.utilitiesEstimate ?? ""}
                         onChange={(v) => updateRoom(room.id, { ...room, utilitiesEstimate: v })}
                       />
                     </FactRow>
                     <FactRow label="Deposit">
                       <MoneyInput
-                        ariaLabel="Deposit"
+                        label="Deposit"
                         value={room.securityDeposit ?? ""}
                         onChange={(v) => updateRoom(room.id, { ...room, securityDeposit: v })}
                       />
@@ -246,14 +246,14 @@ export function PropertyRoomPricingWorkspace({
             {!isEntireHomeListing(draft) ? (
               <ToggleRow
                 label="Offer the whole house"
-                on={Boolean(draft.entireHomeOffered)}
+                checked={Boolean(draft.entireHomeOffered)}
                 onChange={(on) => patch({ entireHomeOffered: on })}
                 dataAttr="property-whole-house-offer"
               />
             ) : null}
             <FactRow label="Rent /mo">
               <MoneyInput
-                ariaLabel="Whole house rent"
+                label="Whole house rent"
                 value={
                   draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0
                     ? String(draft.entireHomeMonthlyRent)
@@ -286,14 +286,14 @@ export function PropertyRoomPricingWorkspace({
               <StepHeading title={bundle.label || "Bundle"} />
               <FactRow label="Rent /mo">
                 <MoneyInput
-                  ariaLabel="Bundle rent"
+                  label="Bundle rent"
                   value={bundle.price ?? ""}
                   onChange={(v) => patchBundle({ price: v })}
                 />
               </FactRow>
               <FactRow label="Deposit">
                 <MoneyInput
-                  ariaLabel="Bundle deposit"
+                  label="Bundle deposit"
                   value={bundle.securityDeposit ?? ""}
                   onChange={(v) => patchBundle({ securityDeposit: v })}
                 />

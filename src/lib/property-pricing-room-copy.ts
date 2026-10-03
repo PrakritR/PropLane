@@ -1,9 +1,9 @@
-import {
-  copyRoomPricingFrom,
-  type ManagerListingSubmissionV1,
-  type ManagerRoomSubmission,
-  type RoomPricingUiMeta,
+import type {
+  ManagerListingSubmissionV1,
+  ManagerRoomSubmission,
+  RoomPricingUiMeta,
 } from "@/lib/manager-listing-submission";
+import { copyRoomPricingFrom } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export function resolveRoomPricingCopyLabel(
@@ -81,8 +81,8 @@ export function clearRoomPricingCopyWhenSourceRemoved(
     }
     const next: Record<string, string> = {};
     for (const [term, from] of Object.entries(byTerm)) {
-      if (from === removedRoomId) {
-        changed = true;
+      if (!from || from === removedRoomId) {
+        if (from === removedRoomId) changed = true;
         continue;
       }
       next[term] = from;

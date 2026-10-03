@@ -117,7 +117,7 @@ export function PropertyPricingSettingsModal({
             <SettingsRow label="Automatic late fees">
               <ToggleRow
                 label="Automatic late fees"
-                on={draft.lateFeeEnabled !== false}
+                checked={draft.lateFeeEnabled !== false}
                 onChange={(on) => patch({ lateFeeEnabled: on })}
                 dataAttr="property-pricing-settings-late-on"
               />
@@ -126,7 +126,7 @@ export function PropertyPricingSettingsModal({
               <>
                 <SettingsRow label="Late fee amount">
                   <MoneyInput
-                    ariaLabel="Late fee amount"
+                    label="Late fee amount"
                     value={draft.lateFeeAmount ?? "50"}
                     onChange={(v) => patch({ lateFeeAmount: v })}
                   />

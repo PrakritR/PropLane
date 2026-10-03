@@ -63,14 +63,13 @@ export function WorkspacePricingDefaultsPanel({ workspaceId }: { workspaceId: st
     <div className="flex items-center justify-between gap-3 border-b border-border py-3 last:border-0">
       <span className="text-sm font-semibold text-foreground">{label}</span>
       <MoneyInput
-        ariaLabel={label}
+        label={label}
         value={draft[key] ? String(draft[key]) : ""}
         onChange={(v) => {
           const n = Number(v.replace(/[^0-9.]/g, ""));
           const next = { ...draft, [key]: Number.isFinite(n) && n > 0 ? Math.round(n) : undefined };
           void save(next);
         }}
-        disabled={loading || saving || !workspaceId}
       />
     </div>
   );

@@ -23,7 +23,6 @@ import {
   propertyPricingWholeHouseSummary,
   roomPricingSourceLabel,
 } from "@/lib/property-pricing-summary";
-import { clearRoomPricingCopyWhenSourceRemoved } from "@/lib/property-pricing-room-copy";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -69,7 +68,7 @@ export function PropertyPricingPanel({
   const showWholeTab = !entireHome || sub.entireHomeOffered || (sub.entireHomeMonthlyRent ?? 0) > 0;
 
   const persist = (next: ManagerListingSubmissionV1) => {
-    const normalized = normalizeManagerListingSubmissionV1(clearRoomPricingCopyWhenSourceRemoved(next));
+    const normalized = normalizeManagerListingSubmissionV1(next);
     if (!persistManagerListingSubmission(saveTarget, managerUserId, normalized)) {
       showToast("Could not save pricing.");
       return false;
