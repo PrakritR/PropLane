@@ -77,7 +77,7 @@ async function createFreshManager(page: Page, stamp: number) {
     await establishActivePortal(page, "manager", "/portal/dashboard");
   }
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-  await expect(page.locator('[data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
   await shot(page, "03-manager-portal");
 
   return { email, password, fullName, phone };
@@ -85,7 +85,7 @@ async function createFreshManager(page: Page, stamp: number) {
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-  const createBtn = page.locator('[data-attr="manager-properties-create"]');
+  const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
   await expect(createBtn).toBeEnabled({ timeout: 60_000 });
   await createBtn.click();
   await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
