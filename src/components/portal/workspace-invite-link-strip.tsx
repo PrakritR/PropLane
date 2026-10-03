@@ -18,20 +18,81 @@ export function WorkspaceInviteLinkBox({
   roleLabel,
   reach,
   onCopy,
+  onCreate,
   busy,
+  awaitingReveal,
 }: {
   url: string | null;
-  visible: boolean;
+  /** When false, the sheet still shows the card but offers Create link instead of the URL. */
+  visible?: boolean;
   stale: boolean;
   roleLabel?: string;
   reach?: string;
   onCopy: () => void;
+  /** Mint or reveal a link for the current terms (invite sheet). */
+  onCreate?: () => void;
   busy?: boolean;
+  /** Held link matches terms but the URL is still loading from reveal. */
+  awaitingReveal?: boolean;
 }) {
+  const showUrl = Boolean(url && !stale && (visible ?? true));
+
+  if (onCreate != null) {
+    const showCreate = !awaitingReveal && (stale || !showUrl);
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2.5" data-attr="workspace-invite-link-box">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium text-foreground">Invite link</span>
+          {showUrl ? (
+            <PortalIconAction
+              icon={Copy}
+              label="Copy invite link"
+              disabled={busy}
+              onClick={onCopy}
+              data-attr="workspace-invite-link-copy-inline"
+            />
+          ) : showCreate ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-9 shrink-0 rounded-full px-3 text-sm"
+              loading={busy}
+              onClick={onCreate}
+              data-attr="workspace-invite-link-create"
+            >
+              Create link
+            </Button>
+          ) : null}
+        </div>
+        {stale ? (
+          <p className="mt-2 text-sm text-muted" data-attr="workspace-invite-link-stale">
+            Access changed — create a new link for these terms.
+          </p>
+        ) : null}
+        {showUrl ? (
+          <>
+            <p className="mt-2 break-all font-mono text-xs text-muted" data-attr="workspace-invite-link-url">
+              {url}
+            </p>
+            {roleLabel && reach ? (
+              <p className="mt-1 text-xs text-muted">
+                This link joins as {roleLabel} · {reach}
+              </p>
+            ) : null}
+          </>
+        ) : awaitingReveal ? (
+          <p className="mt-2 text-sm text-muted" role="status">Loading link…</p>
+        ) : !stale ? (
+          <p className="mt-2 text-sm text-muted">Create a link to copy and share.</p>
+        ) : null}
+      </div>
+    );
+  }
+
   if (stale) {
     return (
       <p className="text-sm text-muted" data-attr="workspace-invite-link-stale">
-        Access changed — press Invite link again for a link with these terms.
+        Access changed — create a new link for these terms.
       </p>
     );
   }

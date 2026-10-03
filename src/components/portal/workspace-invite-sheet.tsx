@@ -10,15 +10,14 @@
  * Opening the sheet only READS the workspace's latest active link (hydrating
  * role/houses/permissions) and never mints as a side effect.
  *
- * "Copy invite link" always mints a NEW row with `replaceActive: false`,
- * copies the URL, refreshes Members, and closes the sheet — the unique link
- * appears in the Invite links list under Members. Send (email/SMS) still
+ * The bottom Invite link card mints or reveals the workspace link for the
+ * current Role/Houses (stays open). Footer **Done** closes when Send via is
+ * Invite link. Send (email/SMS) still
  * reuses a matching held link, and remints with `replaceActive: true` only
  * when on-screen terms changed (see `docs/agents/co-manager-access.md`).
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Link2 } from "lucide-react";
 import { ConfirmRows } from "@/components/portal/portal-dialog";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -331,41 +330,17 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  /** Always mint a new saved link (append), copy it, refresh Members, close sheet. */
-  const copyAndSaveInviteLink = async () => {
+  /** Mint or reveal the link for current terms and keep the sheet open. */
+  const createInviteLinkInSheet = async () => {
     setLinkLoading(true);
     try {
-      const result = await mintInviteLinkClient({
-        kind: "manager",
-        label: `${roleLabelFor(role)} · ${reach}`,
-        workspaceId: workspace.id,
-        assignedPropertyIds: houseIds,
-        propertyPermissions: normalizePropertyCoManagerPermissions(
-          Object.fromEntries(houseIds.map((id) => [id, effectivePermissions])),
-          houseIds,
-        ),
-        propertyLabelsById: workspace.propertyLabels,
-        teamRole: role,
-        houseScope,
-        workspacePermissions: effectiveWorkspacePermissions,
-        replaceActive: false,
-      });
+      const result = await resolveLinkForCurrentTerms();
       if (!result.ok) {
         showToast(result.error);
         return;
       }
-      setLinkId(result.linkId);
-      setLinkUrl(result.url);
-      setHeldTerms(currentTerms);
-      try {
-        await navigator.clipboard.writeText(result.url);
-        showToast("Invite link copied.");
-      } catch {
-        showToast("Link saved — copy it from Invite links below Members.");
-      }
-      onInviteLinkSaved?.();
       onChanged();
-      onClose();
+      onInviteLinkSaved?.();
     } finally {
       setLinkLoading(false);
     }
@@ -488,12 +463,10 @@ export function WorkspaceInviteSheet({
               type="button"
               variant="primary"
               className="rounded-full"
-              loading={linkLoading}
-              onClick={() => copyAndSaveInviteLink()}
-              data-attr="workspace-invite-copy"
+              onClick={onClose}
+              data-attr="workspace-invite-done"
             >
-              <Link2 className="h-4 w-4" />
-              <span className="ml-1.5">Copy invite link</span>
+              Done
             </Button>
           ) : (
             <Button
@@ -572,9 +545,11 @@ export function WorkspaceInviteSheet({
           url={linkUrl}
           visible={termsMatchHeldLink}
           stale={heldTerms != null && !termsMatchHeldLink}
+          awaitingReveal={termsMatchHeldLink && linkId != null && !linkUrl}
           roleLabel={roleLabelFor(role)}
           reach={reach}
           busy={linkLoading}
+          onCreate={() => void createInviteLinkInSheet()}
           onCopy={() => {
             if (!linkUrl) return;
             void navigator.clipboard.writeText(linkUrl).then(

@@ -163,8 +163,13 @@ function recipientInput() {
   return screen.getByLabelText(/Phone number|Email|PropLane code/);
 }
 
-function clickInviteLink() {
-  const btn = document.querySelector('[data-attr="workspace-invite-copy"]') as HTMLElement;
+function clickDone() {
+  const btn = document.querySelector('[data-attr="workspace-invite-done"]') as HTMLElement;
+  fireEvent.click(btn);
+}
+
+function clickCreateLink() {
+  const btn = document.querySelector('[data-attr="workspace-invite-link-create"]') as HTMLElement;
   fireEvent.click(btn);
 }
 
@@ -203,7 +208,7 @@ describe("WorkspaceInviteSheet", () => {
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 
-  it("Copy invite link always mints a new saved row (replaceActive: false) and closes", async () => {
+  it("Done closes the sheet without minting when Send via is Invite link", async () => {
     const { calls } = mockFetch({
       existingLink: {
         id: "link-existing",
@@ -212,25 +217,16 @@ describe("WorkspaceInviteSheet", () => {
         assignedPropertyIds: ["prop-a", "prop-b"],
         propertyPermissions: {},
       },
-      mintResult: { url: "https://proplane.test/invite/fresh-copy", link: { id: "link-fresh-copy" } },
     });
-    const { onClose, onInviteLinkSaved, onChanged } = renderSheet();
+    const { onClose } = renderSheet();
     await waitFor(() =>
       expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true),
     );
     await flushMicrotasks();
 
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
-    clickInviteLink();
-    await waitFor(() =>
-      expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true),
-    );
-
-    const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
-    expect(mintCall?.body).toMatchObject({ replaceActive: false });
-    expect(onInviteLinkSaved).toHaveBeenCalled();
-    expect(onChanged).toHaveBeenCalled();
+    clickDone();
     expect(onClose).toHaveBeenCalled();
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 
   it("Send after a role change mints with replaceActive: true before emailing", async () => {
@@ -263,7 +259,7 @@ describe("WorkspaceInviteSheet", () => {
     );
   });
 
-  it("does not toast a replacement the first time a link is ever minted via Copy", async () => {
+  it("does not toast a replacement the first time a link is ever minted via Create link", async () => {
     const { calls } = mockFetch({ existingLink: null });
     renderSheet();
     await waitFor(() =>
@@ -271,8 +267,7 @@ describe("WorkspaceInviteSheet", () => {
     );
     await flushMicrotasks();
 
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
-    clickInviteLink();
+    clickCreateLink();
     await waitFor(() =>
       expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true),
     );
@@ -528,7 +523,43 @@ describe("WorkspaceInviteSheet — bottom invite link box", () => {
     );
   });
 
-  it("does not show the link box after Copy closes the sheet", async () => {
+  it("shows Create link when no held link exists yet", async () => {
+    mockFetch({ existingLink: null });
+    renderSheet();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-link-box"]')).toBeTruthy(),
+    );
+    expect(document.querySelector('[data-attr="workspace-invite-link-create"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="workspace-invite-link-url"]')).toBeNull();
+  });
+
+  it("Create link mints and shows the URL without closing the sheet", async () => {
+    const { calls } = mockFetch({
+      existingLink: null,
+      mintResult: { url: "https://proplane.test/invite/minted", link: { id: "link-minted" } },
+    });
+    const { onClose } = renderSheet();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-link-create"]')).toBeTruthy(),
+    );
+    await flushMicrotasks();
+
+    clickCreateLink();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-link-url"]')?.textContent).toContain(
+        "https://proplane.test/invite/minted",
+      ),
+    );
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("inline copy writes the revealed URL to the clipboard", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      clipboard: { writeText },
+    });
     mockFetch({
       existingLink: {
         id: "link-existing",
@@ -537,34 +568,15 @@ describe("WorkspaceInviteSheet — bottom invite link box", () => {
         assignedPropertyIds: ["prop-a", "prop-b"],
         propertyPermissions: {},
       },
-      mintResult: { url: "https://proplane.test/invite/fresh-copy", link: { id: "link-fresh-copy" } },
-    });
-    const { onClose } = renderSheet();
-    await waitFor(() => expect(roleTrigger().textContent).toContain("Viewer"));
-
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
-    clickInviteLink();
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-  });
-
-  it("Copy invite link writes the minted URL to the clipboard", async () => {
-    const writeText = vi.fn(async () => undefined);
-    vi.stubGlobal("navigator", {
-      ...navigator,
-      clipboard: { writeText },
-    });
-    mockFetch({
-      existingLink: null,
-      mintResult: { url: "https://proplane.test/invite/minted", link: { id: "link-minted" } },
+      revealResult: { url: "https://proplane.test/invite/revealed-held" },
     });
     renderSheet();
     await waitFor(() =>
-      expect(document.querySelector('[data-attr="workspace-invite-copy"]')).toBeTruthy(),
+      expect(document.querySelector('[data-attr="workspace-invite-link-copy-inline"]')).toBeTruthy(),
     );
-    await flushMicrotasks();
 
-    clickInviteLink();
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/minted"));
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-link-copy-inline"]') as HTMLElement);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/revealed-held"));
     expect(showToast).toHaveBeenCalledWith("Invite link copied.");
   });
 });
@@ -598,18 +610,16 @@ describe("WorkspaceInviteSheet — Edit-permissions layout, no hint, no member l
     expect(screen.queryByText("Who has access")).toBeNull();
   });
 
-  it("footer has Copy invite link on the link channel, and Send on email", async () => {
+  it("footer has Done on the link channel, and Send on email", async () => {
     mockFetch({ existingLink: { id: "link-existing" } });
     renderSheet();
     await waitFor(() => expect(roleTrigger()).toBeTruthy());
 
-    expect(document.querySelector('[data-attr="workspace-invite-copy"]')?.textContent).toContain(
-      "Copy invite link",
-    );
+    expect(document.querySelector('[data-attr="workspace-invite-done"]')?.textContent).toContain("Done");
     expect(document.querySelector('[data-attr="workspace-invite-send"]')).toBeNull();
 
     selectChannel("email");
     expect(document.querySelector('[data-attr="workspace-invite-send"]')?.textContent).toContain("Send");
-    expect(document.querySelector('[data-attr="workspace-invite-copy"]')).toBeNull();
+    expect(document.querySelector('[data-attr="workspace-invite-done"]')).toBeNull();
   });
 });

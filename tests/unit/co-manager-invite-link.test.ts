@@ -70,7 +70,13 @@ describe("co-manager open invite surfaces", () => {
     // footer's primary action now, so its data-attr is a `dataAttr:` object
     // property rather than a literal JSX attribute.
     expect(sheet).toContain('data-attr="workspace-invite-send"');
-    expect(sheet).toContain('data-attr="workspace-invite-copy"');
+    expect(sheet).toContain('data-attr="workspace-invite-done"');
+    expect(sheet).toContain("<WorkspaceInviteLinkBox");
+    const strip = readFileSync(
+      join(process.cwd(), "src/components/portal/workspace-invite-link-strip.tsx"),
+      "utf8",
+    );
+    expect(strip).toContain('data-attr="workspace-invite-link-create"');
     expect(sheet).toContain("<WorkspacePermissionsFields");
     expect(sheet).toContain("<CoManagerPermissionsEditor");
     expect(sheet).toContain("<WorkspaceGrantFields");
@@ -155,16 +161,16 @@ describe("active invite link per workspace", () => {
     expect(source).toContain("replaceActive: body.replaceActive === true");
   });
 
-  it("invite sheet Copy invite link mints without replaceActive", () => {
+  it("invite sheet Create link resolves terms in-sheet and Done only closes", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"),
       "utf8",
     );
-    expect(source).toContain("Copy invite link");
-    expect(source).toContain("copyAndSaveInviteLink");
-    expect(source).toContain("replaceActive: false");
-    expect(source).toContain("onClose()");
+    expect(source).toContain("createInviteLinkInSheet");
+    expect(source).toContain("resolveLinkForCurrentTerms");
+    expect(source).toContain('data-attr="workspace-invite-done"');
     expect(source).toContain("WorkspaceInviteLinkBox");
+    expect(source).not.toContain("copyAndSaveInviteLink");
   });
 
   it("Members strip lists live saved links only (no Off rows)", () => {
