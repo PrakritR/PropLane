@@ -5,6 +5,7 @@ import {
   Bell,
   Calendar,
   Camera,
+  CircleOff,
   CheckCircle2,
   CreditCard,
   Download,
@@ -22,7 +23,6 @@ import {
   Upload,
   UserMinus,
   UserPlus,
-  Eye,
   Copy,
   XCircle,
 } from "lucide-react";
@@ -147,7 +147,7 @@ export type RecordSections = {
  * payment, …) is never reordered: only what follows it, plus Delete, which
  * always sorts last regardless of where the kind's array put it.
  */
-const HEADER_ACTION_ORDER = ["edit", "share", "export", "download", "copy", "duplicate", "archive"];
+const HEADER_ACTION_ORDER = ["edit", "share", "export", "download", "copy", "duplicate", "unlist", "archive"];
 const DELETE_ACTION_ID = "delete";
 
 /** Applied once, centrally, in `recordSections()` — never re-sort a kind's array at its own definition site. */
@@ -241,12 +241,21 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { label: "Operations", ids: ["requests", "promotion", "ai-info"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
     ],
     headerActions: [
-      { id: "view-public", label: "View public", icon: Eye },
       { id: "edit", label: "Edit", icon: Pencil },
       { id: "share", label: "Share", icon: Share2 },
-      { id: "copy", label: "Copy", icon: Copy },
+      { id: "duplicate", label: "Duplicate property", icon: Copy },
+      { id: "unlist", label: "Unlist", icon: CircleOff },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
+    sectionActions: {
+      preview: [
+        { id: "edit", label: "Edit", icon: Pencil },
+        { id: "share", label: "Share", icon: Share2 },
+        { id: "duplicate", label: "Duplicate property", icon: Copy },
+        { id: "unlist", label: "Unlist", icon: CircleOff },
+        { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+      ],
+    },
     // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
     // Documents rail items are removed — conversations and files live only on
     // the portal-wide Communication/Documents pages now.
