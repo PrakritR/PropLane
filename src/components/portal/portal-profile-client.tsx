@@ -29,8 +29,6 @@ import { PortalChangePasswordPanel } from "@/components/portal/portal-change-pas
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
-import { BookingsChannelSettings } from "@/components/portal/bookings-channel-settings";
-import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
@@ -621,7 +619,7 @@ export function PortalProfileClient({
       .filter(Boolean);
   }, [searchParams]);
   const [scopeWorkspaceId, setScopeWorkspaceIdState] = useState(urlWorkspaceId);
-  const [scopePropertyIds, setScopePropertyIdsState] = useState<string[]>(urlPropertyIds);
+  const [, setScopePropertyIdsState] = useState<string[]>(urlPropertyIds);
   useEffect(() => {
     setScopeWorkspaceIdState(urlWorkspaceId);
   }, [urlWorkspaceId]);
@@ -732,7 +730,7 @@ export function PortalProfileClient({
       case "profile":
         return personalInfoSection;
       case "payments":
-        return <HubSettingsModulePane tab="payouts" />;
+        return <HubSettingsModulePane tab="payments" />;
       case "billing":
         // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
         // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,
@@ -773,19 +771,7 @@ export function PortalProfileClient({
           />
         );
       case "spreadsheets":
-        // Integrations (S019): Google Calendar connection + Google Sheets
-        // workbooks, the same components the old Calendar dialog and
-        // Spreadsheets pane already used — nothing about the Google logic
-        // itself changed, only where it is reached from.
-        return variant === "manager" && !demo ? (
-          <>
-            <PortalSettingsSection title="Google Calendar">
-              <GoogleCalendarConnectPanel presentation="card" />
-            </PortalSettingsSection>
-            <BookingsChannelSettings />
-            <ManagerSheetLinkPanel />
-          </>
-        ) : null;
+        return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
       case "applicationForm":
         // Kept per the S014 correction (captain, 06:47): the Applications
         // list-page gear was removed by another worker on the assumption

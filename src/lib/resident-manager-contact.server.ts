@@ -159,7 +159,7 @@ export async function resolveResidentManagerContacts(
     // One row per manager — a resident with several records under the same
     // manager needs that contact once, not once per record. Rows arrive
     // newest first, so the first is the one worth keeping.
-    const key = `${contact.managerUserId}:${contact.propertyId ?? ""}`;
+    const key = contact.managerUserId;
     if (!byManager.has(key)) byManager.set(key, contact);
   };
   const blank = (managerUserId: string): ResidentManagerContact => ({

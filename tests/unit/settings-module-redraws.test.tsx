@@ -197,13 +197,15 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
     cleanup();
 
-    render(<PaymentsSettingsPanel teamMembers={[]} />);
-    // PLAN-0920-0845 phase E dropped the "Settings" area dropdown — every
-    // area is now a stacked, always-visible section.
+    render(<PaymentsSettingsPanel />);
+    // Studio redesign (C2-ST2/C2-ST3): one Payments hub — setup here, processing
+    // fee default on Account, no listing late-fee editor on this page.
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect((await screen.findAllByText("Payment setup")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Processing fee").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Late fees").length).toBeGreaterThan(0);
+    expect(screen.getByText("Receiving from residents")).toBeTruthy();
+    expect(screen.getByText("Processing fee paid by")).toBeTruthy();
+    expect(screen.queryByText("Late fees")).toBeNull();
+    expect(screen.queryByText("Processing fee", { selector: "h2, h3, [data-section-title]" })).toBeNull();
     // Incoming/Outgoing reminders and Delinquency moved to the Reminders hub (C111).
     expect(screen.queryByText("Incoming reminders")).toBeNull();
     expect(screen.queryByText("Outgoing reminders")).toBeNull();

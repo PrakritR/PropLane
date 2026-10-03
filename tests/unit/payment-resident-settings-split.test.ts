@@ -56,6 +56,6 @@ describe("Payment settings owns setup; Residents drop rent reminders", () => {
     expect(opsPush).not.toContain('id: "payouts"');
     expect(opsPush).not.toContain('id: "applicationForm"');
     expect(opsPush).not.toContain('id: "leaseDocuments"');
-    expect(profile).toContain('<HubSettingsModulePane tab="payouts" />');
+    expect(profile).toContain('<HubSettingsModulePane tab="payments" />');
   });
 });
