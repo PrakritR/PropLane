@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
-import { formatInboxStamp } from "@/lib/portal-inbox-storage";
+import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
@@ -1255,7 +1255,10 @@ export function InboxBubble({
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
     const at = /^\d{4}-\d\d-\d\dT/.test(message.at) && !Number.isNaN(Date.parse(message.at))
-      ? formatInboxStamp(new Date(message.at)) : message.at;
+      ? formatInboxListNarrowTime(message.at)
+      : isCanonicalInboxStamp(message.at)
+        ? formatInboxListNarrowTime(message.at)
+        : message.at;
     const content = <>
       <Sparkles className="h-4 w-4 shrink-0 text-muted" aria-hidden />
       <span className="min-w-0 flex-1 truncate font-semibold" title={message.body}>{event.title}</span>

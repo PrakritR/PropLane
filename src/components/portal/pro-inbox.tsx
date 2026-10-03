@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Eraser, Info, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Info, MailOpen, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -623,6 +623,26 @@ export const ManagerInbox = forwardRef<
     markReadSilent(id);
     showToast("Marked as read. Moves to Opened after refresh.");
   };
+
+  const markUnread = useCallback(
+    (id: string) => {
+      const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+      const thread = current.find((row) => row.id === id && row.folder === "inbox" && !row.unread);
+      if (!thread) return;
+      const changed = { ...thread, unread: true };
+      const next = current.map((row) => (row.id === id ? changed : row));
+      void upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [changed], next).then((ok) => {
+        if (!ok) showToast("Could not mark the conversation as unread. Try again.");
+      });
+      setLocal(next);
+      setRetainedIds((prev) => {
+        const copy = new Set(prev);
+        copy.delete(id);
+        return copy;
+      });
+    },
+    [showToast],
+  );
 
   const isUnreadInboxThread = (id: string) => {
     const thread = local.find((t) => t.id === id);
@@ -2444,6 +2464,19 @@ export const ManagerInbox = forwardRef<
         {/* One row of matching circular controls: call, open, edit, archive, delete. */}
         {threadContactActions}
         {threadContactEditButton}
+        {!activeIsAssistantThread ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Mark unread"
+          title="Mark unread"
+          data-attr="inbox-thread-mark-unread"
+          disabled={activeThread.folder !== "inbox" || activeThread.unread}
+          onClick={() => markUnread(activeThread.id)}
+        >
+          <MailOpen className="h-4 w-4" aria-hidden />
+        </button>
+        ) : null}
         {!activeIsAssistantThread ? (
         <button
           type="button"
