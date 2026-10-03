@@ -333,7 +333,7 @@ function sharedRoomOverviewRows(row: DemoApplicantRow, allRows: DemoApplicantRow
     { label: "Bed", value: slot > 0 ? `Bed ${String.fromCharCode(64 + slot)}` : "Not assigned" },
     { label: "Rent", value: price?.monthlyRent ? `$${price.monthlyRent.toLocaleString()}/mo` : "Not set" },
     { label: "Lease type", value: row.application?.leaseTerm || "Not set" },
-    { label: "Beds taken", value: `${residents.filter((resident) => resident.bucket === "approved").length} of ${capacity}` },
+    { label: "Approved applications", value: `${residents.filter((resident) => resident.bucket === "approved").length} of ${capacity}` },
     ...residentRows,
   ];
 }
