@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/field-single-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 
 export type ResidentUploadDocKind =
@@ -53,7 +53,6 @@ export function ManagerResidentUploadModal({
         onClose();
       }}
       dataAttr="resident-upload-modal"
-      className="plp-modal"
     >
       <div className="space-y-4 px-1 pb-1">
         <label
@@ -86,7 +85,7 @@ export function ManagerResidentUploadModal({
                     label="Type"
                     value={perFileKinds[key] ?? kind}
                     options={KIND_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                    onChange={(value) =>
+                    onChange={(value: string) =>
                       setPerFileKinds((prev) => ({ ...prev, [key]: value as ResidentUploadDocKind }))
                     }
                     dataAttr={`resident-upload-type-${key}`}

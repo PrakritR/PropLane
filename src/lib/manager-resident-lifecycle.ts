@@ -1,6 +1,18 @@
 import type { DemoManagerPaymentLedgerRow, DemoApplicantRow } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { applicationStartedLabel } from "@/lib/rental-application/in-progress-application";
 import { parseMoneyAmount } from "@/lib/parse-money";
+
+function applicationDetailIso(app: DemoApplicantRow | null | undefined): string | null {
+  if (!app) return null;
+  const label = applicationStartedLabel(app).replace(/^(started|submitted|updated)\s+/i, "").trim();
+  const match = label.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1]! : null;
+}
+
+function applicationLooksSubmitted(app: DemoApplicantRow): boolean {
+  return applicationStartedLabel(app).toLowerCase().startsWith("submitted");
+}
 
 export type ResidentLifecycleStageId =
   | "prospect"
@@ -199,13 +211,12 @@ export function buildResidentLifecycle(
     const state: ResidentLifecycleStepState =
       i < stageIdx ? "done" : i === stageIdx ? "current" : "next";
     let date = "";
-    if (id === "applicant" && app?.application?.submittedAt) date = formatResidentShortDate(app.application.submittedAt);
-    if (id === "approved" && app?.bucket === "approved" && app.application?.submittedAt) {
-      date = formatResidentShortDate(app.application.submittedAt);
-    }
+    const appIso = applicationDetailIso(app);
+    if (id === "applicant" && appIso) date = formatResidentShortDate(appIso);
+    if (id === "approved" && app?.bucket === "approved" && appIso) date = formatResidentShortDate(appIso);
     if (id === "lease_sent" && lease?.sentToResidentAt) date = formatResidentShortDate(lease.sentToResidentAt);
     if (id === "signed" && lease?.fullySignedAt) date = formatResidentShortDate(lease.fullySignedAt);
-    if (id === "current" && lease?.leaseStart) date = formatResidentShortDate(lease.leaseStart);
+    if (id === "current" && input.moveInDate) date = formatResidentShortDate(input.moveInDate);
     if (id === "moving_out" && input.moveOutDate) date = formatResidentShortDate(input.moveOutDate);
     if (id === "past" && input.moveOutDate) date = formatResidentShortDate(input.moveOutDate);
     return { id, label: STAGE_LABELS[id], state, date: state !== "next" ? date : undefined };
@@ -247,13 +258,13 @@ export function buildResidentLifecycle(
       id: "app-review",
       icon: "application",
       title: "Application waiting for your review",
-      fact: app.application?.submittedAt ? `Submitted ${formatResidentShortDate(app.application.submittedAt)}` : "Submitted",
+      fact: applicationDetailIso(app) ? `Submitted ${formatResidentShortDate(applicationDetailIso(app)!)}` : "Submitted",
       urgent: false,
       rank: 1,
       href: hrefs.application,
     });
   }
-  if (app && app.bucket === "pending" && !app.application?.submittedAt) {
+  if (app && app.bucket === "pending" && app.application && !applicationLooksSubmitted(app)) {
     add({
       id: "app-incomplete",
       icon: "application",
@@ -397,11 +408,15 @@ export function buildResidentLifecycle(
 
   let headerFact = "";
   if (stage === "applicant") {
-    headerFact = app && !app.application?.submittedAt ? "application in progress" : app?.application?.submittedAt
-      ? `applied ${formatResidentShortDate(app.application.submittedAt)}`
-      : "";
-  } else if (stage === "approved" && app?.application?.submittedAt) {
-    headerFact = `approved ${formatResidentShortDate(app.application.submittedAt)}`;
+    const iso = applicationDetailIso(app);
+    headerFact = app && app.application && !applicationLooksSubmitted(app)
+      ? "application in progress"
+      : iso
+        ? `applied ${formatResidentShortDate(iso)}`
+        : "";
+  } else if (stage === "approved") {
+    const iso = applicationDetailIso(app);
+    headerFact = iso ? `approved ${formatResidentShortDate(iso)}` : "";
   } else if (stage === "lease_sent" && lease?.sentToResidentAt) {
     headerFact = `lease sent ${formatResidentShortDate(lease.sentToResidentAt)}`;
   } else if (stage === "signed" && lease?.fullySignedAt) {

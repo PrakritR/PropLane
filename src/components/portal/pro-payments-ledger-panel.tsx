@@ -2066,7 +2066,7 @@ export function ManagerPaymentsLedgerPanel({
     let paidCents = 0;
     let totalCents = 0;
     for (const row of rows) {
-      const parsed = Number.parseFloat(String(row.amountDue ?? "0").replace(/[^0-9.-]/g, ""));
+      const parsed = Number.parseFloat(String(row.lineAmount ?? "0").replace(/[^0-9.-]/g, ""));
       const cents = Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
       totalCents += cents;
       if (row.bucket === "paid") paidCents += cents;

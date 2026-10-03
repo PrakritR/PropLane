@@ -3195,7 +3195,7 @@ export function ManagerResidents({
         {
           id: `app-${selectedApplicationRow.id}`,
           name: "Application",
-          date: selectedApplicationRow.application?.submittedAt,
+          date: undefined,
           generated: true,
         },
       ];
@@ -3569,7 +3569,7 @@ export function ManagerResidents({
                                   actions={residentSectionHeaderActions}
                                   onAction={onResidentSectionHeaderAction}
                                   destinationRow={
-                                    <PortalDetailDestinationNav
+                                    <LocalDestinationNav
                                       items={PAYMENT_BUCKETS.map((id) => ({
                                         id,
                                         label:
@@ -3579,11 +3579,10 @@ export function ManagerResidents({
                                               ? "Pending"
                                               : "Paid",
                                         count: residentPaymentBucketCounts[id],
-                                        alert: id === "overdue" && residentPaymentBucketCounts.overdue > 0,
                                         dataAttr: `resident-payments-bucket-${id}`,
                                       }))}
                                       activeId={chargeBucket}
-                                      onChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
+                                      onChange={(id: string) => setChargeBucket(id as ManagerPaymentBucket)}
                                       ariaLabel="Payment status"
                                       size="toolbar"
                                       itemLayout="equal"
