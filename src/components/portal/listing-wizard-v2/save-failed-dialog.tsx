@@ -48,7 +48,7 @@
  * autofocus hook, all load-bearing for a data-loss-prevention confirm.
  */
 
-import { useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { ArrowUpCircle, Trash2 } from "lucide-react";
@@ -59,6 +59,8 @@ import { usePortalContainer } from "@/components/ui/portal-container-context";
 import type { PropertyRecordLimitInfo } from "@/lib/demo-property-pipeline";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
+import { deleteManagerPropertyDraft, readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { WORKSPACE_PROPERTY_LIMIT } from "@/lib/workspaces/types";
 
@@ -111,7 +113,7 @@ export function ListingSaveFailedDialog({
   limitInfo?: PropertyRecordLimitInfo;
   /** Esc, an outside click, and the Keep editing button all route here. */
   onKeepEditing: () => void;
-  /** Runs the same single save again; return the promise so the button spins. Unused when `kind` is "plan_limit". */
+  /** Runs the same single save again; return the promise so the button spins. For "plan_limit" it backs Save listing once a draft is deleted here. */
   onTryAgain: () => void | Promise<void>;
   /** Close the editor and discard the unsaved work. Unused when `kind` is "plan_limit". */
   onLeaveWithoutSaving: () => void;
@@ -122,6 +124,30 @@ export function ListingSaveFailedDialog({
   const limit = limitInfo?.limit ?? WORKSPACE_PROPERTY_LIMIT;
   const current = limitInfo?.current ?? limit;
   const [leaveTo, setLeaveTo] = useState<{ href: string; label: string } | null>(null);
+  const { userId: managerUserId } = useManagerUserId();
+  // Deleting a draft right here frees a record without leaving this editor (captain, 2026-10-03).
+  const [drafts, setDrafts] = useState<{ id: string; name: string; address: string }[]>([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [freed, setFreed] = useState(false);
+  useEffect(() => {
+    if (!open || !isPlanLimit || !managerUserId) return;
+    setDrafts(readAdminPropertyRows(5, managerUserId).map((row) => ({
+      id: row.adminRefId,
+      name: row.buildingName?.trim() || "Untitled draft",
+      address: row.address?.trim() ?? "",
+    })));
+    setConfirmDeleteId(null); setDeleteError(""); setFreed(false);
+  }, [open, isPlanLimit, managerUserId]);
+  const deleteDraft = async (id: string) => {
+    setDeletingId(id); setDeleteError("");
+    const ok = await deleteManagerPropertyDraft(id, managerUserId);
+    setDeletingId(null); setConfirmDeleteId(null);
+    if (!ok) { setDeleteError("Could not delete that draft. Try again."); return; }
+    setDrafts((current) => current.filter((draft) => draft.id !== id));
+    setFreed(true);
+  };
 
   const goTo = (href: string, label: string) => (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
@@ -154,7 +180,7 @@ export function ListingSaveFailedDialog({
               event.preventDefault();
               keepRef.current?.focus();
             }}
-            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 motion-reduce:animate-none"
+            className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 motion-reduce:animate-none"
           >
             <div className="flex items-start justify-between gap-3">
               {isPlanLimit ? (
@@ -185,13 +211,49 @@ export function ListingSaveFailedDialog({
               <div className="mt-4" data-attr="listing-save-failed-plan-limit">
                 <ConfirmRows
                   rows={[
-                    { label: "Property records", value: `${current} of ${limit}` },
+                    { label: "Property records", value: `${freed ? Math.max(0, current - 1) : current} of ${limit}` },
                     ...(limitInfo?.draftCount != null
                       ? [{ label: "Includes drafts", value: `${limitInfo.draftCount} drafts` }]
                       : []),
                     { label: "Your work", value: "Kept while this window stays open" },
                   ]}
                 />
+                {drafts.length > 0 ? (
+                  <div className="mt-4" data-attr="listing-save-limit-drafts">
+                    <p className="text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">Drafts</p>
+                    <ul className="mt-2 max-h-56 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+                      {drafts.map((draft) => (
+                        <li key={draft.id} className="flex min-h-12 items-center gap-3 px-3 py-2" data-attr="listing-save-limit-draft-row">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{draft.name}</p>
+                            {draft.address ? <p className="truncate text-xs text-muted">{draft.address}</p> : null}
+                          </div>
+                          {confirmDeleteId === draft.id ? (
+                            <Button
+                              variant="danger"
+                              className="shrink-0 rounded-full"
+                              disabled={deletingId !== null}
+                              data-attr="listing-save-limit-draft-delete-confirm"
+                              onClick={() => deleteDraft(draft.id)}
+                            >
+                              {deletingId === draft.id ? "Deleting…" : "Delete draft"}
+                            </Button>
+                          ) : (
+                            <PortalIconAction
+                              icon={Trash2}
+                              label={`Delete ${draft.name}`}
+                              tone="danger"
+                              disabled={deletingId !== null}
+                              data-attr="listing-save-limit-draft-delete"
+                              onClick={() => setConfirmDeleteId(draft.id)}
+                            />
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {deleteError ? <p role="alert" className="mt-2 text-sm text-danger">{deleteError}</p> : null}
               </div>
             ) : (
               <Dialog.Description
@@ -202,7 +264,7 @@ export function ListingSaveFailedDialog({
               </Dialog.Description>
             )}
             {isPlanLimit ? (
-              <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+              <div className="mt-6 flex flex-nowrap items-center justify-end gap-2 [&>*]:whitespace-nowrap">
                 <Button
                   ref={keepRef}
                   variant="ghost"
@@ -221,6 +283,16 @@ export function ListingSaveFailedDialog({
                     Manage drafts
                   </Link>
                 </Button>
+                {freed ? (
+                  <Button
+                    variant="primary"
+                    className="rounded-full"
+                    data-attr="listing-save-limit-save-now"
+                    onClick={() => onTryAgain()}
+                  >
+                    Save listing
+                  </Button>
+                ) : (
                 <Button asChild variant="primary" className="rounded-full">
                   <Link
                     href={MANAGER_PLAN_PORTAL_URL}
@@ -230,6 +302,7 @@ export function ListingSaveFailedDialog({
                     Upgrade plan
                   </Link>
                 </Button>
+                )}
               </div>
             ) : (
               <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
