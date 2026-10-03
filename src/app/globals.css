@@ -3863,3 +3863,18 @@ html[data-native] [data-listing-subnav] {
 }
 .field-dropdown-menu-surface, .field-dropdown-menu-option { background-color: transparent !important; }
 [data-theme="dark"] .field-dropdown-menu { background: var(--card) !important; background-color: var(--card) !important; }
+
+/* Communication owns one viewport: the list and thread scroll inside it. */
+html[data-communication-surface] .portal-communication-inbox,
+html[data-communication-surface] .portal-communication-inbox > *,
+html[data-communication-surface] .portal-communication-inbox .portal-list-page-body {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+@media (max-width: 1023px) {
+  html[data-communication-thread-reading] .portal-inbox-thread-pane {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}

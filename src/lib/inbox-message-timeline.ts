@@ -74,6 +74,7 @@ function clusterPosition(sameDirAsPrev: boolean, sameDirAsNext: boolean): InboxB
 export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): InboxTimelineItem[] {
   const items: InboxTimelineItem[] = [];
   const keyOccurrences = new Map<string, number>();
+  const mixedChannels = new Set(messages.flatMap((message) => message.channel ? [message.channel] : [])).size > 1;
 
   let lastDayKey: string | null = null;
   for (let i = 0; i < messages.length; i++) {
@@ -98,10 +99,8 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const sameDirAsNext = next?.direction === message.direction && !nextDayChanged;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
-    // Every message names its channel beside its time ("Email · 3:42 PM") when
-    // the channel is known. An untagged legacy turn shows the time alone rather
-    // than a guessed "Email".
-    const showChannel = showMeta && message.channel != null;
+    // Single-channel threads need no repeated channel chrome.
+    const showChannel = mixedChannels && showMeta && message.channel != null;
     // Inbox storage de-duplicates known persisted histories, but this shared
     // UI primitive also accepts caller-supplied messages. Keep rendered keys
     // unique if malformed data still contains an id collision.
