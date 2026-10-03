@@ -40,7 +40,7 @@ import {
   updatePendingManagerProperty,
   updateExtraListingFromSubmission,
 } from "@/lib/demo-property-pipeline";
-import { buildManagerPromotionPropertyOptions } from "@/lib/manager-property-links";
+import { buildManagerListingUrl, buildManagerPromotionPropertyOptions } from "@/lib/manager-property-links";
 import {
   MANAGER_PROMOTIONS_EVENT,
   generateFlyerCopy,
@@ -85,18 +85,22 @@ import {
   makePromotionUploadId,
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
+import { downloadPromotionFlyer } from "@/components/portal/promotion-flyer-preview";
 import { PropertyPromotionBuiltinModal } from "@/components/portal/property-promotion-builtin-modal";
 import { PropertyPromotionBuiltinFacts, PropertyPromotionBuiltinRow } from "@/components/portal/property-promotion-builtin-row";
 import {
   BUILTIN_PROMOTION_DEFS,
   filterCustomPromotionAssets,
   resolveBuiltinFlyerEntry,
+  resolveBuiltinFlyerPromotion,
   resolveBuiltinTextPromotion,
   type PropertyPromotionBuiltinKey,
   readPromotionBuiltins,
   builtinEnabled,
   type PropertyPromotionBuiltinsState,
 } from "@/lib/property-promotion-builtin";
+import { buildFlyerHtml } from "@/lib/promotion-flyer";
+import { downloadOrShareFile, triggerBrowserDownload } from "@/lib/native/download-or-share";
 import type { MockProperty } from "@/data/types";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -332,6 +336,106 @@ export function ManagerPropertyPromotionPanel({
       }
     },
     [promotionBuiltins, persistPromotionBuiltins, showToast],
+  );
+
+  const downloadBuiltin = useCallback(
+    (key: PropertyPromotionBuiltinKey) => {
+      if (!property) return;
+      const def = BUILTIN_PROMOTION_DEFS.find((d) => d.key === key);
+      if (!def) return;
+      if (def.kind === "flyer") {
+        void downloadPromotionFlyer(
+          resolveBuiltinFlyerPromotion(property, promotionRow, promotionBuiltins, autofillOpts),
+        );
+        return;
+      }
+      if (def.kind === "text" && def.textFormat) {
+        const textKey = key === "social" ? "social" : "blurb";
+        const { plain } = resolveBuiltinTextPromotion(
+          property,
+          def.textFormat,
+          promotionRow,
+          promotionBuiltins,
+          textKey,
+          autofillOpts,
+        );
+        const slug = def.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        triggerBrowserDownload(`${slug || "promotion"}.txt`, new Blob([plain], { type: "text/plain" }));
+        return;
+      }
+      if (def.kind === "print" && key === "door") {
+        window.open(`/print/door-card/${encodeURIComponent(propertyId)}`, "_blank", "noopener,noreferrer");
+      }
+    },
+    [property, propertyId, promotionRow, promotionBuiltins, autofillOpts],
+  );
+
+  const shareBuiltin = useCallback(
+    async (key: PropertyPromotionBuiltinKey) => {
+      if (!property) return;
+      const def = BUILTIN_PROMOTION_DEFS.find((d) => d.key === key);
+      if (!def) return;
+      if (def.kind === "flyer") {
+        const row = resolveBuiltinFlyerPromotion(property, promotionRow, promotionBuiltins, autofillOpts);
+        const html = buildFlyerHtml(row);
+        const slug = def.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        const result = await downloadOrShareFile({
+          fileName: `${slug || "flyer"}.html`,
+          mimeType: "text/html",
+          content: html,
+          title: def.name,
+        });
+        if (result === "downloaded") showToast("Flyer downloaded.");
+        return;
+      }
+      if (def.kind === "text" && def.textFormat) {
+        const textKey = key === "social" ? "social" : "blurb";
+        const { plain } = resolveBuiltinTextPromotion(
+          property,
+          def.textFormat,
+          promotionRow,
+          promotionBuiltins,
+          textKey,
+          autofillOpts,
+        );
+        if (typeof navigator.share === "function") {
+          try {
+            await navigator.share({ title: def.name, text: plain });
+            return;
+          } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+          }
+        }
+        try {
+          await navigator.clipboard.writeText(plain);
+          showToast("Copied to clipboard.");
+        } catch {
+          showToast("Could not share.");
+        }
+        return;
+      }
+      if (def.kind === "print" && key === "door") {
+        const listingUrl = buildManagerListingUrl(
+          typeof window !== "undefined" ? window.location.origin : "",
+          propertyId,
+        );
+        if (typeof navigator.share === "function") {
+          try {
+            await navigator.share({ title: def.name, url: listingUrl });
+            return;
+          } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+          }
+        }
+        try {
+          await navigator.clipboard.writeText(listingUrl);
+          showToast("Listing link copied.");
+        } catch {
+          showToast("Could not share.");
+        }
+      }
+    },
+    [property, propertyId, promotionRow, promotionBuiltins, autofillOpts, showToast],
   );
 
   const openBuiltinEditor = useCallback(
@@ -961,6 +1065,8 @@ export function ManagerPropertyPromotionPanel({
                   facts={<PropertyPromotionBuiltinFacts kind={def.kind} detail={detail} />}
                   onOpen={() => openBuiltinEditor(def.key)}
                   onToggle={() => toggleBuiltin(def.key)}
+                  onDownload={() => downloadBuiltin(def.key)}
+                  onShare={() => void shareBuiltin(def.key)}
                   dataAttr={`property-promotion-builtin-${def.key}`}
                 />
               );

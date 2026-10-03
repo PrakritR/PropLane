@@ -176,10 +176,21 @@ describe("listed Preview header actions — source", () => {
     expect(footer).toContain('label="Edit"');
     expect(footer).toContain('label="Share"');
     expect(footer).toContain('label="Unlist"');
+    expect(footer).toContain('label="Delete"');
     expect(footer).toContain("<PortalIconAction");
     expect(footer).not.toContain('label="View public"');
     expect(panel).toContain("onPropertyRecordHeaderAction");
     expect(panel).toContain('case "duplicate"');
+
+    const footerMemo = panel.slice(
+      panel.indexOf("const propertyTabFooterActions = useMemo"),
+      panel.indexOf("const hasPinnedPropertyFooter"),
+    );
+    expect(footerMemo).toContain("PortalAdaptiveActionRow");
+    expect(footerMemo).not.toContain("maxVisible");
+    expect(footerMemo).not.toContain("alwaysVisible");
+    expect(footerMemo).toContain('setPendingDestructiveAction("delete-listed")');
+    expect(footerMemo).not.toContain('showToast("Coming soon")');
   });
 });
 

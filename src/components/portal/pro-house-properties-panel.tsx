@@ -34,7 +34,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow, type PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -97,6 +96,7 @@ import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-ses
 import {
   compareAdminPropertyRowsForDisplay,
   deleteManagerPropertyDraft,
+  deleteManagerLiveListing,
   deleteUnlistedManagerProperty,
   duplicateManagerPropertyDraftToServer,
   listAdminRow,
@@ -516,7 +516,7 @@ function ManagerPropertyInlineDetails({
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
-    "delete-queue" | "delete-draft" | "unlist" | null
+    "delete-queue" | "delete-draft" | "delete-listed" | "unlist" | null
   >(null);
   const [destructiveBusy, setDestructiveBusy] = useState(false);
 
@@ -594,7 +594,7 @@ function ManagerPropertyInlineDetails({
       <PortalIconAction
         ring
         icon={Copy}
-        label="Copy"
+        label="Duplicate property"
         data-attr="listing-duplicate"
         disabled={duplicateBusy}
         onClick={() => runDuplicateProperty()}
@@ -669,6 +669,26 @@ function ManagerPropertyInlineDetails({
         showToast("Listing unlisted.");
         onUpdated();
         onAfterUnlist?.(listingId.trim() || row.adminRefId.trim());
+        return;
+      }
+      if (action === "delete-listed") {
+        const liveId = listingId?.trim();
+        if (!liveId || !canDeleteAction) {
+          showToast("Could not delete.");
+          setDestructiveBusy(false);
+          setPendingDestructiveAction(null);
+          return;
+        }
+        const ok = deleteManagerLiveListing(liveId, listingOwnerUserId ?? managerUserId);
+        setDestructiveBusy(false);
+        setPendingDestructiveAction(null);
+        if (!ok) {
+          showToast("Could not delete.");
+          return;
+        }
+        showToast("Listing deleted.");
+        onUpdated();
+        detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
       }
     });
   };
@@ -695,7 +715,14 @@ function ManagerPropertyInlineDetails({
               confirmLabel: "Unlist",
               dataAttr: "listing-unlist-confirm",
             }
-          : null;
+          : pendingDestructiveAction === "delete-listed"
+            ? {
+                title: "Delete",
+                description: `Delete ${propertyShareLabel} permanently? It will be removed from your portfolio and the public site.`,
+                confirmLabel: "Delete",
+                dataAttr: "listing-delete-confirm",
+              }
+            : null;
 
   const listingFormProps = portalSub
     ? {
@@ -807,7 +834,7 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
-        // C2-PR14: Edit, Share, Duplicate, then the red Unlist last; the
+        // C2-PR14: Edit, Share, Duplicate, Unlist, then red Delete last; the
         // adaptive row folds the tail into its own ⋯ only when width runs out.
         if (canEditAction) {
           actions.push({
@@ -859,7 +886,6 @@ function ManagerPropertyInlineDetails({
           node: (
             <PortalIconAction
               ring
-              tone="danger"
               icon={CircleOff}
               label="Unlist"
               data-attr="listing-unlist"
@@ -875,6 +901,29 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
+        if (canDeleteAction) {
+          actions.push({
+            id: "delete-listed",
+            node: (
+              <PortalIconAction
+                ring
+                tone="danger"
+                icon={Trash2}
+                label="Delete"
+                data-attr="listing-delete"
+                onClick={() => setPendingDestructiveAction("delete-listed")}
+              />
+            ),
+            menuItem: (
+              <DropdownMenuItem
+                data-attr="listing-delete"
+                onSelect={() => setPendingDestructiveAction("delete-listed")}
+              >
+                Delete
+              </DropdownMenuItem>
+            ),
+          });
+        }
       }
 
       if (bucket === 3) {
@@ -1137,8 +1186,8 @@ function ManagerPropertyInlineDetails({
         }
         return;
       case "delete":
-        if (bucket === 2 && listingId) {
-          setPendingDestructiveAction("unlist");
+        if (bucket === 2 && listingId && canDeleteAction) {
+          setPendingDestructiveAction("delete-listed");
         } else if (bucket === 5) {
           setPendingDestructiveAction("delete-draft");
         } else if (bucket === 3 && canDeleteAction) {
