@@ -75,12 +75,6 @@ export function SharedRoomConfigRows({
           }}
         />
       </FactRow>
-      <FactRow label="Application form">
-        <span className="text-[13.5px] text-foreground">Property application form</span>
-      </FactRow>
-      <FactRow label="Lease form">
-        <span className="text-[13.5px] text-foreground">Property lease form</span>
-      </FactRow>
     </>
   );
 }

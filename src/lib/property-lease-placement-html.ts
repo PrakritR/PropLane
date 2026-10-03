@@ -10,6 +10,7 @@ import { isEditableLeaseSection } from "@/lib/lease-section-text";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   leasePreviewContextFromSubmission,
+  leaseTemplatePreviewConfig,
   PROPERTY_LEASE_TEMPLATE_PLACEHOLDER,
 } from "@/lib/property-lease-preview";
 import { resolvePropertyLeaseTemplateForApplication } from "@/lib/property-lease-template-sync";
@@ -125,7 +126,7 @@ export function propertyLeasePreviewBaselineHtml(
   const jurisdiction = resolveJurisdiction(ctx);
   const config = jurisdiction ? jurisdictionConfig(jurisdiction) : null;
   if (!config) return "";
-  return buildLeaseHtml(ctx, config).trim();
+  return buildLeaseHtml(ctx, leaseTemplatePreviewConfig(config, ctx)).trim();
 }
 
 /** Baseline used only to diff saved overrides — keeps placeholder financials so ledger sections are not merged. */
@@ -164,7 +165,7 @@ export function buildPlacementLeaseHtml(
   ctx: LeaseGenerationContext,
   config: LeaseJurisdictionTemplateConfig,
 ): string {
-  const placementHtml = buildLeaseHtml(ctx, config);
+  const placementHtml = buildLeaseHtml(ctx, leaseTemplatePreviewConfig(config, ctx));
   if (ctx.propertyTemplatePreview) return placementHtml;
 
   const sub = ctx.submission ? normalizeManagerListingSubmissionV1(ctx.submission) : null;

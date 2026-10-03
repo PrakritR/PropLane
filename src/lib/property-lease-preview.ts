@@ -12,9 +12,24 @@ import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-documen
 import type { PropertyLeaseTemplateKind } from "@/lib/property-lease-templates";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { resolvePropertyLeaseSource, type PropertyLeaseSource } from "@/lib/property-lease-source";
+import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 
 /** Generic label for property-level default lease drafts (no listing or resident data). */
 export const PROPERTY_LEASE_TEMPLATE_PLACEHOLDER = "Filled at placement";
+
+/** Property template previews use the workspace / building name above short-term titles (studio replica). */
+export function leaseTemplatePreviewConfig(
+  config: LeaseJurisdictionTemplateConfig,
+  ctx: LeaseGenerationContext,
+): LeaseJurisdictionTemplateConfig {
+  if (!ctx.propertyTemplatePreview) return config;
+  const building =
+    ctx.submission?.buildingName?.trim() ||
+    ctx.listingProperty?.buildingName?.trim() ||
+    ctx.listingProperty?.title?.trim();
+  if (!building) return config;
+  return { ...config, brandTitle: building.toUpperCase() };
+}
 
 export type PropertyLeasePreviewHint = {
   buildingName?: string;

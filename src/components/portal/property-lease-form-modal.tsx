@@ -40,6 +40,7 @@ import {
   scopeLeaseDocumentHtmlForInlinePreview,
   stripDisclosureReviewFromLeaseHtml,
 } from "@/lib/property-lease-document-display";
+import { parseLeaseHtmlSections } from "@/lib/lease-html-sections";
 import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import {
@@ -407,6 +408,7 @@ export function PropertyLeaseFormModal({
         setError(null);
         setDocumentMode("proplane_long_term");
         setKind("long-term");
+        setApplicationLeaseTerms([CUSTOM_LEASE_TERM]);
         setDraft((d) => ({ ...d, ...draftFieldsFromLeaseSource("custom_builder") }));
         return;
       }
@@ -1092,6 +1094,20 @@ export function PropertyLeaseFormModal({
             </div>
           ) : null}
           {documentMode === "upload" ? <div className="mt-4">{pendingLeaseImportCard}</div> : null}
+          {importSource ? (
+            <div
+              className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+              data-attr="property-lease-detected-fields"
+            >
+              <span className="font-semibold text-foreground">
+                {(() => {
+                  const clauseCount = parseLeaseHtmlSections(displayHtml).length;
+                  return clauseCount === 1 ? "1 clause" : `${clauseCount} clauses`;
+                })()}{" "}
+                on the paper · PDF fields highlighted in the editor
+              </span>
+            </div>
+          ) : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
               {importSource ? (
@@ -1208,75 +1224,71 @@ export function PropertyLeaseFormModal({
           {!formSetup.loaded ? (
             <p className="text-sm text-muted">Loading…</p>
           ) : (
-            <div>
-              <PanelSection title="Offered">
-                <ToggleRow
-                  label="Offer this lease to applicants"
-                  checked={offered}
-                  dataAttr="lease-setup-offered"
-                  onChange={setOffered}
-                />
-              </PanelSection>
-              {/* F015: another of this property's OWN lease templates — never itself. */}
-              <PanelSection title="Linked co-signer / guarantor addendum">
-                <FieldSingleSelect
-                  label="A co-signer or guarantor signs"
-                  labelClassName={WIZARD_LABEL_CLASS}
-                  value={linkedGuarantorTemplateId ?? "__none__"}
-                  dataAttr="lease-setup-linked-guarantor"
-                  options={[
-                    { value: "__none__", label: "None" },
-                    ...(templates ?? [])
-                      .filter((candidate) => candidate.id !== template?.id)
-                      .map((candidate) => ({ value: candidate.id, label: candidate.label })),
-                  ]}
-                  onChange={(next) => {
-                    setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
-                    setError(null);
-                  }}
-                />
-              </PanelSection>
-              <PanelSection title="Pipeline order">
-                <SegmentedControl
-                  ariaLabel="Pipeline order"
-                  value={formSetup.leasingPipeline.pipelineOrder}
-                  dataAttrPrefix="lease-setup-pipeline-order"
-                  options={[
-                    { value: "application_then_lease", label: "Application first" },
-                    { value: "lease_then_application", label: "Lease first" },
-                  ]}
-                  onChange={(next) =>
-                    void formSetup.patch({
-                      leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
-                    })
-                  }
-                />
-              </PanelSection>
+            <div className="space-y-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Signing</p>
+              <PropertyFormWizardCard dataAttr="lease-settings-signing">
+                <PropertyFormWizardRow label="Pipeline order">
+                  <SegmentedControl
+                    ariaLabel="Pipeline order"
+                    value={formSetup.leasingPipeline.pipelineOrder}
+                    dataAttrPrefix="lease-setup-pipeline-order"
+                    options={[
+                      { value: "application_then_lease", label: "Application first" },
+                      { value: "lease_then_application", label: "Lease first" },
+                    ]}
+                    onChange={(next) =>
+                      void formSetup.patch({
+                        leasingPipeline: { ...formSetup.leasingPipeline, pipelineOrder: next },
+                      })
+                    }
+                  />
+                </PropertyFormWizardRow>
+                <PropertyFormWizardRow label="Co-signer addendum">
+                  <FieldSingleSelect
+                    hideLabel
+                    label="Co-signer addendum"
+                    labelClassName={WIZARD_LABEL_CLASS}
+                    variant="cell"
+                    className="min-w-[200px] max-w-[280px]"
+                    value={linkedGuarantorTemplateId ?? "__none__"}
+                    dataAttr="lease-setup-linked-guarantor"
+                    options={[
+                      { value: "__none__", label: "None" },
+                      ...(templates ?? [])
+                        .filter((candidate) => candidate.id !== template?.id)
+                        .map((candidate) => ({ value: candidate.id, label: candidate.label })),
+                    ]}
+                    onChange={(next) => {
+                      setLinkedGuarantorTemplateId(next === "__none__" ? null : next);
+                      setError(null);
+                    }}
+                  />
+                </PropertyFormWizardRow>
+              </PropertyFormWizardCard>
               {(() => {
-                // F007: reachable in "add" mode too — the property's default
-                // lease should be settable before the first Save, not only
-                // once the lease already exists. `thisLeaseId` is the real
-                // saved id in edit mode, or the pending id "add" mode will
-                // create the lease WITH at commit (see the `mode === "add"`
-                // branch of `save` below).
                 const thisLeaseId = mode === "edit" ? template?.id ?? null : addModeLeaseTemplateId;
                 if (!thisLeaseId) return null;
                 return (
-                  <PanelSection title="Default">
-                    <ToggleRow
-                      label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
-                      checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
-                      dataAttr="lease-setup-default-toggle"
-                      onChange={(next) =>
-                        void formSetup.patch({
-                          leasingPipeline: {
-                            ...formSetup.leasingPipeline,
-                            defaultLeaseTemplateId: next ? thisLeaseId : null,
-                          },
-                        })
-                      }
-                    />
-                  </PanelSection>
+                  <>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Review</p>
+                    <PropertyFormWizardCard dataAttr="lease-settings-review">
+                      <PropertyFormWizardRow label="Default lease">
+                        <ToggleRow
+                          label={`Default ${typeMeta?.label.toLowerCase() ?? "long-term"} lease for this property`}
+                          checked={formSetup.leasingPipeline.defaultLeaseTemplateId === thisLeaseId}
+                          dataAttr="lease-setup-default-toggle"
+                          onChange={(next) =>
+                            void formSetup.patch({
+                              leasingPipeline: {
+                                ...formSetup.leasingPipeline,
+                                defaultLeaseTemplateId: next ? thisLeaseId : null,
+                              },
+                            })
+                          }
+                        />
+                      </PropertyFormWizardRow>
+                    </PropertyFormWizardCard>
+                  </>
                 );
               })()}
             </div>

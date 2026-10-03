@@ -39,8 +39,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("F014/F-editor c: lease Setup — offered toggle, segmented pipeline, no checkboxes", () => {
-  it("renders offered, pipeline and default controls as toggles/segmented control, never a checkbox", async () => {
+describe("F014/F-editor c: lease Setup — segmented pipeline, no checkboxes", () => {
+  it("renders pipeline and default controls as toggles/segmented control, never a checkbox", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -58,7 +58,7 @@ describe("F014/F-editor c: lease Setup — offered toggle, segmented pipeline, n
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    expect(screen.getByRole("switch", { name: "Offer this lease to applicants" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Offer this lease to applicants" })).toBeNull();
     expect(screen.getByRole("tablist", { name: "Pipeline order" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /Default .* lease for this property/ })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -85,7 +85,7 @@ describe("F015: lease Setup's Linked co-signer / guarantor addendum picker", () 
     jumpRail("setup");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
-    const picker = screen.getByRole("button", { name: "A co-signer or guarantor signs" });
+    const picker = screen.getByRole("button", { name: "Co-signer addendum" });
     fireEvent.click(picker);
     const listbox = await screen.findByRole("listbox");
     const option = screen.getByText("Guarantor lease");
