@@ -56,6 +56,26 @@ async function writeTasksRecord(db: SupabaseClient, managerUserId: string, tasks
   if (error) throw error;
 }
 
+/**
+ * Tell the vendor a task just landed on them (`task_assigned_vendor`). Best
+ * effort and dynamic: a failed message never fails the save that produced it,
+ * and a task with a team assignee (or none) sends nothing.
+ */
+async function notifyVendorOfTaskAssignment(
+  db: SupabaseClient,
+  managerUserId: string,
+  task: ManagerTask,
+  changedAt: string,
+): Promise<void> {
+  if (task.assignee?.type !== "vendor") return;
+  try {
+    const { emitVendorTaskAssigned } = await import("@/lib/work-order-vendor-messages.server");
+    await emitVendorTaskAssigned(db, { managerUserId, task, changedAt });
+  } catch (error) {
+    console.error("task_assigned_vendor failed", task.id, error);
+  }
+}
+
 /** A team assignment names a co-manager's user id; a vendor id is a vendor row id. */
 function taskAssignedTo(task: ManagerTask, userId: string): boolean {
   const assignee = task.assignee;
@@ -259,6 +279,7 @@ export async function createManagerTaskRow(
   };
   const tasks = [...(await readTasksRecord(db, managerUserId)), task];
   await saveManagerTasks(db, managerUserId, tasks);
+  await notifyVendorOfTaskAssignment(db, managerUserId, task, task.createdAt);
   return task;
 }
 
@@ -409,6 +430,12 @@ export async function patchManagerTaskRow(
 
   const updated = [...tasks.map((row) => (row.id === taskId ? next : row)), ...(nextOccurrence ? [nextOccurrence] : [])];
   await saveManagerTasks(db, ownerUserId, updated);
+  // Assignment is a diff: only a task that moved onto a DIFFERENT vendor tells
+  // that vendor. Ticking a task off, or saving it unchanged, sends nothing.
+  const vendorChanged =
+    next.assignee?.type === "vendor" &&
+    (current.assignee?.type !== "vendor" || current.assignee.id.trim() !== next.assignee.id.trim());
+  if (vendorChanged) await notifyVendorOfTaskAssignment(db, ownerUserId, next, next.updatedAt);
   return nextOccurrence ? { ...next, nextOccurrence } : next;
 }
 

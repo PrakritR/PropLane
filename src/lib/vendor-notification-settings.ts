@@ -204,18 +204,44 @@ export function isVendorQuietHour(quietHours: VendorQuietHours, hour: number): b
 }
 
 /**
+ * When a vendor's own quiet window next ends, as an ISO instant, or `null` when
+ * `now` is not inside it. Steps hour by hour in the vendor's local clock
+ * (`hourOf` is the Los Angeles hour, passed in so this module stays pure), so
+ * "waits until 7:00am" lands exactly on the window's end. An emergency skips
+ * the wait only when the vendor kept `emergencyBypassQuietHours` on.
+ */
+export function vendorQuietHoursDeferral(
+  settings: Pick<VendorNotificationSettings, "quietHours" | "emergencyBypassQuietHours">,
+  now: Date,
+  hourOf: (at: Date) => number,
+  options?: { urgent?: boolean },
+): string | null {
+  if (!isVendorQuietHour(settings.quietHours, hourOf(now))) return null;
+  if (options?.urgent && settings.emergencyBypassQuietHours) return null;
+  const next = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000);
+  for (let step = 0; step < 48; step++) {
+    next.setTime(next.getTime() + 3_600_000);
+    if (!isVendorQuietHour(settings.quietHours, hourOf(next))) return next.toISOString();
+  }
+  return null;
+}
+
+/**
  * Which vendor topic an action event files under. Kept here (pure) so the
  * emitter and the retry path derive the same answer from the stored
  * `(domain, event_type)` pair, never from anything that has to be persisted.
  */
 export function vendorTopicForEvent(domain: string, event: string): VendorNotificationTopic {
   if (domain === "work_order") {
-    if (["vendor_offered", "offer_expiring", "offer_expired", "offer_filled", "vendor_declined"].includes(event)) return "offers";
+    if (["vendor_offered", "vendor_new_service", "offer_expiring", "offer_expired", "offer_filled", "vendor_declined"].includes(event)) return "offers";
     if (["invoiced", "invoice_approved", "invoice_disputed"].includes(event)) return "invoices";
     if (event === "paid") return "payments";
     if (event === "rated") return "reviews";
     return "schedule";
   }
+  // A new service offered to the preferred vendor is an offer; being assigned
+  // a service or a task is a schedule change.
+  if (domain === "task") return "schedule";
   if (domain === "payment") return "payments";
   return "messages";
 }

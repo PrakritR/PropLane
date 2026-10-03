@@ -32,6 +32,8 @@ import {
 } from "@/lib/notification-preferences";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { isPhoneOptedOut } from "@/lib/sms-consent";
+import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 
@@ -657,6 +659,81 @@ export async function deliverPortalMessageThreadSide(
   return { action: "create", threadId: args.fallbackId, ...(args.delivery ? { delivery: args.delivery } : {}) };
 }
 
+/**
+ * Owner-dispatcher errors that may clear on their own (a control-plane read, a
+ * network blip). Everything else — no consent, STOP, runtime paused, number not
+ * sendable, no messaging credit — is a standing "no": the in-app message and
+ * email already went, so the text is `skipped` (no outcome is reported for it,
+ * which the action-event bus reads as "nothing to retry") rather than a
+ * failure retried every five minutes.
+ */
+export function isTransientOwnerSmsError(error: string | undefined): boolean {
+  return /unreadable|unavailable|timeout|network|fetch/i.test(String(error ?? ""));
+}
+
+/**
+ * One vendor text through the owner SMS dispatcher: consent first (the vendor's
+ * own `sms_consent_at`, recorded on the scoped ledger), STOP respected, the
+ * workspace number as the sender, messaging credit reserved by the dispatcher
+ * before the provider is called. `dedupeKey` is stable per event + vendor, so
+ * a replay of the same event queues nothing new.
+ */
+export async function sendVendorEventSms(
+  db: SupabaseClient,
+  input: {
+    ownerManagerUserId: string;
+    propertyId: string | null;
+    vendorUserId: string | null;
+    body: string;
+    dedupeKey?: string;
+  },
+): Promise<"queued" | "failed" | "skipped"> {
+  const ownerId = input.ownerManagerUserId.trim();
+  const vendorUserId = input.vendorUserId?.trim() ?? "";
+  if (!ownerId || !vendorUserId || !input.body.trim()) return "skipped";
+  try {
+    const { data: profile } = await db
+      .from("profiles")
+      .select("phone, sms_consent_at")
+      .eq("id", vendorUserId)
+      .maybeSingle();
+    const phone = normalizeE164(String((profile as { phone?: unknown } | null)?.phone ?? ""));
+    const consentAt = String((profile as { sms_consent_at?: unknown } | null)?.sms_consent_at ?? "").trim();
+    // Consent first: no recorded opt-in means no text, and the other channels still went.
+    if (!phone || !consentAt) return "skipped";
+    if (await isPhoneOptedOut(db, phone, { userId: vendorUserId })) return "skipped";
+    const consent = await ensureVendorConversationConsent(db, {
+      managerUserId: ownerId,
+      vendorUserId,
+      phone,
+      sessionId: input.dedupeKey ?? "vendor-event",
+      evidence: { consentAt },
+    });
+    if (!consent.allowed) return "skipped";
+    const { enqueueOwnerSms } = await import("@/lib/sms/owner-sms-dispatcher.server");
+    const queued = await enqueueOwnerSms(
+      {
+        managerUserId: ownerId,
+        actorUserId: ownerId,
+        recipientPhone: phone,
+        recipientUserId: vendorUserId,
+        body: input.body,
+        sendClass: "transactional",
+        purpose: "vendor_conversation",
+        conversationKey: consent.conversationKey,
+        counterpartyRole: "vendor",
+        propertyId: input.propertyId,
+        dedupeKey: input.dedupeKey,
+      },
+      db,
+    );
+    if (queued.ok) return "queued";
+    return isTransientOwnerSmsError(queued.error) ? "failed" : "skipped";
+  } catch (error) {
+    return isTransientOwnerSmsError(error instanceof Error ? error.message : undefined) ? "failed" : "skipped";
+  }
+}
+
 export async function deliverPortalInboxMessage(
   db: SupabaseClient,
   opts: {
@@ -695,6 +772,13 @@ export async function deliverPortalInboxMessage(
     vendorVisitReminder?: boolean;
     /** Emergency: a vendor's quiet-hours bypass applies. */
     urgent?: boolean;
+    /**
+     * The workspace owner whose number a vendor text leaves from, when it is
+     * not the sender (a co-manager acting for the owner). Defaults to the sender.
+     */
+    ownerManagerUserId?: string;
+    /** The house the message is about; picks the workspace line a vendor text leaves from. */
+    propertyId?: string | null;
     /**
      * Server-resolved existing work-number threads, keyed by recipient email.
      * When supplied, missing/ambiguous entries are reported as unavailable
@@ -1017,16 +1101,34 @@ export async function deliverPortalInboxMessage(
       }
     }
   }
-  if (smsRecipients.length > 0) {
+  // A vendor has no open resident thread and no cached `sms_from_number` on the
+  // sender, so the resident path refuses them (`managed_sender_scope_required`).
+  // Their text goes through the owner dispatcher directly, on the same
+  // consent ledger and credit reservation as the vendor assistant's texts.
+  const isVendorRecipient = (r: InboxDeliveryRecipient): boolean =>
+    r.scope === VENDOR_INBOX_SCOPE || String(r.role ?? "").toLowerCase() === "vendor";
+  const vendorSmsRecipients = smsRecipients.filter(isVendorRecipient);
+  const residentPathSmsRecipients = smsRecipients.filter((r) => !isVendorRecipient(r));
+  for (const recipient of vendorSmsRecipients) {
+    const status = await sendVendorEventSms(db, {
+      ownerManagerUserId: opts.ownerManagerUserId?.trim() || opts.senderUserId,
+      propertyId: opts.propertyId ?? null,
+      vendorUserId: recipient.userId,
+      body: (opts.smsText ?? text).trim().slice(0, 1500),
+      dedupeKey: opts.messageId ? `vendor-event-sms:${opts.messageId}` : undefined,
+    });
+    if (status !== "skipped") smsOutcomes.push({ recipientEmail: recipient.email, status });
+  }
+  if (residentPathSmsRecipients.length > 0) {
     const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
     // The managed dispatcher derives the authoritative work number from the
     // owner. An explicit, server-resolved thread proves that it exists even if
     // the old profiles.sms_from_number cache is blank.
     if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined) {
-      const recipientEmails = smsRecipients.map((r) => r.email);
+      const recipientEmails = residentPathSmsRecipients.map((r) => r.email);
       const { data: phones } = await db.from("profiles").select("email, phone").in("email", recipientEmails);
       const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
-      for (const recipient of smsRecipients) {
+      for (const recipient of residentPathSmsRecipients) {
         const recipientPhone = phoneByEmail.get(recipient.email) ?? "";
         const existingThread = opts.smsConversationByEmail?.get(recipient.email);
         const targetPhone = existingThread ? normalizeE164(existingThread.recipientPhone) : null;
@@ -1136,7 +1238,7 @@ export async function deliverPortalInboxMessage(
         }
       }
     } else {
-      for (const recipient of smsRecipients) {
+      for (const recipient of residentPathSmsRecipients) {
         smsOutcomes.push({ recipientEmail: recipient.email, status: "unavailable" });
       }
     }

@@ -36,7 +36,7 @@ Invariants:
 
 | Area (on the Reminders hub) | Rows (reminders) | Messages sent automatically (events) |
 | --- | --- | --- |
-| Services | Acknowledge new requests (promise), unassigned / emergency escalations, **vendor silent after accept (re-offer)**, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid, **vendor silent**; add-on submitted/approved/denied/returned |
+| Services | Acknowledge new requests (promise), unassigned / emergency escalations, **vendor silent after accept (re-offer)**, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, **new service offered to your preferred vendor**, **vendor assigned**, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid, **vendor silent**; add-on submitted/approved/denied/returned |
 | Lease | Lease ending (you 90/60/30, resident 60/30), **renewal offer (60d)**, renewal offer expiry, countersignature overdue, move-in (7/1), payment method missing, move-out (30/7/1), **move-out instructions (14d)**, **deposit return notice (day of)**, schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
 | Applications | Response promise, decision reminder, approved-no-lease, incomplete application (applicant / you), post-tour apply link | submitted, approved, declined, withdrawn |
 | Tours | Guest and manager tour reminders now ship on fixed defaults, not a per-workspace rule (C191) — see "What PropLane sends" above | confirmed, cancelled by guest, claimed by a teammate (team) |
@@ -44,7 +44,7 @@ Invariants:
 | Communication | Unanswered message reminder, welcome sequence (off), AI draft auto-send | after-hours reply, emergency flagged, availability changed (team) |
 | Bookings | Booking reminders | — |
 | Inspections | Room photos (resident / you) | resident submitted, report reopened |
-| Tasks | Task reminders, overdue | — |
+| Tasks | Task reminders, overdue | **task assigned to a vendor** |
 | Residents | Welcome message | — |
 
 Resident → Settings → Preferences: per-category Email / Text (messages, lease & move, payments, services, applications, **tours**, **inspections**, phone calls, account) plus **quiet hours for texts**.
@@ -54,13 +54,57 @@ Vendor → Settings → Notifications: per-topic Email / Text (offers, schedule,
 ## The vendor loop
 
 ```
-filed → (unassigned 24h / emergency 1h → manager) → offered (expires; vendor nudged before; manager told when nobody answers; siblings "filled" on accept)
+filed → (unassigned 24h / emergency 1h → manager; preferred vendor offered at once) → offered (to the preferred vendor the moment it is filed, or by the manager; expires; vendor nudged before; manager told when nobody answers; siblings "filled" on accept)
 → accepted (resident who+when, vendor access notes, manager price) → visit reminders (resident, manager, vendor) → On my way (vendor tap or OMW text → resident)
 → done (resident gets a signed "was this fixed?" link at /services/confirm, or YES/NO by text) → ✓ closed + rating · ✗ reopened, everyone told · silence → auto-closed
 → invoice (nudge to vendor at +3d; approval reminder to manager at +3d) → approved / disputed → paid
 ```
 
 The confirmation token is random, stored hashed on `row_data.residentConfirmation`, and lapses after seven days (`work-order-resident-confirmation.server.ts`).
+
+## Vendor auto-messages (comms-safety-0929, Part C)
+
+Three moments a vendor used to hear nothing about. All three are **always on** (captain's
+D4: no Settings toggle; "Resident & vendor messages need my approval first" still turns each into a
+draft, and the vendor's own Settings → Notifications decides their text and email), sent **as the
+owning manager** from the workspace's own number and work address (never the resident), with
+**facts only** (reference, service title, house + unit, emergency flag, visit time, a link; no resident
+name or phone until the vendor accepts) and copy that says **"service"**.
+
+| Moment | Event | Who is messaged | Owner |
+| --- | --- | --- | --- |
+| A resident files a service | `work_order:vendor_new_service` | The **preferred vendor** for that house and trade (D3), as a real offer (`sendWorkOrderVendorOffers` with `newService: true`). No preferred vendor set → nobody is messaged and the "unassigned" alert stands. Skipped when vendor dispatch is on (it proposes, the manager approves). | `offerNewServiceToPreferredVendor`, kicked off in `after()` from `portal-work-orders/route.ts` for a new resident-filed row |
+| A vendor is put on a service (Services panel, or the Assistant's `assign_vendor`) | `work_order:vendor_assigned` ("You were assigned …") | The assigned vendor | `emitVendorAssigned`; the route sends it as a **diff against the stored row** (`vendorId` changed, not `selfAssigned`), `assign_vendor` sends it after its write |
+| A task is assigned to a vendor | `task:task_assigned_vendor` ("New task from …") | The assigned vendor | `emitVendorTaskAssigned`, from `createManagerTaskRow` and from `patchManagerTaskRow` when the assignee moves onto a different vendor |
+
+All of it lives in `src/lib/work-order-vendor-messages.server.ts` (helpers) and
+`work-order-events.server.ts` (copy + `vendorAssignedEventId`).
+
+- **One delivery key per assignment**: `<service>:vendor_assigned:<vendor>:<assignedAt>` (tasks:
+  `task:<id>:task_assigned_vendor:<vendor>:<changedAt>`). A retry or a re-sync of the whole list
+  sends nothing new; reassigning later carries a new `assignedAt` and does send.
+- **No duplicate with accepted/scheduled.** A bid accept and `executeDispatch` already tell the vendor
+  ("accepted", or "scheduled" when a slot was booked). `executeDispatch` therefore never emits
+  `vendor_assigned`, and `emitVendorAssigned` itself stands down when an `accepted`/`scheduled`
+  action event for the service is on record at or after `vendorAssignedAt`.
+- **The vendor's own quiet hours (default 8pm–7am) hold the TEXT only.** `emitActionEvent`
+  (`withVendorQuietHours`) defers a vendor recipient's text to the end of THEIR window while the
+  in-app message and email go at once; an emergency skips the wait only when the vendor kept
+  "emergencies can text me anytime" on (`vendorQuietHoursDeferral`).
+- **Texts go through the owner dispatcher**, not the resident path. `deliverPortalInboxMessage` used to
+  hand a vendor text to `sendResidentOutboundSms`, which a vendor (no open resident thread, no
+  cached `sms_from_number`) always failed with `managed_sender_scope_required`. A vendor recipient now
+  goes through `sendVendorEventSms` → `enqueueOwnerSms` (`purpose: vendor_conversation`, the workspace
+  owner's number, `dedupeKey: vendor-event-sms:<action-event message id>`), which needs the vendor's
+  recorded `sms_consent_at` and no STOP (`ensureVendorConversationConsent`), and which reserves
+  messaging credit before the provider call like every other text. A standing "no" (no consent, STOP,
+  credit, paused runtime) reports no text outcome, so the bus has nothing to retry; the in-app message
+  and email are never held back.
+- **"unavailable" earns one retry pass.** A closed text channel (STOP, no verified phone, topic
+  switched off) was counted as a failure and re-queued every five minutes forever; it is now retried
+  once and then settled (`hasSmsFailure` in `action-events.server.ts`).
+- Preferences are stored under the **trade label** (`VENDOR_TRADE_OPTIONS`, "Plumbing"), a service's
+  `category` is the lowercase enum ("plumbing"); `preferenceTradesForCategory` maps one to the other.
 
 ## Three more moments (PLAN-0915 area 4)
 

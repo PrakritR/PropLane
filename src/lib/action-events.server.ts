@@ -115,6 +115,37 @@ export function actionDeliveryPolicy(input: {
   return { deferSms: true, digest, nextAttemptAt: next.toISOString() };
 }
 
+/**
+ * A vendor's text waits for THEIR quiet window (default 8pm to 7am), not only
+ * the workspace default: inside it the text is deferred to the window's end
+ * while the in-app message and email go at once. An emergency skips the wait
+ * only when the vendor kept "emergencies can text me anytime" on. An unreadable
+ * settings row leaves the policy as it was, never silencing the message.
+ */
+async function withVendorQuietHours(
+  db: SupabaseClient,
+  policy: ActionDeliveryPolicy,
+  recipient: { audience: ActionEventAudience; userId?: string },
+  now: Date,
+  urgent?: boolean,
+): Promise<ActionDeliveryPolicy> {
+  if (recipient.audience !== "vendor" || !recipient.userId?.trim()) return policy;
+  try {
+    const [{ loadVendorNotificationSettings }, { vendorQuietHoursDeferral }, { losAngelesHour }] = await Promise.all([
+      import("@/lib/vendor-notification-settings.server"),
+      import("@/lib/vendor-notification-settings"),
+      import("@/lib/reminders/rules"),
+    ]);
+    const settings = await loadVendorNotificationSettings(db, recipient.userId.trim());
+    const until = vendorQuietHoursDeferral(settings, now, losAngelesHour, { urgent });
+    if (!until) return policy;
+    const later = policy.nextAttemptAt && Date.parse(policy.nextAttemptAt) > Date.parse(until) ? policy.nextAttemptAt : until;
+    return { ...policy, deferSms: true, nextAttemptAt: later };
+  } catch {
+    return policy;
+  }
+}
+
 type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
 
 async function deliverProjection(
@@ -141,6 +172,8 @@ async function deliverProjection(
     draftForReview?: boolean;
     /** The house the event is about (`payload.propertyId`) — routes the team thread and its SMS roster. */
     propertyId?: string | null;
+    /** The workspace owner the event belongs to: whose number a vendor text leaves from. */
+    managerUserId?: string | null;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
@@ -295,6 +328,8 @@ async function deliverProjection(
         ? vendorTopicForEvent(input.domain, input.eventType)
         : undefined,
     urgent: input.urgent,
+    ownerManagerUserId: input.managerUserId?.trim() || undefined,
+    propertyId: input.propertyId ?? null,
   }).catch((error: unknown) => ({
     ok: false as const,
     error: error instanceof Error ? error.message : "Delivery failed",
@@ -325,7 +360,12 @@ async function deliverProjection(
   }
   const smsOutcomes = (result as typeof result & { smsOutcomes?: Array<{ status: string }> }).smsOutcomes ?? [];
   const emailOutcomes = (result as typeof result & { emailOutcomes?: Array<{ status: string }> }).emailOutcomes ?? [];
-  const hasSmsFailure = smsOutcomes.some((outcome) => outcome.status === "failed" || outcome.status === "unavailable");
+  // "unavailable" is a closed channel (STOP, no verified phone, a topic switched
+  // off). It earns ONE retry pass — a phone may be verified in the meantime —
+  // and is then a settled "no", not a failure re-queued every five minutes for good.
+  const hasSmsFailure = smsOutcomes.some(
+    (outcome) => outcome.status === "failed" || (outcome.status === "unavailable" && !input.retryMode),
+  );
   const hasEmailFailure = emailOutcomes.some((outcome) => outcome.status === "failed");
   const hasAcceptedSms = smsOutcomes.some((outcome) => ["submitted", "queued", "deferred", "unknown"].includes(outcome.status));
   // Portal/email already succeeded when only SMS failed. Preserve that fact so
@@ -459,7 +499,13 @@ export async function emitActionEvent(
     if (!recipientKey || !recipient.rendered.subject.trim() || !recipient.rendered.text.trim()) continue;
     const since = new Date(now.getTime() - 10 * 60_000).toISOString();
     const { count } = await db.from("action_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
-    const policy = actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0 });
+    const policy = await withVendorQuietHours(
+      db,
+      actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0 }),
+      recipient,
+      now,
+      input.urgent,
+    );
     const initialStatus = smsTest ? "captured" : policy.deferSms ? "deferred" : "pending";
     const { data: delivery } = await db.from("action_event_deliveries").upsert({
       event_id: eventRow.id,
@@ -510,6 +556,7 @@ export async function emitActionEvent(
       urgent: input.urgent,
       draftForReview: recipient.draftForReview,
       propertyId,
+      managerUserId: input.managerUserId,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -612,6 +659,7 @@ export async function retryDueActionEventDeliveries(
       urgent: Boolean((event.payload as { emergency?: unknown } | null)?.emergency),
       draftForReview,
       propertyId,
+      managerUserId: event.manager_user_id ? String(event.manager_user_id) : null,
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

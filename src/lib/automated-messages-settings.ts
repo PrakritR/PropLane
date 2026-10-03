@@ -50,6 +50,8 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- Services: maintenance work orders ----
   { domain: "work_order", event: "created", area: "services", label: "Request filed", audiences: ["resident", "manager"], placeholders: ["residentName", "title", "propertyTitle", "responsePromise", "url"] },
   { domain: "work_order", event: "vendor_offered", area: "services", label: "Offer sent to vendors", audiences: ["vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "expiresLabel", "url"] },
+  { domain: "work_order", event: "vendor_new_service", area: "services", label: "New service offered to your preferred vendor", audiences: ["vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "expiresLabel", "url"] },
+  { domain: "work_order", event: "vendor_assigned", area: "services", label: "Vendor assigned to a service", audiences: ["vendor"], placeholders: ["vendorName", "title", "propertyTitle", "whenLabel", "url"] },
   { domain: "work_order", event: "offer_expiring", area: "services", label: "Offer expiring soon", audiences: ["vendor"], placeholders: ["vendorName", "title", "propertyTitle", "expiresLabel", "url"] },
   { domain: "work_order", event: "offer_expired", area: "services", label: "Offer expired", audiences: ["vendor", "manager"], placeholders: ["title", "propertyTitle", "url"] },
   { domain: "work_order", event: "offer_filled", area: "services", label: "Offer filled by another vendor", audiences: ["vendor"], placeholders: ["title", "propertyTitle"] },
@@ -108,6 +110,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- Tasks ----
   { domain: "task", event: "assigned", area: "tasks", label: "Task assigned", audiences: ["resident"], placeholders: ["title", "dueDateLabel", "url"] },
   { domain: "task", event: "completed", area: "tasks", label: "Task completed", audiences: ["manager"], placeholders: ["title", "assigneeName"] },
+  { domain: "task", event: "task_assigned_vendor", area: "tasks", label: "Task assigned to a vendor", audiences: ["vendor"], placeholders: ["title", "propertyTitle", "dueDateLabel", "managerName", "url"] },
   // ---- Communication ----
   { domain: "message", event: "after_hours_ack", area: "communication", label: "After-hours reply", audiences: ["resident"], placeholders: ["residentName", "resumeLabel", "emergencyPhone"] },
   { domain: "message", event: "emergency_flagged", area: "communication", label: "Emergency flagged", audiences: ["resident", "manager"], placeholders: ["residentName", "excerpt"] },

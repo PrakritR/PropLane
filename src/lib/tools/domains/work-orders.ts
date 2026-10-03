@@ -12,6 +12,7 @@ import { resolveOwnedVendor } from "@/lib/work-order-vendor.server";
 import { loadVendorInsuranceExpiryStatus } from "@/lib/vendor-business-profile.server";
 import { acceptWorkOrderBid, vendorNamesById, type WorkOrderActor } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers, vendorDirectoryRowsById } from "@/lib/work-order-offers.server";
+import { emitVendorAssigned } from "@/lib/work-order-vendor-messages.server";
 import { approveAndPayWorkOrder } from "@/lib/work-order-approve-pay.server";
 import { createExpensesFromWorkOrder, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
@@ -508,7 +509,7 @@ export const createWorkOrderTool = defineWriteTool({
 export const assignVendorTool = defineWriteTool({
   name: "assign_vendor",
   description:
-    "Assign one of the landlord's vendors to a work order (or reassign from the current vendor). Pass the work order id from list_work_orders and the vendor id from list_vendors or suggest_vendors_for_work_order. Does not schedule a visit or send any notification.",
+    "Assign one of the landlord's vendors to a work order (or reassign from the current vendor). Pass the work order id from list_work_orders and the vendor id from list_vendors or suggest_vendors_for_work_order. Messages the vendor right away (a 'You were assigned' note) from the workspace's own number and address; it does not schedule a visit.",
   inputSchema: z
     .object({
       workOrderId: z.string().min(1).describe("The id of the work order (from list_work_orders)."),
@@ -599,7 +600,21 @@ export const assignVendorTool = defineWriteTool({
       throw new Error(`Could not assign the vendor: ${error.message}`);
     }
     await updateAuditResult(ctx, dedupeKey, { assigned: true });
-    return { reply: `Assigned ${vendor.name || "the vendor"} to "${owned.row.title || owned.id}".`, resultSummary: { workOrderId: owned.id, vendorId: input.vendorId.trim() } };
+    // comms-safety-0929: the Assistant's assignment tells the vendor exactly as
+    // the Services panel does ("You were assigned ..."), sent as the manager.
+    // One delivery key per assignment, so a retry sends nothing new; a failed
+    // send never undoes the assignment.
+    const notified = await emitVendorAssigned(ctx.db, {
+      workOrderId: owned.id,
+      managerUserId: ctx.landlordId,
+      row: nextRowData,
+      vendorDirectoryId: input.vendorId.trim(),
+      assignedAt: now,
+    }).catch((e) => {
+      console.error("emitVendorAssigned failed", owned.id, e);
+      return null;
+    });
+    return { reply: `Assigned ${vendor.name || "the vendor"} to "${owned.row.title || owned.id}"${notified?.sent ? " and messaged them" : ""}.`, resultSummary: { workOrderId: owned.id, vendorId: input.vendorId.trim() } };
   },
 });
 

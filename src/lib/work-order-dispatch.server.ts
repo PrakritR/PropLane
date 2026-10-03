@@ -290,6 +290,13 @@ export async function executeDispatch(
   }
 
   const residentEmail = (row.residentEmail ?? "").trim();
+  // The vendor hears about this assignment HERE, as "accepted" (no slot) or
+  // "scheduled" (slot booked) — so the "You were assigned" message
+  // (`emitVendorAssigned`) is deliberately not sent as well: they would get two
+  // texts for one job. The Services-panel sync cannot send it either, because
+  // the stored row already names this vendor (assignment is a diff), and
+  // `emitVendorAssigned` itself stands down when an accepted/scheduled event
+  // for the service is on record at or after `vendorAssignedAt`.
   await workOrderEvent(db, {
     eventId: `${args.workOrderId}:${scheduledIso ? "scheduled" : "accepted"}:${dedupeKey}`,
     event: scheduledIso ? "scheduled" : "accepted",

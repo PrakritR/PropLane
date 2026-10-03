@@ -23,6 +23,7 @@ import { loadServiceAutomationSettings } from "@/lib/service-automation-settings
 import { responsePromisePhrase } from "@/lib/service-automation-settings";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
+import { emitVendorAssigned, offerNewServiceToPreferredVendor } from "@/lib/work-order-vendor-messages.server";
 import {
   autoTimeNewWorkOrder,
   notifyVisitAutoBooked,
@@ -519,6 +520,52 @@ export async function POST(req: Request) {
       }
     };
 
+    /** A newly filed resident service is offered to the manager's PREFERRED
+     * vendor for that house and trade (comms-safety-0929, D3); with none set
+     * nobody is messaged. Skipped when vendor dispatch is on — that pipeline
+     * proposes the vendor and the manager approves it. Runs after the response
+     * and is idempotent (one offer per service + vendor, one delivery key). */
+    const maybeOfferToPreferredVendor = (
+      existing: ExistingRecord | null,
+      persisted: { manager_user_id: string | null; row_data: DemoManagerWorkOrderRow },
+    ): void => {
+      if (existing || actor.role !== "resident") return;
+      const managerUserId = persisted.manager_user_id?.trim();
+      if (!managerUserId) return;
+      const task = async () => {
+        if (await willDispatchRun(db, managerUserId, persisted.row_data)) return;
+        await offerNewServiceToPreferredVendor(db, { workOrderId: persisted.row_data.id });
+      };
+      const guarded = () => task().catch((e) => console.error("offerNewServiceToPreferredVendor failed", persisted.row_data.id, e));
+      try {
+        after(guarded);
+      } catch {
+        void guarded();
+      }
+    };
+
+    /** "You were assigned ..." to the vendor now on the service: the assignment
+     * is a DIFF against the stored row, so a re-sync of an unchanged list, a
+     * resident edit or a bid accept (which already told the vendor) sends nothing. */
+    const maybeNotifyVendorAssigned = async (
+      existing: ExistingRecord | null,
+      persisted: { manager_user_id: string | null; row_data: DemoManagerWorkOrderRow },
+    ): Promise<void> => {
+      if (actor.role === "resident") return;
+      const next = persisted.row_data;
+      const vendorId = next.vendorId?.trim();
+      const managerUserId = persisted.manager_user_id?.trim();
+      if (!vendorId || !managerUserId || next.selfAssigned) return;
+      if ((existing?.row_data?.vendorId ?? "").trim() === vendorId) return;
+      await emitVendorAssigned(db, {
+        workOrderId: next.id,
+        managerUserId,
+        row: next,
+        vendorDirectoryId: vendorId,
+        assignedAt: next.vendorAssignedAt?.trim() || new Date().toISOString(),
+      }).catch((e) => console.error("emitVendorAssigned failed", next.id, e));
+    };
+
     // Stamp manager + property from residency for residents; reject if none.
     const stampResidentWorkOrder = async (
       row: DemoManagerWorkOrderRow,
@@ -619,6 +666,8 @@ export async function POST(req: Request) {
             await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
           }
           maybePrepareDispatch(existing, timedRow.id);
+          maybeOfferToPreferredVendor(existing, persisted);
+          await maybeNotifyVendorAssigned(existing, persisted);
           maybeNotifyAutoBookedVisit(autoTimeOutcome, persisted.manager_user_id, persisted.row_data);
           await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
         }
@@ -683,6 +732,8 @@ export async function POST(req: Request) {
       await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
     }
     maybePrepareDispatch(existing, timedRow.id);
+    maybeOfferToPreferredVendor(existing, persisted);
+    await maybeNotifyVendorAssigned(existing, persisted);
     maybeNotifyAutoBookedVisit(autoTimeOutcome, persisted.manager_user_id, persisted.row_data);
     await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
     return NextResponse.json({ ok: true, row: persisted.row_data });

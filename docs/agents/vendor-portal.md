@@ -373,3 +373,25 @@ pre-existing, unrelated resident "was this fixed?" rating block — don't merge
 them), a `★ 4.6 · 12` glyph fact on the Vendors list row (never a pill), a
 "Leave a review" record-header action on a completed service, and the
 vendor's own `/vendor/reviews`.
+
+## What a vendor is messaged about without anyone typing (comms-safety-0929)
+
+A vendor now hears, in their portal Communication (and by email and, with consent, text), about three
+moments that used to be silent. Full contract: [`automated-communication.md`](automated-communication.md)
+§ Vendor auto-messages.
+
+- **A new service for their house and trade** (`vendor_new_service`) when they are the manager's
+  preferred vendor for it. It is a real offer: it appears in Services with Accept / Decline, and the
+  message says so. Facts only; the resident's name and phone arrive after they accept.
+- **"You were assigned …"** (`vendor_assigned`) the moment the manager (Services panel) or the
+  Assistant (`assign_vendor`) puts them on a service. A bid accept or a one-tap dispatch already sends
+  "accepted" / "scheduled", so those never send a second message.
+- **"New task from …"** (`task_assigned_vendor`) when a task is assigned to them.
+
+Rules that hold for all three: sent as the manager from the workspace's own number and work address,
+copy says "service" (never "work order"), one delivery key per assignment (a retry sends nothing, a
+reassignment does), the text needs the vendor's recorded consent and no STOP and waits for the
+vendor's own quiet hours (default 8pm–7am; an emergency texts through only if they kept "emergencies can
+text me anytime" on), and the in-app message is never gated by any of it. Vendor texts go through
+`enqueueOwnerSms` with `purpose: "vendor_conversation"` (the same ledger as the vendor assistant),
+not the resident path that used to refuse them with `managed_sender_scope_required`.

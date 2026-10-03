@@ -30,6 +30,10 @@ function outboundWebhook(
 export type WorkOrderEventType =
   | "created"
   | "vendor_offered"
+  /** A resident-filed service offered to the preferred vendor for that house and trade (comms-safety-0929, D3). */
+  | "vendor_new_service"
+  /** The manager (or the Assistant) put a vendor on a service (comms-safety-0929). */
+  | "vendor_assigned"
   | "vendor_declined"
   | "offer_expiring"
   | "offer_expired"
@@ -106,6 +110,9 @@ export function renderWorkOrderEvent(
   const at = facts.propertyLabel?.trim() ? ` at ${facts.propertyLabel.trim()}` : "";
   const when = facts.scheduledFor?.trim() || "the scheduled time";
   const vendor = facts.vendorName?.trim() || "the vendor";
+  // The vendor-facing messages of comms-safety-0929 always say "service".
+  const serviceRef = facts.reference.trim() || "Service";
+  const serviceTitle = facts.title.trim() || "Service";
   let text: string | null = null;
 
   const note = facts.note?.trim();
@@ -122,6 +129,16 @@ export function renderWorkOrderEvent(
   } else if (event === "vendor_offered") {
     if (audience === "vendor") text = `${ref}: New offer for “${title}”${at}.${expires ? ` Expires ${expires}.` : ""} Review it and respond.`;
     if (audience === "manager") text = `${ref}: Offer sent to ${facts.offerCount ?? 1} vendor${facts.offerCount === 1 ? "" : "s"}.${expires ? ` Expires ${expires}.` : ""}`;
+  } else if (event === "vendor_new_service") {
+    // Facts only: no resident name or phone until the vendor accepts.
+    if (audience === "vendor") {
+      text = `${serviceRef}: New service offered to you${at}: “${serviceTitle}”.${facts.emergency ? " Emergency." : ""}${expires ? ` Expires ${expires}.` : ""} Review it and respond${facts.url ? `: ${facts.url}` : "."}`;
+    }
+    if (audience === "manager") text = `${serviceRef}: “${serviceTitle}”${at} was offered to your preferred vendor ${vendor}.`;
+  } else if (event === "vendor_assigned") {
+    if (audience === "vendor") {
+      text = `${serviceRef}: You were assigned “${serviceTitle}”${at}.${facts.emergency ? " Emergency." : ""}${facts.scheduledFor?.trim() ? ` Visit: ${when}.` : ""} Details${facts.url ? `: ${facts.url}` : " are in your PropLane Services."}`;
+    }
   } else if (event === "vendor_declined") {
     if (audience === "manager") text = `${ref}: ${vendor} declined “${title}”${at}${noteSuffix}. Send it to someone else.`;
   } else if (event === "offer_expiring") {
@@ -193,6 +210,27 @@ export function renderWorkOrderEvent(
   return { subject: `${ref} · ${title}`, text, smsText: text };
 }
 
+/** Pure renderer for the vendor's "New task" message (comms-safety-0929). Facts only. */
+export function renderVendorTaskAssigned(facts: {
+  managerName?: string;
+  title: string;
+  propertyLabel?: string;
+  dueLabel?: string;
+  url?: string;
+}): RenderedWorkOrderEvent {
+  const from = facts.managerName?.trim() || "your property manager";
+  const title = facts.title.trim() || "Task";
+  const at = facts.propertyLabel?.trim() ? ` at ${facts.propertyLabel.trim()}` : "";
+  const due = facts.dueLabel?.trim() ? ` Due ${facts.dueLabel.trim()}.` : "";
+  const text = `New task from ${from}: “${title}”${at}.${due}${facts.url ? ` Open it: ${facts.url}` : ""}`;
+  return { subject: `New task · ${title}`, text, smsText: text };
+}
+
+/** One delivery key per assignment: a retry never sends twice, a later reassignment does. */
+export function vendorAssignedEventId(workOrderId: string, vendorId: string, assignedAt: string): string {
+  return `${workOrderId}:vendor_assigned:${vendorId}:${assignedAt}`;
+}
+
 export function workOrderDeliveryPolicy(input: {
   now: Date;
   emergency?: boolean;
@@ -212,7 +250,7 @@ export function workOrderDeliveryPolicy(input: {
  * fixed?" link and the vendor's "not fixed" note actually arrive. Before this
  * the old "marked done" resident notice failed the same way, silently.
  */
-async function managerSender(db: SupabaseClient, managerUserId: string): Promise<{ userId: string; email: string; name?: string } | null> {
+export async function managerSender(db: SupabaseClient, managerUserId: string): Promise<{ userId: string; email: string; name?: string } | null> {
   const { data } = await db.from("profiles").select("email, full_name").eq("id", managerUserId).maybeSingle();
   const email = String(data?.email ?? "").trim().toLowerCase();
   if (!email) return null;

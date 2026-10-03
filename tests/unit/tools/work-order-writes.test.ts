@@ -29,6 +29,9 @@ vi.mock("@/lib/stripe-axis-ach-checkout", async (importOriginal) => ({
   }),
 }));
 vi.mock("@/lib/reports/auth", () => ({ assertFinancialsTier: vi.fn().mockResolvedValue({ ok: true }) }));
+vi.mock("@/lib/work-order-vendor-messages.server", () => ({
+  emitVendorAssigned: vi.fn().mockResolvedValue({ sent: true, duplicate: false }),
+}));
 vi.mock("@/lib/vendor-availability-server", () => ({
   resolveVendorNextAvailableSlot: vi.fn().mockResolvedValue({ iso: "2026-07-20T17:00:00.000Z" }),
 }));
@@ -40,6 +43,7 @@ import { payoutVendorForWorkOrder, recordVendorPayoutSettled } from "@/lib/strip
 import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
 import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
+import { emitVendorAssigned } from "@/lib/work-order-vendor-messages.server";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
 import {
   acceptBidTool,
@@ -422,6 +426,33 @@ describe("assign_vendor", () => {
     const again = await executeWrite(assignVendorTool, ctx, { workOrderId: "wo1", vendorId: "v1" });
     expect(again.ok).toBe(true);
     if (again.ok) expect(again.reply).toContain("already assigned");
+  });
+
+  it("messages the vendor once ('You were assigned'), as the manager, keyed to the assignment; a repeat sends nothing", async () => {
+    vi.mocked(emitVendorAssigned).mockClear();
+    const tables = baseTables();
+    const ctx = makeCtx(tables);
+    const res = await executeWrite(assignVendorTool, ctx, { workOrderId: "wo1", vendorId: "v1" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.reply).toContain("and messaged them");
+
+    expect(emitVendorAssigned).toHaveBeenCalledTimes(1);
+    const input = vi.mocked(emitVendorAssigned).mock.calls[0]![1];
+    const stored = (tables.portal_work_order_records![0]!.row_data as Row).vendorAssignedAt;
+    expect(input).toMatchObject({ workOrderId: "wo1", managerUserId: "manager_a", vendorDirectoryId: "v1", assignedAt: stored });
+
+    // The one-shot audit key short-circuits a retry before any message is built.
+    await executeWrite(assignVendorTool, ctx, { workOrderId: "wo1", vendorId: "v1" });
+    expect(emitVendorAssigned).toHaveBeenCalledTimes(1);
+  });
+
+  it("a message that cannot be sent never undoes the assignment", async () => {
+    vi.mocked(emitVendorAssigned).mockRejectedValueOnce(new Error("delivery down"));
+    const tables = baseTables();
+    const res = await executeWrite(assignVendorTool, makeCtx(tables), { workOrderId: "wo1", vendorId: "v1" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.reply).not.toContain("messaged");
+    expect((tables.portal_work_order_records![0]!.row_data as Row).vendorId).toBe("v1");
   });
 });
 

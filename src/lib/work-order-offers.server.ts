@@ -23,6 +23,7 @@ import {
   workOrderCategoryForMarketplace,
 } from "@/lib/work-order-marketplace-match.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 function expiresLabel(at: Date): string {
   return at.toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -120,6 +121,12 @@ async function ensureDirectoryVendorOnManagerRoster(
 export type SendWorkOrderVendorOffersBody = {
   workOrderId?: string;
   vendorIds?: string[];
+  /**
+   * A freshly filed resident service offered to the preferred vendor
+   * (comms-safety-0929, D3): the vendor hears `vendor_new_service` instead of
+   * the manager-sent `vendor_offered`, with a link to their Services.
+   */
+  newService?: boolean;
   marketplace?: {
     enabled?: boolean;
     trade?: string;
@@ -280,9 +287,10 @@ export async function sendWorkOrderVendorOffers(
       propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
       channel: "services",
     });
+    const newService = body.newService === true;
     await workOrderEvent(db, {
-      eventId: `${workOrderId}:vendor_offered:${sent.slice().sort().join(",")}`,
-      event: "vendor_offered",
+      eventId: `${workOrderId}:${newService ? "vendor_new_service" : "vendor_offered"}:${sent.slice().sort().join(",")}`,
+      event: newService ? "vendor_new_service" : "vendor_offered",
       managerUserId: String(workOrder.manager_user_id),
       workOrderId,
       senderUserId: actor.userId,
@@ -296,6 +304,14 @@ export async function sendWorkOrderVendorOffers(
         offerCount: sent.length,
         expiresLabel: expiresAt ? expiresLabel(expiresAt) : undefined,
         emergency: rowData.priority === "Emergency",
+        ...(newService
+          ? {
+              propertyLabel: [rowData.propertyName, rowData.unit && rowData.unit !== "—" ? rowData.unit : ""].filter(Boolean).join(" · ") || undefined,
+              scheduledFor: undefined,
+              vendorName: offeredVendors[0]?.name || undefined,
+              url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders`,
+            }
+          : {}),
       },
       recipients: [
         ...offeredVendors.map((vendor) => ({ audience: "vendor" as const, userId: vendor.vendorUserId ?? undefined, email: vendor.email || undefined })),

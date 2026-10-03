@@ -16,7 +16,7 @@ import {
   type PaymentActionEvent,
   type ServiceRequestActionEvent,
 } from "@/lib/domain-action-events.server";
-import { renderWorkOrderEvent, type WorkOrderEventType } from "@/lib/work-order-events.server";
+import { renderVendorTaskAssigned, renderWorkOrderEvent, type WorkOrderEventType } from "@/lib/work-order-events.server";
 import { renderTourManagerEvent, renderTourTeamEvent, type TourManagerEvent } from "@/lib/tour-events.server";
 import { renderInspectionEvent } from "@/lib/inspection-events.server";
 
@@ -40,6 +40,7 @@ const SAMPLE = {
     ratingUrl: "https://prop-lane.space/services/confirm?t=…",
     rating: 5,
     etaMinutes: 25,
+    url: "https://prop-lane.space/vendor/work-orders",
   },
 };
 
@@ -56,6 +57,15 @@ export function automatedMessageDefaults(): Record<string, { subject: string; bo
 
 function renderDefault(domain: string, event: string, audience: AutomatedMessageAudience): { subject: string; text: string } | null {
   if (domain === "work_order") return renderWorkOrderEvent(event as WorkOrderEventType, audience, SAMPLE.workOrder);
+  if (domain === "task" && event === "task_assigned_vendor" && audience === "vendor") {
+    return renderVendorTaskAssigned({
+      managerName: "Seattle Homes",
+      title: "Replace the hallway smoke detector",
+      propertyLabel: "5257 Brooklyn Ave NE",
+      dueLabel: "Thu, Sep 18 at 4:00 PM",
+      url: "https://prop-lane.space/vendor/work-orders/pending",
+    });
+  }
   if (audience === "vendor") return null;
   if (domain === "service_request") {
     return renderServiceRequestActionEvent(event as ServiceRequestActionEvent, audience, { offerName: "Parking", residentName: "Alex Resident", priceLabel: "$75" });
