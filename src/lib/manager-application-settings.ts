@@ -108,47 +108,43 @@ export function validateManagerApplicationFeeCents(raw: unknown): ManagerApplica
 }
 
 /**
- * The effective application fee (cents) for one listing, optionally
- * overridden by the SPECIFIC APPLICATION TEMPLATE the applicant applied
- * with (P003, 2026-09-27 — `PropertyApplicationTemplate.feeCentsOverride`,
- * `property-application-templates.ts`).
+ * The effective application fee (cents) for one application.
  *
- * PLAN-0924-1254 Decide: Application system fee is the ONE account-wide
- * source of truth for every listing that has not set its own override.
- * Listing `applicationFee` fields are retired from Pricing and are ignored
- * here (callers may still pass `listingFeeCents` for API stability; it never
- * wins). Priority: this application's own fee -> configured manager/system
- * fee -> legacy $50 when neither is set. Pure — safe to use on client and
- * server; the caller (`resolveApplicationFeeProperty`) is what resolves
- * `templateFeeCentsOverride` from SERVER-stored data, never a client amount.
+ * Captain decision (2026-10-03, supersedes PLAN-0924-1254's "listing fees are
+ * ignored"): the fee is based on the room the applicant chose and the lease
+ * type they chose. Priority, first level that is set wins:
  *
- * `0` at any level means free at that level. `null`/`undefined` means "use
- * the next level down" (legacy default applies only when nothing at all is
- * configured).
+ *   1. `roomTermFeeCents`  - the stay type's OWN Application fee for the chosen room
+ *      (or whole house) and lease type. ONE resolver decides it
+ *      (`placementApplicationFeeCents`, `listing-placement-standard-fees.ts`), the
+ *      same one the listing quote, the lease and the signing charges read, so the
+ *      fee shown is the fee charged. A stay type's value REPLACES the house fee.
+ *   2. `templateFeeCentsOverride` - this application template's own fee (P003)
+ *   3. `listingFeeCents`   - the listing-level Application fee (per lease type)
+ *   4. `managerFeeCents`   - the Application system setting
+ *   5. the legacy $50 default, only when nothing at all is configured
+ *
+ * `0` at any level means free at that level. `null`/`undefined` means "use the
+ * next level down". Pure - the caller (`resolveApplicationFeeProperty`) resolves
+ * every input from SERVER-stored data, never a client amount.
  */
 export function effectiveApplicationFeeCents(input: {
   managerFeeCents: number | null;
-  /** This application's own fee, when it set one. Wins over the account default. */
+  /** The chosen room's fee for the chosen lease type. Wins over everything below it. */
+  roomTermFeeCents?: number | null;
+  /** This application's own fee, when it set one. Wins over the listing and account defaults. */
   templateFeeCentsOverride?: number | null;
-  /**
-   * The stay type's own application fee for the room and lease type the applicant picked
-   * (`placementApplicationFeeCents`, the resolver the listing quote also uses). `null` /
-   * absent when that stay type typed none. Below the application's own fee, above the
-   * account default; an explicit 0 makes that stay type free.
-   */
-  placementFeeCents?: number | null;
-  /**
-   * @deprecated Listing fees are ignored (PLAN-0924-1254). Kept so existing
-   * call sites keep compiling; do not pass a value expecting it to charge.
-   */
+  /** The listing-level Application fee, when the room/term sets none. */
   listingFeeCents?: number | null;
 }): number {
-  void input.listingFeeCents;
+  if (input.roomTermFeeCents !== null && input.roomTermFeeCents !== undefined) {
+    return input.roomTermFeeCents;
+  }
   if (input.templateFeeCentsOverride !== null && input.templateFeeCentsOverride !== undefined) {
     return input.templateFeeCentsOverride;
   }
-  if (input.placementFeeCents !== null && input.placementFeeCents !== undefined) {
-    return input.placementFeeCents;
+  if (input.listingFeeCents !== null && input.listingFeeCents !== undefined) {
+    return input.listingFeeCents;
   }
   if (input.managerFeeCents !== null) return input.managerFeeCents;
   return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;

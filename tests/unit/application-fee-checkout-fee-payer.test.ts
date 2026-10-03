@@ -149,14 +149,14 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
     expect(passed.destinationAccountId ?? "").toBe("");
   });
 
-  it("never uses a client or listing amount — always the server-stored account fee", async () => {
+  it("never uses a client amount — the server-stored listing fee, else the account fee", async () => {
     const stripe = makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true });
     const db = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A", applicationFee: "$75", managerFeeCents: 6000 });
 
     await createApplicationFeeCheckout(db, stripe, baseInput);
 
     const passed = vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as { amountCents?: number };
-    expect(passed.amountCents).toBe(6000);
+    expect(passed.amountCents).toBe(7500);
   });
 
   it("BLOCKS Stripe checkout when the listing has card/ACH payments disabled", async () => {

@@ -17,7 +17,11 @@ import {
   type Patch,
 } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
-import { mergeTermStandardFees, termStandardFeeRow } from "@/lib/listing-placement-standard-fees";
+import {
+  longTermPrivateArrangementRow,
+  mergeTermStandardFees,
+  termStandardFeeRow,
+} from "@/lib/listing-placement-standard-fees";
 
 const PRICING_MODE_OPTIONS = [
   { value: "fixed", label: "Fixed" },
@@ -160,6 +164,9 @@ export function ArrangementPriceEditor({
             onPatch={(feePatch) => writeFees(count, feePatch)}
             showMonthToMonth={false}
             showCustomStart={false}
+            scope="short"
+            storage="term"
+            inheritedRow={longTermPrivateArrangementRow(room)}
           />
         </>
       );
