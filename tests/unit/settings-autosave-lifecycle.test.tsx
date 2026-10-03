@@ -11,14 +11,12 @@
  *    when the manager left before the timer fired — a tab switch the host didn't explicitly
  *    flush, or an unmount for any other reason.
  *
- * `CommunicationSettingsPanel` stands in for the shared report/flush/unmount shape every one of
- * those panels now uses (`useReportSettingsSaveStatus`, `useFlushSettingsAutosaveOnUnmount`) —
- * it has the smallest fetch surface of the four, so it is the cleanest place to prove the
- * LIFECYCLE contract without re-testing each panel's own fields (already covered by
- * `settings-module-redraws.test.tsx`, `tour-settings-redraw.test.tsx`, etc). Switching
- * Profile panes unmounts `SettingsModulePage`, which is the same flush-on-unmount path
- * the last test here covers. The gear modal's flush-before-close is
- * `portal-settings-save-flush.test.tsx`.
+ * `TourSettingsPanel` stands in for the shared report/flush/unmount shape every per-control
+ * panel uses (`useReportSettingsSaveStatus`, `useFlushSettingsAutosaveOnUnmount`) — the
+ * Communication tab is link-only after C111, but Tours still autosaves toggles through the
+ * same host channel. Switching Profile panes unmounts `SettingsModulePage`, which is the
+ * same flush-on-unmount path the last test here covers. The gear modal's flush-before-close
+ * is `portal-settings-save-flush.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -36,6 +34,9 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "mgr-1" }) }));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
@@ -46,27 +47,40 @@ import {
   type SettingsModuleSaveStatus,
 } from "@/components/portal/settings-module-page";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
+import { DEFAULT_MANAGER_TOUR_SETTINGS } from "@/lib/manager-tour-settings";
 
 /** Every PATCH body any stubbed endpoint below received, tagged by which one. */
 let patches: Array<{ url: string; body: Record<string, unknown> }>;
 
-function stubCommunicationFetch(options?: { failPatch?: boolean }) {
+function automationPatch() {
+  return patches.find((patch) => patch.url.includes("/api/portal/automation-settings"));
+}
+
+function stubToursFetch(options?: { failPatch?: boolean }) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (url.includes("/api/manager/messaging-number")) return new Response("missing", { status: 404 });
+      if (url.includes("/api/portal/manager-tour-settings")) {
+        if (method === "PATCH") {
+          patches.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        }
+        return Response.json({ settings: DEFAULT_MANAGER_TOUR_SETTINGS, source: "account" });
+      }
       if (url.includes("/api/portal/automation-settings")) {
         if (method === "PATCH") {
           patches.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
           if (options?.failPatch) {
-            return new Response(JSON.stringify({ error: "Could not save communication settings." }), {
+            return new Response(JSON.stringify({ error: "Could not save tour settings." }), {
               status: 500,
             });
           }
         }
-        return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
+        return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS, source: "account" });
+      }
+      if (url.includes("/api/portal/reminder-settings") || url.includes("/api/portal/automated-messages")) {
+        return Response.json({ settings: {}, source: "account" });
       }
       throw new Error(`Unexpected fetch: ${url} (${method})`);
     }),
@@ -84,28 +98,22 @@ afterEach(() => {
   showToast.mockClear();
 });
 
-async function renderCommunication(onSaveStatusChange: (status: SettingsModuleSaveStatus) => void) {
+async function renderTours(onSaveStatusChange: (status: SettingsModuleSaveStatus) => void) {
   const ref = createRef<SettingsModulePageHandle>();
-  render(<SettingsModulePage ref={ref} tab="communication" onSaveStatusChange={onSaveStatusChange} />);
-  // "Auto-send AI drafts" moved to the Reminders hub (C111); this file's
-  // remaining self-contained Communication toggle is the same lifecycle
-  // shape (report/flush/unmount through the same PATCH), so it still proves
-  // the contract.
-  const toggle = await screen.findByRole("switch", {
-    name: "Share my profile phone and email when no work number or work email is set",
-  });
+  render(<SettingsModulePage ref={ref} tab="tours" onSaveStatusChange={onSaveStatusChange} />);
+  const toggle = await screen.findByRole("switch", { name: "Auto confirm tours" });
   return { ref, toggle };
 }
 
 describe("per-control autosave reports through the host's save status (Defect 1)", () => {
   it("drives saving then saved for a real edit — the host actually receives BOTH transitions, not just a PATCH", async () => {
-    stubCommunicationFetch();
+    stubToursFetch();
     const statuses: SettingsModuleSaveStatus[] = [];
-    const { toggle } = await renderCommunication((s) => statuses.push(s));
+    const { toggle } = await renderTours((s) => statuses.push(s));
 
     fireEvent.click(toggle);
 
-    await waitFor(() => expect(patches).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(automationPatch()).toBeTruthy(), { timeout: 3000 });
     await waitFor(() => expect(statuses.at(-1)?.state).toBe("saved"), { timeout: 3000 });
 
     const savingIndex = statuses.findIndex((s) => s.state === "saving");
@@ -115,25 +123,25 @@ describe("per-control autosave reports through the host's save status (Defect 1)
   });
 
   it("a failing autosave drives the status to error and surfaces the reason", async () => {
-    stubCommunicationFetch({ failPatch: true });
+    stubToursFetch({ failPatch: true });
     const statuses: SettingsModuleSaveStatus[] = [];
-    const { toggle } = await renderCommunication((s) => statuses.push(s));
+    const { toggle } = await renderTours((s) => statuses.push(s));
 
     fireEvent.click(toggle);
 
-    await waitFor(() => expect(patches).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(automationPatch()).toBeTruthy(), { timeout: 3000 });
     await waitFor(() => expect(statuses.at(-1)?.state).toBe("error"), { timeout: 3000 });
 
-    expect(statuses.at(-1)?.reason).toBe("Could not save communication settings.");
+    expect(statuses.at(-1)?.reason).toBe("Could not save calendar settings.");
     // Unconditional — the same failure must still toast, exactly like the dialog's own flush.
-    expect(showToast).toHaveBeenCalledWith("Could not save communication settings.");
+    expect(showToast).toHaveBeenCalledWith("Could not save calendar settings.");
   });
 });
 
 describe("a pending debounced save is never lost when the manager leaves first (Defect 2)", () => {
   it("unmounting flushes a pending debounced save", async () => {
-    stubCommunicationFetch();
-    const { toggle } = await renderCommunication(() => {});
+    stubToursFetch();
+    const { toggle } = await renderTours(() => {});
 
     fireEvent.click(toggle);
     // The debounce window (600ms) has not elapsed — nothing has been sent yet.
@@ -141,13 +149,12 @@ describe("a pending debounced save is never lost when the manager leaves first (
 
     cleanup();
 
-    await waitFor(() => expect(patches).toHaveLength(1), { timeout: 3000 });
-    expect(patches[0]!.body).toMatchObject({ shareProfileContactWithoutWorkChannel: true });
+    await waitFor(() => expect(automationPatch()?.body).toMatchObject({ proposeTourConfirmations: true }), { timeout: 3000 });
   });
 
   it("a pending save is not silently dropped when the debounce timer has not yet elapsed", async () => {
-    stubCommunicationFetch();
-    const { ref, toggle } = await renderCommunication(() => {});
+    stubToursFetch();
+    const { ref, toggle } = await renderTours(() => {});
 
     fireEvent.click(toggle);
     expect(patches).toHaveLength(0);
@@ -157,7 +164,6 @@ describe("a pending debounced save is never lost when the manager leaves first (
     const result = await ref.current!.flushPendingSaves();
 
     expect(result).toEqual({ ok: true });
-    expect(patches).toHaveLength(1);
-    expect(patches[0]!.body).toMatchObject({ shareProfileContactWithoutWorkChannel: true });
+    expect(automationPatch()?.body).toMatchObject({ proposeTourConfirmations: true });
   });
 });

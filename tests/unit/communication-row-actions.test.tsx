@@ -2,13 +2,26 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { RECORD_ACTION_DESTRUCTIVE_SETTLE_MS } from "@/components/ui/record-action-menu";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
-const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), clear: vi.fn(), sms: vi.fn(), smsDelete: vi.fn(), confirm: vi.fn() }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
+const mocks = vi.hoisted(() => ({
+  archive: vi.fn(),
+  restore: vi.fn(),
+  remove: vi.fn(),
+  clear: vi.fn(),
+  sms: vi.fn(),
+  smsDelete: vi.fn(),
+  confirm: vi.fn(),
+  showToast: vi.fn(),
+}));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => mocks.confirm,
+  useAppUi: () => ({ showToast: mocks.showToast }),
+}));
 vi.mock("@/lib/communication-inbox-thread-mutations", async (importOriginal) => ({
   // previewArchivedInboxThreads / previewRestoredInboxThreads stay REAL (pure,
   // no I/O) — the bulk hook calls them synchronously for the optimistic
@@ -46,6 +59,7 @@ const rows: UnifiedInboxListItem[] = [
 ];
 const smsTargets = [{ conversationId: "sms-row-1", phone: "+15551234567", conversationKey: "sms-row-1" }];
 function Harness({ archived = false, manager = true }: { archived?: boolean; manager?: boolean }) {
+  const { showToast } = useAppUi();
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: rows,
     listSegment: archived ? "archived" : "active",
@@ -53,6 +67,7 @@ function Harness({ archived = false, manager = true }: { archived?: boolean; man
     emailThreads: threads,
     onEmailThreadsChange: () => {},
     smsTargets,
+    showToast,
   });
   return <>{rows.map((row) => <CommunicationRowActions key={row.key} row={row} bulk={bulk} archived={archived} manager={manager} emailThreads={threads} />)}</>;
 }
@@ -76,7 +91,10 @@ beforeEach(() => {
   mocks.smsDelete.mockResolvedValue({ ok: true });
   mocks.confirm.mockResolvedValue(true);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 it("targets all exact merged members, then only the next conversation", async () => {
   render(<Harness />);
   open("First"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
@@ -150,18 +168,28 @@ it("does not offer Archive on the assistant in a role portal either", async () =
 });
 
 it("clears PropLane Assistant instead of deleting it, and still deletes the admin mirror", async () => {
+  const realSetTimeout = global.setTimeout.bind(global);
+  const timerSpy = vi.spyOn(global, "setTimeout").mockImplementation((handler, delay, ...args) => {
+    if (delay === 6100 && typeof handler === "function") {
+      queueMicrotask(() => handler(...args));
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return realSetTimeout(handler, delay, ...args);
+  });
   render(<Harness archived />);
   const restoreClock = openPastDestructiveSettle("PropLane Assistant");
   expect(screen.queryByRole("menuitem", { name: "Restore" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
   restoreClock();
-  await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce());
+  expect(mocks.showToast).toHaveBeenCalledWith("Chat will clear.", expect.objectContaining({ undo: expect.any(Function) }));
+  expect(mocks.confirm).not.toHaveBeenCalled();
   await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith(
     "test-inbox",
     ASSISTANT_ID,
     expect.objectContaining({ from: "PropLane Assistant" }),
   ));
+  timerSpy.mockRestore();
   expect(mocks.remove).not.toHaveBeenCalled();
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());

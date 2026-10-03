@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { ManagerVendorFormModal } from "@/components/portal/pro-vendor-form-modal";
 
 const persistManagerVendorToServer = vi.fn().mockResolvedValue(true);
@@ -82,6 +83,7 @@ describe("three-path vendor invitation", () => {
   });
   afterEach(() => {
     cleanup();
+    clearAllWorkspaceDrafts();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     persistManagerVendorToServer.mockResolvedValue(true);

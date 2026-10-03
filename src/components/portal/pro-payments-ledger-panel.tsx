@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ManagerTakePaymentDialog } from "@/components/portal/manager-take-payment-dialog";
 import { escapeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2208,7 +2209,7 @@ export function ManagerPaymentsLedgerPanel({
       } }}>
         <div className="space-y-4">
           <label className="block text-sm">Date paid<Input type="date" value={offlineDate} max={new Date().toLocaleDateString("en-CA")} onChange={(event) => setOfflineDate(event.target.value)} /></label>
-          <label className="block text-sm">Method<select className="block w-full rounded-lg border border-border bg-card p-2" value={offlineMethod} onChange={(event) => setOfflineMethod(event.target.value as typeof offlineMethod)}>{["Cash", "Check", "Bank transfer", "Other"].map((method) => <option key={method}>{method}</option>)}</select></label>
+          <FieldSingleSelect label="Method" value={offlineMethod} onChange={(next) => setOfflineMethod(next as typeof offlineMethod)} options={["Cash", "Check", "Bank transfer", "Other"].map((method) => ({ value: method, label: method }))} triggerClassName="block w-full rounded-lg border border-border bg-card p-2" />
           <label className="block text-sm">Note<Input value={offlineNote} maxLength={2000} onChange={(event) => setOfflineNote(event.target.value)} /></label>
         </div>
       </PortalDialog>
