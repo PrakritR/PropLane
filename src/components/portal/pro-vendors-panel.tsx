@@ -300,6 +300,29 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     };
   }, [vendors]);
 
+  // The figure on the right of a roster row ("8 services"): this workspace's services assigned to
+  // that vendor. One request for the whole list, from the same choices feed the Outgoing bill picker uses.
+  const [serviceCountByVendorUserId, setServiceCountByVendorUserId] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (bare || !userId) return;
+    let cancelled = false;
+    fetch("/api/manager/vendor-invoices?choices=1")
+      .then((res) => res.json())
+      .then((data: { services?: Array<{ vendorUserId?: string | null }> }) => {
+        if (cancelled) return;
+        const counts: Record<string, number> = {};
+        for (const service of data.services ?? []) {
+          const id = service.vendorUserId?.trim();
+          if (id) counts[id] = (counts[id] ?? 0) + 1;
+        }
+        setServiceCountByVendorUserId(counts);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [bare, userId]);
+
   // The search box narrows the current tab only; the tab counts stay the totals.
   const visibleVendors = useMemo(
     () =>
@@ -1054,7 +1077,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                       {row.licensed ? <PortalRowFact icon={FileCheck2} srLabel="Licensed">Licensed</PortalRowFact> : null}
                       {row.reviewCount ? (
                         <PortalRowFact icon={Star} srLabel="Review rating">
-                          {`${row.rating?.toFixed(1)} · ${row.reviewCount}`}
+                          {`${row.rating?.toFixed(1)} (${row.reviewCount})`}
                         </PortalRowFact>
                       ) : null}
                     </>
@@ -1098,9 +1121,10 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           const email = row.email.trim();
           const meta = vendorRowMeta(row);
           const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
+          const serviceCount = row.vendorUserId ? serviceCountByVendorUserId[row.vendorUserId] ?? 0 : 0;
           const reviewFact =
             reviewAggregate && reviewAggregate.count > 0
-              ? `${reviewAggregate.average?.toFixed(1)} · ${reviewAggregate.count}`
+              ? `${reviewAggregate.average?.toFixed(1)} (${reviewAggregate.count})`
               : undefined;
           return (
             <PortalApplicantRecordRow
@@ -1129,6 +1153,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                     ) : null}
                     {meta ? <span data-attr="vendor-row-meta">{meta}</span> : null}
                   </>
+                ) : undefined
+              }
+              trailing={
+                serviceCount > 0 ? (
+                  <span data-attr="vendor-row-services">{`${serviceCount} service${serviceCount === 1 ? "" : "s"}`}</span>
                 ) : undefined
               }
               checked={selectedIds.has(row.id)}
