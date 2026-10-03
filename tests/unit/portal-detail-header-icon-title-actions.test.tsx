@@ -181,6 +181,14 @@ describe("listed Preview header actions — source", () => {
     expect(footer).not.toContain('label="View public"');
     expect(panel).toContain("onPropertyRecordHeaderAction");
     expect(panel).toContain('case "duplicate"');
+
+    const footerMemo = panel.slice(
+      panel.indexOf("const propertyTabFooterActions = useMemo"),
+      panel.indexOf("const hasPinnedPropertyFooter"),
+    );
+    expect(footerMemo).toContain("PortalAdaptiveActionRow");
+    expect(footerMemo).not.toContain("maxVisible");
+    expect(footerMemo).not.toContain("alwaysVisible");
   });
 });
 
