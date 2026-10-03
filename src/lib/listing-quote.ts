@@ -220,7 +220,9 @@ export function buildListingQuote(
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
   const arrangementPrice =
     room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
-  const arrangementRow = room?.occupancyPrices?.find((row) => row.count === arrangementCount);
+  const arrangementRow =
+    room?.occupancyPrices?.find((row) => row.count === arrangementCount) ??
+    (options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined);
 
   const baseMonthlyRent = slotPrice
     ? slotPrice.monthlyRent

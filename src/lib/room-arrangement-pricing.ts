@@ -32,6 +32,8 @@ export type RoomOccupancyPrice = {
   moveInFee?: string;
   monthToMonthSurcharge?: string;
   customStartSurcharge?: string;
+  /** Nightly rate for this arrangement on short-term stays (property Pricing popup). */
+  shortTermRent?: string;
 };
 
 export type ArrangementRoomLike = {
@@ -106,6 +108,9 @@ export function normalizeOccupancyPrices(
     if (dailyRent !== undefined) next.dailyRentRate = dailyRent;
     const dailyUtil = positiveRent(row.dailyUtilitiesRate);
     if (dailyUtil !== undefined) next.dailyUtilitiesRate = dailyUtil;
+    if (typeof (row as RoomOccupancyPrice).shortTermRent === "string" && (row as RoomOccupancyPrice).shortTermRent!.trim()) {
+      next.shortTermRent = (row as RoomOccupancyPrice).shortTermRent!.trim();
+    }
     for (const key of [
       "leaseFee",
       "applicationFee",

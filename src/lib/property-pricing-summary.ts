@@ -49,6 +49,12 @@ export function propertyPricingBundleSummary(bundle: ManagerBundleRow, sub: Mana
   return `${place} · ${rent}`;
 }
 
+export function wholeHousePricingSourceLabel(sub: ManagerListingSubmissionV1): string | null {
+  if (sub.entireHomePriceSource === "default") return "Workspace default";
+  if (sub.entireHomePriceSource === "own") return "This property";
+  return null;
+}
+
 export function propertyPricingWholeHouseSummary(sub: ManagerListingSubmissionV1): string {
   const n = normalizeManagerListingSubmissionV1(sub);
   if (isEntireHomeListing(n)) {

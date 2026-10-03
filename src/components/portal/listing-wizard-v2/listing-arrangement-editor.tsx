@@ -10,7 +10,13 @@ import {
   type RoomOccupancyPrice,
 } from "@/lib/room-arrangement-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { FeeRows, ProrateRows, perDay, type Patch } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import {
+  FeeRows,
+  ProrateRows,
+  perDay,
+  type Patch,
+} from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 const PRICING_MODE_OPTIONS = [
   { value: "fixed", label: "Fixed" },
@@ -43,6 +49,7 @@ export function ArrangementPriceEditor({
   showMonthToMonthSurcharge = false,
   showCustomStartSurcharge = false,
   showResidentsCapacity = false,
+  stayMode = false,
 }: {
   room: ManagerRoomSubmission;
   onRoom: (next: ManagerRoomSubmission) => void;
@@ -53,6 +60,8 @@ export function ArrangementPriceEditor({
   showMonthToMonthSurcharge?: boolean;
   showCustomStartSurcharge?: boolean;
   showResidentsCapacity?: boolean;
+  /** Short-term property pricing — nightly rate and deposit per arrangement band. */
+  stayMode?: boolean;
 }) {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const offered = offeredResidentCountsFor(room);
@@ -100,6 +109,46 @@ export function ArrangementPriceEditor({
 
   const renderOwnBand = (count: number, row: RoomOccupancyPrice, resolved: ReturnType<typeof roomPriceForResidentCount>) => {
     const name = arrangementLabel(count);
+    if (stayMode) {
+      const nightly =
+        row.shortTermRent?.trim() ||
+        (count === 1 ? String(room.shortTermRent ?? "").trim() : "") ||
+        "";
+      const deposit = row.securityDeposit ?? resolved.securityDeposit ?? room.securityDeposit ?? "";
+      return (
+        <>
+          <FactRow label="Nightly rate per resident">
+            <MoneyInput
+              label={`${name} nightly rate`}
+              value={nightly}
+              onChange={(v) => writeRow(count, { shortTermRent: v, sameAs: undefined })}
+            />
+          </FactRow>
+          <FactRow label="Deposit per resident">
+            <MoneyInput
+              label={`${name} deposit`}
+              value={deposit}
+              onChange={(v) => writeRow(count, { securityDeposit: v })}
+            />
+          </FactRow>
+          <FeeRows
+            sub={sub}
+            patch={patch}
+            roomId={room.id}
+            roomName={name}
+            term={term || SHORT_TERM_LEASE_TERM}
+            arrangementCount={count}
+          />
+          <ArrangementStandardFeeRows
+            count={count}
+            row={row}
+            onPatch={(feePatch) => writeRow(count, feePatch)}
+            showMonthToMonth={false}
+            showCustomStart={false}
+          />
+        </>
+      );
+    }
     const automatic = (row.prorateMethod ?? resolved.prorateMethod) !== "daily_rate";
     const splitMode = count > 1 && row.wholeRoomMonthlyRent != null && row.wholeRoomMonthlyRent > 0;
     const eachPays =
