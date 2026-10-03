@@ -16,6 +16,13 @@ import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-
 import { ResidentLeaseIntakeSection } from "@/components/portal/resident-lease-intake-section";
 import { ResidentLeaseFirstSigningWizard, leaseFirstSigningPhase } from "@/components/portal/resident-lease-first-signing-wizard";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
+import {
+  parseResidentTermParam,
+  residentHasShortTermRecords,
+  residentTermOfRecord,
+  type ResidentTerm,
+} from "@/lib/resident-term-split";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import {
@@ -140,7 +147,26 @@ export function ResidentLeasePanel({
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
 
-  const allLeaseRows = useMemo(() => buildResidentLeaseDocumentRows(pipelineRow), [pipelineRow]);
+  const everyLeaseRow = useMemo(() => buildResidentLeaseDocumentRows(pipelineRow), [pipelineRow]);
+  // The portal's two sections. The resident has ONE lease row, so it sits in exactly one
+  // section; the tabs appear once a short stay exists, and long-term-only residents see no change.
+  const pipelineTerm = residentTermOfRecord(pipelineRow);
+  const leaseTermCounts = useMemo<Record<ResidentTerm, number>>(
+    () => ({
+      long_term: pipelineTerm === "long_term" ? everyLeaseRow.length : 0,
+      short_term: pipelineTerm === "short_term" ? everyLeaseRow.length : 0,
+    }),
+    [everyLeaseRow.length, pipelineTerm],
+  );
+  const showLeaseTerms = residentHasShortTermRecords(leaseTermCounts);
+  const [leaseTerm, setLeaseTerm] = useResidentTermTab(
+    leaseTermCounts,
+    parseResidentTermParam(searchParams.get("term")),
+  );
+  const allLeaseRows = useMemo(
+    () => (showLeaseTerms && pipelineTerm !== leaseTerm ? [] : everyLeaseRow),
+    [everyLeaseRow, leaseTerm, pipelineTerm, showLeaseTerms],
+  );
   const { selectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const bucketRows = useMemo(
     () => filterResidentLeaseDocumentRows(allLeaseRows, bucket),
@@ -633,7 +659,16 @@ export function ResidentLeasePanel({
     return (
       <>
         {modals}
-        <ManagerPortalPageShell title="Lease" hideTitleOnMobileNav compactFilterRow>
+        <ManagerPortalPageShell
+          title="Lease"
+          hideTitleOnMobileNav
+          compactFilterRow
+          filterRow={
+            showLeaseTerms ? (
+              <ResidentTermTabs section="lease" term={leaseTerm} counts={leaseTermCounts} onChange={setLeaseTerm} />
+            ) : undefined
+          }
+        >
           <PortalListControlStack
             className="mb-2 max-lg:mb-1.5"
             variant="command"
@@ -688,6 +723,7 @@ export function ResidentLeasePanel({
             <ResidentLeaseListTable
               basePath={basePath}
               bucket={bucket}
+              term={showLeaseTerms ? leaseTerm : undefined}
               detailHref={residentLeaseDetailHref}
               groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
               selectable={axisResolved && Boolean(email)}

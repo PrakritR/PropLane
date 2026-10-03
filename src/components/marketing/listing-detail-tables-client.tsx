@@ -1320,6 +1320,9 @@ const SPACE_TABLE = "w-full table-fixed text-sm";
 const LISTING_TABLE_MONEY = "font-bold text-foreground";
 const SPACE_TH = `${LISTING_TABLE_HEAD} bg-[var(--pl-surface-muted)] px-3 py-2 text-left font-semibold`;
 const SPACE_TD = "border-t border-border px-3 py-2.5 align-middle";
+// A fixed-layout cell that must never paint into its neighbour: one line, clipped with an ellipsis
+// (the full text rides on `title`). The Room cell wraps instead of clipping, so a name is never lost.
+const SPACE_TD_CLIP = "overflow-hidden text-ellipsis whitespace-nowrap";
 // Decided by the page column, not the viewport: the manager Preview sits beside a sidebar and a price card,
 // so a desktop window can still hand the tables a phone-width column (the Details button used to be cut off).
 const SPACE_ROWS_MOBILE = "@min-[680px]:hidden";
@@ -1451,11 +1454,11 @@ export function SpacesInteractive({
                   <th className={`${SPACE_TH} w-[84px]`}>
                     <span className="sr-only">Photo</span>
                   </th>
-                  <th className={`${SPACE_TH} w-[22%]`}>Room</th>
-                  <th className={`${SPACE_TH} w-[12%]`}>Floor</th>
-                  <th className={`${SPACE_TH} w-[10%]`}>Bath</th>
-                  <th className={`${SPACE_TH} w-[24%]`}>Available</th>
-                  <th className={`${SPACE_TH} w-[14%] text-right`}>Rent</th>
+                  <th className={`${SPACE_TH} w-[25%]`}>Room</th>
+                  <th className={`${SPACE_TH} w-[11%]`}>Floor</th>
+                  <th className={`${SPACE_TH} w-[15%]`}>Bath</th>
+                  <th className={`${SPACE_TH} w-[21%]`}>Available</th>
+                  <th className={`${SPACE_TH} w-[12%] text-right`}>Rent</th>
                   <th className={`${SPACE_TH} w-[4.75rem] text-right`}>
                     <span className="sr-only">Details</span>
                   </th>
@@ -1472,7 +1475,7 @@ export function SpacesInteractive({
                     <td className={SPACE_TD}>
                       <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
-                    <td className={`${SPACE_TD} whitespace-nowrap font-bold text-foreground`}>
+                    <td className={`${SPACE_TD} min-w-0 break-words font-bold text-foreground`} data-attr="listing-room-name-cell">
                       {room.name}
                       {sharedHeadline ? (
                         <span data-attr="listing-room-occupancy" className="block text-xs font-semibold text-muted">
@@ -1483,9 +1486,9 @@ export function SpacesInteractive({
                         <span className="block text-xs font-semibold text-foreground">{openLine}</span>
                       ) : null}
                     </td>
-                    <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{floorLabel}</td>
-                    <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{roomBathLabel(room)}</td>
-                    <td className={SPACE_TD}>
+                    <td className={`${SPACE_TD} ${SPACE_TD_CLIP} text-muted`} title={floorLabel}>{floorLabel}</td>
+                    <td className={`${SPACE_TD} ${SPACE_TD_CLIP} text-muted`} title={roomBathLabel(room)}>{roomBathLabel(room)}</td>
+                    <td className={`${SPACE_TD} overflow-hidden`}>
                       <RoomAvailabilityCell text={room.availability} />
                     </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-right ${LISTING_TABLE_MONEY}`}>

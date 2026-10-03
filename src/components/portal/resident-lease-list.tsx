@@ -53,6 +53,7 @@ import {
   type ResidentLeaseBucketId,
 } from "@/lib/portal-detail-routes";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import { residentTermOfRecord, type ResidentTerm } from "@/lib/resident-term-split";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -210,9 +211,12 @@ export function ResidentLeaseListTable({
   documentsListSurface = false,
   groupMode = "house",
   propertyFilters = [],
+  term,
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
+  /** Long term / Short term section: a lease in the other section is not listed. */
+  term?: ResidentTerm;
   detailHref: (basePath: string, bucket: ResidentLeaseBucketId, leaseDetailId: string) => string;
   emptyMessage?: string;
   routePendingToLeaseSection?: boolean;
@@ -230,6 +234,7 @@ export function ResidentLeaseListTable({
   const { showToast } = useAppUi();
   const pipelineRow = useResidentLeasePipelineRow();
   const documentRows = useMemo(() => {
+    if (term && residentTermOfRecord(pipelineRow) !== term) return [];
     const rows = buildResidentLeaseDocumentRows(pipelineRow);
     const filtered =
       statusFilter != null
@@ -238,7 +243,7 @@ export function ResidentLeaseListTable({
           ? filterResidentLeaseDocumentRows(rows, bucket)
           : rows;
     return filterLeaseRowsByProperty(filtered, pipelineRow, propertyFilters);
-  }, [bucket, pipelineRow, propertyFilters, statusFilter]);
+  }, [bucket, pipelineRow, propertyFilters, statusFilter, term]);
 
   const leaseDetailPath = useCallback(
     (entry: ResidentLeaseDocumentRow) =>

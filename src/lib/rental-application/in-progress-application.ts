@@ -22,6 +22,7 @@ import {
   saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { residentTermOfRentalType } from "@/lib/resident-term-split";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
 // The draft-shape vocabulary lives in `draft-shape.ts` so
@@ -62,11 +63,17 @@ export type ApplicationRequestTarget = {
   propertyId: string;
   listingRoomId?: string;
   bundleId?: string;
+  /**
+   * When named, the request is for ONE term: "Apply short term" must never
+   * resume the same property's long-term draft (or the reverse). Absent = any
+   * term matches, exactly as before.
+   */
+  rentalType?: "standard" | "short_term";
 };
 
 type ApplicationSnapshot = {
   propertyId?: string | null;
-  application?: Partial<Pick<RentalWizardFormState, "propertyId" | "roomChoice1" | "bundleId">> | null;
+  application?: Partial<Pick<RentalWizardFormState, "propertyId" | "roomChoice1" | "bundleId" | "rentalType">> | null;
 };
 
 /**
@@ -84,6 +91,13 @@ export function targetMatchesApplication(target: ApplicationRequestTarget, candi
   if (!targetPid) return false;
   const candidatePid = candidate.propertyId?.trim() || candidate.application?.propertyId?.trim() || "";
   if (candidatePid !== targetPid) return false;
+
+  if (
+    target.rentalType !== undefined &&
+    residentTermOfRentalType(target.rentalType) !== residentTermOfRentalType(candidate.application?.rentalType)
+  ) {
+    return false;
+  }
 
   const targetBundle = target.bundleId?.trim();
   const candidateBundle = candidate.application?.bundleId?.trim() || "";
