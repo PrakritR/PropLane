@@ -31,6 +31,7 @@ import {
 } from "@/lib/manager-portfolio-access";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { receiptRowLabel } from "@/lib/resident-recorded-payments";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { readUploadedOwnLeases } from "@/lib/resident-lease-upload";
 import { cn } from "@/lib/utils";
@@ -199,7 +200,7 @@ function buildResidentSections(
         id: row.id,
         // Named from the payment itself, exactly like Documents › Rent receipts —
         // a utilities or deposit payment must not download labelled as rent (U9).
-        label: `${receiptRowLabel(row.description)} · ${row.date}`,
+        label: `${receiptRowLabel(row.description)} · ${formatPortalListDate(row.date)}`,
         sublabel: row.amount,
         run: () => downloadReceiptRow(row, demoMode),
       })),

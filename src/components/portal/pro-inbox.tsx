@@ -22,7 +22,8 @@ import {
   type PortalContactDetailsValues,
 } from "@/components/portal/portal-contact-details-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
-import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, ManagerPortalFilterRow, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import {
@@ -2774,10 +2775,16 @@ export const ManagerInbox = forwardRef<
       }
       filterRow={
         <ManagerPortalFilterRow>
-          <ManagerPortalStatusPills
-            tabs={tabs}
+          <LocalDestinationNav
+            appearance="command"
+            items={tabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count: tab.count,
+            }))}
             activeId={tabId}
             onChange={(id) => navigate(`${inboxBase}/${id}`)}
+            ariaLabel="Inbox folders"
           />
         </ManagerPortalFilterRow>
       }

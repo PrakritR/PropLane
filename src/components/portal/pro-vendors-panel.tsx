@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, Phone, Settings, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -1285,7 +1285,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           // C256: the generic "Filter" tooltip gave no hint the popover covers
           // trade and rating — name what it filters, and say when one is applied.
           label={`Filter by trade or rating${directoryFilterActive ? " · active" : ""}`}
-          icon={SlidersHorizontal}
+          icon={Filter}
           active={directoryFilterOpen || directoryFilterActive}
           onClick={() => setDirectoryFilterOpen((v) => !v)}
           data-attr="vendor-directory-filter-toggle"

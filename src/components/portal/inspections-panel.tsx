@@ -13,7 +13,7 @@ import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/por
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { InspectionEditor, type InspectionEditorHandle } from "@/components/portal/inspection-editor";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -627,7 +627,24 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     ) : (
     <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
-      destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
+      destinationRow={
+        !routeBase
+          ? (
+              <LocalDestinationNav
+                appearance="command"
+                activeId={kind}
+                onChange={(id) => changeKind(id as InspectionKind)}
+                ariaLabel="Inspection type"
+                items={(["move-in", "move-out"] as const).map((id) => ({
+                  id,
+                  label: kindLabel(id),
+                  count: rowsFor(id).length,
+                  dataAttr: `inspection-type-${id}`,
+                }))}
+              />
+            )
+          : undefined
+      }
       search={{ value: query, onChange: setQuery, placeholder: "Search inspections", dataAttr: "inspections-search" }}
     />
     )}

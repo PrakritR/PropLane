@@ -20,6 +20,7 @@ import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import { centsToUsd } from "@/lib/reports/money";
 import { managerBillBadgeTone, type ManagerBill } from "@/lib/manager-bills";
 import { Badge } from "@/components/ui/badge";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 
 type BillDraft = {
   description: string;
@@ -141,7 +142,9 @@ export const ManagerBillsPanel = forwardRef<ManagerBillsPanelHandle>(function Ma
                   <tr key={bill.id} className={PORTAL_TABLE_TR}>
                     <td className={PORTAL_TABLE_TD}>{bill.description}</td>
                     <td className={PORTAL_TABLE_TD}>{centsToUsd(bill.amountCents)}</td>
-                    <td className={PORTAL_TABLE_TD}>{bill.dueDate ?? "—"}</td>
+                    <td className={PORTAL_TABLE_TD}>
+                      {bill.dueDate ? formatPortalListDate(bill.dueDate) : "—"}
+                    </td>
                     <td className={PORTAL_TABLE_TD}>
                       <Badge tone={managerBillBadgeTone(bill.status)}>{bill.status.replace(/_/g, " ")}</Badge>
                     </td>

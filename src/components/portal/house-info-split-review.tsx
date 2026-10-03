@@ -121,7 +121,7 @@ export function HouseInfoSplitReview({
           ) : null}
         </div>
 
-        <footer className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
+        <footer className="flex flex-nowrap justify-end gap-2 overflow-x-auto whitespace-nowrap border-t border-border px-5 py-3">
           <button
             type="button"
             className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-muted hover:text-foreground"

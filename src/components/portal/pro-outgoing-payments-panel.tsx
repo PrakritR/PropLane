@@ -34,31 +34,12 @@ import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-li
 import { paymentDetailHref, paymentListHref, parsePaymentRecordTab, vendorDetailHref, workOrderDetailHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { formatOutgoingDue, formatOutgoingDueDetail } from "@/lib/portal-display-dates";
 
 /** The payee a payout is titled by — an em dash or blank means nobody is named yet. */
 function outgoingPayeeLabel(row: DemoManagerOutgoingPaymentRow): string {
   const payee = row.payeeLabel?.trim() ?? "";
   return payee && payee !== "—" ? payee : "";
-}
-
-/**
- * The due fact on a payout row, in ONE format: a raw ISO day becomes the
- * display date, and a label that already says "Due" or "Before" is kept —
- * the same rule the incoming ledger applies to its charges.
- */
-function formatOutgoingDue(due: string | undefined): string {
-  const trimmed = due?.trim() ?? "";
-  if (!trimmed) return "";
-  const iso = /^(?:(due|before)\s+)?(\d{4})-(\d{2})-(\d{2})$/i.exec(trimmed);
-  if (iso) {
-    const d = new Date(Number(iso[2]), Number(iso[3]) - 1, Number(iso[4]), 12, 0, 0, 0);
-    if (!Number.isNaN(d.getTime())) {
-      const prefix = iso[1] ? iso[1][0]!.toUpperCase() + iso[1].slice(1).toLowerCase() : "Due";
-      return `${prefix} ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
-    }
-  }
-  if (/^(due|before)\b/i.test(trimmed)) return trimmed;
-  return `Due ${trimmed}`;
 }
 
 export function ManagerOutgoingPaymentsPanel({
@@ -403,7 +384,7 @@ export function ManagerOutgoingPaymentsPanel({
     }
     return (
       <p className="text-sm text-muted">
-        Due: <span className="font-semibold text-foreground">{row.dueDate}</span>
+        Due: <span className="font-semibold text-foreground">{formatOutgoingDueDetail(row.dueDate)}</span>
         {" · "}
         Payee: <span className="font-semibold text-foreground">{row.payeeLabel}</span>
       </p>

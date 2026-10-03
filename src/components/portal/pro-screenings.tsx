@@ -355,7 +355,7 @@ export function ManagerScreenings({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <BackgroundCheckReportFrame row={selectedRow} demo={isDemoModeActive()} bareCanvas />
       </div>
-      <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
+      <div className="flex flex-nowrap justify-end gap-2 overflow-x-auto whitespace-nowrap border-t border-border px-4 py-3">
         <ApplicationScreeningPanel
           row={selectedRow}
           collapsible={false}

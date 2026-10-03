@@ -16,7 +16,7 @@ import {
   Settings,
   Settings2,
   Share2,
-  SlidersHorizontal,
+  Filter,
   Wrench,
   X,
   type LucideIcon,
@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
  * already documented there (Calendar's Availability included).
  */
 const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
-  SlidersHorizontal, // Filter
+  Filter, // Filter (funnel)
   Settings, // Settings / Defaults — the product's one settings glyph (16 list bands use it)
   Settings2, // legacy alias; kept so an older caller does not trip the guard
   Share2, // Share link

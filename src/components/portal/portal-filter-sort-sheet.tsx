@@ -12,7 +12,7 @@ import {
   type PortalFilterDeferController,
 } from "@/lib/portal-filter-draft";
 import { createPortal } from "react-dom";
-import { SlidersHorizontal, X } from "lucide-react";
+import { Filter, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { Modal, MODAL_HEADER_CLOSE_CLASS, ModalFooter } from "@/components/ui/modal";
@@ -640,7 +640,7 @@ export function PortalFilterSortSheet({
           // the accessible name (and a dot) rather than a second label.
           <PortalIconAction
             ref={buttonRef}
-            icon={SlidersHorizontal}
+            icon={Filter}
             label={activeCount > 0 ? `${title} · ${activeCount} active` : title}
             active={activeCount > 0}
             className="relative"
@@ -672,7 +672,7 @@ export function PortalFilterSortSheet({
             else setFilterOpen(true, { trigger: buttonRef.current });
           }}
         >
-          <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} strokeWidth={2} aria-hidden />
+          <Filter className={PORTAL_FILTER_ICON_CLASS} strokeWidth={2} aria-hidden />
           <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
             {title}{activeCount > 0 ? ` · ${activeCount} active` : ""}
           </span>

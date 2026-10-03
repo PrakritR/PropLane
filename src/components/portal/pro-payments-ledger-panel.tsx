@@ -42,6 +42,7 @@ import {
 } from "@/components/portal/portal-record-overview-kit";
 import { Bell, CalendarDays, RotateCcw, Trash2, Check, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
@@ -57,6 +58,7 @@ import {
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -773,7 +775,13 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const renderDueDateCell = (row: DemoManagerPaymentLedgerRow) => {
-    return <span className="block">{row.dueDate}</span>;
+    const label = formatDueMeta(row.dueDate ?? "").replace(/^Due\s+/i, "");
+    const raw = row.dueDate?.trim() ?? "";
+    const fallback =
+      raw && !label
+        ? formatPortalListDate(raw.length >= 10 ? raw.slice(0, 10) : raw) || raw
+        : raw;
+    return <span className="block">{label || fallback}</span>;
   };
 
   const buildReminderPreviewForRow = (row: DemoManagerPaymentLedgerRow): BulkPaymentReminderPreviewItem | null => {
@@ -1298,7 +1306,11 @@ export function ManagerPaymentsLedgerPanel({
         <RecordStatTiles>
           <StatTile dataAttr="payment-overview-tile-amount" label="Amount" value={row.lineAmount} />
           <StatTile dataAttr="payment-overview-tile-status" label="Status" value={row.statusLabel} />
-          <StatTile dataAttr="payment-overview-tile-due" label="Due date" value={row.dueDate || "Not set"} />
+          <StatTile
+            dataAttr="payment-overview-tile-due"
+            label="Due date"
+            value={formatDueMeta(row.dueDate ?? "").replace(/^Due\s+/i, "") || row.dueDate || "Not set"}
+          />
           {charge?.paidAt ? <StatTile dataAttr="payment-overview-tile-paid" label="Paid on" value={formatPacificDateTime(charge.paidAt)} detail={charge.paidMethod} /> : dueDays != null ? <StatTile dataAttr="payment-overview-tile-days" label={dueDays < 0 ? "Days overdue" : "Days until due"} value={dueDays === 0 ? "Today" : String(Math.abs(dueDays))} /> : null}
         </RecordStatTiles>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -2208,7 +2220,12 @@ export function ManagerPaymentsLedgerPanel({
       } }}>
         <div className="space-y-4">
           <label className="block text-sm">Date paid<Input type="date" value={offlineDate} max={new Date().toLocaleDateString("en-CA")} onChange={(event) => setOfflineDate(event.target.value)} /></label>
-          <label className="block text-sm">Method<select className="block w-full rounded-lg border border-border bg-card p-2" value={offlineMethod} onChange={(event) => setOfflineMethod(event.target.value as typeof offlineMethod)}>{["Cash", "Check", "Bank transfer", "Other"].map((method) => <option key={method}>{method}</option>)}</select></label>
+          <FieldSingleSelect
+            label="Method"
+            value={offlineMethod}
+            onChange={(next) => setOfflineMethod(next as typeof offlineMethod)}
+            options={["Cash", "Check", "Bank transfer", "Other"].map((method) => ({ value: method, label: method }))}
+          />
           <label className="block text-sm">Note<Input value={offlineNote} maxLength={2000} onChange={(event) => setOfflineNote(event.target.value)} /></label>
         </div>
       </PortalDialog>

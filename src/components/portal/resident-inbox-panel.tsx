@@ -20,7 +20,8 @@ import {
   sendManualScheduledMessageNow,
   useInboxRowSelection,
 } from "@/components/portal/portal-inbox-selection";
-import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_FILTER_ACTIONS_MOBILE, PORTAL_HEADER_ACTION_BTN, PORTAL_PAGE_ACTIONS_DESKTOP } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, ManagerPortalFilterRow, PORTAL_FILTER_ACTIONS_MOBILE, PORTAL_HEADER_ACTION_BTN, PORTAL_PAGE_ACTIONS_DESKTOP } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -2068,11 +2069,16 @@ export const ResidentInboxPanel = forwardRef<
       }
       filterRow={
         <ManagerPortalFilterRow>
-          <ManagerPortalStatusPills
-            activeTone="primary"
-            tabs={tabs}
+          <LocalDestinationNav
+            appearance="command"
+            items={tabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count: tab.count,
+            }))}
             activeId={tabId}
-            onChange={(id) => navigate(`/resident/communication/email/`)}
+            onChange={() => navigate(`/resident/communication/email/`)}
+            ariaLabel="Inbox folders"
           />
           {tabId === "trash" && counts.trash > 0 ? (
             <div className={PORTAL_FILTER_ACTIONS_MOBILE}>

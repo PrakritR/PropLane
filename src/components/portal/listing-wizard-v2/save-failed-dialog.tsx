@@ -305,7 +305,7 @@ export function ListingSaveFailedDialog({
                 )}
               </div>
             ) : (
-              <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+              <div className="mt-6 flex flex-nowrap items-center justify-between gap-2 overflow-x-auto whitespace-nowrap">
                 <Button
                   variant="ghost"
                   className="rounded-full"

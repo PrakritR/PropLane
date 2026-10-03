@@ -16,7 +16,7 @@ import {
   type InboxMessageDirection,
   type PortalInboxTableRow,
 } from "@/components/portal/portal-inbox-ui";
-import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
@@ -989,11 +989,16 @@ export const AdminInboxClient = forwardRef<
       title="Communication"
       titleAside={titleAside}
       filterRow={
-        <ManagerPortalStatusPills
-          activeTone="primary"
-          tabs={inboxTabs}
+        <LocalDestinationNav
+          appearance="command"
+          items={inboxTabs.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            count: tab.count,
+          }))}
           activeId={tabId}
           onChange={(id) => navigate(`${commBase}/${id}`)}
+          ariaLabel="Inbox folders"
         />
       }
     >

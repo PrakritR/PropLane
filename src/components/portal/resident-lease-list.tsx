@@ -3,7 +3,7 @@ import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-act
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
@@ -409,13 +409,16 @@ export function ResidentLeaseDocumentsListSection({ basePath }: { basePath: stri
   return (
     <div className="space-y-3">
       {showFilters ? (
-        <ManagerPortalStatusPills
-          tabs={filterTabs}
+        <LocalDestinationNav
+          appearance="command"
+          items={filterTabs.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            count: tab.count,
+          }))}
           activeId={statusFilter}
           onChange={(id) => setStatusFilter(id as ResidentLeaseStatusFilter)}
-          activeTone="monochrome"
-          compact
-          selectAriaLabel="Lease status"
+          ariaLabel="Lease status"
         />
       ) : null}
       <ResidentLeaseListTable

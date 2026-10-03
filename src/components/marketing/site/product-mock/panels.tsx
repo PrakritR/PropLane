@@ -22,7 +22,7 @@ import {
   CalendarDays,
   Clock,
   Download,
-  SlidersHorizontal,
+  Filter,
   Mail,
   Phone,
   Home,
@@ -132,7 +132,7 @@ export function ToursPanel() {
             search={{ value: search, onChange: setSearch, placeholder: "Search tours" }}
             actions={
               <>
-                <PortalIconAction icon={SlidersHorizontal} label="Filter" onClick={() => show("Filter")} />
+                <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
                 <PortalIconAction icon={Download} label="Export" onClick={() => show("Export")} />
                 <PortalIconAction icon={Share2} label="Share tour link" onClick={() => show("Tour link copied")} />
                 <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
@@ -235,7 +235,7 @@ export function ApplicationsPanel() {
             search={{ value: search, onChange: setSearch, placeholder: "Search applications" }}
             actions={
               <>
-                <PortalIconAction icon={SlidersHorizontal} label="Filter" onClick={() => show("Filter")} />
+                <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
                 <PortalIconAction icon={Share2} label="Send application link" onClick={() => show("Application link copied")} />
                 <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
               </>

@@ -327,8 +327,8 @@ export function ManagerPipelineLeaseEditModal({
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
       footer={
         hasFooterActions ? (
-          <ModalFooter className="flex w-full flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <ModalFooter className="w-full justify-between gap-2 overflow-x-auto">
+            <div className="flex shrink-0 flex-nowrap items-center gap-2">
               {showDelete ? (
                 <Button
                   type="button"
@@ -398,7 +398,7 @@ export function ManagerPipelineLeaseEditModal({
               ) : null}
             </div>
             {showSend ? (
-              <div className="ml-auto flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-3">
+              <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-3">
                 {usesAiHtml && !reviewAcknowledged ? (
                   <span className="text-xs text-muted" data-attr="resident-lease-send-blocked-reason">
                     Confirm you have reviewed the draft above to send.
