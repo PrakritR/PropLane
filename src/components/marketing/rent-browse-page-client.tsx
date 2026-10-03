@@ -15,16 +15,21 @@ function authCreateResidentPath() {
   return "/auth/create-account?mode=create&role=resident";
 }
 
-export function RentBrowsePageClient() {
+export function RentBrowsePageClient({
+  forcedBrowseIds,
+}: {
+  /** Server-authorized ids from `/rent/w/<slug>` — overrides `?ids=` when set. */
+  forcedBrowseIds?: string[];
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromAuth = searchParams.get("from") === "auth";
   const fromApplication = searchParams.get("from") === "application";
   const applicationReturn = searchParams.get("return")?.trim() ?? "";
-  const browseIds = useMemo(
-    () => parseBrowseIdsParam(searchParams.get(BROWSE_IDS_PARAM)),
-    [searchParams],
-  );
+  const browseIds = useMemo(() => {
+    if (forcedBrowseIds?.length) return forcedBrowseIds;
+    return parseBrowseIdsParam(searchParams.get(BROWSE_IDS_PARAM));
+  }, [forcedBrowseIds, searchParams]);
   const { isNative } = useIsNativeApp();
   const backHref =
     fromApplication && applicationReturn.startsWith("/")

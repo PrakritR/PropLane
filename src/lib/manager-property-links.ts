@@ -4,6 +4,7 @@ import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { readScopedExtraListings } from "@/lib/demo-property-pipeline";
 import { readLinkedListingsForUser, safePropertyOptionLabel, type ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
+import { buildWorkspaceBrowseUrl } from "@/lib/workspace-browse-links";
 
 export type ManagerApplyLinkParams = {
   propertyId: string;
@@ -152,10 +153,18 @@ export function parseBrowseIdsParam(raw: string | null | undefined): string[] {
  * that listing's detail page); use this when sharing several/all listings so
  * the prospect lands on the browse grid showing exactly those homes.
  */
-export function buildManagerBrowseUrl(origin: string, propertyIds: string[]): string {
+export function buildManagerBrowseUrl(
+  origin: string,
+  propertyIds: string[],
+  options?: { workspaceName?: string | null },
+): string {
   const base = origin.replace(/\/$/, "");
   const ids = parseBrowseIdsParam(propertyIds.join(","));
   if (ids.length === 0) return `${base}/rent/browse`;
+  const workspaceName = options?.workspaceName?.trim();
+  if (workspaceName) {
+    return buildWorkspaceBrowseUrl(base, workspaceName, ids);
+  }
   const q = new URLSearchParams({ [BROWSE_IDS_PARAM]: ids.join(",") });
   return `${base}/rent/browse?${q.toString()}`;
 }
