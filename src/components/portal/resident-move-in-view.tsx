@@ -24,7 +24,6 @@ import { cn } from "@/lib/utils";
 import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
-  RESIDENT_MOVE_IN_TAB_SHORT_LABELS,
   RESIDENT_MOVE_IN_TABS,
   residentMoveInHref,
   parseResidentMoveInTab,
@@ -119,7 +118,7 @@ function MoveInChecklist({ basePath, leaseSigned }: { basePath: string; leaseSig
 function PlacementTabContent({ resolved, basePath, leaseSigned }: { resolved: ResidentMoveInResolved; basePath: string; leaseSigned: boolean }) {
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <DetailField label="Assigned room" value={resolved.roomLabel} />
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Property</p>
@@ -407,7 +406,6 @@ export function ResidentMoveInShell({
       RESIDENT_MOVE_IN_TABS.map((id) => ({
         id,
         label: RESIDENT_MOVE_IN_TAB_LABELS[id],
-        shortLabel: RESIDENT_MOVE_IN_TAB_SHORT_LABELS[id],
         href: residentMoveInHref(basePath, id),
         dataAttr: `resident-move-in-tab-${id}`,
       })),
