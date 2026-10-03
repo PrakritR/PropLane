@@ -1348,6 +1348,7 @@ function ManagerPropertyInlineDetails({
       {activeDetailTab === "promotion" && bucket === 2 && listingId ? (
         <ManagerPropertyPromotionPanel
           listingId={listingId}
+          property={mock}
           showToast={showToast}
           onUpdated={onUpdated}
           sub={managerSubmission}

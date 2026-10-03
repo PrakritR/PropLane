@@ -140,6 +140,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
+  const [applicationSearch, setApplicationSearch] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
@@ -355,9 +356,17 @@ export function ManagerPropertyApplicationQuestionsPanel({
   }, [onRegisterAddApplication, openAdd]);
 
   const visibleTemplates = useMemo(() => {
-    if (!formKindFilter) return templates;
-    return templates.filter((template) => applicationFormVariantForTemplate(template) === formKindFilter);
-  }, [formKindFilter, templates]);
+    const q = applicationSearch.trim().toLowerCase();
+    let rows = templates;
+    if (formKindFilter) {
+      rows = rows.filter((template) => applicationFormVariantForTemplate(template) === formKindFilter);
+    }
+    if (!q) return rows;
+    return rows.filter((template) => {
+      const label = normalizePropertyApplicationTemplateLabel(template);
+      return label.toLowerCase().includes(q);
+    });
+  }, [applicationSearch, formKindFilter, templates]);
 
   const selectedTemplates = useMemo(
     () => templates.filter((template) => selectedIds.has(template.id)),
@@ -612,6 +621,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
+      search={{
+        value: applicationSearch,
+        onChange: setApplicationSearch,
+        placeholder: "Search applications",
+        dataAttr: "property-application-search",
+      }}
       filter={formFilterSheet}
       onSettings={() => router.push("/portal/profile?tab=forms")}
       settingsLabel="Application automation"

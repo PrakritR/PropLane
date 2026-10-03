@@ -117,6 +117,7 @@ export function ManagerPropertyLeasePanel({
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
+  const [leaseSearch, setLeaseSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -125,9 +126,17 @@ export function ManagerPropertyLeasePanel({
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const visibleTemplates = useMemo(() => {
-    if (!leaseKindFilter) return templates;
-    return templates.filter((template) => template.kind === leaseKindFilter);
-  }, [leaseKindFilter, templates]);
+    const q = leaseSearch.trim().toLowerCase();
+    let rows = templates;
+    if (leaseKindFilter) {
+      rows = rows.filter((template) => template.kind === leaseKindFilter);
+    }
+    if (!q) return rows;
+    return rows.filter((template) => {
+      const label = template.label?.trim() || "Lease";
+      return label.toLowerCase().includes(q);
+    });
+  }, [leaseKindFilter, leaseSearch, templates]);
   const embedInModal = Boolean(onBulkActionsChange);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
@@ -657,6 +666,12 @@ export function ManagerPropertyLeasePanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
+      search={{
+        value: leaseSearch,
+        onChange: setLeaseSearch,
+        placeholder: "Search leases",
+        dataAttr: "property-lease-search",
+      }}
       filter={formFilterSheet}
       onSettings={() => router.push("/portal/profile?tab=forms")}
       settingsLabel="Lease automation"

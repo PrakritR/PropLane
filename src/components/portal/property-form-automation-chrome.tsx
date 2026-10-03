@@ -32,11 +32,18 @@ export function PropertyFormAutomationCommandBar({
   addIcon,
   activeFilterChips,
   panes = PANES,
+  search,
 }: {
   pane: FormAutomationPane;
   onPaneChange: (pane: FormAutomationPane) => void;
   filter?: ReactNode;
   activeFilterChips?: ReactNode;
+  search?: {
+    value: string;
+    onChange: (next: string) => void;
+    placeholder: string;
+    dataAttr: string;
+  };
   onSettings: () => void;
   settingsLabel: string;
   settingsDataAttr: string;
@@ -75,6 +82,7 @@ export function PropertyFormAutomationCommandBar({
       }
       activeDestinationId={pane}
       destinationAriaLabel="Form or automation"
+      search={search}
       actions={
         <>
           {filter}
