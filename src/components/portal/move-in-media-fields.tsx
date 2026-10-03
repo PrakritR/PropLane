@@ -105,7 +105,6 @@ export function MoveInMediaFields({
       <div>
         <p className="text-xs font-semibold text-muted">
           Move-in photos
-          <span className="ml-1.5 font-normal">— residents can view these on House details</span>
         </p>
         {photoDataUrls.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -139,7 +138,6 @@ export function MoveInMediaFields({
       <div>
         <p className="text-xs font-semibold text-muted">
           Move-in video
-          <span className="ml-1.5 font-normal">— optional walkthrough residents can watch</span>
         </p>
         {videoDataUrl ? (
           <div className="mt-3 space-y-2">

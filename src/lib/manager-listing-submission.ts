@@ -38,6 +38,8 @@ import {
 import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
+import { normalizeMoveInFormTemplates, readMoveInFormSettings } from "@/lib/move-in-forms/templates";
+import type { MoveInFormSettings, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
   defaultRemovedStandardListingFeeRowsForNewListing,
   ensureSubmissionListingFees,
@@ -1228,6 +1230,10 @@ export type ManagerListingSubmissionV1 = {
    * auto-seeded defaults are not re-created after deletion (including an empty list).
    */
   propertyApplicationTemplatesExplicit?: boolean;
+  /** Move-in form definitions per property (same owner and save path as `propertyApplicationTemplates`). Absent = the five OFF starters. */
+  moveInFormTemplates?: MoveInFormTemplate[];
+  /** Move-in tab settings (reminders, submit notice). Absent = the defaults. */
+  moveInFormSettings?: MoveInFormSettings;
 
   // ---------------------------------------------------------------------------
   // Disclosure trigger fields (building-level compliance inputs)
@@ -2934,6 +2940,14 @@ function normalizeManagerListingSubmissionV1Base(
     propertyApplicationTemplatesExplicit:
       (sub as { propertyApplicationTemplatesExplicit?: unknown }).propertyApplicationTemplatesExplicit === true
         ? true
+        : undefined,
+    moveInFormTemplates: Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates)
+      ? normalizeMoveInFormTemplates((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates)
+      : undefined,
+    moveInFormSettings:
+      (sub as { moveInFormSettings?: unknown }).moveInFormSettings &&
+      typeof (sub as { moveInFormSettings?: unknown }).moveInFormSettings === "object"
+        ? readMoveInFormSettings(sub)
         : undefined,
     applicationFeeStripeEnabled,
     applicationFeeWaiverCode: (() => {

@@ -78,12 +78,14 @@ const NEEDS_ICONS: Record<string, LucideIcon> = {
   "user-plus": UserPlus,
 };
 
+type NeedsRowItem = ResidentNeedsAttentionItem & { onSelect?: () => void };
+
 function NeedsRow({
   item,
   onInlineAction,
   onNavigate,
 }: {
-  item: ResidentNeedsAttentionItem;
+  item: NeedsRowItem;
   onInlineAction?: (actionId: string) => void;
   onNavigate?: (href: string) => void;
 }) {
@@ -101,7 +103,7 @@ function NeedsRow({
       <button
         type="button"
         className="flex w-full items-center gap-3.5 px-5 py-3 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        onClick={() => target && onNavigate?.(target)}
+        onClick={() => (item.onSelect ? item.onSelect() : target && onNavigate?.(target))}
         data-attr="resident-needs-attention-row"
       >
         <span
@@ -189,6 +191,7 @@ export function ResidentOverviewPanel({
   onNextAction,
   preferredContactLabel,
   onCopyField,
+  extraNeedsYou,
 }: {
   resident: ResidentOverviewResident;
   ledgerRows: DemoManagerPaymentLedgerRow[];
@@ -201,6 +204,8 @@ export function ResidentOverviewPanel({
   onNextAction?: (actionId: string) => void;
   preferredContactLabel?: string;
   onCopyField?: (label: string, value: string) => void;
+  /** Extra "Needs attention" lines owned by the caller (late move-in forms); shown first. */
+  extraNeedsYou?: Array<{ id: string; title: string; detail: string; href?: string; onClick?: () => void }>;
 }) {
   const [showAllNeeds, setShowAllNeeds] = useState(false);
 
@@ -228,7 +233,23 @@ export function ResidentOverviewPanel({
     });
   }, [lifecycleInput, resident, leaseRows, ledgerRows, links]);
 
-  const shownNeeds = showAllNeeds ? lifecycle.todo : lifecycle.todo.slice(0, 5);
+  const allNeeds: NeedsRowItem[] = useMemo(
+    () => [
+      ...(extraNeedsYou ?? []).map((extra, index): NeedsRowItem => ({
+        id: extra.id,
+        icon: "lease",
+        title: extra.title,
+        fact: extra.detail,
+        urgent: true,
+        rank: -1000 + index,
+        href: extra.href,
+        onSelect: extra.onClick,
+      })),
+      ...lifecycle.todo,
+    ],
+    [extraNeedsYou, lifecycle.todo],
+  );
+  const shownNeeds = showAllNeeds ? allNeeds : allNeeds.slice(0, 5);
   const navigate = onNavigate ?? ((href: string) => {
     if (href.startsWith("/") || href.startsWith("http")) window.location.assign(href);
   });
@@ -437,7 +458,7 @@ export function ResidentOverviewPanel({
               {shownNeeds.map((item) => (
                 <NeedsRow key={item.id} item={item} onInlineAction={onInlineAction} onNavigate={navigate} />
               ))}
-              {lifecycle.todo.length > 5 ? (
+              {allNeeds.length > 5 ? (
                 <div className="flex justify-center border-t border-border/70 py-2.5">
                   <button
                     type="button"
@@ -445,7 +466,7 @@ export function ResidentOverviewPanel({
                     data-rt-showall
                     onClick={() => setShowAllNeeds((v) => !v)}
                   >
-                    {showAllNeeds ? "Show fewer" : `Show all ${lifecycle.todo.length}`}
+                    {showAllNeeds ? "Show fewer" : `Show all ${allNeeds.length}`}
                   </button>
                 </div>
               ) : null}

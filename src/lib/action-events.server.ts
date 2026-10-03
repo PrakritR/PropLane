@@ -28,6 +28,8 @@ export type ActionEventDomain =
   | "inspection"
   | "task"
   | "message"
+  /** Move-in forms: sent, reminded and submitted (`move-in-form-events.server.ts`). */
+  | "move_in_form"
   /** WS5: team-only, no resident/vendor/manager side. */
   | "availability";
 /**
@@ -72,6 +74,7 @@ export function teamModuleForDomain(domain: string): TeamNoticeModule {
     case "task":
       return "calendar";
     case "inspection":
+    case "move_in_form":
       return "residents";
     default:
       return "inbox";

@@ -17,6 +17,16 @@ export const proPortal: PortalDefinition = {
       label: "Residents",
       tabs: [{ id: "current", label: "Residents" }],
     },
+    {
+      // Every move-in form residents filled out (Submitted) or still owe (Waiting), across
+      // properties. Forms are defined on the property; this is the manager's inbox for them.
+      section: "move-in",
+      label: "Move-in",
+      tabs: [
+        { id: "submitted", label: "Submitted" },
+        { id: "waiting", label: "Waiting" },
+      ],
+    },
     { section: "inspections", label: "Inspections", tabs: [{ id: "move-in", label: "Move-in" }, { id: "move-out", label: "Move-out" }] },
     {
       section: "payments",
@@ -103,6 +113,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
+  { label: "Move-in forms", path: "/portal/move-in/submitted" },
   { label: "Inspections", path: "/portal/inspections/move-in" },
   { label: "Incoming payments", path: "/portal/payments/incoming/pending" },
   { label: "Outgoing payments", path: "/portal/outgoing/to-pay" },

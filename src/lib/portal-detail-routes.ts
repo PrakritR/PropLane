@@ -135,6 +135,7 @@ export const RESIDENT_DETAIL_TABS = [
   "application",
   "background-check",
   "lease",
+  "move-in",
   "payments",
   "services",
   "inspections",
@@ -150,6 +151,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   "background-check": "Background check",
   application: "Application",
   lease: "Lease",
+  "move-in": "Move-in",
   tours: "Tours",
   payments: "Payments",
   services: "Services",
@@ -165,6 +167,7 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   "background-check": "Screen",
   application: "Apply",
   lease: "Lease",
+  "move-in": "Move-in",
   tours: "Tours",
   payments: "Pay",
   services: "Svc",
@@ -180,6 +183,7 @@ export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, strin
   application: "Screen this renter",
   "background-check": "Screening results",
   lease: "Draft, send and e-sign",
+  "move-in": "Move-in forms and details",
   payments: "Charges and receipts",
   services: "Repairs and requests",
   inspections: "Move-in and move-out photos",
@@ -306,8 +310,13 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * stage (PRP-394): a Current/Past tenant's tour history is still reachable from
  * their profile, scoped to the viewing manager's portfolio in the panel.
  */
-/** Prospects have no tenancy — Services has nothing to list or add yet. */
-const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services");
+/**
+ * Prospects have no tenancy — Services has nothing to list or add yet.
+ * Move-in forms are tenancy paperwork: a prospect has none to show or send.
+ */
+const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter(
+  (tab) => tab !== "services" && tab !== "move-in",
+);
 
 export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
   potential: RESIDENT_DETAIL_TABS_POTENTIAL,
@@ -317,6 +326,23 @@ export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly Resi
 
 export function residentDetailTabsForStage(stage: ResidentsTabId): readonly ResidentDetailTabId[] {
   return RESIDENT_DETAIL_TABS_BY_STAGE[stage];
+}
+
+/** Manager Move-in forms section: the Submitted / Waiting inbox across properties. */
+export const MOVE_IN_FORM_LIST_TABS = ["submitted", "waiting"] as const;
+export type MoveInFormListTabId = (typeof MOVE_IN_FORM_LIST_TABS)[number];
+
+export function parseMoveInFormListTab(raw: string | undefined | null): MoveInFormListTabId {
+  return raw === "waiting" ? "waiting" : "submitted";
+}
+
+export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "submitted"): string {
+  return `${basePath}/move-in/${tab}`;
+}
+
+/** The resident record's Move-in tab. `residentId` is the application id the Residents routes use. */
+export function residentMoveInFormsHref(basePath: string, residentId: string, residentsTab: ResidentsTabId = "current"): string {
+  return residentDetailHref(basePath, residentsTab, residentId, "move-in");
 }
 
 export function residentListHref(basePath: string, tab: ResidentsTabId): string {
@@ -1074,6 +1100,7 @@ export function residentTourDetailHref(
 }
 
 export const RESIDENT_MOVE_IN_TABS = [
+  "forms",
   "placement",
   "housemates",
   "info",
@@ -1082,6 +1109,7 @@ export const RESIDENT_MOVE_IN_TABS = [
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
+  forms: "Forms",
   placement: "Your placement",
   housemates: "Housemates",
   info: "Info & rules",
@@ -1090,6 +1118,7 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
+  forms: "Forms",
   placement: "Placement",
   housemates: "Mates",
   info: "Rules",

@@ -48,6 +48,7 @@ import {
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
+import { loadMoveInForms, MOVE_IN_FORMS_CHANGED } from "@/lib/move-in-forms/client";
 import { pollShouldHaltAfterStatus } from "@/lib/poll-halt";
 import {
   loadPersistedInbox,
@@ -249,6 +250,39 @@ export function usePortalNavCounts(
     };
   }, [kind, smsScope, smsWorkspaceId, userId]);
 
+  // Move-in: the number of submitted forms the manager has not opened yet. It reads the same
+  // cached list the Move-in page renders (shared TTL + in-flight guard in `loadMoveInForms`),
+  // so it costs no extra request when that page is open, and it refreshes on the page's own
+  // change event and on refocus rather than a timer. A refusal (a plan without the section)
+  // stops asking for the rest of the session.
+  const [moveInUnread, setMoveInUnread] = useState<{ scope: string; unread: number }>({ scope: "", unread: 0 });
+  useEffect(() => {
+    if (!(kind === "manager" || kind === "pro") || !userId) return;
+    let cancelled = false;
+    let halted = false;
+    const load = async (force = false) => {
+      if (halted) return;
+      try {
+        const list = await loadMoveInForms(userId, "manager", {}, force);
+        if (!cancelled) setMoveInUnread({ scope: userId, unread: list.unread });
+      } catch {
+        halted = true;
+      }
+    };
+    void load();
+    const onChange = () => void load(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener(MOVE_IN_FORMS_CHANGED, onChange);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(MOVE_IN_FORMS_CHANGED, onChange);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [kind, userId]);
+
   return useMemo(() => {
     void tick;
     if (!ready && (kind === "manager" || kind === "pro" || kind === "resident")) {
@@ -351,6 +385,7 @@ export function usePortalNavCounts(
         tasks: countState(openTasks, tasksOverdue > 0 ? "alert" : "muted"),
         services: countState(servicesOpen),
         communication: countState(inbox, "alert"),
+        "move-in": countState(moveInUnread.scope === userId ? moveInUnread.unread : 0),
       };
     }
 
@@ -386,5 +421,5 @@ export function usePortalNavCounts(
     }
 
     return {};
-  }, [kind, ready, tick, userId, email, smsUiEnabled, smsConversations]);
+  }, [kind, ready, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread]);
 }

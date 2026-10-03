@@ -24,6 +24,7 @@ import { proPortal, MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 import { adminPortal, ADMIN_PORTAL_SMOKE_PATHS } from "@/lib/portals/admin";
 import {
   NATIVE_BOTTOM_NAV_ADMIN_PRIMARY,
+  NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER,
   NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY,
   NATIVE_BOTTOM_NAV_RESIDENT_PRE_APPLICATION_PRIMARY,
   NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY,
@@ -156,6 +157,13 @@ describe("platform parity (web + native WebView)", () => {
     for (const { section } of proPortal.sections) {
       expect(RENDER_PORTAL_SECTION_SOURCE).toContain(`section === "${section}"`);
     }
+  });
+
+  it("manager Move-in forms section is registered, smoke-tested and in the native bar order", () => {
+    const section = proPortal.sections.find((s) => s.section === "move-in");
+    expect(section?.tabs.map((t) => t.id)).toEqual(["submitted", "waiting"]);
+    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/move-in/submitted")).toBe(true);
+    expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER).toContain("move-in");
   });
 
   it("manager smoke-test paths are valid in-app routes for web and native", () => {

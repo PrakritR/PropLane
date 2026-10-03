@@ -24,6 +24,7 @@ export const NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER = [
   "applications",
   "leases",
   "residents",
+  "move-in",
   "inspections",
   "payments",
   "services",

@@ -7,6 +7,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { parseResidentDocumentTab } from "@/lib/resident-documents-tabs";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
+import { ManagerMoveInFormsPage } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
@@ -174,6 +175,10 @@ export function DemoSectionRenderer({
         return <ManagerApplications />;
       case "inspections":
         return <ManagerInspectionsPage kind={tabId === "move-out" ? "move-out" : "move-in"} basePath={basePath} />;
+      // The demo never writes: the page renders its empty state (no forms are ever loaded
+      // or sent while demo mode is on).
+      case "move-in":
+        return <ManagerMoveInFormsPage tab={tabId === "waiting" ? "waiting" : "submitted"} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

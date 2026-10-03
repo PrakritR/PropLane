@@ -28,7 +28,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: financials and documents are locked on Free`, () => {
-        for (const section of ["financials", "documents", "services"]) {
+        for (const section of ["financials", "documents", "services", "move-in"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "free" })).toBe("upsell");
         }
       });
@@ -45,7 +45,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: nothing is locked on a paid plan`, () => {
-        for (const section of ["leases", "financials", "documents", "services"]) {
+        for (const section of ["leases", "financials", "documents", "services", "move-in"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "paid" })).toBe("none");
           expect(portalNavLockKind({ kind, section, subscriptionTier: null })).toBe("none");
         }

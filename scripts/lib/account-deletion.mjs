@@ -247,6 +247,7 @@ export const DELETE_ORDER = [
   "manager_portfolio_import_records",
   "manager_portfolio_imports",
   "resident_inspections",
+  "resident_move_in_forms",
   "resident_housemate_sharing",
   "manager_expense_entries",
   "audit_log",

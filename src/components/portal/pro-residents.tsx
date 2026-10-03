@@ -12,6 +12,8 @@ import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action"
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
+import { ResidentRecordMoveInSection } from "@/components/portal/move-in-forms/resident-record-move-in-section";
+import { useResidentMoveInNeedsYou } from "@/components/portal/move-in-forms/use-resident-move-in-needs";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 import { useCommunicationSurfaceChrome } from "@/hooks/use-communication-surface-chrome";
@@ -306,7 +308,6 @@ import {
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
-import { personRecordNeedsYouItems } from "@/lib/person-record-actions";
 import { buildApplicationGroups, groupForRow } from "@/lib/rental-application/application-groups";
 import {
   invalidatePersistedInboxCache,
@@ -1506,6 +1507,15 @@ export function ManagerResidents({
   const resolvedDetailTab = residentDetailTabsAvailable.includes(activeDetailTab)
     ? activeDetailTab
     : (residentDetailTabsAvailable[0] ?? "payments");
+
+  // Overview's "Needs you": one line per move-in form that is past due. Fetches only while that
+  // Overview is open for someone who can have forms (never for a prospect).
+  const moveInNeedsYou = useResidentMoveInNeedsYou({
+    userId: userId ?? null,
+    applicationId: selected?.id ?? null,
+    residentName: selected?.name ?? "",
+    enabled: Boolean(selected) && resolvedDetailTab === "overview" && selectedStage !== "potential",
+  });
 
 
   // `threadReading` must stay FALSE here. Under
@@ -3643,6 +3653,18 @@ export function ManagerResidents({
                                     void navigator.clipboard?.writeText(value);
                                     showToast(`${label} copied`);
                                   }}
+                                  extraNeedsYou={moveInNeedsYou}
+                                />
+                              </ResidentDetailTabPanel>
+                            ) : resolvedDetailTab === "move-in" ? (
+                              <ResidentDetailTabPanel>
+                                <ResidentRecordMoveInSection
+                                  userId={userId ?? ""}
+                                  applicationId={selectedApplicationRow?.id ?? selected.id}
+                                  residentName={selected.name}
+                                  residentEmail={selected.email}
+                                  propertyId={selected.propertyId}
+                                  basePath={portalBase}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "inspections" ? (

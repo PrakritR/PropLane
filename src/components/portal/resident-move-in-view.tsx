@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Check, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
+import { ResidentMoveInForms } from "@/components/portal/move-in-forms/resident-move-in-forms";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
 import { houseInfoIsEmpty } from "@/lib/house-info";
@@ -359,6 +360,8 @@ function ResidentMoveInTabContent({
   leaseSigned: boolean;
 }) {
   switch (activeTab) {
+    case "forms":
+      return <ResidentMoveInForms />;
     case "placement":
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
     case "housemates":

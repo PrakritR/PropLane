@@ -5,6 +5,11 @@ import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Settings, Users
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/property-move-in-forms-panel";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { persistManagerListingSubmissionOnServer } from "@/lib/manager-property-save-target";
+import { readMoveInFormSettings, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import type { MoveInFormSettings } from "@/lib/move-in-forms/types";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -35,6 +40,20 @@ type RoomSaveTarget =
   | { mode: "listing"; saveId: string }
   | { mode: "requestChange"; saveId: string }
   | null;
+
+type MoveInTabId = "details" | "forms";
+
+const REMIND_OPTIONS: { value: MoveInFormSettings["remind"]; label: string }[] = [
+  { value: "before-and-due", label: "2 days before due and on the due date" },
+  { value: "due-only", label: "On the due date only" },
+  { value: "never", label: "Never" },
+];
+
+const NOTIFY_OPTIONS: { value: MoveInFormSettings["notifyOnSubmit"]; label: string }[] = [
+  { value: "assistant", label: "Assistant notice" },
+  { value: "assistant-and-email", label: "Assistant notice and email" },
+  { value: "none", label: "Don't notify" },
+];
 
 function residentMoveInShareUrl(): string {
   if (typeof window === "undefined") return "/resident/move-in";
@@ -124,6 +143,11 @@ export function ManagerPropertyRoomMoveInPanel({
   const [houseInfoDraft, setHouseInfoDraft] = useState<HouseInfoV1>(() => normalizeHouseInfo(sub.houseInfo));
   const [moveSaving, setMoveSaving] = useState(false);
   const [movePreview, setMovePreview] = useState<MoveInEditorTarget | null>(null);
+  const [tab, setTab] = useState<MoveInTabId>("details");
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [formSettings, setFormSettings] = useState<MoveInFormSettings>(() => readMoveInFormSettings(sub));
+  const [savingSettings, setSavingSettings] = useState(false);
+  const formCount = useMemo(() => readMoveInFormTemplates(sub).length, [sub]);
 
   useEffect(() => {
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
@@ -172,6 +196,25 @@ export function ManagerPropertyRoomMoveInPanel({
       sub.rooms.length === 1 ? "Copied to 1 room." : `Copied to ${sub.rooms.length} rooms.`,
     );
     setCopyingToRooms(false);
+  };
+
+  const openSettings = () => {
+    setFormSettings(readMoveInFormSettings(sub));
+    setSettingsOpen(true);
+  };
+
+  const saveFormSettings = async () => {
+    if (!managerUserId || !saveTarget || !canEdit) return;
+    setSavingSettings(true);
+    const ok = await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, { ...sub, moveInFormSettings: formSettings });
+    setSavingSettings(false);
+    if (!ok) {
+      showToast("Could not save move-in settings.");
+      return;
+    }
+    showToast("Move-in settings saved.");
+    setSettingsOpen(false);
+    onUpdated();
   };
 
   const handleShareMoveIn = async () => {
@@ -389,6 +432,29 @@ export function ManagerPropertyRoomMoveInPanel({
     if (ok) setMoveEditorOpen(false);
   };
 
+  /** One nav for the one command bar: Details (Whole house, Rooms) then Forms. */
+  const activeNavId = tab === "forms" ? "forms" : activeMoveTab;
+  const moveNav = (
+    <LocalDestinationNav
+      items={[
+        { id: "house", label: "Whole house", count: 1, dataAttr: "property-move-in-tab-details" },
+        ...(showRooms ? [{ id: "rooms", label: "Rooms", count: sub.rooms.length }] : []),
+        { id: "forms", label: "Forms", count: formCount, dataAttr: "property-move-in-tab-forms" },
+      ]}
+      activeId={activeNavId}
+      onChange={(id) => {
+        if (id === "forms") {
+          setTab("forms");
+          return;
+        }
+        setTab("details");
+        setMoveTab(id as "house" | "rooms");
+      }}
+      ariaLabel="Move-in"
+      appearance="command"
+    />
+  );
+
   return (
     <PortalPropertyDetailSection>
       <PortalPropertySectionSettingsModal
@@ -397,31 +463,75 @@ export function ManagerPropertyRoomMoveInPanel({
         title="Move-in settings"
         propertyLabel={propertyLabel ?? "This property"}
         dataAttr="property-move-in-settings"
+        onSave={() => void saveFormSettings()}
+        saveDisabled={!canEdit || savingSettings}
       >
-        {/* Nothing here is stored per property yet (no `operationsSettings`
-            namespace or submission field backs a move-in checklist or house
-            rules addendum toggle) — an honest empty settings surface rather
-            than a fabricated one (S016: "leave it out — no new schema"). */}
-        <p className="text-sm text-muted">Nothing to configure for Move-in yet.</p>
+        <div className="space-y-4">
+          <FieldSingleSelect
+            label="Remind residents"
+            value={formSettings.remind}
+            onChange={(value) => setFormSettings((prev) => ({ ...prev, remind: value as MoveInFormSettings["remind"] }))}
+            options={REMIND_OPTIONS}
+            disabled={!canEdit}
+            dataAttr="property-move-in-settings-remind"
+          />
+          <FieldSingleSelect
+            label="Tell me when a form is submitted"
+            value={formSettings.notifyOnSubmit}
+            onChange={(value) => setFormSettings((prev) => ({ ...prev, notifyOnSubmit: value as MoveInFormSettings["notifyOnSubmit"] }))}
+            options={NOTIFY_OPTIONS}
+            disabled={!canEdit}
+            dataAttr="property-move-in-settings-notify"
+          />
+        </div>
       </PortalPropertySectionSettingsModal>
+      {tab === "forms" ? (
+        <PortalListControlStack
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          destinationRow={moveNav}
+          activeDestinationId="forms"
+          destinationAriaLabel="Move-in"
+          actions={
+            <PortalIconAction
+              icon={Settings}
+              label="Move-in settings"
+              data-attr="property-move-in-settings-open"
+              onClick={openSettings}
+            />
+          }
+          primary={
+            canEdit ? (
+              <PortalPrimaryIconAction
+                label="Add move-in form"
+                data-attr="property-move-in-forms-add"
+                onClick={() => setChooserOpen(true)}
+                className="[&>svg]:transition-transform [&>svg]:duration-(--motion-base) [&>svg]:ease-(--motion-nudge) hover:[&>svg]:rotate-90 motion-reduce:[&>svg]:transition-none"
+              />
+            ) : undefined
+          }
+        />
+      ) : null}
+      {tab === "forms" ? (
+        <PropertyMoveInFormsPanel
+          sub={sub}
+          saveTarget={saveTarget}
+          managerUserId={managerUserId}
+          canEdit={canEdit}
+          propertyLabel={propertyLabel ?? "This property"}
+          onUpdated={onUpdated}
+          showToast={showToast}
+          chooserOpen={chooserOpen}
+          onChooserOpenChange={setChooserOpen}
+        />
+      ) : (
       <div className="space-y-2" data-attr="property-move-in-list">
         <PortalRecordListSurface
           listControls={
             <PortalListControlStack
               variant="command"
               destinationRow={
-                showRooms ? (
-                  <LocalDestinationNav
-                    items={[
-                      { id: "house", label: "Whole house", count: 1 },
-                      { id: "rooms", label: "Rooms", count: sub.rooms.length },
-                    ]}
-                    activeId={activeMoveTab}
-                    onChange={(id) => setMoveTab(id as "house" | "rooms")}
-                    ariaLabel="Move-in"
-                    appearance="command"
-                  />
-                ) : undefined
+                moveNav
               }
               activeDestinationId={activeMoveTab}
               destinationAriaLabel="Move-in"
@@ -438,7 +548,7 @@ export function ManagerPropertyRoomMoveInPanel({
                     icon={Settings}
                     label="Move-in settings"
                     data-attr="property-move-in-settings-open"
-                    onClick={() => setSettingsOpen(true)}
+                    onClick={openSettings}
                   />
                 </>
               }
@@ -611,6 +721,7 @@ export function ManagerPropertyRoomMoveInPanel({
           onError={showToast}
         />
       </div>
+      )}
     </PortalPropertyDetailSection>
   );
 }
