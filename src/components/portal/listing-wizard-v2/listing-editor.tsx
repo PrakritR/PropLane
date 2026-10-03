@@ -1146,7 +1146,7 @@ export function ListingRoomEditorBody({
           options={ROOM_FURNITURE_ITEMS.map((v) => ({ value: v, label: v }))}
           selected={furnItems}
           selectionTriggerLabel={roomFurnishingLabel(furnItems)}
-          emptyLabel="Unfurnished"
+          emptyLabel="Not furnished"
           onChange={(next) => onRoom(applyRoomFurnitureItems(room, next))}
         />
       </FactRow>
@@ -1327,12 +1327,13 @@ function StepRooms({
 
   const summaryFor = (room: ManagerRoomSubmission) => {
     const residents = room.occupancyCapacity ?? 1;
-    const furnishing = room.furnishing || "";
+    // What is ticked, never an old preset phrase (nothing ticked = "Not furnished").
+    const furnLabel = roomFurnishingLabel(roomFurnitureItems(room));
     const beds = room.beds ?? [];
-    const bedText = isFurnished(furnishing) && beds.length > 0 ? bedsLine(beds).toLowerCase() : "";
+    const bedText = roomFurnitureItems(room).length > 0 && beds.length > 0 ? bedsLine(beds).toLowerCase() : "";
     const floorShown = room.floor || groundFloor || "Floor not set";
     const parts = wholePlace
-      ? [floorShown, furnishingSummary(furnishing), bedText]
+      ? [floorShown, furnLabel, bedText]
       : [
           `${residents} ${residents === 1 ? "resident" : "residents"}`,
           floorShown,
@@ -1341,7 +1342,7 @@ function StepRooms({
             const label = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
             return label === "No bath" ? "" : label;
           })(),
-          furnishingSummary(furnishing),
+          furnLabel,
           bedText,
         ];
     return parts.filter(Boolean).join(" · ");

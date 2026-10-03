@@ -1,6 +1,6 @@
 import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 
-/** What a room can include — one multi-select; empty means Unfurnished. */
+/** What a room can include — one multi-select; empty means Not furnished. */
 export const ROOM_FURNITURE_ITEMS = [
   "Bed",
   "Desk",
@@ -15,36 +15,41 @@ export const ROOM_FURNITURE_ITEMS = [
   "Other",
 ] as const;
 
-const FURN_FULL_DEFAULT = ["Bed", "Desk", "Chair", "Dresser"];
+/**
+ * Old free-text presets that never named an item. They do not count as a
+ * selection — the field shows exactly what is ticked, and nothing ticked reads
+ * "Not furnished" (captain, Oct 3). No furniture is invented from them.
+ */
+const LEGACY_FURNISHING_PHRASES = new Set([
+  "furnished",
+  "unfurnished",
+  "not furnished",
+  "fully furnished",
+  "partially furnished",
+  "partly furnished",
+]);
 
-/** Parse legacy `furnishing` text into item ids (studio 0930 migration). */
+/** The ticked furniture, read back from the room's stored `furnishing` line. */
 export function roomFurnitureItems(room: ManagerRoomSubmission | null | undefined): string[] {
   if (!room) return [];
   const raw = (room.furnishing ?? "").trim();
   if (!raw) return [];
-  const lower = raw.toLowerCase();
-  if (lower === "unfurnished") return [];
-  const fromLine = raw
-    .split(/[,·]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((s) => s.toLowerCase() !== "furnished" && s.toLowerCase() !== "partly furnished");
-  if (fromLine.length > 0) {
-    return fromLine.map((label) => {
-      const hit = ROOM_FURNITURE_ITEMS.find((x) => x.toLowerCase() === label.toLowerCase());
-      return hit ?? (label === "Other" ? "Other" : label);
-    });
+  const out: string[] = [];
+  for (const part of raw.split(/[,·]|\band\b/i)) {
+    const label = part.trim();
+    if (!label || LEGACY_FURNISHING_PHRASES.has(label.toLowerCase())) continue;
+    const hit = ROOM_FURNITURE_ITEMS.find((x) => x.toLowerCase() === label.toLowerCase());
+    const item = hit ?? label;
+    if (!out.includes(item)) out.push(item);
   }
-  if (lower.includes("partial") || lower.includes("partly")) return ["Bed"];
-  if (lower.includes("furnished")) return FURN_FULL_DEFAULT.slice();
-  return [];
+  return out;
 }
 
 export function roomFurnishingLabel(items: readonly string[], other?: string): string {
   const named = items
     .map((x) => (x === "Other" ? (other?.trim() || "Other") : x))
     .filter(Boolean);
-  return named.length ? `Furnished · ${named.join(", ")}` : "Unfurnished";
+  return named.length ? `Furnished · ${named.join(", ")}` : "Not furnished";
 }
 
 /** Persist items back onto the room's legacy `furnishing` string. */

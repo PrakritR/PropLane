@@ -32,3 +32,17 @@ describe("room furnishing — Furnished checkbox derivation preserves stored mea
     expect(roomFurnishingIsFurnished(normalized.rooms[1]!.furnishing)).toBe(false);
   });
 });
+
+import { roomFurnishingLabel as label2, roomFurnitureItems as items2 } from "@/lib/listing-room-editor";
+describe("old preset phrases never count as a selection (captain, Oct 3)", () => {
+  it("nothing ticked reads Not furnished", () => {
+    for (const furnishing of ["Fully furnished", "Partially furnished", "Furnished", "Unfurnished", ""]) {
+      expect(items2({ furnishing } as never)).toEqual([]);
+      expect(label2(items2({ furnishing } as never))).toBe("Not furnished");
+    }
+  });
+  it("named items still read back", () => {
+    expect(items2({ furnishing: "Furnished · Bed, Desk" } as never)).toEqual(["Bed", "Desk"]);
+    expect(items2({ furnishing: "Bed and desk" } as never)).toEqual(["Bed", "Desk"]);
+  });
+});

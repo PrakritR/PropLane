@@ -17,6 +17,7 @@
  *   room override, through one shared helper.
  */
 
+import { roomFurnishingLabel, roomFurnitureItems } from "@/lib/listing-room-editor";
 import { dedupeAddressSegments } from "@/lib/property-row-summary";
 import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
@@ -198,7 +199,7 @@ export function RoomPreviewPanel({
           ["Floor", room.floor?.trim() || "—"],
           ["Bathroom", access],
           ...(room.sizeSqft ? ([["Size", `${room.sizeSqft} sq ft`]] as [string, string][]) : []),
-          ["Furnishing", room.furnishing?.trim() || "Not stated"],
+          ["Furnishing", roomFurnishingLabel(roomFurnitureItems(room))],
         ]}
       />
       {amenities.length > 0 ? <PanelNote title="Room amenities">{sentenceList(amenities)}</PanelNote> : null}
