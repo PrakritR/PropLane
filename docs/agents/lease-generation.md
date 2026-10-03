@@ -1,5 +1,7 @@
 # Lease generation — agent notes
 
+**Signing order is one workspace setting, and application <-> lease is one-to-one in the dependent direction (C2-CP7/8/9, Oct 2026).** Application first: every application maps to exactly ONE lease (`linkedLeaseTemplateId`); lease first: every lease maps to exactly ONE application (`linkedApplicationTemplateId`); the other side may serve many, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; `leasing-pipeline-preferences.ts` `resolveLeasingPipelineForProperty` answers the workspace order for every property). Both are edited only in Settings -> Applications & leases (`WorkspaceApplicationsLeasesSettings`); the lease and application editors have no Settings step and "this answer picks the lease" is gone. Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease); a lease signer gets the property default application, else the first published form of the stay's variant. Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`.
+
 ## Resident lease visibility, signing, and lease-first sends (Sep 2026 hotfix)
 
 Four invariants, closed together because a resident could not sign any lease

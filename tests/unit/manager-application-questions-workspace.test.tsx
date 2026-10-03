@@ -649,7 +649,7 @@ describe("server reviewed application publishing", () => {
     // the only commit action, and it tries to publish for a single-property
     // template editor (falling back to a draft save only when the gate
     // fails; here it should pass and PATCH the publish endpoint).
-    jumpRail("setup");
+    jumpRail("sections");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
     const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
@@ -662,7 +662,7 @@ describe("server reviewed application publishing", () => {
   });
 });
 
-describe("P003 / C2-R30-4: the application's own fee override left the Settings step (room pricing owns it)", () => {
+describe("P003 / C2-R30-4: the application's own fee override has no editor control (room pricing owns it)", () => {
   function renderEditor(template: ReturnType<typeof createPropertyApplicationTemplate>, persist: ReturnType<typeof vi.fn>) {
     // F-editor c: the footer Save also tries to publish, which PATCHes the
     // import endpoint — stub it so that attempt resolves.
@@ -688,11 +688,11 @@ describe("P003 / C2-R30-4: the application's own fee override left the Settings 
     );
   }
 
-  it("Settings offers no application fee or promo code controls", async () => {
+  it("the editor offers no application fee or promo code controls", async () => {
     const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
     renderEditor(template, vi.fn().mockResolvedValue(true));
     await waitWorkspace("Long-term application");
-    jumpRail("setup");
+    jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
     expect(screen.queryByRole("switch", { name: "Charge an application fee" })).toBeNull();
     expect(screen.queryByLabelText("Application cost")).toBeNull();
@@ -708,7 +708,7 @@ describe("P003 / C2-R30-4: the application's own fee override left the Settings 
     const persist = vi.fn().mockResolvedValue(true);
     renderEditor(template, persist);
     await waitWorkspace("Long-term application");
-    jumpRail("setup");
+    jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

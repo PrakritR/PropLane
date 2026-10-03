@@ -96,16 +96,12 @@ describe("F013: the lease editor chrome is never serif — only the document pre
     for (const titleNode of screen.getAllByText("New lease")) {
       expect(titleNode.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
     }
-    jumpRail("setup");
-    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    // 3a420819b: the "Offer this lease" switch moved to the catalog gear; Settings now holds the Signing card.
-    // Rendered DOM text is title case ("Setup", "Lease fee") — the ALL-CAPS,
-    // underlined look the bug produced came only from the leaked CSS
-    // (`text-transform: uppercase`), never from the text content itself.
-    for (const label of ["Settings", "Pipeline order", "Co-signer addendum"]) {
-      for (const heading of screen.getAllByText(label)) {
-        expect(heading.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
-      }
-    }
+    jumpRail("document");
+    // The Settings step is gone (C2-CP8); the editor chrome that remains must never carry the scope.
+    const railButtons = document.querySelectorAll('[data-attr^="listing-v2-rail-"]');
+    expect(railButtons.length).toBe(2);
+    railButtons.forEach((button) => {
+      expect(button.closest(`.${LEASE_PREVIEW_DOCUMENT_SCOPE}`)).toBeNull();
+    });
   });
 });

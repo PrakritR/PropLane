@@ -8,12 +8,8 @@
 import { describe, expect, it } from "vitest";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
-import {
-  createPropertyLeaseTemplate,
-  leaseIdsUsingApplicationTemplate,
-  linkLeasesToApplicationTemplate,
-  type PropertyLeaseTemplate,
-} from "@/lib/property-lease-templates";
+import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import { applicationIdForLease, leaseIdForApplication, setMappingTarget } from "@/lib/application-lease-mapping";
 import { normalizeFormsTerminology, applicationTerm, leaseTerm } from "@/lib/rental-application/forms-terminology";
 import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { DEFAULT_LEASING_PIPELINE, normalizeLeasingPipelinePreferences, signingOrderForPipeline } from "@/lib/leasing-pipeline-preferences";
@@ -49,52 +45,41 @@ describe("an uploaded form is called what its file is called", () => {
   });
 });
 
-describe("Used for leases links the Intake form and the Licensing agreement in both directions", () => {
+describe("an application and a lease link one-to-one, in the direction the signing order makes dependent (C2-CP9)", () => {
   const intake = createPropertyApplicationTemplate({ kind: "long-term", label: "Intake Form" });
   const otherIntake = createPropertyApplicationTemplate({ kind: "long-term", label: "Short stay form" });
 
-  it("saving the Intake form with the Licensing agreement selected points the lease at it; the editor then lists it as selected", () => {
+  it("application first: mapping an application to a lease is stored on the application and the lease answers it", () => {
     const leases = [licensing(), licensing("House addendum")];
-    const saved = linkLeasesToApplicationTemplate(leases, intake.id, [leases[0]!.id]);
-    expect(saved[0]!.linkedApplicationTemplateId).toBe(intake.id);
-    expect(saved[1]!.linkedApplicationTemplateId ?? null).toBeNull();
-    expect(leaseIdsUsingApplicationTemplate(saved, { id: intake.id })).toEqual([leases[0]!.id]);
+    const result = setMappingTarget("application_then_lease", { applications: [intake], leases }, intake.id, leases[0]!.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(leaseIdForApplication({ applications: result.applications, leases: result.leases }, intake.id)).toBe(leases[0]!.id);
   });
 
-  it("deselecting releases only the leases this form served, never another form's", () => {
-    const [a, b] = [licensing(), licensing("House addendum")];
-    const start: PropertyLeaseTemplate[] = [{ ...a, linkedApplicationTemplateId: intake.id }, { ...b, linkedApplicationTemplateId: otherIntake.id }];
-    const saved = linkLeasesToApplicationTemplate(start, intake.id, []);
-    expect(saved[0]!.linkedApplicationTemplateId).toBeNull();
-    expect(saved[1]!.linkedApplicationTemplateId).toBe(otherIntake.id);
-  });
-
-  it("a link made from the lease's own form shows up on the Intake form and is not dropped by saving it", () => {
-    // The lease form's Application picker writes the lease's link only.
-    const lease = { ...licensing(), linkedApplicationTemplateId: intake.id };
-    // The Intake form's own mirror knows nothing of it.
-    const template = { id: intake.id, usedForLeaseTemplateIds: [] as string[] };
-    const selected = leaseIdsUsingApplicationTemplate([lease], template);
-    expect(selected).toEqual([lease.id]);
-    // Saving the Intake form without touching "Used for leases" keeps the link.
-    expect(linkLeasesToApplicationTemplate([lease], intake.id, selected)[0]!.linkedApplicationTemplateId).toBe(intake.id);
-  });
-
-  it("a lease the lease form re-pointed at another form is no longer listed on the old one", () => {
-    const lease = { ...licensing(), linkedApplicationTemplateId: otherIntake.id };
-    expect(leaseIdsUsingApplicationTemplate([lease], { id: intake.id, usedForLeaseTemplateIds: [lease.id] })).toEqual([]);
-  });
-
-  it("an older Intake form that only recorded the mirror still lists its leases", () => {
+  it("lease first: mapping a lease to an application is stored on the lease and the application answers it", () => {
     const lease = licensing();
-    expect(leaseIdsUsingApplicationTemplate([lease], { id: intake.id, usedForLeaseTemplateIds: [lease.id] })).toEqual([lease.id]);
+    const result = setMappingTarget("lease_then_application", { applications: [intake, otherIntake], leases: [lease] }, lease.id, otherIntake.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.leases[0]!.linkedApplicationTemplateId).toBe(otherIntake.id);
+    expect(applicationIdForLease({ applications: result.applications, leases: result.leases }, lease.id)).toBe(otherIntake.id);
   });
 
-  it("the links survive the listing submission round trip", () => {
+  it("a link made before the one-to-one rule is read, not lost: a lease that named its form, an older mirror", () => {
+    const named = { ...licensing(), linkedApplicationTemplateId: intake.id };
+    expect(leaseIdForApplication({ applications: [intake], leases: [named] }, intake.id)).toBe(named.id);
     const lease = licensing();
-    const [linked] = linkLeasesToApplicationTemplate([lease], intake.id, [lease.id]);
-    const sub = normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), propertyLeaseTemplates: [linked!], propertyApplicationTemplates: [intake] });
-    expect(sub.propertyLeaseTemplates?.[0]?.linkedApplicationTemplateId).toBe(intake.id);
+    const mirror = { ...intake, usedForLeaseTemplateIds: [lease.id] };
+    expect(leaseIdForApplication({ applications: [mirror], leases: [lease] }, intake.id)).toBe(lease.id);
+    expect(applicationIdForLease({ applications: [mirror], leases: [lease] }, lease.id)).toBe(intake.id);
+  });
+
+  it("the link survives the listing submission round trip", () => {
+    const lease = licensing();
+    const linked = { ...intake, linkedLeaseTemplateId: lease.id };
+    const sub = normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), propertyLeaseTemplates: [lease], propertyApplicationTemplates: [linked] });
+    expect(sub.propertyApplicationTemplates?.[0]?.linkedLeaseTemplateId).toBe(lease.id);
   });
 });
 

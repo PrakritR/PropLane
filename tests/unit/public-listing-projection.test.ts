@@ -412,15 +412,16 @@ describe("publicListingProjection", () => {
       });
     });
 
-    it("resolves the per-property override over the manager's own portfolio default", () => {
+    it("takes the signing order from the workspace, never from a per-property override (C2-CP7), but keeps the override's fee", () => {
+      const base = { requireApplication: true, requireLease: true, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null, sharedRoomLease: "individual" as const };
       const state = {
-        portfolio: { pipelineOrder: "lease_then_application" as const, requireApplication: true, requireLease: true, leaseSigningFeeCents: 5000, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null },
+        portfolio: { ...base, pipelineOrder: "lease_then_application" as const, leaseSigningFeeCents: 5000 },
         byPropertyId: {
-          "prop-1": { pipelineOrder: "application_then_lease" as const, requireApplication: true, requireLease: true, leaseSigningFeeCents: null, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null },
+          "prop-1": { ...base, pipelineOrder: "application_then_lease" as const, leaseSigningFeeCents: null },
         },
       };
       expect(resolvePublicSigningContext(state, "prop-1")).toEqual({
-        signingOrder: "application_first",
+        signingOrder: "lease_first",
         leaseSigningFeeCents: 0,
       });
       expect(resolvePublicSigningContext(state, "prop-2")).toEqual({

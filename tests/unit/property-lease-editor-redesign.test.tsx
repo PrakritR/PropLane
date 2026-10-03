@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
-// F-editor c/d/e: the property Add/Edit lease editor's Setup step (one fee
-// toggle, segmented pipeline, Linked co-signer/guarantor addendum), footer-
-// only commit, and the Sections step's duplicate-name validation.
+// F-editor c/d/e + C2-CP8: the property Add/Edit lease editor (Lease and Document
+// steps only, no Settings step), footer-only commit, and the duplicate-name validation.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
@@ -42,8 +41,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("F014/F-editor c: lease Setup — segmented pipeline, no checkboxes", () => {
-  it("renders pipeline and default controls as toggles/segmented control, never a checkbox", async () => {
+describe("C2-CP8: the lease editor has no Settings step", () => {
+  it("lists only Lease and Document, and none of the workspace or property switches", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -58,25 +57,28 @@ describe("F014/F-editor c: lease Setup — segmented pipeline, no checkboxes", (
       />,
     );
     await screen.findByRole("dialog", { name: "Edit lease" });
-    jumpRail("setup");
-    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-
-    expect(screen.queryByRole("switch", { name: "Offer this lease to applicants" })).toBeNull();
-    expect(screen.getByRole("tablist", { name: "Pipeline order" })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /Default .* lease for this property/ })).toBeTruthy();
-    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-document"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-setup"]')).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Pipeline order" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Application" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Co-signer addendum" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /Default .* lease for this property/ })).toBeNull();
   });
-});
 
-describe("F015: lease Setup's Linked co-signer / guarantor addendum picker", () => {
-  it("stores the picked lease template's id, and never offers the lease being edited", async () => {
+  it("keeps the application and addendum links the workspace settings made when the lease is saved", async () => {
     const onSave = vi.fn().mockResolvedValue(true);
     render(
       <PropertyLeaseFormModal
         open
         mode="edit"
         sub={createDefaultListingSubmission()}
-        template={{ ...TEMPLATE, applicationLeaseTerms: ["Long-term"] }}
+        template={{
+          ...TEMPLATE,
+          applicationLeaseTerms: ["Long-term"],
+          linkedApplicationTemplateId: "app-tpl-mapped",
+          linkedGuarantorLeaseTemplateId: OTHER_TEMPLATE.id,
+        }}
         templates={[TEMPLATE, OTHER_TEMPLATE]}
         propertyId="mgr-house-1"
         onClose={() => {}}
@@ -85,22 +87,11 @@ describe("F015: lease Setup's Linked co-signer / guarantor addendum picker", () 
       />,
     );
     await screen.findByRole("dialog", { name: "Edit lease" });
-    jumpRail("setup");
-    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-
-    const picker = screen.getByRole("button", { name: "Co-signer addendum" });
-    fireEvent.click(picker);
-    const listbox = await screen.findByRole("listbox");
-    const option = screen.getByText("Guarantor lease");
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    void listbox;
-
+    jumpRail("document");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const savedTemplates = onSave.mock.calls.at(-1)?.[0] as PropertyLeaseTemplate[];
-    const saved = savedTemplates.find((t) => t.id === TEMPLATE.id);
+    const saved = (onSave.mock.calls.at(-1)?.[0] as PropertyLeaseTemplate[]).find((t) => t.id === TEMPLATE.id);
+    expect(saved?.linkedApplicationTemplateId).toBe("app-tpl-mapped");
     expect(saved?.linkedGuarantorLeaseTemplateId).toBe(OTHER_TEMPLATE.id);
   });
 });
@@ -127,9 +118,9 @@ describe("F013: lease Sections step duplicate-name validation", () => {
     fireEvent.change(nameInput, { target: { value: TEMPLATE.label } });
 
     expect(await screen.findByText(`A lease named "${TEMPLATE.label}" already exists on this property.`)).toBeTruthy();
-    // Jump straight to Setup (the last step, where the footer shows Save) —
+    // Jump straight to Document (the last step, where the footer shows Save) —
     // the duplicate-name error must keep it disabled from any step.
-    jumpRail("setup");
+    jumpRail("document");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSave).not.toHaveBeenCalled();
@@ -179,7 +170,7 @@ describe("F-editor c: footer-only commit", () => {
     fireEvent.change(document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement, {
       target: { value: "New lease" },
     });
-    jumpRail("setup");
+    jumpRail("document");
     await waitFor(() => expect(screen.getByRole("button", { name: "Create lease" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
   });
