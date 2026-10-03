@@ -1,3 +1,4 @@
+import { roomOffersLeaseTerm, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { listingAllowedLeaseTerms } from "@/lib/rental-application/data";
 import {
   AIRBNB_LEASE_TERM,
@@ -157,6 +158,26 @@ export function residentLeaseTermOptionsForProperty(propertyId: string): Residen
     options.splice(insertAt, 0, { value: RESIDENT_LEASE_TERM_AIRBNB, label: "Airbnb" });
   }
   return options;
+}
+
+/**
+ * Is this manual-resident lease choice open on a room that limits the lease types
+ * it is offered on? "Long term" covers Long-term and Month-to-month (it resolves
+ * to either), so a room offering only one of them still takes it.
+ */
+export function residentLeaseTermOfferedByRoom(
+  room: Pick<ManagerRoomSubmission, "offeredLeaseTerms"> | null | undefined,
+  optionValue: string,
+  propertyId = "",
+): boolean {
+  if (!room?.offeredLeaseTerms?.length) return true;
+  const v = optionValue.trim();
+  if (!v) return true;
+  if (v === RESIDENT_LEASE_TERM_LONG) {
+    return roomOffersLeaseTerm(room, LONG_TERM_LEASE_TERM) || roomOffersLeaseTerm(room, "Month-to-Month");
+  }
+  if (v === RESIDENT_LEASE_TERM_CUSTOM) return roomOffersLeaseTerm(room, CUSTOM_LEASE_TERM);
+  return roomOffersLeaseTerm(room, normalizeApplicationLeaseTerm(v, propertyId));
 }
 
 export function residentLeaseTermSelectValue(

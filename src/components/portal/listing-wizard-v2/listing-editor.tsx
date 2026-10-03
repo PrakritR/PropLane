@@ -106,6 +106,8 @@ import {
   isBathroomSlotRemovable,
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
+  roomOfferedLeaseTerms,
+  roomOfferedLeaseTermsFromPick,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -1060,6 +1062,34 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  * a room's description starts from another room's, and it is a one-time copy
  * (see `copyRoomDescriptionFrom`), never a standing link.
  */
+/** The lease types a room can be limited to, with the wording the Leases offered row uses. */
+const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = [
+  { value: LONG_TERM_LEASE_TERM, label: "Long-term" },
+  { value: SHORT_TERM_LEASE_TERM, label: "Short term" },
+  { value: CUSTOM_LEASE_TERM, label: "Custom" },
+  { value: "Month-to-Month", label: "Month-to-month" },
+];
+
+/** The listing's own lease types a room can be limited to (never Airbnb; legacy fixed lengths read as Long-term). */
+function roomLeaseTermChoices(sub: ManagerListingSubmissionV1): { value: string; label: string }[] {
+  const offered = listingPricingLeaseTabs(sub);
+  return ROOM_LEASE_TERM_LABELS.filter((o) => offered.includes(o.value));
+}
+
+/** "Long-term, Short term" when the room restricts its lease types, "" when it follows the listing. */
+export function roomLeaseTermsFact(sub: ManagerListingSubmissionV1, room: ManagerRoomSubmission): string {
+  if (!room.offeredLeaseTerms?.length) return "";
+  const choices = roomLeaseTermChoices(sub);
+  const own = roomOfferedLeaseTerms(
+    room,
+    choices.map((c) => c.value),
+  );
+  return choices
+    .filter((c) => own.includes(c.value))
+    .map((c) => c.label)
+    .join(", ");
+}
+
 export function ListingRoomEditorBody({
   sub,
   room,
@@ -1103,6 +1133,12 @@ export function ListingRoomEditorBody({
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
   const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
   const furnItems = roomFurnitureItems(room);
+  const leaseChoices = roomLeaseTermChoices(sub);
+  // A room that does not restrict shows every lease type the listing offers ticked.
+  const leaseSelected = roomOfferedLeaseTerms(
+    room,
+    leaseChoices.map((c) => c.value),
+  );
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
     <span className="inline-flex items-center gap-1.5">
@@ -1150,6 +1186,21 @@ export function ListingRoomEditorBody({
           onChange={(next) => onRoom(applyRoomFurnitureItems(room, next))}
         />
       </FactRow>
+      {leaseChoices.length > 1 ? (
+        <FactRow label="Leases offered">
+          <CheckboxMultiSelect
+            hideLabel
+            label={`Leases offered for ${who}`}
+            variant="cell"
+            className="min-w-[150px] max-w-[240px]"
+            options={leaseChoices}
+            selected={leaseSelected}
+            emptyLabel="All lease types"
+            dataAttr="listing-v2-room-leases-offered"
+            onChange={(next) => onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(next, leaseChoices.map((c) => c.value)) })}
+          />
+        </FactRow>
+      ) : null}
 
       <MoreRows dataAttr="listing-v2-room-more">
         <FactRow label="Room amenities">
@@ -1315,12 +1366,14 @@ function StepRooms({
     const bst = roomBathroomState(sub, room.id);
     const bath = bathFactLabel(bst.mode, bst.location, bst.sharedWithRoomIds.length + 1);
     const furn = roomFurnishingLabel(roomFurnitureItems(room));
+    const leasesFact = roomLeaseTermsFact(sub, room);
     return (
       <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
         {!wholePlace ? <span>{residents} residents</span> : null}
         <span>{floorShown}</span>
         {bath ? <span>{bath}</span> : null}
         <span>{furn}</span>
+        {leasesFact ? <span>{leasesFact}</span> : null}
       </span>
     );
   };

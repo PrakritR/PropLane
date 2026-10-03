@@ -355,6 +355,13 @@ describe("publicListingProjection", () => {
     expect(JSON.stringify(projected)).not.toContain("aaron@example.com");
   });
 
+  it("publishes which lease types a room is offered on, so the apply wizard can narrow its rooms", () => {
+    const listing = storedListing();
+    Object.assign(listing.listingSubmission!.rooms[0]!, { offeredLeaseTerms: ["Long-term", "Short-Term Stay"] });
+    const room = publicListingProjection(listing).listingSubmission!.rooms[0]!;
+    expect(room.offeredLeaseTerms).toEqual(["Long-term", "Short-Term Stay"]);
+  });
+
   it("drops a house-wide leftover when rooms disagree on deposit", () => {
     const listing = storedListing();
     const sub = listing.listingSubmission!;

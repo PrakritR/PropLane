@@ -246,6 +246,10 @@ const PUBLIC_ROOM_KEYS = [
   // and never reaches a prospect; the rows are re-picked to the money keys below.
   "residentPricing",
   "residentPrices",
+  // Which lease types the room is offered on. The applicant's lease-term step
+  // narrows the room list by it; a prospect would otherwise rank a room the
+  // manager has not offered on the term they chose. Stored lease-term labels only.
+  "offeredLeaseTerms",
 ] as const satisfies readonly (keyof ManagerRoomSubmission)[];
 
 const PUBLIC_RESIDENT_PRICE_KEYS = [

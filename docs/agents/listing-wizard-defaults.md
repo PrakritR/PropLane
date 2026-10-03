@@ -21,14 +21,17 @@ older per-record reading the previous (non-v2) wizard still uses.
 ## Rooms, Bathrooms and Shared spaces are each their own record
 
 All three steps draw one card per record and nothing above them: name (or a
-fixed type on Bathrooms), Duplicate, ✕ and the chevron; the important rows are
+fixed type on Bathrooms) and the ⋯ menu (Edit first); there is no chevron — the facts line, Edit and the card's Done open and close it. The important rows are
 on the card, everything else waits behind one More ▾. None of the three has a
 Default card, a "This … only · Reset" tick, a per-row Reset, or "Make all the
 same" — every value a record carries is its own, so Review, the public
 listing and the lease read exactly what the card shows.
 
 - **Rooms**: Residents per room (not on a whole-place listing), Bathroom
-  access, Floor on the card; Furnishing (with Beds and Included while
+  access, Floor on the card; Leases offered (`offeredLeaseTerms`: which of the
+  listing's lease types this room is offered on; absent = all of them; the
+  apply wizard, the manager placement wizard and application validation only
+  offer a restricted room for the terms it lists; pricing is untouched); Furnishing (with Beds and Included while
   furnished), Room amenities, Size, Photos, Video, Description, Availability,
   move-in checklists, move-in instructions, entry photos and arrival clip
   behind More ▾. Adding a room makes the same blank the Basics bedroom count

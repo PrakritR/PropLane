@@ -1699,7 +1699,7 @@ export function RecordCard({
             ✕
           </button>
         ) : null}
-        {onToggle ? (
+        {onToggle && !propertyEditor ? (
           <button
             type="button"
             onClick={onToggle}
@@ -1713,7 +1713,14 @@ export function RecordCard({
         ) : null}
       </div>
       {propertyEditor && facts ? (
-        <button type="button" onClick={onToggle} className="pr9-facts block w-full px-3.5 pb-3 text-left text-[12.5px] leading-snug text-foreground/80">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-label={`${open ? "Close" : "Open"} ${toggleLabel ?? name ?? "card"}`}
+          data-attr="listing-v2-card-open"
+          className="pr9-facts block w-full px-3.5 pb-3 text-left text-[12.5px] leading-snug text-foreground/80"
+        >
           {facts}
         </button>
       ) : summary != null && onToggle ? (
@@ -1724,7 +1731,12 @@ export function RecordCard({
         <p className="px-3.5 pb-3 text-[13px] leading-snug text-foreground/70">{summary}</p>
       ) : null}
       {rows}
-      {open ? <div className="border-t border-border">{children}</div> : null}
+      {open ? (
+        <div className="border-t border-border">
+          {children}
+          {propertyEditor && onToggle ? <EditorDone onClick={onToggle} dataAttr={dataAttr ? `${dataAttr}-done` : undefined} /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

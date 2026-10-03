@@ -19,8 +19,10 @@ import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-app
 import { resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
 import {
   isResidentMonthToMonthLease,
+  residentLeaseTermOfferedByRoom,
   residentLeaseTermOptionsForProperty,
   residentLeaseTermToApplicationFields,
+  RESIDENT_LEASE_TERM_CUSTOM,
 } from "@/lib/resident-manual-lease-terms";
 import type { AddPersonForm } from "./state";
 
@@ -31,6 +33,8 @@ export type ResidentWizardDerived = {
   bundleOptions: { value: string; label: string }[];
   leaseTermOptions: { value: string; label: string }[];
   leaseTermPresetValues: string[];
+  /** The picked room limits its lease types and does not offer Custom. */
+  customLeaseTermHidden: boolean;
   rentedByRoom: boolean;
   entireHome: boolean;
   showBundleSelect: boolean;
@@ -71,14 +75,31 @@ export function useResidentWizardDerived(
 
   const roomOptions = useMemo<RoomOption[]>(
     () =>
-      submission?.rooms.map((r) => ({ id: r.id, name: r.name || r.id, monthlyRent: r.monthlyRent, shortTermRent: r.shortTermRent })) ?? [],
-    [submission],
+      (submission?.rooms ?? [])
+        // A room limited to other lease types is not offered for the chosen one;
+        // the room already picked stays so the manager sees what they have.
+        .filter(
+          (r) =>
+            r.id === roomId ||
+            !leaseTerm.trim() ||
+            residentLeaseTermOfferedByRoom(r, leaseTermCustomMode ? RESIDENT_LEASE_TERM_CUSTOM : leaseTerm, propertyId),
+        )
+        .map((r) => ({ id: r.id, name: r.name || r.id, monthlyRent: r.monthlyRent, shortTermRent: r.shortTermRent })),
+    [submission, roomId, leaseTerm, leaseTermCustomMode, propertyId],
   );
 
+  const selectedRoom = useMemo(
+    () => (roomId ? submission?.rooms.find((r) => r.id === roomId) : undefined),
+    [submission, roomId],
+  );
   const leaseTermOptions = useMemo(() => {
     void propertyTick;
-    return residentLeaseTermOptionsForProperty(propertyId);
-  }, [propertyId, propertyTick]);
+    // The chosen room's own lease types narrow the list (a room offering none of
+    // a term can't be placed on it).
+    return residentLeaseTermOptionsForProperty(propertyId).filter((o) =>
+      residentLeaseTermOfferedByRoom(selectedRoom, o.value, propertyId),
+    );
+  }, [propertyId, propertyTick, selectedRoom]);
   const leaseTermPresetValues = useMemo(() => leaseTermOptions.map((o) => o.value), [leaseTermOptions]);
 
   const leaseFields = useMemo(
@@ -192,6 +213,7 @@ export function useResidentWizardDerived(
     bundleOptions,
     leaseTermOptions,
     leaseTermPresetValues,
+    customLeaseTermHidden: !residentLeaseTermOfferedByRoom(selectedRoom, RESIDENT_LEASE_TERM_CUSTOM, propertyId),
     rentedByRoom,
     entireHome,
     showBundleSelect,
