@@ -91,6 +91,12 @@ export async function loadAtSigningChargesForLease(
  * A line whose listing could not be resolved at all is NOT that case. "Cannot determine" fails closed -
  * `ok: false`, which the signature route answers 503 and the resident retries - because reading it as
  * "collects offline" is what let every owed line drop out of `unpaid` after one failed property read.
+ *
+ * Only a line STAMPED with its payment snapshot when it was created gates the signature. A line created
+ * before the gate existed carries no snapshot, and on the server its listing may be unresolvable for
+ * good (`getPropertyById` reads a catalog that exists only in a manager's browser) - so gating on it
+ * would be a permanent 503 inviting a retry that can never succeed. Those lines stay owed and payable
+ * exactly as they were; they simply do not lock Sign.
  */
 export async function checkResidentAtSigningGate(
   db: SupabaseClient,
@@ -105,13 +111,16 @@ export async function checkResidentAtSigningGate(
     return charge.residentEmail.trim().toLowerCase() === input.residentEmail.trim().toLowerCase();
   });
   const owed = unpaidAtSigningCharges(mine);
-  if (owed.length === 0) return { ok: true, unpaid: [], unpaidCents: 0 };
-  const { charges: enriched, lookupFailed } = await enrichHouseholdChargesFromPropertyRecordsResult(db, owed);
-  if (lookupFailed) return { ok: false, error: AT_SIGNING_ELIGIBILITY_UNRESOLVED };
+  const gating = owed.filter((charge) => typeof charge.axisPaymentsEnabledSnapshot === "boolean");
+  if (gating.length === 0) return { ok: true, unpaid: [], unpaidCents: 0 };
+  const { charges: enriched, lookupFailed } = await enrichHouseholdChargesFromPropertyRecordsResult(db, gating);
   const payability = enriched.map((charge) => householdChargeProplanePayability(charge));
-  if (payability.some((answer) => answer === "unknown")) {
-    return { ok: false, error: AT_SIGNING_ELIGIBILITY_UNRESOLVED };
-  }
+  // A failed read cannot change a line the listing itself calls offline, so it only
+  // blocks when some line's answer actually depended on what could not be read.
+  const unresolved =
+    payability.some((answer) => answer === "unknown") ||
+    (lookupFailed && payability.some((answer) => answer !== "offline"));
+  if (unresolved) return { ok: false, error: AT_SIGNING_ELIGIBILITY_UNRESOLVED };
   const unpaid = enriched.filter((_, index) => payability[index] === "payable");
   return { ok: true, unpaid, unpaidCents: atSigningTotalCents(unpaid) };
 }

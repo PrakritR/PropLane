@@ -59,6 +59,8 @@ function charge(over: Record<string, unknown>): Row {
     status: "pending",
     blocksLeaseUntilPaid: false,
     dueAtSigning: true,
+    // Stamped when the charge was created: only a stamped line gates the signature.
+    axisPaymentsEnabledSnapshot: true,
     ...over,
   };
   return {
@@ -155,10 +157,21 @@ describe("the signing gate reads the server's charges", () => {
     expect(gate.ok && gate.unpaid).toEqual([]);
   });
 
-  it("fails closed when the listing cannot be resolved - it is not 'collects offline'", async () => {
-    // No `axisPaymentsEnabledSnapshot` anywhere and no catalog on the server:
-    // treating that as offline let the signature through with everything owed.
+  it("judges a stamped line from its OWN snapshot, not from a later listing read", async () => {
+    // The snapshot is taken where the manager's listing catalog exists; the
+    // server cannot re-derive it, and reading "could not resolve" as "collects
+    // offline" is what let the signature through with everything owed.
     payable.on = null;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate.ok && gate.unpaidCents).toBe(80_000);
+  });
+
+  it("fails closed when a lookup failed and some line's answer depended on it", async () => {
+    payable.lookupFailed = true;
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
       lease,
       residentUserId: RESIDENT,
@@ -167,14 +180,31 @@ describe("the signing gate reads the server's charges", () => {
     expect(gate.ok).toBe(false);
   });
 
-  it("fails closed when the property read itself failed", async () => {
+  it("a failed lookup does not block when every line's listing says offline", async () => {
+    payable.on = false;
     payable.lookupFailed = true;
     const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
       lease,
       residentUserId: RESIDENT,
       residentEmail: EMAIL,
     });
-    expect(gate.ok).toBe(false);
+    expect(gate).toMatchObject({ ok: true, unpaidCents: 0 });
+  });
+
+  it("a line created before the gate existed (no snapshot) never locks Sign", async () => {
+    // Its listing is unresolvable on the server for good, so gating on it would
+    // be a permanent 503 inviting a retry that can never succeed.
+    for (const row of tables.portal_household_charge_records!) {
+      const data = row.row_data as Record<string, unknown>;
+      delete data.axisPaymentsEnabledSnapshot;
+    }
+    payable.on = null;
+    const gate = await checkResidentAtSigningGate(fakeSupabaseClient(tables) as never, {
+      lease,
+      residentUserId: RESIDENT,
+      residentEmail: EMAIL,
+    });
+    expect(gate).toMatchObject({ ok: true, unpaidCents: 0 });
   });
 
   it("only the signer's own lines gate them, and only for this lease", async () => {

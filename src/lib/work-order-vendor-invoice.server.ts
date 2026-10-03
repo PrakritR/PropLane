@@ -62,7 +62,15 @@ export async function ensureSubmittedVendorInvoiceForMarkedDone(
   // a job that was never theirs, while the real manager never saw it.
   const links = await resolveOwnVendorRecords(db, input.vendorUserId);
   const target = links.find((link) => link.managerUserId === input.managerUserId);
-  if (!target) return;
+  if (!target) {
+    console.warn("[vendor-invoice] no roster row under this work order's manager; no invoice filed", {
+      workOrderId: input.workOrderId,
+      managerUserId: input.managerUserId,
+      vendorUserId: input.vendorUserId,
+      totalCents,
+    });
+    return;
+  }
 
   const title = input.row.title?.trim() || "Service";
   const prepared: PreparedVendorInvoiceSubmission = {

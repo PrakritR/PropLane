@@ -505,6 +505,19 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
   return restrictOtherOwnersThreads(db, scope, visible, houseLabels);
 }
 
+/**
+ * The houses the viewer may act on under `ownerId`: granted at the level this
+ * scope was resolved for, narrowed to the active workspace. The one answer to
+ * "which of that owner's houses are mine right now" - the turn filter and the
+ * append gate on a shared conversation both read it.
+ */
+export function grantedHouseIdsForOwner(scope: CommunicationScope, ownerId: string): Set<string> {
+  const granted = scope.grantedHousesByOwner.get(clean(ownerId)) ?? new Set<string>();
+  return new Set(
+    [...granted].filter((id) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(id)),
+  );
+}
+
 /** Threads that are another owner's person-conversation, not an assistant / team / agent thread. */
 function isSharedPersonThread(record: StoredInboxThreadRecord, viewerId: string): boolean {
   const owner = clean(record.owner_user_id);
@@ -536,8 +549,7 @@ async function restrictOtherOwnersThreads<T extends StoredInboxThreadRecord>(
       continue;
     }
     const owner = clean(record.owner_user_id);
-    const granted = scope.grantedHousesByOwner.get(owner) ?? new Set<string>();
-    const allowed = new Set([...granted].filter((id) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(id)));
+    const allowed = grantedHouseIdsForOwner(scope, owner);
     const rowData = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
     const email = normalizeEmail(record.participant_email) || normalizeEmail(rowData.email);
     const person = new Set<string>([

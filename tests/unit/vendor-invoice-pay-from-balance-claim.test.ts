@@ -109,12 +109,17 @@ describe("pay from the PropLane balance", () => {
     expect(settleInvoicePayment).not.toHaveBeenCalled();
   });
 
-  it("releases the claim when the ledger move throws", async () => {
+  it("KEEPS the claim when the move's outcome is unknown, and says so", async () => {
+    // The move is one RPC: a throw is a lost response, so it may have COMMITTED.
+    // Releasing would free the bank rail - which shares no idempotency key with
+    // the balance move - and pay the vendor twice.
     moveResult.throws = true;
     const res = await call();
-    expect(res.status).toBe(500);
-    expect(fake.payoutDeletes).toHaveLength(1);
-    expect(fake.invoiceUpdates[0]).toMatchObject({ payment_claim: null });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_STATUS_UNKNOWN" });
+    expect(fake.payoutDeletes).toEqual([]);
+    expect(fake.invoiceUpdates).toEqual([]);
+    expect(settleInvoicePayment).not.toHaveBeenCalled();
   });
 
   it("keeps the claim once the money HAS moved", async () => {

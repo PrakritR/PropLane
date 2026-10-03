@@ -1006,6 +1006,8 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
       amountLabel: amount,
       balanceLabel: status === "paid" ? "$0.00" : amount,
       dueAtSigning: true,
+      // Stamped when the charge was created: only a stamped line gates the signature.
+      axisPaymentsEnabledSnapshot: true,
     },
   });
   const sign = (extra: Record<string, unknown> = {}) =>

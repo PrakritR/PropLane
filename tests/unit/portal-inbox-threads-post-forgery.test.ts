@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   db: null as unknown,
   /** Stand in for a Communication grant on another owner's conversation. */
   seesOtherOwners: false,
+  grantedHouses: ["H1"] as string[],
 }));
 
 vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
@@ -29,7 +30,13 @@ vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
     state.seesOtherOwners ? query : query.eq("owner_user_id", user.id),
 }));
 vi.mock("@/lib/communication/conversation-visibility.server", () => ({
-  resolveCommunicationScope: async () => ({ ownerIds: [] }),
+  resolveCommunicationScope: async () => ({
+    ownerIds: [],
+    grantedHousesByOwner: new Map([["owner-1", new Set(state.grantedHouses)]]),
+    workspaceHouseIds: null,
+  }),
+  grantedHouseIdsForOwner: (scope: { grantedHousesByOwner: Map<string, Set<string>> }, ownerId: string) =>
+    scope.grantedHousesByOwner.get(ownerId) ?? new Set<string>(),
   filterVisibleInboxThreadRecords: async (_db: unknown, _scope: unknown, rows: unknown[]) => rows,
 }));
 vi.mock("@/lib/agent-notify.server", () => ({ ensureManagerAgentNoticeThread: vi.fn() }));
@@ -53,6 +60,27 @@ function seed(roles: string[] = ["manager"]) {
   return createMemoryDb({
     profile_roles: roles.map((role) => ({ user_id: B, role })),
     portal_inbox_thread_records: [],
+    audit_log: [],
+  });
+}
+
+/** Another owner's merged conversation, as a co-manager granted only H1 sees it. */
+function pushSharedThread() {
+  (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+    id: "msg_inbox_shared",
+    scope: MGR,
+    owner_user_id: "owner-1",
+    participant_email: "tenant@example.test",
+    thread_type: null,
+    row_data: {
+      id: "msg_inbox_shared",
+      folder: "inbox",
+      unread: true,
+      messages: [
+        { id: "m1", body: "about house 1", at: "Oct 2", houseId: "H1" },
+        { id: "m2", body: "about house 2", at: "Oct 2", houseId: "H2" },
+      ],
+    },
   });
 }
 const rows = () => (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records;
@@ -77,6 +105,7 @@ const forged = (scope: string, extra: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   state.viewer = { id: B, email: "b@example.test", role: "manager" };
   state.seesOtherOwners = false;
+  state.grantedHouses = ["H1"];
   state.db = seed();
 });
 
@@ -190,6 +219,98 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     expect(stored.owner_user_id).toBe("owner-1");
     expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
     expect(stored.row_data.unread).toBe(false);
+  });
+
+  it("refuses a co-manager inventing an INBOUND turn on another owner's conversation", async () => {
+    state.seesOtherOwners = true;
+    pushSharedThread();
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "msg_inbox_shared",
+        scope: MGR,
+        folder: "inbox",
+        messages: [
+          { id: "m1", body: "about house 1", at: "Oct 2", houseId: "H1" },
+          { id: "forged", body: "I agreed to this", at: "Oct 3", houseId: "H1", from: "Resident", outbound: false },
+        ],
+      },
+    });
+    expect(res.status).toBe(403);
+    const stored = rows()[0] as { row_data: { messages: { id: string }[] } };
+    expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("refuses a co-manager's turn about a house they were never granted", async () => {
+    state.seesOtherOwners = true;
+    pushSharedThread();
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "msg_inbox_shared",
+        scope: MGR,
+        folder: "inbox",
+        messages: [{ id: "mine", body: "hi", at: "Oct 3", houseId: "H2", outbound: true }],
+      },
+    });
+    expect(res.status).toBe(403);
+    expect((rows()[0] as { row_data: { messages: unknown[] } }).row_data.messages).toHaveLength(2);
+  });
+
+  it("the OWNER cannot rewrite or delete a stored turn either", async () => {
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "msg_inbox_mine_2", scope: MGR, owner_user_id: B, participant_email: "b@example.test", thread_type: null,
+      row_data: {
+        id: "msg_inbox_mine_2",
+        folder: "inbox",
+        unread: true,
+        messages: [{ id: "inbound", body: "what the resident actually said", at: "Oct 1" }],
+      },
+    });
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "msg_inbox_mine_2",
+        scope: MGR,
+        folder: "inbox",
+        unread: false,
+        messages: [{ id: "inbound", body: "rewritten", at: "Oct 1" }],
+      },
+    });
+    expect(res.status).toBe(200);
+    const stored = rows()[0] as { row_data: { unread: boolean; messages: { body: string }[] } };
+    expect(stored.row_data.messages).toEqual([{ id: "inbound", body: "what the resident actually said", at: "Oct 1" }]);
+    expect(stored.row_data.unread).toBe(false);
+  });
+
+  it("clearing the Assistant conversation is its own explicit, audited action", async () => {
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "agent_notice_acct-b", scope: MGR, owner_user_id: B, participant_email: null, thread_type: "agent_notice",
+      row_data: { id: "agent_notice_acct-b", folder: "inbox", messages: [{ id: "a1", body: "hi", at: "Oct 1" }] },
+    });
+    const res = await post({
+      action: "clearMessages",
+      scope: MGR,
+      id: "agent_notice_acct-b",
+      placeholder: { preview: "Ask me anything", subject: "PropLane Assistant", from: "PropLane Assistant" },
+    });
+    expect(res.status).toBe(200);
+    const stored = rows()[0] as { row_data: { messages: unknown[]; preview: string } };
+    expect(stored.row_data.messages).toEqual([]);
+    expect(stored.row_data.preview).toBe("Ask me anything");
+    const audit = (state.db as { __tables: Record<string, unknown[]> }).__tables.audit_log ?? [];
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ action: "inbox_thread_cleared", actor_user_id: B });
+  });
+
+  it("will not clear an ordinary person conversation", async () => {
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "msg_inbox_person", scope: MGR, owner_user_id: B, participant_email: "b@example.test", thread_type: null,
+      row_data: { id: "msg_inbox_person", folder: "inbox", messages: [{ id: "a1", body: "hi", at: "Oct 1" }] },
+    });
+    const res = await post({ action: "clearMessages", scope: MGR, id: "msg_inbox_person" });
+    expect(res.status).toBe(400);
+    expect((rows()[0] as { row_data: { messages: unknown[] } }).row_data.messages).toHaveLength(1);
   });
 
   it("lets an admin write the admin inbox", async () => {

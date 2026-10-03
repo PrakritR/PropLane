@@ -51,11 +51,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     await claimInvoicePayment(auth.db, auth.userId, id, "balance");
 
-    // Nothing moved, so release the balance claim — the manager must still be able to pay
-    // this invoice from the bank (C2-MN3). Only an unpaid invoice still claimed by "balance".
-    // EVERY path where the move did not happen releases it: a claim left behind with no
-    // money moved made `claim_vendor_invoice_payment` reject every other rail, so the
-    // invoice could no longer be paid, scheduled or deleted at all.
+    // The move is ONE transaction, so `ok: false` means the database said no and
+    // nothing moved: the claim is released there, because a claim left behind
+    // with no money moved made `claim_vendor_invoice_payment` reject every other
+    // rail and the invoice could no longer be paid, scheduled or deleted at all.
+    // Only an unpaid invoice still claimed by "balance" is released (C2-MN3).
     const releaseClaim = async () => {
       await auth.db.from("vendor_payouts").delete().eq("invoice_id", id).eq("manager_user_id", auth.userId).eq("status", "pending");
       await auth.db.from("vendor_invoices").update({ payment_claim: null, updated_at: new Date().toISOString() })
@@ -71,8 +71,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         idempotencyRoot: `vendor-invoice:${id}`,
       });
     } catch (e) {
-      await releaseClaim().catch(() => undefined);
-      throw e;
+      // A THROW is the one ambiguous outcome: the RPC may have committed while
+      // the response was lost. Releasing here would free the bank rail - which
+      // shares no idempotency key with the balance move - and pay the vendor
+      // twice. The claim stays for reconciliation and the manager retries; the
+      // balance move itself is idempotent on `vendor-invoice:<id>`.
+      console.error("[pay-from-balance] balance move outcome unknown; claim left in place", {
+        invoiceId: id,
+        managerUserId: auth.userId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return NextResponse.json(
+        {
+          error: "We could not confirm whether that payment went through. Nothing else was charged — try again in a moment.",
+          code: "PAYMENT_STATUS_UNKNOWN",
+        },
+        { status: 503 },
+      );
     }
     if (!move.ok) {
       await releaseClaim().catch(() => undefined);

@@ -97,6 +97,7 @@ describe("ensureSubmittedVendorInvoiceForMarkedDone", () => {
         };
       },
     };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await ensureSubmittedVendorInvoiceForMarkedDone(db as never, {
       workOrderId: "wo-3",
       managerUserId: "mgr-1",
@@ -104,5 +105,11 @@ describe("ensureSubmittedVendorInvoiceForMarkedDone", () => {
       row: { title: "Move-out clean", vendorCostCents: 12_000, assignee: { type: "vendor", id: "v1", name: "Dana" } } as DemoManagerWorkOrderRow,
     });
     expect(insertVendorInvoiceRow).not.toHaveBeenCalled();
+    // A completed job that produces no bill has to be diagnosable, not invisible.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no roster row"),
+      expect.objectContaining({ workOrderId: "wo-3", managerUserId: "mgr-1", vendorUserId: "vendor-user-1" }),
+    );
+    warn.mockRestore();
   });
 });
