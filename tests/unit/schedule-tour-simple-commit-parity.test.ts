@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildProspectRow, type AddPersonForm, type BuildRowContext } from "@/components/portal/resident-wizard/state";
+import { readManagerApplicationRows, appendManagerApplicationRow } from "@/lib/manager-applications-storage";
 import { buildScheduleTourSimpleForm } from "@/lib/schedule-tour-simple";
 
 /**
@@ -100,4 +101,18 @@ describe("commitProspect — the simplified modal's booking call matches the old
       notes: "Meet at the gate",
     });
   });
+});
+
+
+it.each(["New room", undefined])("uses this booking's placement (%s) and Pacific window for an existing visitor", async (roomNumber) => {
+  const { commitProspect } = await import("@/components/portal/resident-wizard/commit");
+  const form = buildScheduleTourSimpleForm({ name: "Jamie", email: "jamie@example.com", phone: "", propertyId: "prop_alder", roomId: "", bundleId: "", tourFormat: "in_person", slotKey: "2026-08-06:18", tourNotes: "" });
+  const built = buildProspectRow(form, ctx);
+  expect(built.ok).toBe(true);
+  if (!built.ok) return;
+  vi.mocked(readManagerApplicationRows).mockReturnValueOnce([{ ...built.row, id: "existing-visitor", manualResidentDetails: { ...built.row.manualResidentDetails, roomNumber: "Old room" } }]);
+  const window = { start: "2026-08-06T16:00:00.000Z", end: "2026-08-06T16:30:00.000Z" };
+  await commitProspect({ ...built.row, manualResidentDetails: { ...built.row.manualResidentDetails, roomNumber } }, form, { ...commitCtx, tourWindow: window });
+  expect(appendManagerApplicationRow).not.toHaveBeenCalled();
+  expect(createManualPlannedTourClient).toHaveBeenCalledWith("mgr-1", expect.objectContaining({ roomLabel: roomNumber, ...window }));
 });

@@ -287,7 +287,8 @@ export async function commitProspect(built: DemoApplicantRow, form: AddPersonFor
     const durationMs = Math.max(15, Number(form.tourDurationMinutes) || 30) * 60 * 1000;
     const end = ctx.tourWindow?.end ?? new Date(Date.parse(start) + durationMs).toISOString();
     const label = form.propertyId ? ctx.propertyLabelFor(form.propertyId) : undefined;
-    const roomLabel = row.manualResidentDetails?.roomNumber ?? built.manualResidentDetails?.roomNumber;
+    // Placement belongs to this booking, even when the visitor already has a record.
+    const roomLabel = built.manualResidentDetails?.roomNumber;
     if (!form.propertyId) {
       failures.tour = "Pick a property to put the tour on the calendar.";
     } else {

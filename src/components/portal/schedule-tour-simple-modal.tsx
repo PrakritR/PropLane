@@ -20,6 +20,7 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import { TOUR_CONFIRMED_TENANT_SUBJECT, buildTourConfirmedTenantBody, buildTourNotificationContext } from "@/lib/tour-notifications";
 import {
   fetchOpenTourSlotsForProperty,
+  tourSlotsForManager,
   openSlotKeysForDate,
   slotKeyToTourFields,
   type SlotHosts,
@@ -94,13 +95,13 @@ export function ScheduleTourSimpleModal({
         setAvailability("error");
         return;
       }
-      setSlotHosts(result.slotHosts);
+      setSlotHosts(tourSlotsForManager(result.slotHosts, managerUserId));
       setAvailability("idle");
     });
     return () => {
       cancelled = true;
     };
-  }, [open, form.propertyId]);
+  }, [open, form.propertyId, managerUserId]);
 
   const daySlotKeys = useMemo(() => openSlotKeysForDate(slotHosts, selectedDateStr), [slotHosts, selectedDateStr]);
 
@@ -135,10 +136,11 @@ export function ScheduleTourSimpleModal({
     setError("");
     try {
     const fresh = await fetchOpenTourSlotsForProperty({ id: form.propertyId });
+    const freshSlots = fresh.ok ? tourSlotsForManager(fresh.slotHosts, managerUserId) : {};
     const window = slotKey ? isoWindowFromSlotKey(slotKey) : null;
-    if (!fresh.ok || !slotKey || !fresh.slotHosts[slotKey]?.length || !window || Date.parse(window.start) <= Date.now()) {
+    if (!fresh.ok || !slotKey || !freshSlots[slotKey]?.length || !window || Date.parse(window.start) <= Date.now()) {
       setSlotKey(null); setCurrent(1); setError(fresh.ok ? "That time is no longer open. Choose another time." : fresh.error);
-      if (fresh.ok) setSlotHosts(fresh.slotHosts);
+      if (fresh.ok) setSlotHosts(freshSlots);
       return;
     }
     const built = buildProspectRow(form, { userId: managerUserId, propertyLabelFor, allowContactless: true });
@@ -147,7 +149,7 @@ export function ScheduleTourSimpleModal({
       return;
     }
     const commitCtx: CommitContext = { userId: managerUserId, executedLeaseKeys: EMPTY_LEASE_KEYS, propertyLabelFor, assignee: null, tourWindow: window };
-    const outcome = await commitProspect(savedVisitor.current ?? built.row, form, commitCtx);
+    const outcome = await commitProspect(savedVisitor.current ? { ...built.row, id: savedVisitor.current.id } : built.row, form, commitCtx);
     if (outcome.failures.row) {
       showToast(outcome.failures.row);
       return;

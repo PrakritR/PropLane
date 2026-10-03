@@ -20,6 +20,15 @@ import type { PropertyManagerEntry } from "@/lib/demo-admin-scheduling";
 
 export type SlotHosts = Record<string, PropertyManagerEntry[]>;
 
+/** Manual tours book the acting manager, never another host from the public union. */
+export function tourSlotsForManager(slotHosts: SlotHosts, managerUserId: string | null): SlotHosts {
+  if (!managerUserId) return {};
+  return Object.fromEntries(Object.entries(slotHosts).flatMap(([key, hosts]) => {
+    const ownHosts = hosts.filter((host) => host.userId === managerUserId);
+    return ownHosts.length ? [[key, ownHosts]] : [];
+  }));
+}
+
 /** The `dateStr` half of a `"YYYY-MM-DD:idx"` slot key. */
 export function slotKeyDateStr(slotKey: string): string {
   return slotKey.split(":")[0] ?? "";
