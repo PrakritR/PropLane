@@ -53,9 +53,13 @@ export async function GET(req: Request) {
 
     const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
     if (roomId) {
+      // The destination is the site the link is pasted into; "other" carries every channel.
+      const rawDestination = url.searchParams.get("provider")?.trim() ?? "";
+      const destination = rawDestination === "other" ? "other" : rawDestination ? parseChannelCalendarProvider(rawDestination) : "airbnb";
+      if (!destination) return NextResponse.json({ error: "Unknown calendar channel." }, { status: 400 });
       const exportUrl = await ensureRoomExportCalendarUrl(
         ctx.db,
-        { propertyId, roomId, label: roomLabel || null },
+        { propertyId, roomId, label: roomLabel || null, destination },
         browserOrigin,
       );
       return NextResponse.json({ exportUrl });
