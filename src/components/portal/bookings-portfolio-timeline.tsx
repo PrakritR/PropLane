@@ -1,487 +1,109 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Fragment, useSyncExternalStore, useState, type ReactNode } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import Link from "next/link";
-import {
-  bookingVisualSource,
-  type PropertyBookingEntry,
-} from "@/lib/channel-calendar/property-bookings";
-import { bookingSourceDotClass, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
-import {
-  dayOccupancy,
-  dayOccupancyFromLookup,
-  type OccupancyDayLookup,
-} from "@/lib/channel-calendar/bookings-occupancy";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { addDaysToDateKey, bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
+import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
+import { BOOKING_CALENDAR_VIEWS, bookingActiveOn, bookingCheckout, bookingLanes, calendarOccupancy, calendarRange, calendarStatus, calendarStatusClass, occupancyCell, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
-import { usePortalSurface } from "@/components/ui/portal-surface";
-import { addDays, dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
-
-/**
- * All-properties Timeline — replaces the old Day/Week/Month/Year grid for the
- * portfolio Calendar tab (BUILD-WAVE2 C257). Every property is a sticky group
- * header with its rooms beneath, sharing one scrollable date axis and a today
- * line, so scrolling through many rooms never loses which house they belong
- * to — the regression the captain flagged in the old grid.
- */
-
-/** A fixed three-week window keeps the axis a stable, scrollable width. */
-const TIMELINE_WINDOW_DAYS = 21;
-/** Today sits a few columns in from the left edge, never flush against it. */
-const TIMELINE_TODAY_OFFSET_DAYS = 4;
-
-type TimelineRoomRow = { id: string; label: string };
-
-type TimelineProperty = {
-  propertyId: string;
-  label: string;
-  entries: PropertyBookingEntry[];
-  rooms: TimelineRoomRow[];
-};
+import { dateKey } from "@/lib/room-availability-calendar";
+import { occupancyStayKind } from "@/lib/occupancy/snapshot";
+import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
+import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
 export type BookingsPortfolioTimelineProps = {
-  /** Every property in scope, including ones with zero bookings. */
   propertyIds: string[];
   entries: PropertyBookingEntry[];
   today: Date;
-  onOpenDay: (dayKey: string) => void;
+  onOpenDay?: (dayKey: string) => void;
   occupancyDays?: OccupancyDayLookup;
   emptyMessage?: string;
+  onAddBooking?: () => void;
+  onEditBooking?: (entry: PropertyBookingEntry) => void;
+  /** Explicit page scope, so filtering the workspace never changes its preference. */
+  preferenceKey?: string;
+  roomFilterId?: string;
 };
+const subscribe = (notify: () => void) => { window.addEventListener("resize", notify); window.addEventListener("storage", notify); return () => { window.removeEventListener("resize", notify); window.removeEventListener("storage", notify); }; };
+const dateLabel = (key: string, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }) => new Date(`${key}T12:00:00`).toLocaleDateString("en-US", options);
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
 
-function propertyLabelFallback(propertyId: string): string {
+function propertyRooms(propertyId: string, entries: PropertyBookingEntry[]) {
   const property = getPropertyById(propertyId);
-  if (!property) return propertyId;
-  const buildingUnit = property.buildingName && property.unitLabel
-    ? `${property.buildingName} · ${property.unitLabel}`
-    : "";
-  const candidates = [buildingUnit, property.title, property.address];
-  const found = candidates.find((candidate) => candidate.trim());
-  return found?.trim() || propertyId;
-}
-
-/** Prefer a label an entry already resolved; only fall back for a house with no bookings. */
-function propertyLabelFor(propertyId: string, propertyEntries: readonly PropertyBookingEntry[]): string {
-  return propertyEntries[0]?.propertyLabel?.trim() || propertyLabelFallback(propertyId);
-}
-
-/**
- * A property's room rows: the declared listing rooms when there are any (so
- * an empty house still shows its rooms), else the distinct rooms its own
- * bookings name, else one "Whole home" placeholder row.
- */
-function roomRowsForProperty(
-  propertyId: string,
-  propertyEntries: readonly PropertyBookingEntry[],
-): TimelineRoomRow[] {
-  const declared = getRoomOptionsForProperty(propertyId);
-  if (declared.length > 0) {
-    return declared.map((option) => ({
-      id: parseRoomChoiceValue(option.value).listingRoomId ?? "",
-      label: option.label,
-    }));
+  const configured = property?.listingSubmission?.rooms ?? [];
+  const options = getRoomOptionsForProperty(propertyId, { includeUnavailable: true });
+  const seen = new Map<string, { id: string; label: string; rent: string }>();
+  for (const option of options) {
+    const id = parseRoomChoiceValue(option.value).listingRoomId ?? "";
+    const room = configured.find(row => row.id === id);
+    const label = option.label.split(" · ").filter(part => !part.includes("$") && !part.includes("sq ft") && !part.includes("Rent TBD")).slice(0, 2).join(" · ");
+    seen.set(id, { id, label, rent: room ? roomHeadlinePriceLabel(room, "") : "" });
   }
-  const seen = new Map<string, string>();
-  for (const entry of propertyEntries) {
-    if (!entry.roomId || seen.has(entry.roomId)) continue;
-    seen.set(entry.roomId, entry.roomLabel || entry.roomId);
-  }
-  if (seen.size > 0) {
-    return [...seen.entries()].map(([id, label]) => ({ id, label }));
-  }
-  return [{ id: "", label: "Whole home" }];
+  if (!seen.size) for (const entry of entries) seen.set(entry.roomId, { id: entry.roomId, label: entry.roomLabel, rent: "" });
+  if (!seen.size) seen.set("", { id: "", label: "Whole home", rent: "" });
+  return [...seen.values()];
+}
+export function BookingsCalendarKey() {
+  return <div className="grid gap-2 p-3">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <div key={status} className="flex items-center gap-2 text-xs"><span className={`h-3 w-6 rounded ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</div>)}</div>;
+}
+function BookingBar({ entry, today, children, className, style, onEdit }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties; onEdit?: (entry: PropertyBookingEntry) => void }) {
+  const status = calendarStatus(entry, today);
+  const checkout = bookingCheckout(entry);
+  return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${entry.summary}, ${status}`}>
+    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <svg aria-label="Airbnb" role="img" viewBox="0 0 24 24" className="mr-1 inline h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 3c-2 0-3 3-5 7l-3 6c-2 5 2 7 5 4l3-3 3 3c3 3 7 1 5-4l-3-6c-2-4-3-7-5-7Z"/><path d="M12 17c-5-4-3-8 0-8s5 4 0 8Z"/></svg> : entry.source === "booking_com" ? "B · " : ""}{entry.residentName || entry.summary}</span>{children}
+  </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]" backdrop={false}>
+    <div className="grid gap-2 p-3 text-sm"><strong>{entry.residentName || entry.summary}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
+    {onEdit && entry.source !== "airbnb" && entry.source !== "booking_com" ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
+    <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>
+  </DropdownMenuContent></DropdownMenu>;
 }
 
-function formatWeekdayLabel(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "short" }).slice(0, 2);
-}
-
-function formatWeekdayMonthDay(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-}
-
-function formatMonthDay(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatMonthDayYear(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-/** Occupied/total for one day, across `propertyIds` — the snapshot lookup when there is one, else computed. */
-function dayStatsFor(
-  entries: readonly PropertyBookingEntry[],
-  occupancyDays: OccupancyDayLookup | undefined,
-  dayKey: string,
-  propertyIds: readonly string[],
-) {
-  return dayOccupancyFromLookup(occupancyDays, dayKey, propertyIds, () =>
-    dayOccupancy(entries, dayKey, propertyIds, bookingOccupancyCapacities),
-  );
-}
-
-/** Clip an inclusive start/end range to the visible window; null when it never intersects. */
-function clipToWindow(
-  entry: Pick<PropertyBookingEntry, "start" | "end">,
-  windowKeys: readonly string[],
-): { startIndex: number; endIndex: number } | null {
-  const first = windowKeys[0];
-  const last = windowKeys[windowKeys.length - 1];
-  if (first === undefined || last === undefined || entry.end < first || entry.start > last) return null;
-  let startIndex = 0;
-  while (startIndex < windowKeys.length && windowKeys[startIndex]! < entry.start) startIndex += 1;
-  let endIndex = windowKeys.length - 1;
-  while (endIndex >= 0 && windowKeys[endIndex]! > entry.end) endIndex -= 1;
-  if (startIndex > endIndex) return null;
-  return { startIndex, endIndex };
-}
-
-const TIMELINE_NAV_BUTTON =
-  "flex h-8 shrink-0 items-center justify-center rounded-full border border-border bg-card px-3 text-xs font-semibold text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground";
-
-export function BookingsPortfolioTimeline({
-  propertyIds,
-  entries,
-  today,
-  onOpenDay,
-  occupancyDays,
-  emptyMessage,
-}: BookingsPortfolioTimelineProps) {
-  // Same pointer/room decision every popup in the portal uses (portal-surface.ts)
-  // — a "sheet" answer is the narrow-viewport shape, reused here as the phone
-  // stacked layout instead of the desktop shared axis.
-  const isPhone = usePortalSurface("toolbar") === "sheet";
-  const normalizedToday = useMemo(() => startOfLocalDay(today), [today]);
-
-  const [windowStart, setWindowStart] = useState(() => addDays(normalizedToday, -TIMELINE_TODAY_OFFSET_DAYS));
-
-  const windowDays = useMemo(
-    () => Array.from({ length: TIMELINE_WINDOW_DAYS }, (_, index) => addDays(windowStart, index)),
-    [windowStart],
-  );
-  const windowKeys = useMemo(() => windowDays.map(dateKey), [windowDays]);
-  const todayKey = dateKey(normalizedToday);
-  const todayIndex = windowKeys.indexOf(todayKey);
-
-  const entriesByProperty = useMemo(() => {
-    const map = new Map<string, PropertyBookingEntry[]>();
-    for (const entry of entries) {
-      const list = map.get(entry.propertyId);
-      if (list) list.push(entry);
-      else map.set(entry.propertyId, [entry]);
-    }
-    return map;
-  }, [entries]);
-
-  const properties = useMemo<TimelineProperty[]>(
-    () =>
-      propertyIds.map((propertyId) => {
-        const propertyEntries = entriesByProperty.get(propertyId) ?? [];
-        return {
-          propertyId,
-          label: propertyLabelFor(propertyId, propertyEntries),
-          entries: propertyEntries,
-          rooms: roomRowsForProperty(propertyId, propertyEntries),
-        };
-      }),
-    [propertyIds, entriesByProperty],
-  );
-
-  const emptyPortfolio = propertyIds.length === 0;
-  const first = windowDays[0];
-  const last = windowDays[windowDays.length - 1];
-  const windowLabel = first && last ? `${formatMonthDay(first)} – ${formatMonthDayYear(last)}` : "";
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3" data-attr="bookings-portfolio-timeline">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <button
-          type="button"
-          aria-label="Previous week"
-          data-attr="bookings-timeline-prev"
-          className={TIMELINE_NAV_BUTTON}
-          onClick={() => setWindowStart((current) => addDays(current, -7))}
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-        </button>
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-sm font-semibold text-foreground">{windowLabel}</p>
-        </div>
-        <button
-          type="button"
-          data-attr="bookings-timeline-today"
-          className={TIMELINE_NAV_BUTTON}
-          onClick={() => setWindowStart(addDays(normalizedToday, -TIMELINE_TODAY_OFFSET_DAYS))}
-        >
-          Today
-        </button>
-        <button
-          type="button"
-          aria-label="Next week"
-          data-attr="bookings-timeline-next"
-          className={TIMELINE_NAV_BUTTON}
-          onClick={() => setWindowStart((current) => addDays(current, 7))}
-        >
-          <ChevronRight className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
-
-      {emptyPortfolio ? (
-        <div
-          className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
-          data-attr="bookings-empty-houses-banner"
-        >
-          <p className="text-sm font-semibold text-foreground">{emptyMessage ?? "No houses yet"}</p>
-          <Link
-            href="/portal/properties"
-            className="inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-card px-3 text-sm font-semibold"
-            data-attr="bookings-empty-add-property"
-          >
-            Add property
-          </Link>
-        </div>
-      ) : null}
-
-      {isPhone ? (
-        <PhonePropertyStack
-          properties={properties}
-          entries={entries}
-          windowDays={windowDays}
-          windowKeys={windowKeys}
-          todayKey={todayKey}
-          occupancyDays={occupancyDays}
-          onOpenDay={onOpenDay}
-        />
-      ) : (
-        <DesktopTimelineGrid
-          properties={properties}
-          propertyIds={propertyIds}
-          entries={entries}
-          windowDays={windowDays}
-          windowKeys={windowKeys}
-          todayIndex={todayIndex}
-          occupancyDays={occupancyDays}
-          onOpenDay={onOpenDay}
-        />
-      )}
-    </div>
-  );
-}
-
-function DesktopTimelineGrid({
-  properties,
-  propertyIds,
-  entries,
-  windowDays,
-  windowKeys,
-  todayIndex,
-  occupancyDays,
-  onOpenDay,
-}: {
-  properties: TimelineProperty[];
-  propertyIds: readonly string[];
-  entries: readonly PropertyBookingEntry[];
-  windowDays: Date[];
-  windowKeys: string[];
-  todayIndex: number;
-  occupancyDays?: OccupancyDayLookup;
-  onOpenDay: (dayKey: string) => void;
-}) {
-  const gridTemplateColumns = `10rem repeat(${TIMELINE_WINDOW_DAYS}, minmax(2.5rem, 1fr))`;
-
-  return (
-    <div
-      className="relative min-h-0 flex-1 overflow-auto rounded-xl border border-border"
-      data-attr="bookings-timeline-desktop-grid"
-    >
-      <div className="grid" style={{ gridTemplateColumns }}>
-        <div className="sticky left-0 top-0 z-30 border-b border-r border-border bg-card" aria-hidden />
-        {windowDays.map((day, index) => {
-          const key = windowKeys[index]!;
-          const stats = dayStatsFor(entries, occupancyDays, key, propertyIds);
-          const isToday = index === todayIndex;
-          return (
-            <button
-              key={key}
-              type="button"
-              data-attr={`portfolio-booking-day-${key}`}
-              aria-label={`Open ${formatWeekdayMonthDay(day)}`}
-              className={`sticky top-0 z-20 flex flex-col items-center justify-center gap-0.5 border-b border-border bg-card py-1.5 text-[10px] font-semibold transition hover:bg-accent/25 ${
-                isToday ? "text-primary" : "text-muted"
-              }`}
-              onClick={() => onOpenDay(key)}
-            >
-              <span className="uppercase tracking-wide">{formatWeekdayLabel(day)}</span>
-              <span className="text-xs tabular-nums text-foreground">{day.getDate()}</span>
-              {stats.rooms > 0 ? <span className="tabular-nums">{stats.occupied}/{stats.rooms}</span> : null}
-            </button>
-          );
+export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps & { occupancyMode?: boolean }) {
+  const { propertyIds, today, onEditBooking, onAddBooking, roomFilterId, occupancyMode = false } = props;
+  const entries = props.entries.filter(entry => entry.bookingStatus !== "cancelled" && entry.statusLabel?.toLowerCase() !== "cancelled");
+  const scope = `proplane:bookings-calendar:${props.preferenceKey ?? "workspace"}`;
+  const savedView = useSyncExternalStore(subscribe, () => { try { const saved = localStorage.getItem(scope); if (BOOKING_CALENDAR_VIEWS.includes(saved as BookingCalendarView)) return saved as BookingCalendarView; } catch {} return window.innerWidth < 640 ? "week" : "month"; }, () => "month" as BookingCalendarView);
+  const isPhone = useSyncExternalStore(subscribe, () => window.innerWidth < 640, () => false);
+  const occupancySpan = isPhone ? 3 : 14;
+  const guests = entries.filter(entry => entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry)));
+  const [chosenView, setChosenView] = useState<BookingCalendarView | null>(null);
+  const view = chosenView ?? savedView;
+  const [anchor, setAnchor] = useState(() => dateKey(today));
+  const changeView = (value: BookingCalendarView) => { setChosenView(value); try { localStorage.setItem(scope, value); } catch {} };
+  const days = occupancyMode ? Array.from({ length: occupancySpan }, (_, i) => addDaysToDateKey(anchor, i)) : calendarRange(view, anchor);
+  const actualView = occupancyMode ? "week" : view;
+  const todayKey = dateKey(today);
+  const next = (direction: number) => { if (occupancyMode || view === "week" || view === "day") setAnchor(addDaysToDateKey(anchor, direction * (occupancyMode ? occupancySpan : view === "week" ? 7 : 1))); else { const d = new Date(`${anchor}T12:00:00`); setAnchor(dateKey(new Date(d.getFullYear() + (view === "year" ? direction : 0), d.getMonth() + (view === "month" ? direction : 0), 1))); } };
+  const drill = (day: string) => { setAnchor(day); changeView("month"); };
+  const rangeTitle = actualView === "year" ? anchor.slice(0,4) : actualView === "month" ? dateLabel(anchor, { month: "long", year: "numeric" }) : actualView === "day" ? dateLabel(anchor, { weekday: "short", month: "short", day: "numeric" }) : `${dateLabel(days[0]!)} – ${dateLabel(days.at(-1)!)}`;
+  const empty = !entries.some(entry => propertyIds.includes(entry.propertyId) && entry.start <= (actualView === "year" ? `${anchor.slice(0,4)}-12-31` : days.at(-1)!) && (entry.openEnded || entry.end >= days[0]!));
+  const colWidth = occupancyMode ? 150 : actualView === "week" ? 90 : actualView === "month" ? 32 : actualView === "year" ? 70 : 320;
+  const labelClass = "sticky left-0 z-10 flex w-36 shrink-0 flex-col justify-center border-b border-r border-border bg-card px-3 py-2 text-xs sm:w-48";
+  const gridStyle = { display: "grid", gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` };
+  const roomEntries = (mine: PropertyBookingEntry[], roomId: string) => mine.filter(entry => !entry.roomId || entry.roomId === roomId);
+  return <div className="flex min-w-0 flex-col gap-3" data-attr="bookings-portfolio-timeline" data-view={actualView}>
+    <div className="flex flex-wrap items-center gap-2"><PortalIconAction icon={ChevronLeft} label={`Previous ${occupancyMode ? `${occupancySpan} days` : view}`} onClick={() => next(-1)} /><PortalIconAction icon={ChevronRight} label={`Next ${occupancyMode ? `${occupancySpan} days` : view}`} onClick={() => next(1)} /><strong className="text-sm">{rangeTitle}</strong><button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={() => setAnchor(todayKey)}>Today</button>{occupancyMode ? <input type="date" aria-label="Starting date" value={anchor} onChange={e => { if (e.target.value) setAnchor(e.target.value); }} /> : <select aria-label="Calendar view" className="rounded-full border border-border bg-card px-3 py-1 text-sm" value={view} onChange={e => changeView(e.target.value as BookingCalendarView)}>{BOOKING_CALENDAR_VIEWS.map(option => <option key={option} value={option}>{option[0]!.toUpperCase() + option.slice(1)}</option>)}</select>}</div>
+    <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      {empty ? <div data-attr="bookings-empty-houses-banner" className="flex items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
+      <div className="max-w-full overflow-x-auto" data-attr="bookings-calendar-scroll"><div style={{ minWidth: `calc(9rem + ${days.length * colWidth}px)` }}>
+        <div className="flex"><div className={labelClass}>Room</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => <button type="button" key={day} aria-label={`Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => actualView === "year" ? drill(day) : props.onOpenDay?.(day)} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`}><span className="text-[10px] uppercase text-muted">{dateLabel(day, actualView === "year" ? { year: "numeric" } : { weekday: "short" })}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full ${day === todayKey ? "bg-primary text-white" : ""}`}>{dateLabel(day, actualView === "year" ? { month: "short" } : { day: "numeric" })}</strong></button>)}</div></div>
+        {actualView === "day" ? <div className="p-3 text-sm">{guests.filter(e => propertyIds.includes(e.propertyId) && bookingActiveOn(e, anchor)).length} staying · {guests.filter(e => propertyIds.includes(e.propertyId) && e.start === anchor).length} check-ins · {guests.filter(e => propertyIds.includes(e.propertyId) && bookingCheckout(e) === anchor).length} check-outs</div> : null}
+        {propertyIds.map(propertyId => {
+          const mine = entries.filter(entry => entry.propertyId === propertyId);
+          const property = getPropertyById(propertyId);
+          const rooms = propertyRooms(propertyId, mine).filter(room => !roomFilterId || room.id === roomFilterId);
+          return <Fragment key={propertyId}><div className="flex" data-attr={`bookings-timeline-property-${propertyId}`}><div className={`${labelClass} bg-accent/30 font-semibold`} title={property?.address}>{mine[0]?.propertyLabel || property?.title || propertyId}</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => { const percent = calendarOccupancy(mine, actualView === "year" ? calendarRange("month", day) : [day], propertyId, bookingOccupancyCapacities); return <div key={day} title={`${percent}% occupied`} className="flex min-h-9 items-center px-px"><div className="h-1.5 w-full rounded" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .8 * percent / 100 : .03})` }} /></div>; })}</div></div>
+          {rooms.map(room => { const all = roomEntries(mine, room.id); const visible = all.filter(entry => entry.start <= days.at(-1)! && (entry.openEnded || entry.end >= days[0]!)); const lanes = bookingLanes(visible); const capacity = bookingOccupancyCapacities.roomCapacity(propertyId, room.id); return <div className="flex" key={room.id}><div className={labelClass} title={property?.address}><span className="font-semibold">{room.label}</span>{room.rent ? <span className="text-muted">{room.rent}</span> : null}</div><div className="relative flex-1 border-b border-border" style={{ minHeight: Math.max(62, 18 + (Math.max(0,...lanes.map(row => row.lane)) + 1) * 34) }}>
+          {actualView === "year" ? <div style={gridStyle}>{days.map(month => { const percent = calendarOccupancy(all, calendarRange("month", month), propertyId, { bedsTotal: () => capacity, roomCapacity: () => capacity }); return <button type="button" key={month} onClick={() => drill(month)} title={`${room.label} · ${dateLabel(month, { month: "long" })}: ${percent}% occupied`} className="min-h-16 border-r border-border text-xs font-semibold" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .75 * percent / 100 : 0})` }}>{percent ? `${percent}%` : ""}</button>; })}</div> : occupancyMode ? <div className="h-full" style={gridStyle}>{days.map(day => { const cell = occupancyCell(all, day, capacity); return <div key={day} className={`border-r border-border p-2 text-xs ${cell.conflicts ? "bg-red-50 text-red-700" : cell.active.length ? "bg-primary/10" : "text-muted"}`}><span>{cell.label}</span>{[...cell.active,...cell.outgoing].map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} className="mt-1 block w-full" />)}</div>; })}</div> : actualView === "day" ? <div className="flex min-h-16 gap-2 p-2">{all.filter(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor).map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} className="min-w-0 flex-1"><span className="block text-[11px]">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span></BookingBar>)}{!all.some(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor) ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div> : <><div className="absolute inset-0" style={gridStyle}>{days.map(day => <div key={day} className={`border-r border-border/40 ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`} />)}</div>{lanes.map(({entry,lane}) => { const start = Math.max(0, dayDiff(entry.start, days[0]!)); const end = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, days[0]!)); const conflict = days.some(day => bookingActiveOn(entry, day) && occupancyCell(all, day, capacity).conflicts); return <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} className={`absolute h-8 overflow-hidden ${conflict ? "ring-2 ring-red-500" : ""}`} style={{ top: 9 + lane * 34, left: `calc(${start / days.length * 100}% + 2px)`, width: `calc(${(end-start) / days.length * 100}% - 4px)` }} />; })}</>}
+          </div></div>; })}</Fragment>;
         })}
-
-        {properties.map((property) => (
-          <PropertyRows key={property.propertyId} property={property} windowKeys={windowKeys} todayIndex={todayIndex} />
-        ))}
-      </div>
+      </div></div>
     </div>
-  );
+  </div>;
 }
-
-function PropertyRows({
-  property,
-  windowKeys,
-  todayIndex,
-}: {
-  property: TimelineProperty;
-  windowKeys: string[];
-  todayIndex: number;
-}) {
-  return (
-    <Fragment>
-      {/* Sticky group header — the fix for losing property grouping while scrolling (BUILD-WAVE2 C257). */}
-      <div
-        className="sticky top-9 z-10 border-b border-border bg-muted/60"
-        style={{ gridColumn: "1 / -1" }}
-        data-attr={`bookings-timeline-property-${property.propertyId}`}
-      >
-        <span className="sticky left-0 inline-block max-w-full truncate bg-inherit px-3 py-1.5 text-sm font-semibold text-foreground">
-          {property.label}
-        </span>
-      </div>
-      {property.rooms.map((room) => (
-        <RoomRow
-          key={room.id || "whole-home"}
-          property={property}
-          room={room}
-          windowKeys={windowKeys}
-          todayIndex={todayIndex}
-        />
-      ))}
-    </Fragment>
-  );
-}
-
-function RoomRow({
-  property,
-  room,
-  windowKeys,
-  todayIndex,
-}: {
-  property: TimelineProperty;
-  room: TimelineRoomRow;
-  windowKeys: string[];
-  todayIndex: number;
-}) {
-  const bars = property.entries
-    .filter((entry) => entry.roomId === room.id || entry.roomId === "")
-    .map((entry) => {
-      const clipped = clipToWindow(entry, windowKeys);
-      if (!clipped) return null;
-      const left = (clipped.startIndex / TIMELINE_WINDOW_DAYS) * 100;
-      const width = ((clipped.endIndex - clipped.startIndex + 1) / TIMELINE_WINDOW_DAYS) * 100;
-      return { entry, left, width };
-    })
-    .filter((bar): bar is { entry: PropertyBookingEntry; left: number; width: number } => bar !== null);
-
-  return (
-    <Fragment>
-      {/* Sticky left label — stays put while the date axis scrolls horizontally. */}
-      <div className="sticky left-0 z-10 truncate border-b border-r border-border bg-card px-3 py-2 text-xs font-medium text-muted">
-        {room.label}
-      </div>
-      <div
-        className="relative border-b border-border"
-        style={{ gridColumn: "2 / -1" }}
-        data-attr={`bookings-timeline-room-${property.propertyId}-${room.id || "whole"}`}
-      >
-        {todayIndex >= 0 ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 w-px bg-primary/60"
-            style={{ left: `${(todayIndex / TIMELINE_WINDOW_DAYS) * 100}%` }}
-          />
-        ) : null}
-        <div className="relative h-9">
-          {bars.map(({ entry, left, width }, index) => (
-            <div
-              key={`${entry.source}-${entry.roomId}-${entry.start}-${entry.end}-${index}`}
-              title={`${formatBookingStayRange(entry.start, entry.end, entry.openEnded)} — ${entry.summary}`}
-              className={`absolute inset-y-1 overflow-hidden rounded-md px-1.5 text-[10px] font-medium leading-9 text-white ${bookingSourceDotClass(
-                bookingVisualSource(entry),
-              )}`}
-              style={{ left: `${left}%`, width: `${width}%` }}
-            >
-              <span className="truncate">{entry.summary}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Fragment>
-  );
-}
-
-function PhonePropertyStack({
-  properties,
-  entries,
-  windowDays,
-  windowKeys,
-  todayKey,
-  occupancyDays,
-  onOpenDay,
-}: {
-  properties: TimelineProperty[];
-  entries: readonly PropertyBookingEntry[];
-  windowDays: Date[];
-  windowKeys: string[];
-  todayKey: string;
-  occupancyDays?: OccupancyDayLookup;
-  onOpenDay: (dayKey: string) => void;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" data-attr="bookings-timeline-phone-stack">
-      {properties.map((property) => (
-        <section
-          key={property.propertyId}
-          className="rounded-xl border border-border bg-card/90 p-3"
-          data-attr={`bookings-timeline-property-${property.propertyId}`}
-        >
-          <p className="truncate text-sm font-semibold text-foreground">{property.label}</p>
-          <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
-            {windowDays.map((day, index) => {
-              const key = windowKeys[index]!;
-              const stats = dayStatsFor(entries, occupancyDays, key, [property.propertyId]);
-              const isToday = key === todayKey;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  data-attr={`portfolio-booking-day-${key}`}
-                  aria-label={`Open ${formatWeekdayMonthDay(day)} for ${property.label}`}
-                  className={`flex h-12 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border text-[10px] font-semibold transition ${
-                    isToday ? "border-primary text-primary" : "border-border/80 text-muted"
-                  }`}
-                  onClick={() => onOpenDay(key)}
-                >
-                  <span className="tabular-nums text-foreground">{day.getDate()}</span>
-                  {stats.rooms > 0 ? <span className="tabular-nums">{stats.occupied}/{stats.rooms}</span> : null}
-                </button>
-              );
-            })}
-          </div>
-          {property.rooms.length > 0 ? (
-            <ul className="mt-2 flex flex-wrap gap-1">
-              {property.rooms.map((room) => (
-                <li
-                  key={room.id || "whole-home"}
-                  className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted"
-                >
-                  {room.label}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ))}
-    </div>
-  );
-}
+export function BookingsOccupancyPanel(props: BookingsPortfolioTimelineProps) { return <BookingsPortfolioTimeline {...props} occupancyMode />; }

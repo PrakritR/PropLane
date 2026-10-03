@@ -33,6 +33,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
 
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
@@ -91,9 +92,9 @@ describe("BookingsPortfolioTimeline", () => {
       />,
     );
 
-    const bar = document.querySelector('[title*="Jordan Smith"]');
+    const bar = document.querySelector('[data-attr="bookings-calendar-bar"]');
     expect(bar).toBeTruthy();
-    expect(bar?.className).toContain("bg-primary");
+    expect(bar?.className).toContain("bg-[#3d7d46]");
   });
 
   it("calls onOpenDay with the clicked date's key", () => {
@@ -118,6 +119,38 @@ describe("BookingsPortfolioTimeline", () => {
 
     expect(document.querySelector('[data-attr="bookings-empty-houses-banner"]')).toBeTruthy();
     expect(screen.getByText("No houses yet")).toBeTruthy();
-    expect(screen.getByText("Add property")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Calendar view" })).toBeTruthy();
   });
+  it("keeps empty room rows while changing to year and drilling into a month", () => {
+    render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "year" } });
+    expect(screen.getByText("Room 1")).toBeTruthy();
+    expect(screen.getByText("No bookings in this range")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Room 1 · February: 0% occupied"));
+    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("month");
+    expect(screen.getByText("February 2026")).toBeTruthy();
+  });
+
+  it("defaults a phone to Week and remembers the page's chosen view", () => {
+    const prior = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const mounted = render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="phone-test" />);
+    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("week");
+    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "day" } });
+    mounted.unmount();
+    render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} preferenceKey="phone-test" />);
+    expect((screen.getByRole("combobox", { name: "Calendar view" }) as HTMLSelectElement).value).toBe("day");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: prior });
+  });
+  it("Day keeps checkout and arrival together with real night labels", () => {
+    render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[
+      bookingEntry({ start: "2026-09-08", end: "2026-09-09", summary: "Leaving" }),
+      bookingEntry({ start: "2026-09-10", end: "2026-09-13", summary: "Arriving" }),
+    ]} today={TODAY} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Calendar view" }), { target: { value: "day" } });
+    expect(screen.getByText("Checks out today")).toBeTruthy();
+    expect(screen.getByText("Checks in today")).toBeTruthy();
+    expect(screen.getByText("1 staying · 1 check-ins · 1 check-outs")).toBeTruthy();
+  });
+
 });
