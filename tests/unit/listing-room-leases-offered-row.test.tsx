@@ -107,9 +107,10 @@ describe("room card: Leases offered", () => {
     expect(cards[1]!.textContent).toContain("Long-term, Short term");
   });
 
-  it("is hidden when the listing offers a single lease type (nothing to limit)", () => {
+  it("always offers the four lease types; Custom has an (i) and turns on Prorated rent (captain, Oct 3)", () => {
     open("rooms", undefined, { ...seeded, allowedLeaseTerms: ["Long-term"], shortTermRentalsAllowed: false });
     fireEvent.click(screen.getByRole("button", { name: "Open Room A" }));
-    expect(screen.queryByRole("button", { name: "Leases offered for Room A" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Leases offered for Room A" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Prorated rent for Room A" })).toBeNull();
   });
 });

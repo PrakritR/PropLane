@@ -92,7 +92,7 @@ describe("rooms as cards", () => {
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
     const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
     // "Same as" is the first row; every field shows — no More / Less (captain, Oct 3).
-    expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished", "Room amenities"]);
+    expect(rowLabels(editor)).toEqual(["Same as", "Residents", "Beds", "Floor", "Furnished", "Leases offered", "Room amenities"]);
     expect(editor.textContent).not.toMatch(/More ▾|Less ▴/);
     expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).toBeNull();
     expect([...editor.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Duplicate");

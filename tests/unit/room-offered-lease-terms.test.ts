@@ -133,3 +133,20 @@ describe("applicant lease-term filtering for a restricted room", () => {
     expect(ok.roomChoice1 ?? "").not.toMatch(/isn't offered/);
   });
 });
+
+import { roomLeasesOfferedPatch } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { createDefaultListingSubmission as defaultSub } from "@/lib/manager-listing-submission";
+describe("roomLeasesOfferedPatch (captain, Oct 3)", () => {
+  it("ticking a type the listing doesn't offer switches it on for the listing too", () => {
+    const sub = { ...defaultSub(), allowedLeaseTerms: ["Long-term"], shortTermRentalsAllowed: false };
+    const { listing, offeredLeaseTerms } = roomLeasesOfferedPatch(sub, ["Long-term", "Month-to-Month"]);
+    expect(listing?.allowedLeaseTerms).toContain("Month-to-Month");
+    expect(offeredLeaseTerms).toBeUndefined();
+  });
+  it("a subset of the listing's types is stored as the room's restriction", () => {
+    const sub = { ...defaultSub(), allowedLeaseTerms: ["Long-term", "Month-to-Month"], shortTermRentalsAllowed: false };
+    const { listing, offeredLeaseTerms } = roomLeasesOfferedPatch(sub, ["Month-to-Month"]);
+    expect(listing).toBeNull();
+    expect(offeredLeaseTerms).toEqual(["Month-to-Month"]);
+  });
+});

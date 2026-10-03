@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { BlockedDatesSection } from "@/components/portal/listing-room-editor/blocked-dates-section";
 import { RoomBathroomFields } from "@/components/portal/listing-room-editor/room-bathroom-fields";
 import { SharedRoomConfigRows } from "@/components/portal/listing-room-editor/shared-room-config-rows";
@@ -1070,6 +1070,35 @@ const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = [
   { value: "Month-to-Month", label: "Month-to-month" },
 ];
 
+/** Captain, Oct 3: a room always offers the four lease types to pick from; Custom explains itself. */
+const ROOM_LEASE_TERM_PICKS = ROOM_LEASE_TERM_LABELS.map((o) =>
+  o.value === CUSTOM_LEASE_TERM ? { ...o, info: "Starts any day of the month" } : o,
+);
+
+/**
+ * One patch for a room's Leases offered pick: a type the listing does not offer yet is
+ * switched on for the listing too (or an applicant could never choose it), and the room
+ * stores a restriction only when it offers fewer types than the listing.
+ */
+export function roomLeasesOfferedPatch(
+  sub: ManagerListingSubmissionV1,
+  picked: readonly string[],
+): { listing: Partial<ManagerListingSubmissionV1> | null; offeredLeaseTerms: string[] | undefined } {
+  const listingTerms = listingPricingLeaseTabs(sub);
+  const missing = picked.filter((t) => !listingTerms.includes(t));
+  let listing: Partial<ManagerListingSubmissionV1> | null = null;
+  let nextListingTerms = listingTerms;
+  if (missing.length > 0) {
+    const shortTerm = Boolean(sub.shortTermRentalsAllowed) || missing.includes(SHORT_TERM_LEASE_TERM);
+    let allowed = [...(sub.allowedLeaseTerms ?? []), ...missing.filter((t) => t !== SHORT_TERM_LEASE_TERM)];
+    allowed = Array.from(new Set(allowed));
+    allowed = syncShortTermLeaseTermInAllowed(allowed, shortTerm);
+    listing = { shortTermRentalsAllowed: shortTerm, allowedLeaseTerms: allowed, leaseTermsBody: formatLeaseTermsBodyFromAllowed(allowed) };
+    nextListingTerms = listingPricingLeaseTabs({ ...sub, ...listing });
+  }
+  return { listing, offeredLeaseTerms: roomOfferedLeaseTermsFromPick(picked, nextListingTerms) };
+}
+
 /** The listing's own lease types a room can be limited to (never Airbnb; legacy fixed lengths read as Long-term). */
 function roomLeaseTermChoices(sub: ManagerListingSubmissionV1): { value: string; label: string }[] {
   const offered = listingPricingLeaseTabs(sub);
@@ -1100,6 +1129,7 @@ export function ListingRoomEditorBody({
   onPatchBathrooms,
   onGoToBathrooms,
   onRoom,
+  onLeasesOffered,
   storiesId,
   sameAsOptions,
   sameAsValue,
@@ -1115,6 +1145,8 @@ export function ListingRoomEditorBody({
   onPatchBathrooms: (bathrooms: ManagerBathroomSubmission[]) => void;
   onGoToBathrooms: () => void;
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
+  /** Leases offered: a pick may also switch a lease type on for the listing (one patch). */
+  onLeasesOffered?: (picked: string[]) => void;
   storiesId: string | undefined;
   sameAsOptions: readonly { value: string; label: string }[];
   sameAsValue: string;
@@ -1133,12 +1165,12 @@ export function ListingRoomEditorBody({
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
   const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
   const furnItems = roomFurnitureItems(room);
-  const leaseChoices = roomLeaseTermChoices(sub);
+  const leaseChoices = ROOM_LEASE_TERM_PICKS;
   // A room that does not restrict shows every lease type the listing offers ticked.
-  const leaseSelected = roomOfferedLeaseTerms(
-    room,
-    leaseChoices.map((c) => c.value),
-  );
+  const leaseSelected = room.offeredLeaseTerms?.length
+    ? [...room.offeredLeaseTerms]
+    : roomOfferedLeaseTerms(room, roomLeaseTermChoices(sub).map((c) => c.value));
+  const customOffered = leaseSelected.includes(CUSTOM_LEASE_TERM);
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
     <span className="inline-flex items-center gap-1.5">
@@ -1186,18 +1218,53 @@ export function ListingRoomEditorBody({
           onChange={(next) => onRoom(applyRoomFurnitureItems(room, next))}
         />
       </FactRow>
-      {leaseChoices.length > 1 ? (
-        <FactRow label="Leases offered">
-          <CheckboxMultiSelect
+      <FactRow label="Leases offered">
+        <CheckboxMultiSelect
+          hideLabel
+          label={`Leases offered for ${who}`}
+          variant="cell"
+          className="min-w-[150px] max-w-[240px]"
+          options={leaseChoices}
+          selected={leaseSelected}
+          emptyLabel="All lease types"
+          dataAttr="listing-v2-room-leases-offered"
+          onChange={(next) =>
+            onLeasesOffered
+              ? onLeasesOffered(next)
+              : onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(next, roomLeaseTermChoices(sub).map((c) => c.value)) })
+          }
+        />
+      </FactRow>
+      {/* Prorated rent only matters when a lease can start any day — shown iff Custom is offered. */}
+      {customOffered ? (
+        <FactRow label="Prorated rent">
+          <FieldSingleSelect
             hideLabel
-            label={`Leases offered for ${who}`}
+            label={`Prorated rent for ${who}`}
             variant="cell"
-            className="min-w-[150px] max-w-[240px]"
-            options={leaseChoices}
-            selected={leaseSelected}
-            emptyLabel="All lease types"
-            dataAttr="listing-v2-room-leases-offered"
-            onChange={(next) => onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(next, leaseChoices.map((c) => c.value)) })}
+            wrapperClassName="min-w-[170px] max-w-[240px]"
+            value={room.prorateMethod === "daily_rate" ? "daily_rate" : "auto"}
+            options={[
+              { value: "auto", label: "By days in the month" },
+              { value: "daily_rate", label: "By a daily rate" },
+            ]}
+            dataAttr="listing-v2-room-prorate"
+            onChange={(v) => onRoom({ prorateMethod: v === "daily_rate" ? "daily_rate" : "auto" })}
+          />
+        </FactRow>
+      ) : null}
+      {customOffered && room.prorateMethod === "daily_rate" ? (
+        <FactRow label="Daily rent">
+          <Input
+            aria-label={`Daily rent for ${who}`}
+            inputMode="decimal"
+            className="w-[140px] text-right"
+            value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
+            placeholder="$0"
+            onChange={(e) => {
+              const n = Number(e.target.value.replace(/[^0-9.]/g, ""));
+              onRoom({ dailyRentRate: Number.isFinite(n) && n > 0 ? n : undefined });
+            }}
           />
         </FactRow>
       ) : null}
@@ -1502,6 +1569,11 @@ function StepRooms({
                 onPatchBathrooms={(bathrooms) => patch({ bathrooms })}
                 onGoToBathrooms={onGoToBathrooms}
                 onRoom={(p) => writeRoom(room.id, p)}
+                onLeasesOffered={(picked) => {
+                  const { listing, offeredLeaseTerms } = roomLeasesOfferedPatch(sub, picked);
+                  const nextRooms = rooms.map((r) => (r.id === room.id ? { ...r, offeredLeaseTerms } : r));
+                  patch(listing ? { ...listing, rooms: nextRooms } : { rooms: nextRooms });
+                }}
                 storiesId={sub.listingStoriesId}
                 sameAsOptions={sameAsOptions(room)}
                 sameAsValue={sameAsValue(room)}
