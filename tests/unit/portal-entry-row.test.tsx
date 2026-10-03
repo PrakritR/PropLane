@@ -73,10 +73,9 @@ describe("PortalEntryRow", () => {
         onOpen={() => {}}
       />,
     );
-    const factsLine = screen.getByText("One").closest("p");
-    expect(factsLine?.textContent).toContain("One");
-    expect(factsLine?.textContent).toContain("Three");
-    expect(factsLine?.textContent).not.toContain("Four");
+    expect(screen.getByText("One")).toBeTruthy();
+    expect(screen.getByText("Three")).toBeTruthy();
+    expect(screen.queryByText("Four")).toBeNull();
   });
 
   it("shows a blue attention dot before the title only when asked", () => {
