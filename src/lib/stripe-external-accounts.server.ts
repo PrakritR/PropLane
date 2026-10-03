@@ -209,10 +209,25 @@ export async function setDefaultPayoutDestination(
   }
 }
 
+export const REMOVE_DEFAULT_REFUSAL = "Make another account the default before removing this one.";
+
 /**
- * Removes an external account. Refused (409) when it is the account's ONLY
- * external account and a payout is currently pending or in transit — a
- * payout already claimed against this destination must not lose it mid-flight.
+ * `null` when removal may proceed; otherwise the refusal text. The default
+ * external account can only be removed when it is the only one left.
+ */
+export function removeDefaultRefusal(
+  externalAccounts: ReadonlyArray<{ id: string; default_for_currency?: boolean | null }>,
+  destinationId: string,
+): string | null {
+  const target = externalAccounts.find((ea) => ea.id === destinationId);
+  if (!target?.default_for_currency) return null;
+  return externalAccounts.some((ea) => ea.id !== destinationId) ? REMOVE_DEFAULT_REFUSAL : null;
+}
+
+/**
+ * Removes an external account. Refused (409) when it is the default and others
+ * exist, or when it is the account's ONLY external account and a payout is
+ * currently pending or in transit — a payout already claimed against this destination must not lose it mid-flight.
  */
 export async function removePayoutDestination(
   stripe: Stripe,
@@ -223,6 +238,12 @@ export async function removePayoutDestination(
   const account = await stripe.accounts.retrieve(accountId);
   const externalAccounts = account.external_accounts?.data ?? [];
   const isOnly = externalAccounts.length <= 1;
+
+  // The default is where every automatic payout goes — it cannot be removed
+  // while another destination exists (make another one the default first).
+  // Re-derived here from Stripe's own list, never from the client.
+  const refusal = removeDefaultRefusal(externalAccounts, destinationId);
+  if (refusal) return { ok: false, status: 409, error: refusal };
 
   if (isOnly) {
     const { data, error } = await db

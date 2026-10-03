@@ -57,14 +57,12 @@ function ModeRow({
   onSelect,
   icon,
   title,
-  detail,
   dataAttr,
 }: {
   active: boolean;
   onSelect: () => void;
   icon: React.ReactNode;
   title: string;
-  detail: string;
   dataAttr: string;
 }) {
   return (
@@ -83,7 +81,6 @@ function ModeRow({
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-foreground">{title}</span>
-        <span className="block truncate text-xs text-muted">{detail}</span>
       </span>
     </button>
   );
@@ -213,19 +210,15 @@ function BankSheetContent({
     }
   }
 
-  const note =
-    mode === "instant"
-      ? "Opens your bank's sign-in inside PropLane"
-      : mode === "manual"
-        ? "Two small deposits confirm it in 1–2 days"
-        : "Used only for Instant payouts";
-
   return (
     <Modal
       open={open}
       title="Add a bank account"
       onClose={onClose}
-      panelClassName="max-w-md"
+      panelClassName="max-w-lg"
+      contextPanel={null}
+      preview={null}
+      assistantStrip={false}
       footer={
         <ModalFooter>
           <Button type="button" onClick={submit} disabled={submitting} data-attr="bank-sheet-submit">
@@ -240,7 +233,6 @@ function BankSheetContent({
           onSelect={() => setMode("instant")}
           icon={<Link2 className="size-4" aria-hidden />}
           title="Link instantly"
-          detail="Sign in to your bank · verified now"
           dataAttr="bank-mode-instant"
         />
         <ModeRow
@@ -248,7 +240,6 @@ function BankSheetContent({
           onSelect={() => setMode("manual")}
           icon={<Landmark className="size-4" aria-hidden />}
           title="Enter routing and account number"
-          detail="Verified with two small deposits · 1–2 days"
           dataAttr="bank-mode-manual"
         />
         <ModeRow
@@ -256,7 +247,6 @@ function BankSheetContent({
           onSelect={() => setMode("card")}
           icon={<CreditCard className="size-4" aria-hidden />}
           title="Debit card for instant payouts"
-          detail="30 minutes or less · 1% fee"
           dataAttr="bank-mode-card"
         />
       </div>
@@ -326,10 +316,6 @@ function BankSheetContent({
           </div>
         </div>
       ) : null}
-
-      <p className="mt-3 text-xs text-muted" data-attr="bank-mode-note">
-        {note}
-      </p>
 
       {error ? (
         <p className="mt-3 text-sm text-danger" role="alert" data-attr="bank-sheet-error">

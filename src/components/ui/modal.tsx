@@ -323,7 +323,7 @@ function ModalPanelInner({
   footer?: ReactNode;
   status?: ReactNode;
   subheader?: ReactNode;
-  /** Real record context for the desktop rail. */
+  /** Real record context for the desktop rail. Pass `null` to drop the rail (single full-width body, e.g. an embedded third-party component). */
   contextPanel?: ReactNode;
   /** Domain output preview. Omit to show a read-only snapshot of labelled form values. Hidden on phones. */
   preview?: ReactNode;
@@ -411,10 +411,12 @@ function ModalPanelInner({
           "sm:flex-row",
         )}
       >
+        {contextPanel !== null ? (
         <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] lg:block">
           {contextPanel}
           <div className={contextPanel ? "mt-4" : undefined}><PopupFormContext formRef={formRef} hasContext={contextPanel != null} /></div>
         </aside>
+        ) : null}
         <div
           ref={formRef}
           data-popup-form=""
@@ -534,7 +536,7 @@ export function Modal({
   status?: ReactNode;
   /** Row rendered under the title, outside the title's flex row (e.g. a scope picker). */
   subheader?: ReactNode;
-  /** Real record context for the desktop rail. */
+  /** Real record context for the desktop rail. Pass `null` to drop the rail (single full-width body, e.g. an embedded third-party component). */
   contextPanel?: ReactNode;
   /** Domain output preview. Omit to show a read-only snapshot of labelled form values. Hidden on phones. */
   preview?: ReactNode;

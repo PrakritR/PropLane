@@ -11,6 +11,9 @@ vi.mock("@/components/stripe-connect-embedded", () => ({
     <div data-attr="stub-stripe-connect-embedded">{component}</div>
   ),
 }));
+vi.mock("@/components/portal/payout-bank-sheet", () => ({
+  PayoutBankSheet: ({ open }: { open: boolean }) => (open ? <div data-attr="stub-bank-sheet">bank sheet</div> : null),
+}));
 vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false }));
 
 import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
@@ -181,33 +184,19 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
   });
 
-  it("shows the Set up rows and a disabled Withdraw button", async () => {
+  it("has no Set up checklist and no Verify identity step", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
-    await screen.findByText("Set up");
-    expect(screen.getByText("Verify identity")).toBeInTheDocument();
-    expect(screen.getByText("Add a bank account")).toBeInTheDocument();
-    expect(screen.getByText("Ready to pay out")).toBeInTheDocument();
-    expect(screen.getByText("After 1 and 2")).toBeInTheDocument();
+    await screen.findByText("Bank accounts");
+    expect(screen.queryByText("Set up")).not.toBeInTheDocument();
+    expect(screen.queryByText("Verify identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready to pay out")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
   });
 
-  it("Verify falls back to the embedded onboarding modal when no renderVerifySheet is given", async () => {
+  it("the Bank accounts + opens Stripe's embedded onboarding when the account cannot receive payouts yet", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
-    await screen.findByRole("button", { name: "Verify" });
-    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await screen.findByText("Bank accounts");
+    fireEvent.click(screen.getByRole("button", { name: "Add a bank account" }));
     expect(await screen.findByText("account_onboarding")).toBeInTheDocument();
-  });
-
-  it("uses a supplied renderVerifySheet instead of the fallback modal", async () => {
-    render(
-      <PortalPayoutsSettingsPage
-        portal="vendor"
-        renderVerifySheet={({ open }) => (open ? <div data-attr="custom-verify-sheet">custom verify</div> : null)}
-      />,
-    );
-    await screen.findByRole("button", { name: "Verify" });
-    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-    expect(await screen.findByText("custom verify")).toBeInTheDocument();
-    expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
   });
 });
