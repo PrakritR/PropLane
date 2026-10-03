@@ -139,8 +139,10 @@ function SaveButton({ property, newTab }: { property: MockProperty; newTab: bool
 
 function AboutBody({ rich }: { rich: ListingRichContent }) {
   const [expanded, setExpanded] = useState(false);
-  const tagline = rich.heroTagline?.trim();
   const overview = rich.heroOverview?.trim();
+  // A record that carries only a description stamps it as the tagline too; say it once.
+  const rawTagline = rich.heroTagline?.trim();
+  const tagline = rawTagline && overview && overview.startsWith(rawTagline) ? undefined : rawTagline;
   const long = (overview?.length ?? 0) > 420;
   return (
     <div className="min-w-0 max-w-3xl">
