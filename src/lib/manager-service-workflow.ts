@@ -147,12 +147,11 @@ export function managerServiceNextStep(
   const assignee = resolveWorkOrderAssignee(row);
   const bidCount = opts.bidCount ?? 0;
   if (!assignee) {
-    if (bidCount > 0) return { key: "compare-quotes", label: "Compare quotes" };
-    if (row.biddingOpen) return { key: "compare-quotes", label: "Compare quotes" };
-    return { key: "assign", label: "Assign" };
+    if (bidCount > 0 || row.biddingOpen) return { key: "compare-quotes", label: "Compare quotes" };
+    return { key: "publish", label: "Publish to vendors" };
   }
   if (row.automationStatus === "vendor_marked_done") {
-    return { key: "approve-pay", label: "Approve invoice" };
+    return { key: "approve-pay", label: "Approve & pay" };
   }
   if (!row.scheduledAtIso && row.bucket !== "completed") {
     return { key: "schedule", label: "Schedule" };

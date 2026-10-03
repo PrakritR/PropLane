@@ -45,6 +45,13 @@ export function buildThreeDayArrivalAgenda(
     for (const b of bookings) {
       if (b.source === "block" || b.source === "hold") continue;
       const place = [b.propertyLabel, b.roomLabel].filter(Boolean).join(" · ");
+      const stayFacts: string[] = [];
+      const sd = b.stayDetails;
+      if (sd?.linen) stayFacts.push(`Linen ${sd.linen}`);
+      if (sd?.baggage) stayFacts.push(`Baggage ${sd.baggage}`);
+      if (sd?.earlyCheckIn) stayFacts.push(`Early ${sd.earlyCheckIn}`);
+      if (sd?.lateCheckOut) stayFacts.push(`Late ${sd.lateCheckOut}`);
+
       if (b.start === dateKey) {
         events.push({
           id: `${b.propertyId}-${b.roomId}-${b.start}-in`,
@@ -53,7 +60,7 @@ export function buildThreeDayArrivalAgenda(
           dateLabel,
           title: b.summary,
           place,
-          facts: [b.statusLabel ? b.statusLabel : "Check-in"],
+          facts: [b.statusLabel ? b.statusLabel : "Check-in", ...stayFacts],
         });
       }
       if (b.end === dateKey) {
@@ -64,7 +71,7 @@ export function buildThreeDayArrivalAgenda(
           dateLabel,
           title: b.summary,
           place,
-          facts: ["Check-out"],
+          facts: ["Check-out", ...stayFacts],
         });
       }
     }

@@ -74,7 +74,13 @@ export function ManagerArrivalsDeparturesPanel() {
                 <PortalServiceRecordRow
                   key={event.id}
                   title={event.title}
-                  subtitle={[event.kind === "check-in" ? "IN · Check-in" : "OUT · Check-out", event.place, ...event.facts].join(" · ")}
+                  subtitle={[event.kind === "check-in" ? "IN · Check-in" : "OUT · Check-out", event.place].filter(Boolean).join(" · ")}
+                  facts={
+                    event.facts.length > 0 ? (
+                      <span className="text-xs text-muted">{event.facts.join(" · ")}</span>
+                    ) : undefined
+                  }
+                  useServiceTile={false}
                   onOpen={() => {}}
                   dataAttr="arrivals-departure-row"
                 />
