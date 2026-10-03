@@ -409,9 +409,6 @@ export function CheckrScreeningModal({
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-3">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Close
-              </Button>
               <Button
                 type="button"
                 data-attr="screening-run-again"

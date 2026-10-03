@@ -129,15 +129,12 @@ export function PortalDialog({
   onBack,
   /** Step-dot strip under the title — wizard steps only. */
   step,
-  /** `wizard` widens the desktop dialog to 720px and fills the phone sheet (full height). */
+  /** Legacy sizing alias; all dialogs use the shared frame. */
   size = "default",
   /** `danger` fills the primary action red — a destructive confirm. */
   tone = "default",
   primaryAction,
-  /**
-   * Defaults to a "Cancel" that calls `onClose`. Pass `null` only where there is
-   * genuinely no way back (rare) — never to make room for a second filled button.
-   */
+  /** Optional action such as Back. Dismiss-only labels are omitted. */
   secondaryAction,
   /** Header chrome before the × — Message, prev/next, Add. Never a second footer button. */
   headerAction,
@@ -180,7 +177,7 @@ export function PortalDialog({
       onClose={onClose}
       dismissBlocked={dismissBlocked}
       dataAttr={dataAttr}
-      // The chip is top-bar chrome, never dialog chrome (PLAN-0920-1058 "1d · The pop-up").
+      // Editing popups use the authenticated role-scoped assistant.
       assistantStrip={tone !== "danger"}
       fullScreenMobile
       contextPanel={contextPanel}

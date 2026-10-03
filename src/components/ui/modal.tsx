@@ -408,7 +408,7 @@ function ModalPanelInner({
           "sm:flex-row",
         )}
       >
-        <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] sm:block">
+        <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] lg:block">
           {contextPanel ?? (typeof title === "string" ? <div className="rounded-xl border border-border bg-card p-4 text-sm font-semibold">{title}</div> : null)}
         </aside>
         <div
@@ -437,7 +437,7 @@ function ModalPanelInner({
           {children}
         </div>
         {preview != null ? (
-          <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 sm:block xl:w-[380px]">
+          <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 lg:block xl:w-[380px]">
             <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted">{previewLabel}</div>
             {preview}
           </aside>

@@ -81,13 +81,11 @@ export function BookingsMoveRoomSheet({
       open={open}
       onClose={onClose}
       title="Move room"
+      dismissBlocked={busy}
       dataAttr="bookings-move-room-sheet"
       footer={
         <ModalFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => void save()} disabled={!canSave} data-attr="bookings-move-room-save">
+          <Button type="button" onClick={save} disabled={!canSave} data-attr="bookings-move-room-save">
             Move booking
           </Button>
         </ModalFooter>

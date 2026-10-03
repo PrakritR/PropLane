@@ -44,9 +44,6 @@ export function PortalPropertySectionSettingsModal({
       footer={
         onSave ? (
           <ModalFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
             <Button type="button" variant="primary" onClick={onSave} disabled={saveDisabled}>
               {saveLabel}
             </Button>
