@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ShieldCheck, Star, Wrench } from "lucide-react";
+import { Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -39,7 +39,6 @@ import {
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
@@ -57,6 +56,12 @@ import { buildWorkOrderCompletedNotice } from "@/lib/resident-service-notices";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
+import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
+import { ServiceQuoteCompareSection } from "@/components/portal/service-quote-compare-section";
+import { ServiceWorkOrderThreadEvents } from "@/components/portal/service-work-order-thread-events";
+import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -154,24 +159,6 @@ function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
     );
   }
   return null;
-}
-
-/**
- * C105: "verified" for the bid comparison table — a current license doc AND
- * current insurance, the same license+insurance current bar the self-serve
- * vendor directory uses (`vendor-directory.server.ts`'s `insuranceIsCurrent`),
- * computed locally from the manager's own already-loaded vendor roster rather
- * than a second server round trip.
- */
-function vendorIsVerified(vendor: ManagerVendorRow | undefined | null): boolean {
-  if (!vendor) return false;
-  const docs = vendor.vendorDocuments ?? [];
-  const hasLicense = docs.some((doc) => doc.kind === "license");
-  if (!hasLicense) return false;
-  const today = new Date().toISOString().slice(0, 10);
-  const insuranceDoc = docs.find((doc) => doc.kind === "insurance");
-  if (insuranceDoc) return !insuranceDoc.expiresAt || insuranceDoc.expiresAt >= today;
-  return Boolean(vendor.insuranceExpiresAt && vendor.insuranceExpiresAt >= today);
 }
 
 // Restrict photo links to http(s) or inline image data URLs before they reach an
@@ -276,6 +263,8 @@ export function ManagerWorkOrdersPanel({
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [publishBidsRow, setPublishBidsRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer[]>>({});
   /** "Leave a review" dialog launched from the record header, completed services only. */
   const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** C105: multi-vendor "Invite another vendor" sheet launched from the vendor-schedule section. */
@@ -329,8 +318,12 @@ export function ManagerWorkOrdersPanel({
   }, []);
 
   const loadBids = useCallback(async (workOrderId: string) => {
-    const bids = await fetchWorkOrderBids(workOrderId);
+    const [bids, offers] = await Promise.all([
+      fetchWorkOrderBids(workOrderId),
+      fetchWorkOrderVendorOffers(workOrderId),
+    ]);
     setBidsByWorkOrderId((prev) => ({ ...prev, [workOrderId]: bids }));
+    setOffersByWorkOrderId((prev) => ({ ...prev, [workOrderId]: offers }));
   }, []);
 
   const bidsVendorUserIds = useMemo(() => {
@@ -1227,15 +1220,28 @@ export function ManagerWorkOrdersPanel({
     const bids = bidsByWorkOrderId[row.id] ?? [];
     return (
       <div className="px-3 pb-4 sm:px-4" data-attr="work-order-vendor-bids">
-        <WorkAssignmentPicker
-          kind="maintenance"
-          value={workOrderAssigneeFromRow(row, managerUserId, teamMembers)}
-          teamMembers={teamMembers}
-          vendors={assignmentVendors}
-          label="Assigned to"
-          dataAttr="work-order-assignee"
-          onChange={(next) => assignWork(row, next)}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 rounded-full px-3 text-xs"
+            data-attr="work-order-open-assign"
+            onClick={() => setAssignSheetRow(row)}
+          >
+            Assign
+          </Button>
+          {row.biddingOpen || (bidsByWorkOrderId[row.id]?.length ?? 0) > 0 ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 rounded-full px-3 text-xs"
+              data-attr="work-order-open-publish"
+              onClick={() => setPublishBidsRow(row)}
+            >
+              Send for bids
+            </Button>
+          )}
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           {row.vendorName ? (
             <span className="text-xs text-muted">
@@ -1297,117 +1303,21 @@ export function ManagerWorkOrdersPanel({
           ) : null
         ) : null}
 
-        {bids.length > 0 ? (
-          <div className="mt-3 border-t border-border pt-3" data-attr="work-order-compare-quotes">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Compare quotes</p>
-            <div className="mt-2 space-y-1.5">
-                {(() => {
-                  const pricedTotals = bids
-                    .filter((b) => b.amountCents != null)
-                    .map((b) => (b.amountCents ?? 0) + b.materialsCents);
-                  const lowestTotal =
-                    pricedTotals.length > 0 ? Math.min(...pricedTotals) : null;
-                  return bids.map((bid) => {
-                  const pricingPending = bid.amountCents == null;
-                  const totalCents = (bid.amountCents ?? 0) + bid.materialsCents;
-                  const isLowest =
-                    lowestTotal != null && !pricingPending && totalCents === lowestTotal;
-                  // C105: comparison facts — plain text, never a pill — so a manager can see
-                  // rating and verification at a glance across every bid.
-                  const bidVendor = activeVendors.find((v) => v.id === bid.vendorDirectoryId);
-                  const reviewAggregate = bid.vendorUserId ? reviewAggregatesByVendorUserId[bid.vendorUserId] : undefined;
-                  const reviewFact =
-                    reviewAggregate && reviewAggregate.count > 0
-                      ? `${reviewAggregate.average?.toFixed(1) ?? "—"} · ${reviewAggregate.count}`
-                      : null;
-                  const verified = vendorIsVerified(bidVendor);
-                  return (
-                  <div
-                    key={bid.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
-                  >
-                    <div>
-                      <span className="font-medium text-foreground">{bid.vendorName || "Vendor"}</span>
-                      {isLowest ? <span className="ml-1 text-muted">· Lowest</span> : null}{" "}
-                      <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
-                        {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
-                      </span>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2.5 text-muted">
-                        {reviewFact ? (
-                          <PortalRowFact icon={Star} srLabel="Review rating">
-                            {reviewFact}
-                          </PortalRowFact>
-                        ) : null}
-                        {verified ? (
-                          <PortalRowFact icon={ShieldCheck} srLabel="Verified">
-                            Verified
-                          </PortalRowFact>
-                        ) : null}
-                      </div>
-                      {pricingPending ? (
-                        <span className="ml-1 text-muted">
-                          · Consultation{" "}
-                          {bid.consultationVisitAt
-                            ? `scheduled for ${new Date(bid.consultationVisitAt).toLocaleString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}`
-                            : "pending"}{" "}
-                          , pricing pending
-                        </span>
-                      ) : (
-                        <span className="text-muted">
-                          {" "}
-                          · ${(totalCents / 100).toFixed(2)} (labor ${((bid.amountCents ?? 0) / 100).toFixed(2)} + materials $
-                          {(bid.materialsCents / 100).toFixed(2)}) ·{" "}
-                          {bid.proposedTime
-                            ? new Date(bid.proposedTime).toLocaleString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })
-                            : "—"}
-                        </span>
-                      )}
-                      {bid.note ? <p className="mt-0.5 text-muted">{bid.note}</p> : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={
-                          bid.status === "accepted"
-                            ? "inline-flex rounded-full bg-accent/40 px-2 py-0.5 text-[10px] font-semibold text-foreground ring-1 ring-border"
-                            : bid.status === "declined"
-                              ? "inline-flex rounded-full bg-accent/30 px-2 py-0.5 text-[10px] font-semibold text-muted ring-1 ring-border"
-                              : "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]"
-                        }
-                      >
-                        {bid.status}
-                      </span>
-                      {bid.status === "submitted" && !pricingPending ? (
-                        <Button
-                          type="button"
-                          variant="primary"
-                          data-attr="work-order-accept-bid"
-                          className="h-7 rounded-full px-3 text-xs"
-                          disabled={acceptingBidId === bid.id}
-                          onClick={() => acceptBidHandler(bid)}
-                        >
-                          Hire
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  );
-                });
-                })()}
-            </div>
-          </div>
-        ) : (
-          <PortalListEmptyCard title="No bids yet" workspaceAware={false} dataAttr="work-order-bids-empty" />
-        )}
+        <div className="mt-3 border-t border-border pt-3">
+          <ServiceQuoteCompareSection
+            bids={bids}
+            waitingOffers={offersByWorkOrderId[row.id] ?? []}
+            vendors={activeVendors}
+            reviewAggregatesByVendorUserId={reviewAggregatesByVendorUserId}
+            acceptingBidId={acceptingBidId}
+            onHire={(bid) => void acceptBidHandler(bid)}
+            onMessageVendor={() => {
+              navigate(
+                workOrderDetailHref(listBasePath ?? "/portal", row.bucket, row.id, "communication"),
+              );
+            }}
+          />
+        </div>
       </div>
     );
   };
@@ -1438,8 +1348,38 @@ export function ManagerWorkOrdersPanel({
   const renderInvoiceBody = (row: DemoManagerWorkOrderRow) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
+    const invoiceLabor = row.vendorCostCents ?? 0;
+    const invoiceMaterials = row.materialsCostCents ?? 0;
+    const invoiceTotal = invoiceLabor + invoiceMaterials;
     return (
       <div className="px-3 pb-4 sm:px-4" data-attr="work-order-invoice">
+        {row.automationStatus === "vendor_marked_done" && invoiceTotal > 0 ? (
+          <div
+            className="mb-4 rounded-xl border border-border bg-card p-3"
+            data-attr="service-invoice-document"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Invoice</p>
+            <div className="mt-2 space-y-1 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted">Labor</span>
+                <span className="font-medium tabular-nums">{formatServiceMoney(invoiceLabor)}</span>
+              </div>
+              {invoiceMaterials > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted">Materials</span>
+                  <span className="font-medium tabular-nums">{formatServiceMoney(invoiceMaterials)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-3 border-t border-border pt-2 font-semibold">
+                <span>Total</span>
+                <span className="tabular-nums">{formatServiceMoney(invoiceTotal)}</span>
+              </div>
+            </div>
+            {row.vendorMarkedDoneNote ? (
+              <p className="mt-2 text-xs text-muted">{row.vendorMarkedDoneNote}</p>
+            ) : null}
+          </div>
+        ) : null}
         <WorkOrderFact label="Cost" value={displayWorkOrderCost(row.cost)} />
         <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
@@ -1503,6 +1443,42 @@ export function ManagerWorkOrdersPanel({
     });
     const activeTab = serviceDetailTab ?? "overview";
     const backHref = listBasePath ? workOrderListHref(listBasePath, bucket) : "#";
+    const routeBids = bidsByWorkOrderId[routeWorkOrder.id] ?? [];
+    const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: routeBids.length });
+    const runServicePrimary = (key: string) => {
+      if (key === "publish") {
+        setPublishBidsRow(routeWorkOrder);
+        return;
+      }
+      if (key === "compare-quotes") {
+        navigate(
+          workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendor-schedule"),
+        );
+        return;
+      }
+      if (key === "assign") {
+        setAssignSheetRow(routeWorkOrder);
+        return;
+      }
+      if (key === "schedule") {
+        setScheduleVisitRow(routeWorkOrder);
+        return;
+      }
+      if (key === "approve-pay") {
+        if (routeWorkOrder.automationStatus === "vendor_marked_done" && pendingServiceInvoiceId) {
+          void approveInvoiceForRow(routeWorkOrder);
+        } else {
+          approvePay(routeWorkOrder);
+        }
+        return;
+      }
+      if (key === "mark-done") {
+        if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
+        else markComplete(routeWorkOrder);
+        return;
+      }
+      if (key === "pay") approvePay(routeWorkOrder);
+    };
     // "Close" only applies once a visit is scheduled (Mark complete / Approve & pay);
     // "Schedule" has nothing left to do once the work is completed — dropped rather
     // than shown as a dead "Coming soon" action (docs/agents/record-page.md § Known gap).
@@ -1563,15 +1539,18 @@ export function ManagerWorkOrdersPanel({
       ) : activeTab === "payments" ? (
         renderInvoiceBody(routeWorkOrder)
       ) : activeTab === "communication" ? (
-        renderRecordSection("communication", {
-          role: "manager",
-          kind: "service",
-          kindLabel: "service",
-          recordId: routeWorkOrder.id,
-          recordLabel: routeWorkOrder.title,
-          propertyId: routeWorkOrder.propertyId,
-          contactIds: routeWorkOrder.residentEmail ? [routeWorkOrder.residentEmail] : undefined,
-        })
+        <>
+          <ServiceWorkOrderThreadEvents row={routeWorkOrder} bids={routeBids} />
+          {renderRecordSection("communication", {
+            role: "manager",
+            kind: "service",
+            kindLabel: "service",
+            recordId: routeWorkOrder.id,
+            recordLabel: routeWorkOrder.title,
+            propertyId: routeWorkOrder.propertyId,
+            contactIds: routeWorkOrder.residentEmail ? [routeWorkOrder.residentEmail] : undefined,
+          })}
+        </>
       ) : (
         <>
           {renderRecordSection("overview", {
@@ -1636,15 +1615,6 @@ export function ManagerWorkOrdersPanel({
                 </span>
               </p>
             ) : null}
-            {managerServiceNextStep(routeWorkOrder, {
-              bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
-            }) ? (
-              <p className="mt-1 text-xs font-medium text-foreground" data-attr="manager-service-next-step">
-                Next: {managerServiceNextStep(routeWorkOrder, {
-                  bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
-                })?.label}
-              </p>
-            ) : null}
             {routeWorkOrder.automationStatus === "vendor_marked_done" ? (
               <div
                 className="mt-4 rounded-xl border border-border bg-accent/20 px-3 py-3"
@@ -1696,7 +1666,16 @@ export function ManagerWorkOrdersPanel({
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={headerActions} onAction={onHeaderAction} />
+            <div className="flex items-center justify-end gap-1">
+              {serviceNext ? (
+                <PortalPrimaryIconAction
+                  label={serviceNext.label}
+                  data-attr="manager-service-primary"
+                  onClick={() => runServicePrimary(serviceNext.key)}
+                />
+              ) : null}
+              <PortalRecordHeaderIconActions actions={headerActions} onAction={onHeaderAction} />
+            </div>
           </PortalRecordActions>
           <PortalRecordSectionChrome
             sections={{ ...sections, headerActions }}
@@ -1729,22 +1708,46 @@ export function ManagerWorkOrdersPanel({
             void syncManagerWorkOrdersFromServer({ force: true });
           }}
         />
-        <Modal open={assignSheetRow !== null} title="Assign to" onClose={() => setAssignSheetRow(null)}>
-          {assignSheetRow ? (
-            <WorkAssignmentPicker
-              kind="maintenance"
-              value={workOrderAssigneeFromRow(assignSheetRow, managerUserId, teamMembers)}
-              teamMembers={teamMembers}
-              vendors={assignmentVendors}
-              label="Assigned to"
-              dataAttr="work-order-assignee-sheet"
-              onChange={(next) => {
-                assignWork(assignSheetRow, next);
-                setAssignSheetRow(null);
-              }}
-            />
-          ) : null}
-        </Modal>
+        <ServiceAssignModal
+          open={assignSheetRow !== null}
+          row={assignSheetRow}
+          vendors={assignmentVendors}
+          teamMembers={teamMembers}
+          bidCount={assignSheetRow ? (bidsByWorkOrderId[assignSheetRow.id] ?? []).length : 0}
+          onClose={() => setAssignSheetRow(null)}
+          onAssign={(next) => {
+            if (!assignSheetRow) return;
+            assignWork(assignSheetRow, next);
+            setAssignSheetRow(null);
+          }}
+          onOpenPublish={() => {
+            if (!assignSheetRow) return;
+            setPublishBidsRow(assignSheetRow);
+            setAssignSheetRow(null);
+          }}
+          onOpenCompareQuotes={() => {
+            if (!assignSheetRow) return;
+            navigate(
+              workOrderDetailHref(
+                listBasePath ?? "/portal",
+                assignSheetRow.bucket,
+                assignSheetRow.id,
+                "vendor-schedule",
+              ),
+            );
+            setAssignSheetRow(null);
+          }}
+        />
+        <PublishServiceBidsModal
+          open={publishBidsRow !== null}
+          row={publishBidsRow}
+          vendors={activeVendors}
+          onClose={() => setPublishBidsRow(null)}
+          onSent={() => {
+            if (publishBidsRow) void loadBids(publishBidsRow.id);
+            void syncManagerWorkOrdersFromServer({ force: true });
+          }}
+        />
         <VendorReviewDialog
           open={reviewRow !== null}
           row={reviewRow ? { id: reviewRow.id, title: reviewRow.title, vendorName: reviewRow.vendorName } : null}
@@ -2004,7 +2007,14 @@ export function ManagerWorkOrdersPanel({
                 variant="primary"
                 data-attr="work-order-approve-pay-confirm"
                 onClick={() => submitApprovePay(approvePayRow, approvePayChannel)}
-                disabled={approvePayBusy}
+                disabled={
+                  approvePayBusy ||
+                  (approvePayChannel === "balance" &&
+                    approvePayBalance?.enabled &&
+                    approvePayBalance.availableCents <
+                      approvePayDefaults(approvePayRow).vendorCostCents +
+                        approvePayDefaults(approvePayRow).materialsCostCents)
+                }
               >
                 {approvePayBusy ? "Approving…" : "Approve & pay"}
               </Button>
@@ -2014,6 +2024,25 @@ export function ManagerWorkOrdersPanel({
       >
         {approvePayRow ? (
           <div className="space-y-3">
+            <div className="rounded-xl border border-border bg-card p-3" data-attr="service-approve-pay-invoice">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Invoice</p>
+              <div className="mt-2 space-y-1 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted">Labor</span>
+                  <span className="font-medium tabular-nums">
+                    {formatServiceMoney(approvePayDefaults(approvePayRow).vendorCostCents)}
+                  </span>
+                </div>
+                {approvePayDefaults(approvePayRow).materialsCostCents > 0 ? (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted">Materials</span>
+                    <span className="font-medium tabular-nums">
+                      {formatServiceMoney(approvePayDefaults(approvePayRow).materialsCostCents)}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
             <p className="text-sm text-foreground">
               Pay{" "}
               <span className="font-semibold">
@@ -2050,8 +2079,13 @@ export function ManagerWorkOrdersPanel({
             ) : null}
             <p className="text-xs text-muted">
               {approvePayChannel === "balance"
-                ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
-                : "This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping only; no funds are transferred)."}
+                ? approvePayBalance &&
+                  approvePayBalance.availableCents <
+                    approvePayDefaults(approvePayRow).vendorCostCents +
+                      approvePayDefaults(approvePayRow).materialsCostCents
+                  ? "PropLane balance is too low for this payout — choose card or add funds."
+                  : "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
+                : "Card payment runs through Stripe when the balance cannot cover the invoice."}
             </p>
           </div>
         ) : null}

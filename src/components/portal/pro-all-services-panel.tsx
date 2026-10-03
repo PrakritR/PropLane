@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
+import {
+  managerServicePlaceLine,
+  managerServiceStageFact,
+} from "@/lib/manager-service-list-row";
+import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildUnifiedServiceRows,
@@ -20,7 +26,16 @@ const SERVICE_STATE_TABS: { id: ServiceRowState | "vendors"; label: string }[] =
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import {
+  PortalListGroupFilterFields,
+  PortalListResidentField,
+} from "@/components/portal/portal-list-group-filter-fields";
+import {
+  FilterCollapsibleSection,
+  FilterSingleSelectList,
+  filterSingleSelectSummary,
+  useFilterAccordionClose,
+} from "@/components/portal/filter-field-lists";
 import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
@@ -35,6 +50,8 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   serviceRequestDetailHref,
   serviceRequestListHref,
+  vendorDetailHref,
+  workOrderDetailHref as buildWorkOrderDetailHref,
   type ServiceDetailTabId,
 } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -47,7 +64,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings } from "lucide-react";
+import { Clock, Settings } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -99,12 +116,10 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import {
-  managerServiceListFigure,
   managerServiceListStageLabel,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 import { ManagerServicesVendorsTab } from "@/components/portal/manager-services-vendors-tab";
-import { vendorDetailHref } from "@/lib/portal-detail-routes";
 
 type FilterType = "requests" | "work-orders";
 
@@ -149,6 +164,8 @@ export function ManagerAllServicesPanel({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   /** Resident emails (lower-cased); one at a time, like the property scope. */
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
@@ -280,8 +297,19 @@ export function ManagerAllServicesPanel({
     if (residentFilters.length > 0) {
       rows = rows.filter((r) => residentFilters.includes((r.residentEmail ?? "").trim().toLowerCase()));
     }
+    if (assigneeFilter === "unassigned") {
+      rows = rows.filter((r) => !resolveWorkOrderAssignee(r));
+    } else if (assigneeFilter === "assigned") {
+      rows = rows.filter((r) => Boolean(resolveWorkOrderAssignee(r)));
+    } else if (assigneeFilter.startsWith("vendor:")) {
+      const id = assigneeFilter.slice("vendor:".length);
+      rows = rows.filter((r) => r.vendorId === id);
+    } else if (assigneeFilter.startsWith("team:")) {
+      const id = assigneeFilter.slice("team:".length);
+      rows = rows.filter((r) => r.assignee?.type === "team" && r.assignee.id === id);
+    }
     return rows;
-  }, [workOrders, propertyFilters, residentFilters]);
+  }, [workOrders, propertyFilters, residentFilters, assigneeFilter]);
 
   const filteredRequests = useMemo(() => {
     let rows = serviceRequests;
@@ -348,24 +376,67 @@ export function ManagerAllServicesPanel({
     return `${propertyFilters.length} properties`;
   }, [propertyFilters, filterPropertyOptions]);
 
+  const assigneeFilterOptions = useMemo(() => {
+    const opts: { id: string; label: string }[] = [
+      { id: "", label: "Anyone" },
+      { id: "unassigned", label: "Unassigned" },
+      { id: "assigned", label: "Assigned" },
+    ];
+    const seen = new Set<string>();
+    for (const row of workOrders) {
+      const a = resolveWorkOrderAssignee(row);
+      if (!a) continue;
+      const key = a.kind === "vendor" ? `vendor:${a.id}` : `team:${a.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ id: key, label: a.name });
+    }
+    return opts;
+  }, [workOrders]);
+
   const resetServicesFilters = () => {
     setPropertyFilters([]);
     setResidentFilters([]);
+    setAssigneeFilter("");
     setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
   };
 
-  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters, residentFilters]);
+  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : []]);
   const residentFilterLabel =
     residentFilters.length === 0
       ? ""
       : filterResidentOptions.find((option) => option.id === residentFilters[0])?.label ?? residentFilters[0]!;
+
+  function ServicesAssigneeFilterField() {
+    const closeFieldMenu = useFilterAccordionClose();
+    const options = assigneeFilterOptions.map((o) => ({ value: o.id, label: o.label }));
+    const summary = filterSingleSelectSummary(assigneeFilter, options, "Anyone");
+    return (
+      <FilterCollapsibleSection
+        sectionId="assignee"
+        label="Assigned to"
+        summary={summary}
+        empty={!assigneeFilter}
+        menuOptionCount={options.length}
+        dataAttr="services-filter-assignee-trigger"
+      >
+        <FilterSingleSelectList
+          options={options}
+          value={assigneeFilter}
+          onChange={setAssigneeFilter}
+          onPick={closeFieldMenu}
+          dataAttr="services-filter-assignee"
+        />
+      </FilterCollapsibleSection>
+    );
+  }
 
   const servicesFilterSheet = (
     <PortalFilterSortSheet
         activeCount={servicesFilterActiveCount}
         compactPanel
         commandStripTrigger
-        filterFieldCount={3}
+        filterFieldCount={4}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
@@ -386,6 +457,7 @@ export function ManagerAllServicesPanel({
           onResidentFiltersChange={setResidentFilters}
           residentDataAttr="services-filter-resident"
         />
+        <ServicesAssigneeFilterField />
       </PortalFilterSortSheet>
   );
 
@@ -405,8 +477,15 @@ export function ManagerAllServicesPanel({
         onRemove: () => setResidentFilters([]),
       });
     }
+    if (assigneeFilter) {
+      chips.push({
+        id: "assignee",
+        label: `Assigned: ${assigneeFilterOptions.find((o) => o.id === assigneeFilter)?.label ?? assigneeFilter}`,
+        onRemove: () => setAssigneeFilter(""),
+      });
+    }
     return chips;
-  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel]);
+  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions]);
 
   const renderRequestDetail = (req: ServiceRequest) => {
     return (
@@ -450,12 +529,20 @@ export function ManagerAllServicesPanel({
   }, [filteredWorkOrders]);
 
   const visibleUnifiedRows = useMemo(() => {
+    let rows = unifiedRows;
     if (serviceState === "vendors") return [];
     if (serviceState === "done") {
-      return unifiedRows.filter((row) => row.state === "done" || row.state === "declined");
+      rows = rows.filter((row) => row.state === "done" || row.state === "declined");
+    } else {
+      rows = rows.filter((row) => row.state === serviceState);
     }
-    return unifiedRows.filter((row) => row.state === serviceState);
-  }, [unifiedRows, serviceState]);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const hay = `${row.title} ${row.residentName} ${row.residentEmail} ${row.propertyLabel} ${row.unitLabel ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [unifiedRows, serviceState, searchQuery]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
     `${serviceState}:${groupMode}`,
   );
@@ -652,38 +739,88 @@ export function ManagerAllServicesPanel({
           ? { kind: "vendor" as const, id: "", name: filteredRequests.find((r) => r.id === row.id)!.assignee!.name }
           : null
         : null;
-    const stageFigure =
+    const placeLine = maintenanceRow
+      ? managerServicePlaceLine(
+          {
+            residentName: row.residentName,
+            residentEmail: row.residentEmail,
+            propertyLabel: omitPropertyInSubtitle ? undefined : row.propertyLabel,
+            unitLabel: row.unitLabel,
+          },
+          assignee,
+        )
+      : [row.residentName || row.residentEmail, omitPropertyInSubtitle ? null : row.propertyLabel, row.unitLabel]
+          .filter(Boolean)
+          .join(" · ");
+    const stageFact =
       maintenanceRow
-        ? managerServiceListStageLabel(maintenanceRow, bidCount)
-        : row.statusLabel;
-    const subtitleParts = [
-      row.residentName || row.residentEmail,
-      omitPropertyInSubtitle ? null : row.propertyLabel,
-      row.unitLabel,
-      assignee
-        ? assignee.kind === "team"
-          ? `${assignee.name} · Team`
-          : assignee.name
-        : null,
-    ].filter(Boolean);
-    const costFact =
-      maintenanceRow ? managerServiceListFigure(maintenanceRow) : undefined;
-    if (costFact) subtitleParts.push(costFact);
+        ? managerServiceStageFact(maintenanceRow, bidCount)
+        : { icon: Clock, text: row.statusLabel ?? "" };
+    const stageFigure = maintenanceRow ? managerServiceListStageLabel(maintenanceRow, bidCount) : undefined;
+    const menuItems =
+      maintenanceRow
+        ? managerServiceRowMenuItems(maintenanceRow, {
+            bidCount,
+            communicationHref: buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "communication"),
+          })
+        : [];
+    const openRow = () =>
+      navigate(
+        row.kind === "add-on"
+          ? serviceRequestDetailHref(basePath, reqBucket, row.id)
+          : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+      );
+    const onMenuAction = (id: string) => {
+      if (!maintenanceRow) return openRow();
+      if (id === "message") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "communication"));
+        return;
+      }
+      if (id === "schedule") {
+        setScheduleVisitRow(maintenanceRow);
+        return;
+      }
+      if (id === "publish" || id === "compare-quotes") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendor-schedule"));
+        return;
+      }
+      if (id === "assign") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendor-schedule"));
+        return;
+      }
+      if (id === "approve-invoice" || id === "pay") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "payments"));
+        return;
+      }
+      if (id === "mark-done") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id));
+        return;
+      }
+      if (id === "cancel") {
+        setBulkDeleteWorkOrder(maintenanceRow);
+        return;
+      }
+      openRow();
+    };
     return (
       <PortalServiceRecordRow
         key={rowKey}
         title={row.title}
-        subtitle={subtitleParts.join(" · ") || undefined}
+        subtitle={placeLine || undefined}
+        facts={
+          !maintenanceRow && stageFact.text ? (
+            <PortalRowFact icon={stageFact.icon} srLabel="Stage">{stageFact.text}</PortalRowFact>
+          ) : undefined
+        }
         figure={stageFigure || undefined}
+        actions={
+          maintenanceRow ? (
+            <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
+          ) : undefined
+        }
         checked={selectedIds.has(rowKey)}
         onSelectedChange={() => toggleSelected(rowKey)}
-        onOpen={() =>
-          navigate(
-            row.kind === "add-on"
-              ? serviceRequestDetailHref(basePath, reqBucket, row.id)
-              : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
-          )
-        }
+        onOpen={openRow}
         dataAttr={row.kind === "add-on" ? "service-request-list-row" : "work-order-list-row"}
         rowId={row.kind === "maintenance" ? `svc-row-${row.id}` : undefined}
       />
@@ -877,11 +1014,6 @@ export function ManagerAllServicesPanel({
             })),
             serviceState,
           ),
-          // Done and Declined are outcomes; a new service starts open.
-          actions:
-            serviceState === "done" || serviceState === "declined"
-              ? []
-              : [{ label: "Add service", onClick: () => setAddServiceOpen(true), dataAttr: "services-list-add" }],
         };
 
   const servicesListDestinations = (
@@ -912,9 +1044,16 @@ export function ManagerAllServicesPanel({
       compactFilterRow
     >
       <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
+        className="mb-2 max-lg:mb-1.5 svc30"
         variant="command"
         destinationRow={servicesListDestinations}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: "Search services",
+          dataAttr: "services-list-search",
+          ariaLabel: "Search services",
+        }}
         actions={
           <>
             {servicesFilterSheet}
@@ -935,7 +1074,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className="plp-listsurface" isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
