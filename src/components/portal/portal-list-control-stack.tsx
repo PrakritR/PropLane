@@ -156,6 +156,7 @@ export function PortalListControlStack({
     placeholder: string;
     dataAttr?: string;
     ariaLabel?: string;
+    inputClassName?: string;
   };
   /** Removable chips when filters are active (Appendix F band 3). */
   activeFilterChips?: ReactNode;
@@ -292,7 +293,7 @@ export function PortalListControlStack({
       </div>
     ) : null;
     const searchNode = search ? (
-      <div className="relative min-w-[6rem] flex-1">
+      <div className="relative min-w-[10rem] flex-[1_1_10rem] max-w-md">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
           strokeWidth={1.75}
@@ -306,8 +307,12 @@ export function PortalListControlStack({
           onChange={(e) => search.onChange(e.target.value)}
           placeholder={search.placeholder}
           aria-label={search.ariaLabel ?? search.placeholder}
-          className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
+          className={cn(
+            "portal-list-search h-10 min-h-10 w-full rounded-lg border border-border bg-background py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15",
+            search.inputClassName,
+          )}
           data-attr={search.dataAttr ?? "portal-list-search"}
+          data-search=""
         />
       </div>
     ) : (

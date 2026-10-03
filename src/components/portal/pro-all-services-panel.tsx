@@ -6,10 +6,9 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
 import {
-  managerServiceAssigneeFact,
+  managerServiceListGlyphFact,
   managerServicePlaceLine,
   managerServiceStageFact,
-  managerServiceStageFactRedundantWithAssignee,
 } from "@/lib/manager-service-list-row";
 import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
@@ -535,21 +534,28 @@ export function ManagerAllServicesPanel({
     return ids.size;
   }, [filteredWorkOrders]);
 
-  const visibleUnifiedRows = useMemo(() => {
-    let rows = unifiedRows;
+  const tabUnifiedRows = useMemo(() => {
     if (serviceState === "vendors") return [];
+    let rows = unifiedRows;
     if (serviceState === "done") {
       rows = rows.filter((row) => row.state === "done" || row.state === "declined");
     } else {
       rows = rows.filter((row) => row.state === serviceState);
     }
+    return rows;
+  }, [unifiedRows, serviceState]);
+
+  const visibleUnifiedRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
+    if (!q) return tabUnifiedRows;
+    return tabUnifiedRows.filter((row) => {
       const hay = `${row.title} ${row.residentName} ${row.residentEmail} ${row.propertyLabel} ${row.unitLabel ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [unifiedRows, serviceState, searchQuery]);
+  }, [tabUnifiedRows, searchQuery]);
+
+  const servicesSearchExcludesAll =
+    Boolean(searchQuery.trim()) && tabUnifiedRows.length > 0 && visibleUnifiedRows.length === 0;
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
     `${serviceState}:${groupMode}`,
   );
@@ -756,14 +762,12 @@ export function ManagerAllServicesPanel({
       : [row.residentName || row.residentEmail, omitPropertyInSubtitle ? null : row.propertyLabel, row.unitLabel]
           .filter(Boolean)
           .join(" · ");
-    const assigneeFact = maintenanceRow ? managerServiceAssigneeFact(assignee) : null;
     const stageFact =
       maintenanceRow
         ? managerServiceStageFact(maintenanceRow, bidCount)
         : { icon: Clock, text: row.statusLabel ?? "" };
-    const showStageFact =
-      stageFact.text &&
-      !managerServiceStageFactRedundantWithAssignee(assignee, stageFact.text);
+    const listGlyphFact =
+      maintenanceRow ? managerServiceListGlyphFact(assignee, stageFact) : stageFact.text ? stageFact : null;
     const costFigure = maintenanceRow ? managerServiceListCostFigure(maintenanceRow) : undefined;
     const menuItems =
       maintenanceRow
@@ -849,19 +853,10 @@ export function ManagerAllServicesPanel({
         title={row.title}
         subtitle={placeLine || undefined}
         facts={
-          assigneeFact || showStageFact ? (
-            <>
-              {assigneeFact ? (
-                <PortalRowFact icon={assigneeFact.icon} srLabel="Assigned to">
-                  {assigneeFact.text}
-                </PortalRowFact>
-              ) : null}
-              {showStageFact ? (
-                <PortalRowFact icon={stageFact.icon} srLabel="Stage">
-                  {stageFact.text}
-                </PortalRowFact>
-              ) : null}
-            </>
+          listGlyphFact ? (
+            <PortalRowFact icon={listGlyphFact.icon} srLabel="Service status">
+              {listGlyphFact.text}
+            </PortalRowFact>
           ) : undefined
         }
         figure={costFigure || undefined}
@@ -1042,20 +1037,30 @@ export function ManagerAllServicesPanel({
   }
 
   const servicesEmptyCard: ComponentProps<typeof PortalRecordListSurface>["emptyCard"] =
-    propertyFilters.length > 0
+    servicesSearchExcludesAll
       ? {
           title: portalEmptyNoMatchTitle("services"),
           section: "services",
           tone: "muted",
-          clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "services-empty-clear-filters" },
+          clear: { label: "Clear search", onClick: () => setSearchQuery(""), dataAttr: "services-empty-clear-search" },
         }
-      : {
-          title:
-            serviceState === "vendors"
-              ? "No vendors on services yet"
-              : portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
-          section: serviceState === "vendors" ? "vendors" : "services",
-        };
+      : propertyFilters.length > 0
+        ? {
+            title: portalEmptyNoMatchTitle("services"),
+            section: "services",
+            tone: "muted",
+            clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "services-empty-clear-filters" },
+          }
+        : {
+            title:
+              serviceState === "vendors"
+                ? "No vendors on services yet"
+                : portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
+            section: serviceState === "vendors" ? "vendors" : "services",
+          };
+
+  const servicesListIsEmpty =
+    serviceState === "vendors" ? vendorTabCount === 0 : tabUnifiedRows.length === 0 || servicesSearchExcludesAll;
 
   const servicesListDestinations = (
     <LocalDestinationNav
@@ -1086,9 +1091,9 @@ export function ManagerAllServicesPanel({
     >
       <div className="svc30 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-svc-page={serviceState}>
       <PortalListControlStack
-        className="plp-header-card"
+        className="plp-header-card !border-0 !shadow-none !rounded-none bg-transparent"
         variant="command"
-        embedded
+        embedded={false}
         stickyDestinations={false}
         destinationRow={servicesListDestinations}
         search={{
@@ -1118,7 +1123,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className="plp-listsurface border-t border-border" isEmpty={serviceState === "vendors" ? vendorTabCount === 0 : visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className="plp-listsurface border-t border-border" isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>

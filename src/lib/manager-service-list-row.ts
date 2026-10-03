@@ -3,8 +3,8 @@ import { AlertCircle, Calendar, Check, Clock, Scale, UserRound, Users, Wallet } 
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
   managerServiceListStageLabel,
-  resolveWorkOrderAssignee,
   type ManagerServiceAssignee,
+  resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 
 /** Resident · property · room — assignee is a row fact, not part of the place line. */
@@ -39,6 +39,20 @@ export function managerServiceStageFactRedundantWithAssignee(
   if (!assignee) return false;
   const t = stageText.trim().toLowerCase();
   return t === "hired" || t === "assigned";
+}
+
+/** One glyph fact per list row — stage when it carries the signal, else assignee. */
+export function managerServiceListGlyphFact(
+  assignee: ManagerServiceAssignee,
+  stageFact: { icon: LucideIcon; text: string },
+): { icon: LucideIcon; text: string } | null {
+  const showStage =
+    Boolean(stageFact.text) &&
+    !managerServiceStageFactRedundantWithAssignee(assignee, stageFact.text);
+  if (showStage) return stageFact;
+  const assigneeFact = managerServiceAssigneeFact(assignee);
+  if (assigneeFact) return assigneeFact;
+  return stageFact.text ? stageFact : null;
 }
 
 export function managerServiceStageFact(
