@@ -46,7 +46,6 @@ import {
 import { getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { applicationsForResidentEmail } from "@/lib/rental-application/application-policy";
 import {
-  applicationStageDisplayLabel,
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
@@ -332,12 +331,6 @@ function AttentionGroup<T>({
   );
 }
 
-/** Parse a "$1,200.00" balance label into a numeric dollar amount for KPI sums. */
-function parseMoneyLabel(label: string): number {
-  const n = Number(String(label).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
-
 function formatUsd(amount: number): string {
   return amount.toLocaleString("en-US", {
     style: "currency",
@@ -381,13 +374,6 @@ function applicationStatusBadge(row: DemoApplicantRow): { label: string; tone: "
   if (row.bucket === "rejected") return { label: "Rejected", tone: "rose" };
   if (isInProgressApplicationRow(row)) return { label: INCOMPLETE_APPLICATION_LABEL, tone: "amber" };
   return { label: row.stage?.trim() || "Pending", tone: "amber" };
-}
-
-function applicationSubtitle(row: DemoApplicantRow): string {
-  const property = row.property?.trim() || row.application?.propertyId?.trim() || "";
-  const stage = applicationStageDisplayLabel(row);
-  if (property && stage) return `${property} · ${stage}`;
-  return property || stage || "Application";
 }
 
 type ServicePreviewItem =
