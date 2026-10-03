@@ -55,7 +55,7 @@ function openMenu(name: string) {
 }
 
 describe("Bookings Upcoming ⋯ → Edit", () => {
-  it("a booking hold's Edit dates opens the edit sheet for THAT entry, prefilled", () => {
+  it("a booking hold's Edit opens the unified editor for that entry", () => {
     const onEditBlock = vi.fn();
     render(
       <ManagerBookingsListView
@@ -68,7 +68,7 @@ describe("Bookings Upcoming ⋯ → Edit", () => {
       />,
     );
     const menu = openMenu("Actions for Alex Rivera");
-    const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit dates")!;
+    const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit")!;
     expect(editButton).toBeTruthy();
     fireEvent.click(editButton);
     expect(onEditBlock).toHaveBeenCalledTimes(1);
@@ -92,21 +92,23 @@ describe("Bookings Upcoming ⋯ → Edit", () => {
     expect(onEditBlock).not.toHaveBeenCalled();
   });
 
-  it("a signed-lease row's repurposed edit action jumps to the Lease record, not a no-op", () => {
+  it("a signed-lease row opens the same editor with its source record for locked fields", () => {
+    const onEditBlock = vi.fn();
     render(
       <ManagerBookingsListView
         entries={[stay]}
+        onEditBlock={onEditBlock}
         bucket="upcoming"
         selectedKeys={new Set()}
         onToggleSelected={() => {}}
       />,
     );
     const menu = openMenu("Actions for Ada Lovelace");
-    const openLeaseButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Open lease")!;
+    const openLeaseButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit")!;
     expect(openLeaseButton).toBeTruthy();
     navigate.mockClear();
     fireEvent.click(openLeaseButton);
-    expect(navigate).toHaveBeenCalledTimes(1);
-    expect(String(navigate.mock.calls[0]![0])).toContain("lease-1");
+    expect(onEditBlock).toHaveBeenCalledExactlyOnceWith(stay);
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
