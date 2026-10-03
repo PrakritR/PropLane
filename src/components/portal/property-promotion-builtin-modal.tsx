@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -31,7 +31,7 @@ export function PropertyPromotionBuiltinModal({
   open: boolean;
   def: PropertyPromotionBuiltinDef | null;
   draft: PromotionDraft;
-  setDraft: (next: PromotionDraft) => void;
+  setDraft: Dispatch<SetStateAction<PromotionDraft>>;
   property: MockProperty | null;
   promotionRow: ManagerPromotionRow | null;
   managerUserId: string | null;

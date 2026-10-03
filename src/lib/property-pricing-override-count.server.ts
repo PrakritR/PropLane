@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { propertyHasOwnRoomPricing } from "@/lib/property-pricing-override-count";
 
 function submissionFromPropertyRow(row: { property_data?: unknown; row_data?: unknown }): unknown {
@@ -35,7 +35,7 @@ export async function countWorkspacePropertiesWithOwnPricing(
   for (const row of data ?? []) {
     const raw = submissionFromPropertyRow(row);
     if (!raw) continue;
-    const sub = normalizeManagerListingSubmissionV1(raw);
+    const sub = normalizeManagerListingSubmissionV1(raw as ManagerListingSubmissionV1);
     if (propertyHasOwnRoomPricing(sub)) count += 1;
   }
   return count;

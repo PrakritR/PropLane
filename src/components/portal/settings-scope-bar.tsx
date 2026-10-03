@@ -154,3 +154,8 @@ export function SettingsScopeBar({
     </div>
   );
 }
+
+/** "Own values on N properties" — how many properties override a workspace default. */
+export function ownValuesOnPropertiesLabel(count: number): string {
+  return `Own values on ${count} ${count === 1 ? "property" : "properties"}`;
+}

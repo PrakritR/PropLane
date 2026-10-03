@@ -12,8 +12,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { RecordActionMenu } from "@/components/ui/record-action-menu";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import type { PropertyPromotionBuiltinDef } from "@/lib/property-promotion-builtin";
 
 const ICONS: Record<PropertyPromotionBuiltinDef["kind"], LucideIcon> = {
@@ -57,12 +56,12 @@ export function PropertyPromotionBuiltinRow({
       onOpen={onOpen}
       dataAttr={dataAttr}
       actions={
-        <RecordActionMenu label={`Actions for ${def.name}`}>
-          <DropdownMenuItem onSelect={onOpen}>Edit</DropdownMenuItem>
-          {onDownload ? <DropdownMenuItem onSelect={onDownload}>Download</DropdownMenuItem> : null}
-          {onShare ? <DropdownMenuItem onSelect={onShare}>Share</DropdownMenuItem> : null}
-          <DropdownMenuItem onSelect={onToggle}>{enabled ? "Turn off" : "Turn on"}</DropdownMenuItem>
-        </RecordActionMenu>
+        <RowActionsMenu label={`Actions for ${def.name}`} items={[
+          { id: "edit", label: "Edit", onSelect: onOpen },
+          onDownload ? { id: "download", label: "Download", onSelect: onDownload } : null,
+          onShare ? { id: "share", label: "Share", onSelect: onShare } : null,
+          { id: "toggle", label: enabled ? "Turn off" : "Turn on", onSelect: onToggle },
+        ]} />
       }
     />
   );

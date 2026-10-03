@@ -363,7 +363,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
     }
     if (!q) return rows;
     return rows.filter((template) => {
-      const label = normalizePropertyApplicationTemplateLabel(template);
+      const label = normalizePropertyApplicationTemplateLabel(template.label);
       return label.toLowerCase().includes(q);
     });
   }, [applicationSearch, formKindFilter, templates]);

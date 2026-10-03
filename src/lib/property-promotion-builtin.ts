@@ -151,7 +151,7 @@ export function resolveBuiltinTextCopy(
     return {
       format: stored.copy.format,
       plain: [hook, body, tags].filter(Boolean).join("\n\n"),
-      tone: stored.copy.tone ?? tone,
+      tone,
     };
   }
   const fallback = composeFallbackPromotionText(listingInputs(property, opts), label, format);

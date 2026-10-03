@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Input } from "@/components/ui/input";
 import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
-import { firstSentences } from "@/lib/property-ai-info-preview";
+import { firstSentences } from "@/lib/property-ai-info-rows";
 
 export type AiInfoEditorTarget =
   | { kind: "builtin"; key: "about" | "tours" | "rules" | "pricing" | "neighborhood"; title: string; sampleQuestion: string }

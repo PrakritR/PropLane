@@ -6,8 +6,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { RecordActionMenu } from "@/components/ui/record-action-menu";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyAiInfoEditorModal, type AiInfoEditorTarget } from "@/components/portal/property-ai-info-editor-modal";
 import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
 import {
@@ -322,10 +321,10 @@ export function ManagerPropertyAiInfoPanel({
               onOpen={() => openBuiltin(row.key)}
               dataAttr={`property-ai-info-row-${row.key}`}
               actions={
-                <RecordActionMenu label={`Actions for ${row.title}`}>
-                  <DropdownMenuItem onSelect={() => openBuiltin(row.key)}>Edit</DropdownMenuItem>
-                  {len ? <DropdownMenuItem onSelect={() => void clearEditorForKey(row.key)}>Clear</DropdownMenuItem> : null}
-                </RecordActionMenu>
+                <RowActionsMenu label={`Actions for ${row.title}`} items={[
+                  { id: "edit", label: "Edit", onSelect: () => openBuiltin(row.key) },
+                  len ? { id: "clear", label: "Clear", onSelect: () => void clearEditorForKey(row.key) } : null,
+                ]} />
               }
             />
           );
@@ -350,10 +349,10 @@ export function ManagerPropertyAiInfoPanel({
               onOpen={() => openCustom(item)}
               dataAttr={`property-ai-info-row-custom-${item.id}`}
               actions={
-                <RecordActionMenu label={`Actions for ${item.title}`}>
-                  <DropdownMenuItem onSelect={() => openCustom(item)}>Edit</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void deleteCustomRow(item.id)}>Delete</DropdownMenuItem>
-                </RecordActionMenu>
+                <RowActionsMenu label={`Actions for ${item.title}`} items={[
+                  { id: "edit", label: "Edit", onSelect: () => openCustom(item) },
+                  { id: "delete", label: "Delete", danger: true, onSelect: () => void deleteCustomRow(item.id) },
+                ]} />
               }
             />
           );

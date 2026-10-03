@@ -1,5 +1,7 @@
 "use client";
 
+import type { ServiceFeePayer } from "@/lib/payment-policy";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { activeWorkspaceIdentity } from "@/lib/workspaces/selection";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -65,7 +67,7 @@ export function PropertyPricingPanel({
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
   );
-  const [workspacePayment, setWorkspacePayment] = useState<{ serviceFeePayer?: string | null } | null>(
+  const [workspacePayment, setWorkspacePayment] = useState<{ serviceFeePayer?: ServiceFeePayer | null } | null>(
     null,
   );
 
