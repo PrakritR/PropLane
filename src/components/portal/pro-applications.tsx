@@ -17,7 +17,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Share2, Shield, Trash2, Undo2, Wallet, X } from "lucide-react";
+import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Wallet, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -1535,7 +1535,7 @@ export function ManagerApplications({
 
   const applicationsAddButton = (
     <PortalIconAction
-      icon={Share2}
+      icon={Send}
       label={
         shareableProperties.length === 0
           ? "Send application link (list a property first)"

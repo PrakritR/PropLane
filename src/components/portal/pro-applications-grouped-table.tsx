@@ -17,7 +17,7 @@
  * grouping box, no nested table: one row shape at every width.
  */
 
-import { Clock, Home, Mail, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { CalendarDays, Clock, Home, Mail, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
   applicationDateVerb,
@@ -133,12 +133,12 @@ export function ManagerApplicationsGroupedTable({
                     </PortalRowFact>
                   ) : null}
                   {when ? (
-                    <PortalRowFact icon={Clock} srLabel="Date">
+                    <PortalRowFact icon={CalendarDays} srLabel="Date">
                       {applicationDateVerb(row)} {when}
                     </PortalRowFact>
                   ) : null}
                   {stage ? (
-                    <PortalRowFact icon={Home} srLabel="Stage">
+                    <PortalRowFact icon={stage === "Incomplete" ? Clock : Home} srLabel="Stage">
                       {stage}
                     </PortalRowFact>
                   ) : null}
