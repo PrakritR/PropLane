@@ -194,7 +194,7 @@ export function ListingWorkspace({
               icon={Eye}
               label="Preview"
               ring
-              className="min-[1200px]:hidden"
+              className="xl:hidden"
               data-attr="workspace-preview-eye"
               aria-expanded={eyeOpen}
               onClick={() => setEyeOpen((value) => !value)}
@@ -221,7 +221,7 @@ export function ListingWorkspace({
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "min-[1200px]:grid-cols-[220px_minmax(0,1fr)_380px]")}>
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
         <nav
           aria-label="Listing sections"
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
@@ -243,7 +243,7 @@ export function ListingWorkspace({
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 min-[1200px]:block [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-5 xl:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>
@@ -301,7 +301,7 @@ export function SideBelow({ children }: { children: ReactNode }) {
   if (!children) return null;
   // A phone does not get the panel at all — it repeated the card above it in a
   // second layout. A laptop without the column still gets it under the step.
-  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block min-[1200px]:hidden">{children}</div>;
+  return <div className="mt-8 hidden border-t border-border/60 pt-6 lg:block xl:hidden">{children}</div>;
 }
 
 export type StepRailItem = {
