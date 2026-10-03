@@ -252,7 +252,7 @@ conversations) plus the archive toggle. Invariants:
   crashed Send now / Cancel / Edit on automation messages. Use btoa/atob + the
   `base64` transform only (`tests/unit/scheduled-message-path-id.test.ts` guards
   this with a throwing-Buffer shim).
-- **One person is ONE conversation, across channels.** `mergeUnifiedInboxItems`
+- **One person is ONE conversation, across channels** (and, since comms-safety-0929, one per workspace — see "One conversation per person per workspace — the conversation key" below; the rows now also join on the shared conversation key, the email `personKey` below is the older, narrower join). `mergeUnifiedInboxItems`
   (`src/lib/unified-inbox-merge.ts`) groups list rows on a `personKey` — the
   counterparty's lowercased email — so a resident's email thread and their text
   thread collapse into a single row instead of appearing twice. The newest
@@ -432,6 +432,97 @@ conversations) plus the archive toggle. Invariants:
   writing); it also realigns `profiles.manager_id` / `user_metadata.axis_id`,
   which `residentLeaseAuthorized` compares against `row.axisId` and which hides
   a lease just as effectively as a stale email.
+
+## One conversation per person per workspace — the conversation key
+
+**Captain-approved (comms-safety-0929, D1 + D2).** A person is ONE conversation
+in a workspace, however they reached you: in-app messages, email, texts, a
+per-property chat, a tour or welcome notice, a co-signer notice. Different
+workspaces never share a conversation, even for the same person.
+
+**The key** is decided by ONE resolver, `src/lib/communication/conversation-key.server.ts`
+(pure rules in `conversation-key.ts`, table-tested in `tests/unit/conversation-key.test.ts`):
+
+| Key | Who |
+| --- | --- |
+| `acct:<uuid>` | an account (resident / vendor) **linked to this workspace** by a lease, an application or a vendor record |
+| `tel:+15105551234` | a phone, strict E.164 (`normalizeE164` is the only phone normalizer; the other six route through it) |
+| `mail:<email>` | an email, lower-cased |
+| `ws:<workspace uuid>` | on the resident / vendor side of the same conversation: the manager workspace they are talking to |
+
+Precedence is account → **verified** phone → email. A phone links to an account
+only if that account verified it (`profiles.phone_verified_at`); an unverified
+phone never links anyone. If two accounts in the workspace verified the same
+number, **nothing merges**: the conversation keeps its phone key and carries
+`identityFlag: { reason: "ambiguous_phone", accountIds }` for the manager to
+choose. A phone and an email on one record are never fused without an account
+vouching for both. A thread stored under a weaker key (`mail:`) is found and
+upgraded in place when the person later gains an account link.
+
+**Storage.** `portal_inbox_thread_records.conversation_key` + `workspace_id`
+(migration `20261003180000_one_conversation_per_person.sql`, additive). A unique
+index on `(owner_user_id, workspace_id, scope, conversation_key)` allows one row
+per person per workspace per inbox. The only way a person-thread is created is
+the `resolve_or_create_conversation` RPC (service role only): it takes an
+advisory lock on (owner, workspace), returns the existing row for any of the
+person's keys, else inserts — so two simultaneous sends make ONE conversation
+(`created: false` → the loser appends to the winner). `adopt_conversation` stamps
+a legacy row; `portal_inbox_thread_aliases` keeps every folded thread id
+resolving (tour links, deep links; `resolveInboxThreadReplyTarget` follows an
+alias). The same key is stamped on `sms_projection_conversations`, which is how a
+text and an in-app message join in the list (`joinKeys` in `unified-inbox-merge.ts`;
+`ck:<workspace>:<key>`). Vendor / third-party inboxes with no manager workspace
+use `PERSONAL_WORKSPACE_ID` (the nil uuid). Admin and Assistant / team / agent
+threads carry no key. **Before the migration is applied** the writers notice the
+missing column once and keep the legacy per-email behaviour
+(`conversation-thread.server.ts`), so a deploy never fails a send.
+
+**Every writer goes through `deliverPortalMessageThreadSide`** (or the property
+chat's `resolvePropertyManagerThread`): `portal-inbox-delivery.ts`,
+`property-manager-inbox-thread.server.ts`, `tour-notification-delivery.server.ts`,
+`resident-welcome.server.ts`, `cosigner-notification.server.ts`,
+`inbound-email-reply.server.ts`, `vendor-work-identity-inbound.server.ts`,
+`mirror-assistant-email-conversation.server.ts`, `admin-shared-inbox.server.ts`.
+`sms-inbox-notice.server.ts` keeps its compatibility row (its id, archive
+controls and source markers are phone-keyed) but carries the SAME key in
+`row_data`, and the SMS projection stamps it on the summary. A turn carries its
+`houseId` / `houseLabel`; the conversation row no longer claims one house.
+
+**Reply check.** `send-inbox-message` refuses (409) a reply whose thread is not
+the recipient's conversation (`replyRecipientsMatchThread`): keyed person thread
+→ the recipient must resolve to that key in that workspace; `ws:` thread → the
+recipient must belong to that workspace; a legacy thread → its stored email.
+The reply used to be storable in one conversation and delivered to another.
+
+**D2 — what a co-manager sees.** A co-manager granted only some houses opens the
+merged conversation and sees only the turns about their houses; a turn with no
+house shows only to a viewer who holds EVERY house of that person
+(`restrictThreadToHouses`, applied in `filterVisibleInboxThreadRecords`; a
+conversation with nothing left is dropped, `housesRestricted` marks the rest).
+SMS turns carry no house, so an SMS conversation is shared with another owner's
+co-manager only when they hold every house of it (`untaggedTurns` in
+`conversationVisible`). This closes S9; S7 is closed because the assistant-email
+mirror files the thread under the address's workspace and stamps `row_data.workLine`.
+
+**UI.** One row per conversation (`mergeUnifiedInboxItems` joins on shared
+`joinKeys` as well as the email `personKey`; a flagged row joins only on its own
+key); a channel glyph on each turn's tag; a house tag on a turn only when the open
+conversation spans houses; the row's house label reads "4709A 8th Ave +1" when
+it does; the resident / vendor list shows one row per manager workspace and the
+text stream folds into it when there is exactly one workspace. The reply-channel
+control is the existing In-app · Email · Text selector.
+
+**Backfill.** `scripts/merge-conversations-backfill.mjs` (`npm run
+comms:merge-conversations`): dry run by default, prints every merge (keys
+redacted), resumable by owner (`--cursor-file`), requires two consecutive empty
+plans after `--apply`, keeps absorbed ids as aliases, never merges an ambiguous
+or unresolved identity, and refuses any project but dev without `--allow-project`.
+The planner is `conversation-backfill.ts` (`tests/unit/conversation-backfill.test.ts`).
+
+Coverage: `tests/unit/conversation-key.test.ts`, `one-conversation-per-person.test.ts`
+(incl. the concurrent-create contract and the unapplied-migration fallback),
+`reply-thread-key-check.test.ts`, `conversation-house-visibility.test.ts`,
+`conversation-backfill.test.ts`.
 
 ## A reply leaves on the channel the person reached you on
 

@@ -1274,6 +1274,21 @@ Application approval derives its SMS recipient from the authorized stored applic
 
 Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.
 
+### The person-conversation key on a projection (Oct 2026)
+
+`sms_projection_conversations.conversation_key` / `workspace_id` carry the same
+key the in-app thread with that person carries (account → verified phone →
+email, in the workspace that owns the work line; see
+[`communication-inbox.md`](communication-inbox.md) § conversation key). It is
+stamped best-effort on the first event of a new conversation
+(`stamp_sms_projection_conversation`), read apart from the summary columns
+(`loadPersonConversationKeys`) so a database without the migration still lists,
+and it is what joins a text and an in-app message into one Communication row. It
+never selects a send line or authorizes a read: both still use the owner, role,
+identity and work-line epoch below. An SMS turn carries no house, so another
+owner's co-manager reads an SMS conversation only when they hold every house of
+it (`untaggedTurns` in `conversationVisible`).
+
 ### Manager Communication projection cutover (September 2026)
 
 `sms_projection_conversations` and `sms_projection_turns` are the manager's

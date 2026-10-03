@@ -645,7 +645,7 @@ export async function deliverPortalMessageThreadSide(
       if (!args.delivery || prior === delivery) return { action: "skipped", threadId: existing.id, ...(delivery ? { delivery } : {}) };
       const { error } = await db.from("portal_inbox_thread_records").upsert({
         id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
-        participant_email: existing.participantEmail, thread_type: "portal_message",
+        participant_email: existing.participantEmail, thread_type: existing.threadType ?? "portal_message",
         row_data: { ...existing.rowData, rootDelivery: delivery }, updated_at: nowIso,
       }, { onConflict: "id" });
       if (error) throw new Error("Could not save the reply.", { cause: error });
@@ -662,7 +662,7 @@ export async function deliverPortalMessageThreadSide(
       messages[duplicate] = { ...prior, delivery };
       const { error } = await db.from("portal_inbox_thread_records").upsert({
         id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
-        participant_email: existing.participantEmail, thread_type: "portal_message",
+        participant_email: existing.participantEmail, thread_type: existing.threadType ?? "portal_message",
         row_data: { ...existing.rowData, messages }, updated_at: nowIso,
       }, { onConflict: "id" });
       if (error) throw new Error("Could not save the reply.", { cause: error });
