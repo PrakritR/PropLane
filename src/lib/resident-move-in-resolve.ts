@@ -117,7 +117,7 @@ function formatMoveInDateLabel(iso: string): string {
   const [y, m, d] = t.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
   if (Number.isNaN(dt.getTime())) return t;
-  return dt.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string | null {

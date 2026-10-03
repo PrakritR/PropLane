@@ -15,10 +15,10 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
 import { ResidentServiceTracker } from "@/components/portal/resident-service-tracker";
 import { formatPacificDate } from "@/lib/pacific-time";
@@ -801,10 +801,18 @@ export function ResidentServicesPanel({
     return counts;
   }, [unifiedServiceRows]);
 
-  const filteredUnifiedRows = useMemo(
-    () => unifiedServiceRows.filter((row) => residentServiceTab(row.state) === serviceStateFilter),
-    [unifiedServiceRows, serviceStateFilter],
-  );
+  const [serviceQuery, setServiceQuery] = useState("");
+
+  const filteredUnifiedRows = useMemo(() => {
+    const needle = serviceQuery.trim().toLowerCase();
+    return unifiedServiceRows.filter((row) => {
+      if (residentServiceTab(row.state) !== serviceStateFilter) return false;
+      if (!needle) return true;
+      return [row.title, row.propertyLabel, row.unitLabel, row.statusLabel].some((field) =>
+        field?.toLowerCase().includes(needle),
+      );
+    });
+  }, [unifiedServiceRows, serviceStateFilter, serviceQuery]);
 
 
   const serviceRequestById = useMemo(
@@ -1168,17 +1176,6 @@ export function ResidentServicesPanel({
     workOrderById,
   ]);
 
-  const renderServiceAddRow = () =>
-    servicesUnlocked ? (
-      <PortalListAddRow
-        label="Service"
-        ariaLabel="Add service"
-        icon={PORTAL_LIST_ADD_ICONS.service}
-        onClick={openAddService}
-        dataAttr="resident-services-apply"
-      />
-    ) : null;
-
   const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
   const serviceGroupedList =
@@ -1193,7 +1190,7 @@ export function ResidentServicesPanel({
         columns={[{ id: "service", header: "Service", cell: () => "—" }]}
         emptyState={
           filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
-            <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
+            <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet</p>
           ) : undefined
         }
       />
@@ -1636,19 +1633,22 @@ export function ResidentServicesPanel({
             className="w-full"
           />
         }
+        search={{ value: serviceQuery, onChange: setServiceQuery, placeholder: "Search services", dataAttr: "resident-services-search" }}
+        primary={
+          servicesUnlocked ? (
+            <PortalPrimaryIconAction
+              label={portalListAddPrimaryLabel("service")}
+              onClick={openAddService}
+              data-attr="resident-services-apply"
+            />
+          ) : undefined
+        }
       />
 
-      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={serviceSelectionActions} />}>{servicesUnlocked ? (
-        unifiedServiceRows.length === 0 ? (
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderServiceAddRow()}</div>
-          </div>
-        ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            {serviceGroupedList}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderServiceAddRow()}</div>
-          </div>
-        )
+      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={serviceSelectionActions} />}>{servicesUnlocked && filteredUnifiedRows.length === 0 ? (
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <PortalDataTableEmpty icon="service" message="No services in this status yet" />
+        </div>
       ) : serviceGroupedList ? (
         <div className={PORTAL_LIST_PAGE_BODY}>{serviceGroupedList}</div>
       ) : null}</PortalRecordListSurface>

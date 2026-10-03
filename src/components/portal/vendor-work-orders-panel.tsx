@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, CircleDot, Clock, MapPin, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, CircleDot, Clock, MapPin, MessageSquare, Navigation, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -1198,6 +1198,28 @@ export function VendorWorkOrdersPanel({
       >
         <PortalRecordActions>
           <div className="flex items-center justify-end gap-1">
+            {/* Like the studio: Message and Directions first, the one primary action last. */}
+            <PortalIconAction
+              icon={MessageSquare}
+              label="Message"
+              data-attr="vendor-job-message"
+              onClick={() => navigate(vendorJobDetailHref("/vendor", row.id, "communication"))}
+            />
+            <PortalIconAction
+              icon={Navigation}
+              label="Directions"
+              data-attr="vendor-job-directions"
+              onClick={() =>
+                window.open(
+                  vendorCanSeeFullWorkOrderSite(row, bid) && row.propertyAddress?.trim()
+                    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.propertyAddress.trim())}`
+                    : vendorLeadMapsQuery(row),
+                  "_blank",
+                  "noopener,noreferrer",
+                )
+              }
+            />
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
             {vendorPrimary ? (
               <PortalPrimaryIconAction
                 icon={vendorPrimary.icon}
@@ -1206,7 +1228,6 @@ export function VendorWorkOrdersPanel({
                 onClick={vendorPrimary.onClick}
               />
             ) : null}
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
           </div>
         </PortalRecordActions>
         <PortalRecordSectionChrome
