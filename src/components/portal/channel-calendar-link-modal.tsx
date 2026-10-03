@@ -15,7 +15,8 @@ import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import { deleteChannelCalendarConnection, fetchChannelCalendarConnections, fetchRoomExportCalendarUrl, saveChannelCalendarConnection, syncChannelCalendarConnection } from "@/lib/channel-calendar/client";
 import type { ChannelCalendarConnectionPublic, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { isValidChannelImportUrl, channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
-import { getRoomOptionsForProperty, isEntireHomeProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { isEntireHomeProperty } from "@/lib/rental-application/data";
+import { channelCalendarUnits } from "@/lib/channel-calendar/property-units";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 
@@ -61,11 +62,9 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
   const [preview, setPreview] = useState<{ room: string; events: ReturnType<typeof parseIcsCalendar> } | null>(null);
   const [disconnect, setDisconnect] = useState<ChannelCalendarConnectionPublic | null>(null);
   const houseLabel = propertyOptions.find((p) => p.id === propertyId)?.label ?? "";
-  // An entire-home listing has no rooms to pick: the house itself is the one unit, keyed by its property id.
+  // An entire-home listing has no rooms to pick: the house itself is the one unit (see channelCalendarUnits).
   const entireHome = useMemo(() => Boolean(propertyId) && isEntireHomeProperty(propertyId), [propertyId]);
-  const rooms = useMemo(() => entireHome
-    ? [{ id: propertyId, label: houseLabel || propertyId }]
-    : getRoomOptionsForProperty(propertyId, { includeUnavailable: true }).map((r) => ({ id: parseRoomChoiceValue(r.value).listingRoomId, label: r.label })).filter((r) => r.id), [propertyId, entireHome, houseLabel]);
+  const rooms = useMemo(() => channelCalendarUnits(propertyId, houseLabel), [propertyId, houseLabel]);
   const channel: ChannelCalendarProvider = provider || "airbnb";
   const name = channelCalendarProviderLabel(channel);
   useEffect(() => {
