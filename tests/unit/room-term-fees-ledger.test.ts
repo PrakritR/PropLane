@@ -130,3 +130,66 @@ describe("the room's Lease fee, per term, through the ledger and the lease snaps
     expect(leaseFees(email)).toHaveLength(0);
   });
 });
+
+describe("the Lease fee billed is the fee of the lease actually signed (its room and its term)", () => {
+  it("bills the ASSIGNED room's fee when the manager placed the applicant in another room", () => {
+    const email = "assigned-room-fee@example.com";
+    removeResidentHouseholdPaymentData(email);
+    const propertyId = "prop-term-fee-assigned";
+    const sub = createDefaultListingSubmission();
+    const base = sub.rooms[0]!;
+    sub.securityDeposit = "";
+    sub.moveInFee = "";
+    sub.applicationFee = "";
+    sub.rooms = [
+      { ...base, id: "room-1", name: "Room 1", monthlyRent: 1200, occupancyPrices: [{ count: 1, monthlyRent: 1200, leaseFee: "100" }] },
+      { ...base, id: "room-2", name: "Room 2", monthlyRent: 1300, occupancyPrices: [{ count: 1, monthlyRent: 1300, leaseFee: "250" }] },
+    ] as ManagerRoomSubmission[];
+    cachePublicExtraListings(
+      [
+        {
+          id: propertyId,
+          title: "Two Room House",
+          tagline: "",
+          address: "5 Pacific Ave, Tacoma, WA",
+          zip: "98402",
+          neighborhood: "Downtown",
+          beds: 2,
+          baths: 1,
+          rentLabel: "$1,200/mo",
+          available: "Now",
+          petFriendly: false,
+          buildingId: "b2",
+          buildingName: "Two Room House",
+          unitLabel: "Room 1",
+          adminPublishLive: true,
+          managerUserId: MANAGER_ID,
+          listingSubmission: normalizeManagerListingSubmissionV1(sub),
+        } as MockProperty,
+      ],
+      { silent: true },
+    );
+    const row = applicant(propertyId, email, false);
+    row.application = { ...row.application!, roomChoice1: `${propertyId}${LISTING_ROOM_CHOICE_SEP}room-1` };
+    row.assignedRoomChoice = `${propertyId}${LISTING_ROOM_CHOICE_SEP}room-2`;
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+
+    const charges = leaseFees(email);
+    expect(charges).toHaveLength(1);
+    expect(charges[0]?.amountLabel).toBe("$250.00");
+    const snapshot = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(Object.values(snapshot.oneTimeCustomFeeBalances ?? {})).toContain(250);
+  });
+
+  it("a month-to-month lease bills the long-term Lease fee, never the short-term one", () => {
+    const email = "m2m-lease-fee@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing("prop-term-fee-m2m", {
+      occupancyPrices: [{ count: 1, monthlyRent: 1200, leaseFee: "100", shortTermLeaseFee: "40" }],
+    });
+    const row = applicant("prop-term-fee-m2m", email, false);
+    row.application = { ...row.application!, leaseTerm: "Month-to-Month", leaseEnd: "" };
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+    expect(leaseFees(email).map((c) => c.amountLabel)).toEqual(["$100.00"]);
+  });
+});

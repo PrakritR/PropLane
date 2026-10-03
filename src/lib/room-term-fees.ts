@@ -97,7 +97,7 @@ export function termFeePatch(fee: TermScopedFee, scope: RoomFeeTermScope, value:
 }
 
 /** The effective money string for a term-scoped fee: this term's own value, else (stays only) the shared one. */
-function termFeeRaw(row: RoomFeeRow | null | undefined, fee: TermScopedFee, scope: RoomFeeTermScope): string {
+export function termFeeRaw(row: RoomFeeRow | null | undefined, fee: TermScopedFee, scope: RoomFeeTermScope): string {
   const own = String(row?.[FIELD[fee][scope]] ?? "").trim();
   if (own !== "" || scope === "long") return own;
   return String(row?.[FIELD[fee].long] ?? "").trim();
@@ -254,9 +254,8 @@ function syncPresetRow(
  * document, the total and the ledger on one set of numbers.
  *
  * Returns the SAME object when the room sets nothing, so an untouched listing is
- * byte-identical to before. Application fee is overlaid for the document only
- * (`applicationFee`); the application charge itself stays the server-resolved
- * system fee (`effectiveApplicationFeeCents`).
+ * byte-identical to before. Application fee is overlaid for the document; the
+ * application CHARGE reads the same row through `application-fee-by-room.ts`.
  */
 export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>(
   sub: T,

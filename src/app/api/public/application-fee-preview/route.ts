@@ -17,6 +17,8 @@ type Body = {
   rentalType?: "standard" | "short_term";
   /** The applicant's lease type — picks the listing's per-type fee when it set one. */
   leaseTerm?: string;
+  /** The applicant's first room choice - a selector, never an amount. */
+  roomChoice1?: string;
   /** P003: the application template the applicant is actually applying with — a selector into the listing's own stored templates, never an amount. */
   applicationTemplateId?: string;
   /** Optional — when present, also reports whether the code currently looks redeemable. */
@@ -73,6 +75,7 @@ export async function POST(req: Request) {
         managerUserId,
         rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
         leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
+        roomChoice1: typeof body.roomChoice1 === "string" ? body.roomChoice1.slice(0, 200) : undefined,
         applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
       },
       { allowZeroFee: true },
@@ -119,6 +122,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       managerUserId: resolved.value.managerUserId,
       applicationFeeCents: itemization.applicationFeeCents,
+      feeSource: resolved.value.feeSource,
       serviceFeeCents: itemization.serviceFeeCents,
       totalCents: itemization.totalCents,
       feePayer: itemization.feePayer,

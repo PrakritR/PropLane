@@ -14,6 +14,8 @@ import {
   parseMultiSelectAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { digitsOnly } from "@/lib/rental-application/masks";
+import { applicationFeeLabelForSelection } from "@/lib/application-fee-by-room";
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { Badge } from "@/components/ui/badge";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Pencil } from "lucide-react";
@@ -221,7 +223,16 @@ export function ManagerApplicationReadonlyReview({
 
   const housingChargesSection = prop?.listingSubmission?.v === 1 ? (
     <ReviewSection title="Housing charges (listing)">
-      <ReviewRow k="Application fee" v={displayOrDash(prop.listingSubmission.applicationFee)} />
+      <ReviewRow
+        k="Application fee"
+        v={displayOrDash(
+          applicationFeeLabelForSelection(prop.listingSubmission, {
+            roomChoice1: form.roomChoice1,
+            leaseTerm: form.leaseTerm,
+            rentalType: applicationRentalTypeFor(form.rentalType),
+          }),
+        )}
+      />
       <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
       <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
       <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />

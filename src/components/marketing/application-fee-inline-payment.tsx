@@ -46,6 +46,7 @@ export function ApplicationFeeInlinePayment({
   managerUserId,
   rentalType,
   leaseTerm,
+  roomChoice1,
   applicationTemplateId,
   returnPath,
   onItemization,
@@ -57,6 +58,8 @@ export function ApplicationFeeInlinePayment({
   rentalType?: "standard" | "short_term";
   /** The applicant's chosen lease type; the listing may price its fee per type. */
   leaseTerm?: string;
+  /** The applicant's first room choice; the server prices the application fee off that room's row for the lease type. */
+  roomChoice1?: string;
   /** P003: the application template the applicant is applying with, when resolved — a selector, picks a stored fee override server-side. */
   applicationTemplateId?: string;
   /** App path Stripe returns to after payment (must start with "/"). */
@@ -107,6 +110,7 @@ export function ApplicationFeeInlinePayment({
           managerUserId,
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           leaseTerm: leaseTerm?.trim() || undefined,
+          roomChoice1: roomChoice1?.trim() || undefined,
           applicationTemplateId: applicationTemplateId?.trim() || undefined,
           mode: "embedded",
           returnPath,
@@ -145,7 +149,7 @@ export function ApplicationFeeInlinePayment({
       setLoading(false);
       inFlight.current = false;
     }
-  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, leaseTerm, applicationTemplateId, returnPath, onItemization]);
+  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, leaseTerm, roomChoice1, applicationTemplateId, returnPath, onItemization]);
 
   // The wizard is embedded in dual-mount (mobile-card + desktop-table) lists,
   // so TWO live copies of this component can exist with CSS deciding which is

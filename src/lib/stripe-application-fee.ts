@@ -103,6 +103,10 @@ export async function markApplicationFeePaidFromStripeSession(
       residentEmail,
       propertyId,
       residentName,
+      paidFeeCents: Number(session.metadata?.fee_cents ?? "0"),
+      feeLeaseTerm: session.metadata?.fee_lease_term,
+      feeRoomId: session.metadata?.fee_room_id,
+      feeSource: session.metadata?.fee_source,
     });
     if (!ensured?.row_data) return { ok: false };
     match = {
@@ -122,11 +126,24 @@ export async function markApplicationFeePaidFromStripeSession(
   }
 
   const now = new Date().toISOString();
+  // Record which room / lease type the paid amount was computed for. A row that already carries a
+  // basis keeps it; a later room or term change never re-prices a paid fee.
+  const sessionFeeBasis =
+    session.metadata?.fee_room_id !== undefined ||
+    session.metadata?.fee_lease_term !== undefined ||
+    session.metadata?.fee_source
+      ? {
+          roomId: session.metadata?.fee_room_id?.trim() ?? "",
+          leaseTerm: session.metadata?.fee_lease_term?.trim() ?? "",
+          source: session.metadata?.fee_source?.trim() ?? "",
+        }
+      : undefined;
   const nextCharge: HouseholdCharge = {
     ...charge,
     status: "paid",
     paidAt: now,
     balanceLabel: "$0.00",
+    ...(charge.applicationFeeBasis || !sessionFeeBasis ? {} : { applicationFeeBasis: sessionFeeBasis }),
   };
 
   const { error: upsertErr } = await db.from("portal_household_charge_records").upsert(

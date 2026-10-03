@@ -838,6 +838,7 @@ function RentalApplicationWizardInner({
         managerUserId: catalogManagerUserId || undefined,
         rentalType: applicationRentalTypeFor(form.rentalType),
         leaseTerm: form.leaseTerm || undefined,
+        roomChoice1: form.roomChoice1 || undefined,
         applicationTemplateId: form.applicationTemplateId,
         residentEmail: email,
       }).then((result) => {
@@ -868,7 +869,7 @@ function RentalApplicationWizardInner({
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [form.propertyId, form.email, form.rentalType, form.leaseTerm, feeStepUserId, extrasTick]);
+  }, [form.propertyId, form.email, form.rentalType, form.leaseTerm, form.roomChoice1, feeStepUserId, extrasTick]);
 
   useEffect(() => {
     if (templatePreview || isDemoModeActive()) return;
@@ -1899,6 +1900,7 @@ function RentalApplicationWizardInner({
           managerUserId: managerUserIdForFee || undefined,
           rentalType: applicationRentalTypeFor(form.rentalType),
           leaseTerm: form.leaseTerm || undefined,
+          roomChoice1: form.roomChoice1 || undefined,
           applicationTemplateId: form.applicationTemplateId,
         });
         if (previewResult.preview) {
@@ -2208,6 +2210,8 @@ function RentalApplicationWizardInner({
             propertyId: pid,
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
+            leaseTerm: form.leaseTerm || undefined,
+            roomChoice1: form.roomChoice1 || undefined,
             applicationTemplateId: form.applicationTemplateId,
           });
           const feePreview = feeResult.preview;
@@ -2430,6 +2434,8 @@ function RentalApplicationWizardInner({
             propertyId: pid,
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
+            leaseTerm: form.leaseTerm || undefined,
+            roomChoice1: form.roomChoice1 || undefined,
             applicationTemplateId: form.applicationTemplateId,
             residentEmail: emailTrim,
           });

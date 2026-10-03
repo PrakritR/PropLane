@@ -13,6 +13,7 @@ import {
   splitLineList,
 } from "@/data/manager-listing-presets";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { applicationFeeRangeAcrossRooms, applicationFeeRangeLabel } from "@/lib/application-fee-by-room";
 import { parseMonthlyRent } from "@/lib/listings-search";
 import {
   bathroomShareCountForRoom,
@@ -889,7 +890,13 @@ function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPri
     lines.push(line);
   };
 
-  if (feeMeaningfulForListing(sub.applicationFee)) {
+  // The fee follows the room and lease type an applicant picks, so before they pick: the one
+  // amount when every room agrees, "From $X" when rooms differ, else the listing default.
+  const roomApplicationRange = applicationFeeRangeAcrossRooms(sub, "long");
+  if (roomApplicationRange) {
+    const label = applicationFeeRangeLabel(roomApplicationRange);
+    if (label) push({ label: "Application fee", value: label });
+  } else if (feeMeaningfulForListing(sub.applicationFee)) {
     push({ label: "Application fee", value: formatListingFeeDisplay(sub.applicationFee) });
   }
 

@@ -171,6 +171,12 @@ export type HouseholdCharge = {
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
+  /**
+   * Application fee only: which room / lease type the amount was computed for and which level of
+   * the fee chain set it. A later room or term change does not re-price a paid fee; this is the
+   * record of what the amount was based on.
+   */
+  applicationFeeBasis?: { roomId: string; leaseTerm: string; source: string };
   paidAt?: string;
   /** How a hand-recorded payment was received (check, cash, card…). */
   paidMethod?: string;

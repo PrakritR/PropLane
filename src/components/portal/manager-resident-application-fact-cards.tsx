@@ -11,6 +11,8 @@ import { paymentAtSigningPriceLabel, utilitiesListingEstimateLabel } from "@/lib
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { digitsOnly } from "@/lib/rental-application/masks";
+import { applicationFeeLabelForSelection } from "@/lib/application-fee-by-room";
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 
 function displayOrDash(v: string | null | undefined) {
   const t = (v ?? "").trim();
@@ -48,7 +50,16 @@ export function ManagerResidentApplicationFactCards({
       </ReviewSection>
       {listing ? (
         <ReviewSection title="Housing charges (listing)" onEdit={() => onEditStep(3)} data-attr="resident-app-card-housing">
-          <ReviewRow k="Application fee" v={displayOrDash(listing.applicationFee)} />
+          <ReviewRow
+            k="Application fee"
+            v={displayOrDash(
+              applicationFeeLabelForSelection(listing, {
+                roomChoice1: form.roomChoice1,
+                leaseTerm: form.leaseTerm,
+                rentalType: applicationRentalTypeFor(form.rentalType),
+              }),
+            )}
+          />
           <ReviewRow k="Security deposit" v={displayOrDash(listing.securityDeposit)} />
           <ReviewRow k="Move-in fee" v={displayOrDash(listing.moveInFee)} />
           <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(listing))} />

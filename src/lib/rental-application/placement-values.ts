@@ -20,6 +20,7 @@ import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles"
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { monthlyRentFoldInTotal } from "@/lib/rent-fold-in";
+import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { submissionWithRoomTermFees } from "@/lib/room-term-fees";
 import { roomIsDailyPriced, roomIsWeeklyPriced, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
@@ -85,9 +86,18 @@ export function resolvePlacementValuesForRow(
     prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
   const room = listingSub ? findRoom(listingSub, roomChoice, row.signedMonthlyRent) : null;
   // The room's own surcharges (Seattle folds them into the rent) as the lease and the ledger read them.
+  // The Lease fee overlay finds the room the SAME way the charge ledger and the lease do (the
+  // shared resolver, unit label included), so the fee shown here is the fee billed.
+  const feeRoom = listingSub
+    ? resolveSubmissionRoom(listingSub, {
+        roomChoices: [row.assignedRoomChoice, app?.roomChoice1],
+        unitLabel: prop?.unitLabel,
+        signedMonthlyRent: row.signedMonthlyRent,
+      })
+    : undefined;
   const sub =
     listingSub && !app?.bundleId?.trim()
-      ? submissionWithRoomTermFees(listingSub, room, {
+      ? submissionWithRoomTermFees(listingSub, feeRoom ?? null, {
           leaseTerm: app?.leaseTerm,
           rentalType: app?.rentalType,
           wholeHouse: isEntireHomeListing(listingSub),
