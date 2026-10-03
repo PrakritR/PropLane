@@ -57,6 +57,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   "background-check": ShieldCheck,
   "background-checks": ShieldCheck,
   payments: CreditCard,
+  outgoing: Receipt,
   // Distinct from Payments (a manager's resident charges): this is what PropLane bills.
   billing: Receipt,
   documents: Folder,
