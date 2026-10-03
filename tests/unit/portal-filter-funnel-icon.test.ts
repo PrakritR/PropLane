@@ -21,4 +21,13 @@ describe("portal filter funnel icon", () => {
     expect(source).toMatch(/Filter, \/\/ Filter \(funnel\)/);
     expect(source).not.toMatch(/SlidersHorizontal, \/\/ Filter/);
   });
+
+  it("marketing product mocks use Filter for list-header Filter actions", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/marketing/site/product-mock/panels.tsx"),
+      "utf8",
+    );
+    expect(source).toMatch(/icon=\{Filter\} label="Filter"/);
+    expect(source).not.toMatch(/SlidersHorizontal.*label="Filter"/);
+  });
 });
