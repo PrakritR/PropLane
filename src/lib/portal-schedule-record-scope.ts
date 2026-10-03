@@ -17,6 +17,18 @@ export const ROOM_DATE_BLOCK_RECORD_TYPE = "room_date_block";
 export const CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE = "cancelled_room_date_block";
 const ROOM_DATE_BLOCK_PREFIX = "axis_room_block_";
 
+/**
+ * Bookings records written ONLY through their dedicated authenticated routes
+ * (`/api/portal/bookings/stay-meta`, `/api/portal/channel-calendar/stay-tombstones`),
+ * which re-derive ownership from the session. The generic schedule-records route
+ * refuses both so a client can never plant or rewrite one with ids from a body.
+ */
+export const BOOKING_STAY_META_RECORD_TYPE = "booking_stay_meta";
+export const CHANNEL_STAY_TOMBSTONE_RECORD_TYPE = "channel_stay_tombstone";
+export function isDedicatedBookingsRecordType(recordType: string): boolean {
+  return recordType === BOOKING_STAY_META_RECORD_TYPE || recordType === CHANNEL_STAY_TOMBSTONE_RECORD_TYPE;
+}
+
 /** Id of a manager's explicit closed-dates record; the owner is in the id so reads and writes scope to them. */
 export function roomDateBlockRecordId(userId: string, blockUid: string): string {
   return `${ROOM_DATE_BLOCK_PREFIX}${userId.trim()}_${blockUid}`;

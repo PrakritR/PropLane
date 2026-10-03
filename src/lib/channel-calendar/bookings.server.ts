@@ -18,6 +18,8 @@ import type { MockProperty } from "@/data/types";
 import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
 function propertyLabelFromRecord(
   propertyId: string,
@@ -89,6 +91,10 @@ export async function listManagerChannelCalendarBookings(
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
+  // A stay the manager removed never draws, even if a sync that was already in
+  // flight stored it again (C2-AB7).
+  const tombstoneKeys = await loadChannelStayTombstoneKeys(db, allowed);
+
   const propertyCache = new Map<
     string,
     Awaited<ReturnType<typeof loadPropertyRecord>>
@@ -110,7 +116,13 @@ export async function listManagerChannelCalendarBookings(
       roomLabel: roomLabelFromSubmission(record?.property ?? null, connection.room_id, connection.label),
       provider: connection.provider,
       label: connection.label,
-      ranges: normalizeRanges(connection.imported_ranges ?? []),
+      ranges: normalizeRanges(
+        pruneTombstonedRanges(
+          connection.imported_ranges ?? [],
+          { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
+          tombstoneKeys,
+        ).kept,
+      ),
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,
       hasImportUrl: Boolean(connection.import_url?.trim()),

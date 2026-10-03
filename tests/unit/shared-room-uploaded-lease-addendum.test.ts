@@ -3,6 +3,7 @@ import {
   appendSharedRoomAddendumToLeaseHtml,
   buildSharedRoomUploadedLeaseAddendumHtml,
 } from "@/lib/shared-room-uploaded-lease-addendum";
+import { sharedRoomLeaseTerms } from "@/lib/lease-shared-room-terms";
 import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 
@@ -36,12 +37,26 @@ function sharedRoomCtx(joint = true): LeaseGenerationContext {
 }
 
 describe("shared-room uploaded lease addendum (C2-SR12)", () => {
-  it("builds bed, rent, and joint-lease language for a shared room", () => {
+  it("builds bed, rent, and separate-lease language for a shared room whose only known resident is this one", () => {
     const html = buildSharedRoomUploadedLeaseAddendumHtml(sharedRoomCtx());
     expect(html).toContain("Shared room addendum");
     expect(html).toContain("Bed A");
     expect(html).toContain("$900");
-    expect(html).toContain("joint lease");
+    expect(html).toContain("Separate lease");
+  });
+
+  it("is the same clause set as the generated lease, with every roommate on a joint lease", () => {
+    const ctx = sharedRoomCtx();
+    const sharedRoom = sharedRoomLeaseTerms({
+      room: ctx.submission!.rooms[0]!,
+      propertyAddress: "123 Main St",
+      residents: [{ name: "Alex Resident", slot: 1 }, { name: "Blake Roommate", slot: 2 }],
+    })!;
+    const html = buildSharedRoomUploadedLeaseAddendumHtml({ ...ctx, sharedRoom })!;
+    expect(html).toContain("Shared room addendum");
+    expect(html).toContain("Roommates on this lease");
+    expect(html).toContain("Blake Roommate");
+    expect(html).toContain("If a roommate leaves");
   });
 
   it("appends the addendum before </body> when present", () => {

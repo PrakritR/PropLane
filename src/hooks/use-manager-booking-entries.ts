@@ -16,6 +16,8 @@ import {
   type RoomDateBlock,
 } from "@/lib/channel-calendar/property-bookings";
 import { ROOM_DATE_BLOCKS_CHANGED, fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
+import { STAY_META_CHANGED, applyStayMeta, type StayMeta } from "@/lib/channel-calendar/stay-meta";
+import { fetchStayMetas } from "@/lib/channel-calendar/stay-meta-client";
 import {
   blockDatesResidentOptions,
   type BlockDatesResidentOption,
@@ -65,6 +67,7 @@ export function useManagerBookingEntries({
   const [applicationsReady, setApplicationsReady] = useState(false);
   const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
   const [blocksReady, setBlocksReady] = useState(false);
+  const [stayMetas, setStayMetas] = useState<StayMeta[]>([]);
 
   const { rows: leaseRows, ready: leasesReady } = useLeasePipelineRows(userId, {
     enabled: Boolean(userId),
@@ -125,6 +128,29 @@ export function useManagerBookingEntries({
     return () => {
       cancelled = true;
       window.removeEventListener(ROOM_DATE_BLOCKS_CHANGED, onChange);
+    };
+  }, [userId, refreshSignal]);
+
+  // Notes and stay details on signed-lease / application stays (C2-BK2). Read
+  // failure leaves the stays drawn without them rather than blanking Bookings.
+  useEffect(() => {
+    if (!userId) {
+      setStayMetas([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      fetchStayMetas()
+        .then((rows) => {
+          if (!cancelled) setStayMetas(rows);
+        })
+        .catch(() => {});
+    void load();
+    const onChange = () => void load();
+    window.addEventListener(STAY_META_CHANGED, onChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(STAY_META_CHANGED, onChange);
     };
   }, [userId, refreshSignal]);
 
@@ -317,10 +343,13 @@ export function useManagerBookingEntries({
 
   const entries = useMemo(
     () =>
-      [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
-        (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+      applyStayMeta(
+        [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
+          (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+        ),
+        stayMetas,
       ),
-    [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries],
+    [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries, stayMetas],
   );
 
   return { entries, occupancyDays, loading, reloadAirbnb, blocks, residentOptions };

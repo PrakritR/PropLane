@@ -18,7 +18,7 @@ import {
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
-import { bookingRateLabel, bookingStatusLabel, canCancelBooking } from "@/lib/channel-calendar/booking-presentation";
+import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function guestName(entry: PropertyBookingEntry): string {
@@ -61,6 +61,7 @@ export function ManagerBookingsListView({
   onToggleSelected,
   onEditBlock,
   onDeleteBlock,
+  onRemoveStay,
   bulkActions,
   emptyCard,
   basePath = "/portal",
@@ -73,6 +74,8 @@ export function ManagerBookingsListView({
   onToggleSelected: (key: string, selected: boolean) => void;
   onEditBlock?: (entry: PropertyBookingEntry) => void;
   onDeleteBlock?: (entry: PropertyBookingEntry) => void;
+  /** Remove stay on a channel-feed reservation (C2-AB7): tombstoned, so the next sync does not bring it back. */
+  onRemoveStay?: (entry: PropertyBookingEntry) => void;
   bulkActions?: ReactNode;
   /** The tab's empty card — the page owns the copy, tab counts and Link Airbnb. */
   emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
@@ -119,7 +122,14 @@ export function ManagerBookingsListView({
               onView={() => navigate(href)}
               onEditDates={entry.source !== "airbnb" && entry.source !== "booking_com" ? () => onEditBlock ? onEditBlock(entry) : navigate(href) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
-              onCancel={canCancelBooking(entry) && onDeleteBlock ? () => onDeleteBlock(entry) : undefined}
+              onCancel={
+                canCancelBooking(entry) && onDeleteBlock
+                  ? () => onDeleteBlock(entry)
+                  : canRemoveChannelStay(entry) && onRemoveStay
+                    ? () => onRemoveStay(entry)
+                    : undefined
+              }
+              cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : undefined}
             >
               <PortalApplicantRecordRow
                 name={name}

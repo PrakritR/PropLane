@@ -7,6 +7,7 @@ import {
   vendorScheduleRecordTypes,
   ROOM_DATE_BLOCK_RECORD_TYPE,
   CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
+  isDedicatedBookingsRecordType,
 } from "@/lib/portal-schedule-record-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
@@ -390,6 +391,13 @@ const route = createJsonRecordRoute({
     return { handled: true };
   },
   authorizeUpsert: async ({ db, user, records }) => {
+    if (records.some((record) => isDedicatedBookingsRecordType(String(record.record_type ?? "")))) {
+      return {
+        ok: false,
+        error: "Stay details and removed channel stays are changed through their dedicated Bookings routes.",
+        status: 403,
+      };
+    }
     if (records.some((record) => String(record.id ?? "").trim() === PARTNER_INQUIRIES_RECORD_ID)) {
       return {
         ok: false,
@@ -429,6 +437,13 @@ const route = createJsonRecordRoute({
     return { ok: true };
   },
   authorizeDelete: async ({ db, user, records }) => {
+    if (records.some((record) => isDedicatedBookingsRecordType(String(record.record_type ?? "")))) {
+      return {
+        ok: false,
+        error: "Stay details and removed channel stays are changed through their dedicated Bookings routes.",
+        status: 403,
+      };
+    }
     if (records.some((record) => {
       const id = String(record.id ?? "").trim();
       return id === PLANNED_EVENTS_RECORD_ID || id === PARTNER_INQUIRIES_RECORD_ID;

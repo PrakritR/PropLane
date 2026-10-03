@@ -581,3 +581,7 @@ go through this client rather than calling the route directly.
 ## Work identity disclosure
 
 Public listing contacts, preview contacts, resident manager cards, manager thread contact details, and new flyer defaults use the relevant workspace work number and work email. Personal profile phone/email and the retired sharing opt-in never provide fallback contact values. `resident-manager-contact.server.ts` and the authorized `/api/manager/work-contact` relationship read enforce this server-side.
+
+## Bookings: notices and removed stays (C2-BK4, C2-AB7)
+
+Cancel booking's "Notify guest" sends through the same authorized `POST /api/portal/send-inbox-message` (`booking-cancel-notice.ts`), after the cancel is saved, stamped with a `booking` recordRef; with no email on the stay the checkbox is disabled. A stay brought in by a channel feed is removed with a tombstone (`channel_stay_tombstone` in `portal_schedule_records`, keyed by house, room, channel and the feed's event UID) written by `/api/portal/channel-calendar/stay-tombstones`; the sync prunes tombstoned UIDs before it stores ranges, and Undo restores the carried range. Notes and stay details on a signed-lease or application stay (`booking_stay_meta`) are written by `/api/portal/bookings/stay-meta`, which re-derives the caller's access to the lease/application from the session. The generic schedule-records route refuses both record types.

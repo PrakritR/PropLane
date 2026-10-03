@@ -157,3 +157,27 @@ export async function fetchManagerChannelBookings(
   if (!res.ok) throw new Error(data.error ?? "Could not load bookings.");
   return data.properties ?? [];
 }
+
+async function postChannelStayTombstone(
+  action: "remove" | "restore",
+  input: { connectionId: string; sourceUid: string },
+): Promise<void> {
+  const res = await fetch("/api/portal/channel-calendar/stay-tombstones", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...input }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? (action === "remove" ? "Could not remove that stay." : "Could not restore that stay."));
+}
+
+/** Remove stay — leaves a tombstone so the next sync does not bring the reservation back (C2-AB7). */
+export function removeChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
+  return postChannelStayTombstone("remove", input);
+}
+
+/** Undo for Remove stay. */
+export function restoreChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
+  return postChannelStayTombstone("restore", input);
+}

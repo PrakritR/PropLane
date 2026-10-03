@@ -21,3 +21,7 @@ export function bookingStatusLabel(entry: PropertyBookingEntry, today = dateKey(
 export function canCancelBooking(entry: PropertyBookingEntry, today = dateKey(new Date())): boolean {
   return entry.source === "block" && Boolean(entry.blockId) && entry.bookingStatus !== "cancelled" && entry.start > today;
 }
+/** A reservation read from a channel calendar feed: it can be removed (tombstoned), never edited or cancelled here. */
+export function canRemoveChannelStay(entry: PropertyBookingEntry): boolean {
+  return (entry.source === "airbnb" || entry.source === "booking_com") && !entry.blockId && Boolean(entry.connectionId) && Boolean(entry.sourceUid);
+}

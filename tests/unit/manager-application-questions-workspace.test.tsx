@@ -476,7 +476,9 @@ describe("Preview step", () => {
     expect(within(pane!).getByText("Household application")).toBeTruthy();
     expect(within(pane!).getByText("Group application")).toBeTruthy();
     expect(within(pane!).getByText("Co-signer planned")).toBeTruthy();
-    expect(pane!.querySelector("[inert]")).not.toBeNull();
+    // C2-R30-6: the preview is the wizard's own control, answerable in place (a conditional question
+    // appears when its parent is answered); only an upload stays inert, and nothing is persisted.
+    expect(pane!.querySelector("input, textarea, button")).not.toBeNull();
     expect(persistOnServer).not.toHaveBeenCalled();
 
     jumpRail("household");
@@ -517,7 +519,8 @@ describe("Preview step", () => {
     expect(within(pane).getByText("Full legal name")).toBeTruthy();
     expect(within(pane).getByText("Phone")).toBeTruthy();
     expect(within(pane).getByText("Email")).toBeTruthy();
-    expect(pane.querySelector("[inert]")).not.toBeNull();
+    expect(pane.querySelector("input, textarea, button")).not.toBeNull();
+    expect(persistOnServer).not.toHaveBeenCalled();
   });
 
   it("a question with a blank label and an empty option row renders without throwing", async () => {
