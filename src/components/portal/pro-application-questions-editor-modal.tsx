@@ -91,8 +91,13 @@ import {
   updatePropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   type ApplicationTemplateQuestionConfig,
+  type ApplicationTourOrder,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
+import {
+  APPLICATION_TOUR_ORDER_OPTIONS,
+  normalizeApplicationTourOrder,
+} from "@/lib/application-before-tour-policy";
 import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
 import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
@@ -356,6 +361,9 @@ export function ManagerApplicationQuestionsEditorModal({
   // that did not touch a row never rewrites its stored link.
   const [linkedLeaseId, setLinkedLeaseId] = useState<string | null>(null);
   const [linkedCosignerId, setLinkedCosignerId] = useState<string | null>(null);
+  // Before the tour / After the tour / Use the workspace setting: saved on the form itself and
+  // enforced server-side (`application-before-tour.server.ts`).
+  const [tourOrder, setTourOrder] = useState<ApplicationTourOrder>("workspace");
   const initialLinksRef = useRef<{ lease: string | null; cosigner: string | null }>({ lease: null, cosigner: null });
   const [copyFromApplicationId, setCopyFromApplicationId] = useState<string | null>(null);
   const [questionsMobileSectionId, setQuestionsMobileSectionId] = useState<RentalApplicationSectionId>("personal");
@@ -412,6 +420,7 @@ export function ManagerApplicationQuestionsEditorModal({
     initialLinksRef.current = { lease: initialLease, cosigner: initialCosigner };
     setLinkedLeaseId(initialLease);
     setLinkedCosignerId(initialCosigner);
+    setTourOrder(normalizeApplicationTourOrder(applicationTemplate?.tourOrder));
     setQuestionsMobileSectionId("personal");
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
@@ -854,6 +863,7 @@ export function ManagerApplicationQuestionsEditorModal({
             id: addModeTemplateId ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
+            tourOrder,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(
                 applicationConfigForVariant(sanitizedSub, "standard"),
@@ -874,6 +884,7 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
+          tourOrder,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -1743,6 +1754,24 @@ export function ManagerApplicationQuestionsEditorModal({
                       options={copyApplicationOptions}
                       placeholder="Choose an application"
                       onChange={(next) => setCopyFromApplicationId(next || null)}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {linkRowsAvailable ? (
+                  <PropertyFormWizardRow label="Tour order">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Tour order"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={tourOrder}
+                      dataAttr="application-tour-order"
+                      options={APPLICATION_TOUR_ORDER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                      onChange={(next) => {
+                        setTourOrder(normalizeApplicationTourOrder(next));
+                        setDirty(true);
+                      }}
                     />
                   </PropertyFormWizardRow>
                 ) : null}

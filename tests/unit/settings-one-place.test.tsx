@@ -83,6 +83,7 @@ describe("Settings is one place", () => {
       "settings-nav-workspaces",
       "settings-nav-payments",
       "settings-nav-applicationsLeases",
+      "settings-nav-leasingForms",
       "settings-nav-messaging",
       "settings-nav-spreadsheets",
     ]);
@@ -91,6 +92,20 @@ describe("Settings is one place", () => {
     expect(labels("settings-group-workspace")).toBe("Workspace");
     expect(labels("settings-nav-payments")).toBe("Balance & payouts");
     expect(labels("settings-nav-billing")).toBe("Billing & plan");
+  });
+
+  it("loads Settings -> Forms by its URL: the Forms rail row opens the library page, Applications first", async () => {
+    window.history.replaceState(null, "", "/portal/profile?tab=leasingForms");
+    const view = renderSettings();
+    const nav = view.container.querySelector('nav[aria-label="Settings sections"]')!;
+    expect(nav.querySelector('[data-attr="settings-nav-leasingForms"]')?.textContent).toBe("Forms");
+    expect(nav.querySelector('[data-attr="settings-nav-leasingForms"]')?.getAttribute("aria-current")).toBe("page");
+    expect(view.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Forms");
+    expect(view.container.querySelector('[data-attr="leasing-forms-panel"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-attr="leasing-forms-tab-applications"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-attr="leasing-forms-tab-leases"]')).not.toBeNull();
+    // Move-in forms are their own page, never a tab here.
+    expect(view.container.querySelector('[data-attr="leasing-forms-tab-move-in"]')).toBeNull();
   });
 
   it("shows the sidebar's workspace read-only: a name, not a switcher", () => {

@@ -81,6 +81,11 @@ export type PropertyApplicationTemplate = {
    * Enforced SERVER-SIDE with the workspace setting in `application-before-tour.server.ts`.
    */
   tourOrder?: ApplicationTourOrder;
+  /**
+   * Set when this copy was added from the workspace Forms library (`leasing-forms-library.ts`): the
+   * library form's id. The property's own forms never carry it.
+   */
+  libraryFormId?: string | null;
 };
 
 /** Per-form answer to "does this application come before the tour?". `workspace` = use the workspace setting. */
