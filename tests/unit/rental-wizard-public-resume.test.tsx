@@ -299,7 +299,7 @@ describe("public apply — resume after reload", () => {
 
     await mountWizard();
     expect(loadRentalWizardDraftAxisId()).toBe(shortId);
-    fireEvent.click(screen.getByRole("button", { name: "Select lease length" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select a lease term" }));
     await act(async () => {
       const option = screen.getByRole("option", { name: "Long-term" });
       fireEvent.pointerDown(option, { pointerId: 1, clientX: 0, clientY: 0 });

@@ -107,7 +107,7 @@ describe.each(WORKSPACES)("%s: editor sections match the apply wizard step for s
     expect(editorCustom).toEqual(wizardFields.map((f) => f.key).sort());
   });
 
-  it("the preview of each section shows what the wizard shows an applicant who has answered nothing: required stars, no conditional child", () => {
+  it("the preview of each section shows what the wizard shows an applicant who has answered nothing: no required marker, no conditional child", () => {
     for (const section of RENTAL_APPLICATION_SECTIONS) {
       if (section.id === "review") continue;
       const fields = editorFields.filter((f) => (f.section ?? "additional") === section.id);
@@ -118,7 +118,8 @@ describe.each(WORKSPACES)("%s: editor sections match the apply wizard step for s
       for (const field of fields.filter((f) => !f.isStandard)) {
         const shown = expectedVisible.includes(field);
         expect(text.includes(field.label), `${field.label} in ${section.id}`).toBe(shown);
-        if (shown && field.required) expect(text).toMatch(new RegExp(`${field.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\*`));
+        // A required question carries no marker (product rule): no asterisk after its label.
+        if (shown && field.required) expect(text).not.toMatch(new RegExp(`${field.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\*`));
       }
       unmount();
     }
@@ -150,7 +151,7 @@ describe("the preview follows the draft and reveals a conditional question when 
     rerender(<ApplicationSectionPreviewPane section={household} fields={fieldsOf(edited)} />);
     expect(screen.getByText(/Do you have an assistance animal\?/)).toBeTruthy();
     expect(screen.queryByText("Do you have a service animal?")).toBeNull();
-    expect(screen.getByText("Vet name").parentElement!.textContent).toContain("*");
+    expect(screen.getByText("Vet name").parentElement!.textContent).not.toContain("*");
   });
 
   it("a half-typed blank label shows as Untitled question instead of an empty control", () => {

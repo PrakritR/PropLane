@@ -139,7 +139,7 @@ describe("paired built-in question labels", () => {
       setPhone={noop} setLandlordPhone={noop} setPrevLandlordPhone={noop} setSupervisorPhone={noop}
       setRef1Phone={noop} setRef2Phone={noop} setSsn={noop} goToStep={noop} editFromReview={noop}
     />);
-    expect(screen.getByLabelText(/^Employer\s*\*$/)).toHaveProperty("id", "employer");
+    expect(screen.getByLabelText(/^Employer\s*\(required\)$/)).toHaveProperty("id", "employer");
     expect(screen.getByLabelText(/^Employer address$/)).toHaveProperty("id", "employerAddress");
     expect(screen.getByLabelText(/^Supervisor name$/)).toHaveProperty("id", "supervisorName");
     expect(screen.getByLabelText(/^Supervisor phone$/)).toHaveProperty("id", "supervisorPhone");
