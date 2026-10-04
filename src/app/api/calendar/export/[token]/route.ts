@@ -21,21 +21,73 @@ function day(raw: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
+const APPROVED_ROW_SELECT =
+  "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
+const APPROVED_ROW_PAGE = 500;
+const APPROVED_ROW_MAX_PAGES = 40;
+
+/**
+ * Narrows the approved-application read to this property in the DATABASE. The property/room match
+ * used to happen in JavaScript behind a flat 500-row cap spent across the manager's whole
+ * portfolio, so a large portfolio silently dropped a room's occupied ranges from the feed and the
+ * channel offered those dates as open. A property id with a character the filter grammar treats as
+ * punctuation falls back to the unnarrowed read, which is paged, so nothing is ever truncated.
+ */
+function approvedRowsPropertyFilter(propertyId: string): string | null {
+  if (!/^[A-Za-z0-9_:.\-]+$/.test(propertyId)) return null;
+  return [
+    `assigned_property_id.eq.${propertyId}`,
+    `property_id.eq.${propertyId}`,
+    `row_data->>assignedRoomChoice.like.${propertyId}::*`,
+    `row_data->application->>roomChoice1.like.${propertyId}::*`,
+  ].join(",");
+}
+
+type ApprovedRow = {
+  choice: unknown;
+  preferred: unknown;
+  lease_start: unknown;
+  lease_end: unknown;
+  manual_start: unknown;
+  manual_end: unknown;
+  manually_added: unknown;
+  ical_connection: unknown;
+  assigned_property_id: unknown;
+  property_id: unknown;
+};
+
+async function readApprovedRowsForProperty(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  managerUserId: string,
+  propertyId: string,
+): Promise<ApprovedRow[]> {
+  const propertyFilter = approvedRowsPropertyFilter(propertyId);
+  const rows: ApprovedRow[] = [];
+  for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
+    let query = db
+      .from("manager_application_records")
+      .select(APPROVED_ROW_SELECT)
+      .eq("manager_user_id", managerUserId)
+      .eq("row_data->>bucket", "approved");
+    if (propertyFilter) query = query.or(propertyFilter);
+    const { data, error } = await query
+      .order("id", { ascending: true })
+      .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE - 1);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as unknown as ApprovedRow[];
+    rows.push(...batch);
+    if (batch.length < APPROVED_ROW_PAGE) break;
+  }
+  return rows;
+}
+
 async function occupancyRangesForRoom(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   managerUserId: string,
   propertyId: string,
   roomId: string,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select(
-      "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId",
-    )
-    .eq("manager_user_id", managerUserId)
-    .eq("row_data->>bucket", "approved")
-    .limit(500);
-  if (error) throw new Error(error.message);
+  const data = await readApprovedRowsForProperty(db, managerUserId, propertyId);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;

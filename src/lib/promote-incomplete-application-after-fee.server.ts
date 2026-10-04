@@ -26,8 +26,9 @@ import {
 import { axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import {
+  applicationFeeBasisFromSessionMetadata,
   applicationFeePaymentSatisfiesTemplate,
-  resolveRequiredApplicationFeeCents,
+  resolveRequiredApplicationFee,
 } from "@/lib/application-fee-checkout.server";
 
 function normalizedEmail(value: string | null | undefined): string {
@@ -63,11 +64,11 @@ export type PromoteIncompleteAfterFeeResult =
       ok: true;
       promoted: false;
       /**
-       * Lead review follow-up (2026-09-27): the draft's CURRENT application
-       * template differs from what the Stripe session actually paid for, and
-       * the amount paid does not cover what the current template requires —
-       * e.g. paid for a $0 template, then switched to a paid one before this
-       * ran. Never promoted; the applicant owes the difference.
+       * The draft's CURRENT priced basis — application template, room, bundle,
+       * lease type, rental type — differs from what the Stripe session actually
+       * paid for, and the amount paid does not cover what that basis requires:
+       * e.g. paid for a $0 template or a $25 room, then switched to a pricier
+       * one before this ran. Never promoted; the applicant owes the difference.
        */
       reason: "fee_mismatch";
       requiredCents: number;
@@ -155,40 +156,51 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     return { ok: true, promoted: false, reason: "no_draft" };
   }
 
-  // Lead review follow-up (2026-09-27): re-resolve the fee for the template
-  // this draft is ACTUALLY about to submit under — never trust that the paid
-  // session's template still matches. `submitted === paid` (including both
-  // "no template", the single-template/no-override case) is always fine;
-  // otherwise the paid amount must cover what the current template requires.
+  // Lead review follow-up (2026-09-27), widened 2026-10-03: re-resolve the fee
+  // for what this draft is ACTUALLY about to submit — never trust that the paid
+  // session still matches it. The fee is priced per template AND per room, per
+  // bundle, per lease type and per rental type, so the template alone is not
+  // the basis: the re-resolve runs unconditionally and the paid charge is
+  // accepted as-is only when the whole stamped basis still matches. Otherwise
+  // the amount paid must cover what the submitted basis now requires.
   const paidApplicationTemplateId = session.metadata?.application_template_id?.trim() || null;
   const paidFeeCents = Number(session.metadata?.fee_cents ?? "0");
   const submittedApplicationTemplateId = previousApplication.applicationTemplateId?.trim() || null;
-  if (submittedApplicationTemplateId !== paidApplicationTemplateId) {
-    const requiredCents = await resolveRequiredApplicationFeeCents(db, {
-      propertyId,
-      managerUserId: draft.record.manager_user_id?.trim() || "",
-      applicationTemplateId: submittedApplicationTemplateId,
-      roomChoice1: previousApplication.roomChoice1,
-      bundleId: (previousApplication as { bundleId?: string }).bundleId,
-      leaseTerm: previousApplication.leaseTerm,
-      rentalType: applicationRentalTypeFor(previousApplication.rentalType),
+  // A re-resolve that cannot read the listing answers 0 required, exactly as it already did when
+  // the resolver refused — the fee is collected and the applicant must not be left unsubmitted by
+  // a transient read. The webhook retries, so a real mismatch is still caught on the next pass.
+  const required = await resolveRequiredApplicationFee(db, {
+    propertyId,
+    managerUserId: draft.record.manager_user_id?.trim() || "",
+    applicationTemplateId: submittedApplicationTemplateId,
+    roomChoice1: previousApplication.roomChoice1,
+    bundleId: (previousApplication as { bundleId?: string }).bundleId,
+    leaseTerm: previousApplication.leaseTerm,
+    rentalType: applicationRentalTypeFor(previousApplication.rentalType),
+  }).catch((cause) => {
+    console.error("[application-fee-promote] could not re-resolve the required fee", {
+      applicationId: draft.record.id,
+      message: cause instanceof Error ? cause.message : String(cause),
     });
-    if (
-      !applicationFeePaymentSatisfiesTemplate({
-        submittedApplicationTemplateId,
-        paidApplicationTemplateId,
-        paidFeeCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
-        requiredFeeCents: requiredCents,
-      })
-    ) {
-      return {
-        ok: true,
-        promoted: false,
-        reason: "fee_mismatch",
-        requiredCents,
-        paidCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
-      };
-    }
+    return { cents: 0, basis: {} };
+  });
+  if (
+    !applicationFeePaymentSatisfiesTemplate({
+      submittedApplicationTemplateId,
+      paidApplicationTemplateId,
+      paidFeeCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
+      requiredFeeCents: required.cents,
+      paidFeeBasis: applicationFeeBasisFromSessionMetadata(session.metadata),
+      submittedFeeBasis: required.basis,
+    })
+  ) {
+    return {
+      ok: true,
+      promoted: false,
+      reason: "fee_mismatch",
+      requiredCents: required.cents,
+      paidCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
+    };
   }
 
   const applicantName =

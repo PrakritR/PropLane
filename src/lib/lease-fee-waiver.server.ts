@@ -127,6 +127,64 @@ async function loadLeaseFeeCharges(
   return { ok: true, charges };
 }
 
+/**
+ * Statuses a lease-fee charge may be cancelled FROM. Collected money is refused earlier; this is
+ * the precondition on the write itself, so a charge that becomes `processing`/`paid` between the
+ * read and the write is never overwritten to `cancelled`. `status` is nullable, so a row that
+ * never had one still qualifies.
+ */
+const WAIVABLE_CHARGE_STATUS_FILTER = "status.is.null,status.in.(pending,failed)";
+
+/**
+ * A charge exactly as it was before this call cancelled it. Snapshotted BEFORE the write, never
+ * re-read from the record afterwards, so the rollback restores the pre-waiver values.
+ */
+type CancelledChargeSnapshot = { id: string; status: string | null; rowData: HouseholdCharge; ownerId: string };
+
+/** Put a charge this call cancelled back the way it was, so a half-applied waiver never survives. */
+async function restoreCancelledCharge(db: SupabaseClient, snapshot: CancelledChargeSnapshot): Promise<void> {
+  const { error } = await db
+    .from(CHARGE_TABLE)
+    .update({ status: snapshot.status, row_data: snapshot.rowData, updated_at: new Date().toISOString() })
+    .eq("id", snapshot.id);
+  if (error) {
+    console.error("[lease-fee-waiver] rollback of a cancelled lease fee failed", snapshot.id, error.message);
+    return;
+  }
+  await restoreFuturePaymentRemindersForCharge(db, snapshot.ownerId, snapshot.id).catch(() => undefined);
+  await syncLedgerChargeEntry(db, { ...snapshot.rowData, managerUserId: snapshot.ownerId }).catch(() => undefined);
+}
+
+/**
+ * Give back the code use a lease-fee waiver code spent on this lease. The partial unique index on
+ * `application_fee_waiver_redemptions` allows one lease redemption per lease, so leaving the row
+ * behind after a reinstate would make every future code on that lease read as ALREADY_USED while
+ * the original code's `used_count` stayed spent.
+ */
+async function releaseLeaseFeeWaiverRedemptionForLease(
+  db: SupabaseClient,
+  leaseId: string,
+  ownerUserId: string,
+): Promise<void> {
+  let query = db
+    .from("application_fee_waiver_redemptions")
+    .select("id")
+    .eq("lease_id", leaseId)
+    .eq("kind", "lease");
+  if (ownerUserId) query = query.eq("manager_user_id", ownerUserId);
+  const { data, error } = await query.limit(1);
+  if (error) {
+    console.error("[lease-fee-waiver] reinstate could not read the lease's code redemption", error.message);
+    return;
+  }
+  const redemptionId = ((data ?? []) as { id?: string }[])[0]?.id;
+  if (!redemptionId) return;
+  const { error: releaseError } = await db.rpc("release_lease_fee_waiver_redemption", {
+    p_redemption_id: redemptionId,
+  });
+  if (releaseError) console.error("[lease-fee-waiver] reinstate could not release the code use", releaseError.message);
+}
+
 /** A waiver that came from a code the resident typed, rather than a manager's direct grant. */
 export type LeaseFeeWaiverVia = {
   codeId: string;
@@ -202,23 +260,22 @@ export async function waiveLeaseFee(
     reason,
   };
 
-  // 1. The lease row's application copy. Only when it already carries one: a stub application would be
-  //    mistaken for a full application elsewhere.
-  const application = asObject(rowData.application);
-  if (Object.keys(application).length > 0 && !existing) {
-    const { error } = await db
-      .from(LEASE_TABLE)
-      .update({ row_data: { ...rowData, application: { ...application, managerLeaseFeeWaiver: waiver } }, updated_at: waiver.waivedAtIso })
-      .eq("id", record.id);
-    if (error) return { ok: false, status: 500, error: error.message };
-  }
-
-  // 2. The charge(s): cancelled with the waiver stamped on, ledger re-synced, reminders stopped.
+  // 1. The charge(s): cancelled with the waiver stamped on, ledger re-synced, reminders stopped.
+  //    Money first, then the lease row, and every step is undone on a failure: the lease row's
+  //    waiver is what the lease document and the billing snapshot read, so "stamped but still
+  //    charged" (or the reverse) must never be a state a caller can be left in. The caller of a
+  //    code redemption gives the code use back on any failure, which only balances if nothing
+  //    here was half-applied.
   const cancelledChargeIds: string[] = [];
+  const cancelled: CancelledChargeSnapshot[] = [];
+  const rollback = async () => {
+    for (const snapshot of cancelled) await restoreCancelledCharge(db, snapshot);
+  };
   for (const c of found.charges) {
     const status = c.status ?? c.row_data.status;
     if (status === "cancelled") continue;
     const ownerId = c.manager_user_id ?? record.manager_user_id ?? input.managerUserId;
+    const before: CancelledChargeSnapshot = { id: c.id, status: c.status, rowData: { ...c.row_data }, ownerId };
     const next: HouseholdCharge = {
       ...c.row_data,
       status: "cancelled",
@@ -226,14 +283,39 @@ export async function waiveLeaseFee(
       waivedByUserId: waiver.waivedByUserId,
       waiverReason: waiver.reason,
     };
-    const { error } = await db
+    const { data: written, error } = await db
       .from(CHARGE_TABLE)
       .update({ status: "cancelled", row_data: next, updated_at: waiver.waivedAtIso })
-      .eq("id", c.id);
-    if (error) return { ok: false, status: 500, error: error.message };
+      .eq("id", c.id)
+      .or(WAIVABLE_CHARGE_STATUS_FILTER)
+      .select("id");
+    if (error) {
+      await rollback();
+      return { ok: false, status: 500, error: error.message };
+    }
+    if (((written ?? []) as unknown[]).length === 0) {
+      // The charge moved on between the collected-check and this write (a payment started clearing).
+      await rollback();
+      return { ok: false, status: 409, error: "The lease fee was already paid. Refund it instead of waiving it." };
+    }
+    cancelled.push(before);
     await cancelFuturePaymentRemindersForCharge(db, ownerId, c.id).catch(() => undefined);
     await syncLedgerChargeEntry(db, { ...next, managerUserId: ownerId }).catch(() => undefined);
     cancelledChargeIds.push(c.id);
+  }
+
+  // 2. The lease row's application copy. Only when it already carries one: a stub application would be
+  //    mistaken for a full application elsewhere.
+  const application = asObject(rowData.application);
+  if (Object.keys(application).length > 0 && !existing) {
+    const { error } = await db
+      .from(LEASE_TABLE)
+      .update({ row_data: { ...rowData, application: { ...application, managerLeaseFeeWaiver: waiver } }, updated_at: waiver.waivedAtIso })
+      .eq("id", record.id);
+    if (error) {
+      await rollback();
+      return { ok: false, status: 500, error: error.message };
+    }
   }
 
   await writeAudit(db, {
@@ -260,7 +342,8 @@ export async function reinstateLeaseFee(
   const now = new Date().toISOString();
 
   const application = asObject(rowData.application);
-  if (readLeaseFeeWaiver(application)) {
+  const hadWaiver = readLeaseFeeWaiver(application) !== null;
+  if (hadWaiver) {
     const { managerLeaseFeeWaiver: _removed, ...rest } = application;
     void _removed;
     const { error } = await db
@@ -293,6 +376,10 @@ export async function reinstateLeaseFee(
     await restoreFuturePaymentRemindersForCharge(db, ownerId, c.id).catch(() => undefined);
     await syncLedgerChargeEntry(db, { ...next, managerUserId: ownerId }).catch(() => undefined);
     reinstatedChargeIds.push(c.id);
+  }
+
+  if (hadWaiver || reinstatedChargeIds.length > 0) {
+    await releaseLeaseFeeWaiverRedemptionForLease(db, record.id, (record.manager_user_id ?? "").trim());
   }
 
   await writeAudit(db, {

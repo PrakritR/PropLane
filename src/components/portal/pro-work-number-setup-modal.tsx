@@ -23,6 +23,8 @@ import {
 import { workNumberStatusWord } from "@/lib/sms/work-number-status";
 import { WORK_CONTACT_ANNOUNCE_EVENT } from "@/lib/work-contact-announce";
 
+import { invalidateSharedGets, writeThroughFetch } from "@/lib/shared-get-cache";
+
 const ENDPOINT = "/api/manager/messaging-number";
 
 const STEP_IDS = ["verify-phone", "get-number", "done"] as const;
@@ -370,7 +372,11 @@ export function WorkNumberSetupModal({
       })
         .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
         .then((body) => {
-          if (body) onStatusChange(body);
+          if (!body) return;
+          // Provisioning finished somewhere else in this page's lifetime: whatever read this route
+          // through the shared cache (the listing contact line) is now holding "no work number".
+          invalidateSharedGets(ENDPOINT);
+          onStatusChange(body);
         })
         .catch(() => {});
     }, 12_000);
@@ -426,7 +432,7 @@ export function WorkNumberSetupModal({
     setRequestError(null);
     setRequestBusy(true);
     try {
-      const res = await fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      const res = await writeThroughFetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -434,7 +440,7 @@ export function WorkNumberSetupModal({
           action: "request_number",
           ...(areaCode.length === 3 ? { areaCode } : {}),
         }),
-      });
+      }, { invalidatePrefix: ENDPOINT });
       const body = (await res.json().catch(() => ({}))) as ManagerMessagingNumberStatus & {
         error?: string;
       };

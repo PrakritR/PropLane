@@ -20,6 +20,7 @@ import {
 } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import type { MailboxLocalCheckResult } from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { WORK_CONTACT_ANNOUNCE_EVENT } from "@/lib/work-contact-announce";
 
 const ENDPOINT = "/api/manager/assistant-email";
@@ -205,7 +206,7 @@ export function ManagerAssistantEmailChannelRow({
     setSavingAddress(true);
     setError(null);
     try {
-      const res = await fetch(ENDPOINT, {
+      const res = await writeThroughFetch(ENDPOINT, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -245,7 +246,7 @@ export function ManagerAssistantEmailChannelRow({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(ENDPOINT, {
+        const res = await writeThroughFetch(ENDPOINT, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -271,7 +272,7 @@ export function ManagerAssistantEmailChannelRow({
       setPendingWorkspaceId(workspaceId ?? null);
       setError(null);
       try {
-        const res = await fetch(ENDPOINT, {
+        const res = await writeThroughFetch(ENDPOINT, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },

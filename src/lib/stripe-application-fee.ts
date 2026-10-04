@@ -46,6 +46,34 @@ type ChargeMatchRow = {
 };
 
 /**
+ * The application-fee cents this session actually collected, from the metadata
+ * the server stamped at checkout (`fee_cents`, with the equivalent
+ * `subtotal_cents` as a fallback for older sessions). Never `amount_total`:
+ * that also carries the disclosed processing-fee line when the applicant bears
+ * it, which is not part of the application fee.
+ */
+export function paidApplicationFeeCentsFromSession(session: Stripe.Checkout.Session): number {
+  for (const raw of [session.metadata?.fee_cents, session.metadata?.subtotal_cents]) {
+    const cents = Math.round(Number(raw ?? ""));
+    if (Number.isFinite(cents) && cents > 0) return cents;
+  }
+  return 0;
+}
+
+/**
+ * The pending row's amount is computed in the browser from the applicant's own
+ * copy of the listing, so it can disagree with what checkout resolved and
+ * Stripe collected. The money Stripe took wins: the booked row (and therefore
+ * the ledger payment entry and any later refund) equals the amount collected.
+ */
+function reconcileApplicationFeeAmount(charge: HouseholdCharge, paidCents: number): HouseholdCharge {
+  if (paidCents <= 0) return charge;
+  const label = `$${(paidCents / 100).toFixed(2)}`;
+  if (charge.amountLabel === label) return charge;
+  return { ...charge, amountLabel: label };
+}
+
+/**
  * Marks the pending application-fee household charge paid after Stripe clears.
  *
  * PRP-428: guest Stripe checkout never created a server pending row (only the
@@ -117,8 +145,18 @@ export async function markApplicationFeePaidFromStripeSession(
     created = true;
   }
 
-  const charge = match.row_data as HouseholdCharge;
+  const storedCharge = match.row_data as HouseholdCharge;
+  const paidApplicationFeeCents = paidApplicationFeeCentsFromSession(session);
+  const charge = reconcileApplicationFeeAmount(storedCharge, paidApplicationFeeCents);
+  const amountCorrected = charge.amountLabel !== storedCharge.amountLabel;
   if (match.status === "paid" || charge.status === "paid") {
+    if (amountCorrected) {
+      const { error: healErr } = await db
+        .from("portal_household_charge_records")
+        .update({ row_data: charge, updated_at: new Date().toISOString() })
+        .eq("id", match.id);
+      if (healErr) console.error("[stripe-application-fee] amount heal for already-paid charge failed", healErr.message);
+    }
     await syncLedgerPaymentEntry(db, charge, charge.paidAt, session.id).catch((err) => {
       console.error("[stripe-application-fee] ledger heal for already-paid charge failed", err);
     });

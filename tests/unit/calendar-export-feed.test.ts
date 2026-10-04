@@ -3,6 +3,48 @@ import { describe, expect, it, vi } from "vitest";
 type Row = Record<string, unknown>;
 const tables = vi.hoisted(() => ({ data: {} as Record<string, Row[]> }));
 
+function columnValue(row: Row, column: string): string {
+  if (column.startsWith("row_data->application->>")) {
+    const app = (row.row_data as Row | undefined)?.application as Row | undefined;
+    return String(app?.[column.slice("row_data->application->>".length)] ?? "");
+  }
+  if (column.startsWith("row_data->>")) return String((row.row_data as Row | undefined)?.[column.slice(11)] ?? "");
+  return row[column] === null || row[column] === undefined ? "" : String(row[column]);
+}
+
+/** The `col.eq.v` / `col.like.v*` clauses the export route's property narrowing generates. */
+function orMatcher(expr: string): (row: Row) => boolean {
+  const clauses: string[] = [];
+  let depth = 0;
+  let buffer = "";
+  for (const char of expr) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      clauses.push(buffer);
+      buffer = "";
+      continue;
+    }
+    buffer += char;
+  }
+  if (buffer) clauses.push(buffer);
+  const matchers = clauses.map((clause) => {
+    const like = clause.match(/^(.*)\.like\.(.*)$/);
+    if (like) {
+      const [, column, pattern] = like;
+      const prefix = pattern!.replace(/\*$/, "");
+      return (row: Row) => columnValue(row, column!).startsWith(prefix);
+    }
+    const eq = clause.match(/^(.*)\.eq\.(.*)$/);
+    if (eq) {
+      const [, column, value] = eq;
+      return (row: Row) => columnValue(row, column!) === value;
+    }
+    throw new Error(`calendar-export-feed: unhandled or() clause: ${clause}`);
+  });
+  return (row: Row) => matchers.some((m) => m(row));
+}
+
 function builder(rows: Row[]) {
   let current = rows;
   const api = {
@@ -12,6 +54,15 @@ function builder(rows: Row[]) {
         if (column.startsWith("row_data->>")) return String((row.row_data as Row | undefined)?.[column.slice(11)] ?? "") === String(value);
         return row[column] === value;
       });
+      return api;
+    },
+    or: (expr: string) => {
+      current = current.filter(orMatcher(expr));
+      return api;
+    },
+    order: () => api,
+    range: (from: number, to: number) => {
+      current = current.slice(from, to + 1);
       return api;
     },
     limit: () => api,

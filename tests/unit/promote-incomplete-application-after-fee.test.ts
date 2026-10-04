@@ -34,6 +34,9 @@ function makeDb() {
         select: () => builder,
         eq: () => builder,
         order: () => builder,
+        // The underpay guard now re-resolves the required fee for every promote, not only when the
+        // template changed, so the listing read has to answer here too.
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
         limit: () => Promise.resolve({ data: stored, error: null }),
         upsert: (values: unknown) => {
           upserts.push(values);

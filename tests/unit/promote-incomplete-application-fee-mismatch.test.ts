@@ -176,6 +176,47 @@ describe("promoteIncompleteApplicationAfterFeePaid — template/fee mismatch gua
     expect(upsert).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Captain decision (2026-10-03): the fee is priced per room / bundle / lease type too, so the
+   * guard cannot be gated on the template id. Paying for one room and then submitting under a
+   * different (pricier) basis used to skip the check completely.
+   */
+  it("refuses to promote: the SAME template, but the paid basis is not the basis being submitted", async () => {
+    const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");
+    const upsert = vi.fn(async () => ({ error: null }));
+    const db = makeDb({ draftTemplateId: undefined, upsert });
+
+    const session = {
+      id: "cs_test_basis",
+      status: "complete",
+      payment_status: "paid",
+      customer_email: APPLICANT_EMAIL,
+      metadata: {
+        purpose: "rental_application_fee",
+        property_id: PROPERTY_ID,
+        resident_email: APPLICANT_EMAIL,
+        application_template_id: "",
+        // Paid $25 for one room; the draft about to be submitted is priced at the $50 account fee.
+        fee_cents: "2500",
+        fee_room_id: "room-cheap",
+        fee_lease_term: "12 months",
+        fee_bundle_id: "",
+        fee_rental_type: "standard",
+      },
+    } as unknown as Stripe.Checkout.Session;
+
+    const result = await promoteIncompleteApplicationAfterFeePaid(db, session);
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.promoted === false && result.reason === "fee_mismatch") {
+      expect(result.requiredCents).toBe(5000);
+      expect(result.paidCents).toBe(2500);
+    } else {
+      throw new Error("expected a fee_mismatch refusal");
+    }
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it("promotes: different templates, but the paid amount covers what the actual one requires", async () => {
     const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");
     const upsert = vi.fn(async () => ({ error: null }));

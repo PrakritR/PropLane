@@ -13,7 +13,9 @@ export function readPopupFields(root: HTMLElement): Field[] {
     const labelNode = control.labels?.[0]?.cloneNode(true) as HTMLElement | undefined;
     labelNode?.querySelectorAll("input,textarea,select,button").forEach(child => child.remove());
     const label = (labelledBy || element.getAttribute("aria-label") || labelNode?.textContent || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim();
-    if (!label || /password|secret|access token|promo code|waiver code|social security|routing number|account number|card number/i.test(label) || /password/.test(element.getAttribute("autocomplete") ?? "")) return [];
+    // Sealed identity answers (`application-field-catalog.ts`) are never mirrored into the rail or
+    // the snapshot, alongside credentials and card/bank numbers.
+    if (!label || /password|secret|access token|promo code|waiver code|social security|\bssn\b|routing number|account number|card number|date of birth|birth ?date|driver['’]?s? ?licen[cs]e|\bcvv\b|\bcvc\b|security code/i.test(label) || /password/.test(element.getAttribute("autocomplete") ?? "")) return [];
     const value = element instanceof HTMLSelectElement ? Array.from(element.selectedOptions).map(option => option.text).join(", ")
       : element instanceof HTMLInputElement && ["checkbox", "radio"].includes(element.type) ? (element.checked ? "Yes" : "No")
       : element.getAttribute("role") === "combobox" ? element.textContent?.trim() ?? ""
