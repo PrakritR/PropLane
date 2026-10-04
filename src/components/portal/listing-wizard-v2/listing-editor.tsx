@@ -64,6 +64,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import {
+  basicsBathroomCount,
+  basicsFloorCount,
+  cleanSharedSpaceName,
+  sharedSpaceTitle,
+  submissionWithFloorCount,
+  syncListingBasicsFromLists,
+} from "@/lib/listing-basics-sync";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
 import { ListingMediaRow } from "@/components/portal/listing-room-editor/listing-media-row";
 import { applyRoomFurnitureItems, roomFurnitureItems, roomFurnishingLabel, ROOM_FURNITURE_ITEMS } from "@/lib/listing-room-editor";
@@ -565,12 +573,6 @@ const PROPERTY_KIND_TILES: { id: string; label: string; icon: LucideIcon }[] = [
 ];
 
 /** `listingTotalBathroomsId` is an id from LISTING_TOTAL_BATH_OPTIONS; the stepper counts in halves and "4+" is its top. */
-function bathCountFromId(id: string | undefined): number {
-  if (!id) return 1;
-  if (id === "4+") return 4.5;
-  const n = Number(id);
-  return Number.isFinite(n) && n > 0 ? n : 1;
-}
 function bathIdFromCount(n: number): string {
   if (n >= 4.5) return "4+";
   return String(n);
@@ -676,7 +678,7 @@ function StepBasics({
     });
     patch({ ...applied.sub, bathrooms, listingTotalBathroomsId: id });
   };
-  const stories = Number(sub.listingStoriesId) || 1;
+  const stories = basicsFloorCount(sub);
   // The address the manager PICKED from the dropdown — what the lookup keys on.
   // A hand-typed street never triggers it.
   const [lookup, setLookup] = useState<PrefillAddressInput | null>(null);
@@ -721,7 +723,7 @@ function StepBasics({
           <FactRow required label={<>Bathrooms {mark("listingTotalBathroomsId")}</>}>
             <CountStepper
               compact
-              value={bathCountFromId(sub.listingTotalBathroomsId)}
+              value={basicsBathroomCount(sub)}
               min={1}
               max={4.5}
               step={0.5}
@@ -736,7 +738,7 @@ function StepBasics({
               value={stories}
               min={1}
               max={LISTING_STORIES_OPTIONS.length}
-              onChange={(n) => patch({ listingStoriesId: String(n) })}
+              onChange={(n) => patch(submissionWithFloorCount(sub, n))}
               label="floors"
               dataAttr="listing-v2-floors"
             />
@@ -2051,8 +2053,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const writeSpace = (id: string, next: ManagerSharedSpaceSubmission) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === id ? next : sp)) });
   const patchSpace = (space: ManagerSharedSpaceSubmission, p: Partial<ManagerSharedSpaceSubmission>) => writeSpace(space.id, { ...space, ...p });
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
-  const spaceLabel = (space: ManagerSharedSpaceSubmission, i: number) =>
-    space.name.trim() || SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label || `Shared space ${i + 1}`;
+  const spaceLabel = (space: ManagerSharedSpaceSubmission, _i: number) => sharedSpaceTitle(space);
   const sameAsOptions = (space: ManagerSharedSpaceSubmission) => [
     { value: "", label: "Set for this space" },
     ...spaces.filter((s) => s.id !== space.id).map((s) => ({ value: s.id, label: `Same as ${spaceLabel(s, spaces.indexOf(s))}` })),
@@ -2066,7 +2067,9 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     writeSpace(space.id, copySharedSpaceSetupFrom(source, space));
   };
   const factsFor = (space: ManagerSharedSpaceSubmission) => {
-    const type = SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label;
+    // The type is a fact only when it says something the title does not: "Other" never does.
+    const kindLabel = space.spaceKind && space.spaceKind !== "other" ? SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label : undefined;
+    const type = kindLabel && kindLabel.toLowerCase() !== sharedSpaceTitle(space).toLowerCase() ? kindLabel : undefined;
     const floorShown = space.location || groundFloor || "Floor not set";
     const who = wholePlace
       ? ""
@@ -2084,7 +2087,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     const id = `space-${crypto.randomUUID()}`;
     const blank: ManagerSharedSpaceSubmission = {
       id,
-      name: kind ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",
+      // A type other than Other names the space; Other leaves the name for the manager (the card reads "Shared space").
+      name: kind && kind !== "other" ? (SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === kind)?.label ?? "") : "",
       spaceKind: kind,
       location: groundFloor,
       detail: "",
@@ -2122,9 +2126,9 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           <RecordCard
             key={space.id}
             propertyEditor
-            name={space.name}
+            name={cleanSharedSpaceName(space.name)}
             nameLabel={`Name for shared space ${i + 1}`}
-            namePlaceholder={SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label ?? "Kitchen"}
+            namePlaceholder={label}
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
             facts={factsFor(space)}
             headerEnd={
@@ -3250,7 +3254,12 @@ export function ListingEditorV2({
     onOpenSettings,
     workspacePricingDefaults,
   };
-  const patch: Patch = (next) => onChange({ ...submission, ...next });
+  // Bathrooms and Floors on Basics follow the lists (like Bedrooms follows Rooms): any edit that
+  // touches a list rewrites the stored counters from it.
+  const patch: Patch = (next) => {
+    const merged = { ...submission, ...next };
+    onChange("bathrooms" in next || "rooms" in next || "sharedSpaces" in next ? syncListingBasicsFromLists(merged) : merged);
+  };
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
 

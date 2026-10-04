@@ -15,7 +15,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToS
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { submissionFromAddProperty } from "@/components/portal/listing-wizard-v2";
-import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission, emptyBathroom, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 afterEach(() => cleanup());
 
@@ -61,7 +61,7 @@ describe("bathrooms come from Basics", () => {
     expect(seen.at(-1)!.listingTotalBathroomsId).toBe("2");
   });
 
-  it("a filled-in last bathroom stays when the count drops; only the number moves", () => {
+  it("a filled-in last bathroom stays when the count drops, and the number agrees with the cards", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     const base = createDefaultListingSubmission();
     const bathrooms = [
@@ -71,8 +71,38 @@ describe("bathrooms come from Basics", () => {
     render(<Editor initial={{ ...base, listingTotalBathroomsId: "2", bathrooms }} onChange={(s) => seen.push(s)} />);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-basics"]')!);
     fireEvent.click(screen.getByRole("button", { name: "Fewer bathrooms" }));
-    expect(seen.at(-1)!.listingTotalBathroomsId).toBe("1.5");
+    // The count follows the cards, as Bedrooms follows Rooms: two full baths read 2, not 1.5.
+    expect(seen.at(-1)!.listingTotalBathroomsId).toBe("2");
     expect(seen.at(-1)!.bathrooms).toHaveLength(2);
+  });
+
+  it("the Bathrooms counter on Basics is the bathroom list, not a stale stored count", () => {
+    const base = createDefaultListingSubmission();
+    const full = (n: number) => ({ ...emptyBathroom(n), id: `b${n}`, name: `Bathroom ${n + 1}`, bathtub: true });
+    render(<Editor initial={{ ...base, listingTotalBathroomsId: "1", bathrooms: [full(0), full(1), full(2)] }} onChange={() => {}} />);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-basics"]')!);
+    const stepper = document.querySelector('[data-attr="listing-v2-bathrooms"]')!.closest("div")!.parentElement!;
+    expect(stepper.textContent).toContain("3");
+    // ...and the Bathrooms step lists the same three.
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-bathrooms"]')!);
+    expect(document.querySelectorAll('[data-attr="listing-v2-bath-card"]').length).toBe(3);
+  });
+
+  it("adding a bathroom card on its step moves the Basics count; Floors follows the floors in use", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    const base = createDefaultListingSubmission();
+    render(
+      <Editor
+        initial={{ ...base, listingTotalBathroomsId: "1", listingStoriesId: "1", bathrooms: [{ ...emptyBathroom(0), id: "b0" }], rooms: [{ ...base.rooms[0]!, floor: "3rd floor" }] }}
+        onChange={(s) => seen.push(s)}
+      />,
+    );
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-bathrooms"]')!);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bath-icon"]')!);
+    expect(seen.at(-1)!.bathrooms).toHaveLength(2);
+    expect(seen.at(-1)!.listingTotalBathroomsId).toBe("2");
+    // a room already sits on the 3rd floor, so the home has at least three
+    expect(seen.at(-1)!.listingStoriesId).toBe("3");
   });
 
   it("a brand-new listing starts with one bathroom card, so the Rooms step never asks for one first", () => {

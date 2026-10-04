@@ -138,7 +138,7 @@ export const SHARED_SPACE_KIND_OPTIONS: readonly { id: SharedSpaceKind; label: s
   { id: "laundry", label: "Laundry" },
   { id: "outdoor", label: "Outdoor / yard" },
   { id: "workspace", label: "Workspace" },
-  { id: "other", label: "Other (show all amenities)" },
+  { id: "other", label: "Other" },
 ] as const;
 
 const SHARED_SPACE_AMENITY_IDS_BY_KIND: Record<SharedSpaceKind, readonly string[]> = {

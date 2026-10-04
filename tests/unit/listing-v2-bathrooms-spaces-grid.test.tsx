@@ -249,3 +249,44 @@ describe("shared spaces as cards", () => {
     expect(screen.queryByRole("button", { name: /Reset size/ })).toBeNull();
   });
 });
+
+describe("shared space type labels", () => {
+  it("'Other' has no '(show all amenities)' hint; a new Other space is a 'Shared space' and its fact line does not repeat the title", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("spaces", (s) => seen.push(s));
+    openAddMenu("Add shared space");
+    expect(screen.queryByText(/show all amenities/i)).toBeNull();
+    fireEvent.click(screen.getByText("Other"));
+    const added = seen.at(-1)!.sharedSpaces!.at(-1)!;
+    expect(added.spaceKind).toBe("other");
+    expect(added.name).not.toMatch(/show all amenities/i);
+    const card = [...document.querySelectorAll('[data-attr="listing-v2-space-card"]')].at(-1)!;
+    expect(card.querySelector("input")!.getAttribute("placeholder")).toBe("Shared space");
+    const facts = card.querySelector(".pr9-facts")!.textContent ?? "";
+    expect(facts).not.toMatch(/other/i);
+    expect(facts).not.toMatch(/show all amenities/i);
+  });
+
+  it("an old stored name with the hint in it displays without the parenthetical", () => {
+    const base = seeded();
+    const legacy = {
+      ...base,
+      sharedSpaces: [{ id: "s9", name: "Garage (show all amenities)", spaceKind: "other", photoDataUrls: [], roomAccessIds: [] }] as never,
+    };
+    render(
+      <ListingEditorV2
+        title="Edit listing"
+        submission={legacy}
+        isEdit
+        onChange={() => {}}
+        onClose={() => {}}
+        onSaveExit={() => {}}
+        onPublish={() => {}}
+      />,
+    );
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-spaces"]')!);
+    const card = document.querySelector('[data-attr="listing-v2-space-card"]')!;
+    expect((card.querySelector("input") as HTMLInputElement).value).toBe("Garage");
+    expect(card.textContent).not.toMatch(/show all amenities/i);
+  });
+});

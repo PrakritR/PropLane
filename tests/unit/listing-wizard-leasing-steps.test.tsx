@@ -182,6 +182,8 @@ function openCard(card: HTMLElement) {
 const cardName = (card: HTMLElement) => (card.querySelector("input") as HTMLInputElement | null)?.value ?? "";
 const cards = (kind: string) => qa(`[data-attr='listing-v2-${kind}-card']`);
 const headingText = () => q(".pr9-top h2")!.textContent;
+/** The step's own heading (Pricing has no round + of its own, so no .pr9-top row). */
+const stepHeadingText = () => document.querySelector("h2")!.textContent;
 
 async function openMenu(trigger: HTMLElement) {
   fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
@@ -366,7 +368,8 @@ describe("Lease step", () => {
   it("is the Rooms pattern: a count heading with the round +, a card per lease with a menu and its facts", () => {
     mountLive(subWithLeases());
     go("lease");
-    expect(headingText()).toBe("2 leases");
+    // The heading counts every lease card shown: two leases and the short-term type with none yet.
+    expect(headingText()).toBe("3 leases");
     expect(q(".pr9-top [data-attr='listing-v2-add-lease-icon']")).not.toBeNull();
     const list = cards("lease");
     expect(list).toHaveLength(2);
@@ -434,17 +437,40 @@ describe("Lease step", () => {
     go("lease");
     fireEvent.click(q("[data-attr='listing-v2-add-lease-icon']")!);
     expect(readPropertyLeaseTemplates(live.latest()).length).toBe(3);
-    expect(headingText()).toBe("3 leases");
+    expect(headingText()).toBe("4 leases");
     expect(q("[data-attr='listing-v2-lease-start-from']")).not.toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a brand-new draft shows the lease types it offers as off, and switching one on adds it", () => {
+  it("a lease type with no lease yet is a Rooms-style card: counted, 'Not added yet', a menu, no switch on its face", async () => {
     const live = mountLive();
     go("lease");
-    expect(qa("[data-attr='listing-v2-lease-default-card']").length).toBeGreaterThan(0);
-    fireEvent.click(qa("[data-attr='listing-v2-lease-default-offered']")[0]!);
+    const defaults = qa("[data-attr='listing-v2-lease-default-card']");
+    expect(defaults.length).toBeGreaterThan(0);
+    // The heading counts the cards shown, not only the leases that exist.
+    expect(headingText()).toBe(`${defaults.length} leases`);
+    for (const card of defaults) {
+      expect(card.className).toContain("pr9-card");
+      expect(card.querySelector(".pr9-facts")!.textContent).toBe("Not added yet");
+      expect(card.querySelector("[data-attr='listing-v2-lease-default-menu']")).not.toBeNull();
+      expect(card.querySelector("[role='switch'], input[type='checkbox'], [data-attr='listing-v2-lease-default-offered']")).toBeNull();
+    }
+    const items = await openMenu(defaults[0]!.querySelector("[data-attr='listing-v2-lease-default-menu']")!);
+    expect(items.map((item) => item.textContent)).toEqual(["Add PropLane standard", "Upload a PDF"]);
+    fireEvent.click(items[0]!);
     expect(readPropertyLeaseTemplates(live.latest()).length).toBe(1);
+  });
+
+  it("a lease's Offered switch lives inside the opened card, never on its face; its menu is Edit, Duplicate, Delete", async () => {
+    mountLive(subWithLeases());
+    go("lease");
+    const first = cards("lease")[0]!;
+    expect(first.querySelector("[data-attr='listing-v2-lease-offered']")).toBeNull();
+    const items = await openMenu(first.querySelector("[data-attr='listing-v2-lease-menu']")!);
+    expect(items.map((item) => item.textContent)).toEqual(["Edit", "Duplicate", "Delete"]);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    openCard(cards("lease")[0]!);
+    expect(cards("lease")[0]!.querySelector("[data-attr='listing-v2-lease-offered']")).not.toBeNull();
   });
 
   it("an application and a lease are linked from either side, and both sides agree", async () => {
@@ -541,7 +567,52 @@ describe("Move-in step", () => {
   });
 });
 
+describe("Move-in step, empty", () => {
+  it("shows the standard empty card, with no plain line and no extra add button", () => {
+    mountLive();
+    go("movein");
+    expect(headingText()).toBe("0 move-in forms");
+    const empty = q("[data-attr='listing-v2-movein-empty']")!;
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toContain("No move-in forms yet");
+    expect(empty.querySelector("button, a")).toBeNull();
+    // the round + at the top right is the only add
+    expect(qa("[data-attr='listing-v2-add-movein-icon']")).toHaveLength(1);
+    expect(document.querySelector("p.text-muted")?.textContent ?? "").not.toContain("No move-in forms yet");
+  });
+});
+
 describe("Pricing step", () => {
+  it("the heading is the count ('1 room'), room cards have a menu with Edit, and a bundle is titled by its rooms", async () => {
+    const base = sub();
+    mountLive({
+      ...base,
+      rooms: [
+        { ...base.rooms[0]!, id: "room-a", name: "Room 4", monthlyRent: 1100 },
+        { ...base.rooms[0]!, id: "room-b", name: "Room 5", monthlyRent: 1200 },
+      ],
+      bundles: [{ id: "b1", label: "Two or more rooms", price: "2200", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: ["room-a", "room-b"] }],
+    } as unknown as typeof base);
+    go("pricing");
+    expect(stepHeadingText()).toBe("2 rooms");
+    const rooms = cards("pricing");
+    expect(rooms).toHaveLength(2);
+    const items = await openMenu(rooms[0]!.querySelector("[data-attr='listing-v2-pricing-room-menu']")!);
+    expect(items.map((item) => item.textContent)).toEqual(["Edit"]);
+    fireEvent.click(items[0]!);
+    expect(rooms[0]!.querySelector("[data-attr='listing-v2-pricing-format-long']") ?? q("[data-attr='listing-v2-pricing-format-long']")).not.toBeNull();
+    const bundle = cards("bundle")[0]!;
+    expect(bundle.querySelector("b")!.textContent).toBe("Room 4 + Room 5");
+    expect(bundle.textContent).not.toContain("Two or more rooms");
+  });
+
+  it("a whole place reads 'Whole place' in the heading", () => {
+    const base = sub();
+    mountLive({ ...base, listingPlaceCategoryId: "entire_home", entireHomeMonthlyRent: 3200 } as unknown as typeof base);
+    go("pricing");
+    expect(stepHeadingText()).toBe("Whole place");
+  });
+
   it("by the room: one card per room with its rent on the right", () => {
     mountLive();
     go("pricing");

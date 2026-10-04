@@ -234,9 +234,9 @@ describe("Same as Bathroom X — live", () => {
 
 describe("the bathroom count on Basics (PLAN-0921-1648)", () => {
   /**
-   * A draft whose Basics count ran ahead of its cards — three bathrooms on the
-   * count, one card on disk — which is the state that makes the count grow more
-   * than one card at a time.
+   * A draft whose stored Basics count ran ahead of its cards — three bathrooms on the count, one
+   * card on disk. The cards are the truth: the stepper reads 1, and counting up from there makes
+   * the cards.
    */
   function staleBathCount(): ManagerListingSubmissionV1 {
     const base = createDefaultListingSubmission();
@@ -252,16 +252,15 @@ describe("the bathroom count on Basics (PLAN-0921-1648)", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(React.createElement(Editor, { initial: staleBathCount(), onChange: (s: ManagerListingSubmissionV1) => seen.push(s) }));
 
-    // 3 → 3.5 grows the cards the count is short of: two whole baths and a half.
-    fireEvent.click(screen.getByRole("button", { name: "More bathrooms" }));
+    // 1 → 3.5 grows the cards: three whole baths and a half.
+    const more = () => fireEvent.click(screen.getByRole("button", { name: "More bathrooms" }));
+    for (let i = 0; i < 5; i += 1) more();
     const grown = seen.at(-1)!.bathrooms!;
     expect(grown.length).toBe(4);
-    // Each card the count made is a full bath, and its floor is BLANK — the
-    // card shows the ground floor as a display default and writes nothing. A
-    // stamped floor made `isBathroomSlotRemovable` read the card as filled in
-    // and wedged the count so it could never come back down.
-    expect(grown[1]!.bathtub).toBe(true);
-    expect(grown[1]!.shower).toBe(true);
+    expect(seen.at(-1)!.listingTotalBathroomsId).toBe("3.5");
+    // A card the count made has a BLANK floor — the card shows the ground floor as a display
+    // default and writes nothing. A stamped floor made `isBathroomSlotRemovable` read the card as
+    // filled in and wedged the count so it could never come back down.
     expect(grown.slice(1).map((b) => (b.location ?? "").trim())).toEqual(["", "", ""]);
 
     // 3.5 → 3 → 2.5 → 2: the untouched cards come off the end again.

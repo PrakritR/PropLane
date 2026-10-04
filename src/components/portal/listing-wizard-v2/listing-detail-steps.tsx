@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
   CheckboxOption,
@@ -132,7 +133,7 @@ import {
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import { leaseSourceFromDraft } from "@/lib/property-lease-source";
-import { propertyPricingRoomAmount } from "@/lib/property-pricing-summary";
+import { propertyPricingBundleTitle, propertyPricingRoomAmount } from "@/lib/property-pricing-summary";
 import { SHORT_TERM_LEASE_TERM, LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { cn } from "@/lib/utils";
@@ -248,6 +249,11 @@ function Facts({ items }: { items: ReadonlyArray<string | null | false | undefin
   );
 }
 
+/** The standard empty card of a step's list (the round + at the top right is the only add). */
+function EmptyStepCard({ title, dataAttr }: { title: string; dataAttr: string }) {
+  return <PortalListEmptyCard title={title} section="properties" workspaceAware={false} compact dataAttr={dataAttr} />;
+}
+
 /** The card's ⋯: Edit first, Duplicate, and a red Delete last (after a tap to confirm). */
 function CardMenu({
   label,
@@ -260,7 +266,8 @@ function CardMenu({
   dataAttr: string;
   onEdit: () => void;
   onDuplicate?: () => void;
-  onDelete: () => void;
+  /** Absent on a card that can only be edited (the Pricing room cards). */
+  onDelete?: () => void;
 }) {
   const confirm = useConfirm();
   return (
@@ -273,23 +280,25 @@ function CardMenu({
         items={[
           { id: "edit", label: "Edit", dataAttr: `${dataAttr}-edit`, onSelect: onEdit },
           onDuplicate ? { id: "duplicate", label: "Duplicate", dataAttr: `${dataAttr}-duplicate`, onSelect: onDuplicate } : null,
-          {
-            id: "delete",
-            label: "Delete",
-            danger: true,
-            dataAttr: `${dataAttr}-delete`,
-            onSelect: () => {
-              void confirm({
-                title: `Delete ${label}?`,
-                description: `Delete ${label}?`,
-                confirmLabel: "Delete",
-                tone: "danger",
-                note: null,
-              }).then((ok) => {
-                if (ok) onDelete();
-              });
-            },
-          },
+          onDelete
+            ? {
+                id: "delete",
+                label: "Delete",
+                danger: true,
+                dataAttr: `${dataAttr}-delete`,
+                onSelect: () => {
+                  void confirm({
+                    title: `Delete ${label}?`,
+                    description: `Delete ${label}?`,
+                    confirmLabel: "Delete",
+                    tone: "danger",
+                    note: null,
+                  }).then((ok) => {
+                    if (ok) onDelete();
+                  });
+                },
+              }
+            : null,
         ]}
       />
     </div>
@@ -598,7 +607,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
           </RecordCard>
         );
       })}
-      {templates.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No applications yet</p> : null}
+      {templates.length === 0 ? <EmptyStepCard title="No applications yet" dataAttr="listing-v2-application-empty" /> : null}
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card" data-attr="listing-v2-application-before-tour">
         <FactRow first label="Application before a tour">
@@ -728,6 +737,16 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
     if (added.leaseId) setOpen(added.leaseId);
   };
 
+  /** A lease type with no lease yet: add the PropLane standard for it, or add it and ask for a PDF. */
+  const addFromSeed = (seedKey: Parameters<typeof addLeaseTemplateFromSeed>[1], thenUpload: boolean) => {
+    const added = addLeaseTemplateFromSeed(synced, seedKey);
+    onChange(added);
+    const created = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(added)).find((row) => row.listingSeedKey === seedKey);
+    if (!created) return;
+    setOpen(created.id);
+    if (thenUpload) pickPdf(created.id);
+  };
+
   const duplicate = (template: PropertyLeaseTemplate) => {
     const copy = duplicateLeaseTemplate(templates, template.id);
     if (!copy) return;
@@ -792,7 +811,7 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
 
   return (
     <StepColumn>
-      <CountHeading count={templates.length} noun="lease" addLabel="Add lease" onAdd={addStandard} dataAttr="listing-v2-add-lease-icon" />
+      <CountHeading count={templates.length + missingSeeds.length} noun="lease" addLabel="Add lease" onAdd={addStandard} dataAttr="listing-v2-add-lease-icon" />
       <input
         ref={fileRef}
         type="file"
@@ -940,19 +959,33 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
           title={seed.label}
           facts={<Facts items={["Not added yet"]} />}
           headerEnd={
-            <PortalSettingsToggle
-              checked={false}
-              label={`${seed.label}: offered`}
-              dataAttr="listing-v2-lease-default-offered"
-              onChange={(on) => {
-                if (on) onChange(addLeaseTemplateFromSeed(synced, seed.seedKey));
-              }}
-            />
+            <div className="pr9-acts flex shrink-0 items-center gap-0.5">
+              <PortalRowMenu
+                label={seed.label}
+                dataAttr="listing-v2-lease-default-menu"
+                triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]"
+                iconClassName="h-5 w-5"
+                items={[
+                  {
+                    id: "add-standard",
+                    label: "Add PropLane standard",
+                    dataAttr: "listing-v2-lease-default-add",
+                    onSelect: () => addFromSeed(seed.seedKey, false),
+                  },
+                  {
+                    id: "upload-pdf",
+                    label: "Upload a PDF",
+                    dataAttr: "listing-v2-lease-default-upload",
+                    onSelect: () => addFromSeed(seed.seedKey, true),
+                  },
+                ]}
+              />
+            </div>
           }
           dataAttr="listing-v2-lease-default-card"
         />
       ))}
-      {templates.length === 0 && missingSeeds.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No leases yet</p> : null}
+      {templates.length === 0 && missingSeeds.length === 0 ? <EmptyStepCard title="No leases yet" dataAttr="listing-v2-lease-empty" /> : null}
     </StepColumn>
   );
 }
@@ -1117,7 +1150,7 @@ export function StepMoveIn({ sub, onChange }: StepProps) {
           </RecordCard>
         );
       })}
-      {templates.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No move-in forms yet</p> : null}
+      {templates.length === 0 ? <EmptyStepCard title="No move-in forms yet" dataAttr="listing-v2-movein-empty" /> : null}
     </StepColumn>
   );
 }
@@ -1188,7 +1221,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
 
   return (
     <StepColumn>
-      <StepHeading title="Pricing" />
+      <StepHeading title={wholeHome ? "Whole place" : plural(rooms.length, "room")} />
 
       {wholeHome ? (
         <RecordCard
@@ -1202,7 +1235,12 @@ export function StepPricing({ sub, onChange }: StepProps) {
               ]}
             />
           }
-          headerEnd={<RentOnRight text={wholeAmount > 0 ? rentLabel(wholeAmount) : "Rent not set"} />}
+          headerEnd={
+            <>
+              <RentOnRight text={wholeAmount > 0 ? rentLabel(wholeAmount) : "Rent not set"} />
+              <CardMenu label="Whole place" dataAttr="listing-v2-pricing-whole" onEdit={() => toggle("whole")} />
+            </>
+          }
           open={open === "whole"}
           onToggle={() => toggle("whole")}
           toggleLabel="Whole place"
@@ -1216,7 +1254,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
           ))}
         </RecordCard>
       ) : rooms.length === 0 ? (
-        <p className="mb-2.5 text-[13px] text-muted">No rooms to price yet</p>
+        <EmptyStepCard title="No rooms to price yet" dataAttr="listing-v2-pricing-empty" />
       ) : (
         rooms.map((room, index) => {
           const amount = propertyPricingRoomAmount(room);
@@ -1234,7 +1272,12 @@ export function StepPricing({ sub, onChange }: StepProps) {
                   ]}
                 />
               }
-              headerEnd={<RentOnRight text={rentText} />}
+              headerEnd={
+                <>
+                  <RentOnRight text={rentText} />
+                  <CardMenu label={roomLabel(room, index)} dataAttr="listing-v2-pricing-room" onEdit={() => toggle(room.id)} />
+                </>
+              }
               open={open === room.id}
               onToggle={() => toggle(room.id)}
               toggleLabel={roomLabel(room, index)}
@@ -1279,27 +1322,24 @@ export function StepPricing({ sub, onChange }: StepProps) {
                 </h3>
                 <PortalPrimaryIconAction label="Add bundle" onClick={addBundle} data-attr="listing-v2-add-bundle-icon" />
               </div>
-              {bundles.map((bundle, i) => {
-                const label = bundle.label.trim() || `Bundle ${i + 1}`;
+              {bundles.map((bundle) => {
+                // Titled by its rooms, the same as the Pricing tab's Room bundles.
+                const label = propertyPricingBundleTitle(bundle, sub);
                 const included = (bundle.includedRoomIds ?? []).filter((id) => rooms.some((room) => room.id === id));
-                const includedNames = rooms.filter((room) => included.includes(room.id)).map((room) => roomLabel(room, rooms.indexOf(room)));
                 const rent = parseMoneyAmount(bundle.price ?? "");
                 return (
                   <RecordCard
                     key={bundle.id}
                     propertyEditor
-                    name={bundle.label}
-                    nameLabel={`Name for bundle ${i + 1}`}
-                    namePlaceholder={`Bundle ${i + 1}`}
-                    onName={(text) => writeBundle(bundle.id, { label: text })}
-                    facts={<Facts items={[includedNames.length ? includedNames.join(" + ") : "No rooms yet", rent > 0 ? rentLabel(rent) : "Rent not set"]} />}
+                    title={label}
+                    facts={<Facts items={[included.length === 0 && "No rooms yet", rent > 0 ? rentLabel(rent) : "Rent not set"]} />}
                     headerEnd={
                       <CardMenu
                         label={label}
                         dataAttr="listing-v2-bundle"
                         onEdit={() => toggle(bundle.id)}
                         onDuplicate={() => {
-                          const copy = { ...structuredClone(bundle), id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: `${label} copy` };
+                          const copy = { ...structuredClone(bundle), id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: `${bundle.label.trim() || label} copy` };
                           const at = bundles.findIndex((b) => b.id === bundle.id);
                           patch({ bundles: [...bundles.slice(0, at + 1), copy, ...bundles.slice(at + 1)] });
                           setOpen(copy.id);
