@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import type { MockProperty } from "@/data/types";
+import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 import {
   normalizeLeasingPipelinePreferences,
@@ -70,10 +72,18 @@ export function withListingSigningContext(
   context: PublicSigningContext | null | undefined,
 ): MockProperty {
   if (!context) return property;
+  // The workspace setting, then each application form's own before/after-tour answer (same rule as the public projection).
+  const sub = property.listingSubmission;
+  const beforeTour = applicationBeforeTourRequired(
+    context.applicationBeforeTour ? "required" : "not_needed",
+    sub && sub.v === 1 ? readPropertyApplicationTemplates(sub) : [],
+  )
+    ? (true as const)
+    : undefined;
   if (
     property.signingOrder === context.signingOrder &&
     property.leaseSigningFeeCents === context.leaseSigningFeeCents &&
-    property.applicationBeforeTour === context.applicationBeforeTour
+    property.applicationBeforeTour === beforeTour
   ) {
     return property;
   }
@@ -81,6 +91,6 @@ export function withListingSigningContext(
     ...property,
     signingOrder: context.signingOrder,
     leaseSigningFeeCents: context.leaseSigningFeeCents,
-    applicationBeforeTour: context.applicationBeforeTour,
+    applicationBeforeTour: beforeTour,
   };
 }

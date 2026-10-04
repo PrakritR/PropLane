@@ -74,7 +74,17 @@ export type PropertyApplicationTemplate = {
    * link; never set on a cosigner-variant template itself.
    */
   linkedCosignerApplicationTemplateId?: string | null;
+  /**
+   * When a prospect applies with this form relative to a tour: "before_tour" (apply, then book the
+   * tour), "after_tour" (tour first, then apply) or "workspace" / absent = follow the workspace
+   * setting (Settings -> Workspace -> Applications & leases, "Application before a tour").
+   * Enforced SERVER-SIDE with the workspace setting in `application-before-tour.server.ts`.
+   */
+  tourOrder?: ApplicationTourOrder;
 };
+
+/** Per-form answer to "does this application come before the tour?". `workspace` = use the workspace setting. */
+export type ApplicationTourOrder = "before_tour" | "after_tour" | "workspace";
 
 export type ApplicationTemplateQuestionConfig = ApplicationConfigSlice & {
   version: number;
