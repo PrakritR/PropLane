@@ -132,7 +132,9 @@ describe("the application opens with the lease question", () => {
   it("a link from a listing arrives preselected: the property is shown locked and the carried lease type is selected", () => {
     const { container, getAllByText } = renderStep(1, { leaseTerm: "Month-to-Month" });
     expect(getAllByText("Pipeline House").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Month-to-Month");
+    // The carried Month-to-Month term reads as Long-term with the Month-to-month length.
+    expect(container.textContent).toContain("Long-term");
+    expect(container.textContent).toContain("Month-to-month");
     expect(container.textContent).not.toContain("Loading property");
   });
 

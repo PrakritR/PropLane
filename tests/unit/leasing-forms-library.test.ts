@@ -93,10 +93,11 @@ describe("the Forms page rows", () => {
     expect(facts.startSource).toBe("PropLane standard");
     expect(facts.questionCount).toBeGreaterThan(5);
     expect(facts.leaseTypes).toEqual(["Long-term"]);
-    expect(facts.tourOrder).toBe("Before the tour");
+    // The tour order is the workspace setting alone: a form states none, whatever it stored.
+    expect(facts.tourOrder).toBeNull();
     expect(facts.propertyCount).toBe(2);
-    expect(libraryFormFacts("application", library.applications[1]!, 0).tourOrder).toBe("After the tour");
-    expect(libraryFormFacts("application", draftApplication("None"), 0).tourOrder).toBe("Use the workspace setting");
+    expect(libraryFormFacts("application", library.applications[1]!, 0).tourOrder).toBeNull();
+    expect(libraryFormFacts("application", draftApplication("None"), 0).tourOrder).toBeNull();
     const lease = libraryFormFacts("lease", library.leases[0]!, 1);
     expect(lease.tourOrder).toBeNull();
     expect(lease.startSource).toBe("PropLane standard");

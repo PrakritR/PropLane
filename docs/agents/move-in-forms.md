@@ -153,7 +153,12 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 
 ## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
-- **Nothing is added automatically.** The Intake, Move-in and Move-out forms are templates (`starterKey` `intake-form`, `move-in-form`,
+- **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, with its Long-term/Short-term/Co-signer
+  applications and leases). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
+  the list's bottom "Quick add" row re-adds any starter the property lacks (as a form that sends only when the manager sends it).
+- **Lease type** (`MoveInFormTemplate.leaseType`: absent/`all`, `long-term`, `short-term`; a specific lease is `linkedLeaseTemplateIds`): dispatch on a signed lease sends only the forms
+  whose Lease type admits the signed lease's kind (the lease template's `kind`, else the application's rental type; an unknown kind never matches a restricted form).
+- **Nothing else is added automatically.** The Intake, Move-in and Move-out forms are templates (`starterKey` `intake-form`, `move-in-form`,
   `move-out-form`, with `kind` `intake | move-in | move-out`), offered beside the five older ones under "Start from a template". A form the
   manager adds is an ordinary form: editable and deletable (confirm dialog), with no pinned rows and no "Reset to default questions".
   A property that already stored the old injected `default-intake` / `default-move-in` / `default-move-out` forms keeps them as ordinary

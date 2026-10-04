@@ -83,7 +83,8 @@ describe("Settings -> Forms page", () => {
     expect(screen.getByText("Quick stay application")).toBeTruthy();
     expect(screen.queryByText("Long-term lease")).toBeNull();
     expect(screen.getAllByText("PropLane standard").length).toBe(2);
-    expect(screen.getByText("Before the tour")).toBeTruthy();
+    // No form states a tour order: the workspace setting decides.
+    expect(screen.queryByText("Before the tour")).toBeNull();
     expect(screen.getAllByText(/questions/).length).toBe(2);
     expect(screen.getAllByText(/0 properties/).length).toBe(2);
     // Header card: both tabs with counts, search, the one round +; no move-in tab.
@@ -122,10 +123,10 @@ describe("Settings -> Forms page", () => {
     expect(putBodies[0]!.library.applications[2]!.tourOrder).toBe("before_tour");
   });
 
-  it("row facts: an application states source, questions and tour order; a lease states source only", () => {
+  it("row facts: an application states source and questions; a lease states source only", () => {
     const app = leasingFormRowFacts("application", STANDARD, 3);
     expect(app.place).toBe("Long-term · 3 properties");
-    expect(app.glyphs).toHaveLength(3);
+    expect(app.glyphs).toHaveLength(2);
     const lease = leasingFormRowFacts("lease", LEASE, 1);
     expect(lease.place).toBe("Long-term · 1 property");
     expect(lease.glyphs).toHaveLength(1);
@@ -154,37 +155,9 @@ async function pick(trigger: string, option: string) {
   fireEvent.pointerUp(node, { pointerId: 1, clientX: 10, clientY: 10 });
 }
 
-describe("application form, first step: Tour order", () => {
-  it("shows the workspace setting by default and saves the pick on the form", async () => {
+describe("application form, first step: no Tour order", () => {
+  it("has no Tour order row, and saving migrates a stored per-form order to the workspace setting", async () => {
     const persist = vi.fn().mockResolvedValue(true);
-    render(
-      <ManagerApplicationQuestionsEditorModal
-        open
-        title="Application"
-        sub={subWith([QUICK])}
-        managerUserId="mgr-1"
-        templateEditorMode="edit"
-        applicationTemplate={QUICK}
-        templates={[QUICK]}
-        signingOrder="application_then_lease"
-        onPersistSubmission={persist}
-        onClose={() => {}}
-        onSaved={() => {}}
-        showToast={() => {}}
-      />,
-    );
-    await screen.findByRole("dialog");
-    const card = document.querySelector('[data-attr="property-application-step-one-card"]') as HTMLElement;
-    expect(within(card).getByRole("button", { name: "Tour order" })).toHaveTextContent("Use the workspace setting");
-    await pick("Tour order", "Before the tour");
-    jumpRail("sections");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(persist).toHaveBeenCalled());
-    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates ?? [];
-    expect(saved.find((t) => t.id === QUICK.id)!.tourOrder).toBe("before_tour");
-  });
-
-  it("opens on the form's own tour order", async () => {
     render(
       <ManagerApplicationQuestionsEditorModal
         open
@@ -194,13 +167,20 @@ describe("application form, first step: Tour order", () => {
         templateEditorMode="edit"
         applicationTemplate={STANDARD}
         templates={[STANDARD]}
-        onPersistSubmission={vi.fn().mockResolvedValue(true)}
+        signingOrder="application_then_lease"
+        onPersistSubmission={persist}
         onClose={() => {}}
         onSaved={() => {}}
         showToast={() => {}}
       />,
     );
     await screen.findByRole("dialog");
-    expect(screen.getByRole("button", { name: "Tour order" })).toHaveTextContent("Before the tour");
+    expect(screen.queryByRole("button", { name: "Tour order" })).toBeNull();
+    expect(screen.queryByText("Tour order")).toBeNull();
+    jumpRail("sections");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates ?? [];
+    expect(saved.find((t) => t.id === STANDARD.id)!.tourOrder).toBe("workspace");
   });
 });

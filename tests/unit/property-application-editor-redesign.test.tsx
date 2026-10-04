@@ -189,7 +189,7 @@ describe("C2-CP8: the application editor has no Settings step", () => {
     expect(saved?.linkedLeaseTemplateId).toBe("lease-tpl-mapped");
   });
 
-  it("shows Used for mapping on property edit when a preview property id is set", async () => {
+  it("has no Used for section on property edit: the Lease row above is the one link, and lease-side linking is on the lease", async () => {
     const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
     render(
       <ManagerApplicationQuestionsEditorModal
@@ -208,9 +208,8 @@ describe("C2-CP8: the application editor has no Settings step", () => {
       />,
     );
     await waitWorkspace();
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).not.toBeNull(),
-    );
+    expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).toBeNull();
+    expect(screen.queryByText(/Used for/i)).toBeNull();
     jumpRail("sections");
     footerStepCountHidden();
   });

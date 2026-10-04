@@ -242,7 +242,8 @@ export function libraryFormFacts(
       startSource: applicationStartSource(application),
       questionCount: applicationQuestionCount(application),
       leaseTypes: leaseTypeLabels(application),
-      tourOrder: tourOrderLabel(application.tourOrder),
+      // A form has no tour order of its own any more (the workspace setting decides), so none is stated.
+      tourOrder: null,
       propertyCount,
     };
   }
