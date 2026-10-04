@@ -55,3 +55,26 @@ describe("PortalRecordListSurface empty card", () => {
     expect(screen.getByRole("button", { name: "Add charge" })).toBeInTheDocument();
   });
 });
+
+describe("services empty state is one surface", () => {
+  it("renders exactly one bordered card for an empty list surface", () => {
+    const { container } = render(
+      <PortalRecordListSurface isEmpty emptyCard={{ title: "No assigned services", section: "services" }}>
+        <div />
+      </PortalRecordListSurface>,
+    );
+    const cards = container.querySelectorAll(".border-border.bg-card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute("data-attr")).toBe("portal-list-empty-card");
+  });
+
+  it("the services panel drops its joined outer card when the tab is empty", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/components/portal/pro-all-services-panel.tsx", "utf8");
+    // The outer joined-card chrome is gated on rows existing...
+    expect(src).toMatch(/!servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm"/);
+    // ...and never applied unconditionally around the empty card.
+    expect(src).not.toMatch(/className="svc30 overflow-hidden rounded-xl border/);
+    expect(src).toMatch(/!servicesListIsEmpty && "border-t border-border"/);
+  });
+});
