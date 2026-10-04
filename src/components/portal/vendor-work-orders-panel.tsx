@@ -1,5 +1,6 @@
 "use client";
 
+import { vendorEntryPermissionLabel } from "@/lib/work-order-entry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -725,7 +726,7 @@ export function VendorWorkOrdersPanel({
     if (row.description?.trim()) factRows.push({ label: "Details", value: row.description.trim() });
     if (hasSite && row.residentName) factRows.push({ label: "Resident", value: row.residentName });
     if (hasSite && row.entryPermission) {
-      factRows.push({ label: "Access", value: `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}` });
+      factRows.push({ label: "Access", value: `${vendorEntryPermissionLabel(row.entryPermission)}${row.entryNotes ? ` (${row.entryNotes})` : ""}` });
     }
 
     const canComplete = stage === "scheduled" && !row.automationStatus;
@@ -762,7 +763,7 @@ export function VendorWorkOrdersPanel({
           )}
           {row.entryPermission && hasSite ? (
             <p className="mt-2 text-xs text-muted">
-              Entry: {row.entryPermission}
+              Entry: {vendorEntryPermissionLabel(row.entryPermission)}
               {row.entryNotes ? ` (${row.entryNotes})` : ""}
             </p>
           ) : null}
