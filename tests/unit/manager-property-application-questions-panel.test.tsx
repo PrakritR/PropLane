@@ -49,7 +49,11 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
     expect(screen.queryByRole("link", { name: /Leases/ })).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
-    expect(document.querySelector('[data-attr="property-application-row-facts"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="record-row-facts"]')).toBeTruthy();
+    // Round 4: the same card row as every other property tab — a square icon tile before the title.
+    const tiles = document.querySelectorAll('[data-slot="portal-row-icon-tile"]');
+    expect(tiles.length).toBe(screen.getAllByRole("button", { name: /^Actions for/ }).length);
+    expect(document.querySelector('[data-attr^="property-application-row-"]')?.closest(".portal-property-row")).toBeTruthy();
   });
 
   it("Edit application modal keeps checkbox selection", () => {
@@ -65,7 +69,7 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
       />,
     );
 
-    expect(document.querySelectorAll('[data-attr^="property-application-select-"]').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("input[type='checkbox'][aria-label^='Select ']").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
   });
 

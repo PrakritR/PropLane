@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaEmailAddress } from "@/lib/listing-cta-email";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
+import { sharedGet } from "@/lib/shared-get-cache";
 import {
   isManagerAssistantEmailStatus,
   managerWorkEmailInUse,
@@ -24,9 +25,9 @@ async function contactEmailFromPublicCatalog(listingId: string): Promise<string 
  */
 async function ownManagerWorkEmail(workspaceId?: string): Promise<string | null> {
   try {
-    const res = await fetch(`/api/manager/assistant-email${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { credentials: "include", cache: "no-store" });
+    const res = await sharedGet(`/api/manager/assistant-email${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
     if (!res.ok) return null;
-    const data: unknown = await res.json();
+    const data: unknown = res.data;
     if (!isManagerAssistantEmailStatus(data)) return null;
     if (!data.sendingAvailable || !data.receivingAvailable) return null;
     return listingCtaEmailAddress(managerWorkEmailInUse(data));

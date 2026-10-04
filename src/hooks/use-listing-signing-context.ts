@@ -5,6 +5,7 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import type { MockProperty } from "@/data/types";
 import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { sharedGet } from "@/lib/shared-get-cache";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 import {
   normalizeLeasingPipelinePreferences,
@@ -43,12 +44,9 @@ export function useListingSigningContext(opts: {
         const params = new URLSearchParams();
         if (workspaceId) params.set("workspaceId", workspaceId);
         params.set("propertyId", listingId);
-        const res = await fetch(`/api/portal/manager-application-settings?${params.toString()}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const res = await sharedGet(`/api/portal/manager-application-settings?${params.toString()}`);
         if (!res.ok) return;
-        const data = (await res.json()) as { leasingPipeline?: unknown };
+        const data = (res.data ?? {}) as { leasingPipeline?: unknown };
         if (cancelled) return;
         const prefs = normalizeLeasingPipelinePreferences(data.leasingPipeline);
         // Workspace-wide order, so caching the resolved prefs keeps the sync send-gate helpers honest too.

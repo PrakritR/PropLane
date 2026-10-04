@@ -33,6 +33,18 @@ function RpSvcBand({ children, first }: { children: ReactNode; first?: boolean }
   );
 }
 
+/** A switch row indented inside the card like every FactRow (the bare ToggleRow sits flush left). */
+function ToggleFactRow(props: { label: string; checked: boolean; onChange: (next: boolean) => void; dataAttr?: string }) {
+  return (
+    <div
+      className="flex min-h-[52px] items-center border-t border-border px-3.5 py-2 [&>div]:w-full"
+      data-slot="toggle-fact-row"
+    >
+      <ToggleRow {...props} />
+    </div>
+  );
+}
+
 function cadenceLabel(cadence: ServiceBillingCadence | undefined): string {
   if (cadence === "monthly") return "per month";
   if (cadence === "one_time") return "one time";
@@ -455,7 +467,7 @@ export function ServiceOfferingEditModal({
           </FactRow>
 
           <RpSvcBand>Requests</RpSvcBand>
-          <ToggleRow
+          <ToggleFactRow
             label="Available to request"
             checked={draft.available}
             onChange={(on) => patch({ available: on })}
@@ -474,7 +486,7 @@ export function ServiceOfferingEditModal({
               dataAttr="service-offering-audience"
             />
           </FactRow>
-          <ToggleRow
+          <ToggleFactRow
             label="Needs your approval"
             checked={approveEachRequest}
             onChange={setApproveEachRequest}

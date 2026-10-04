@@ -1,5 +1,6 @@
 import { canonicalRoomChoiceValue, parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
+import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -38,6 +39,8 @@ const EMPTY_FALLBACK: DemoApplicantRow[] = [];
 let memoryRows: DemoApplicantRow[] = [];
 let activeApplicationsScopeUserId: string | undefined;
 const MANAGER_APPLICATIONS_SYNC_TTL_MS = 15_000;
+/** A hung `/api/manager-applications` read is abandoned after this long, so it cannot pin the shared in-flight slot (and every later reader) for good. */
+const MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS = 20_000;
 let managerApplicationsLastSyncedAt = 0;
 let managerApplicationsSuccessfulServerSyncAt = 0;
 export type ManagerApplicationsSyncResult = {
@@ -821,6 +824,12 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   managerUserId?: string | null;
   /** Resident portal: read only the caller's own applicant rows. */
   selfScope?: boolean;
+  /**
+   * How old a successful read may be and still be reused (default 15 s). A page that
+   * only decorates rows with this list (the property record's "needs you" facts) and
+   * remounts on every tab passes a longer age, so tab changes reuse one read.
+   */
+  maxAgeMs?: number;
 }): Promise<ManagerApplicationsSyncResult> {
   if (!canUseStorage()) return { rows: [], ok: false };
   const managerUserId = opts?.managerUserId ?? portalSessionViewerId() ?? undefined;
@@ -848,7 +857,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   }
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
-  if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
+  if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < (opts?.maxAgeMs ?? MANAGER_APPLICATIONS_SYNC_TTL_MS)) {
     return { rows: readManagerApplicationRows(), ok: true };
   }
   const generation = applicationsScopeGeneration;
@@ -858,7 +867,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   try {
     currentRequest = (async (): Promise<ManagerApplicationsSyncResult> => {
       const url = opts?.selfScope ? "/api/manager-applications?scope=self" : "/api/manager-applications";
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       notePortalResponse(res.status);
       if (res.status === 401 || res.status === 403) {
@@ -881,7 +890,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(res);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
-        const retryRes = await fetch(url, { credentials: "include" }).catch(() => null);
+        const retryRes = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS).catch(() => null);
         if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
@@ -925,6 +934,7 @@ export async function syncManagerApplicationsFromServer(opts?: {
   force?: boolean;
   managerUserId?: string | null;
   selfScope?: boolean;
+  maxAgeMs?: number;
 }): Promise<DemoApplicantRow[]> {
   return (await syncManagerApplicationsFromServerWithStatus(opts)).rows;
 }

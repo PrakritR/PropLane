@@ -5,19 +5,13 @@ import {
   submissionWithLeaseTemplates,
   type LeaseOptionKey,
 } from "@/lib/property-form-stay-type-routing";
-import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, FileUp, FileText, AlertTriangle, Plus } from "lucide-react";
+import { Check, FileUp, FileText, AlertTriangle } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
-import {
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-  PortalPropertyDetailSection,
-} from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyLeaseTemplateInlinePreview } from "@/components/portal/property-lease-template-inline-preview";
 import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-form-template-preview-modal";
@@ -59,11 +53,24 @@ import {
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
-import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { withPropertyApplicationTemplatesExplicit, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+
+/** Rows the Lease tab draws: one per offered lease type (placeholder when it has no lease) plus every lease outside those types. */
+export function leaseListRowCount(
+  templates: ReadonlyArray<{ listingSeedKey?: string }>,
+  offeredSeedKeys: ReadonlyArray<string>,
+): number {
+  let rows = 0;
+  for (const key of offeredSeedKeys) {
+    rows += Math.max(1, templates.filter((t) => t.listingSeedKey === key).length);
+  }
+  rows += templates.filter((t) => !t.listingSeedKey || !offeredSeedKeys.includes(t.listingSeedKey)).length;
+  return rows;
+}
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -137,6 +144,7 @@ export function ManagerPropertyLeasePanel({
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [pendingEditTemplateId, setPendingEditTemplateId] = useState<string | null>(null);
   const [questionsEditorTemplate, setQuestionsEditorTemplate] = useState<PropertyLeaseTemplate | null>(null);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
@@ -154,12 +162,20 @@ export function ManagerPropertyLeasePanel({
     });
   }, [leaseKindFilter, leaseSearch, templates]);
   const embedInModal = Boolean(onBulkActionsChange);
+  // One row per lease type the listing offers (a type with no lease yet still
+  // draws its "No lease yet" row), plus any lease outside those types — the
+  // header count is exactly the rows the list shows.
+  const offeredSeeds = useMemo(() => buildLeaseTemplateSeeds(syncedSub), [syncedSub]);
+  const leaseRowCount = useMemo(
+    () => leaseListRowCount(templates, offeredSeeds.map((seed) => seed.seedKey)),
+    [templates, offeredSeeds],
+  );
   const propertyFormsSectionNav = useMemo(() => {
     if (embedInModal || !pathname) return undefined;
     const match = pathname.match(/^(.*)\/(application|lease)$/);
     if (!match) return undefined;
-    return { activeId: "lease" as const, href: pathname, count: templates.length };
-  }, [embedInModal, pathname, templates.length]);
+    return { activeId: "lease" as const, href: pathname, count: leaseRowCount };
+  }, [embedInModal, pathname, leaseRowCount]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
@@ -180,10 +196,8 @@ export function ManagerPropertyLeasePanel({
   const formSetup = usePropertyFormSetupSettings(rowFactPropertyId);
 
   // P004/P006/P007: one row per lease type the LISTING offers (Long-term,
-  // Short-term, Airbnb when allowed) — a type with no lease yet gets a plain
-  // "No lease yet" placeholder with its own +, rather than a generic
-  // Add-lease footer.
-  const offeredSeeds = useMemo(() => buildLeaseTemplateSeeds(syncedSub), [syncedSub]);
+  // Short-term, Airbnb when allowed) — a type with no lease yet gets a
+  // "No lease yet" row whose ⋯ adds the PropLane standard or a PDF.
 
   const persistSubmission = useCallback(
     async (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -264,6 +278,13 @@ export function ManagerPropertyLeasePanel({
     [templates],
   );
 
+  useEffect(() => {
+    if (!pendingEditTemplateId) return;
+    if (!templates.some((t) => t.id === pendingEditTemplateId)) return;
+    setPendingEditTemplateId(null);
+    openEdit(pendingEditTemplateId);
+  }, [pendingEditTemplateId, templates, openEdit]);
+
   const selectedTemplates = useMemo(
     () => templates.filter((template) => selectedIds.has(template.id)),
     [selectedIds, templates],
@@ -293,7 +314,7 @@ export function ManagerPropertyLeasePanel({
   );
 
   const addSeedTemplate = useCallback(
-    (seedKey: PropertyLeaseListingSeedKey) => {
+    (seedKey: PropertyLeaseListingSeedKey, thenUpload = false) => {
       void (async () => {
         if (bulkPropertyIds.length > 0) {
           if (!managerUserId) return;
@@ -354,6 +375,14 @@ export function ManagerPropertyLeasePanel({
           availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ?? "Lease";
         if (!(await persistSubmission(nextSub, `${seedLabel} added.`))) return;
         onUpdated();
+        // "Upload a PDF": the new lease opens in the lease form, whose document
+        // step takes the PDF — once the saved listing carries the new row.
+        if (thenUpload) {
+          const created = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(nextSub)).find(
+            (row) => row.listingSeedKey === seedKey,
+          );
+          if (created) setPendingEditTemplateId(created.id);
+        }
       })();
     },
     [
@@ -556,90 +585,80 @@ export function ManagerPropertyLeasePanel({
     );
 
     return (
-      <div
+      <PortalPropertyRecordRow
         key={template.id}
-        className={`${PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} ${notOffered ? "opacity-60" : ""}`}
-        data-attr={`property-lease-row-${template.id}`}
-        onClick={openPreview}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            openPreview();
-          }
-        }}
-      >
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          {embedInModal ? (
-            <RowSelectCheckbox
-              aria-label={`Select ${rowLabel}`}
-              checked={selectedIds.has(template.id)}
-              data-attr={`property-lease-select-${template.id}`}
-              onChange={() => toggleSelected(template.id)}
-              onClick={(event) => event.stopPropagation()}
-            />
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <p className={`text-sm font-semibold ${notOffered ? "text-muted" : "text-foreground"}`}>{rowLabel}</p>
-            <p
-              className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
-              data-attr="property-lease-row-facts"
-            >
-                {mappedTypeLabel ? (
-                  <PortalRowFact icon={FileText} srLabel="Lease type">
-                    {mappedTypeLabel}
-                  </PortalRowFact>
-                ) : null}
-                {notOffered ? (
-                  <PortalRowFact icon={AlertTriangle} srLabel="Not offered">
-                    Not offered
-                  </PortalRowFact>
-                ) : null}
-                {isDefault ? (
-                  <PortalRowFact icon={Check} srLabel="Default">
-                    Default
-                  </PortalRowFact>
-                ) : null}
-                {template.leaseTemplateDocName ? (
-                  <PortalRowFact icon={FileUp} srLabel="Source">
-                    From {template.leaseTemplateDocName}
-                  </PortalRowFact>
-                ) : null}
-            </p>
-          </div>
-        </div>
-        <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
-          {rowMenu}
-        </div>
-      </div>
+        title={rowLabel}
+        leading={<PortalRowIconTile icon={FileText} />}
+        leadingShape="square"
+        facts={
+          <>
+            {mappedTypeLabel ? (
+              <PortalRowFact icon={FileText} srLabel="Lease type">
+                {mappedTypeLabel}
+              </PortalRowFact>
+            ) : null}
+            {notOffered ? (
+              <PortalRowFact icon={AlertTriangle} srLabel="Not offered">
+                Not offered
+              </PortalRowFact>
+            ) : null}
+            {isDefault ? (
+              <PortalRowFact icon={Check} srLabel="Default">
+                Default
+              </PortalRowFact>
+            ) : null}
+            {template.leaseTemplateDocName ? (
+              <PortalRowFact icon={FileUp} srLabel="Source">
+                From {template.leaseTemplateDocName}
+              </PortalRowFact>
+            ) : null}
+          </>
+        }
+        checked={embedInModal ? selectedIds.has(template.id) : undefined}
+        onSelectedChange={embedInModal ? () => toggleSelected(template.id) : undefined}
+        selectLabel={rowLabel}
+        onOpen={openPreview}
+        actions={rowMenu}
+        dataAttr={`property-lease-row-${template.id}`}
+      />
     );
   };
 
-  const emptyLeaseTypeRow = (key: string, label: string, onAdd: () => void, dataAttr: string) => (
-    <div key={key} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} data-attr={`property-lease-empty-type-${dataAttr}`}>
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/40 text-muted">
-          <FileText className="size-4" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-muted">{label}</p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
-            <AlertTriangle className="size-3.5 shrink-0" aria-hidden /> No lease yet
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border text-foreground"
-        title={`Add ${label}`}
-        aria-label={`Add ${label}`}
-        data-attr={`property-lease-add-type-${dataAttr}`}
-        onClick={onAdd}
-      >
-        <Plus className="size-4" aria-hidden />
-      </button>
-    </div>
+  const emptyLeaseTypeRow = (
+    key: PropertyLeaseListingSeedKey,
+    label: string,
+    onAdd: (thenUpload: boolean) => void,
+    dataAttr: string,
+  ) => (
+    <PortalPropertyRecordRow
+      key={key}
+      title={label}
+      leading={<PortalRowIconTile icon={FileText} />}
+      leadingShape="square"
+      facts={
+        <PortalRowFact icon={AlertTriangle}>No lease yet</PortalRowFact>
+      }
+      actions={
+        <RowActionsMenu
+          label={label}
+          items={[
+            {
+              id: "add-standard",
+              label: "Add PropLane standard",
+              dataAttr: `property-lease-add-standard-${dataAttr}`,
+              onSelect: () => onAdd(false),
+            },
+            {
+              id: "upload-pdf",
+              label: "Upload a PDF",
+              dataAttr: `property-lease-upload-pdf-${dataAttr}`,
+              onSelect: () => onAdd(true),
+            },
+          ]}
+        />
+      }
+      dataAttr={`property-lease-empty-type-${dataAttr}`}
+    />
   );
 
   const seedTypeLabel = (seedKey: PropertyLeaseListingSeedKey | undefined): string | null => {
@@ -651,18 +670,25 @@ export function ManagerPropertyLeasePanel({
 
   const catalogBody = (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
+      <>
         {offeredSeeds.flatMap((seed) => {
           const rowsForSeed = visibleTemplates.filter((t) => t.listingSeedKey === seed.seedKey);
           if (rowsForSeed.length > 0) {
             return rowsForSeed.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(seed.seedKey)));
           }
-          return [emptyLeaseTypeRow(seed.seedKey, seed.label, () => addSeedTemplate(seed.seedKey), seed.seedKey)];
+          return [
+            emptyLeaseTypeRow(
+              seed.seedKey,
+              seed.label,
+              (thenUpload) => addSeedTemplate(seed.seedKey, thenUpload),
+              seed.seedKey,
+            ),
+          ];
         })}
         {visibleTemplates
           .filter((t) => !offeredSeeds.some((seed) => seed.seedKey === t.listingSeedKey))
           .map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
-      </PortalPropertyDetailSection>
+      </>
       {/* origin/main's separate "Add a lease type" suggestions block (availableSeeds
           + PropertyLeaseTemplateSuggestions) is superseded here: P004/P006/P009's
           row-grouping above already renders an inline add-row (emptyLeaseTypeRow)

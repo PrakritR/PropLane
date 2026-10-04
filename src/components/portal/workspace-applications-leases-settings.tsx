@@ -19,6 +19,7 @@
  *   (Add/Edit application, Add/Edit lease) carries its own row on the first step
  *   (`application-lease-mapping.ts`).
  */
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -124,7 +125,7 @@ export function WorkspaceApplicationsLeasesSettings() {
 
   const patchSettings = useCallback(
     async (body: { leasingPipeline?: LeasingPipelinePreferences; automation?: ApplicationAutomationPreferences }) => {
-      const res = await fetch("/api/portal/manager-application-settings", {
+      const res = await writeThroughFetch("/api/portal/manager-application-settings", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

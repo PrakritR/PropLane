@@ -34,6 +34,7 @@
  *   property-scoped server-side and this reuses it exactly, never bypasses it.
  */
 
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -431,7 +432,7 @@ function ApplicationFormAutomationBlock() {
     if (demo) return;
     reportSaveStatus({ type: "start" });
     try {
-      const res = await fetch("/api/portal/manager-application-settings", {
+      const res = await writeThroughFetch("/api/portal/manager-application-settings", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -553,7 +554,7 @@ function LeaseFormAutomationBlock() {
     if (demo) return;
     reportSaveStatus({ type: "start" });
     try {
-      const res = await fetch("/api/portal/manager-application-settings", {
+      const res = await writeThroughFetch("/api/portal/manager-application-settings", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

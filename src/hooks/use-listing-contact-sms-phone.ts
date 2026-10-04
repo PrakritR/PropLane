@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
+import { sharedGet } from "@/lib/shared-get-cache";
 
 async function contactSmsFromPublicCatalog(listingId: string): Promise<string | null> {
   return listingCtaSmsPhone((await publicListingContact(listingId))?.contactSmsPhone);
@@ -13,10 +14,10 @@ async function contactSmsFromPublicCatalog(listingId: string): Promise<string | 
 /** The selected workspace’s operational work number, never a personal phone or shared platform line. */
 async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string | null> {
   try {
-    const res = await fetch(`/api/manager/messaging-number${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { credentials: "include", cache: "no-store" });
+    const res = await sharedGet(`/api/manager/messaging-number${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
     if (!res.ok) return null;
-    const data = (await res.json()) as { canSend?: boolean; number?: { phoneNumber?: string }; workspaceNumber?: { phoneNumber?: string } };
-    return data.canSend ? listingCtaSmsPhone(data.workspaceNumber?.phoneNumber ?? data.number?.phoneNumber) : null;
+    const data = res.data as { canSend?: boolean; number?: { phoneNumber?: string }; workspaceNumber?: { phoneNumber?: string } } | null;
+    return data?.canSend ? listingCtaSmsPhone(data.workspaceNumber?.phoneNumber ?? data.number?.phoneNumber) : null;
   } catch {
     return null;
   }

@@ -10,6 +10,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
 import type { AutosaveState } from "@/hooks/use-autosave-draft";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -330,7 +331,7 @@ export const SettingsModulePage = forwardRef<
         let lastSource: SettingsResolutionSource | undefined;
         if (ids.length > 0) {
           for (const id of ids) {
-            const res = await fetch("/api/portal/manager-application-settings", {
+            const res = await writeThroughFetch("/api/portal/manager-application-settings", {
               method: "PATCH",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
@@ -348,7 +349,7 @@ export const SettingsModulePage = forwardRef<
           // "All properties" — a house-less write targets the workspace rung ("" reads/writes
           // the account when no workspace is chosen either). Never fans an account-wide value
           // out onto every property record.
-          const res = await fetch("/api/portal/manager-application-settings", {
+          const res = await writeThroughFetch("/api/portal/manager-application-settings", {
             method: "PATCH",
             credentials: "include",
             headers: { "Content-Type": "application/json" },

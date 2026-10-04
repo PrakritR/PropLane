@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { CLAW_DEFAULT_AGENT_PHONE } from "@/lib/claw-leasing-links";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
@@ -22,6 +23,8 @@ function stubFetch(handler: FetchStub) {
 const emptyCatalog = { ok: true, json: async () => ({ listings: [] }) };
 
 describe("useListingContactSmsPhone", () => {
+  // The hook's GETs are shared per URL for the page load; every case starts from a cold cache.
+  beforeEach(() => resetSharedGets());
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

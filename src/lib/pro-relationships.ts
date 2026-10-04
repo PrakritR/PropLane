@@ -244,6 +244,13 @@ async function runRelationshipsSync(userId: string): Promise<ProRelationshipReco
   const promise = (async () => {
     try {
       const res = await fetchWithTimeout("/api/portal-pro-relationships", { credentials: "include", cache: "no-store" }, 15_000);
+      if (res.status === 404) {
+        // "Nothing stored for this account" — the GET itself answers 200 with an empty list, so a 404
+        // is the record layer saying there is no row to read, never a failure worth retrying on every
+        // mount. Settle as an empty read: keep what this tab already holds and stop the refetch loop.
+        relationshipsLastSyncedAt.set(userId, Date.now());
+        return memoryByUser.get(userId) ?? [];
+      }
       if (!res.ok) return memoryByUser.get(userId) ?? [];
       const body = (await res.json()) as { rows?: unknown[] };
       const rows = (body.rows ?? [])

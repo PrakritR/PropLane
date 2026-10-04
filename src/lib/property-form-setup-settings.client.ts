@@ -17,6 +17,7 @@
  * where those already-real values are edited — onto the property's own
  * Application/Lease forms — instead of inventing a second fee.
  */
+import { sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_LEASING_PIPELINE,
@@ -72,11 +73,13 @@ export function usePropertyFormSetupSettings(
     setState((prev) => ({ ...prev, loaded: false }));
     void (async () => {
       try {
-        const res = await fetch(
+        // Shared with every other reader of this property's settings on the page: the
+        // Applications and Lease panels (and the row facts) each mount this hook, and
+        // one visit used to send one identical request per mount.
+        const res = await sharedGet(
           `/api/portal/manager-application-settings?propertyId=${encodeURIComponent(propertyId!.trim())}`,
-          { credentials: "include" },
         );
-        const body = (await res.json().catch(() => ({}))) as SettingsResponseBody;
+        const body = (res.data ?? {}) as SettingsResponseBody;
         if (!res.ok) throw new Error(body.error ?? "Could not load form settings.");
         if (!cancelled) {
           setState({
@@ -100,7 +103,7 @@ export function usePropertyFormSetupSettings(
       const id = propertyId?.trim();
       if (!id) return false;
       try {
-        const res = await fetch("/api/portal/manager-application-settings", {
+        const res = await writeThroughFetch("/api/portal/manager-application-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },

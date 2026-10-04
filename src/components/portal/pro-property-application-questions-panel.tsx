@@ -1,22 +1,16 @@
 "use client";
-import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, CreditCard, FileUp } from "lucide-react";
+import { Check, ClipboardList, CreditCard, FileUp } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
-import {
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-  PortalPropertyDetailSection,
-} from "@/components/portal/portal-property-detail-section";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PropertyApplicationTemplateInlinePreview } from "@/components/portal/property-application-template-inline-preview";
 import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-form-template-preview-modal";
 import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
-import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { applicationFeeFactForTerms } from "@/lib/form-resolved-fee";
 import { applicationIdForStayTerm, offeredStayTypeTerms } from "@/lib/property-form-stay-type-routing";
@@ -503,7 +497,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   const catalogBody = (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
+      <>
         {visibleTemplates.map((template) => {
           const isDefault = Boolean(
             formSetup.loaded &&
@@ -548,59 +542,38 @@ export function ManagerPropertyApplicationQuestionsPanel({
             />
           );
           return (
-            <div
+            <PortalPropertyRecordRow
               key={template.id}
-              className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}
-              data-attr={`property-application-row-${template.id}`}
-              onClick={openPreview}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openPreview();
-                }
-              }}
-            >
-              <div className="flex min-w-0 flex-1 items-start gap-3">
-                {embedInModal ? (
-                  <RowSelectCheckbox
-                    aria-label={`Select ${rowLabel}`}
-                    checked={selectedIds.has(template.id)}
-                    data-attr={`property-application-select-${template.id}`}
-                    onChange={() => toggleSelected(template.id)}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">{rowLabel}</p>
-                  <p
-                    className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted"
-                    data-attr="property-application-row-facts"
-                  >
-                    {isDefault ? (
-                      <PortalRowFact icon={Check} srLabel="Default">
-                        Default
-                      </PortalRowFact>
-                    ) : null}
-                    <PortalRowFact icon={CreditCard} srLabel="Application fee">
-                      {feeFact}
+              title={rowLabel}
+              leading={<PortalRowIconTile icon={ClipboardList} />}
+              leadingShape="square"
+              facts={
+                <>
+                  {isDefault ? (
+                    <PortalRowFact icon={Check} srLabel="Default">
+                      Default
                     </PortalRowFact>
-                    {sourceName ? (
-                      <PortalRowFact icon={FileUp} srLabel="Source">
-                        From {sourceName}
-                      </PortalRowFact>
-                    ) : null}
-                  </p>
-                </div>
-              </div>
-              <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS} onClick={(event) => event.stopPropagation()}>
-                {rowMenu}
-              </div>
-            </div>
+                  ) : null}
+                  <PortalRowFact icon={CreditCard} srLabel="Application fee">
+                    {feeFact}
+                  </PortalRowFact>
+                  {sourceName ? (
+                    <PortalRowFact icon={FileUp} srLabel="Source">
+                      From {sourceName}
+                    </PortalRowFact>
+                  ) : null}
+                </>
+              }
+              checked={embedInModal ? selectedIds.has(template.id) : undefined}
+              onSelectedChange={embedInModal ? () => toggleSelected(template.id) : undefined}
+              selectLabel={rowLabel}
+              onOpen={openPreview}
+              actions={rowMenu}
+              dataAttr={`property-application-row-${template.id}`}
+            />
           );
         })}
-      </PortalPropertyDetailSection>
+      </>
 
       {availableSeeds.length > 0 ? (
         <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
