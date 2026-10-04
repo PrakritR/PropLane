@@ -149,6 +149,11 @@ export async function resolveApplicationBeforeTour(
   // Only the workspace setting decides whether an application is required.
   const required = applicationBeforeTourRequired(pipeline.applicationBeforeTour, forms);
 
+  // The setting off means scheduling is open for any status, so the
+  // application is never consulted: a transient read error must not block a
+  // tour on a workspace that asks for nothing.
+  if (!required) return none(false, ownerUserId);
+
   const email = (args.verifiedEmail ?? "").trim().toLowerCase();
   if (!email.includes("@")) return none(required, ownerUserId);
   const { data, error } = await db

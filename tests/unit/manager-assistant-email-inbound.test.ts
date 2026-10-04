@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   resolveInboundEmailBody: vi.fn(),
   mirrorAssistantEmailTurnToInbox: vi.fn(),
   mirrorAssistantEmailConversation: vi.fn(),
+  fetchHeaders: vi.fn(),
   resolveResidentInboxAgentContext: vi.fn(),
   autoRespondToResidentInboxMessage: vi.fn(),
   runLeasingEmailAgentTurn: vi.fn(),
@@ -79,6 +80,10 @@ vi.mock("@/lib/inbound-email/inbound-email.server", () => ({
   resolveInboundEmailBody: mocks.resolveInboundEmailBody,
 }));
 
+vi.mock("@/lib/inbound-email/inbound-email-headers.server", () => ({
+  fetchResendReceivedEmailHeaders: mocks.fetchHeaders,
+}));
+
 import { processManagerAssistantInboundEmail } from "@/lib/manager-assistant-email/process-assistant-inbound.server";
 
 describe("processManagerAssistantInboundEmail", () => {
@@ -119,6 +124,9 @@ describe("processManagerAssistantInboundEmail", () => {
     });
     mocks.mirrorAssistantEmailTurnToInbox.mockResolvedValue(undefined);
     mocks.mirrorAssistantEmailConversation.mockResolvedValue(undefined);
+    mocks.fetchHeaders.mockResolvedValue({
+      "authentication-results": ["mx; dkim=pass header.d=example.com"],
+    });
     // Default: the sender is not a resident of this manager.
     mocks.resolveResidentInboxAgentContext.mockResolvedValue({ ok: false, reason: "not_a_resident" });
     mocks.autoRespondToResidentInboxMessage.mockResolvedValue({
@@ -248,6 +256,31 @@ describe("processManagerAssistantInboundEmail", () => {
       // Never the manager's own assistant thread — this is a conversation with a person.
       expect(mocks.mirrorAssistantEmailTurnToInbox).not.toHaveBeenCalled();
       expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalled();
+    });
+
+    it("copies into the resident's own thread only when the sender is authenticated", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.resolveResidentInboxAgentContext.mockResolvedValue({
+        ok: true,
+        ctx: { kind: "resident", userId: "res-1", email: "renter@example.com" },
+      });
+      await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+        db,
+        expect.objectContaining({ residentUserId: "res-1" }),
+      );
+
+      // A forged From: no authentication-results pass for the domain.
+      for (const headers of [null, { "authentication-results": ["mx; dkim=fail header.d=example.com"] }]) {
+        mocks.fetchHeaders.mockResolvedValue(headers);
+        await processManagerAssistantInboundEmail(db, { ...fromProspect, emailId: "email_forged" });
+        expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+          db,
+          expect.objectContaining({ residentUserId: null }),
+        );
+      }
+      // The manager's own copy is still written.
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledTimes(3);
     });
 
     it("answers everyone else with the leasing assistant", async () => {

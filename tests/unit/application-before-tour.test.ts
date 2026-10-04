@@ -25,6 +25,8 @@ vi.mock("@/lib/tour-host-enumeration.server", () => ({ listPropertyTourHostUserI
 let pipelineRow: Record<string, unknown> | null;
 let applicationRows: { row_data: unknown }[];
 let propertyReadError: { message: string } | null;
+let applicationReadError: { message: string } | null = null;
+const applicationReads = { count: 0 };
 const upserts: unknown[] = [];
 
 function fakeDb() {
@@ -48,6 +50,10 @@ function fakeDb() {
           return { error: null };
         },
         then(resolve: (v: { data: unknown[]; error: null }) => unknown) {
+          if (state.table === "manager_application_records") {
+            applicationReads.count += 1;
+            if (applicationReadError) return Promise.resolve({ data: null, error: applicationReadError }).then(resolve as never);
+          }
           const data = state.table === "manager_application_records" ? applicationRows : [];
           return Promise.resolve({ data, error: null }).then(resolve);
         },
@@ -75,6 +81,7 @@ beforeEach(() => {
   pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
   applicationRows = [];
   propertyReadError = null;
+  applicationReadError = null;
   upserts.length = 0;
 });
 
@@ -111,6 +118,24 @@ describe("resolveApplicationBeforeTour", () => {
       hasApplication: false,
     });
     expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: null })).toBe(APPLICATION_BEFORE_TOUR_MESSAGE);
+  });
+
+  it("setting off allows the tour without reading applications, even when that read would fail", async () => {
+    pipelineRow = { leasingPipeline: { applicationBeforeTour: "not_needed" } };
+    applicationRows = [submitted("prop-1", { stage: "Declined", bucket: "rejected" })];
+    applicationReadError = { message: "transient" };
+    applicationReads.count = 0;
+    const decision = await resolveApplicationBeforeTour(fakeDb(), { propertyId: "prop-1", verifiedEmail: "jane@example.com" });
+    expect(decision).toMatchObject({ required: false, blocked: null, ownerUserId: "owner-1" });
+    expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "jane@example.com" })).toBeNull();
+    expect(applicationReads.count).toBe(0);
+  });
+
+  it("setting on still surfaces a failed application read instead of letting the tour through", async () => {
+    applicationReadError = { message: "transient" };
+    await expect(
+      resolveApplicationBeforeTour(fakeDb(), { propertyId: "prop-1", verifiedEmail: "jane@example.com" }),
+    ).rejects.toBeTruthy();
   });
 
   it("a failed property read is not 'no owner' - it throws instead of letting the tour through", async () => {
@@ -216,7 +241,12 @@ describe("the gate matrix: setting on/off x application none/submitted/approved/
     pipelineRow = { leasingPipeline: { applicationBeforeTour: setting } };
     applicationRows = rowsFor[status]!;
     const decision = await resolveApplicationBeforeTour(fakeDb(), { propertyId: "prop-1", verifiedEmail: "jane@example.com" });
-    expect(decision).toMatchObject({ required: setting === "required", applicationStatus: status, blocked: expected });
+    // Setting off: the application is never read, so its status is not reported.
+    expect(decision).toMatchObject({
+      required: setting === "required",
+      applicationStatus: setting === "required" ? status : "none",
+      blocked: expected,
+    });
     const refusal = await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "jane@example.com" });
     expect(refusal).toBe(expected ? TOUR_BLOCK_MESSAGES[expected as keyof typeof TOUR_BLOCK_MESSAGES] : null);
   });

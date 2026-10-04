@@ -421,9 +421,14 @@ export async function PUT(req: Request) {
   // Verifying a phone links the texts that were already there: the conversation
   // key is re-stamped on this number's past text history (best-effort, idempotent;
   // the resident's own Communication derives the same answer without it).
+  // Only an account that HOLDS the resident role (`profile_roles`, never the
+  // legacy `profiles.role`) has a resident conversation history to link.
   try {
-    const { linkVerifiedPhoneHistory } = await import("@/lib/communication/resident-conversations.server");
-    await linkVerifiedPhoneHistory(db, user.id);
+    const { authorizeResidentRole } = await import("@/lib/auth/resident-role-access");
+    if (await authorizeResidentRole(db, { userId: user.id, legacyRole: null })) {
+      const { linkVerifiedPhoneHistory } = await import("@/lib/communication/resident-conversations.server");
+      await linkVerifiedPhoneHistory(db, user.id);
+    }
   } catch {
     /* non-critical */
   }

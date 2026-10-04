@@ -14,6 +14,7 @@ import {
   linkVerifiedPhoneHistory,
   loadResidentSmsConversations,
 } from "@/lib/communication/resident-conversations.server";
+import { buildClientPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
 import { mergeInboxThreadRowData } from "@/lib/communication/shared-thread-merge";
 import { isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
@@ -407,6 +408,31 @@ describe("applyResidentConversationExtras - the list the route returns", () => {
     expect(inboxThreadMessages(rows[0]!).some((m) => m.body === "texting from my phone" && m.channel === "sms")).toBe(true);
   });
 
+  it("a forged ws:<uuid> key stores nothing about a workspace the resident is not linked to", async () => {
+    // W2 is Marco's workspace; the resident has no application, lease or text there.
+    const forged = storedRow({ id: "thread-forged", conversationKey: `ws:${W2}`, workspaceId: W2 });
+    const db = seededDb();
+    const { rows } = await applyResidentConversationExtras(db, { id: R, name: "Rita", mayReadResidentTexts: false }, [forged]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows[0])).not.toContain("Marco");
+    expect(JSON.stringify(rows[0])).not.toContain("+12065550102");
+  });
+
+  it("a linked workspace is still named while an unlinked one in the same list is not", async () => {
+    const real = storedRow({ id: "thread-real" });
+    const forged = storedRow({ id: "thread-forged", conversationKey: `ws:${W2}`, workspaceId: W2 });
+    const { rows } = await applyResidentConversationExtras(seededDb(), { id: R, mayReadResidentTexts: false }, [real, forged]);
+    expect(rows.find((r) => r.id === "thread-real")!.counterparty).toMatchObject({ name: "Maya Manager" });
+    expect(rows.find((r) => r.id === "thread-forged")!.counterparty).toBeUndefined();
+  });
+
+  it("a workspace key with no link at all (no application or lease) is never named", async () => {
+    const db = seededDb({ manager_application_records: [] });
+    const { rows } = await applyResidentConversationExtras(db, { id: R, mayReadResidentTexts: false }, [storedRow()]);
+    expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
   it("a caller without the resident role gets no texts (identity stamping only)", async () => {
     const db = seededDb(withConversation());
     const { rows } = await applyResidentConversationExtras(db, { id: R, name: "Rita", mayReadResidentTexts: false }, [storedRow()]);
@@ -524,5 +550,43 @@ describe("Gmail from the resident's account email lands in the same conversation
     expect(channels).toContain("email");
     expect(channels).toContain("sms");
     expect(rows[0]!.counterparty!.name).toBe("Maya Manager");
+  });
+});
+
+describe("a resident's client upsert never stores server-owned conversation identity", () => {
+  const user = { id: R, email: "resident@x.co" };
+  const claimed = {
+    id: "msg_inbox_client_1",
+    scope: "axis_portal_inbox_resident_v1",
+    folder: "inbox",
+    subject: "Hello",
+    conversationKey: `ws:${W2}`,
+    workspaceId: W2,
+    counterparty: { workspaceId: W2, name: "Totally the Landlord" },
+    smsOnly: true,
+    identityFlag: { reason: "ambiguous_phone", accountIds: [] },
+  };
+
+  it("drops the key, workspace and counterparty claims on a resident-scope write", () => {
+    const record = buildClientPortalInboxThreadUpsert(claimed, user, {
+      scope: "axis_portal_inbox_resident_v1",
+      isAdmin: false,
+      stripConversationIdentity: true,
+    });
+    const data = record.row_data as Record<string, unknown>;
+    for (const key of ["conversationKey", "workspaceId", "counterparty", "smsOnly", "identityFlag"]) {
+      expect(data).not.toHaveProperty(key);
+    }
+    expect(data.subject).toBe("Hello");
+    expect(record.owner_user_id).toBe(R);
+  });
+
+  it("leaves other scopes (a manager's own keyed rows) untouched", () => {
+    const record = buildClientPortalInboxThreadUpsert(claimed, user, {
+      scope: "axis_portal_inbox_manager_v1",
+      isAdmin: false,
+      stripConversationIdentity: false,
+    });
+    expect((record.row_data as Record<string, unknown>).conversationKey).toBe(`ws:${W2}`);
   });
 });

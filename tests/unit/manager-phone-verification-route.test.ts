@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   createTwilioRestClient: vi.fn(),
   scheduleManagerMessagingReady: vi.fn(),
+  linkVerifiedPhoneHistory: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -26,7 +27,19 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
   scheduleManagerMessagingReady: mocks.scheduleManagerMessagingReady,
 }));
 
-import { GET, POST } from "@/app/api/manager/phone/route";
+vi.mock("@/lib/communication/resident-conversations.server", () => ({
+  linkVerifiedPhoneHistory: mocks.linkVerifiedPhoneHistory,
+}));
+vi.mock("@/lib/claw-onboarding-sms.server", () => ({
+  maybeSendManagerPropLaneAssistantIntro: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/auth/portal-access", () => ({
+  getPortalAccessContext: vi.fn(),
+  hasRole: vi.fn(),
+}));
+
+import { createHash } from "node:crypto";
+import { GET, POST, PUT } from "@/app/api/manager/phone/route";
 
 const USER = "00000000-0000-4000-8000-0000000000aa";
 const PHONE = "+15103098345";
@@ -233,5 +246,42 @@ describe("phone settings read", () => {
     const body = await (await GET()).json();
 
     expect(body.pendingVerification).toBeNull();
+  });
+});
+
+describe("confirming a phone links resident text history only for a resident", () => {
+  async function confirm(profileRoles: { user_id: string; role: string }[]) {
+    db = createMemoryDb({
+      profiles: [{ id: USER, phone: null, phone_verified_at: null, role: "resident" }],
+      profile_roles: profileRoles,
+      phone_verifications: [
+        {
+          user_id: USER,
+          phone: PHONE,
+          code_hash: createHash("sha256").update("123456").digest("hex"),
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          attempts: 0,
+        },
+      ],
+    });
+    return PUT(
+      new Request("https://prop-lane.test/api/manager/phone", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "123456" }),
+      }),
+    );
+  }
+
+  it("links when profile_roles says resident", async () => {
+    const response = await confirm([{ user_id: USER, role: "resident" }]);
+    expect(response.status).toBe(200);
+    expect(mocks.linkVerifiedPhoneHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not link a manager account, even when the legacy profiles.role says resident", async () => {
+    const response = await confirm([{ user_id: USER, role: "manager" }]);
+    expect(response.status).toBe(200);
+    expect(mocks.linkVerifiedPhoneHistory).not.toHaveBeenCalled();
   });
 });

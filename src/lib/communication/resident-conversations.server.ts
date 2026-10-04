@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { profilePhoneVariants } from "@/lib/sms-consent";
-import { resolveSmsConversationRef, workspaceIdForWorkLine } from "@/lib/communication/conversation-key.server";
+import { loadAccountCandidates, resolveSmsConversationRef, workspaceIdForWorkLine } from "@/lib/communication/conversation-key.server";
 import { workspaceKey } from "@/lib/communication/conversation-key";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
@@ -135,6 +135,42 @@ export async function loadResidentCounterparties(
     return new Map();
   }
   return out;
+}
+
+/**
+ * Which of these workspaces the resident is actually linked to (an application
+ * or lease with that workspace's owner or co-managers, through a house IN that
+ * workspace). A conversation key on a stored row is a claim, never a link: only
+ * a workspace named here may have its manager's name and work number stamped on
+ * the resident's list. A failed read links nothing.
+ */
+export async function loadResidentLinkedWorkspaceIds(
+  db: Db,
+  residentId: string,
+  workspaceIds: readonly string[],
+): Promise<Set<string>> {
+  const linked = new Set<string>();
+  const ids = [...new Set(workspaceIds.map(clean).filter(Boolean))];
+  const resident = clean(residentId);
+  if (!resident || ids.length === 0) return linked;
+  try {
+    const { data } = await db.from("portal_workspaces").select("id, owner_user_id, is_default").in("id", ids);
+    for (const workspace of (data ?? []) as Row[]) {
+      const workspaceId = clean(workspace.id);
+      const owner = clean(workspace.owner_user_id);
+      if (!workspaceId || !owner) continue;
+      const candidates = await loadAccountCandidates(
+        db,
+        { workspaceId, workspaceOwnerId: owner, isDefault: workspace.is_default === true },
+        owner,
+        { accountId: resident },
+      );
+      if (candidates.some((candidate) => candidate.id === resident && candidate.linked)) linked.add(workspaceId);
+    }
+  } catch {
+    return new Set();
+  }
+  return linked;
 }
 
 type ProjectionRow = {
@@ -373,7 +409,12 @@ export async function applyResidentConversationExtras(
   const keyedWorkspaces = rows
     .filter((row) => !isResidentAssistantRow(row) && String(row.conversationKey ?? "").startsWith("ws:"))
     .map((row) => String(row.conversationKey).slice(3));
-  const identities = await loadResidentCounterparties(db, [...keyedWorkspaces, ...sms.map((entry) => entry.workspaceId)]);
+  // Only workspaces the resident is really linked to are named. A key on a
+  // stored row is a claim (a client once wrote `ws:<any uuid>`), so it is
+  // checked; a workspace a verified-SMS conversation came from is linked by
+  // construction.
+  const linkedKeyed = await loadResidentLinkedWorkspaceIds(db, resident.id, keyedWorkspaces);
+  const identities = await loadResidentCounterparties(db, [...linkedKeyed, ...sms.map((entry) => entry.workspaceId)]);
   const stamped = stampCounterparties(rows, identities);
   const merged = mergeResidentSmsConversations(stamped, sms, clean(resident.name) || "You");
   return { rows: merged, phone };

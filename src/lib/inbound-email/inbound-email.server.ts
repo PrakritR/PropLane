@@ -15,6 +15,7 @@
  * so a slow or failing lookup can never cost us the email nor stall the webhook
  * response; that pass retries a bounded number of times to ride out a blip.
  */
+import { normalizeInboundHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -33,6 +34,8 @@ export type ParsedInboundEmail = {
   /** Present only if the provider inlined the body on the webhook (usually not). */
   text?: string;
   html?: string;
+  /** Message headers when the provider inlined them on the webhook (it normally does not). */
+  headers?: Record<string, string[]>;
 };
 
 /** Deterministic thread id keyed off the provider message id → idempotent upsert. */
@@ -91,6 +94,10 @@ export function parseInboundEmailWebhook(payload: unknown): ParsedInboundEmail |
     receivedAt,
     text: typeof data.text === "string" ? data.text : undefined,
     html: typeof data.html === "string" ? data.html : undefined,
+    headers: (() => {
+      const normalized = normalizeInboundHeaders(data.headers);
+      return Object.keys(normalized).length ? normalized : undefined;
+    })(),
   };
 }
 

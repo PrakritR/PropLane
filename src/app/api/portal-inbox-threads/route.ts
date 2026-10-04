@@ -632,6 +632,7 @@ export async function POST(req: Request) {
       const record = buildClientPortalInboxThreadUpsert(normalized, ctx.user, {
         scope: scopeKey,
         isAdmin: ctx.user.role === "admin",
+        stripConversationIdentity: scopeKey === RESIDENT_INBOX_SCOPE,
       });
       if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
       const id = String(record.id);

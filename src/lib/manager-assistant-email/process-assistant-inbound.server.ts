@@ -29,6 +29,8 @@ import {
 } from "@/lib/agent/manager-email-agent.server";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
+import { fetchResendReceivedEmailHeaders } from "@/lib/inbound-email/inbound-email-headers.server";
+import { inboundSenderAuthenticated } from "@/lib/inbound-email/inbound-sender-authentication";
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
 import { isAssistantEmailAddress } from "@/lib/manager-assistant-email/assistant-email-address";
 import { classifyAssistantEmailSender } from "@/lib/manager-assistant-email/assistant-email-sender-role.server";
@@ -232,6 +234,21 @@ export async function processManagerAssistantInboundEmail(
     /* Mirrored whether or not the agent produced a reply: the manager must see
        that this person wrote in either way. */
     const managerEmail = await loadManagerProfileEmail(db, managerUserId);
+    /* The resident-side copy attributes this text to the resident, and From is
+       a header anyone can type. Only write it when the receiving server proved
+       the sender for the From domain; otherwise only the manager's own copy is
+       stored. Unknown (no headers, no key, fetch failed) is not proven. */
+    let residentUserId: string | null = null;
+    if (sender.role === "resident") {
+      let authenticated = false;
+      try {
+        const headers = parsed.headers ?? (await fetchResendReceivedEmailHeaders(parsed.emailId));
+        authenticated = inboundSenderAuthenticated(headers, senderEmail);
+      } catch {
+        authenticated = false;
+      }
+      if (authenticated) residentUserId = sender.ctx.userId;
+    }
     mirror = async (replySent) => {
       try {
         await mirrorAssistantEmailConversation(db, {
@@ -246,7 +263,7 @@ export async function processManagerAssistantInboundEmail(
           replySent,
           workspaceId,
           workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
-          residentUserId: sender.role === "resident" ? sender.ctx.userId : null,
+          residentUserId,
         });
       } catch (cause) {
         console.error("assistant-email conversation mirror failed", cause);
