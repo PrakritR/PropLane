@@ -171,6 +171,58 @@ async function restoreChargeSnapshot(db: SupabaseClient, snapshot: ChargeSnapsho
 }
 
 /**
+ * Write the waiver key on the lease row without clobbering anything else in `row_data`.
+ *
+ * `row_data` is one blob several writers own — signatures, renewals, amendments, packet edits. A
+ * waiver that wrote back the copy it read at the start of the call would replace whatever landed in
+ * the meantime, and a signed body is immutable. So the blob is re-read immediately before the
+ * write, only `application.managerLeaseFeeWaiver` is changed on that fresh copy, and the write
+ * carries the `updated_at` it was read with: a row that moved underneath it writes nothing and the
+ * whole read-merge-write is retried once before the caller is told the lease is busy.
+ */
+type LeaseFeeWaiverApplicationEdit = (
+  application: Record<string, unknown>,
+) => Record<string, unknown> | null;
+
+async function writeLeaseFeeWaiverKey(
+  db: SupabaseClient,
+  leaseId: string,
+  stampedAtIso: string,
+  edit: LeaseFeeWaiverApplicationEdit,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data, error } = await db
+      .from(LEASE_TABLE)
+      .select("row_data, updated_at")
+      .eq("id", leaseId)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: error.message };
+    const fresh = (data ?? null) as { row_data?: unknown; updated_at?: string | null } | null;
+    if (!fresh) return { ok: false, status: 404, error: "Lease not found." };
+    const rowData = asObject(fresh.row_data);
+    const nextApplication = edit(asObject(rowData.application));
+    // Nothing left to change on the lease row (another caller already did it, or it has no
+    // application copy to carry the waiver).
+    if (!nextApplication) return { ok: true };
+    const expectedUpdatedAt = fresh.updated_at ?? null;
+    const write = db
+      .from(LEASE_TABLE)
+      .update({ row_data: { ...rowData, application: nextApplication }, updated_at: stampedAtIso })
+      .eq("id", leaseId);
+    const { data: written, error: writeError } = await (
+      expectedUpdatedAt === null ? write.is("updated_at", null) : write.eq("updated_at", expectedUpdatedAt)
+    ).select("id");
+    if (writeError) return { ok: false, status: 500, error: writeError.message };
+    if (((written ?? []) as unknown[]).length > 0) return { ok: true };
+  }
+  return {
+    ok: false,
+    status: 409,
+    error: "This lease was changed while the lease fee was being updated. Try again.",
+  };
+}
+
+/**
  * Give back the code use a lease-fee waiver code spent on this lease. The partial unique index on
  * `application_fee_waiver_redemptions` allows one lease redemption per lease, so leaving the row
  * behind after a reinstate would make every future code on that lease read as ALREADY_USED while
@@ -321,16 +373,14 @@ export async function waiveLeaseFee(
 
   // 2. The lease row's application copy. Only when it already carries one: a stub application would be
   //    mistaken for a full application elsewhere.
-  const application = asObject(rowData.application);
-  if (Object.keys(application).length > 0 && !existing) {
-    const { error } = await db
-      .from(LEASE_TABLE)
-      .update({ row_data: { ...rowData, application: { ...application, managerLeaseFeeWaiver: waiver } }, updated_at: waiver.waivedAtIso })
-      .eq("id", record.id);
-    if (error) {
-      await rollback();
-      return { ok: false, status: 500, error: error.message };
-    }
+  const leaseWrite = await writeLeaseFeeWaiverKey(db, record.id, waiver.waivedAtIso, (application) => {
+    if (Object.keys(application).length === 0) return null;
+    if (readLeaseFeeWaiver(application)) return null;
+    return { ...application, managerLeaseFeeWaiver: waiver };
+  });
+  if (!leaseWrite.ok) {
+    await rollback();
+    return leaseWrite;
   }
 
   await writeAudit(db, {
@@ -402,15 +452,15 @@ export async function reinstateLeaseFee(
   }
 
   if (hadWaiver) {
-    const { managerLeaseFeeWaiver: _removed, ...rest } = application;
-    void _removed;
-    const { error } = await db
-      .from(LEASE_TABLE)
-      .update({ row_data: { ...rowData, application: rest }, updated_at: now })
-      .eq("id", record.id);
-    if (error) {
+    const leaseWrite = await writeLeaseFeeWaiverKey(db, record.id, now, (fresh) => {
+      if (!readLeaseFeeWaiver(fresh)) return null;
+      const { managerLeaseFeeWaiver: _removed, ...rest } = fresh;
+      void _removed;
+      return rest;
+    });
+    if (!leaseWrite.ok) {
       await rollback();
-      return { ok: false, status: 500, error: error.message };
+      return leaseWrite;
     }
   }
 

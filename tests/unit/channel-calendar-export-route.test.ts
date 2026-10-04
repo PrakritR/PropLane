@@ -20,10 +20,8 @@ describe("channel export actual holds", () => {
     state.applications = [{ id: "a1", ical_connection: "c", assigned_property_id: "p", choice: "p::r", lease_start: "2026-10-01", lease_end: "2026-10-03" }, { id: "a2", lease_start: "2026-10-01", lease_end: "2026-10-03" }];
     expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
   });
-  it("refuses the feed rather than serving a read it could not finish paging", async () => {
-    // Every page comes back full, so the read never proves it reached the end. A truncated feed
-    // would advertise occupied dates as free, which is the double booking this guard exists for.
-    state.applications = Array.from({ length: 500 }, (_unused, index) => ({
+  const approvedRows = (count: number) =>
+    Array.from({ length: count }, (_unused, index) => ({
       id: `a${index}`,
       assigned_property_id: "p",
       choice: "p::r",
@@ -31,7 +29,20 @@ describe("channel export actual holds", () => {
       lease_end: "2026-10-03",
       bucket: "approved",
     }));
+
+  it("refuses the feed rather than serving a read it could not finish paging", async () => {
+    // Every page comes back with a row past its end, so the read never proves it reached the end.
+    // A truncated feed would advertise occupied dates as free — the double booking this guards.
+    state.applications = approvedRows(501);
     expect((await request()).status).toBe(500);
+  });
+
+  it("serves the feed when the rows land exactly on a page boundary", async () => {
+    // A page's worth with nothing past it is a COMPLETE read, not a truncated one.
+    state.applications = approvedRows(500);
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("DTSTART;VALUE=DATE:20261001");
   });
   it("fails instead of publishing false availability after a read failure", async () => {
     state.error = { message: "database unavailable" };

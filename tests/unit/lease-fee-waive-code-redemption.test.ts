@@ -53,6 +53,11 @@ let tables: Record<string, Row[]>;
 /** "fail" = the charge write errors; "lost-race" = the status precondition matches no row. */
 let chargeWriteMode: null | "fail" | "lost-race" = null;
 let failLeaseWrites = false;
+/** Every lease-row write misses its `updated_at` precondition, as if another writer kept winning. */
+let leaseBusy = false;
+/** Called with each lease-row READ, so a test can land a concurrent write between two of them. */
+let onLeaseRead: ((readIndex: number) => void) | null = null;
+let leaseReads = 0;
 
 /** The slice of the PostgREST builder the redemption path uses, answered by real Postgres. */
 class PgQuery implements PromiseLike<{ data: Row[] | null; error: { message: string } | null }> {
@@ -109,9 +114,24 @@ function makeDb() {
           update: () => ({ eq: () => ({ or: () => ({ select: async () => answer }) }) }),
         });
       }
-      if (failLeaseWrites && table === "portal_lease_pipeline_records") {
+      if (table === "portal_lease_pipeline_records" && (failLeaseWrites || leaseBusy || onLeaseRead)) {
         const real = fake.from(table);
-        return Object.assign(real, { update: () => ({ eq: async () => ({ error: { message: "lease write failed" } }) }) });
+        const realSelect = real.select.bind(real);
+        // The waiver's lease-row write re-reads the blob, then writes behind an `updated_at`
+        // precondition: `update().eq(id).eq|is(updated_at).select()`.
+        const refused: Record<string, unknown> = {};
+        refused.eq = () => refused;
+        refused.is = () => refused;
+        refused.select = async () =>
+          failLeaseWrites ? { data: null, error: { message: "lease write failed" } } : { data: [], error: null };
+        return Object.assign(real, {
+          select: (...args: unknown[]) => {
+            leaseReads += 1;
+            onLeaseRead?.(leaseReads);
+            return (realSelect as (...a: unknown[]) => unknown)(...args);
+          },
+          ...(failLeaseWrites || leaseBusy ? { update: () => refused } : {}),
+        });
       }
       return fake.from(table);
     },
@@ -240,6 +260,9 @@ afterAll(async () => {
 beforeEach(async () => {
   chargeWriteMode = null;
   failLeaseWrites = false;
+  leaseBusy = false;
+  onLeaseRead = null;
+  leaseReads = 0;
   await pg.exec(`delete from public.application_fee_waiver_redemptions; delete from public.manager_application_fee_waiver_codes;`);
   tables = {
     portal_household_charge_records: [
@@ -586,5 +609,48 @@ describe("reinstating is all-or-nothing too", () => {
     const leaseData = tables.portal_lease_pipeline_records![0]!.row_data as { application: Record<string, unknown> };
     expect(leaseData.application.managerLeaseFeeWaiver).toBeTruthy();
     expect(await usedCount(codeId)).toBe(1);
+  });
+});
+
+/**
+ * `row_data` on a lease is one blob several writers own — the resident's signature, renewals,
+ * amendments, packet edits. A waiver that wrote back the copy it read at the start of the call
+ * would replace whatever landed in between, and a signed body is immutable.
+ */
+describe("the lease row's other keys survive a concurrent write", () => {
+  it("keeps a signature that landed after the waiver started, and still stamps the waiver", async () => {
+    // The lease is signed between `waiveLeaseFee`'s own read of the row and its write of it. Writing
+    // back the first copy would drop the signature.
+    onLeaseRead = (readIndex) => {
+      if (readIndex < 2) return;
+      const leaseData = tables.portal_lease_pipeline_records![0]!.row_data as Record<string, unknown>;
+      leaseData.signedAt = "2026-10-04T00:00:00.000Z";
+      (leaseData.application as Record<string, unknown>).residentSignatureSha256 = "abc123";
+    };
+
+    expect(await waiveLeaseFee(makeDb(), { managerUserId: MANAGER, leaseId: LEASE_ID, reason: "Referral" })).toMatchObject({
+      ok: true,
+    });
+
+    const after = tables.portal_lease_pipeline_records![0]!.row_data as Record<string, unknown>;
+    expect(after.signedAt).toBe("2026-10-04T00:00:00.000Z");
+    const application = after.application as Record<string, unknown>;
+    expect(application.residentSignatureSha256).toBe("abc123");
+    expect(application.managerLeaseFeeWaiver).toBeTruthy();
+    expect(application.fullLegalName).toBe("Signer");
+  });
+
+  it("refuses rather than overwrites when the lease keeps moving under the write", async () => {
+    const codeId = await seedCode({ code: "BUSYROW01", maxUses: 1 });
+    leaseBusy = true;
+
+    const result = await redeem("BUSYROW01");
+
+    expect(result).toMatchObject({ ok: false });
+    const application = (tables.portal_lease_pipeline_records![0]!.row_data as { application: Record<string, unknown> })
+      .application;
+    expect(application.managerLeaseFeeWaiver).toBeUndefined();
+    expect(feeChargeStatus()).toBe("pending");
+    expect(await usedCount(codeId)).toBe(0);
   });
 });

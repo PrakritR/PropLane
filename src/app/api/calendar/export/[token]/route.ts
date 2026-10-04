@@ -71,9 +71,11 @@ async function readApprovedRowPage(
         : source === "assignedChoice"
           ? base.like("row_data->>assignedRoomChoice", choicePrefix)
           : base.like("row_data->application->>roomChoice1", choicePrefix);
+  // One row past the page, so "is there more?" is answered by the same read: a source whose row
+  // count lands exactly on a page boundary must not be mistaken for a truncated one.
   const { data, error } = await scoped
     .order("id", { ascending: true })
-    .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE - 1);
+    .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE);
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as ApprovedRow[];
 }
@@ -89,7 +91,8 @@ async function readApprovedRowsForProperty(
     let exhausted = false;
     for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
       const batch = await readApprovedRowPage(db, managerUserId, propertyId, source, page);
-      for (const row of batch) {
+      const hasMore = batch.length > APPROVED_ROW_PAGE;
+      for (const row of hasMore ? batch.slice(0, APPROVED_ROW_PAGE) : batch) {
         const id = typeof row.id === "string" ? row.id.trim() : "";
         if (id) {
           if (seen.has(id)) continue;
@@ -97,13 +100,13 @@ async function readApprovedRowsForProperty(
         }
         rows.push(row);
       }
-      if (batch.length < APPROVED_ROW_PAGE) {
+      if (!hasMore) {
         exhausted = true;
         break;
       }
     }
-    // A full final page means occupancy this feed never read. Publishing it anyway would advertise
-    // occupied dates as free, so refuse the feed rather than serve a truncated one.
+    // Rows beyond the bound are occupancy this feed never read. Publishing it anyway would
+    // advertise occupied dates as free, so refuse the feed rather than serve a truncated one.
     if (!exhausted) throw new Error("Approved-application read for this room exceeded its page bound.");
   }
   return rows;
