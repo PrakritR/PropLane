@@ -9,11 +9,13 @@
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import {
+  type ManagerBundleRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
   type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
+import { templateFeeRaw } from "@/lib/form-template-fees";
 import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
 
@@ -40,6 +42,19 @@ export type PlacementFeeOptions = {
   arrangementCount?: number | null;
   entireHomeFees?: ManagerListingSubmissionV1["entireHomeArrangementFees"];
   isStay: boolean;
+  /**
+   * A bundle placement (an applicant who applied for / was placed on a bundle): its Lease fee and
+   * Application fee live in `termPricing[term]`, the entry shape a room's term step uses. Takes the
+   * place of `room`; a bundle has no arrangement rows.
+   */
+  bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
+  /**
+   * The application the applicant filled in (a selector into the stored templates, never an amount).
+   * Picks whose template fee sits under the room override. Absent = the form routed to the lease type.
+   */
+  applicationTemplateId?: string | null;
+  /** A lease chosen outright; else the lease the application maps to, else the one routed to the lease type. */
+  leaseTemplateId?: string | null;
 };
 
 function readStoredTermFee(
@@ -86,10 +101,35 @@ function readArrangementFee(
 
 /**
  * Raw money strings for one placement before manager-default fallback on application fee.
+ *
+ * The chain (captain, Oct 3 2026), per kind:
+ *   the placement's OWN value (a room / bundle / whole-house override)
+ *   -> the TEMPLATE's fee for that lease type (the application's Application fee, the lease's Lease fee)
+ *   -> the long-term / whole-house inheritance a stay already followed
+ *   -> (the callers' listing-level / account / legacy fallbacks).
+ * A template that sets no fee is skipped, so a property with no template fee resolves exactly as it did.
  */
 export function placementStandardFeeRaw(
   sub: ManagerListingSubmissionV1,
   options: PlacementFeeOptions,
+): Record<PlacementStandardFeeKind, string | undefined> {
+  return placementFeeRawChain(sub, options, true);
+}
+
+/** Which level of the chain supplies a kind for one placement: the placement's own value, its template, or neither. */
+export function placementFeeLevel(
+  sub: ManagerListingSubmissionV1,
+  options: PlacementFeeOptions,
+  kind: "applicationFee" | "leaseFee",
+): "room" | "template" | null {
+  if (placementFeeRawChain(sub, options, false)[kind] !== undefined) return "room";
+  return placementFeeRawChain(sub, options, true)[kind] !== undefined ? "template" : null;
+}
+
+function placementFeeRawChain(
+  sub: ManagerListingSubmissionV1,
+  options: PlacementFeeOptions,
+  includeTemplate: boolean,
 ): Record<PlacementStandardFeeKind, string | undefined> {
   const leaseTerm = String(options.leaseTerm ?? "").trim() || LONG_TERM_LEASE_TERM;
   const isBase = leaseTerm === LONG_TERM_LEASE_TERM;
@@ -124,12 +164,35 @@ export function placementStandardFeeRaw(
         (options.entireHomeFees ? readStayFeeOnRow(options.entireHomeFees as RoomOccupancyPrice, kind) : undefined)
       : undefined;
 
+  const bundle = options.bundle ?? null;
+  const fromBundle = (kind: PlacementStandardFeeKind, term: string) =>
+    kind === "moveInFee" ? undefined : readStoredTermFee(bundle?.termPricing?.[term], kind);
+
+  const fromTemplate = (kind: PlacementStandardFeeKind): string | undefined =>
+    includeTemplate && kind !== "moveInFee"
+      ? templateFeeRaw(sub, kind, {
+          leaseTerm,
+          isStay: options.isStay,
+          applicationTemplateId: options.applicationTemplateId,
+          leaseTemplateId: options.leaseTemplateId,
+        })
+      : undefined;
+
   const resolve = (kind: PlacementStandardFeeKind): string | undefined => {
+    if (bundle) {
+      return isBase
+        ? fromBundle(kind, leaseTerm) ?? fromTemplate(kind)
+        : fromBundle(kind, leaseTerm) ?? fromTemplate(kind) ?? fromBundle(kind, LONG_TERM_LEASE_TERM);
+    }
     if (isBase) {
-      return fromLongTermArrangement(kind) ?? fromEntireHome(kind);
+      return fromLongTermArrangement(kind) ?? fromEntireHome(kind) ?? fromTemplate(kind);
     }
     return (
-      fromTerm(kind) ?? fromStayFieldOnRow(kind) ?? fromLongTermArrangement(kind) ?? fromEntireHome(kind)
+      fromTerm(kind) ??
+      fromStayFieldOnRow(kind) ??
+      fromTemplate(kind) ??
+      fromLongTermArrangement(kind) ??
+      fromEntireHome(kind)
     );
   };
 
@@ -212,6 +275,10 @@ export function placementFeeOptionsFor(
     leaseTerm?: string | null;
     rentalType?: string | null;
     arrangementCount?: number | null;
+    /** The bundle the applicant applied for; it takes the place of a room. */
+    bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
+    applicationTemplateId?: string | null;
+    leaseTemplateId?: string | null;
   },
 ): PlacementFeeOptions {
   const term = String(input.leaseTerm ?? "").trim();
@@ -227,6 +294,9 @@ export function placementFeeOptionsFor(
     arrangementCount: input.arrangementCount ?? null,
     entireHomeFees: !room && input.wholeHouse ? sub.entireHomeArrangementFees : undefined,
     isStay,
+    ...(input.bundle ? { bundle: input.bundle } : {}),
+    ...(input.applicationTemplateId ? { applicationTemplateId: input.applicationTemplateId } : {}),
+    ...(input.leaseTemplateId ? { leaseTemplateId: input.leaseTemplateId } : {}),
   };
 }
 

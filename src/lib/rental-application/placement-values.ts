@@ -97,14 +97,19 @@ export function resolvePlacementValuesForRow(
         signedMonthlyRent: row.signedMonthlyRent,
       })
     : undefined;
-  const sub =
-    listingSub && !app?.bundleId?.trim()
-      ? submissionWithRoomTermFees(listingSub, feeRoom ?? null, {
-          leaseTerm: app?.leaseTerm,
-          rentalType: app?.rentalType,
-          wholeHouse: isEntireHomeListing(listingSub),
-        })
-      : listingSub;
+  // A bundle placement reads the bundle's own entry; otherwise the room's (or the whole house's).
+  const feeBundle = listingSub && app?.bundleId?.trim()
+    ? (listingSub.bundles ?? []).find((bundle) => bundle.id === app.bundleId?.trim()) ?? null
+    : null;
+  const sub = listingSub
+    ? submissionWithRoomTermFees(listingSub, feeBundle ? null : (feeRoom ?? null), {
+        leaseTerm: app?.leaseTerm,
+        rentalType: app?.rentalType,
+        wholeHouse: !feeBundle && isEntireHomeListing(listingSub),
+        bundle: feeBundle,
+        applicationTemplateId: app?.applicationTemplateId,
+      })
+    : listingSub;
 
   const dates = resolvePlacementLeaseDates({
     leaseTerm: app?.leaseTerm,

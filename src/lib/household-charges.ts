@@ -1770,7 +1770,11 @@ function withRoomTermFeesForRow<T extends ManagerListingSubmissionV1>(
       signedMonthlyRent: row.signedMonthlyRent,
       bundleId: bundleIdForApplication(row.application),
     },
-    { leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+    {
+      leaseTerm: row.application?.leaseTerm,
+      rentalType: row.application?.rentalType,
+      applicationTemplateId: row.application?.applicationTemplateId,
+    },
   ) as T;
 }
 
@@ -3543,12 +3547,21 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
   // the house value.
   const placement = resolveRowSubmissionRoom(row);
   const isStayRow = row.application?.rentalType === "short_term";
+  // The SAME options the checkout's `resolveApplicationFeeBasis` builds (room or bundle, lease type, the
+  // application the applicant filled in), so the booked amount equals what the quote showed and checkout charged.
+  const rowBundleId = bundleIdForApplication(row.application);
+  const rowBundle = rowBundleId ? (placement.sub?.bundles ?? []).find((b) => b.id === rowBundleId) ?? null : null;
   const placementCents = placement.sub
     ? placementApplicationFeeCents(placement.sub, {
         leaseTerm: isStayRow ? stayPlacementLeaseTerm(row.application?.leaseTerm) : (row.application?.leaseTerm ?? ""),
-        room: placement.room,
-        entireHomeFees: !placement.room && isEntireHomeListing(placement.sub) ? placement.sub.entireHomeArrangementFees : undefined,
+        room: rowBundle ? null : placement.room,
+        bundle: rowBundle,
+        entireHomeFees:
+          !rowBundle && !placement.room && isEntireHomeListing(placement.sub)
+            ? placement.sub.entireHomeArrangementFees
+            : undefined,
         isStay: isStayRow,
+        applicationTemplateId: row.application?.applicationTemplateId,
       })
     : null;
   const charge = ensurePendingApplicationFeeCharge({

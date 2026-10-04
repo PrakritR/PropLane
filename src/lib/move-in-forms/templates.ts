@@ -473,6 +473,7 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
     moveOutDaysBefore: (MOVE_OUT_DAYS_OPTIONS as readonly number[]).includes(days) ? (days as MoveInFormMoveOutDays) : 14,
     linkedApplicationTemplateIds: normalizeIdList(raw.linkedApplicationTemplateIds),
     linkedLeaseTemplateIds: normalizeIdList(raw.linkedLeaseTemplateIds),
+    ...(raw.leaseType === "long-term" || raw.leaseType === "short-term" ? { leaseType: raw.leaseType } : {}),
     ...(starterKey ? { starterKey } : {}),
     createdAt: text(raw.createdAt, 40) || now,
     updatedAt: text(raw.updatedAt, 40) || now,

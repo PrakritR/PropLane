@@ -169,6 +169,7 @@ export async function promoteIncompleteApplicationAfterFeePaid(
       managerUserId: draft.record.manager_user_id?.trim() || "",
       applicationTemplateId: submittedApplicationTemplateId,
       roomChoice1: previousApplication.roomChoice1,
+      bundleId: (previousApplication as { bundleId?: string }).bundleId,
       leaseTerm: previousApplication.leaseTerm,
       rentalType: applicationRentalTypeFor(previousApplication.rentalType),
     });

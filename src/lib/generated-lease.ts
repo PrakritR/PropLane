@@ -325,7 +325,7 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
   const roomFees = resolveApplicationRoomTermFees(
     sub,
     { roomChoices: [a.roomChoice1], unitLabel: prop?.unitLabel, bundleId: a.bundleId },
-    { leaseTerm: a.leaseTerm, rentalType: a.rentalType },
+    { leaseTerm: a.leaseTerm, rentalType: a.rentalType, applicationTemplateId: a.applicationTemplateId },
   );
   const surchargeCtx = { leaseStart: a.leaseStart, leaseEnd: a.leaseEnd, leaseTerm: a.leaseTerm, rentalType: a.rentalType };
   const fees = [

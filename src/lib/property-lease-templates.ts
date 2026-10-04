@@ -61,6 +61,13 @@ export type PropertyLeaseTemplate = {
   linkedApplicationTemplateId?: string | null;
   /** Whether this lease is offered to applicants on this property. */
   offered?: boolean;
+  /**
+   * This lease's own Lease fee in cents - what a resident pays for THIS lease (captain, Oct 3 2026: lease
+   * fees are set on the lease). Absent/null = the lease sets none; `0` is a real "free". It sits under a
+   * room's own Lease fee (a per-room override) and above the legacy fallbacks in the one fee resolver
+   * (`listing-placement-standard-fees.ts`); the server derives every charge, never a client amount.
+   */
+  leaseFeeCents?: number | null;
   leaseConfigMode: "standard" | "custom";
   leaseCustomKind: "terms" | "document" | "builder";
   customLeaseTerms: string;

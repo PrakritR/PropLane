@@ -23,6 +23,7 @@ import { resolveSubmissionRoom, type SubmissionRoomLookup } from "@/lib/listing-
 import {
   isEntireHomeListing,
   roomOfferedLeaseTerms,
+  type ManagerBundleRow,
   type ManagerCustomFeeRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
@@ -196,6 +197,10 @@ export function resolveRoomTermFees(input: {
   arrangementCount?: number;
   /** Quote the whole-house row instead of a room's. */
   wholeHouse?: boolean;
+  /** A bundle placement: its own entry stands in for a room's. */
+  bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
+  /** The application the applicant filled in (selector); picks whose template fee sits under the room's. */
+  applicationTemplateId?: string | null;
 }): ResolvedRoomTermFees {
   const scope = roomFeeTermScope(input.leaseTerm, input.rentalType);
   const room = input.wholeHouse ? null : ((input.room ?? null) as ManagerRoomSubmission | null);
@@ -205,11 +210,15 @@ export function resolveRoomTermFees(input: {
     leaseTerm: input.leaseTerm,
     rentalType: input.rentalType,
     arrangementCount: input.arrangementCount ?? 1,
+    bundle: input.bundle,
+    applicationTemplateId: input.applicationTemplateId,
   });
   const fees = resolvePlacementStandardFees(input.sub, opts);
-  const row = input.wholeHouse
-    ? input.sub.entireHomeArrangementFees
-    : roomFeeRow(input.sub, input.room, input.arrangementCount ?? 1);
+  const row = input.bundle
+    ? undefined
+    : input.wholeHouse
+      ? input.sub.entireHomeArrangementFees
+      : roomFeeRow(input.sub, input.room, input.arrangementCount ?? 1);
   return {
     scope,
     applicationFee: fees.applicationFee,
@@ -230,7 +239,19 @@ export type RoomFeeOverlayContext = {
   arrangementCount?: number;
   /** Read the whole-house row (`sub.entireHomeArrangementFees`) instead of a room's. */
   wholeHouse?: boolean;
+  /** A bundle placement: the bundle's own Lease / Application fee entry stands in for a room's. */
+  bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
+  /** The application the applicant filled in (selector, never an amount); its template fee sits under the room's. */
+  applicationTemplateId?: string | null;
 };
+
+/** True when any stored application or lease template carries a fee (so the overlay has something to apply with no room row). */
+function hasAnyTemplateFee(sub: ManagerListingSubmissionV1): boolean {
+  return (
+    (sub.propertyApplicationTemplates ?? []).some((t) => typeof t.feeCentsOverride === "number") ||
+    (sub.propertyLeaseTemplates ?? []).some((t) => typeof t.leaseFeeCents === "number")
+  );
+}
 
 export const ROOM_LEASE_FEE_ID_PREFIX = "room_lease_fee:";
 export const ROOM_LEASE_FEE_LABEL = "Lease fee";
@@ -277,12 +298,19 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   room: Pick<ManagerRoomSubmission, "id" | "occupancyPrices" | "termPricing"> | null | undefined,
   ctx: RoomFeeOverlayContext,
 ): T | null | undefined {
-  if (!sub || (!room && !ctx.wholeHouse)) return sub;
-  const row = ctx.wholeHouse ? sub.entireHomeArrangementFees : roomFeeRow(sub, room, ctx.arrangementCount ?? 1);
+  if (!sub || (!room && !ctx.wholeHouse && !ctx.bundle && !hasAnyTemplateFee(sub))) return sub;
+  const row = ctx.bundle
+    ? undefined
+    : ctx.wholeHouse
+      ? sub.entireHomeArrangementFees
+      : room
+        ? roomFeeRow(sub, room, ctx.arrangementCount ?? 1)
+        : undefined;
   // A stay type's own fees live on the room's term entry, not the arrangement row, so a room
-  // with no row can still carry them.
-  if (!row && !(room as FeeRoom | null | undefined)?.termPricing) return sub;
-  const feeOwnerId = ctx.wholeHouse ? "whole" : room!.id;
+  // with no row can still carry them. A template fee needs no room at all.
+  const hasTemplateFee = hasAnyTemplateFee(sub);
+  if (!row && !ctx.bundle && !(room as FeeRoom | null | undefined)?.termPricing && !hasTemplateFee) return sub;
+  const feeOwnerId = ctx.bundle ? "bundle" : ctx.wholeHouse ? "whole" : (room?.id ?? "listing");
   const scope = roomFeeTermScope(ctx.leaseTerm, ctx.rentalType);
   let next: ManagerListingSubmissionV1 = sub;
   let changed = false;
@@ -311,11 +339,13 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   const own = placementStandardFeeRaw(
     sub,
     placementFeeOptionsFor(sub, {
-      room: ctx.wholeHouse ? null : (room as ManagerRoomSubmission | null),
+      room: ctx.wholeHouse || ctx.bundle ? null : (room as ManagerRoomSubmission | null),
       wholeHouse: ctx.wholeHouse,
+      bundle: ctx.bundle,
       leaseTerm: ctx.leaseTerm,
       rentalType: ctx.rentalType,
       arrangementCount: ctx.arrangementCount ?? 1,
+      applicationTemplateId: ctx.applicationTemplateId,
     }),
   );
   const appRaw = own.applicationFee ?? "";
@@ -352,29 +382,45 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   return next as T;
 }
 
+/** The stored bundle an application names, or null (no id, or an id the listing no longer has). */
+function bundleOfLookup(sub: ManagerListingSubmissionV1, bundleId: string | null | undefined): ManagerBundleRow | null {
+  const id = bundleId?.trim();
+  return id ? (sub.bundles ?? []).find((row) => row.id === id) ?? null : null;
+}
+
 /**
  * `submissionWithRoomTermFees` for an application: finds the room the SAME way the charge
  * ledger and the lease document do (`resolveSubmissionRoom`), and reads the whole-house row
- * on an entire-home listing. A bundle lets several rooms, so it overlays nothing.
+ * on an entire-home listing. A bundle placement reads the BUNDLE's own Lease / Application fee
+ * (its `termPricing` entry), since a bundle lets several rooms and has no single room row.
  */
 export function submissionWithApplicationRoomFees<T extends ManagerListingSubmissionV1>(
   sub: T | null | undefined,
   lookup: SubmissionRoomLookup & { bundleId?: string | null },
-  ctx: { leaseTerm?: string | null; rentalType?: string | null },
+  ctx: { leaseTerm?: string | null; rentalType?: string | null; applicationTemplateId?: string | null },
 ): T | null | undefined {
-  if (!sub || lookup.bundleId?.trim()) return sub;
+  if (!sub) return sub;
+  if (lookup.bundleId?.trim()) {
+    const bundle = bundleOfLookup(sub, lookup.bundleId);
+    return bundle ? submissionWithRoomTermFees(sub, null, { ...ctx, bundle }) : sub;
+  }
   if (isEntireHomeListing(sub)) return submissionWithRoomTermFees(sub, null, { ...ctx, wholeHouse: true });
   const room = resolveSubmissionRoom(sub, lookup);
-  return room ? submissionWithRoomTermFees(sub, room, ctx) : sub;
+  // No resolvable room still bills the template's lease fee (a form's fee needs no room).
+  return submissionWithRoomTermFees(sub, room ?? null, ctx);
 }
 
 /** The fees the application's room sets for its lease term (what a terms rider prints), or null when the room can't be resolved. */
 export function resolveApplicationRoomTermFees(
   sub: ManagerListingSubmissionV1 | null | undefined,
   lookup: SubmissionRoomLookup & { bundleId?: string | null },
-  ctx: { leaseTerm?: string | null; rentalType?: string | null },
+  ctx: { leaseTerm?: string | null; rentalType?: string | null; applicationTemplateId?: string | null },
 ): ResolvedRoomTermFees | null {
-  if (!sub || lookup.bundleId?.trim()) return null;
+  if (!sub) return null;
+  if (lookup.bundleId?.trim()) {
+    const bundle = bundleOfLookup(sub, lookup.bundleId);
+    return bundle ? resolveRoomTermFees({ sub, bundle, ...ctx }) : null;
+  }
   if (isEntireHomeListing(sub)) return resolveRoomTermFees({ sub, wholeHouse: true, ...ctx });
   const room = resolveSubmissionRoom(sub, lookup);
   return room ? resolveRoomTermFees({ sub, room, ...ctx }) : null;

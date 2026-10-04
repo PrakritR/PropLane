@@ -46,6 +46,12 @@ export type MoveInFormTrigger =
  */
 export type MoveInFormKind = "intake" | "move-in" | "move-out" | "other";
 
+/**
+ * Which signed lease type a form goes to when the lease is signed. Absent / "all" = every lease.
+ * A specific custom lease is `linkedLeaseTemplateIds` (the lease the residency is on).
+ */
+export type MoveInFormLeaseType = "all" | "long-term" | "short-term";
+
 /** Days before the lease ends that a `before-move-out` form goes out. */
 export type MoveInFormMoveOutDays = 7 | 14 | 30;
 
@@ -93,6 +99,8 @@ export type MoveInFormTemplate = {
   linkedApplicationTemplateIds: string[];
   /** Lease templates (`propertyLeaseTemplates` ids) this form goes to. Empty = every lease. */
   linkedLeaseTemplateIds: string[];
+  /** Which lease type this form goes to once a lease is signed. Absent = "all". See {@link MoveInFormLeaseType}. */
+  leaseType?: MoveInFormLeaseType;
   starterKey?: MoveInFormStarterKey;
   createdAt: string;
   updatedAt: string;
