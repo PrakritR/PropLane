@@ -182,7 +182,7 @@ describe("Schedule tour gate in the picker (setting x application)", () => {
 
   const gateBody = (required: boolean, status: "none" | "submitted" | "approved" | "denied") => {
     const reason =
-      status === "denied" ? "denied" : !required || status === "approved" ? null : status === "submitted" ? "pending_approval" : "apply_first";
+      required && status === "denied" ? "denied" : !required || status === "approved" ? null : status === "submitted" ? "pending_approval" : "apply_first";
     return { required, applicationStatus: status, allowed: reason === null, reason, signedIn: true };
   };
 
@@ -194,7 +194,7 @@ describe("Schedule tour gate in the picker (setting x application)", () => {
     [false, "none", null],
     [false, "submitted", null],
     [false, "approved", null],
-    [false, "denied", "denied"],
+    [false, "denied", null],
   ];
 
   it.each(cases)("setting required=%s, application %s -> blocked reason %s", async (required, status, reason) => {

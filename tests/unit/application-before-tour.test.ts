@@ -174,12 +174,12 @@ describe("createTourInquiry — the booking route's gate", () => {
     expect(upserts).toHaveLength(0);
   });
 
-  it("refuses a denied application even when the setting is Not needed", async () => {
+  it("allows a denied application when the setting is Not needed", async () => {
     pipelineRow = { leasingPipeline: { applicationBeforeTour: "not_needed" } };
     applicationRows = [submitted("prop-1", { stage: "Declined", bucket: "rejected" })];
     const result = await createTourInquiry(fakeDb(), { incoming: request("jane@example.com"), verifiedApplicantEmail: "jane@example.com" });
-    expect(result).toEqual({ ok: false, reason: "application_required", error: TOUR_BLOCK_MESSAGES.denied });
-    expect(upserts).toHaveLength(0);
+    expect(result.ok).toBe(true);
+    expect(upserts.length).toBeGreaterThan(0);
   });
 
   it("does not gate a partner meeting (not a property tour)", async () => {
@@ -205,7 +205,7 @@ describe("the gate matrix: setting on/off x application none/submitted/approved/
     ["not_needed", "none", null],
     ["not_needed", "submitted", null],
     ["not_needed", "approved", null],
-    ["not_needed", "denied", "denied"],
+    ["not_needed", "denied", null],
   ];
 
   it.each(cases)("setting %s, application %s -> %s (pure policy)", (setting, status, expected) => {

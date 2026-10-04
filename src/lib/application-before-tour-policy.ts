@@ -67,7 +67,7 @@ export const TOUR_BLOCK_MESSAGES: Record<TourBlockReason, string> = {
  *   - setting on  -> only an APPROVED application schedules (none / submitted do not).
  */
 export function tourBlockReason(required: boolean, status: TourApplicationStatus): TourBlockReason | null {
-  if (status === "denied") return "denied";
+  if (required && status === "denied") return "denied";
   if (!required) return null;
   if (status === "approved") return null;
   return status === "submitted" ? "pending_approval" : "apply_first";
