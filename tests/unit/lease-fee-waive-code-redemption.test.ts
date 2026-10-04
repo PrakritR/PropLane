@@ -15,6 +15,10 @@ import { fakeSupabaseClient, type Row } from "./helpers/fake-supabase-tables";
 vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
   enrichHouseholdChargesFromPropertyRecords: async (_db: unknown, charges: Array<Record<string, unknown>>) =>
     charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: true, managerStripeConnectReadySnapshot: true })),
+  enrichHouseholdChargesFromPropertyRecordsResult: async (_db: unknown, charges: Array<Record<string, unknown>>) => ({
+    charges: charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: true, managerStripeConnectReadySnapshot: true })),
+    lookupFailed: false,
+  }),
 }));
 vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeEntry: vi.fn(async () => undefined) }));
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
