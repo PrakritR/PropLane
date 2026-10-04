@@ -35,14 +35,23 @@
  * exactly as every other send does.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive } from "lucide-react";
+import { Archive, Phone } from "lucide-react";
 import {
   INBOX_THREAD_ICON_BTN,
   InboxComposer,
   InboxThreadView,
+  InboxTwoPane,
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
-import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
+import {
+  InboxComposerAiMenu,
+  InboxComposerChannelMenu,
+  InboxComposerScheduleMenu,
+} from "@/components/portal/inbox-composer-tools";
+import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
+import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
+import { setInboxFullScreen } from "@/lib/inbox-full-screen";
+import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
 import { openAxisAssistant } from "@/lib/axis-assistant/open-store";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -89,6 +98,12 @@ export type RecordCommunicationSectionProps = {
   autoOpenCompose?: boolean;
   /** Create or resolve the roster row before the first send (catalog vendors). */
   onEnsureRecord?: () => Promise<RecordRef | null>;
+  /**
+   * Communication-page parity: the same two-pane shell the main Communication page uses
+   * (thread only), filling the record page's height with the composer pinned to the bottom,
+   * the thread header's icon actions and Full screen, and the composer's schedule clock.
+   */
+  fill?: boolean;
 };
 
 const SCOPE_BY_ROLE: Record<RecordCommunicationSectionRole, string> = {
@@ -167,7 +182,9 @@ export function RecordCommunicationSection({
   contactPhone,
   autoOpenCompose,
   onEnsureRecord,
+  fill = false,
 }: RecordCommunicationSectionProps) {
+  const appUi = useOptionalAppUi();
   const scope = SCOPE_BY_ROLE[role];
   const primaryContact = contactIds?.[0]?.trim().toLowerCase() || undefined;
 
@@ -328,6 +345,16 @@ export function RecordCommunicationSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primaryThread?.id, smsAvailable]);
 
+  // Full screen is a session-wide preference; a record page never opens already covering itself.
+  useEffect(() => {
+    if (!fill) return;
+    setInboxFullScreen(false);
+    return () => setInboxFullScreen(false);
+  }, [fill]);
+
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
+
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<InboxComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
@@ -373,6 +400,58 @@ export function RecordCommunicationSection({
     const to = recipientEmail;
     if (!to) {
       setSendError(`No contact to message about this ${KIND_LABEL[activeRef.kind]} yet.`);
+      return;
+    }
+    if (fill && scheduleLater) {
+      if (attachmentUrls.length > 0) {
+        setSendError("Scheduled messages cannot carry attachments. Remove them or send now.");
+        return;
+      }
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        setSendError("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        setSendError("Send time must be in the future.");
+        return;
+      }
+      if (!viaEmail && !viaSms && !viaProplane) {
+        setSendError("Choose PropLane, Email, SMS, or a combination.");
+        return;
+      }
+      setSending(true);
+      setSendError(null);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: role,
+            subject: primaryThread?.subject || activeRef.label,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail: to,
+            recipientName: primaryThread?.from || activeRef.label,
+            deliverViaInbox: viaProplane,
+            deliverViaEmail: viaEmail && emailAvailable,
+            deliverViaSms: viaSms && smsAvailable,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          setSendError(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        setDraft("");
+        setScheduleLater(false);
+        appUi?.showToast("Message scheduled.");
+      } catch {
+        setSendError("Could not schedule message.");
+      } finally {
+        setSending(false);
+      }
       return;
     }
     setSending(true);
@@ -424,7 +503,7 @@ export function RecordCommunicationSection({
     } finally {
       setSending(false);
     }
-  }, [activeRef, attachments, draft, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scope, senderIdentity, smsAvailable, viaEmail, viaSms]);
+  }, [activeRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms]);
 
   const handleArchive = useCallback(async () => {
     if (!primaryThread || archiving) return;
@@ -437,10 +516,10 @@ export function RecordCommunicationSection({
     }
   }, [archiving, primaryThread, scope]);
 
-  const kindLabel = KIND_LABEL[activeRef.kind];
   const counterpartyName = primaryThread?.from?.trim() || activeRef.label || recipientEmail || "Contact";
 
-  const headerActions = primaryThread ? (
+  const kindLabel = KIND_LABEL[activeRef.kind];
+  const archiveButton = primaryThread ? (
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
@@ -453,6 +532,34 @@ export function RecordCommunicationSection({
       <Archive className="h-4 w-4" strokeWidth={2} aria-hidden />
     </button>
   ) : undefined;
+
+  const callPhone = contactPhone?.trim() || "";
+  const headerActions = fill ? (
+    <>
+      {callPhone ? (
+        <a
+          href={`tel:${callPhone}`}
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Call"
+          title={`Call ${formatTourContactPhoneDisplay(callPhone)}`}
+          data-attr="record-communication-call"
+        >
+          <Phone className="h-4 w-4" strokeWidth={2} aria-hidden />
+        </a>
+      ) : null}
+      {archiveButton}
+    </>
+  ) : archiveButton;
+
+  const threadSubtitle = fill
+    ? [
+        kindLabel.charAt(0).toUpperCase() + kindLabel.slice(1),
+        callPhone ? formatTourContactPhoneDisplay(callPhone) : null,
+        recipientEmail || null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
 
   const channelControl = (
     <InboxComposerChannelMenu
@@ -480,7 +587,20 @@ export function RecordCommunicationSection({
       placeholder="Write a reply…"
       dataAttr="record-communication-composer"
       channelControl={channelControl}
-      trailingControls={<InboxComposerAiMenu onAsk={() => openAxisAssistant()} />}
+      trailingControls={
+        <>
+          <InboxComposerAiMenu onAsk={() => openAxisAssistant()} />
+          {fill && emailAvailable ? (
+            <InboxComposerScheduleMenu
+              scheduleLater={scheduleLater}
+              onScheduleLaterChange={setScheduleLater}
+              sendAt={scheduleSendAt}
+              onSendAtChange={setScheduleSendAt}
+              disabled={sending}
+            />
+          ) : null}
+        </>
+      }
       attachments={attachments}
       onAttachmentsPick={pickAttachments}
       onAttachmentRemove={(id) => {
@@ -495,6 +615,34 @@ export function RecordCommunicationSection({
       hint={sendError ? <span className="text-rose-600">{sendError}</span> : undefined}
     />
   );
+
+  if (fill) {
+    return (
+      <div data-attr="record-communication-section" data-fill="true" className="flex min-h-0 flex-1 flex-col">
+        <InboxTwoPane
+          list={null}
+          listHidden
+          threadOpen
+          fillParent
+          panes="split"
+          fullScreenable
+          thread={
+            <InboxThreadView
+              title={counterpartyName}
+              subtitle={threadSubtitle}
+              avatarName={counterpartyName}
+              messages={messages}
+              headerActions={headerActions}
+              composer={composer}
+              emptyLabel={initialSyncDone ? "No messages yet." : "Loading messages…"}
+              threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}
+              scrollMode="pane"
+            />
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div data-attr="record-communication-section" className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">

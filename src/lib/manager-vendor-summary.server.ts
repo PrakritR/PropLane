@@ -2,6 +2,7 @@ import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/li
 import "server-only";
 
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { vendorHasGivenEstimate } from "@/lib/vendor-reviews";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -17,6 +18,8 @@ export type ManagerVendorSummaryJob = {
   finalInvoiceCents: number | null;
   paidCents: number | null;
   residentRating: number | null;
+  /** The vendor has given an estimate (a bid or their own price) — with `completed`, what makes a service reviewable. */
+  estimateGiven: boolean;
 };
 
 export type ManagerVendorSummary = {
@@ -150,7 +153,7 @@ export async function loadManagerVendorSummary(
 
   const [bids, invoices, payouts] = await Promise.all([
     vendorUserId
-      ? fetchRelations(workOrderIds, (batch, from, to) => db.from("work_order_bids").select("id, work_order_id, amount_cents").in("work_order_id", batch).eq("vendor_user_id", vendorUserId).eq("status", "accepted").order("id", { ascending: true }).range(from, to))
+      ? fetchRelations(workOrderIds, (batch, from, to) => db.from("work_order_bids").select("id, work_order_id, amount_cents, status").in("work_order_id", batch).eq("vendor_user_id", vendorUserId).order("id", { ascending: true }).range(from, to))
       : Promise.resolve([]),
     vendorUserId
       ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_invoices").select("id, work_order_id, total_cents, status, paid_at, submitted_at, created_at").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).in("status", ["submitted", "approved", "scheduled", "paid"]).order("submitted_at", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to))
@@ -160,8 +163,11 @@ export async function loadManagerVendorSummary(
       : Promise.resolve([]),
   ]);
   const acceptedByWorkOrder = new Map<string, number | null>();
+  const bidCountByWorkOrder = new Map<string, number>();
   for (const bid of bids) {
     const workOrderId = String(bid.work_order_id);
+    bidCountByWorkOrder.set(workOrderId, (bidCountByWorkOrder.get(workOrderId) ?? 0) + 1);
+    if (bid.status !== "accepted") continue;
     if (!acceptedByWorkOrder.has(workOrderId)) acceptedByWorkOrder.set(workOrderId, centsOrNull(bid.amount_cents));
   }
   const invoiceByWorkOrder = new Map<string, number | null>();
@@ -187,6 +193,11 @@ export async function loadManagerVendorSummary(
       finalInvoiceCents: invoiceByWorkOrder.get(String(record.id)) ?? null,
       paidCents: paidByWorkOrder.get(String(record.id)) ?? null,
       residentRating: rating,
+      estimateGiven: vendorHasGivenEstimate({
+        bidCount: bidCountByWorkOrder.get(String(record.id)),
+        vendorCostCents: row.vendorCostCents,
+        vendorPriceSetAt: row.vendorPriceSetAt,
+      }),
     };
   });
   const completedJobIds = new Set(

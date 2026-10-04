@@ -3,10 +3,12 @@ import {
   canEditVendorReview,
   computeVendorReviewAggregate,
   evaluateVendorReviewEligibility,
+  isVendorReviewableService,
   normalizeVendorReviewBody,
   normalizeVendorReviewStars,
   redactVendorReviewForViewer,
   VENDOR_REVIEW_BODY_MAX_LENGTH,
+  vendorHasGivenEstimate,
   vendorReviewWorkspaceLabel,
 } from "@/lib/vendor-reviews";
 
@@ -23,9 +25,29 @@ describe("evaluateVendorReviewEligibility", () => {
     expect(result).toEqual({ ok: true, vendorUserId: "vendor-1" });
   });
 
-  it("refuses a service that is not completed", () => {
+  it("refuses a service that is neither completed nor estimated", () => {
     const result = evaluateVendorReviewEligibility({ ...base, workOrderBucket: "scheduled" });
-    expect(result).toEqual({ ok: false, status: 400, error: "Only a completed service can be reviewed." });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(422);
+    const explicit = evaluateVendorReviewEligibility({ ...base, workOrderBucket: "scheduled", estimateGiven: false });
+    expect(explicit.ok).toBe(false);
+  });
+
+  it("allows a not-yet-completed service once the vendor has given an estimate", () => {
+    const result = evaluateVendorReviewEligibility({ ...base, workOrderBucket: "scheduled", estimateGiven: true });
+    expect(result).toEqual({ ok: true, vendorUserId: "vendor-1" });
+  });
+
+  it("refuses a service that belongs to a different vendor than the one being reviewed", () => {
+    const result = evaluateVendorReviewEligibility({ ...base, expectedVendorUserId: "vendor-2" });
+    expect(result).toEqual({ ok: false, status: 403, error: "This service belongs to a different vendor." });
+    expect(evaluateVendorReviewEligibility({ ...base, expectedVendorUserId: "vendor-1" }).ok).toBe(true);
+  });
+
+  it("refuses another workspace's service even when it is completed and estimated", () => {
+    const result = evaluateVendorReviewEligibility({ ...base, workOrderManagerUserId: "manager-2", estimateGiven: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
   });
 
   it("refuses a service that has no work order (unknown manager id)", () => {
@@ -139,5 +161,25 @@ describe("normalizeVendorReviewStars / normalizeVendorReviewBody", () => {
     expect(normalizeVendorReviewBody("x".repeat(VENDOR_REVIEW_BODY_MAX_LENGTH + 50)).length).toBe(
       VENDOR_REVIEW_BODY_MAX_LENGTH,
     );
+  });
+});
+
+describe("vendorHasGivenEstimate", () => {
+  it("counts a bid of any status, or a price the vendor set", () => {
+    expect(vendorHasGivenEstimate({ bidCount: 1 })).toBe(true);
+    expect(vendorHasGivenEstimate({ vendorPriceSetAt: "2026-09-01T00:00:00.000Z" })).toBe(true);
+    expect(vendorHasGivenEstimate({ vendorCostCents: 12500 })).toBe(true);
+  });
+
+  it("is false with no bid and no price", () => {
+    expect(vendorHasGivenEstimate({})).toBe(false);
+    expect(vendorHasGivenEstimate({ bidCount: 0, vendorCostCents: 0, vendorPriceSetAt: "" })).toBe(false);
+    expect(vendorHasGivenEstimate({ bidCount: null, vendorCostCents: "5" })).toBe(false);
+  });
+
+  it("makes a service reviewable when completed or estimated, never otherwise", () => {
+    expect(isVendorReviewableService({ completed: true, estimateGiven: false })).toBe(true);
+    expect(isVendorReviewableService({ completed: false, estimateGiven: true })).toBe(true);
+    expect(isVendorReviewableService({ completed: false, estimateGiven: false })).toBe(false);
   });
 });

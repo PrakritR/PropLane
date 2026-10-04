@@ -357,7 +357,12 @@ Coverage: `tests/unit/stripe-vendor-payout.test.ts`.
 # Vendor portal (Phase 5: reviews)
 
 A manager (or a co-manager with `services` granted at `edit`) leaves one
-star-rated review per **completed** service, editable for 14 days; the vendor
+star-rated review per service that is **completed or at least estimated** (a
+`work_order_bids` row by that service's vendor, or the vendor's own
+`vendorCostCents`/`vendorPriceSetAt` — `vendorHasGivenEstimate`), re-derived
+by the POST route from the DB (422 when neither; 403 for another workspace or
+a `vendorUserId` that is not the service's vendor); the vendor record's Add
+review dialog picks among those services. A review is never editable; the vendor
 may reply once. `vendor_reviews`
 (`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
 `work_order_id`, keyed by `vendor_user_id` rather than

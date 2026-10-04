@@ -27,7 +27,6 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -70,7 +69,7 @@ import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@
 import { cn } from "@/lib/utils";
 import { Plus, ChevronDown, ChevronUp, X, CalendarDays, Star } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
-import { canEditVendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
+import { canEditVendorReview, isVendorReviewableService, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
 type ManagerFacingVendorReview = {
   id: string;
@@ -508,8 +507,7 @@ export function ManagerVendorDetail({
   const [serviceTab, setServiceTab] = useState("open");
   const [serviceSearch, setServiceSearch] = useState("");
   const [reviewJob, setReviewJob] = useState<VendorReviewDialogRow | null>(null);
-  const [reviewPicker, setReviewPicker] = useState(false);
-  const [reviewServiceId, setReviewServiceId] = useState("");
+  const [reviewAdd, setReviewAdd] = useState(false);
   const [reviewRevision, setReviewRevision] = useState(0);
   const [reviewsTab, setReviewsTab] = useState<"reviews" | "ratings">("reviews");
   const [reviewSearch, setReviewSearch] = useState("");
@@ -662,7 +660,11 @@ export function ManagerVendorDetail({
   }, [tab, row.vendorUserId, reviewRevision]);
 
   const reviewedServiceIds = new Set((managerReviews ?? []).map(review => review.workOrderId));
-  const reviewableJobs = jobs.filter(job => (job.status === "completed" || job.status === "paid") && !reviewedServiceIds.has(job.id));
+  // Reviewable = completed (or paid), or the vendor has at least given an estimate; one review per
+  // service. The server re-derives all of it (`POST /api/portal/vendor-reviews`).
+  const reviewableJobs = row.vendorUserId
+    ? jobs.filter(job => isVendorReviewableService({ completed: job.status === "completed" || job.status === "paid", estimateGiven: job.estimateGiven === true }) && !reviewedServiceIds.has(job.id))
+    : [];
 
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
@@ -755,16 +757,16 @@ export function ManagerVendorDetail({
                 <LocalDestinationNav
                   appearance="command"
                   items={[
-                    { id: "reviews", label: "Reviews", count: allReviews.length, dataAttr: "vendor-reviews-tab-reviews" },
+                    { id: "reviews", label: "Manager ratings", count: allReviews.length, dataAttr: "vendor-reviews-tab-reviews" },
                     { id: "ratings", label: "Resident ratings", count: ratings.length, dataAttr: "vendor-reviews-tab-ratings" },
                   ]}
                   activeId={reviewsTab}
                   onChange={(id) => setReviewsTab(id === "ratings" ? "ratings" : "reviews")}
-                  ariaLabel="Review views"
+                  ariaLabel="Rating views"
                 />
               }
               search={{ value: reviewSearch, onChange: setReviewSearch, placeholder: onRatings ? "Search ratings" : "Search reviews" }}
-              primary={onRatings ? null : <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={managerReviewsState !== "ready" || reviewableJobs.length === 0} onClick={() => setReviewPicker(true)} />} />
+              primary={onRatings ? null : <PortalPrimaryIconAction label={managerReviewsState === "ready" && reviewableJobs.length === 0 ? "Add review — needs a completed service or an estimate" : "Add review"} icon={Plus} disabled={managerReviewsState !== "ready" || reviewableJobs.length === 0} onClick={() => setReviewAdd(true)} />} />
             <PortalRecordListSurface
               loading={onRatings ? summaryState === "loading" : reviewsLoading}
               loadError={loadError}
@@ -812,8 +814,9 @@ export function ManagerVendorDetail({
       })() : null}
 
       {tab === "communication" ? (
-        <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
+        <div className="flex min-h-[420px] flex-col px-3 pb-3 sm:px-4" data-attr="vendor-detail-inbox">
           <RecordCommunicationSection
+            fill
             role="manager"
             recordRef={{ kind: "vendor", id: row.id, label: row.name }}
             contactIds={draft.email.trim() ? [draft.email.trim()] : []}
@@ -881,9 +884,8 @@ export function ManagerVendorDetail({
       {tab === "invoices" ? (
         <ManagerOutgoingInvoicesPanel vendorId={row.id} vendorUserId={row.vendorUserId ?? undefined} vendorName={row.name} basePath={basePath} />
       ) : null}
-      <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><FieldSingleSelect label="Completed service" value={reviewServiceId} onChange={setReviewServiceId} placeholder="Choose a service" options={[{ value: "", label: "Choose a service" }, ...reviewableJobs.map((job) => ({ value: job.id, label: job.title }))]} /><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
       <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} defaultVendor={{ id: row.id, name: row.name, vendorUserId: row.vendorUserId ?? null }} />
-      <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />
+      <VendorReviewDialog open={Boolean(reviewJob) || reviewAdd} row={reviewJob} services={reviewAdd ? reviewableJobs.map(job => ({ id: job.id, title: job.title })) : undefined} vendorName={row.name} vendorUserId={row.vendorUserId ?? null} onClose={() => { setReviewJob(null); setReviewAdd(false); }} onSaved={() => setReviewRevision(value => value + 1)} />
 
     </div>
   );

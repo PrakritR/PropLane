@@ -119,11 +119,36 @@ export type VendorReviewEligibilityInput = {
   workOrderVendorUserId: string | null | undefined;
   /** The server-resolved manager id of the actor making the request. */
   actorManagerUserId: string;
+  /** True when the assigned vendor has given an estimate (see {@link vendorHasGivenEstimate}); re-derived from rows, never the request. */
+  estimateGiven?: boolean;
+  /** The vendor the caller says it is reviewing; when set it must be the vendor on the service. */
+  expectedVendorUserId?: string | null;
 };
+
+/**
+ * "At least an estimate was given": the vendor submitted a bid on the service (any status —
+ * a declined bid is still an estimate they gave), or set their price on it
+ * (`row_data.vendorCostCents` / `vendorPriceSetAt`). Pure so the route and the Services
+ * summary read the same rule.
+ */
+export function vendorHasGivenEstimate(input: {
+  bidCount?: number | null;
+  vendorCostCents?: unknown;
+  vendorPriceSetAt?: unknown;
+}): boolean {
+  if ((input.bidCount ?? 0) > 0) return true;
+  if (typeof input.vendorPriceSetAt === "string" && input.vendorPriceSetAt.trim()) return true;
+  return typeof input.vendorCostCents === "number" && Number.isFinite(input.vendorCostCents) && input.vendorCostCents > 0;
+}
+
+/** A service can be picked in the Add review dialog: finished, or at least estimated. */
+export function isVendorReviewableService(input: { completed: boolean; estimateGiven: boolean }): boolean {
+  return input.completed || input.estimateGiven;
+}
 
 export type VendorReviewEligibilityResult =
   | { ok: true; vendorUserId: string }
-  | { ok: false; status: 400 | 403 | 404; error: string };
+  | { ok: false; status: 400 | 403 | 404 | 422; error: string };
 
 /**
  * Re-derives whether a manager may review a given work order, purely from
@@ -139,11 +164,14 @@ export function evaluateVendorReviewEligibility(
   if (input.workOrderManagerUserId !== input.actorManagerUserId) {
     return { ok: false, status: 403, error: "This service belongs to a different workspace." };
   }
-  if (input.workOrderBucket !== "completed") {
-    return { ok: false, status: 400, error: "Only a completed service can be reviewed." };
-  }
   if (!input.workOrderVendorUserId) {
     return { ok: false, status: 400, error: "No vendor is linked to this service yet." };
+  }
+  if (input.expectedVendorUserId && input.expectedVendorUserId !== input.workOrderVendorUserId) {
+    return { ok: false, status: 403, error: "This service belongs to a different vendor." };
+  }
+  if (!isVendorReviewableService({ completed: input.workOrderBucket === "completed", estimateGiven: input.estimateGiven === true })) {
+    return { ok: false, status: 422, error: "A service can be reviewed once it is completed or the vendor has given an estimate." };
   }
   return { ok: true, vendorUserId: input.workOrderVendorUserId };
 }

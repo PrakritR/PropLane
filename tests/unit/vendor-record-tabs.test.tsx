@@ -24,8 +24,8 @@ vi.mock("@/hooks/use-manager-messaging-number-status", () => ({
   useManagerMessagingNumberStatus: () => ({ status: null }),
 }));
 vi.mock("@/components/portal/record-communication-section", () => ({
-  RecordCommunicationSection: (props: { recordRef: { kind: string; id: string }; contactIds?: string[] }) => (
-    <div data-attr="mock-record-communication" data-kind={props.recordRef.kind} data-id={props.recordRef.id} data-contact={(props.contactIds ?? []).join(",")} />
+  RecordCommunicationSection: (props: { recordRef: { kind: string; id: string }; contactIds?: string[]; fill?: boolean }) => (
+    <div data-attr="mock-record-communication" data-fill={String(Boolean(props.fill))} data-kind={props.recordRef.kind} data-id={props.recordRef.id} data-contact={(props.contactIds ?? []).join(",")} />
   ),
 }));
 
@@ -82,12 +82,14 @@ const tabCount = (label: string) => {
 };
 
 describe("Reviews tab", () => {
-  it("is one header card with Reviews <n>, the round + and one standard empty card, with no subtext sentences", async () => {
+  it("is one header card with Manager ratings <n>, Resident ratings <n>, a disabled round + and one standard empty card, with no subtext sentences", async () => {
     renderDetail("reviews");
     await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
-    expect(tabCount("Reviews")).toMatch(/Reviews\s*0/);
+    expect(tabCount("Manager ratings")).toMatch(/Manager ratings\s*0/);
     expect(tabCount("Resident ratings")).toMatch(/Resident ratings\s*0/);
-    expect(screen.getByRole("button", { name: "Add review" })).toBeTruthy();
+    const add = screen.getByRole("button", { name: /^Add review/ }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(add.getAttribute("aria-label")).toBe("Add review — needs a completed service or an estimate");
     expect(screen.getByText("No reviews of Pacific Plumbing yet")).toBeTruthy();
     expect(screen.queryByText(/No reviews from PropLane managers yet/)).toBeNull();
     expect(screen.queryByText(/No completed-service ratings/)).toBeNull();
@@ -100,11 +102,29 @@ describe("Reviews tab", () => {
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]').length).toBe(1));
     expect(screen.getByText("Fast and tidy")).toBeTruthy();
     expect(screen.getByText("Sep 12, 2026")).toBeTruthy();
-    expect(tabCount("Reviews")).toMatch(/Reviews\s*1/);
+    expect(tabCount("Manager ratings")).toMatch(/Manager ratings\s*1/);
     fireEvent.click(screen.getAllByRole("button", { name: /^Resident ratings/ })[0]!);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-resident-rating-row"]').length).toBe(1));
     expect(screen.getByText("Resident rating")).toBeTruthy();
     expect(screen.getAllByText("5 / 5").length).toBeGreaterThan(0);
+  });
+
+  it("enables Add review for a service the vendor has estimated, and keeps it off without a portal login or a review-able service", async () => {
+    summaryState.value = { ...summaryState.value, jobs: [{ id: "wo-2", title: "Water heater", propertyName: "Alder House", unit: null, status: "scheduled", acceptedQuoteCents: null, finalInvoiceCents: null, paidCents: null, residentRating: null, estimateGiven: true }] };
+    renderDetail("reviews", vendor({ vendorUserId: "login-1" }));
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add review" }) as HTMLButtonElement).disabled).toBe(false));
+    cleanup();
+    renderDetail("reviews", vendor());
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
+    expect((screen.getByRole("button", { name: /^Add review/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps Add review off for a service with no estimate that is not completed", async () => {
+    summaryState.value = { ...summaryState.value, jobs: [{ id: "wo-3", title: "Gutter", propertyName: "Alder House", unit: null, status: "scheduled", acceptedQuoteCents: null, finalInvoiceCents: null, paidCents: null, residentRating: null, estimateGiven: false }] };
+    renderDetail("reviews", vendor({ vendorUserId: "login-1" }));
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
+    expect((screen.getByRole("button", { name: /^Add review/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("source carries no explanatory sentence under the heading", () => {
@@ -172,6 +192,7 @@ describe("Communication tab", () => {
     expect(section.getAttribute("data-kind")).toBe("vendor");
     expect(section.getAttribute("data-id")).toBe("v-1");
     expect(section.getAttribute("data-contact")).toBe("hello@pacific.test");
+    expect(section.getAttribute("data-fill")).toBe("true");
     expect(read("src/components/portal/pro-vendor-detail.tsx")).not.toContain("ManagerInbox");
   });
 });

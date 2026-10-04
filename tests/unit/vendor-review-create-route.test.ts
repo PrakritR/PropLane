@@ -15,7 +15,7 @@ const MANAGER_ID = "manager_a";
 const VENDOR_ID = "vendor_a";
 const WORK_ORDER_ID = "wo-1";
 
-function makeFakeDb(workOrders: Row[], reviews: Row[]) {
+function makeFakeDb(workOrders: Row[], reviews: Row[], bids: Row[] = []) {
   function reviewsTable() {
     const filters: [string, unknown][] = [];
     let pendingInsert: Row | null = null;
@@ -72,8 +72,27 @@ function makeFakeDb(workOrders: Row[], reviews: Row[]) {
     return api;
   }
 
+  function bidsTable() {
+    const filters: [string, unknown][] = [];
+    const api = {
+      select() {
+        return api;
+      },
+      eq(col: string, val: unknown) {
+        filters.push([col, val]);
+        return api;
+      },
+      then(resolve: (value: unknown) => unknown) {
+        const count = bids.filter((r) => filters.every(([col, val]) => r[col] === val)).length;
+        return Promise.resolve({ count, error: null }).then(resolve);
+      },
+    };
+    return api;
+  }
+
   return {
     from(table: string) {
+      if (table === "work_order_bids") return bidsTable();
       if (table === "vendor_reviews") return reviewsTable();
       if (table === "portal_work_order_records") return workOrdersTable();
       throw new Error(`unexpected table ${table}`);
@@ -108,11 +127,13 @@ function completedWorkOrderRow(extra: Row = {}): Row {
 describe("POST /api/portal/vendor-reviews", () => {
   let workOrders: Row[];
   let reviews: Row[];
+  let bids: Row[];
 
   beforeEach(async () => {
     workOrders = [{ id: WORK_ORDER_ID, ...completedWorkOrderRow() }];
     reviews = [];
-    state.auth = { db: makeFakeDb(workOrders, reviews), userId: MANAGER_ID, role: "manager" };
+    bids = [];
+    state.auth = { db: makeFakeDb(workOrders, reviews, bids), userId: MANAGER_ID, role: "manager" };
     vi.resetModules();
   });
 
@@ -150,7 +171,46 @@ describe("POST /api/portal/vendor-reviews", () => {
         body: JSON.stringify({ workOrderId: WORK_ORDER_ID, stars: 4, body: "" }),
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
+    expect(reviews).toHaveLength(0);
+  });
+
+  it("accepts a review of a not-yet-completed service once the vendor has submitted an estimate", async () => {
+    workOrders[0] = { id: WORK_ORDER_ID, ...completedWorkOrderRow({ row_data: { bucket: "scheduled" } }) };
+    bids.push({ work_order_id: WORK_ORDER_ID, vendor_user_id: VENDOR_ID, status: "submitted" });
+    const { POST } = await import("@/app/api/portal/vendor-reviews/route");
+    const res = await POST(
+      new Request("http://test/api/portal/vendor-reviews", {
+        method: "POST",
+        body: JSON.stringify({ workOrderId: WORK_ORDER_ID, stars: 4, body: "" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("ignores an estimate another vendor gave on the same service", async () => {
+    workOrders[0] = { id: WORK_ORDER_ID, ...completedWorkOrderRow({ row_data: { bucket: "scheduled" } }) };
+    bids.push({ work_order_id: WORK_ORDER_ID, vendor_user_id: "vendor_other", status: "submitted" });
+    const { POST } = await import("@/app/api/portal/vendor-reviews/route");
+    const res = await POST(
+      new Request("http://test/api/portal/vendor-reviews", {
+        method: "POST",
+        body: JSON.stringify({ workOrderId: WORK_ORDER_ID, stars: 4, body: "" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("refuses when the body names a different vendor than the one on the service", async () => {
+    const { POST } = await import("@/app/api/portal/vendor-reviews/route");
+    const res = await POST(
+      new Request("http://test/api/portal/vendor-reviews", {
+        method: "POST",
+        body: JSON.stringify({ workOrderId: WORK_ORDER_ID, vendorUserId: "vendor_other", stars: 4, body: "" }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(reviews).toHaveLength(0);
   });
 
   it("refuses a review of a service belonging to a different workspace", async () => {
