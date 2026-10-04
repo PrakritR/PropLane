@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { RecordListBand } from "@/components/portal/record-list-band";
+import { RecordBandFilter, RecordListBand } from "@/components/portal/record-list-band";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { DemoManagerOutgoingPaymentRow } from "@/data/demo-portal";
 
@@ -19,18 +19,27 @@ export function ServiceOutgoingPaymentsList({
   rows,
   busyId,
   onApproveAndPay,
+  onAddPayment,
 }: {
   rows: readonly DemoManagerOutgoingPaymentRow[];
   busyId: string | null;
   onApproveAndPay: (row: DemoManagerOutgoingPaymentRow) => void;
+  onAddPayment?: () => void;
 }) {
   const [tab, setTab] = useState<Bucket>("to-pay");
   const [search, setSearch] = useState("");
+  const [type, setType] = useState("");
   const inTab = (row: DemoManagerOutgoingPaymentRow, id: Bucket) => (id === "paid" ? row.bucket === "paid" : row.bucket !== "paid");
   const counts = useMemo(() => ({ "to-pay": rows.filter((r) => inTab(r, "to-pay")).length, paid: rows.filter((r) => inTab(r, "paid")).length }), [rows]);
   const shown = useMemo(
-    () => rows.filter((row) => inTab(row, tab) && matchesPortalListSearch(search, row.payeeLabel, row.chargeTitle, row.categoryLabel, row.amountLabel)),
-    [rows, tab, search],
+    () =>
+      rows.filter(
+        (row) =>
+          inTab(row, tab) &&
+          (!type || (type === "visit-fee") === (row.kind === "visit-fee")) &&
+          matchesPortalListSearch(search, row.payeeLabel, row.chargeTitle, row.categoryLabel, row.amountLabel),
+      ),
+    [rows, tab, search, type],
   );
   return (
     <RecordListBand
@@ -40,8 +49,27 @@ export function ServiceOutgoingPaymentsList({
       activeId={tab}
       onChange={(id) => setTab(id as Bucket)}
       search={{ value: search, onChange: setSearch, placeholder: "Search payments" }}
+      actions={
+        <RecordBandFilter
+          dataAttr="work-order-outgoing-payments"
+          fields={[
+            {
+              id: "type",
+              label: "Type",
+              anyLabel: "Any type",
+              value: type,
+              options: [
+                { value: "job", label: "Job payment" },
+                { value: "visit-fee", label: "Estimate visit fee" },
+              ],
+              onChange: setType,
+            },
+          ]}
+        />
+      }
+      plus={onAddPayment ? { label: "Add payment", onClick: onAddPayment, dataAttr: "service-outgoing-add" } : undefined}
       isEmpty={shown.length === 0}
-      emptyTitle={search.trim() ? "No payments match" : tab === "paid" ? "Nothing paid yet" : "Nothing to pay"}
+      emptyTitle={search.trim() || type ? "No payments match" : tab === "paid" ? "Nothing paid yet" : "Nothing to pay"}
       emptySection="payments"
     >
       {shown.map((outgoing) => (

@@ -135,28 +135,82 @@ export function deriveVendorRequestRows(
   return rows;
 }
 
-export type ServiceStageId = "pending" | "requested" | "approved" | "scheduled" | "completed" | "paid";
+export type ServiceStageId =
+  | "pending"
+  | "requested"
+  | "estimates"
+  | "visits"
+  | "bids"
+  | "approved"
+  | "scheduled"
+  | "completed"
+  | "paid";
 export type ServiceStage = { id: ServiceStageId; label: string; state: "done" | "current" | "todo" };
 
 const STAGE_LABEL: Record<ServiceStageId, string> = {
   pending: "Pending",
-  requested: "Bids requested",
-  approved: "Bid approved",
+  requested: "Requested",
+  estimates: "Estimates",
+  visits: "Visits",
+  bids: "Bids",
+  approved: "Approved",
+  scheduled: "Scheduled",
+  completed: "Completed",
+  paid: "Paid",
+};
+
+/** The Vendor & schedule tabs, in cycle order. A vendor row sits in the tab for where it has got to. */
+export const CYCLE_TAB_IDS = ["requested", "estimates", "visits", "bids", "approved", "scheduled", "completed", "paid"] as const;
+export type CycleTabId = (typeof CYCLE_TAB_IDS)[number];
+export const CYCLE_TAB_LABEL: Record<CycleTabId, string> = {
+  requested: "Requested",
+  estimates: "Estimates",
+  visits: "Visits",
+  bids: "Bids",
+  approved: "Approved",
   scheduled: "Scheduled",
   completed: "Completed",
   paid: "Paid",
 };
 
 /**
- * The stage bar, derived from server data only (never a stored stage). A service that goes
- * straight to a vendor/teammate/yourself skips the two bid stages; one that never involves a
- * vendor drops Paid, since self and team work creates no outgoing payment.
+ * Where a requested vendor's row sits in the cycle tabs. The approved vendor's row follows the
+ * SERVICE through Approved -> Scheduled -> Completed -> Paid; every other row sits by its own state
+ * (a vendor who declined stays under Requested, since they never got further).
+ */
+export function cycleTabForRow(row: VendorRequestRow, serviceStage: ServiceStageId): CycleTabId {
+  switch (row.state) {
+    case "estimate":
+      return "estimates";
+    case "visit_booked":
+    case "visit_done":
+      return "visits";
+    case "bid":
+      return "bids";
+    case "approved":
+      return serviceStage === "scheduled" || serviceStage === "completed" || serviceStage === "paid" ? serviceStage : "approved";
+    default:
+      return "requested";
+  }
+}
+
+/**
+ * The stage of the whole service, from server data only (never a stored stage):
+ *
+ *   Pending -> Requested -> Estimates -> Visits -> Bids -> Approved -> Scheduled -> Completed -> Paid
+ *
+ * Before a bid is approved the stage is how far the furthest vendor has got (a submitted bid beats
+ * a booked visit beats an estimate beats a bare request). A service that goes straight to a
+ * vendor, a teammate or yourself skips the vendor stages; one that never involves a vendor drops
+ * Paid, since self and team work creates no outgoing payment.
  */
 export function deriveServiceStages(
   row: DemoManagerWorkOrderRow,
   data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
 ): { stages: ServiceStage[]; currentId: ServiceStageId } {
   const assignee = resolveWorkOrderAssignee(row);
+  const requests = deriveVendorRequestRows(data.bids, data.offers);
+  const live = requests.filter((r) => r.state !== "declined");
   const anyBid = data.bids.length > 0;
   const anyOpenOffer = data.offers.some((o) => o.status === "sent");
   const biddingTouched = Boolean(row.biddingOpen || row.biddingResolvedAt) || anyBid || anyOpenOffer || data.offers.length > 0;
@@ -168,7 +222,7 @@ export function deriveServiceStages(
   const vendorJob = assignee?.kind === "vendor" || (!assignee && bidFlow);
 
   const ids: ServiceStageId[] = ["pending"];
-  if (bidFlow) ids.push("requested", "approved");
+  if (bidFlow) ids.push("requested", "estimates", "visits", "bids", "approved");
   ids.push("scheduled", "completed");
   if (vendorJob) ids.push("paid");
 
@@ -177,6 +231,9 @@ export function deriveServiceStages(
   else if (completed) currentId = "completed";
   else if (scheduled) currentId = "scheduled";
   else if (bidFlow && (approvedBid || (assignee?.kind === "vendor" && row.biddingResolvedAt))) currentId = "approved";
+  else if (bidFlow && live.some((r) => r.state === "bid")) currentId = "bids";
+  else if (bidFlow && live.some((r) => r.state === "visit_booked" || r.state === "visit_done")) currentId = "visits";
+  else if (bidFlow && live.some((r) => r.state === "estimate")) currentId = "estimates";
   else if (bidFlow && (row.biddingOpen || anyBid || anyOpenOffer)) currentId = "requested";
   if (!ids.includes(currentId)) currentId = ids[ids.length - 1]!;
 
@@ -230,13 +287,13 @@ export function vendorReplyChoices(bid: WorkOrderBid | undefined): Array<{ value
   return values.map((value) => ({ value, label: labels[value] }));
 }
 
-/** The Services list's three tabs, from the same stage the service record's stage bar shows. */
+/** The Services list's three tabs, from the same stage the service record shows. */
 export type ServiceListBucket = "open" | "scheduled" | "done";
 
 /**
- * Open = Pending + Bids requested; Scheduled = Bid approved + Scheduled (an assigned service that
- * has a booked visit); Done = Completed + Paid. Derived from `deriveServiceStages`, so the tab, its
- * count and the record's stage bar can never disagree.
+ * Open = Pending through Bids; Scheduled = Approved + Scheduled (an assigned service with a
+ * booked visit); Done = Completed + Paid. Derived from `deriveServiceStages`, so the tab, its
+ * count, the row fact and the record's stage tabs can never disagree.
  */
 export function serviceListBucket(
   row: DemoManagerWorkOrderRow,
@@ -261,8 +318,9 @@ function shortDay(iso: string): string {
 }
 
 /**
- * The one stage fact a Services row carries (plain text with a glyph, never a pill):
- * "3 bids" · "Visit Mon 4:00 PM" · "Scheduled Oct 8" · "Completed" · "Paid".
+ * The one stage fact a Services row carries (plain text with a glyph, never a pill), from the same
+ * stage function the record uses: "Bids requested · 2" · "1 estimate" · "Visit Mon 4:00 PM" ·
+ * "3 bids" · "Scheduled Oct 8" · "Completed" · "Paid".
  */
 export function serviceListStageFact(
   row: DemoManagerWorkOrderRow,
@@ -276,38 +334,71 @@ export function serviceListStageFact(
     return when ? `Scheduled ${when}` : currentId === "approved" ? "Bid approved" : "Scheduled";
   }
   const requests = deriveVendorRequestRows(data.bids, data.offers).filter((r) => r.state !== "declined");
-  const submitted = requests.filter((r) => r.state === "bid").length;
-  if (submitted > 0) return `${submitted} ${submitted === 1 ? "bid" : "bids"}`;
-  const visit = requests
-    .filter((r) => r.state === "visit_booked" && r.visitAt)
-    .map((r) => r.visitAt as string)
-    .sort()[0];
-  if (visit) return `Visit ${shortVisit(visit)}`;
-  if (requests.length > 0) return `Bids requested · ${requests.length}`;
+  if (currentId === "bids") {
+    const n = requests.filter((r) => r.state === "bid").length;
+    return `${n} ${n === 1 ? "bid" : "bids"}`;
+  }
+  if (currentId === "visits") {
+    const visit = requests
+      .filter((r) => r.state === "visit_booked" && r.visitAt)
+      .map((r) => r.visitAt as string)
+      .sort()[0];
+    return visit ? `Visit ${shortVisit(visit)}` : "Visit done";
+  }
+  if (currentId === "estimates") {
+    const n = requests.filter((r) => r.state === "estimate").length;
+    return `${n} ${n === 1 ? "estimate" : "estimates"}`;
+  }
+  if (currentId === "requested") return `Bids requested · ${requests.length}`;
   return "Pending";
 }
 
 export type StageBarItem = { id: string; label: string; state: "done" | "current" | "todo" };
 
+/** What an add-on stage needs from a service request. */
+export type AddOnStageInput = {
+  status?: string | null;
+  assignee?: { id: string } | null;
+  proposedVisit?: { iso: string } | null;
+  servicePaid?: boolean;
+};
+
+export type AddOnStageId = "pending" | "assigned" | "scheduled" | "completed" | "paid" | "declined";
+export const ADD_ON_TAB_IDS = ["pending", "assigned", "scheduled", "completed", "paid"] as const;
+export const ADD_ON_STAGE_LABEL: Record<AddOnStageId, string> = {
+  pending: "Pending",
+  assigned: "Assigned",
+  scheduled: "Scheduled",
+  completed: "Completed",
+  paid: "Paid",
+  declined: "Declined",
+};
+
 /**
- * The stage bar for an add-on service request (a resident-bought service such as storage). It has no
- * bid cycle - vendors cannot take add-on services, `assignableKindsFor` - so its stages are the
- * request's own: Pending -> Approved -> Completed (a returned item), or Pending -> Declined.
+ * The cycle of an add-on service request (a resident-bought service such as storage). It has no
+ * vendors - vendors cannot take add-on services, `assignableKindsFor` - so it is
+ * Pending -> Assigned -> Scheduled -> Completed -> Paid (or Pending -> Declined).
  */
-export function deriveAddOnStages(status: string | undefined | null): StageBarItem[] {
-  const value = (status ?? "").toLowerCase();
-  const steps: Array<{ id: string; label: string }> =
-    value === "denied"
-      ? [
-          { id: "pending", label: "Pending" },
-          { id: "declined", label: "Declined" },
-        ]
-      : [
-          { id: "pending", label: "Pending" },
-          { id: "approved", label: "Approved" },
-          { id: "completed", label: "Completed" },
-        ];
-  const currentId = value === "denied" ? "declined" : value === "returned" ? "completed" : value === "approved" ? "approved" : "pending";
-  const currentIdx = steps.findIndex((step) => step.id === currentId);
-  return steps.map((step, idx) => ({ ...step, state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo" }));
+export function deriveAddOnStages(input: AddOnStageInput | string | null | undefined): { stages: StageBarItem[]; currentId: AddOnStageId } {
+  const req: AddOnStageInput = typeof input === "string" || input == null ? { status: input as string | null | undefined } : input;
+  const status = (req.status ?? "").toLowerCase();
+  const ids: AddOnStageId[] = status === "denied" ? ["pending", "declined"] : [...ADD_ON_TAB_IDS];
+  let currentId: AddOnStageId = "pending";
+  if (status === "denied") currentId = "declined";
+  else if (status === "returned" && req.servicePaid) currentId = "paid";
+  else if (status === "returned") currentId = "completed";
+  else if (req.assignee && req.proposedVisit) currentId = "scheduled";
+  else if (req.assignee) currentId = "assigned";
+  const currentIdx = ids.indexOf(currentId);
+  const stages = ids.map((id, idx): StageBarItem => ({
+    id,
+    label: ADD_ON_STAGE_LABEL[id],
+    state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo",
+  }));
+  return { stages, currentId };
+}
+
+/** The Services row fact for an add-on, from the same stages the record shows. */
+export function addOnStageFact(input: AddOnStageInput): string {
+  return ADD_ON_STAGE_LABEL[deriveAddOnStages(input).currentId];
 }

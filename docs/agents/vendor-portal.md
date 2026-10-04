@@ -263,6 +263,18 @@ icon. A vendor record's Services tab is Requested · Active · Done (`buildVendo
 shared row with that vendor's own estimate or bid as the figure; its + requests the vendor for an open
 service or creates a service assigned to them.
 
+**Every record section opens with one band** (`record-list-band.tsx`: `RecordTabBand` for a section,
+`RecordListBand` for a list, both the Payments header). Service = Details · Photos · Activity + Edit;
+Vendor & schedule = the cycle as tabs with counts (Requested · Estimates · Visits · Bids · Approved ·
+Scheduled · Completed · Paid, `cycleTabForRow`) + Filter, the Assign icon and the round +; Incoming =
+Pending · Overdue · Paid + Add charge; Outgoing = To pay · Paid + Add payment; Communication = the
+counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup (add-ons never offer
+vendors). Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
+stamped with the service id (`createManagerCharge({ workOrderId })`) so it lists under Incoming, and no
+amount or ownership comes from the client. The stage is `deriveServiceStages` (maintenance) or
+`deriveAddOnStages` (Pending · Assigned · Scheduled · Completed · Paid); the Services list facts use the
+same functions.
+
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
 manager by `manager_user_id = auth.uid()` (denormalized onto the bid row at

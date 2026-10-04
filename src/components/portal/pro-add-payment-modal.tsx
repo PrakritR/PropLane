@@ -124,6 +124,9 @@ export function ManagerAddPaymentModal({
   managerUserId,
   initialApplicationId,
   initialPropertyId,
+  initialResidentEmail,
+  initialTitle,
+  serviceRecordId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -131,6 +134,12 @@ export function ManagerAddPaymentModal({
   managerUserId: string | null;
   initialApplicationId?: string;
   initialPropertyId?: string;
+  /** Prefill the resident by email (a service record's resident) when there is no application id to hand. */
+  initialResidentEmail?: string;
+  /** Prefill the charge title (the service's name). */
+  initialTitle?: string;
+  /** The service this charge is for: stamped on the charge so it lists under that service's Incoming payments. */
+  serviceRecordId?: string;
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
@@ -214,17 +223,28 @@ export function ManagerAddPaymentModal({
   );
 
   useEffect(() => {
-    if (!open || (!initialApplicationId && !initialPropertyId)) return;
+    if (!open || !initialTitle?.trim()) return;
+    setPreset("other");
+    setChargeTitle(initialTitle.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || (!initialApplicationId && !initialPropertyId && !initialResidentEmail)) return;
+    const email = initialResidentEmail?.trim().toLowerCase();
     const resident = initialApplicationId
       ? residentOptions.find((row) => row.applicationId === initialApplicationId)
-      : null;
+      : email
+        ? residentOptions.find((row) => row.residentEmail === email && (!initialPropertyId || row.propertyId === initialPropertyId)) ??
+          residentOptions.find((row) => row.residentEmail === email)
+        : null;
     if (resident) {
       setPropertyId(resident.propertyId);
       setResidentApplicationId(resident.applicationId);
       return;
     }
     if (initialPropertyId) setPropertyId(initialPropertyId);
-  }, [open, initialApplicationId, initialPropertyId, residentOptions]);
+  }, [open, initialApplicationId, initialPropertyId, initialResidentEmail, residentOptions]);
 
   const onPresetChange = (next: ManagerPaymentPresetId) => {
     setPreset(next);
@@ -250,7 +270,7 @@ export function ManagerAddPaymentModal({
 
   // The x keeps an unfinished charge; only adding it (or Discard draft) forgets it.
   const workspaceDraft = useWorkspaceDraft({
-    scope: `charge:${initialApplicationId ?? initialPropertyId ?? "new"}`,
+    scope: `charge:${serviceRecordId ?? initialApplicationId ?? initialPropertyId ?? "new"}`,
     open,
     value: { stepIdx, propertyId, residentApplicationId, preset, chargeTitle, amount, dueIso, bucket },
     restore: (saved) => {
@@ -329,6 +349,7 @@ export function ManagerAddPaymentModal({
         dueDateLabel: noticePreview.dueDateLabel,
         initialStatus: noticePreview.bucket === "paid" ? "paid" : "pending",
         id: chargeIdRef.current ?? undefined,
+        workOrderId: serviceRecordId,
       });
       if (!result) {
         showToast("Could not add charge. Check all fields.");

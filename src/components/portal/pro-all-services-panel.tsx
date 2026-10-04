@@ -124,8 +124,13 @@ import {
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { deriveAddOnStages, serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
-import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cycle-section";
+import { addOnStageFact, deriveAddOnStages, serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
+import { AddOnCycleSection } from "@/components/portal/service-vendor-cycle-section";
+import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
+import { AddOnEditDialog, ServiceDetailsSection } from "@/components/portal/service-details-section";
+import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
+import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
+import { addOnActivityEvents } from "@/lib/service-activity";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { SERVICE_TAB_URL_SEGMENT, serviceTabFromSegment } from "@/lib/unified-service-rows";
 
@@ -229,7 +234,9 @@ export function ManagerAllServicesPanel({
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignPick, setAssignPick] = useState("me");
+  const [addChargeOpen, setAddChargeOpen] = useState(false);
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [editRequestOpen, setEditRequestOpen] = useState(false);
   // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
   // back/forward, and when the page is reached from a link. A tab click writes the URL back.
   const urlTabSegment = lockedPropertyId || tabId !== "work-orders" ? null : serviceTabFromSegment(workOrderBucketProp);
@@ -911,7 +918,9 @@ export function ManagerAllServicesPanel({
                 bids: allBids.filter((bid) => bid.workOrderId === maintenanceRow.id),
                 offers: allOffers.filter((offer) => offer.workOrderId === maintenanceRow.id),
               })
-            : undefined
+            : addOnRequest
+              ? addOnStageFact(addOnRequest)
+              : undefined
         }
         menu={
           menuItems.length > 0 ? (
@@ -940,39 +949,21 @@ export function ManagerAllServicesPanel({
     const activeTab = serviceDetailTab ?? "service";
     const backHref = serviceRequestListHref(basePath, reqBucket);
     // An add-on stays with the manager team (`assignableKindsFor`: a vendor takes tasks and
-    // maintenance only), so Assign offers yourself and teammates and nobody can be requested for bids.
-    const addOnAssignValue = detailRequest.assignee ? (detailRequest.assignee.id === userId ? "me" : `team:${detailRequest.assignee.id}`) : "";
-    const addOnAssignGroups = [
-      {
-        label: "Team",
-        options: [
-          ...(userId ? [{ value: "me", label: "Myself" }] : []),
-          ...teamMembers.filter((m) => m.userId !== userId).map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
-        ],
-      },
-    ];
-    const applyAddOnAssign = (value: string) => {
-      const id = value === "me" ? userId : value.replace(/^team:/, "");
-      if (!id) return;
-      const name = value === "me" ? "You" : teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate";
-      updateServiceRequest(detailRequest.id, { assignee: { type: "team", id, name } });
+    // maintenance only), so its Assign popup offers a teammate or yourself and never vendors.
+    const applyAddOnAssign = (next: { id: string; name: string }) => {
+      updateServiceRequest(detailRequest.id, { assignee: { type: "team", id: next.id, name: next.name } });
       setDataTick((t) => t + 1);
-      showToast(value === "me" ? "You're handling this yourself." : `Assigned ${name}.`);
+      showToast(next.id === userId ? "You're handling this yourself." : `Assigned ${next.name}.`);
     };
+    const addOnStages = deriveAddOnStages(detailRequest);
+    const propertyForModals = detailRequest.propertyId?.trim() || undefined;
     const ownContent =
       activeTab === "vendor-schedule" ? (
-        <ServiceVendorCycleSection
-          stages={deriveAddOnStages(detailRequest.status)}
-          requests={[]}
-          assignValue={addOnAssignValue}
-          assignGroups={addOnAssignGroups}
-          approvingBidId={null}
-          emptyTitle="No vendors on this service"
-          plus={{ label: "Assign", onClick: () => { setAssignPick(addOnAssignValue || "me"); setAssignOpen(true); } }}
-          onAssign={applyAddOnAssign}
-          onApprove={() => undefined}
-          onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
-          onRemove={() => undefined}
+        <AddOnCycleSection
+          stages={addOnStages.stages}
+          currentId={addOnStages.currentId}
+          assignee={detailRequest.assignee ?? null}
+          onOpenAssign={() => setAssignOpen(true)}
         />
       ) : activeTab === "incoming-payments" ? (
         <ServiceIncomingPaymentsList
@@ -980,9 +971,10 @@ export function ManagerAllServicesPanel({
             charges: readChargesForManagerResident(detailRequest.residentEmail, detailRequest.managerUserId ?? null),
             request: detailRequest,
           })}
+          onAddCharge={() => setAddChargeOpen(true)}
         />
       ) : activeTab === "outgoing-payments" ? (
-        <ServiceOutgoingPaymentsList rows={[]} busyId={null} onApproveAndPay={() => undefined} />
+        <ServiceOutgoingPaymentsList rows={[]} busyId={null} onApproveAndPay={() => undefined} onAddPayment={() => setAddPaymentOpen(true)} />
       ) : activeTab === "communication" ? (
         <ServiceCommunicationPane
           recordId={detailRequest.id}
@@ -991,6 +983,12 @@ export function ManagerAllServicesPanel({
           resident={{ name: detailRequest.residentName, email: detailRequest.residentEmail }}
         />
       ) : (
+        <ServiceDetailsSection
+          stages={addOnStages.stages}
+          photos={[]}
+          activity={addOnActivityEvents(detailRequest)}
+          onEdit={detailRequest.status === "pending" ? () => setEditRequestOpen(true) : undefined}
+          details={
         renderRecordSection("overview", {
           role: "manager",
           kind: "service",
@@ -1025,25 +1023,57 @@ export function ManagerAllServicesPanel({
             },
           ],
         })
+          }
+        />
       );
     return (
       <>
         {renderRequestDetail(detailRequest, { actionsOnly: true })}
-        <PortalDialog
+        <ServiceAssignDialog
           open={assignOpen}
           onClose={() => setAssignOpen(false)}
-          title="Assign"
-          primaryAction={{
-            label: "Assign",
-            onClick: () => {
-              applyAddOnAssign(assignPick);
-              setAssignOpen(false);
-            },
-            dataAttr: "service-assign-submit",
+          allowVendors={false}
+          vendors={[]}
+          teamMembers={teamMembers}
+          meUserId={userId}
+          onRequestBids={() => undefined}
+          onAssign={(next) => applyAddOnAssign(next)}
+        />
+        {addChargeOpen ? (
+          <ManagerAddPaymentModal
+            open={addChargeOpen}
+            onClose={() => setAddChargeOpen(false)}
+            onSubmitted={() => setDataTick((t) => t + 1)}
+            managerUserId={userId}
+            initialResidentEmail={detailRequest.residentEmail}
+            initialPropertyId={propertyForModals}
+            initialTitle={detailRequest.offerName}
+            serviceRecordId={detailRequest.id}
+          />
+        ) : null}
+        {addPaymentOpen ? (
+          <ManagerAddOutgoingPaymentModal
+            open={addPaymentOpen}
+            onClose={() => setAddPaymentOpen(false)}
+            onSubmitted={() => window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT))}
+            managerUserId={userId}
+            initialPropertyId={propertyForModals}
+            initialVendorId={detailRequest.assignee?.type === "vendor" ? detailRequest.assignee.id : undefined}
+            initialMemo={detailRequest.offerName}
+          />
+        ) : null}
+        <AddOnEditDialog
+          open={editRequestOpen}
+          title={detailRequest.offerName}
+          price={(detailRequest.price ?? "").replace(/^\$/, "")}
+          deposit={(detailRequest.deposit ?? "").replace(/^\$/, "")}
+          onClose={() => setEditRequestOpen(false)}
+          onSave={({ price, deposit }) => {
+            updateServiceRequest(detailRequest.id, { price, deposit });
+            setDataTick((t) => t + 1);
+            showToast("Charges updated.");
           }}
-        >
-          <FieldSingleSelect label="Assign to" value={assignPick} groups={addOnAssignGroups} onChange={setAssignPick} dataAttr="service-assign-dialog-select" />
-        </PortalDialog>
+        />
         <PortalRecordDetailPage
           pageTitle="Services"
           title={detailRequest.offerName}

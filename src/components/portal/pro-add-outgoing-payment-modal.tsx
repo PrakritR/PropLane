@@ -44,11 +44,18 @@ export function ManagerAddOutgoingPaymentModal({
   onClose,
   managerUserId,
   onSubmitted,
+  initialPropertyId,
+  initialVendorId,
+  initialMemo,
 }: {
   open: boolean;
   onClose: () => void;
   managerUserId: string | null;
   onSubmitted: () => void;
+  /** Prefill from a service record: its property, its vendor, and what the payment is for. */
+  initialPropertyId?: string;
+  initialVendorId?: string;
+  initialMemo?: string;
 }) {
   const { showToast } = useAppUi();
   const [propertyTick, setPropertyTick] = useState(0);
@@ -80,11 +87,12 @@ export function ManagerAddOutgoingPaymentModal({
     setCategoryCode("other_expense");
     setAmount("");
     setExpenseDate(new Date().toISOString().slice(0, 10));
-    setMemo("");
-    setPropertyId("");
-    setVendorId("");
+    setMemo(initialMemo?.trim() ?? "");
+    setPropertyId(initialPropertyId?.trim() ?? "");
+    setVendorId(initialVendorId?.trim() ?? "");
     setStepIdx(0);
     setStepError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const vendors = useMemo(() => {
@@ -182,7 +190,7 @@ export function ManagerAddOutgoingPaymentModal({
   }
 
   const workspaceDraft = useWorkspaceDraft({
-    scope: `outgoing-payment`,
+    scope: `outgoing-payment${initialMemo ? `:${initialMemo}` : ""}`,
     actor: managerUserId,
     open, value: { categoryCode, amount, expenseDate, memo, propertyId, vendorId, stepIdx },
     restore: (saved) => { setCategoryCode(saved.categoryCode); setAmount(saved.amount); setExpenseDate(saved.expenseDate); setMemo(saved.memo); setPropertyId(saved.propertyId); setVendorId(saved.vendorId); setStepIdx(saved.stepIdx); },

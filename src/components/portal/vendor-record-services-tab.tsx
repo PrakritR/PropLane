@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Wrench } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { RecordListBand } from "@/components/portal/record-list-band";
+import { RecordBandFilter, RecordListBand } from "@/components/portal/record-list-band";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -51,6 +51,7 @@ export function VendorRecordServicesTab({
   const { showToast } = useAppUi();
   const [tab, setTab] = useState<VendorServiceBucket>("requested");
   const [search, setSearch] = useState("");
+  const [propertyFilter, setPropertyFilter] = useState("");
   const [tick, setTick] = useState(0);
   const [bids, setBids] = useState<WorkOrderBid[]>([]);
   const [offers, setOffers] = useState<WorkOrderVendorOffer[]>([]);
@@ -87,8 +88,19 @@ export function VendorRecordServicesTab({
   );
   const counts = useMemo(() => countVendorServiceBuckets(items), [items]);
   const shown = useMemo(
-    () => items.filter((item) => item.bucket === tab && matchesPortalListSearch(search, item.title, item.propertyName, item.unit)),
-    [items, tab, search],
+    () =>
+      items.filter(
+        (item) =>
+          item.bucket === tab &&
+          (!propertyFilter || item.propertyName === propertyFilter) &&
+          matchesPortalListSearch(search, item.title, item.propertyName, item.unit),
+      ),
+    [items, tab, search, propertyFilter],
+  );
+
+  const propertyOptions = useMemo(
+    () => [...new Set(items.map((item) => item.propertyName).filter((name) => name && name !== "—"))].sort().map((name) => ({ value: name, label: name })),
+    [items],
   );
 
   // Open services this vendor has not been asked about yet.
@@ -126,6 +138,16 @@ export function VendorRecordServicesTab({
         activeId={tab}
         onChange={(id) => setTab(id as VendorServiceBucket)}
         search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
+        actions={
+          <RecordBandFilter
+            dataAttr="vendor-services-list"
+            fields={
+              propertyOptions.length > 0
+                ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                : []
+            }
+          />
+        }
         plus={{
           label: "Add service",
           dataAttr: "vendor-services-add",
@@ -136,7 +158,7 @@ export function VendorRecordServicesTab({
         }}
         loading={!loaded}
         isEmpty={shown.length === 0}
-        emptyTitle={search.trim() ? portalEmptyNoMatchTitle("services", search) : `No ${tab} services with ${vendorName}`}
+        emptyTitle={search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search) : `No ${tab} services with ${vendorName}`}
       >
         {shown.map((item) => (
           <PortalApplicantRecordRow

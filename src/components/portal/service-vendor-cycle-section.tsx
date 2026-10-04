@@ -1,16 +1,16 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, Check, Clock, Receipt, Wrench } from "lucide-react";
+import { CalendarDays, Clock, Receipt, UserPlus, UserRound, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { RecordListBand } from "@/components/portal/record-list-band";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { RecordBandFilter, RecordListBand } from "@/components/portal/record-list-band";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { cn } from "@/lib/utils";
 import { formatServiceMoney } from "@/lib/manager-service-workflow";
-import type { StageBarItem, VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import { CYCLE_TAB_IDS, CYCLE_TAB_LABEL, cycleTabForRow, type CycleTabId, type ServiceStageId, type StageBarItem, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
 
 /** `Mon, Oct 5, 4:00 PM` - a visit or bid time as one short fact. */
 function shortWhen(iso: string | null | undefined): string {
@@ -20,28 +20,26 @@ function shortWhen(iso: string | null | undefined): string {
   return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** The stage bar: Pending · Bids requested · Bid approved · Scheduled · Completed · Paid. */
-export function ServiceStageBar({ stages }: { stages: readonly StageBarItem[] }) {
+/**
+ * The compact progress line: one thin segment per stage (filled up to the current one) and the
+ * current stage's name with its place in the cycle. It replaces the old row of stage radios; the
+ * stages themselves are the band's tabs.
+ */
+export function ServiceProgressLine({ stages }: { stages: readonly StageBarItem[] }) {
+  const currentIdx = Math.max(0, stages.findIndex((stage) => stage.state === "current"));
+  const current = stages[currentIdx];
+  if (!current) return null;
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs" aria-label="Service stages" data-attr="service-stage-bar">
-      {stages.map((stage, index) => (
-        <li key={stage.id} className="inline-flex items-center gap-1" aria-current={stage.state === "current" ? "step" : undefined}>
-          {index > 0 ? <span aria-hidden className="mx-1 h-px w-4 bg-border" /> : null}
-          <span
-            aria-hidden
-            className={cn(
-              "grid size-4 place-items-center rounded-full border text-[9px]",
-              stage.state === "done" && "border-primary bg-primary text-primary-foreground",
-              stage.state === "current" && "border-primary text-primary",
-              stage.state === "todo" && "border-border text-transparent",
-            )}
-          >
-            {stage.state === "done" ? <Check className="size-3" strokeWidth={3} /> : null}
-          </span>
-          <span className={cn(stage.state === "current" ? "font-semibold text-foreground" : "text-muted")}>{stage.label}</span>
-        </li>
-      ))}
-    </ol>
+    <div className="mb-3 flex items-center gap-3 px-1" data-attr="service-progress-line" role="group" aria-label={`Stage: ${current.label}`}>
+      <div className="flex min-w-0 flex-1 gap-1" aria-hidden>
+        {stages.map((stage) => (
+          <span key={stage.id} className={cn("h-1 flex-1 rounded-full", stage.state === "todo" ? "bg-border" : "bg-primary")} />
+        ))}
+      </div>
+      <span className="shrink-0 text-xs font-semibold text-foreground">
+        {current.label} · {currentIdx + 1} of {stages.length}
+      </span>
+    </div>
   );
 }
 
@@ -85,29 +83,28 @@ function requestFacts(row: VendorRequestRow) {
   return facts;
 }
 
-type CycleTab = "requested" | "bids" | "approved";
-const CYCLE_TABS: Array<{ id: CycleTab; label: string }> = [
-  { id: "requested", label: "Requested" },
-  { id: "bids", label: "Bids" },
-  { id: "approved", label: "Approved" },
-];
-const tabOf = (row: VendorRequestRow): CycleTab => (row.state === "bid" ? "bids" : row.state === "approved" ? "approved" : "requested");
+const tabLabel = (id: CycleTabId) => CYCLE_TAB_LABEL[id];
+
+/** The two icons every Vendor & schedule / add-on cycle band carries at its top right. */
+function AssignIcon({ onClick }: { onClick: () => void }) {
+  return <PortalIconAction icon={UserPlus} label="Assign" data-attr="service-assign-open" onClick={onClick} />;
+}
 
 /**
- * Vendor & schedule: the standard list band (Requested · Bids · Approved, search, and the round +
- * to request vendors or assign), then the stage bar with Assign, then one Payments-row-style row
- * per requested vendor. Approve bid exists only on a row with a SUBMITTED BID - disabled, with an
- * accessible name saying why, on every other row. An estimate is a number on the row, never a thing
- * to approve.
+ * Vendor & schedule: the standard band (the cycle as tabs with counts - Requested · Estimates ·
+ * Visits · Bids · Approved · Scheduled · Completed · Paid - search, the vendor Filter, the Assign
+ * icon and the round +), the compact progress line, then one Payments-row-style row per requested
+ * vendor under the tab its row has got to. Approve bid exists only on a row with a SUBMITTED BID -
+ * disabled, with an accessible name saying why, on every other row. An estimate is a number on the
+ * row, never a thing to approve.
  */
 export function ServiceVendorCycleSection({
   stages,
+  currentId,
   requests,
-  assignValue,
-  assignGroups,
   approvingBidId,
-  onAssign,
-  plus,
+  onOpenAssign,
+  onAddVendors,
   onApprove,
   onMessage,
   onRemove,
@@ -115,56 +112,73 @@ export function ServiceVendorCycleSection({
   lead,
 }: {
   stages: readonly StageBarItem[];
+  /** The service's current stage; the tab it maps to opens first. */
+  currentId: ServiceStageId;
   requests: readonly VendorRequestRow[];
-  assignValue: string;
-  assignGroups: Array<{ label: string; options: Array<{ value: string; label: string }> }>;
   approvingBidId: string | null;
-  onAssign: (value: string) => void;
-  /** The band's round +: request more vendors (maintenance) or assign (an add-on). */
-  plus?: { label: string; onClick: () => void };
+  /** The UserPlus icon: opens the Assign popup. */
+  onOpenAssign: () => void;
+  /** The round +: add more vendors to the request (opens the same popup on "Request bids"). */
+  onAddVendors: () => void;
   onApprove: (row: VendorRequestRow) => void;
   onMessage: (row: VendorRequestRow) => void;
   onRemove: (row: VendorRequestRow) => void;
   emptyTitle?: string;
-  /** Cards between the band and the stage card (the assigned vendor, PropLane's suggestion). */
+  /** Cards between the band and the rows (the assigned vendor, PropLane's suggestion). */
   lead?: ReactNode;
 }) {
-  const [tab, setTab] = useState<CycleTab>("requested");
+  const initialTab = (CYCLE_TAB_IDS as readonly string[]).includes(currentId) ? (currentId as CycleTabId) : "requested";
+  const [tab, setTab] = useState<CycleTabId>(initialTab);
+  const [prevCurrent, setPrevCurrent] = useState(currentId);
+  if (currentId !== prevCurrent) {
+    setPrevCurrent(currentId);
+    setTab(initialTab);
+  }
   const [search, setSearch] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const placed = useMemo(() => requests.map((row) => ({ row, tab: cycleTabForRow(row, currentId) })), [requests, currentId]);
   const counts = useMemo(() => {
-    const c: Record<CycleTab, number> = { requested: 0, bids: 0, approved: 0 };
-    for (const row of requests) c[tabOf(row)] += 1;
+    const c = Object.fromEntries(CYCLE_TAB_IDS.map((id) => [id, 0])) as Record<CycleTabId, number>;
+    for (const entry of placed) c[entry.tab] += 1;
     return c;
-  }, [requests]);
+  }, [placed]);
+  const vendorOptions = useMemo(
+    () => [...new Map(requests.map((r) => [r.vendorDirectoryId ?? r.vendorUserId ?? r.key, r.vendorName])).entries()].map(([value, label]) => ({ value, label })),
+    [requests],
+  );
   const shown = useMemo(
-    () => requests.filter((row) => tabOf(row) === tab && matchesPortalListSearch(search, row.vendorName, row.note ?? "")),
-    [requests, tab, search],
+    () =>
+      placed
+        .filter((entry) => entry.tab === tab)
+        .filter((entry) => !vendorFilter || (entry.row.vendorDirectoryId ?? entry.row.vendorUserId ?? entry.row.key) === vendorFilter)
+        .filter((entry) => matchesPortalListSearch(search, entry.row.vendorName, entry.row.note ?? ""))
+        .map((entry) => entry.row),
+    [placed, tab, vendorFilter, search],
   );
   return (
     <RecordListBand
       dataAttr="service-vendor-cycle"
-      ariaLabel="Vendor request status"
-      tabs={CYCLE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+      ariaLabel="Service stage"
+      tabs={CYCLE_TAB_IDS.map((id) => ({ id, label: tabLabel(id), count: counts[id] }))}
       activeId={tab}
-      onChange={(id) => setTab(id as CycleTab)}
+      onChange={(id) => setTab(id as CycleTabId)}
       search={{ value: search, onChange: setSearch, placeholder: "Search vendors" }}
-      plus={plus ? { ...plus, dataAttr: "service-request-more-vendors" } : undefined}
+      actions={
+        <>
+          <RecordBandFilter
+            dataAttr="service-vendor-cycle"
+            fields={vendorOptions.length > 0 ? [{ id: "vendor", label: "Vendor", anyLabel: "Any vendor", value: vendorFilter, options: vendorOptions, onChange: setVendorFilter }] : []}
+          />
+          <AssignIcon onClick={onOpenAssign} />
+        </>
+      }
+      plus={{ label: "Add vendors", onClick: onAddVendors, dataAttr: "service-request-more-vendors" }}
       isEmpty={shown.length === 0}
-      emptyTitle={search.trim() ? "No vendors match" : requests.length === 0 ? emptyTitle : tab === "requested" ? "No requests waiting" : tab === "bids" ? "No bids yet" : "No approved bid"}
+      emptyTitle={search.trim() || vendorFilter ? "No vendors match" : requests.length === 0 ? emptyTitle : `No vendors in ${tabLabel(tab).toLowerCase()}`}
       middle={
         <>
-        {lead}
-        <div className="mb-3 space-y-3 rounded-xl border border-border bg-card px-4 py-3" data-attr="service-stage-card">
-          <ServiceStageBar stages={stages} />
-          <FieldSingleSelect
-            label="Assign"
-            value={assignValue}
-            groups={assignGroups}
-            onChange={onAssign}
-            placeholder="Request bids, or pick who does it"
-            dataAttr="service-assign-select"
-          />
-        </div>
+          {lead}
+          <ServiceProgressLine stages={stages} />
         </>
       }
     >
@@ -211,6 +225,58 @@ export function ServiceVendorCycleSection({
           />
         );
       })}
+    </RecordListBand>
+  );
+}
+
+/**
+ * Vendor & schedule for an add-on service request. It has no vendors (they cannot take add-ons), so
+ * the band's tabs are its own cycle - Pending · Assigned · Scheduled · Completed · Paid - and the one
+ * row under the current tab is whoever is handling it.
+ */
+export function AddOnCycleSection({
+  stages,
+  currentId,
+  assignee,
+  onOpenAssign,
+}: {
+  stages: readonly StageBarItem[];
+  currentId: string;
+  assignee: { name: string } | null;
+  onOpenAssign: () => void;
+}) {
+  const tabs = stages.map((stage) => ({ id: stage.id, label: stage.label }));
+  const [tab, setTab] = useState(currentId);
+  const [prevCurrent, setPrevCurrent] = useState(currentId);
+  if (currentId !== prevCurrent) {
+    setPrevCurrent(currentId);
+    setTab(currentId);
+  }
+  const [search, setSearch] = useState("");
+  const rowsHere = assignee && tab === currentId && currentId !== "pending" && currentId !== "declined" ? [assignee] : [];
+  const shown = rowsHere.filter((a) => matchesPortalListSearch(search, a.name));
+  return (
+    <RecordListBand
+      dataAttr="service-vendor-cycle"
+      ariaLabel="Service stage"
+      tabs={tabs.map((t) => ({ ...t, count: assignee && t.id === currentId && currentId !== "pending" && currentId !== "declined" ? 1 : 0 }))}
+      activeId={tab}
+      onChange={setTab}
+      search={{ value: search, onChange: setSearch, placeholder: "Search team" }}
+      actions={<AssignIcon onClick={onOpenAssign} />}
+      isEmpty={shown.length === 0}
+      emptyTitle={search.trim() ? "No team members match" : assignee ? "Nobody in this stage" : "No vendors on this service"}
+      middle={<ServiceProgressLine stages={stages} />}
+    >
+      {shown.map((a) => (
+        <PortalApplicantRecordRow
+          key={a.name}
+          name={a.name}
+          tileIcon={UserRound}
+          facts={<PortalRowFact icon={Clock}>{stages.find((stage) => stage.state === "current")?.label ?? "Assigned"}</PortalRowFact>}
+          dataAttr="service-vendor-request-row"
+        />
+      ))}
     </RecordListBand>
   );
 }

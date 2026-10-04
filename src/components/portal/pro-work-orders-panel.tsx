@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -20,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -72,7 +70,12 @@ import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
-import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
+import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
+import { ServiceDetailsSection } from "@/components/portal/service-details-section";
+import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
+import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
+import { workOrderActivityEvents } from "@/lib/service-activity";
+import { readChargesForManagerResident } from "@/lib/household-charges";
 import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
 import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cycle-section";
 import { deriveServiceStages, deriveVendorRequestRows, serviceIsVendorPayable, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
@@ -95,11 +98,9 @@ import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/p
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { ServiceWorkflowStepper } from "@/components/portal/service-workflow-stepper";
 import {
   formatServiceMoney,
   managerServiceNextStep,
-  managerServiceWorkflowSteps,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 
@@ -184,18 +185,6 @@ function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
   }
   return null;
 }
-
-// Restrict photo links to http(s) or inline image data URLs before they reach an
-/**
- * `<a href>` / `<Image src>` barrier for a stored photo URL. Tested inline as a
- * guard clause at each call site (rather than routed through a helper's return
- * value) so CodeQL's xss-through-dom barrier recognition sees the check — see
- * commit 924bd45 for the same fix elsewhere. Fully anchored over a charset with
- * no HTML meta-characters: the earlier prefix-only scheme test still let `<` and
- * `"` reach the attribute, so it was not recognised as a barrier at all.
- */
-const SAFE_PHOTO_HREF_RE =
-  /^(?:data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+)$/i;
 
 /** $500+ triggers a confirm-preview before Approve + Pay; below it, one tap completes
  * and pays immediately. Bump this single constant to change the cutoff. */
@@ -300,10 +289,9 @@ export function ManagerWorkOrdersPanel({
   const [outgoingBusyId, setOutgoingBusyId] = useState<string | null>(null);
   /** "Leave a review" dialog launched from the record header, completed services only. */
   const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
-  /** C105: multi-vendor "Invite another vendor" sheet launched from the vendor-schedule section. */
-  const [inviteVendorRow, setInviteVendorRow] = useState<DemoManagerWorkOrderRow | null>(null);
-  const [inviteVendorSelectedIds, setInviteVendorSelectedIds] = useState<string[]>([]);
-  const [inviteVendorBusy, setInviteVendorBusy] = useState(false);
+  /** Incoming / Outgoing payments: the + opens the existing add-charge / add-payment flows, prefilled with this service. */
+  const [addChargeOpen, setAddChargeOpen] = useState(false);
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   // Review aggregates (★ average · count) for vendors who have bid, batched into one
   // request per set of vendor ids rather than one per bid row (mirrors pro-vendors-panel.tsx).
   const [reviewAggregatesByVendorUserId, setReviewAggregatesByVendorUserId] = useState<
@@ -1064,32 +1052,22 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  /** C105: confirm-send for the "Invite another vendor" multi-select sheet — reuses the
-   * exact same server offer path (email + inbox + biddingOpen) as the single-vendor
-   * "Invite for bids" flow, just with several vendors selected at once. */
-  const confirmInviteVendors = async () => {
-    const row = inviteVendorRow;
-    if (!row || inviteVendorSelectedIds.length === 0) return;
-    setInviteVendorBusy(true);
+  /** Assign popup > Request bids: send the service to the chosen vendors through the one server offer path (email + inbox + biddingOpen). */
+  const requestBidsFromVendors = async (row: DemoManagerWorkOrderRow, vendorIds: string[]) => {
     try {
-      const result = await sendWorkOrderToVendors(row.id, inviteVendorSelectedIds);
-      if (!result.ok) throw new Error(result.error ?? "Could not invite vendors.");
+      const result = await sendWorkOrderToVendors(row.id, vendorIds);
+      if (!result.ok) throw new Error(result.error ?? "Could not request bids.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(row.id);
       showToast(
         result.sent && result.sent.length > 0
-          ? `Invited ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} for bids.`
-          : "No vendors could be invited.",
+          ? `Requested ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} for bids.`
+          : "No vendors could be requested.",
       );
-      setInviteVendorRow(null);
-      setInviteVendorSelectedIds([]);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not invite vendors.");
-    } finally {
-      setInviteVendorBusy(false);
+      showToast(e instanceof Error ? e.message : "Could not request bids.");
     }
   };
-
 
   const handleDispatchDecision = async (row: DemoManagerWorkOrderRow, action: "approve" | "decline") => {
     // /demo: never fetch the authed dispatch route from the sandbox.
@@ -1155,35 +1133,6 @@ export function ManagerWorkOrdersPanel({
     </div>
   );
 
-  /** The resident's photos as a strip inside the Service tab (there is no Photos tab). Nothing renders without photos. */
-  const renderPhotosStrip = (row: DemoManagerWorkOrderRow) =>
-    row.photoDataUrls?.length ? (
-      <div className="flex gap-2 overflow-x-auto px-3 pb-4 sm:px-4" data-attr="work-order-photos">
-        {row.photoDataUrls.map((src, index) => {
-          const trimmed = src.trim();
-          if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-          return (
-            <a
-              key={`${row.id}-photo-${index}`}
-              href={trimmed}
-              target="_blank"
-              rel="noreferrer"
-              className="block w-40 shrink-0 overflow-hidden rounded-xl border border-border bg-accent/30"
-            >
-              <Image
-                src={trimmed}
-                alt={`Service photo ${index + 1}`}
-                width={240}
-                height={180}
-                className="h-28 w-full object-cover"
-                unoptimized
-              />
-            </a>
-          );
-        })}
-      </div>
-    ) : null;
-
   /** Vendor & schedule - the cycle: stage bar, one row per requested vendor, Assign, and request more. */
   const renderVendorBidsBody = (row: DemoManagerWorkOrderRow) => {
     const assignedVendor =
@@ -1194,47 +1143,8 @@ export function ManagerWorkOrdersPanel({
     const dispatch = (row as WorkOrderRowWithDispatch).dispatch;
     const bids = bidsByWorkOrderId[row.id] ?? [];
     const offers = offersByWorkOrderId[row.id] ?? [];
-    const { stages } = deriveServiceStages(row, { bids, offers });
+    const { stages, currentId } = deriveServiceStages(row, { bids, offers });
     const requests = deriveVendorRequestRows(bids, offers);
-    const current = workOrderAssigneeFromRow(row, managerUserId, teamMembers);
-    const assignValue = current ? (current.type === "vendor" ? `vendor:${current.id}` : current.id === managerUserId ? "me" : `team:${current.id}`) : "";
-    const assignGroups = [
-      { label: "Bids", options: [{ value: "bids", label: "Request bids" }] },
-      ...(activeVendors.length > 0
-        ? [{ label: "Vendors", options: activeVendors.map((v) => ({ value: `vendor:${v.id}`, label: v.trade?.trim() ? `${v.name} · ${v.trade}` : v.name })) }]
-        : []),
-      {
-        label: "Team",
-        options: [
-          ...(managerUserId ? [{ value: "me", label: "Myself" }] : []),
-          ...teamMembers
-            .filter((m) => m.userId !== managerUserId)
-            .map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
-        ],
-      },
-    ];
-    const onAssign = (value: string) => {
-      if (value === "bids") {
-        if (requests.length > 0) {
-          setInviteVendorRow(row);
-          setInviteVendorSelectedIds([]);
-        } else setPublishBidsRow(row);
-        return;
-      }
-      if (value === "me" && managerUserId) {
-        assignWork(row, { type: "team", id: managerUserId, name: "You" });
-        return;
-      }
-      if (value.startsWith("team:")) {
-        const id = value.slice(5);
-        assignWork(row, { type: "team", id, name: teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate" });
-        return;
-      }
-      if (value.startsWith("vendor:")) {
-        const id = value.slice(7);
-        assignWork(row, { type: "vendor", id, name: activeVendors.find((v) => v.id === id)?.name || "Vendor" });
-      }
-    };
     const lead = (
       <>
         {assignedVendor ? (
@@ -1297,18 +1207,11 @@ export function ManagerWorkOrdersPanel({
         <ServiceVendorCycleSection
           lead={lead}
           stages={stages}
+          currentId={currentId}
           requests={requests}
-          assignValue={assignValue}
-          assignGroups={assignGroups}
           approvingBidId={acceptingBidId}
-          onAssign={onAssign}
-          plus={{
-            label: "Request more vendors",
-            onClick: () => {
-              setInviteVendorRow(row);
-              setInviteVendorSelectedIds([]);
-            },
-          }}
+          onOpenAssign={() => setAssignSheetRow(row)}
+          onAddVendors={() => setAssignSheetRow(row)}
           onApprove={(request) => {
             const bid = bids.find((b) => b.id === request.bidId);
             if (bid) void acceptBidHandler(bid);
@@ -1347,10 +1250,15 @@ export function ManagerWorkOrdersPanel({
     const invoiceLabor = row.vendorCostCents ?? 0;
     const invoiceMaterials = row.materialsCostCents ?? 0;
     const invoiceTotal = invoiceLabor + invoiceMaterials;
-    const incomingRows = buildServiceIncomingRows({ charges: linkedCharge ? [linkedCharge] : [], workOrderId: row.id });
+    void hcTick;
+    const residentCharges = row.residentEmail?.trim() ? readChargesForManagerResident(row.residentEmail, managerUserId) : [];
+    const incomingRows = buildServiceIncomingRows({
+      charges: [...(linkedCharge ? [linkedCharge] : []), ...residentCharges],
+      workOrderId: row.id,
+    });
     return (
       <div data-attr="work-order-invoice">
-        <ServiceIncomingPaymentsList rows={incomingRows} />
+        <ServiceIncomingPaymentsList rows={incomingRows} onAddCharge={() => setAddChargeOpen(true)} />
         {row.automationStatus === "vendor_marked_done" && invoiceTotal > 0 ? (
           <div className="px-3 pb-4 sm:px-4">
             <ServiceInvoiceDocument laborCents={invoiceLabor} materialsCents={invoiceMaterials} note={row.vendorMarkedDoneNote} />
@@ -1471,6 +1379,7 @@ export function ManagerWorkOrdersPanel({
       rows={outgoingRowsForService(row)}
       busyId={outgoingBusyId}
       onApproveAndPay={(outgoing) => void approveAndPayOutgoing(row, outgoing)}
+      onAddPayment={() => setAddPaymentOpen(true)}
     />
   );
 
@@ -1683,7 +1592,13 @@ export function ManagerWorkOrdersPanel({
           );
         })()
       ) : (
-        <>
+        <ServiceDetailsSection
+          stages={deriveServiceStages(routeWorkOrder, { bids: routeBids, offers: offersByWorkOrderId[routeWorkOrder.id] ?? [] }).stages}
+          photos={routeWorkOrder.photoDataUrls ?? []}
+          activity={workOrderActivityEvents(routeWorkOrder)}
+          onEdit={() => setEditWorkOrderRow(routeWorkOrder)}
+          details={
+          <>
           {renderRecordSection("overview", {
             role: "manager",
             kind: "service",
@@ -1728,17 +1643,6 @@ export function ManagerWorkOrdersPanel({
                   { label: "Details", value: routeWorkOrder.description || "—" },
                   { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
                   { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
-                  {
-                    label: "Progress",
-                    value: (
-                      <ServiceWorkflowStepper
-                        steps={managerServiceWorkflowSteps(routeWorkOrder, {
-                          bidCount: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).length,
-                          acceptedBid: (bidsByWorkOrderId[routeWorkOrder.id] ?? []).find((b) => b.status === "accepted"),
-                        })}
-                      />
-                    ),
-                  },
                 ],
               },
               {
@@ -1752,8 +1656,9 @@ export function ManagerWorkOrdersPanel({
               },
             ],
           })}
-          {renderPhotosStrip(routeWorkOrder)}
-        </>
+          </>
+          }
+        />
       );
     return (
       <>
@@ -1803,36 +1708,41 @@ export function ManagerWorkOrdersPanel({
             void syncManagerWorkOrdersFromServer({ force: true });
           }}
         />
-        <ServiceAssignModal
+        <ServiceAssignDialog
           open={assignSheetRow !== null}
-          row={assignSheetRow}
+          onClose={() => setAssignSheetRow(null)}
+          allowVendors
           vendors={assignmentVendors}
           teamMembers={teamMembers}
-          bidCount={assignSheetRow ? (bidsByWorkOrderId[assignSheetRow.id] ?? []).length : 0}
-          onClose={() => setAssignSheetRow(null)}
+          meUserId={managerUserId}
+          onRequestBids={(ids) => (assignSheetRow ? requestBidsFromVendors(assignSheetRow, ids) : undefined)}
           onAssign={(next) => {
-            if (!assignSheetRow) return;
-            assignWork(assignSheetRow, next);
-            setAssignSheetRow(null);
-          }}
-          onOpenPublish={() => {
-            if (!assignSheetRow) return;
-            setPublishBidsRow(assignSheetRow);
-            setAssignSheetRow(null);
-          }}
-          onOpenCompareQuotes={() => {
-            if (!assignSheetRow) return;
-            navigate(
-              workOrderDetailHref(
-                listBasePath ?? "/portal",
-                assignSheetRow.bucket,
-                assignSheetRow.id,
-                "vendor-schedule",
-              ),
-            );
-            setAssignSheetRow(null);
+            if (assignSheetRow) assignWork(assignSheetRow, next);
           }}
         />
+        {addChargeOpen ? (
+          <ManagerAddPaymentModal
+            open={addChargeOpen}
+            onClose={() => setAddChargeOpen(false)}
+            onSubmitted={() => setHcTick((n) => n + 1)}
+            managerUserId={managerUserId}
+            initialResidentEmail={routeWorkOrder.residentEmail}
+            initialPropertyId={routeWorkOrder.assignedPropertyId?.trim() || routeWorkOrder.propertyId}
+            initialTitle={routeWorkOrder.title}
+            serviceRecordId={routeWorkOrder.id}
+          />
+        ) : null}
+        {addPaymentOpen ? (
+          <ManagerAddOutgoingPaymentModal
+            open={addPaymentOpen}
+            onClose={() => setAddPaymentOpen(false)}
+            onSubmitted={() => window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT))}
+            managerUserId={managerUserId}
+            initialPropertyId={routeWorkOrder.assignedPropertyId?.trim() || routeWorkOrder.propertyId}
+            initialVendorId={routeWorkOrder.vendorId}
+            initialMemo={routeWorkOrder.title}
+          />
+        ) : null}
         <PublishServiceBidsModal
           open={publishBidsRow !== null}
           row={publishBidsRow}
@@ -1848,39 +1758,6 @@ export function ManagerWorkOrdersPanel({
           row={reviewRow ? { id: reviewRow.id, title: reviewRow.title, vendorName: reviewRow.vendorName } : null}
           onClose={() => setReviewRow(null)}
         />
-        <PortalDialog
-          open={inviteVendorRow !== null}
-          onClose={() => {
-            if (inviteVendorBusy) return;
-            setInviteVendorRow(null);
-            setInviteVendorSelectedIds([]);
-          }}
-          dismissBlocked={inviteVendorBusy}
-          title="Invite vendors for bids"
-          primaryAction={{
-            label: inviteVendorBusy
-              ? "Inviting…"
-              : `Invite${inviteVendorSelectedIds.length > 0 ? ` ${inviteVendorSelectedIds.length}` : ""}`,
-            onClick: () => void confirmInviteVendors(),
-            disabled: inviteVendorBusy || inviteVendorSelectedIds.length === 0,
-            loading: inviteVendorBusy,
-          }}
-        >
-          {activeVendors.length === 0 ? (
-            <PortalListEmptyCard title="No vendors on your roster yet" workspaceAware={false} dataAttr="invite-vendors-empty" />
-          ) : (
-            <CheckboxMultiSelect
-              label="Vendors"
-              options={activeVendors
-                // Up to 10 per send (server-enforced MAX_VENDORS_PER_SEND in work-order-offers.server.ts).
-                .map((vendor) => ({ value: vendor.id, label: vendor.trade?.trim() ? `${vendor.name} · ${vendor.trade}` : vendor.name }))}
-              selected={inviteVendorSelectedIds}
-              onChange={(next) => setInviteVendorSelectedIds(next.slice(0, 10))}
-              disabled={inviteVendorBusy}
-              dataAttr="invite-vendors-select"
-            />
-          )}
-        </PortalDialog>
       </>
     );
   }

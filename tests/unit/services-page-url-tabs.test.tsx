@@ -138,27 +138,23 @@ describe("add-on request: Vendor & schedule renders the cycle UI", () => {
       serviceDetailTab: tab,
     });
 
-  it("shows the stage bar, the Assign dropdown (Myself / teammates) and no old empty cards", async () => {
+  it("shows the add-on cycle as band tabs, the Assign icon (Myself / teammates) and no old empty cards", async () => {
     await renderRequest("vendor-schedule");
     await waitFor(() => expect(document.querySelector('[data-attr="service-vendor-cycle"]')).not.toBeNull());
-    expect(document.querySelector('[data-attr="service-stage-bar"]')).not.toBeNull();
-    expect(document.body.textContent).toMatch(/Pending/);
-    expect(document.querySelector('[data-attr="service-assign-select"]')).not.toBeNull();
-    // Vendors cannot take add-on services, so the band's round + assigns (Myself / teammates) rather than requesting vendors.
-    expect(document.querySelector('[data-attr="service-request-more-vendors"]')?.getAttribute("aria-label")).toBe("Assign");
-    expect(screen.queryByRole("button", { name: "Request more vendors" })).toBeNull();
-    expect(screen.getByPlaceholderText("Search vendors")).toBeTruthy();
+    const tabs = [...document.querySelectorAll('[data-attr^="service-vendor-cycle-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, "").trim());
+    expect(tabs).toEqual(["Pending", "Assigned", "Scheduled", "Completed", "Paid"]);
+    expect(document.querySelector('[data-attr="service-progress-line"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeTruthy();
+    // Vendors cannot take add-on services: no round + to request vendors.
+    expect(document.querySelector('[data-attr="service-request-more-vendors"]')).toBeNull();
     expect(document.body.textContent).not.toContain("No vendor for this service");
     expect(document.body.textContent).not.toContain("Not scheduled yet");
-    // The empty list is exactly one standard card.
     expect(document.querySelectorAll('[data-attr="portal-list-empty-card"]')).toHaveLength(1);
   });
 
-  it("derives the add-on stage bar from the request's own status", () => {
-    expect(deriveAddOnStages("pending").map((s) => `${s.id}:${s.state}`)).toEqual(["pending:current", "approved:todo", "completed:todo"]);
-    expect(deriveAddOnStages("approved").map((s) => s.state)).toEqual(["done", "current", "todo"]);
-    expect(deriveAddOnStages("returned").map((s) => s.state)).toEqual(["done", "done", "current"]);
-    expect(deriveAddOnStages("denied").map((s) => s.id)).toEqual(["pending", "declined"]);
+  it("derives the add-on stages from the request's own data", () => {
+    expect(deriveAddOnStages("pending").stages.map((s) => `${s.id}:${s.state}`)).toEqual(["pending:current", "assigned:todo", "scheduled:todo", "completed:todo", "paid:todo"]);
+    expect(deriveAddOnStages("denied").stages.map((s) => s.id)).toEqual(["pending", "declined"]);
   });
 
   it("the Service tab shows 'Not assigned' as a plain value with no second line, and a Needs-you row with no muted line", async () => {

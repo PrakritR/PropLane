@@ -21,6 +21,8 @@ import {
   Upload,
   Wrench,
   X,
+  UserPlus,
+  Pencil,
   type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -55,6 +57,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Coins, // Plan credit (admin Accounts, S27)
   Upload, // Upload / Import (documents, leases, properties)
   Send, // Send application link (Applications band)
+  UserPlus, // Assign (service record, Vendor & schedule)
+  Pencil, // Edit (service record, Service)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

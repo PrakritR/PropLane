@@ -5266,6 +5266,8 @@ export function createManagerCharge(input: {
   blocksLeaseUntilPaid?: boolean;
   dueDateLabel?: string;
   initialStatus?: "pending" | "paid";
+  /** The service (work order or add-on request) this charge is for; it then lists under that service's Incoming payments. */
+  workOrderId?: string;
   /**
    * Caller-supplied charge id — pass the SAME id across a retried submit (e.g. a
    * double-click before the button's disabled state lands) so the server's
@@ -5295,6 +5297,7 @@ export function createManagerCharge(input: {
     propertyLabel: input.propertyLabel,
     managerUserId,
     kind: "other_cost",
+    ...(input.workOrderId?.trim() ? { workOrderId: input.workOrderId.trim() } : {}),
     title: input.title.trim() || "Manager charge",
     amountLabel: balance,
     balanceLabel: isPaid ? "$0.00" : balance,
