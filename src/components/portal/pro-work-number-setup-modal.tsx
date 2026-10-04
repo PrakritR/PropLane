@@ -397,7 +397,8 @@ export function WorkNumberSetupModal({
       id,
       label: STEP_LABELS[index]!,
       done: index === 0 ? verifyDone : index === 1 ? numberDone : numberDone,
-      disabled: index === 2 && !numberDone,
+      // A locked step is greyed on the phone tabs and the desktop rail alike; it never opens early.
+      disabled: (index === 1 && !verifyDone) || (index === 2 && !numberDone),
     }));
   }, [assignedPhone, phoneVerified]);
 

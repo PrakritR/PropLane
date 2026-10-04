@@ -215,9 +215,9 @@ describe("basics counts", () => {
     expect(seen.at(-1)!.listingTotalBathroomsId).toBe("1.5");
     fireEvent.click(screen.getByRole("button", { name: "More floors" }));
     expect(seen.at(-1)!.listingStoriesId).toBe("2");
-    // Counts remain steppers; navigation uses the shared anchored step picker.
+    // Counts remain steppers; navigation is the step tabs across the top.
     expect(document.querySelector("select")).toBeNull();
-    expect(screen.getByRole("button", { name: "Jump to step" })).toBeTruthy();
+    expect(screen.getAllByRole("tab").length).toBeGreaterThan(1);
   });
 });
 

@@ -3,17 +3,13 @@ import React, { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
-import { ListingWorkspace, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ListingWorkspace, StepRail, WizardStepTabs } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 afterEach(cleanup);
 
 function pickWorkspaceStep(targetLabel: string) {
-  const trigger = document.querySelector('[data-attr="workspace-step-picker"]') as HTMLElement;
-  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-  const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
-  const option = [...listbox.querySelectorAll('[role="option"]')].find((o) => o.textContent?.includes(targetLabel));
-  expect(option).toBeTruthy();
-  fireEvent.click(option!);
+  const tab = screen.getByRole("tab", { name: new RegExp(targetLabel) });
+  fireEvent.click(tab);
 }
 
 describe("workspace navigation", () => {
@@ -25,7 +21,7 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("button", { name: "Contact" }).getAttribute("aria-current")).toBe("step");
   });
 
-  it("the phone step list is a bottom sheet: step name and count on the trigger, a check, red dot and ring in the list, N to finish only there", () => {
+  it("the phone steps are tabs across the top: a check, a red dot and an underline, no sheet and no Step N of M bar", () => {
     const onJump = vi.fn();
     render(
       <StepRail
@@ -35,22 +31,18 @@ describe("workspace navigation", () => {
         visited={new Set(["a", "c"])}
       />,
     );
-    const trigger = screen.getByRole("button", { name: "Jump to step" });
-    expect(trigger.textContent).toContain("Lease");
-    expect(trigger.textContent).toContain("Step 3 of 4");
-    expect(screen.queryByText("2 to finish")).toBeNull();
-    fireEvent.click(trigger);
-    expect(screen.getByText("2 to finish")).toBeTruthy();
-    const options = [...document.querySelectorAll('[data-wizard-step-sheet] [role="option"]')];
-    expect(options).toHaveLength(4);
-    expect(options[0]!.querySelector("svg")).toBeTruthy(); // finished: a check
-    expect(options[1]!.textContent).toContain("Needs something"); // red dot
-    expect(options[2]!.getAttribute("aria-current")).toBe("step"); // the one you are on: blue bar + bold
-    expect(options[2]!.getAttribute("aria-selected")).toBe("true");
-    expect(options[1]!.getAttribute("aria-current")).toBeNull();
-    fireEvent.click(options[1]!);
-    expect(onJump).toHaveBeenCalledWith(1);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(4);
+    expect(tabs[0]!.querySelector("[data-step-done]")).toBeTruthy(); // finished: a check
+    expect(tabs[1]!.querySelector("[data-step-attention]")).toBeTruthy(); // red dot after the label
+    expect(tabs[2]!.getAttribute("aria-current")).toBe("step");
+    expect(tabs[2]!.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1]!.getAttribute("aria-current")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Jump to step" })).toBeNull();
+    expect(screen.queryByText(/Step \d+ of \d+/)).toBeNull();
     expect(document.querySelector("[data-wizard-step-sheet]")).toBeNull();
+    fireEvent.click(tabs[1]!);
+    expect(onJump).toHaveBeenCalledWith(1);
   });
 
   it("changing the anchored step picker keeps the workspace and typed fields mounted", () => {
@@ -124,5 +116,51 @@ describe("workspace required fields", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
     expect(before).toHaveBeenCalledTimes(1);
     expect(onJump).toHaveBeenCalledExactlyOnceWith(1);
+  });
+});
+
+describe("WizardStepTabs", () => {
+  const steps = [
+    { id: "verify", label: "Verify phone", done: true },
+    { id: "number", label: "Pick number" },
+    { id: "done", label: "Finish", disabled: true },
+  ];
+
+  it("renders one tab per step, keeps the workspace-step ids and calls onJump on tap", () => {
+    const onJump = vi.fn();
+    render(<WizardStepTabs steps={steps} current={1} onJump={onJump} />);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Verify phone", "Pick number", "Finish"]);
+    for (const step of steps) expect(document.querySelector(`[data-attr='workspace-step-${step.id}']`)).not.toBeNull();
+    expect(document.querySelector("[data-attr='workspace-step-picker']")).not.toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Verify phone" }));
+    expect(onJump).toHaveBeenCalledWith(0);
+  });
+
+  it("a locked step is greyed and aria-disabled, and tapping it does not jump", () => {
+    const onJump = vi.fn();
+    render(<WizardStepTabs steps={steps} current={1} onJump={onJump} />);
+    const locked = screen.getByRole("tab", { name: "Finish" });
+    expect(locked.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(locked);
+    expect(onJump).not.toHaveBeenCalled();
+  });
+
+  it("scrolls the active tab into view on every step change", () => {
+    const scroll = vi.fn();
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      const { rerender } = render(<WizardStepTabs steps={steps} current={0} onJump={() => {}} />);
+      scroll.mockClear();
+      rerender(<WizardStepTabs steps={steps} current={1} onJump={() => {}} />);
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("renders nothing for a one-step dialog", () => {
+    const { container } = render(<WizardStepTabs steps={[steps[0]!]} current={0} onJump={() => {}} />);
+    expect(container.firstChild).toBeNull();
   });
 });
