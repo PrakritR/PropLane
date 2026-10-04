@@ -2880,10 +2880,8 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
   const currentPlacements = new Set(
     currentRows.flatMap((row) => {
       const email = row.email!.trim().toLowerCase();
-      return [row.assignedPropertyId, row.propertyId, row.application?.propertyId]
-        .map((id) => id?.trim())
-        .filter((id): id is string => Boolean(id))
-        .map((id) => `${email}|${id}`);
+      const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim();
+      return propertyId ? [`${email}|${propertyId}`] : [];
     }),
   );
   const existingCharges = readAll();
