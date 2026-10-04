@@ -94,6 +94,7 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
+import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
@@ -1901,6 +1902,16 @@ export function ManagerApplicationQuestionsEditorModal({
                   setDirty(true);
                 }}
                 onError={(message) => setSaveError(message)}
+              />
+            ) : null}
+            {templateEditorMode === "edit" && applicationTemplate?.id && applicationPreviewPropertyId && !isBulkSave ? (
+              <PropertyFormFeeForCurrentForm
+                sub={sub}
+                mode="application"
+                currentId={applicationTemplate.id}
+                leaseTemplates={routingLeaseTemplates}
+                applicationTemplates={routingApplicationTemplates}
+                propertyId={applicationPreviewPropertyId}
               />
             ) : null}
             {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&

@@ -127,6 +127,8 @@ export function ResidentSignAndPayClient() {
           signed={false}
           mode="at-signing"
           charges={atSigning.charges}
+          leaseId={pipelineRow?.id ?? null}
+          onFeeWaived={() => void atSigning.refresh()}
           onCheckoutComplete={() => {
             void atSigning.waitForSettled().then((settled) => {
               showToast(settled ? "Payment received. You can sign now." : "Payment submitted. Signing opens when it clears.");

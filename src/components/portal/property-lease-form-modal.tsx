@@ -71,6 +71,7 @@ import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
 import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
+import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import {
   deriveLeaseKindFromStayTerms,
@@ -1078,6 +1079,16 @@ export function PropertyLeaseFormModal({
               }}
               onApplicationTemplatesChange={setRoutingApplicationTemplates}
               onError={(message) => setError(message)}
+            />
+          ) : null}
+          {mode === "edit" && template?.id ? (
+            <PropertyFormFeeForCurrentForm
+              sub={sub}
+              mode="lease"
+              currentId={template.id}
+              leaseTemplates={routingLeaseTemplates}
+              applicationTemplates={routingApplicationTemplates}
+              propertyId={propertyId}
             />
           ) : null}
         </StepColumn>
