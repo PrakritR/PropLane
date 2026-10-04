@@ -4,7 +4,7 @@
 // surcharge and Partial months follow the lease types the room is OFFERED on, and Application fee / Lease fee
 // sit on the step they belong to (captain, Oct 3).
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 import { PropertyRoomPricingWorkspace } from "@/components/portal/property-room-pricing-workspace";
 import {
@@ -91,8 +91,8 @@ describe("room pricing popup rows follow what the room offers", () => {
   });
 });
 
-describe("Application fee and Lease fee per step", () => {
-  it("the Long-term step and the Short-term step each bind their own boxes", () => {
+describe("Application fee and Lease fee per section", () => {
+  it("the Long-term section and the Short-term section each bind their own boxes, on one screen", () => {
     const sub = listing({
       occupancyPrices: [{ count: 1, applicationFee: "50", leaseFee: "100", shortTermApplicationFee: "20", shortTermLeaseFee: "40" }],
     });
@@ -101,25 +101,45 @@ describe("Application fee and Lease fee per step", () => {
     expect(lt.value).toBe("100");
     expect((screen.getByLabelText("Private room long-term application fee") as HTMLInputElement).value).toBe("50");
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Short-term/ })[0]!);
+    // No tab or step to click: the Short-term section is already on the page.
     expect((screen.getByLabelText("Private room short term lease fee") as HTMLInputElement).value).toBe("40");
     expect((screen.getByLabelText("Private room short term application fee") as HTMLInputElement).value).toBe("20");
-    expect(screen.queryByLabelText("Private room long-term lease fee")).toBeNull();
   });
 });
 
-describe("stay-type steps", () => {
-  it("are Long-term and Short-term only; custom dates and month-to-month have no step of their own", () => {
+describe("the pricing popup is one screen", () => {
+  it("lists Long-term and Short-term as sections, never as steps; custom dates and month-to-month have no section", () => {
     open(listing());
-    const rail = (id: string) => document.querySelector(`[data-attr="listing-v2-rail-${id}"]`);
-    expect(rail("Long-term")).not.toBeNull();
-    expect(rail("Short-Term Stay")).not.toBeNull();
-    expect(rail("Custom")).toBeNull();
-    expect(rail("Month-to-Month")).toBeNull();
+    const section = (id: string) => document.querySelector(`[data-attr="property-pricing-section-${id}"]`);
+    expect(section("long")).not.toBeNull();
+    expect(section("short")).not.toBeNull();
+    expect(within(section("long") as HTMLElement).getByRole("heading", { name: "Long-term" })).toBeTruthy();
+    expect(within(section("short") as HTMLElement).getByRole("heading", { name: "Short-term" })).toBeTruthy();
+    // One wizard step, so the rail has no Long-term -> Short-term walk.
+    expect(document.querySelector('[data-attr="listing-v2-rail-Long-term"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-Short-Term Stay"]')).toBeNull();
     expect(screen.queryAllByRole("button", { name: /^Custom/ })).toHaveLength(0);
   });
 
-  it("keeps the month-to-month and custom-start surcharges on the Long-term row", () => {
+  it("has a single Save and no Step n of n counter", () => {
+    open(listing());
+    expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Continue/ })).toBeNull();
+    // The footer counter (the phone step picker is the wizard primitives' own control).
+    expect(
+      screen.queryAllByText(/Step \d+ of \d+/).filter((node) => !node.closest('[data-attr="workspace-step-picker"]')),
+    ).toHaveLength(0);
+  });
+
+  it("leaves the Short-term section out when short stays are not offered", () => {
+    open(listing({}, { shortTermRentalsAllowed: false, allowedLeaseTerms: ["Long-term"] }));
+    expect(document.querySelector('[data-attr="property-pricing-section-short"]')).toBeNull();
+    expect(document.querySelector('[data-attr="property-pricing-section-long"]')).not.toBeNull();
+  });
+});
+
+describe("stay-type sections", () => {
+  it("keeps the month-to-month and custom-start surcharges on the Long-term section", () => {
     open(listing());
     expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
     expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);

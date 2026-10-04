@@ -326,8 +326,8 @@ export function AddWorkspace({
               </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
-              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : steps[current]?.incomplete ? <span className="mb-0.5 block">Complete {steps[current]?.label}</span> : null}
-              {hideFooterStepCount ? null : <>Step {current + 1} of {steps.length}</>}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : steps.length > 1 && steps[current]?.incomplete ? <span className="mb-0.5 block">Complete {steps[current]?.label}</span> : null}
+              {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             {isLast ? (
               <button

@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck } from "lucide-react";
+import { House, Layers, MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck, type LucideIcon } from "lucide-react";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings } from "lucide-react";
@@ -57,6 +57,15 @@ type Props = {
   showToast: (message: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
 };
+
+/** The square icon tile every pricing row carries: rooms, bundles and the whole house look alike. */
+function PricingRowTile({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
+      <Icon className="size-5" />
+    </span>
+  );
+}
 
 export function PropertyPricingPanel({
   submission,
@@ -233,11 +242,7 @@ export function PropertyPricingPanel({
                   title={room.name.trim() || "Room"}
                   amount={propertyPricingRoomAmount(room)}
                   onOpen={() => openSubject({ kind: "room", roomId: room.id })}
-                  leading={
-                    <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
-                      <PanelsTopLeft className="size-5" />
-                    </span>
-                  }
+                  leading={<PricingRowTile icon={PanelsTopLeft} />}
                   leadingShape="square"
                   facts={
                     leaseTermsLabel || depositFact ? (
@@ -273,6 +278,8 @@ export function PropertyPricingPanel({
               <PortalPropertyRecordRow
                 key={bundle.id}
                 title={propertyPricingBundleTitle(bundle, sub)}
+                leading={<PricingRowTile icon={Layers} />}
+                leadingShape="square"
                 amount={
                   bundle.price?.trim()
                     ? `${bundle.price.replace(/\/mo$/i, "").trim()}/mo`
@@ -291,6 +298,8 @@ export function PropertyPricingPanel({
         {tab === "whole" && showWholeTab ? (
           <PortalPropertyRecordRow
             title="Whole house"
+            leading={<PricingRowTile icon={House} />}
+            leadingShape="square"
             amount={wholeHouseAmount}
             facts={
               <PortalRowFact icon={ScrollText} srLabel={wholeHouseAmount ? "Leases offered" : "Whole house"}>

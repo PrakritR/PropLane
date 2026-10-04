@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
   BundleWholePricingReceiptPanel,
@@ -9,8 +9,8 @@ import {
 import {
   FactRow,
   MoneyInput,
+  SectionGroup,
   StepColumn,
-  StepHeading,
   ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
@@ -738,8 +738,8 @@ export function PropertyRoomPricingWorkspace({
   workspacePricingDefaults: _workspacePricingDefaults,
 }: Props) {
   const [draft, setDraft] = useState(() => normalizeManagerListingSubmissionV1(sub));
-  const [step, setStep] = useState(0);
-  const [slideDir, setSlideDir] = useState(0);
+  /** Which section the manager is working in; "What a resident pays" quotes that lease type. */
+  const [previewTerm, setPreviewTerm] = useState<string>(LONG_TERM_LEASE_TERM);
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(
     subject.kind === "room" ? subject.roomId : null,
   );
@@ -747,7 +747,7 @@ export function PropertyRoomPricingWorkspace({
   useEffect(() => {
     if (open) {
       setDraft(normalizeManagerListingSubmissionV1(sub));
-      setStep(0);
+      setPreviewTerm(LONG_TERM_LEASE_TERM);
       setQuoteRoomId(subject.kind === "room" ? subject.roomId : null);
     }
   }, [open, sub, subject]);
@@ -774,64 +774,44 @@ export function PropertyRoomPricingWorkspace({
   );
   const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
+  /*
+   * One screen. Long-term and Short-term are two SECTIONS of it (the listing editor's Pricing step
+   * draws them the same way), not two wizard steps: there is nothing to walk through, only a Save.
+   */
+  const showShortTerm = leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed;
+  const sectionTerms = useMemo<string[]>(
+    () => (showShortTerm ? [LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM] : [LONG_TERM_LEASE_TERM]),
+    [showShortTerm],
+  );
   const steps: AddWorkspaceStep[] = useMemo(() => {
-    const out: AddWorkspaceStep[] = [];
+    let summary = "";
     if (subject.kind === "bundle") {
-      const bundle = draft.bundles.find((b) => b.id === subject.bundleId);
-      out.push({
-        id: "bundle",
-        label: "Bundle",
-        summary: bundle?.label?.trim() || "Name and rooms",
-      });
-    }
-    out.push({ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" });
-    if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
-      out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short-term", summary: "" });
-    }
-    return out.map((s) => {
-      if (s.id === "bundle") return s;
-      if (subject.kind === "bundle") {
-        const bundle = draft.bundles.find((b) => b.id === subject.bundleId);
-        const summary =
-          s.id === LONG_TERM_LEASE_TERM
-            ? bundle?.price?.trim() || "—"
-            : bundle?.shortTermNightlyRent?.trim() || "—";
-        return { ...s, summary };
-      }
-      if (subject.kind === "whole") {
-        const summary =
-          s.id === SHORT_TERM_LEASE_TERM
-            ? draft.shortTermDailyCost?.trim()
-              ? `$${draft.shortTermDailyCost.replace(/^\$/, "")}/night`
-              : "—"
-            : draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0
-              ? `$${draft.entireHomeMonthlyRent}/mo`
-              : "—";
-        return { ...s, summary };
-      }
-      if (subject.kind !== "room") return s;
+      summary = draft.bundles.find((b) => b.id === subject.bundleId)?.price?.trim() || "";
+    } else if (subject.kind === "whole") {
+      summary =
+        draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0 ? `$${draft.entireHomeMonthlyRent}/mo` : "";
+    } else {
       const room = draft.rooms.find((r) => r.id === subject.roomId);
-      if (!room) return s;
-      if (s.id === LONG_TERM_LEASE_TERM) {
-        return { ...s, summary: propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id]) };
-      }
-      if (s.id === SHORT_TERM_LEASE_TERM || isStayLeaseTerm(s.id)) {
-        const nightly = room.shortTermRent?.trim();
-        return { ...s, summary: nightly ? `$${nightly.replace(/^\$/, "")}/night` : "—" };
-      }
-      return s;
-    });
-  }, [draft, leaseTerms, subject]);
+      summary = room ? propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id]) : "";
+    }
+    return [{ id: "pricing", label: "Pricing", summary }];
+  }, [draft, subject]);
 
-  const activeStepId = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
-  const activeTerm =
-    activeStepId === "bundle" ? LONG_TERM_LEASE_TERM : activeStepId;
-  const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
+  const activePreviewTerm = sectionTerms.includes(previewTerm) ? previewTerm : LONG_TERM_LEASE_TERM;
+  const quoteTerm = listingPricingTabToLeaseTerm(activePreviewTerm) ?? LONG_TERM_LEASE_TERM;
 
-  const jumpStep = (index: number) => {
-    setSlideDir(index > step ? 1 : index < step ? -1 : 0);
-    setStep(index);
-  };
+  /** A titled section; focusing inside it points the "What a resident pays" preview at its lease type. */
+  const termSection = (term: string, index: number, body: ReactNode) => (
+    <div
+      key={term}
+      onFocusCapture={() => setPreviewTerm(term)}
+      data-attr={`property-pricing-section-${term === SHORT_TERM_LEASE_TERM ? "short" : "long"}`}
+    >
+      <SectionGroup title={term === SHORT_TERM_LEASE_TERM ? "Short-term" : "Long-term"} first={index === 0}>
+        {body}
+      </SectionGroup>
+    </div>
+  );
 
   const patch: (next: Partial<ManagerListingSubmissionV1>) => void = (next) => {
     setDraft((prev) => normalizeManagerListingSubmissionV1({ ...prev, ...next }));
@@ -857,42 +837,35 @@ export function PropertyRoomPricingWorkspace({
       ? (() => {
           const room = draft.rooms.find((r) => r.id === subject.roomId);
           if (!room) return null;
-          const stepTitle =
-            activeStepId === SHORT_TERM_LEASE_TERM
-              ? "Short-term"
-              : activeStepId === LONG_TERM_LEASE_TERM
-                ? "Long-term"
-                : String(activeStepId);
           return (
             <StepColumn>
-              <StepHeading title={stepTitle} />
-              <RoomPricingFields
-                draft={draft}
-                room={room}
-                activeTerm={activeTerm}
-                patch={patch}
-                setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
-                updateRoom={updateRoom}
-              />
+              {sectionTerms.map((term, index) =>
+                termSection(
+                  term,
+                  index,
+                  <RoomPricingFields
+                    draft={draft}
+                    room={room}
+                    activeTerm={term}
+                    patch={patch}
+                    setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
+                    updateRoom={updateRoom}
+                  />,
+                ),
+              )}
             </StepColumn>
           );
         })()
       : null;
 
   const wholeBody =
-    subject.kind === "whole"
-      ? (() => {
-          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
-          const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
-          const stepTitle = isStay ? "Short-term" : isBaseLong ? "Long-term" : String(activeStepId);
-          return (
-            <StepColumn>
-              <StepHeading title={stepTitle} />
-              <WholeHousePricingFields draft={draft} activeStepId={activeStepId} patch={patch} />
-            </StepColumn>
-          );
-        })()
-      : null;
+    subject.kind === "whole" ? (
+      <StepColumn>
+        {sectionTerms.map((term, index) =>
+          termSection(term, index, <WholeHousePricingFields draft={draft} activeStepId={term} patch={patch} />),
+        )}
+      </StepColumn>
+    ) : null;
 
   const bundleBody =
     subject.kind === "bundle"
@@ -904,17 +877,16 @@ export function PropertyRoomPricingWorkspace({
               bundles: draft.bundles.map((b) => (b.id === bundle.id ? { ...b, ...next } : b)),
             });
           };
-          if (activeStepId === "bundle") {
-            const roomOptions = draft.rooms.map((r, i) => ({
-              value: r.id,
-              label: r.name?.trim() || `Room ${i + 1}`,
-            }));
-            const selected = (bundle.includedRoomIds ?? []).filter((id) =>
-              draft.rooms.some((r) => r.id === id),
-            );
-            return (
-              <StepColumn>
-                <StepHeading title="Bundle" />
+          const roomOptions = draft.rooms.map((r, i) => ({
+            value: r.id,
+            label: r.name?.trim() || `Room ${i + 1}`,
+          }));
+          const selected = (bundle.includedRoomIds ?? []).filter((id) =>
+            draft.rooms.some((r) => r.id === id),
+          );
+          return (
+            <StepColumn>
+              <SectionGroup title="Bundle" first>
                 <FactRow label="Name">
                   <input
                     className="h-9 w-full max-w-[280px] rounded-lg border border-border bg-background px-2 text-[14px] font-semibold"
@@ -932,33 +904,26 @@ export function PropertyRoomPricingWorkspace({
                     dataAttr="property-bundle-rooms"
                   />
                 </FactRow>
-              </StepColumn>
-            );
-          }
-          const stepTitle = activeStepId === SHORT_TERM_LEASE_TERM ? "Short-term" : activeStepId === LONG_TERM_LEASE_TERM ? "Long-term" : String(activeStepId);
-          return (
-            <StepColumn>
-              <StepHeading title={stepTitle} />
-              <BundlePricingFields
-                draft={draft}
-                bundle={bundle}
-                activeStepId={activeStepId}
-                patch={patch}
-                setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
-              />
+              </SectionGroup>
+              {sectionTerms.map((term, index) =>
+                termSection(
+                  term,
+                  index + 1,
+                  <BundlePricingFields
+                    draft={draft}
+                    bundle={bundle}
+                    activeStepId={term}
+                    patch={patch}
+                    setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
+                  />,
+                ),
+              )}
             </StepColumn>
           );
         })()
       : null;
 
-  const center =
-    subject.kind === "bundle"
-      ? bundleBody
-      : subject.kind === "whole"
-        ? wholeBody
-        : subject.kind === "room" && activeStepId !== "bundle"
-          ? roomBody
-          : null;
+  const center = subject.kind === "bundle" ? bundleBody : subject.kind === "whole" ? wholeBody : roomBody;
 
   if (!open) return null;
 
@@ -967,8 +932,9 @@ export function PropertyRoomPricingWorkspace({
       title={subjectTitle(subject, draft)}
       subtitle={propertyLabel}
       steps={steps}
-      current={step}
-      onJump={jumpStep}
+      current={0}
+      onJump={() => {}}
+      hideFooterStepCount
       onClose={onClose}
       dirty={dirty}
       lastLabel="Save"
@@ -1017,18 +983,7 @@ export function PropertyRoomPricingWorkspace({
       }
     >
       <div className="plp-wizard-root plp-ws-col" data-rp-form>
-        <div
-          key={activeStepId}
-          className={
-            slideDir === 0
-              ? ""
-              : slideDir > 0
-                ? "plp-step-enter-forward motion-reduce:transform-none"
-                : "plp-step-enter-back motion-reduce:transform-none"
-          }
-        >
-          {center}
-        </div>
+        {center}
       </div>
     </AddWorkspace>
   );

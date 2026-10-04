@@ -255,7 +255,6 @@ export function PropertyMoveInFormsPanel({
             title="No move-in forms for this property"
             icon={<ListChecks className="size-[22px]" strokeWidth={1.6} aria-hidden />}
             workspaceAware={false}
-            actions={canEdit ? [{ label: "New form", onClick: () => onChooserOpenChange(true), dataAttr: "property-move-in-forms-empty-new" }] : []}
             dataAttr="property-move-in-forms-empty"
           />
         ) : (

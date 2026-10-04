@@ -369,7 +369,8 @@ describe("property Move-in › Forms", () => {
       render(<PropertyMoveInFormsPanel {...base} sub={empty as typeof blank} />);
       expect(screen.getByText("No move-in forms for this property")).toBeTruthy();
       expect(screen.queryAllByRole("listitem")).toHaveLength(0);
-      expect(screen.getByRole("button", { name: "New form" })).toBeTruthy();
+      // The round + in the band is the only add: no "New form" button inside the empty card.
+      expect(screen.queryByRole("button", { name: "New form" })).toBeNull();
     }
   });
 

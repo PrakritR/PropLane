@@ -32,6 +32,12 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
 
+// The routed record now mounts under the correction, and its draft Preview reaches for a browser Supabase client.
+vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => null }));
+vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
+  useProspectContactAutofill: () => ({ contact: null, loading: false }),
+}));
+
 const LISTING_ID = "mgr-142-test-ave";
 
 /**
@@ -60,6 +66,7 @@ vi.mock("@/lib/demo-admin-property-inventory", async (importOriginal) => ({
   readAdminPropertyRows: (bucket: number) => (bucket === 5 ? [draftRow] : []),
 }));
 
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerHousePropertiesPanel } from "@/components/portal/pro-house-properties-panel";
 import { writeJustPublishedListing } from "@/lib/manager-listing-just-published";
 
@@ -74,7 +81,9 @@ function mockDesktopMatchMedia() {
 }
 
 function renderPanel() {
+  // The record is shown from the stage it sits in while the correction runs, so the full detail mounts.
   return render(
+    <AppUiProvider>
     <ManagerHousePropertiesPanel
       showToast={() => {}}
       activeStage="listed"
@@ -84,7 +93,8 @@ function renderPanel() {
       propertiesBase="/portal"
       propertyKey={LISTING_ID}
       detailTab="preview"
-    />,
+    />
+    </AppUiProvider>,
   );
 }
 
