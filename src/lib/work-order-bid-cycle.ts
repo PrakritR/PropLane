@@ -263,20 +263,22 @@ export type VendorReplyChoice =
 
 /**
  * What a vendor can answer, given where their row stands:
- *  - fresh: Give estimate · Book estimate visit · Submit bid · Decline
- *  - estimate given: Submit bid · Book estimate visit · Decline
- *  - visit booked: Mark visit done · Submit bid · Can't do it
- *  - visit done: Submit bid · Can't do it
- * "Decline" answers an offer with no row yet; "Can't do it" withdraws a row that exists.
+ *  - fresh: Give estimate · Book visit · Submit bid · Decline
+ *  - estimate given: Submit bid · Book visit · Decline
+ *  - visit booked: Visit done · Submit bid · Decline
+ *  - visit done: Submit bid · Decline
+ * Both decline values read "Decline" (the same word as the button): `decline` answers an offer
+ * with no row yet; `cant_do_it` withdraws a row that exists. Labels match
+ * `VENDOR_SERVICE_ACTION_LABEL` (service-lifecycle.ts), guarded by a unit test.
  */
 export function vendorReplyChoices(bid: WorkOrderBid | undefined): Array<{ value: VendorReplyChoice; label: string }> {
   const labels: Record<VendorReplyChoice, string> = {
     give_estimate: "Give estimate",
-    book_estimate_visit: "Book estimate visit",
+    book_estimate_visit: "Book visit",
     submit_bid: "Submit bid",
-    complete_estimate_visit: "Mark visit done",
+    complete_estimate_visit: "Visit done",
     decline: "Decline",
-    cant_do_it: "Can't do it",
+    cant_do_it: "Decline",
   };
   let values: VendorReplyChoice[];
   if (!bid) values = ["give_estimate", "book_estimate_visit", "submit_bid", "decline"];

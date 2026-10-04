@@ -49,12 +49,15 @@ export function VendorQuoteWizard({
   open,
   door,
   jobs,
+  initialJobId,
   onClose,
   onSubmitted,
 }: {
   open: boolean;
   door: VendorAddDoor;
   jobs: DemoManagerWorkOrderRow[];
+  /** Opened from one service's page: that service is already picked. */
+  initialJobId?: string;
   onClose: () => void;
   onSubmitted?: () => void;
 }) {
@@ -71,6 +74,10 @@ export function VendorQuoteWizard({
   const [linkedManagers, setLinkedManagers] = useState<LinkedManagerOption[]>([]);
   const [managerUserId, setManagerUserId] = useState("");
   const [billError, setBillError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && initialJobId) setJobId((current) => current || initialJobId);
+  }, [open, initialJobId]);
 
   const job = jobs.find((row) => row.id === jobId) ?? null;
   const showManagerPicker = door === "invoice" && linkedManagers.length > 1;
@@ -132,13 +139,13 @@ export function VendorQuoteWizard({
       { id: "job", label: "Service", incomplete: !job },
       { id: "house", label: "House", incomplete: !job },
       { id: "when", label: "When", incomplete: !when.trim() },
-      { id: "quote", label: "Quote", incomplete: !labor.trim() },
+      { id: "quote", label: "Bid", incomplete: !labor.trim() },
       { id: "review", label: "Review" },
     ];
   }, [door, job, labor, when]);
 
   const currentId = quoteSteps[step]?.id ?? "job";
-  const title = door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Add quote";
+  const title = door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Submit bid";
 
   const workspaceDraft = useWorkspaceDraft({
     scope: `vendor-${door}`,
@@ -294,7 +301,7 @@ export function VendorQuoteWizard({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not submit quote.");
+      if (!res.ok) throw new Error(data.error ?? "Could not submit bid.");
       showToast("Bid submitted.");
       onSubmitted?.();
       resetAndClose();
@@ -322,9 +329,9 @@ export function VendorQuoteWizard({
       dirty={Boolean(jobId || when || labor || materials || note)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose what you typed?"
-      assistantContext="Helping a vendor quote or log a service visit."
+      assistantContext="Helping a vendor submit a bid or log a service visit."
       assistantScopeKey={`vendor-add-${door}`}
-      lastLabel={door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Submit quote"}
+      lastLabel={door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Submit bid"}
       lastDisabled={door === "invoice" ? !labor.trim() : !job}
       nextDisabled={door !== "invoice" && currentId === "job" && !job}
       busy={busy}
@@ -341,10 +348,10 @@ export function VendorQuoteWizard({
             ...(door === "invoice"
               ? []
               : [{ label: "When", value: when ? toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when : "Not set", warn: !when }]),
-            { label: door === "invoice" ? "Invoice" : "Quote", value: labor.trim() ? `$${labor}` : "Not set", warn: door !== "visit" && !labor.trim() },
+            { label: door === "invoice" ? "Invoice" : "Bid", value: labor.trim() ? `$${labor}` : "Not set", warn: door !== "visit" && !labor.trim() },
           ]}
           creates={[
-            { tone: job || door === "invoice" ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : door === "visit" ? "A site visit on the calendar" : "A quote the manager can accept" },
+            { tone: job || door === "invoice" ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : door === "visit" ? "A site visit on the calendar" : "A bid the manager can approve" },
           ]}
         />
       }
@@ -353,7 +360,7 @@ export function VendorQuoteWizard({
         <WizardSection title="The service">
           {jobOptions.length === 0 ? (
             <p className="text-sm font-semibold text-foreground">
-              {door === "invoice" ? "No services yet." : "No services to quote yet."}
+              {door === "invoice" ? "No services yet." : "No services to bid on yet."}
             </p>
           ) : (
             <WizardSelect
@@ -386,7 +393,7 @@ export function VendorQuoteWizard({
         </WizardSection>
       ) : null}
       {currentId === "quote" ? (
-        <WizardSection title={door === "invoice" ? "Invoice" : "Quote"}>
+        <WizardSection title={door === "invoice" ? "Invoice" : "Bid"}>
           {door === "invoice" ? (
             <>
               <label className={WIZARD_LABEL_CLASS} htmlFor="vendor-invoice-number">
@@ -482,7 +489,7 @@ export function VendorQuoteWizard({
           ) : null}
           {door !== "visit" ? (
             <ReviewCard
-              title={door === "invoice" ? "Invoice" : "Quote"}
+              title={door === "invoice" ? "Invoice" : "Bid"}
               status={labor.trim() ? "complete" : "incomplete"}
               onEdit={() => setStep(quoteSteps.findIndex((s) => s.id === "quote"))}
               facts={[

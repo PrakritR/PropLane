@@ -803,30 +803,18 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
 const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
   job: {
     basePathDefault: "/vendor",
-    // PLAN-0921-1029, area 2 (vendor-portal Service): Overview · Schedule ·
-    // Invoice · Communication. "Scope & photos" folds into Overview's Job
-    // fact card.
+    // Services plan (claude-2/services-vendors-1004): Service · Estimate & bid · Schedule ·
+    // Invoice · Communication. The old ids (overview, bid-invoice ...) alias in
+    // `parseVendorJobDetailTab`.
     ownGroups: [{ label: "Service", ids: [
-      { id: "overview", label: "Overview" },
+      { id: "service", label: "Service" },
+      { id: "bid", label: "Estimate & bid" },
       { id: "schedule", label: "Schedule" },
       { id: "invoice", label: "Invoice" },
     ] }],
-    headerActions: [
-      { id: "accept", label: "Accept", icon: CheckCircle2 },
-      { id: "schedule", label: "Schedule", icon: Calendar },
-      { id: "submit-invoice", label: "Submit invoice", icon: Send },
-    ],
-    sectionActions: {
-      schedule: [
-        { id: "propose-time", label: "Propose a time", icon: Calendar },
-        { id: "message", label: "Message manager", icon: Mail },
-      ],
-      invoice: [
-        { id: "submit-invoice", label: "Submit invoice", icon: Send },
-        { id: "download", label: "Download", icon: Download },
-      ],
-      communication: [{ id: "compose", label: "New message", icon: Mail }],
-    },
+    // No registry header icons: the vendor service page draws its own header (Message · ⋯ Decline ·
+    // ONE primary next step), so the rail and phone picker carry sections only.
+    headerActions: [],
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => {

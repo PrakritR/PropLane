@@ -146,7 +146,9 @@ describe("portal terminology consistency", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("never shows 'bid' in vendor UI copy (quote instead)", () => {
+  // Services plan (claude-2/services-vendors-1004): "bid" is the word; "quote" is retired
+  // (src/lib/service-lifecycle.ts). This used to guard the opposite direction.
+  it("never shows 'quote' in vendor UI copy (bid instead)", () => {
     const offenders: string[] = [];
     const files = [
       ...walk(join("src", "components", "portal"), [".tsx"]),
@@ -166,9 +168,11 @@ describe("portal terminology consistency", () => {
         if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
         if (EXEMPT.some((token) => line.includes(token))) continue;
 
-        // Check for "bid" in UI copy (toasts, labels, buttons)
-        // Look for: "Bid ..." or 'Bid ...' in showToast or string literals
-        if (/showToast\s*\(\s*["'].*\bBid\b/.test(line) || /["'].*\bBid\b.*["']/.test(line)) {
+        // Check for "quote" in UI copy (toasts, labels, buttons); data-attrs and ids are not copy.
+        if (
+          !line.includes("data-attr") &&
+          (/showToast\s*\(\s*["'`][^"'`]*\bquotes?\b/i.test(line) || /\b(?:label|title|placeholder|message)\s*[:=]\s*["'`{][^"'`]*\bquotes?\b/i.test(line))
+        ) {
           offenders.push(`${file}:${index + 1} ${trimmed.slice(0, 100)}`);
         }
       }

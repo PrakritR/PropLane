@@ -3,25 +3,31 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * C150: vendor Services' job detail (Invoice tab, `renderRowDetail` in
- * `vendor-work-orders-panel.tsx`) showed the quote pricing mode ("Upfront" /
- * "After consultation") as a rounded pill next to the "Quote" label. Status is
- * a value, never a pill (record-page.md §3) — the label now carries the mode
- * as plain text. This is scoped to that one chip: the shared cross-file
- * `<Badge`/`PortalRowStatusChip` sweep in `portal-list-rows-no-pills.test.ts`
- * already covers this file for the general pattern, and other files
- * legitimately use `portal-badge-pending` rounded chips elsewhere (e.g.
- * screening status), so this guard does not generalize across files.
+ * The vendor service page's Estimate & bid section never renders a status as a rounded pill, and
+ * the retired "quote" wording stays out of the vendor Services UI (service-lifecycle.ts).
  */
-describe("vendor Services quote mode renders as plain text, not a pill", () => {
-  it("vendor-work-orders-panel.tsx never wraps the quote mode in a rounded-full portal-badge-pending chip", () => {
-    const source = readFileSync(
-      join(process.cwd(), "src/components/portal/vendor-work-orders-panel.tsx"),
-      "utf8",
-    );
-    expect(source).not.toMatch(/rounded-full[^"]*portal-badge-pending/);
-    // The mode still renders, just as text beside the "Quote" label.
-    expect(source).toMatch(/After consultation/);
-    expect(source).toMatch(/quoteMode === "after_consultation" \? "After consultation" : "Upfront"/);
+describe("vendor Services bid UI is plain text, not pills", () => {
+  const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+
+  it("the panel and the answer section never wrap a status in a rounded-full portal-badge-pending chip", () => {
+    for (const file of ["src/components/portal/vendor-work-orders-panel.tsx", "src/components/portal/vendor-estimate-bid-section.tsx"]) {
+      expect(read(file), file).not.toMatch(/rounded-full[^"]*portal-badge-pending/);
+    }
+  });
+
+  it("no retired quote / Potential / Withdraw wording in the vendor Services UI copy", () => {
+    for (const file of [
+      "src/components/portal/vendor-work-orders-panel.tsx",
+      "src/components/portal/vendor-estimate-bid-section.tsx",
+      "src/components/portal/vendor-quote-wizard.tsx",
+      "src/lib/vendor-work-order-tabs.ts",
+    ]) {
+      const copy = read(file)
+        // Strings only: identifiers such as quoteMode / VendorQuoteWizard / data-attrs are not copy.
+        .match(/"[^"\n]*"|`[^`\n]*`/g)
+        ?.filter((literal) => !/^"(?:vendor-|@\/|\.|use client)/.test(literal))
+        .join("\n") ?? "";
+      expect(copy, file).not.toMatch(/Send quote|Add quote|Submit quote|Withdraw|Can't do it|Mark done|Potential/);
+    }
   });
 });

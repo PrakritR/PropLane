@@ -84,7 +84,7 @@ export function VendorDashboard({}: { displayName: string }) {
     const upcomingVisits = rows
       .filter((r) => r.scheduledAtIso && r.bucket !== "completed")
       .sort((a, b) => (a.scheduledAtIso ?? "").localeCompare(b.scheduledAtIso ?? ""));
-    const quotesPending = rows
+    const bidsPending = rows
       .filter((r) => r.biddingOpen && !r.biddingResolvedAt)
       .sort((a, b) => (b.biddingOpenedAt ?? "").localeCompare(a.biddingOpenedAt ?? ""));
     const pendingPayouts = rows
@@ -93,20 +93,20 @@ export function VendorDashboard({}: { displayName: string }) {
     const inboxThreads = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, [])
       .filter((t) => t.folder === "inbox" && t.unread)
       .slice(0, 5);
-    return { openWorkOrders, upcomingVisits, quotesPending, pendingPayouts, inboxThreads };
+    return { openWorkOrders, upcomingVisits, bidsPending, pendingPayouts, inboxThreads };
   }, [tick]);
 
-  const { openWorkOrders, upcomingVisits, quotesPending, pendingPayouts, inboxThreads } = data;
+  const { openWorkOrders, upcomingVisits, bidsPending, pendingPayouts, inboxThreads } = data;
   const payoutItems = paymentsConnected ? pendingPayouts : [];
 
   const attentionRows: ManagerAttentionRow[] = [];
-  if (quotesPending.length > 0) {
+  if (bidsPending.length > 0) {
     attentionRows.push({
-      id: "quotes",
-      title: `${quotesPending.length} ${quotesPending.length === 1 ? "job" : "jobs"} waiting on a quote`,
-      detail: quotesPending[0] ? propertyLabel(quotesPending[0]) : "Services",
+      id: "bids",
+      title: `${bidsPending.length} ${bidsPending.length === 1 ? "job" : "jobs"} waiting on a bid`,
+      detail: bidsPending[0] ? propertyLabel(bidsPending[0]) : "Services",
       actionLabel: "Continue",
-      href: vendorWorkOrderListHref(BASE, "pending"),
+      href: vendorWorkOrderListHref(BASE, "open"),
       tone: "pending",
     });
   }
@@ -156,15 +156,15 @@ export function VendorDashboard({}: { displayName: string }) {
             <KpiCard
               label="Open jobs"
               value={String(openWorkOrders.length)}
-              href={vendorWorkOrderListHref(BASE, "pending")}
+              href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-jobs"
               icon={Wrench}
             />
             <KpiCard
-              label="Quotes due"
-              value={String(quotesPending.length)}
-              href={vendorWorkOrderListHref(BASE, "pending")}
-              dataAttr="vendor-dashboard-kpi-quotes"
+              label="Bids due"
+              value={String(bidsPending.length)}
+              href={vendorWorkOrderListHref(BASE, "open")}
+              dataAttr="vendor-dashboard-kpi-bids"
               icon={FileText}
             />
             <KpiCard
@@ -212,13 +212,13 @@ export function VendorDashboard({}: { displayName: string }) {
                 <PortalPrimaryIconAction
                   label="Add"
                   data-attr="vendor-dashboard-add"
-                  onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`)}
+                  onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
                 />
                 <PortalIconAction
                   icon={LayoutGrid}
                   label="Manage services"
                   data-attr="vendor-dashboard-manage-jobs"
-                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "pending"))}
+                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "open"))}
                 />
               </div>
             </div>
@@ -227,7 +227,7 @@ export function VendorDashboard({}: { displayName: string }) {
               // action above stays the CTA — this card explains the empty
               // state without a second, duplicate "Add" button (C147).
               <PortalListEmptyCard
-                title={portalEmptyCopy("work-orders.pending").title}
+                title={portalEmptyCopy("work-orders.open").title}
                 section="work-orders"
               />
             ) : (
@@ -239,7 +239,7 @@ export function VendorDashboard({}: { displayName: string }) {
                     subtitle={propertyLabel(row)}
                     facts={
                       row.biddingOpen && row.bucket !== "completed" ? (
-                        <PortalRowFact icon={Clock}>Quote needed</PortalRowFact>
+                        <PortalRowFact icon={Clock}>Bid needed</PortalRowFact>
                       ) : (
                         <PortalRowFact icon={CalendarDays}>
                           {row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled"}

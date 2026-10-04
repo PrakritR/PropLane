@@ -121,8 +121,8 @@ describe("vendor portal lifecycle", () => {
     expect(saved.completed).toBe(true);
   });
 
-  it("service order quote → scheduled → completed → manager can pay", () => {
-    expect(vendorWorkOrderTab(workOrder({ biddingOpen: true }))).toBe("pending");
+  it("service order bid → scheduled → completed → manager can pay", () => {
+    expect(vendorWorkOrderTab(workOrder({ biddingOpen: true }))).toBe("open");
     expect(
       vendorWorkOrderTab(
         workOrder({
@@ -132,7 +132,7 @@ describe("vendor portal lifecycle", () => {
           scheduledAtIso: "2026-08-12T10:00:00.000Z",
         }),
       ),
-    ).toBe("upcoming");
+    ).toBe("scheduled");
     expect(
       vendorWorkOrderTab(
         workOrder({
@@ -140,7 +140,7 @@ describe("vendor portal lifecycle", () => {
           automationStatus: "vendor_marked_done",
         }),
       ),
-    ).toBe("past");
+    ).toBe("completed");
 
     const enriched = enrichOutgoingRowWithVendorPayments(
       {

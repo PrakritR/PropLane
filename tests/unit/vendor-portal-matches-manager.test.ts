@@ -34,17 +34,18 @@ describe("vendor portal matches manager chrome", () => {
     ]);
   });
 
-  it("Services tabs are the pending/upcoming/past buckets, shown as Potential / Current / Past, with legacy quote URLs mapped", () => {
-    expect([...VENDOR_WORK_ORDER_TAB_ORDER]).toEqual(["pending", "upcoming", "past"]);
-    expect(parseVendorWorkOrderTab("quote")).toBe("pending");
-    expect(parseVendorWorkOrderTab("tour")).toBe("pending");
-    expect(parseVendorWorkOrderTab("scheduled")).toBe("upcoming");
-    expect(parseVendorWorkOrderTab("completed")).toBe("past");
-    // Ids/URLs are unchanged; only the displayed label reads the standard
-    // list header's bucket names (spec:addendum-6).
-    expect(VENDOR_WORK_ORDER_TAB_LABELS.pending).toBe("Potential");
-    expect(VENDOR_WORK_ORDER_TAB_LABELS.upcoming).toBe("Current");
-    expect(VENDOR_WORK_ORDER_TAB_LABELS.past).toBe("Past");
+  it("Services tabs are the one service vocabulary (Open, Assigned, Scheduled, Completed), with legacy URLs mapped", () => {
+    expect([...VENDOR_WORK_ORDER_TAB_ORDER]).toEqual(["open", "assigned", "scheduled", "completed"]);
+    expect(VENDOR_WORK_ORDER_TAB_ORDER.map((id) => VENDOR_WORK_ORDER_TAB_LABELS[id])).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
+    expect(parseVendorWorkOrderTab("pending")).toBe("open");
+    expect(parseVendorWorkOrderTab("potential")).toBe("open");
+    expect(parseVendorWorkOrderTab("quote")).toBe("open");
+    expect(parseVendorWorkOrderTab("tour")).toBe("open");
+    expect(parseVendorWorkOrderTab("upcoming")).toBe("scheduled");
+    expect(parseVendorWorkOrderTab("current")).toBe("scheduled");
+    expect(parseVendorWorkOrderTab("scheduled")).toBe("scheduled");
+    expect(parseVendorWorkOrderTab("past")).toBe("completed");
+    expect(parseVendorWorkOrderTab("completed")).toBe("completed");
   });
 
   it("Communication uses the shared shell titled Communication and always-on setup cards", () => {

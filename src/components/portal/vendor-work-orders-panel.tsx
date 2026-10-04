@@ -1,40 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, CircleDot, Clock, MapPin, MessageSquare, Navigation, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
-import { VendorBidReplyDialog } from "@/components/portal/vendor-bid-reply-dialog";
+import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
+import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ManagerPortalPageShell,
 
-  PORTAL_TOOLBAR_GROUP,
-  PORTAL_TOOLBAR_PILL_BUTTON,
-  PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
 } from "@/components/portal/portal-metrics";
 import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
 import { workOrderCostCents, formatServiceMoney } from "@/lib/manager-service-workflow";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
-import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -47,30 +45,33 @@ import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bi
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { vendorPayoutTimeline } from "@/lib/vendor-payout-timeline";
 import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
-import { upsertWorkOrderBid, WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
+import { WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
 import {
   declineWorkOrderVendorOffer,
   fetchWorkOrderVendorOffers,
   type WorkOrderVendorOffer,
 } from "@/lib/work-order-vendor-offers";
 import {
-  isPricingPendingBid,
-  vendorWorkOrderPhaseLabel,
-  vendorWorkOrderTab,
-  VENDOR_WORK_ORDER_TAB_LABELS,
-  VENDOR_WORK_ORDER_TAB_ORDER,
+  vendorDefaultReply,
+  vendorEffectiveReply,
+  vendorNextStep,
+  vendorServiceFact,
+  vendorServiceStage,
+  vendorShortWhen as vendorShortWhenLabel,
+  VENDOR_WORK_ORDER_TABS,
   type VendorWorkOrderTab,
 } from "@/lib/vendor-work-order-tabs";
+import type { VendorReplyChoice } from "@/lib/work-order-bid-cycle";
 import { vendorWorkOrderListHref, vendorJobDetailHref, type VendorJobDetailTabId } from "@/lib/portal-detail-routes";
-import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { ServiceWorkflowStepper } from "@/components/portal/service-workflow-stepper";
 import {
   vendorCanSeeFullWorkOrderSite,
   vendorLeadMapsQuery,
-  vendorServiceWorkflowSteps,
   workOrderGeneralArea,
 } from "@/lib/work-order-vendor-privacy";
+import { VENDOR_SERVICE_ACTION_LABEL } from "@/lib/service-lifecycle";
+import type { VendorInvoice } from "@/lib/vendor-invoices";
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
@@ -80,14 +81,6 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 function vendorPlaceLine(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string {
   if (vendorCanSeeFullWorkOrderSite(row, bid)) return propertyLabel(row);
   return workOrderGeneralArea(row);
-}
-
-/** The job's scheduled date as the row's one dated fact. */
-function vendorScheduledText(row: DemoManagerWorkOrderRow, fallback: string): string {
-  const date = formatPortalRowDate(row.scheduledAtIso);
-  if (date) return `Scheduled ${date}`;
-  const label = row.scheduled?.trim();
-  return label && label !== "—" ? label : fallback;
 }
 
 /** The vendor's job amount: the accepted quote or recorded cost, nothing while it is only a quote. */
@@ -112,13 +105,6 @@ function toDatetimeLocalValue(iso: string | undefined): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function fromDatetimeLocalValue(s: string): string | null {
-  if (!s.trim()) return null;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
-
 /**
  * Fully anchored over a charset with no HTML meta-characters. A prefix-only
  * scheme test still let `<` / `"` through into the href/src attribute, so it was
@@ -140,14 +126,13 @@ function defaultBidDraft(row: DemoManagerWorkOrderRow, bid: WorkOrderBid | undef
   };
 }
 
-function formatVisitLabel(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-/** Work orders offered/assigned to the signed-in vendor. Read-only except for submitting a
- * cost/time bid once the manager has opened a work order for bids. */
+/**
+ * The vendor's Services: the list (Open · Assigned · Scheduled · Completed, the one service
+ * vocabulary) and the vendor service page (Service · Estimate & bid · Schedule · Invoice ·
+ * Communication) with ONE primary next step.
+ */
 export function VendorWorkOrdersPanel({
-  tabId = "pending",
+  tabId = "open",
   workOrderId,
   workOrderDetailTab,
 }: {
@@ -167,7 +152,6 @@ export function VendorWorkOrdersPanel({
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [draftById, setDraftById] = useState<Record<string, BidDraft>>({});
-  const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
   const [doneNoteById, setDoneNoteById] = useState<Record<string, string>>({});
   const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
@@ -178,10 +162,13 @@ export function VendorWorkOrdersPanel({
   const [donePhotoErrorById, setDonePhotoErrorById] = useState<Record<string, boolean>>({});
   const [bidsSyncFailed, setBidsSyncFailed] = useState(false);
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
-  const [decliningOfferId, setDecliningOfferId] = useState<string | null>(null);
-  const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
-  const [replyRowId, setReplyRowId] = useState<string | null>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [replyChoice, setReplyChoice] = useState<VendorReplyChoice | null>(null);
+  const [invoicedIds, setInvoicedIds] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState("");
+  const [propertyFilter, setPropertyFilter] = useState("");
+  const answerSubmitRef = useRef<(() => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadBids = useCallback(async () => {
@@ -203,6 +190,24 @@ export function VendorWorkOrdersPanel({
     setOffersByWorkOrderId(Object.fromEntries(offers.map((o) => [o.workOrderId, o])));
   }, []);
 
+  const loadInvoices = useCallback(async () => {
+    if (demo) return;
+    try {
+      const res = await fetch("/api/vendor/invoices", { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { invoices?: VendorInvoice[] };
+      setInvoicedIds(
+        new Set(
+          (data.invoices ?? [])
+            .filter((invoice) => invoice.workOrderId && invoice.status !== "rejected")
+            .map((invoice) => invoice.workOrderId as string),
+        ),
+      );
+    } catch {
+      // The row simply reads "No invoice yet" until the next refresh.
+    }
+  }, [demo]);
+
   useEffect(() => {
     const sync = () => setRows(readVendorWorkOrderRows());
     const onBidsChanged = () => void loadBids();
@@ -212,6 +217,7 @@ export function VendorWorkOrdersPanel({
     void loadBids();
     void loadPayouts();
     void loadOffers();
+    void loadInvoices();
 
     // Bidding state (open/accepted) and payout status can change server-side while this
     // tab sits idle (manager accepts another bid, a payout posts) — refresh on a short
@@ -221,6 +227,7 @@ export function VendorWorkOrdersPanel({
       void loadBids();
       void loadPayouts();
       void loadOffers();
+      void loadInvoices();
     };
     // Don't poll three endpoints for a hidden/background tab (egress on the free
     // plan); visibilitychange re-syncs the moment it comes back to the foreground.
@@ -240,28 +247,26 @@ export function VendorWorkOrdersPanel({
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", refreshAll);
     };
-  }, [loadBids, loadPayouts, loadOffers]);
+  }, [loadBids, loadPayouts, loadOffers, loadInvoices]);
 
   const sorted = useMemo(
     () => [...rows].sort((a, b) => (b.scheduledAtIso ?? "").localeCompare(a.scheduledAtIso ?? "")),
     [rows],
   );
 
+  const stageOf = useCallback(
+    (row: DemoManagerWorkOrderRow) => vendorServiceStage(row, bidsByWorkOrderId[row.id], offersByWorkOrderId[row.id]),
+    [bidsByWorkOrderId, offersByWorkOrderId],
+  );
+
   const tabCounts = useMemo(() => {
-    const c: Record<VendorWorkOrderTab, number> = { pending: 0, upcoming: 0, past: 0 };
-    for (const row of sorted) c[vendorWorkOrderTab(row, bidsByWorkOrderId[row.id])] += 1;
+    const c: Record<VendorWorkOrderTab, number> = { open: 0, assigned: 0, scheduled: 0, completed: 0 };
+    for (const row of sorted) c[stageOf(row)] += 1;
     return c;
-  }, [sorted, bidsByWorkOrderId]);
+  }, [sorted, stageOf]);
 
   const tabs = useMemo(
-    () =>
-      VENDOR_WORK_ORDER_TAB_ORDER.map((id) => ({
-        id,
-        label: VENDOR_WORK_ORDER_TAB_LABELS[id],
-        count: tabCounts[id],
-        href: vendorWorkOrderListHref("/vendor", id),
-        dataAttr: `vendor-wo-tab-${id}`,
-      })),
+    () => VENDOR_WORK_ORDER_TABS.map(({ id, label }) => ({ id, label, count: tabCounts[id], href: vendorWorkOrderListHref("/vendor", id) })),
     [tabCounts],
   );
 
@@ -272,86 +277,38 @@ export function VendorWorkOrdersPanel({
     router.replace(vendorWorkOrderListHref("/vendor", tabId));
   }, [router, tabId]);
 
-  const visible = useMemo(
-    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === tabId),
-    [sorted, tabId, bidsByWorkOrderId],
+  const propertyOptions = useMemo(
+    () =>
+      [...new Set(sorted.map((row) => row.propertyName).filter((name) => name && name !== "—"))]
+        .sort()
+        .map((name) => ({ value: name, label: name })),
+    [sorted],
   );
 
-  const { nearYouRows, otherPendingRows } = useMemo(() => {
-    if (tabId !== "pending") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherPendingRows: visible };
+  const visible = useMemo(
+    () =>
+      sorted.filter(
+        (row) =>
+          stageOf(row) === tabId &&
+          (!propertyFilter || row.propertyName === propertyFilter) &&
+          matchesPortalListSearch(search, row.title, row.propertyName, row.unit),
+      ),
+    [sorted, tabId, stageOf, propertyFilter, search],
+  );
+
+  const { nearYouRows, otherOpenRows } = useMemo(() => {
+    if (tabId !== "open") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherOpenRows: visible };
     const near: DemoManagerWorkOrderRow[] = [];
     const rest: DemoManagerWorkOrderRow[] = [];
     for (const row of visible) {
       const offer = offersByWorkOrderId[row.id];
-      if (offer?.status === "sent" && row.biddingOpen) near.push(row);
+      if (offer?.status === "sent" && row.biddingOpen && !bidsByWorkOrderId[row.id]) near.push(row);
       else rest.push(row);
     }
-    return { nearYouRows: near, otherPendingRows: rest };
-  }, [visible, tabId, offersByWorkOrderId]);
+    return { nearYouRows: near, otherOpenRows: rest };
+  }, [visible, tabId, offersByWorkOrderId, bidsByWorkOrderId]);
 
-  const wizardJobs = useMemo(
-    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending"),
-    [sorted, bidsByWorkOrderId],
-  );
-
-  const submitBid = async (row: DemoManagerWorkOrderRow) => {
-    const draft = draftById[row.id] ?? defaultBidDraft(row, bidsByWorkOrderId[row.id]);
-    const amountCents = Math.round(parseMoneyAmount(draft.amount) * 100);
-    const materialsCents = draft.materials.trim() ? Math.round(parseMoneyAmount(draft.materials) * 100) : 0;
-    const proposedTimeIso = fromDatetimeLocalValue(draft.proposedTime);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      showToast("Enter a valid labor cost.");
-      return;
-    }
-    if (!Number.isFinite(materialsCents) || materialsCents < 0) {
-      showToast("Enter a valid equipment/materials cost.");
-      return;
-    }
-    if (!proposedTimeIso) {
-      showToast("Choose a date and time you'll do the work.");
-      return;
-    }
-    setSubmittingId(row.id);
-    try {
-      if (demo) {
-        upsertWorkOrderBid({
-          workOrderId: row.id,
-          vendorUserId: "demo-vendor-1",
-          vendorDirectoryId: row.vendorId ?? "demo-vendor-1",
-          quoteMode: "upfront",
-          amountCents,
-          materialsCents,
-          proposedTime: proposedTimeIso,
-          note: draft.note.trim() || null,
-          status: "submitted",
-        });
-        await loadBids();
-        showToast("Price submitted.");
-        return;
-      }
-      const res = await fetch("/api/portal/work-order-bids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "submit",
-          workOrderId: row.id,
-          amountCents,
-          materialsCents,
-          proposedTime: proposedTimeIso,
-          note: draft.note,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not submit bid.");
-      await loadBids();
-      showToast("Price submitted.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not submit bid.");
-    } finally {
-      setSubmittingId(null);
-    }
-  };
+  const wizardJobs = useMemo(() => sorted.filter((row) => stageOf(row) === "open"), [sorted, stageOf]);
 
   const saveScheduledPrice = async (row: DemoManagerWorkOrderRow) => {
     const draft = draftById[row.id] ?? defaultBidDraft(row, bidsByWorkOrderId[row.id]);
@@ -401,7 +358,7 @@ export function VendorWorkOrdersPanel({
   /**
    * A job can be handed back to the manager in bulk only while it is scheduled
    * and no automation has already moved it — the same condition the row's own
-   * "Mark done" button uses, read from one place so the dock and the row can
+   * "Complete" button uses, read from one place so the dock and the row can
    * never disagree about what is actionable.
    */
   const canBulkMarkDone = (row: DemoManagerWorkOrderRow) =>
@@ -484,7 +441,7 @@ export function VendorWorkOrdersPanel({
     const completionPhotos = donePhotosById[row.id] ?? [];
     if (completionPhotos.length === 0) {
       setDonePhotoErrorById((prev) => ({ ...prev, [row.id]: true }));
-      showToast("Add a completion photo before marking this service done.");
+      showToast("Add a completion photo before you complete this service.");
       return;
     }
     setMarkingDoneId(row.id);
@@ -500,23 +457,22 @@ export function VendorWorkOrdersPanel({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not mark done.");
+      if (!res.ok) throw new Error(data.error ?? "Could not complete.");
       await syncManagerWorkOrdersFromServer({ force: true });
       setDonePhotosById((prev) => {
         const next = { ...prev };
         delete next[row.id];
         return next;
       });
-      showToast("Marked done. The manager has been notified.");
+      showToast("Completed. The manager has been notified.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not mark done.");
+      showToast(e instanceof Error ? e.message : "Could not complete.");
     } finally {
       setMarkingDoneId(null);
     }
   };
 
-  const declineOffer = async (row: DemoManagerWorkOrderRow, offer: WorkOrderVendorOffer) => {
-    setDecliningOfferId(offer.id);
+  const declineOffer = async (row: DemoManagerWorkOrderRow, offer: WorkOrderVendorOffer, reason?: string) => {
     try {
       if (demo) {
         setOffersByWorkOrderId((prev) => {
@@ -524,22 +480,19 @@ export function VendorWorkOrdersPanel({
           delete next[row.id];
           return next;
         });
-        showToast("Offer declined.");
+        showToast("Declined.");
         return;
       }
-      const result = await declineWorkOrderVendorOffer(offer.id);
-      if (!result.ok) throw new Error(result.error ?? "Could not decline offer.");
+      const result = await declineWorkOrderVendorOffer(offer.id, reason);
+      if (!result.ok) throw new Error(result.error ?? "Could not decline.");
       await loadOffers();
-      showToast("Offer declined.");
+      showToast("Declined.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not decline offer.");
-    } finally {
-      setDecliningOfferId(null);
+      showToast(e instanceof Error ? e.message : "Could not decline.");
     }
   };
 
   const withdrawBid = async (row: DemoManagerWorkOrderRow) => {
-    setWithdrawingBidId(row.id);
     try {
       if (demo) {
         setBidsByWorkOrderId((prev) => {
@@ -547,7 +500,7 @@ export function VendorWorkOrdersPanel({
           delete next[row.id];
           return next;
         });
-        showToast("Quote withdrawn.");
+        showToast("Declined.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -557,18 +510,16 @@ export function VendorWorkOrdersPanel({
         body: JSON.stringify({ action: "withdraw", workOrderId: row.id }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not withdraw bid.");
+      if (!res.ok) throw new Error(data.error ?? "Could not decline.");
       await loadBids();
       setDraftById((prev) => {
         const next = { ...prev };
         delete next[row.id];
         return next;
       });
-      showToast("Quote withdrawn.");
+      showToast("Declined.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not withdraw bid.");
-    } finally {
-      setWithdrawingBidId(null);
+      showToast(e instanceof Error ? e.message : "Could not decline.");
     }
   };
 
@@ -624,509 +575,246 @@ export function VendorWorkOrdersPanel({
     );
   };
 
-  const renderRowDetail = (row: DemoManagerWorkOrderRow) => {
+  /** Schedule's completion form: price, a note and the required completion photo, then Complete. */
+  const renderCompleteForm = (row: DemoManagerWorkOrderRow) => {
     const bid = bidsByWorkOrderId[row.id];
-    const offer = offersByWorkOrderId[row.id];
-    const offerDeclined = offer?.status === "declined";
-    const canDeclineOffer = offer?.status === "sent" && row.biddingOpen && !bid;
     const draft = draftById[row.id] ?? defaultBidDraft(row, bid);
-    const pricingPending = isPricingPendingBid(bid);
-    const canEditBid = (row.biddingOpen || pricingPending) && (!bid || bid.status === "submitted");
-    const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
-    const consultationScheduled = Boolean(bid?.consultationVisitAt);
-    // A reply (estimate, visit, bid, decline) goes through the Reply popup; the inline fields only
-    // re-price a bid that was already submitted.
-    const showReply = canEditBid && (!bid || pricingPending);
-    const simplifiedBidForm = false;
-    const showPricingFields = canEditBid && Boolean(bid) && !pricingPending;
-    const showScheduledPrice = canMarkDone && !showPricingFields;
-
-    const fullSite = vendorCanSeeFullWorkOrderSite(row, bid);
+    const patchDraft = (patch: Partial<BidDraft>) =>
+      setDraftById((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), ...patch } }));
     return (
-      <>
-        <p className="text-sm leading-relaxed text-muted">{row.description}</p>
-        {!fullSite ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
-            <span>{workOrderGeneralArea(row)}</span>
-            <a
-              href={vendorLeadMapsQuery(row)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-              data-attr="vendor-lead-directions"
-              aria-label="Directions"
-            >
-              <MapPin className="h-3.5 w-3.5" aria-hidden />
-            </a>
-          </div>
-        ) : null}
-        {fullSite && row.residentName ? (
-          <p className="mt-2 text-xs text-muted">
-            Resident: <span className="font-medium text-foreground">{row.residentName}</span>
-          </p>
-        ) : null}
-        {row.bucket !== "open" && row.scheduled && row.scheduled !== "—" ? (
-          <p className="mt-1.5 text-xs text-muted">
-            Visit scheduled for <span className="font-medium text-foreground">{row.scheduled}</span>
-          </p>
-        ) : null}
-        {row.automationStatus === "vendor_marked_done" ? (
-          <p className="mt-1.5 text-xs font-medium text-muted">Marked done. Awaiting manager approval.</p>
-        ) : row.automationStatus === "paid" ? (
-          <p className="mt-1.5 text-xs font-medium text-muted">Approved and paid.</p>
-        ) : null}
-
-        {offerDeclined ? (
-          <p className="mt-1.5 text-xs font-medium text-muted">You declined this offer.</p>
-        ) : null}
-
-        {row.bucket === "completed" ? renderInvoice(row) : null}
-
-        {canDeclineOffer && offer ? (
-          <div className="mt-3 border-t border-border pt-3">
-            <p className="text-xs text-muted">Not available or not interested?</p>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_DETAIL_BTN} mt-2`}
-              data-attr="vendor-decline-offer"
-              disabled={decliningOfferId === offer.id}
-              onClick={() => declineOffer(row, offer)}
-            >
-              {decliningOfferId === offer.id ? "Declining…" : "Decline offer"}
-            </Button>
-          </div>
-        ) : null}
-
-        {row.biddingOpen || bid ? (
-          <div className="mt-4 border-t border-border pt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">
-              Quote
-              {bid ? (
-                <span className="ml-1.5 font-semibold normal-case text-foreground">
-                  · {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
-                </span>
-              ) : null}
+      <div className="mt-3 space-y-3 border-t border-border pt-3" data-attr="vendor-job-complete">
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+            Labor
+            <Input
+              type="text"
+              inputMode="decimal"
+              placeholder="$0"
+              value={draft.amount}
+              onChange={(e) => patchDraft({ amount: e.target.value })}
+              className="h-8 w-24 rounded-md text-sm"
+              data-attr="vendor-scheduled-price-labor"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+            Materials
+            <Input
+              type="text"
+              inputMode="decimal"
+              placeholder="$0"
+              value={draft.materials}
+              onChange={(e) => patchDraft({ materials: e.target.value })}
+              className="h-8 w-24 rounded-md text-sm"
+              data-attr="vendor-scheduled-price-materials"
+            />
+          </label>
+          <label className="flex min-w-[160px] flex-1 flex-col gap-1 text-[11px] font-medium text-muted">
+            Note
+            <Input
+              type="text"
+              placeholder="Optional"
+              value={doneNoteById[row.id] ?? ""}
+              onChange={(e) => setDoneNoteById((prev) => ({ ...prev, [row.id]: e.target.value }))}
+              className="h-8 rounded-md text-sm"
+            />
+          </label>
+        </div>
+        <div className="space-y-2">
+          <ServiceIntakePhotoPicker
+            onPick={() => openDonePhotoPicker(row.id)}
+            disabled={markingDoneId === row.id}
+            photoCount={(donePhotosById[row.id] ?? []).length}
+          />
+          {donePhotoErrorById[row.id] ? (
+            <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="vendor-mark-done-photo-error">
+              Add a completion photo before you complete this service.
             </p>
-
-            {bid && !canEditBid ? (
-              <p className="mt-1.5 text-xs text-muted">
-                Your quote:{" "}
-                <span className="font-medium text-foreground">
-                  ${(((bid.amountCents ?? 0) + bid.materialsCents) / 100).toFixed(2)}
-                </span>{" "}
-                <span className="text-muted">
-                  (labor ${((bid.amountCents ?? 0) / 100).toFixed(2)} + materials ${(bid.materialsCents / 100).toFixed(2)})
-                </span>{" "}
-                · {bid.proposedTime ? formatVisitLabel(bid.proposedTime) : "—"} ·{" "}
-                <span className={bid.status === "accepted" ? "font-semibold text-foreground" : "font-semibold text-muted"}>
-                  {bid.status}
-                </span>
-              </p>
-            ) : null}
-
-            {showReply ? (
-              <div className="mt-3">
-                <Button
-                  type="button"
-                  variant="primary"
-                  data-attr="vendor-reply-open"
-                  className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                  onClick={() => setReplyRowId(row.id)}
-                >
-                  Reply
-                </Button>
-              </div>
-            ) : null}
-
-            {bid?.estimateCents != null && bid.amountCents == null ? (
-              <p className="mt-2 text-xs text-muted">
-                Your estimate: <span className="font-medium text-foreground">${(bid.estimateCents / 100).toFixed(2)}</span>
-              </p>
-            ) : null}
-
-            {bid?.quoteMode === "after_consultation" && consultationScheduled ? (
-              <p className="mt-2 text-xs text-muted">
-                Consultation scheduled for{" "}
-                <span className="font-medium text-foreground">{formatVisitLabel(bid.consultationVisitAt as string)}</span>
-                {pricingPending ? ", pricing pending." : "."}
-              </p>
-            ) : null}
-
-            {showPricingFields ? (
-              <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2">
-                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                  {simplifiedBidForm ? "Amount" : "Labor cost"}
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="$0"
-                    value={draft.amount}
-                    onChange={(e) =>
-                      setDraftById((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), amount: e.target.value } }))
-                    }
-                    className="h-8 w-24 rounded-md text-sm"
-                  />
-                </label>
-                {simplifiedBidForm ? null : (
-                  <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                    Equipment / materials
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="$0"
-                      value={draft.materials}
-                      onChange={(e) =>
-                        setDraftById((prev) => ({
-                          ...prev,
-                          [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), materials: e.target.value },
-                        }))
-                      }
-                      className="h-8 w-24 rounded-md text-sm"
-                    />
-                  </label>
-                )}
-                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                  {simplifiedBidForm ? "Earliest start" : "When you can do it"}
-                  <Input
-                    type="datetime-local"
-                    value={draft.proposedTime}
-                    onChange={(e) =>
-                      setDraftById((prev) => ({
-                        ...prev,
-                        [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), proposedTime: e.target.value },
-                      }))
-                    }
-                    className="h-8 rounded-md text-sm"
-                  />
-                </label>
-                <label className="flex flex-1 min-w-[160px] flex-col gap-1 text-[11px] font-medium text-muted">
-                  Note
-                  <Input
-                    type="text"
-                    placeholder={simplifiedBidForm ? "Optional" : "Anything the manager should know"}
-                    value={draft.note}
-                    onChange={(e) =>
-                      setDraftById((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), note: e.target.value } }))
-                    }
-                    className="h-8 rounded-md text-sm"
-                  />
-                </label>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {showPricingFields ? (
-          <PortalTableDetailActions>
-            <Button
-              type="button"
-              variant="primary"
-              data-attr="vendor-submit-bid"
-              className={`${PORTAL_DETAIL_BTN} rounded-full`}
-              disabled={submittingId === row.id}
-              onClick={() => submitBid(row)}
-            >
-              {pricingPending ? "Submit price" : bid ? "Update quote" : "Submit quote"}
-            </Button>
-            {bid && bid.status === "submitted" ? (
-              <Button
-                type="button"
-                variant="outline"
-                data-attr="vendor-withdraw-bid"
-                className={PORTAL_DETAIL_BTN}
-                disabled={withdrawingBidId === row.id}
-                onClick={() => withdrawBid(row)}
-              >
-                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw quote"}
-              </Button>
-            ) : null}
-          </PortalTableDetailActions>
-        ) : null}
-
-        {canMarkDone ? (
-          <div className="mt-3 space-y-3 border-t border-border pt-3">
-            <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-              {showScheduledPrice ? (
-                <>
-                  <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                    Labor cost
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="$0"
-                      value={draft.amount}
-                      onChange={(e) =>
-                        setDraftById((prev) => ({
-                          ...prev,
-                          [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), amount: e.target.value },
-                        }))
-                      }
-                      className="h-8 w-24 rounded-md text-sm"
-                      data-attr="vendor-scheduled-price-labor"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                    Materials
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="$0"
-                      value={draft.materials}
-                      onChange={(e) =>
-                        setDraftById((prev) => ({
-                          ...prev,
-                          [row.id]: { ...(prev[row.id] ?? defaultBidDraft(row, bid)), materials: e.target.value },
-                        }))
-                      }
-                      className="h-8 w-24 rounded-md text-sm"
-                      data-attr="vendor-scheduled-price-materials"
-                    />
-                  </label>
-                </>
-              ) : null}
-              <label className="flex flex-1 min-w-[160px] flex-col gap-1 text-[11px] font-medium text-muted">
-                Note (optional)
-                <Input
-                  type="text"
-                  placeholder="Anything the manager should know"
-                  value={doneNoteById[row.id] ?? ""}
-                  onChange={(e) => setDoneNoteById((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                  className="h-8 rounded-md text-sm"
-                />
-              </label>
-            </div>
-            <div className="space-y-2">
-              <ServiceIntakePhotoPicker
-                onPick={() => openDonePhotoPicker(row.id)}
-                disabled={markingDoneId === row.id}
-                photoCount={(donePhotosById[row.id] ?? []).length}
-              />
-              {donePhotoErrorById[row.id] ? (
-                <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="vendor-mark-done-photo-error">
-                  Add a completion photo before marking this service done.
-                </p>
-              ) : null}
-              {(donePhotosById[row.id] ?? []).length ? (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {(donePhotosById[row.id] ?? []).map((src, i) => (
-                    <div key={i} className="overflow-hidden rounded-xl border border-border bg-accent/30">
-                      <Image
-                        src={src}
-                        alt={`Completion photo ${i + 1}`}
-                        width={160}
-                        height={120}
-                        className="h-20 w-full object-cover"
-                        unoptimized
-                      />
-                      <div className="flex justify-start p-1.5">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-7 rounded-full px-2.5 text-[11px]"
-                          onClick={() => removeDonePhoto(row.id, i)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+          ) : null}
+          {(donePhotosById[row.id] ?? []).length ? (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {(donePhotosById[row.id] ?? []).map((src, i) => (
+                <div key={i} className="overflow-hidden rounded-xl border border-border bg-accent/30">
+                  <Image src={src} alt={`Completion photo ${i + 1}`} width={160} height={120} className="h-20 w-full object-cover" unoptimized />
+                  <div className="flex justify-start p-1.5">
+                    <Button type="button" variant="outline" className="h-7 rounded-full px-2.5 text-[11px]" onClick={() => removeDonePhoto(row.id, i)}>
+                      Remove
+                    </Button>
+                  </div>
                 </div>
-              ) : null}
+              ))}
             </div>
-            <PortalTableDetailActions>
-              {showScheduledPrice ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                  data-attr="vendor-save-scheduled-price"
-                  disabled={savingPriceId === row.id}
-                  onClick={() => saveScheduledPrice(row)}
-                >
-                  {savingPriceId === row.id ? "Saving…" : "Save price"}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="primary"
-                data-attr="vendor-mark-done"
-                className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                disabled={markingDoneId === row.id || (donePhotosById[row.id] ?? []).length === 0}
-                onClick={() => markDone(row)}
-              >
-                {markingDoneId === row.id ? "Marking done…" : "Mark done"}
-              </Button>
-            </PortalTableDetailActions>
-          </div>
-        ) : null}
-      </>
+          ) : null}
+        </div>
+        <PortalTableDetailActions>
+          <Button
+            type="button"
+            variant="outline"
+            className={`${PORTAL_DETAIL_BTN} rounded-full`}
+            data-attr="vendor-save-scheduled-price"
+            disabled={savingPriceId === row.id}
+            onClick={() => saveScheduledPrice(row)}
+          >
+            {savingPriceId === row.id ? "Saving…" : "Save price"}
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            data-attr="vendor-mark-done"
+            className={`${PORTAL_DETAIL_BTN} rounded-full`}
+            disabled={markingDoneId === row.id || (donePhotosById[row.id] ?? []).length === 0}
+            onClick={() => markDone(row)}
+          >
+            {markingDoneId === row.id ? "Completing…" : VENDOR_SERVICE_ACTION_LABEL.complete}
+          </Button>
+        </PortalTableDetailActions>
+      </div>
     );
   };
 
   if (workOrderId) {
     const row = sorted.find((r) => r.id === workOrderId) ?? null;
     if (!row) {
-      return <PortalDataTableEmpty icon="default" message="Job not found." />;
+      return <PortalDataTableEmpty icon="default" message="Service not found." />;
     }
-    const activeTab: VendorJobDetailTabId = workOrderDetailTab ?? "overview";
-    const backHref = vendorWorkOrderListHref("/vendor", tabId);
+    const activeTab: VendorJobDetailTabId = workOrderDetailTab ?? "service";
+    const bid = bidsByWorkOrderId[row.id];
+    const offer = offersByWorkOrderId[row.id];
+    const stage = vendorServiceStage(row, bid, offer);
+    const invoiceSent = invoicedIds.has(row.id);
+    const next = vendorNextStep({ row, bid, offer, invoiceSent });
+    const reply = vendorEffectiveReply(replyChoice, bid, offer);
+    const backHref = vendorWorkOrderListHref("/vendor", stage);
     const sections = recordSections("vendor", "job", { basePath: "/vendor" });
-    const onHeaderAction = (actionId: string) => {
-      // Accepting/pricing the job and submitting its invoice both live in the
-      // same Bid / Invoice form — the header icon takes you to it rather than
-      // re-implementing the form's validation a second time.
-      if (actionId === "accept" || actionId === "submit-invoice") {
-        navigate(vendorJobDetailHref("/vendor", row.id, "invoice"));
+    const hasSite = vendorCanSeeFullWorkOrderSite(row, bid);
+    const placeLine = vendorPlaceLine(row, bid);
+    const declinable = stage === "open" && (offer?.status === "sent" || bid?.status === "submitted");
+    const goTo = (section: VendorJobDetailTabId) => navigate(vendorJobDetailHref("/vendor", row.id, section));
+
+    // ONE primary: the next step. On Estimate & bid it submits the form below under the same label.
+    const primaryLabel = next ? (next.section === "bid" && reply ? reply.label : next.label) : null;
+    const PrimaryIcon: LucideIcon = next?.id === "schedule" ? CalendarDays : next?.id === "complete" ? Check : Send;
+    const onPrimary = () => {
+      if (!next) return;
+      if (next.id === "send_invoice") {
+        setInvoiceOpen(true);
         return;
       }
-      if (actionId === "schedule") {
-        navigate(vendorJobDetailHref("/vendor", row.id, "schedule"));
+      if (next.section === "bid") {
+        if (activeTab === "bid" && answerSubmitRef.current) answerSubmitRef.current();
+        else goTo("bid");
+        return;
       }
+      if (next.id === "complete" && activeTab === "schedule") {
+        void markDone(row);
+        return;
+      }
+      goTo(next.section);
     };
-    const bid = bidsByWorkOrderId[row.id];
-    const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
-    const vendorPrimary: { label: string; icon: LucideIcon; onClick: () => void } | null =
-      row.biddingOpen && !bid
-        ? { label: "Send quote", icon: Send, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
-        : canMarkDone
-          ? { label: "Mark done", icon: Check, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "invoice")) }
-          : bid?.status === "accepted" && (!row.scheduled || row.scheduled === "—")
-            ? { label: "Schedule visit", icon: CalendarDays, onClick: () => navigate(vendorJobDetailHref("/vendor", row.id, "schedule")) }
-            : null;
+    const onDecline = () => {
+      setReplyChoice(bid ? "cant_do_it" : "decline");
+      goTo("bid");
+    };
+
+    const factRows: Array<{ label: string; value: string }> = [
+      { label: "Service", value: row.title },
+      { label: "Where", value: placeLine || "—" },
+      { label: "Manager", value: row.managerName?.trim() || "—" },
+    ];
+    const answerBy = row.offerExpiresAt ? formatPortalRowDate(row.offerExpiresAt) : "";
+    if (stage === "open" && answerBy) factRows.push({ label: "Answer by", value: answerBy });
+    if (row.description?.trim()) factRows.push({ label: "Details", value: row.description.trim() });
+    if (hasSite && row.residentName) factRows.push({ label: "Resident", value: row.residentName });
+    if (hasSite && row.entryPermission) {
+      factRows.push({ label: "Access", value: `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}` });
+    }
+
+    const canComplete = stage === "scheduled" && !row.automationStatus;
+    const hasVisit = Boolean(row.scheduled && row.scheduled !== "—") || Boolean(row.scheduledAtIso);
+    const invoiceOwed = stage === "completed" && !invoiceSent && row.automationStatus !== "paid" && !(bid?.status === "declined" || offer?.status === "declined");
+
     const ownContent =
-      activeTab === "schedule" ? (
+      activeTab === "bid" ? (
+        <VendorEstimateBidSection
+          row={row}
+          bid={bid}
+          offer={offer}
+          stage={stage}
+          choice={reply?.value ?? vendorDefaultReply(bid)}
+          onChoice={setReplyChoice}
+          submitRef={answerSubmitRef}
+          onSent={async () => {
+            setReplyChoice(null);
+            await loadBids();
+          }}
+          onDecline={async (reason) => {
+            if (offer) await declineOffer(row, offer, reason);
+          }}
+          onWithdraw={() => withdrawBid(row)}
+        />
+      ) : activeTab === "schedule" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
-          {row.scheduled && row.scheduled !== "—" ? (
+          {hasVisit ? (
             <p className="text-sm text-foreground">
-              Visit scheduled for <span className="font-medium">{row.scheduled}</span>
+              Visit <span className="font-medium">{row.scheduledAtIso ? vendorShortWhenLabel(row.scheduledAtIso) : row.scheduled}</span>
             </p>
           ) : (
             <PortalListEmptyCard title="Not yet scheduled" workspaceAware={false} dataAttr="vendor-job-schedule-empty" />
           )}
-          {row.entryPermission ? (
+          {row.entryPermission && hasSite ? (
             <p className="mt-2 text-xs text-muted">
               Entry: {row.entryPermission}
               {row.entryNotes ? ` (${row.entryNotes})` : ""}
             </p>
           ) : null}
+          {canComplete ? renderCompleteForm(row) : null}
         </div>
       ) : activeTab === "invoice" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-bid-invoice">
-          {renderRowDetail(row)}
+          {stage === "completed" && !(bid?.status === "declined" || offer?.status === "declined") ? (
+            <>
+              {renderInvoice(row)}
+              {invoiceSent ? (
+                <p className="mt-3 text-sm font-medium text-foreground" data-attr="vendor-job-invoice-sent">Invoice sent</p>
+              ) : null}
+              {invoiceOwed ? (
+                <div className="mt-3">
+                  <Button type="button" variant="primary" className={`${PORTAL_DETAIL_BTN} rounded-full`} data-attr="vendor-send-invoice" onClick={() => setInvoiceOpen(true)}>
+                    {VENDOR_SERVICE_ACTION_LABEL.sendInvoice}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <PortalListEmptyCard title="No invoice yet" workspaceAware={false} dataAttr="vendor-job-invoice-empty" />
+          )}
         </div>
       ) : activeTab === "communication" ? (
         renderRecordSection("communication", {
           role: "vendor",
-          kind: "job",
-          kindLabel: "job",
+          kind: "service",
+          kindLabel: "service",
           recordId: row.id,
           recordLabel: row.title,
+          contactName: row.managerName?.trim() || undefined,
         })
       ) : (
         <>
-        {renderRecordSection("overview", {
-          role: "vendor",
-          kind: "job",
-          kindLabel: "job",
-          recordId: row.id,
-          recordLabel: row.title,
-          overviewTiles: [
-            { id: "bid", label: "Your bid", value: bid?.amountCents ? `$${(bid.amountCents / 100).toFixed(0)}` : "—" },
-            { id: "status", label: "Status", value: vendorWorkOrderPhaseLabel(row, bid) ?? "—" },
-            { id: "visit", label: "Visit", value: row.scheduled && row.scheduled !== "—" ? String(row.scheduled) : "Not scheduled" },
-            { id: "paid", label: "Paid", value: row.automationStatus === "paid" ? "Paid" : "$0" },
-          ],
-          overviewCards: [
-            {
-              id: "job",
-              title: "Job",
-              action: { label: "Schedule", href: vendorJobDetailHref("/vendor", row.id, "schedule") },
-              rows: [
-                { label: "Details", value: row.description || "—" },
-                ...(vendorCanSeeFullWorkOrderSite(row, bid)
-                  ? [
-                      {
-                        label: "Access",
-                        value: row.entryPermission
-                          ? `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}`
-                          : "—",
-                      },
-                    ]
-                  : []),
-              ],
-            },
-            {
-              id: "site",
-              title: "Site",
-              rows: vendorCanSeeFullWorkOrderSite(row, bid)
-                ? [
-                    { label: "Property", value: propertyLabel(row) || "—" },
-                    { label: "Reference", value: row.reference || "—" },
-                  ]
-                : [{ label: "Area", value: workOrderGeneralArea(row) }],
-            },
-            {
-              id: "payments",
-              title: "Payments",
-              kind: "rows",
-              rows: [],
-              emptyLabel: "No invoice yet",
-              action: { label: "Invoice", href: vendorJobDetailHref("/vendor", row.id, "invoice") },
-            },
-          ],
-        })}
-        <div className="px-3 pb-4 sm:px-4">
-          <ServiceWorkflowStepper steps={vendorServiceWorkflowSteps(row, bid)} />
-        </div>
-        {row.photoDataUrls?.length ? (
-          <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {row.photoDataUrls.map((src, i) => {
-                const trimmed = src.trim();
-                if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-                return (
-                  <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
-                  </a>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-        </>
-      );
-    return (
-      <PortalRecordDetailPage
-        pageTitle="Services"
-        title={row.title}
-        subtitle={vendorPlaceLine(row, bid)}
-        avatarName={row.title}
-        backHref={backHref}
-        backLabel="Back to services"
-        hideBackText
-        bareHeader
-        iconTitleActions
-        pinScrollBody
-      >
-        <PortalRecordActions>
-          <div className="flex items-center justify-end gap-1">
-            {/* Like the studio: Message and Directions first, the one primary action last. */}
-            <PortalIconAction
-              icon={MessageSquare}
-              label="Message"
-              data-attr="vendor-job-message"
-              onClick={() => navigate(vendorJobDetailHref("/vendor", row.id, "communication"))}
-            />
+          {renderRecordSection("overview", {
+            role: "vendor",
+            kind: "service",
+            kindLabel: "service",
+            recordId: row.id,
+            recordLabel: row.title,
+            overviewCards: [{ id: "service", title: "Service", rows: factRows }],
+          })}
+          <div className="flex justify-end px-3 pb-3 pt-1 sm:px-4">
             <PortalIconAction
               icon={Navigation}
               label="Directions"
               data-attr="vendor-job-directions"
               onClick={() =>
                 window.open(
-                  vendorCanSeeFullWorkOrderSite(row, bid) && row.propertyAddress?.trim()
+                  hasSite && row.propertyAddress?.trim()
                     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.propertyAddress.trim())}`
                     : vendorLeadMapsQuery(row),
                   "_blank",
@@ -1134,35 +822,111 @@ export function VendorWorkOrdersPanel({
                 )
               }
             />
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
-            {vendorPrimary ? (
-              <PortalPrimaryIconAction
-                icon={vendorPrimary.icon}
-                label={vendorPrimary.label}
-                data-attr="vendor-job-primary"
-                onClick={vendorPrimary.onClick}
-              />
-            ) : null}
           </div>
-        </PortalRecordActions>
-        <PortalRecordSectionChrome
-          sections={sections}
-          recordId={row.id}
-          activeId={activeTab}
+          {row.photoDataUrls?.length ? (
+            <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {row.photoDataUrls.map((src, i) => {
+                  const trimmed = src.trim();
+                  if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+                  return (
+                    <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </>
+      );
+    return (
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Services"
           title={row.title}
-          subtitle={vendorPlaceLine(row, bid)}
+          subtitle={placeLine}
+          avatarName={row.title}
           backHref={backHref}
-          backLabel="All services"
-          ariaLabel="Job sections"
-          onHeaderAction={onHeaderAction}
+          backLabel="Back to services"
+          hideBackText
+          bareHeader
+          iconTitleActions
+          pinScrollBody
         >
-          {ownContent}
-        </PortalRecordSectionChrome>
-      </PortalRecordDetailPage>
+          <PortalRecordActions>
+            <div className="flex items-center justify-end gap-1">
+              {/* Message · ⋯ (Decline) · the ONE primary next step. */}
+              <PortalIconAction icon={MessageSquare} label="Message" data-attr="vendor-job-message" onClick={() => goTo("communication")} />
+              {declinable ? (
+                <RowActionsMenu
+                  label="More"
+                  items={[{ id: "decline", label: VENDOR_SERVICE_ACTION_LABEL.decline, onSelect: onDecline, dataAttr: "vendor-job-decline" }]}
+                />
+              ) : null}
+              {next && primaryLabel ? (
+                <PortalPrimaryIconAction icon={PrimaryIcon} label={primaryLabel} data-attr="vendor-job-primary" onClick={onPrimary} />
+              ) : null}
+            </div>
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={row.id}
+            activeId={activeTab}
+            title={row.title}
+            subtitle={placeLine}
+            backHref={backHref}
+            backLabel="All services"
+            ariaLabel="Service sections"
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
+        </PortalRecordDetailPage>
+        <VendorQuoteWizard
+          open={invoiceOpen}
+          door="invoice"
+          jobs={[row]}
+          initialJobId={row.id}
+          onClose={() => setInvoiceOpen(false)}
+          onSubmitted={() => {
+            setInvoiceOpen(false);
+            void loadInvoices();
+          }}
+        />
+      </>
     );
   }
 
   const emptyCopy = portalEmptyCopy(`work-orders.${tabId}`);
+  const noMatchTitle = search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search.trim()) : null;
+
+  const renderRow = (row: DemoManagerWorkOrderRow, near = false) => {
+    const bid = bidsByWorkOrderId[row.id];
+    const offer = offersByWorkOrderId[row.id];
+    const stage = vendorServiceStage(row, bid, offer);
+    const fact = vendorServiceFact({ row, bid, offer, invoiceSent: invoicedIds.has(row.id) });
+    const budgetCents = near ? (row.marketplacePublish?.budgetCents ?? 0) : 0;
+    const factIcon = stage === "scheduled" ? CalendarDays : stage === "completed" ? Check : near && !bid ? Sparkles : Clock;
+    return (
+      <div key={row.id} id={`portal-work-order-${row.id}`}>
+        <VendorServiceCardRow
+          title={row.title}
+          placeLine={vendorPlaceLine(row, bid)}
+          dateText={fact}
+          icon={factIcon}
+          figure={budgetCents > 0 ? `${formatBudget(budgetCents)} budget` : vendorJobFigure(row, bid)}
+          checked={selectedIds.has(row.id)}
+          // Only a scheduled job can be completed in bulk, so only those rows offer a checkbox.
+          // A checkbox that selects a row nothing can act on is a promise the dock cannot keep.
+          onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
+          onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
+          dataAttr="vendor-service-row"
+        />
+      </div>
+    );
+  };
 
   return (
     <ManagerPortalPageShell
@@ -1171,34 +935,35 @@ export function VendorWorkOrdersPanel({
       titleInlineFilter={null}
       compactFilterRow
     >
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        destinations={tabs.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          href: tab.href,
-          count: tab.count,
-          dataAttr: tab.dataAttr,
-        }))}
-        activeDestinationId={tabId}
-        destinationAriaLabel="Service status"
-        actions={
-          <PortalIconAction
-            icon={Settings}
-            label={servicesSettingsEntry.label}
-            data-attr={servicesSettingsEntry.dataAttr}
-            onClick={() => setSettingsOpen(true)}
-          />
-        }
-        primary={
-          <PortalPrimaryIconAction
-            label="Add quote"
-            data-attr="vendor-services-add"
-            onClick={() => setQuoteOpen(true)}
-          />
-        }
-      />
+      <div className="mb-2 max-lg:mb-1.5">
+        <RecordTabBand
+          dataAttr="vendor-services-band"
+          ariaLabel="Service status"
+          tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count }))}
+          activeId={tabId}
+          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab))}
+          search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
+          actions={
+            <>
+              <RecordBandFilter
+                dataAttr="vendor-services-band"
+                fields={
+                  propertyOptions.length > 0
+                    ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                    : []
+                }
+              />
+              <PortalIconAction
+                icon={Settings}
+                label={servicesSettingsEntry.label}
+                data-attr={servicesSettingsEntry.dataAttr}
+                onClick={() => setSettingsOpen(true)}
+              />
+            </>
+          }
+          plus={{ label: VENDOR_SERVICE_ACTION_LABEL.submitBid, onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-add" }}
+        />
+      </div>
       {bidsSyncFailed || payoutsSyncFailed ? (
         <p className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="vendor-wo-sync-error">
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.
@@ -1207,9 +972,9 @@ export function VendorWorkOrdersPanel({
       <PortalRecordListSurface
         isEmpty={visible.length === 0}
         emptyCard={{
-          title: emptyCopy.title,
+          title: noMatchTitle ?? emptyCopy.title,
           section: emptyCopy.section,
-          sibling: portalEmptySibling(tabs, tabId),
+          sibling: noMatchTitle ? undefined : portalEmptySibling(tabs, tabId),
         }}
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedDoneable.length}
@@ -1224,7 +989,7 @@ export function VendorWorkOrdersPanel({
                 data-attr="vendor-wo-bulk-mark-done"
                 onClick={() => void markSelectedDone()}
               >
-                Mark done
+                {VENDOR_SERVICE_ACTION_LABEL.complete}
               </Button>
             </div>
           ) : null
@@ -1234,72 +999,9 @@ export function VendorWorkOrdersPanel({
         {nearYouRows.length > 0 ? (
           <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">Near you</p>
         ) : null}
-        {nearYouRows.map((row) => {
-          const bid = bidsByWorkOrderId[row.id];
-          const budgetCents = row.marketplacePublish?.budgetCents ?? 0;
-          return (
-            <div key={row.id} id={`portal-work-order-${row.id}`}>
-              <VendorServiceCardRow
-                title={row.title}
-                placeLine={vendorPlaceLine(row, bid)}
-                dateText={vendorScheduledText(row, "Anytime")}
-                icon={Clock}
-                extraFacts={bid ? <PortalRowFact icon={Check}>Quoted</PortalRowFact> : <PortalRowFact icon={Sparkles}>New</PortalRowFact>}
-                figure={budgetCents > 0 ? `${formatBudget(budgetCents)} budget` : undefined}
-                checked={selectedIds.has(row.id)}
-                onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
-                onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
-                dataAttr="vendor-service-row"
-              />
-            </div>
-          );
-        })}
-        {(tabId === "pending" ? otherPendingRows : visible).map((row) => {
-          const bid = bidsByWorkOrderId[row.id];
-          const phaseLabel = vendorWorkOrderPhaseLabel(row, bid);
-          return (
-            <div key={row.id} id={`portal-work-order-${row.id}`}>
-              <VendorServiceCardRow
-                title={row.title}
-                placeLine={vendorPlaceLine(row, bid)}
-                dateText={vendorScheduledText(row, "Not yet scheduled")}
-                icon={Clock}
-                extraFacts={
-                  phaseLabel ? (
-                    <PortalRowFact icon={phaseLabel === "Paid" || phaseLabel === "Awaiting approval" ? Check : CircleDot}>
-                      {phaseLabel}
-                    </PortalRowFact>
-                  ) : null
-                }
-                figure={vendorJobFigure(row, bid)}
-                checked={selectedIds.has(row.id)}
-                // Only a scheduled job can be marked done in bulk, so only those
-                // rows offer a checkbox. A checkbox that selects a row nothing
-                // can act on is a promise the dock cannot keep.
-                onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
-                onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
-                dataAttr="vendor-service-row"
-              />
-            </div>
-          );
-        })}
+        {nearYouRows.map((row) => renderRow(row, true))}
+        {(tabId === "open" ? otherOpenRows : visible).map((row) => renderRow(row))}
       </PortalRecordListSurface>
-      <VendorBidReplyDialog
-        open={replyRowId !== null}
-        row={rows.find((r) => r.id === replyRowId) ?? null}
-        bid={replyRowId ? bidsByWorkOrderId[replyRowId] : undefined}
-        onClose={() => setReplyRowId(null)}
-        onDone={() => loadBids()}
-        onDecline={async () => {
-          const target = rows.find((r) => r.id === replyRowId);
-          const offer = replyRowId ? offersByWorkOrderId[replyRowId] : undefined;
-          if (target && offer) await declineOffer(target, offer);
-        }}
-        onWithdraw={async () => {
-          const target = rows.find((r) => r.id === replyRowId);
-          if (target) await withdrawBid(target);
-        }}
-      />
       <VendorQuoteWizard
         open={quoteOpen}
         door="quote"
