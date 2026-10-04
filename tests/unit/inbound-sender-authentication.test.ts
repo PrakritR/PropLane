@@ -56,4 +56,17 @@ describe("inboundSenderAuthenticated", () => {
       ),
     ).toBe(false);
   });
+  // Shape Resend actually returns (Amazon SES receiver, lower-cased header map,
+  // SPF properties split into their own clauses, DKIM as header.i=@domain).
+  const ses = (dkimDomain: string) => ({
+    "authentication-results": `amazonses.com; spf=pass (spfCheck: domain of ${dkimDomain} designates 136.143.169.11 as permitted sender) client-ip=136.143.169.11; envelope-from=info@${dkimDomain}; helo=sender-op-o11.zoho.eu; dkim=pass header.i=@${dkimDomain}; dmarc=pass header.from=${dkimDomain};`,
+  });
+
+  it("passes the real Resend/SES header for the From domain", () => {
+    expect(inboundSenderAuthenticated(ses("witetrucks.nl"), "info@witetrucks.nl")).toBe(true);
+  });
+
+  it("fails the real Resend/SES header when From claims another domain", () => {
+    expect(inboundSenderAuthenticated(ses("attacker.example"), "victim@gmail.com")).toBe(false);
+  });
 });
