@@ -3,10 +3,11 @@
 /**
  * The manager Services row — the Payments row (`PortalApplicantRecordRow`), not
  * a second one. One rounded card per service with a gap between cards: the
- * requester's initials in the tile (the property glyph when nobody requested
- * it), the requester as the title, "service · property · room" as the place
- * line, one dated glyph fact, and the price bold on the right when the service
- * has one. The tab says the bucket, so no status chip rides on the row.
+ * service glyph (or the service's first photo) in the tile, the SERVICE as the
+ * title, "property · room" as the place line, glyph facts (the resident, where
+ * the service stands by tab, the money state), and the price bold on the right
+ * when the service has one. The tab says the bucket, so no status chip rides on
+ * the row.
  *
  * Add-on requests and maintenance work orders both render here but stay two
  * models: the caller supplies each row's own figure, menu and open handler
@@ -14,19 +15,22 @@
  */
 
 import type { ReactNode } from "react";
-import { Building2, CalendarDays, Layers, Wrench, type LucideIcon } from "lucide-react";
+import { CalendarDays, UserRound, Wrench, type LucideIcon } from "lucide-react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { managerServiceCardParts, managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
 import type { UnifiedServiceRow } from "@/lib/unified-service-rows";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 
+type RowFact = { icon: LucideIcon; text: string };
+
 export function ManagerServiceCardRow({
   row,
   omitProperty = false,
   figure,
   menu,
-  stageFact,
+  facts,
+  photoUrl,
   checked = false,
   onSelectedChange,
   onOpen,
@@ -43,8 +47,14 @@ export function ManagerServiceCardRow({
   figure?: string;
   /** The row's own ⋯ menu. */
   menu?: ReactNode;
-  /** Where the service stands, by stage ("3 bids · lowest $152", "Rapid Pipes · no time yet", "Wed, Oct 8 · 9am · Rapid Pipes", "To pay"), as a plain glyph fact. */
-  stageFact?: string;
+  /**
+   * Where the service stands by tab ("Requested Sep 25", "Assigned to Rapid Pipes", "Wed, Oct 8 · 9am",
+   * "Completed Sep 27") and its money state ("Bill $152 unpaid", "Paid"), as plain glyph facts. A list
+   * that passes no stage gets the requested/scheduled date instead.
+   */
+  facts?: { stage?: RowFact | null; money?: RowFact | null };
+  /** The service's first photo, when it has one; the wrench tile otherwise. */
+  photoUrl?: string;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
@@ -52,21 +62,24 @@ export function ManagerServiceCardRow({
   rowId?: string;
 }) {
   const parts = managerServiceCardParts(row, { omitProperty });
-  // The stage fact already carries the time ("Wed, Oct 8 · 9am · Rapid Pipes"); never show it twice.
-  const showDate = Boolean(parts.dateFact) && !stageFact;
+  const stage: RowFact | null =
+    facts?.stage ?? (parts.dateFact ? { icon: CalendarDays, text: parts.dateFact.text } : null);
+  const money = facts?.money ?? null;
   return (
     // The list draws its own ⋯ (service menu), so the shared row-actions
     // context must not add a second one beside it.
     <RecordActionContext.Provider value={null}>
       <PortalApplicantRecordRow
         name={parts.name}
-        tileIcon={parts.hasPerson ? undefined : Building2}
+        tileIcon={Wrench}
+        tileImage={photoUrl}
         address={parts.placeLine || undefined}
         facts={
-          stageFact || showDate ? (
+          parts.hasPerson || stage || money ? (
             <>
-              {stageFact ? <PortalRowFact icon={Layers}>{stageFact}</PortalRowFact> : null}
-              {showDate ? <PortalRowFact icon={CalendarDays}>{parts.dateFact!.text}</PortalRowFact> : null}
+              {parts.hasPerson ? <PortalRowFact icon={UserRound}>{parts.person}</PortalRowFact> : null}
+              {stage ? <PortalRowFact icon={stage.icon}>{stage.text}</PortalRowFact> : null}
+              {money ? <PortalRowFact icon={money.icon}>{money.text}</PortalRowFact> : null}
             </>
           ) : undefined
         }

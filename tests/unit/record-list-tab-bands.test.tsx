@@ -237,3 +237,14 @@ describe("one band component, no second implementation", () => {
     expect(read("src/components/portal/service-incoming-payments-list.tsx")).not.toContain("No charges for this service");
   });
 });
+
+describe("list-band tabs", () => {
+  it("draw their focus ring inside the tab, so the scrolling row cannot clip it into a stray bar on the active tab's edge", () => {
+    const css = read("src/app/globals.css");
+    const rule = css.match(/\.portal-shell :is\(([^)]*\[data-slot="local-destination-nav"\] button[^)]*)\):focus-visible \{([^}]*)\}/);
+    expect(rule, "the inset focus rule must name the command tabs").not.toBeNull();
+    expect(rule![1]).toContain('[data-slot="destination-nav"] a');
+    expect(rule![2]).toContain("outline-offset: -2px");
+  });
+});
+

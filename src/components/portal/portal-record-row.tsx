@@ -384,6 +384,7 @@ export function PortalApplicantRecordRow({
   kind = "applicant",
   tileLabel,
   tileIcon,
+  tileImage,
   // Every existing caller (residents, tours, applications, leases, vendors,
   // bookings, payments) renders this tile with none opting into a shape, so
   // the default must keep the pre-`leadingShape` look — the wide rounded
@@ -406,6 +407,11 @@ export function PortalApplicantRecordRow({
    * name (a service with no requester, an unassigned task). The property glyph.
    */
   tileIcon?: LucideIcon;
+  /**
+   * A real photo in the tile (a service's first photo) instead of initials or a
+   * glyph. Decorative: the row's title already names the record.
+   */
+  tileImage?: string;
   /** Square keeps today's wide rectangular tile; round gives a circular avatar. */
   leadingShape?: PortalRecordRowLeadingShape;
 }) {
@@ -420,7 +426,21 @@ export function PortalApplicantRecordRow({
     <PortalPropertyRecordRow
       title={name}
       leading={
-        kind === "cosigner" || tileIcon ? (
+        tileImage ? (
+          <div
+            data-slot="portal-row-photo-tile"
+            className={cn(
+              "overflow-hidden bg-accent/60",
+              leadingShape === "round"
+                ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
+                : "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14",
+              tileRounding,
+            )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={tileImage} alt="" className="size-full object-cover" loading="lazy" />
+          </div>
+        ) : kind === "cosigner" || tileIcon ? (
           <div
             aria-hidden
             data-slot={tileIcon ? "portal-row-glyph-tile" : undefined}

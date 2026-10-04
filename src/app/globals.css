@@ -3901,10 +3901,17 @@ html[data-native] [data-listing-subnav] {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
-.portal-shell :is(.portal-property-row button, .portal-service-row button, [role="tab"], [data-slot="portal-property-rail"] a):focus-visible {
+.portal-shell :is(.portal-property-row button, .portal-service-row button, [role="tab"], [data-slot="portal-property-rail"] a, [data-slot="local-destination-nav"] button, [data-slot="destination-nav"] a):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
+/*
+ * List-band tabs (Services, Tours, Properties' sub-tabs …) sit in a row that scrolls
+ * horizontally, and `overflow-x: auto` clips the Y axis too. The default focus ring sits
+ * 2px OUTSIDE the tab, so the top and bottom of it are clipped and only the two vertical
+ * edges survive in the 4px gap between tabs: a stray blue bar on the active tab's left
+ * edge. Drawing the ring inside the tab keeps all four sides visible.
+ */
 @media (max-width: 767px) {
   .portal-shell {
     --portal-page-gap: 16px;

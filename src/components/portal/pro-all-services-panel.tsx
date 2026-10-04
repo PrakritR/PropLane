@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
-import { managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
+import { managerServiceRequestCardFigure, managerServiceRowFacts } from "@/lib/manager-service-list-row";
 import { managerServiceRequestRowMenuItems, managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
   fetchVendorInvoiceIdForWorkOrder,
@@ -51,6 +51,7 @@ import {
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
 import { cn } from "@/lib/utils";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -122,18 +123,17 @@ import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import {
+  applyAcceptedBid,
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { countSubmittedBids } from "@/lib/work-order-bid-cycle";
+import { countSubmittedBids, serviceIsVendorPayable } from "@/lib/work-order-bid-cycle";
 import {
   SERVICE_STAGE_TABS,
   addOnServiceStage,
-  addOnStageFact,
   addOnStageSteps,
   formatServiceWhen,
   workOrderServiceStage,
-  workOrderStageFact,
   type ServiceStage,
 } from "@/lib/service-lifecycle";
 import { ServiceVendorPipeline, type VendorsIntent } from "@/components/portal/service-vendor-cycle-section";
@@ -847,6 +847,28 @@ export function ManagerAllServicesPanel({
       : addOnRequest
         ? managerServiceRequestCardFigure(addOnRequest)
         : undefined;
+    const rowBids = maintenanceRow ? allBids.filter((bid) => bid.workOrderId === maintenanceRow.id) : [];
+    const acceptedBid = rowBids.find((bid) => bid.status === "accepted");
+    // The vendor's bill rides on a completed vendor job; an approved add-on is billed to the resident.
+    const billedWorkOrder = maintenanceRow ? applyAcceptedBid(maintenanceRow, rowBids) : null;
+    const bill =
+      billedWorkOrder && row.state === "completed" && costFigure && serviceIsVendorPayable(billedWorkOrder)
+        ? { amount: costFigure, paid: billedWorkOrder.automationStatus === "paid" }
+        : addOnRequest && addOnRequest.status !== "pending" && addOnRequest.status !== "denied" && costFigure
+          ? { amount: costFigure, paid: addOnRequest.servicePaid }
+          : null;
+    const rowFacts = managerServiceRowFacts({
+      state: row.state,
+      createdIso: row.createdIso,
+      scheduledIso: row.scheduledIso || row.proposedVisit?.iso,
+      completedIso: maintenanceRow
+        ? maintenanceRow.completedAt
+        : addOnRequest?.returnedAt || addOnRequest?.deniedAt || addOnRequest?.approvedAt,
+      assigneeName: maintenanceRow
+        ? resolveWorkOrderAssignee(maintenanceRow)?.name || acceptedBid?.vendorName
+        : addOnRequest?.assignee?.name,
+      bill,
+    });
     const menuItems = maintenanceRow
       ? managerServiceRowMenuItems(maintenanceRow, {
           bidCount,
@@ -947,16 +969,8 @@ export function ManagerAllServicesPanel({
         row={row}
         omitProperty={omitPropertyInSubtitle}
         figure={costFigure}
-        stageFact={
-          maintenanceRow
-            ? workOrderStageFact(maintenanceRow, {
-                bids: allBids.filter((bid) => bid.workOrderId === maintenanceRow.id),
-                offers: allOffers.filter((offer) => offer.workOrderId === maintenanceRow.id),
-              })
-            : addOnRequest
-              ? addOnStageFact(addOnRequest)
-              : undefined
-        }
+        facts={rowFacts}
+        photoUrl={maintenanceRow?.photoDataUrls?.find((url) => url.trim()) || undefined}
         menu={
           menuItems.length > 0 ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
@@ -1295,14 +1309,17 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className={cn("plp-listsurface", !servicesListIsEmpty && "border-t border-border")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className={cn("plp-listsurface", !servicesListIsEmpty && "border-t border-border pb-0 lg:pb-0 max-lg:pb-0")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
       ) : null}>
-          <div data-attr="services-flat-list">
-            {visibleUnifiedRows.map((row) => renderServiceRow(row, Boolean(lockedPropertyId)))}
-          </div>
+          {/* Flush rows: the joined card draws one hairline between rows and ends at the last one. */}
+          <PortalListGroupRowContext.Provider value={true}>
+            <div data-attr="services-flat-list" className="divide-y divide-border/60">
+              {visibleUnifiedRows.map((row) => renderServiceRow(row, Boolean(lockedPropertyId)))}
+            </div>
+          </PortalListGroupRowContext.Provider>
       </PortalRecordListSurface>
       </div>
 
