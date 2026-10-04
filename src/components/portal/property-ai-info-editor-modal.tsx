@@ -113,6 +113,8 @@ export function PropertyAiInfoEditorModal({
               <div className="mt-3">
                 <FieldSingleSelect
                   label="Category"
+                  // Sentence case and the same weight as the Title and body labels around it.
+                  labelClassName="mb-2 block text-sm font-semibold text-foreground"
                   value={group ?? "home"}
                   onChange={onGroupChange}
                   options={AI_INFO_GROUP_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}

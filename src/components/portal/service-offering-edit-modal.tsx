@@ -24,8 +24,8 @@ function RpSvcBand({ children, first }: { children: ReactNode; first?: boolean }
     <p
       className={
         first
-          ? "px-4 pb-1 pt-3 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted"
-          : "border-t border-border/60 px-4 pb-1 pt-3 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted"
+          ? "px-3.5 pb-1 pt-3.5 text-[15.5px] font-bold tracking-tight text-foreground"
+          : "border-t border-border/60 px-3.5 pb-1 pt-3.5 text-[15.5px] font-bold tracking-tight text-foreground"
       }
     >
       {children}
@@ -379,6 +379,7 @@ export function ServiceOfferingEditModal({
       lastDisabled={!resolvedName}
       onFinish={save}
       dataAttrPrefix="service-offering"
+      hideFooterStepCount
       finishDataAttr="service-offering-save"
       footerNote={error ? <span className="text-sm text-red-600">{error}</span> : null}
       dangerAction={
@@ -397,7 +398,7 @@ export function ServiceOfferingEditModal({
       <div className="ps40-form" data-ps40-svc-form>
         <div className="rp-svc overflow-hidden rounded-2xl border border-border bg-card">
           <RpSvcBand first>Service</RpSvcBand>
-          <FactRow label="Name" first>
+          <FactRow label="Name" first required>
             <FieldSingleSelect
               label="Name"
               hideLabel
