@@ -104,8 +104,8 @@ other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
 `20260927134258_listing_syndication_per_workspace.sql`) follows
 `manager_house_public_links`'s shape exactly: service-role only, `revoke all
 ... from anon, authenticated`. The manager-facing "Zillow feed URL" settings
-row (Settings → Properties, `ZillowFeedUrlRow` in
-`pro-portal-settings-panels.tsx`) reads/creates it through
+row (Settings → Integrations → Posting, `ZillowFeedRow` in
+`integrations-posting-panel.tsx`, with the "N of M listings posting" fact) reads/creates it through
 `GET /api/manager/syndication-feed`, an authenticated route that resolves the
 caller's ACTIVE workspace (`resolveWorkspaceFromSettingsRequest` — explicit
 `?workspaceId=`, else the workspace-switcher cookie, else the viewer's own
@@ -116,8 +116,8 @@ break that registration.
 
 ## Registering the feed with Zillow
 
-1. Open Settings → Properties in the manager portal and copy the "Zillow feed
-   URL" row (creates the feed on first read).
+1. Open Settings → Integrations → Posting in the manager portal and copy the
+   Zillow feed link (creates the feed on first read).
 2. Submit that URL once to Zillow's Rental Network feed registration (covers
    Zillow, Trulia and HotPads together — there is no separate step per site).
 3. Per listing, turn on "Also list on Zillow, Trulia and HotPads" from that

@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 
 import {
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    const browserOrigin = resolveRequestOrigin(req);
     if (roomId) {
       // The destination is the site the link is pasted into; "other" carries every channel.
       const rawDestination = url.searchParams.get("provider")?.trim() ?? "";
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);
-    const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    const browserOrigin = resolveRequestOrigin(req);
     const body = (await req.json()) as {
       propertyId?: string;
       roomId?: string;

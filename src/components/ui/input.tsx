@@ -29,7 +29,9 @@ function optionFromElement(child: React.ReactElement): CheckboxMultiSelectOption
     typeof props.children === "string" || typeof props.children === "number"
       ? String(props.children)
       : Children.toArray(props.children).join("");
-  return { value: String(props.value ?? ""), label };
+  // <option>{v}</option> with no value attribute submits its text, so fall back to the label
+  // rather than "" (which made every such option read as the selected one).
+  return { value: props.value === undefined ? label : String(props.value), label };
 }
 
 function optionsFromSelectChildren(children: ReactNode): {

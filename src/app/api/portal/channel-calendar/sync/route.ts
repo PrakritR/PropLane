@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
@@ -32,8 +33,7 @@ export async function POST(req: Request) {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    const url = new URL(req.url);
-    const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    const browserOrigin = resolveRequestOrigin(req);
     const body = (await req.json()) as { connectionId?: string };
     const connectionId = body.connectionId?.trim() ?? "";
     if (!connectionId) {
