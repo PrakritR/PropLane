@@ -396,8 +396,10 @@ describe("folding texts into the resident's conversation", () => {
 
 describe("applyResidentConversationExtras - rows with no workspace key are named from their own manager email", () => {
   const roles = (...ids: string[]) => ({ profile_roles: ids.map((user_id) => ({ user_id, role: "manager" })) });
+  // `threadType` is the server's column (a browser's upsert always writes it
+  // null), so it is what marks a row whose stored email the SERVER chose.
   const unkeyed = (over: Partial<PersistedInboxThread> = {}) =>
-    storedRow({ id: "thread-legacy", from: "Property manager", conversationKey: undefined, workspaceId: undefined, ...over });
+    storedRow({ id: "thread-legacy", from: "Property manager", threadType: "portal_message", conversationKey: undefined, workspaceId: undefined, ...over });
 
   it("a legacy row whose email is the linked manager's account email is titled with that manager", async () => {
     const { rows } = await applyResidentConversationExtras(
@@ -451,6 +453,38 @@ describe("applyResidentConversationExtras - rows with no workspace key are named
     const forged = { ...unkeyed({ email: "stranger@x.co" }), counterparty: { workspaceId: W2, name: "Marco Landlord", workspaceName: "Marco Rentals", workPhone: "+12065550102", avatarUrl: null, initials: "ML" } } as PersistedInboxThread;
     const { rows } = await applyResidentConversationExtras(seededDb(roles(M1, M2)), { id: R, mayReadResidentTexts: false }, [forged]);
     expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
+  it("a row a BROWSER wrote is never named from its email, even when the email is a linked manager's", async () => {
+    // The oracle this closes: the resident POSTs a row naming a guessed
+    // address and reads back whether the list titles it with a manager.
+    const forgedEmail = { ...unkeyed({ email: "m1@x.co" }), threadType: null } as PersistedInboxThread;
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1)),
+      { id: R, mayReadResidentTexts: false },
+      [forgedEmail],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain("Maya");
+  });
+
+  it("a manager whose profile stores a MIXED-CASE email is still matched", async () => {
+    const db = seededDb(roles(M1));
+    db.tables.profiles!.find((row) => row.id === M1)!.email = "Maya.Manager@X.co";
+    const { rows } = await applyResidentConversationExtras(db, { id: R, mayReadResidentTexts: false }, [
+      unkeyed({ email: "maya.manager@x.co" }),
+    ]);
+    expect(rows[0]!.counterparty).toMatchObject({ name: "Maya Manager", workspaceId: W1 });
+  });
+
+  it("a wildcard in a row's email never widens the lookup into another manager", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1, M2)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "%@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain("Maya");
   });
 
   it("the PropLane Assistant row is never given a manager", async () => {

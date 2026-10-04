@@ -36,11 +36,24 @@ function parseOr(filter: string): Array<(row: Row) => boolean> {
   }
   if (current) parts.push(current);
   return parts.map((part) => {
-    const match = /^([^.]+)\.(eq|is)\.(.*)$/.exec(part);
+    const match = /^([^.]+)\.(eq|is|ilike)\.(.*)$/.exec(part);
     if (!match) return () => false;
     const [, column, op, rawValue] = match;
     const value = rawValue!.startsWith('"') ? rawValue!.slice(1, -1).replace(/\\(["\\])/g, "$1") : rawValue!;
     if (op === "is") return (row: Row) => cell(row, column!) === null || cell(row, column!) === undefined;
+    // `ilike` is a case-insensitive PATTERN, not an equality: PostgREST reads
+    // `*` as `%`, and `%` / `_` are wildcards. Modelled here so a caller that
+    // forgets to escape a value is caught by the fake rather than by production.
+    if (op === "ilike") {
+      const pattern = new RegExp(
+        `^${value
+          .replace(/[.*+?^${}()|[\]\\]/g, (ch) => (ch === "*" ? "%" : `\\${ch}`))
+          .replace(/%/g, ".*")
+          .replace(/_/g, ".")}$`,
+        "i",
+      );
+      return (row: Row) => pattern.test(String(cell(row, column!) ?? ""));
+    }
     return (row: Row) => String(cell(row, column!) ?? "") === value;
   });
 }
