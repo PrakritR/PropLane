@@ -101,11 +101,16 @@ export function ServiceDetailsSection({
       {tab === "photos" ? (
         safePhotos.length > 0 ? (
           <div className="grid grid-cols-2 gap-2 px-3 sm:grid-cols-3 sm:px-4" data-attr="work-order-photos">
-            {safePhotos.map((src, index) => (
-              <a key={`${index}-${src.slice(-24)}`} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
-                <Image src={src} alt={`Service photo ${index + 1}`} width={240} height={180} className="h-28 w-full object-cover" unoptimized />
-              </a>
-            ))}
+            {/* The allowlist is re-tested on the value that reaches <a href> / <Image src>, so it
+                sits directly on the sinks: no other-scheme string can be rendered even if the
+                list above is ever rebuilt from somewhere else. */}
+            {safePhotos.map((src, index) =>
+              SAFE_PHOTO_HREF_RE.test(src) ? (
+                <a key={`${index}-${src.slice(-24)}`} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                  <Image src={src} alt={`Service photo ${index + 1}`} width={240} height={180} className="h-28 w-full object-cover" unoptimized />
+                </a>
+              ) : null,
+            )}
           </div>
         ) : (
           <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="work-order-photos-empty" />

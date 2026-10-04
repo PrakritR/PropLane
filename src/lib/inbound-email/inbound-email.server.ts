@@ -135,8 +135,23 @@ function stripHtmlComments(html: string): string {
 }
 
 const SCRIPT_OR_STYLE_OPEN = /<(script|style)\b/i;
-const SCRIPT_CLOSE = /<\/script[^>]*>/i;
-const STYLE_CLOSE = /<\/style[^>]*>/i;
+
+/**
+ * End index (exclusive) of the `</script…>` / `</style…>` that closes the element, or -1 when
+ * the mail never closes it.
+ *
+ * Index scan, not `/<\/script[^>]*>/i`: a literal prefix followed by an unbounded `[^>]*`
+ * re-scans to the end of the document from every `</script` the body contains, so mail made of
+ * nothing but those costs quadratic time (CodeQL js/polynomial-redos). A closing tag ends at the
+ * first `>` after its name, which is all that pattern ever resolved to, and once no `>` is left
+ * no later occurrence can close the element either.
+ */
+function closingTagEnd(html: string, tag: "script" | "style"): number {
+  const at = html.toLowerCase().indexOf(`</${tag}`);
+  if (at < 0) return -1;
+  const close = html.indexOf(">", at + tag.length + 2);
+  return close < 0 ? -1 : close + 1;
+}
 
 /**
  * Drop every `<script>` / `<style>` element with its contents. Looped for the same reason
@@ -149,20 +164,44 @@ function stripScriptAndStyleElements(html: string): string {
     const open = SCRIPT_OR_STYLE_OPEN.exec(out);
     if (!open) return out;
     const rest = out.slice(open.index + open[0].length);
-    const close = (open[1]!.toLowerCase() === "script" ? SCRIPT_CLOSE : STYLE_CLOSE).exec(rest);
+    const closeEnd = closingTagEnd(rest, open[1]!.toLowerCase() === "script" ? "script" : "style");
     // No closing tag: the element runs to the end, so nothing after it survives either.
-    out = close
-      ? `${out.slice(0, open.index)}${rest.slice(close.index + close[0].length)}`
-      : out.slice(0, open.index);
+    out =
+      closeEnd < 0
+        ? out.slice(0, open.index)
+        : `${out.slice(0, open.index)}${rest.slice(closeEnd)}`;
+  }
+}
+
+/**
+ * Drop every remaining `<…>` tag.
+ *
+ * Index scan, not `.replace(/<[^>]+>/g, "")`: that pattern needs a closing `>`, so an
+ * unterminated `<script` at the end of the mail survives the pass untouched
+ * (CodeQL js/incomplete-multi-character-sanitization). A `<` with no `>` after it opens a tag
+ * that runs to the end of the document, exactly as a parser would treat it, so nothing from
+ * there on is kept.
+ */
+function stripHtmlTags(html: string): string {
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const open = html.indexOf("<", at);
+    if (open < 0) return out + html.slice(at);
+    out += html.slice(at, open);
+    const close = html.indexOf(">", open + 1);
+    if (close < 0) return out;
+    at = close + 1;
   }
 }
 
 /** Minimal, dependency-free HTML → text: drop scripts/styles, keep line breaks. */
 export function htmlToText(html: string): string {
-  return stripScriptAndStyleElements(stripHtmlComments(html))
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
+  return stripHtmlTags(
+    stripScriptAndStyleElements(stripHtmlComments(html))
+      .replace(/<\s*br\s*\/?>/gi, "\n")
+      .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, "\n"),
+  )
     .replace(/&nbsp;/gi, " ")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")

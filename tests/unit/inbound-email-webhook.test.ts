@@ -150,6 +150,14 @@ describe("parseInboundEmailWebhook", () => {
     expect(htmlToText("<p>Hello</p><p>World</p><script>bad()</script>")).toBe("Hello\nWorld");
   });
 
+  it("htmlToText drops an unterminated tag rather than leaving it in the text", () => {
+    // A `<script` with no closing `>` is what a single `/<[^>]+>/g` pass leaves behind.
+    expect(htmlToText("<p>Hi</p><script")).toBe("Hi");
+    // An unclosed <style> swallows the rest, as a parser would; a closed one does not.
+    expect(htmlToText("<style>a{}</style>body")).toBe("body");
+    expect(htmlToText("<style>a{}body")).toBe("");
+  });
+
   it("htmlToText decodes each entity exactly once", () => {
     // &amp;lt; is a literally escaped "&lt;" — decoding &amp; first would
     // double-decode it into "<" and corrupt quoted markup.

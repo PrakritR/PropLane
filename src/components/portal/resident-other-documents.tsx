@@ -214,6 +214,12 @@ export function uploadedDocumentKind(row: UploadedOwnLease): string {
 }
 
 /**
+ * The preview `<img src>` allowlist: a locally-minted `blob:` object URL, matched whole rather
+ * than by prefix so the check can stand on its own at the sink.
+ */
+const BLOB_PREVIEW_SRC_RE = /^blob:[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]+$/;
+
+/**
  * Popup for the Documents page's top-right "Add" action. One form accepts any
  * supported file — a photo, PDF, or document — with the type inferred from what
  * the user picks (`documentKindFromMime`), never chosen up front. Saves into the
@@ -381,12 +387,12 @@ export function ResidentAddDocumentModal({
           ) : null}
         </div>
 
-        {previewUrl && previewUrl.startsWith("blob:") ? (
+        {previewUrl && BLOB_PREVIEW_SRC_RE.test(previewUrl) ? (
           // `previewUrl` is always a locally-minted `blob:` object URL
-          // (`URL.createObjectURL`, both here and in `useNativeCamera`). Re-check
-          // the exact `blob:` prefix on the value that reaches this <img src>, so
-          // the allowlist sits directly on the sink and no other-scheme string can
-          // ever be rendered as an image source.
+          // (`URL.createObjectURL`, both here and in `useNativeCamera`). The allowlist
+          // above re-tests that on the value that reaches this <img src>, so it sits
+          // directly on the sink and no other-scheme string can ever be rendered as an
+          // image source.
           // eslint-disable-next-line @next/next/no-img-element
           <img src={previewUrl} alt="Preview" className="max-h-56 w-full rounded-xl border border-border object-contain" />
         ) : null}
