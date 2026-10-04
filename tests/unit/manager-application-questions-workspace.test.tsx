@@ -289,17 +289,22 @@ describe("⋯ reorder menu", () => {
 });
 
 describe("built-in controls that match the applicant form", () => {
-  it("keeps structural household labels and order fixed while preserving supported visibility", async () => {
+  it("lets a household question be reworded, reworded per choice and deleted; its choices can be neither added, removed nor moved", async () => {
     renderEditor();
     await waitWorkspace();
     jumpRail("household");
     expandFirstQuestion();
-    expect(document.querySelector('[data-attr="application-question-label"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-question-label-text"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr^="application-question-option-"]')).toBeNull();
-    expect(screen.getByText("Yes", { exact: true })).toBeTruthy();
-    expect(screen.getByText("No", { exact: true })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Reorder Group application/ })).toBeNull();
+    const label = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement;
+    expect(label.value).toBe("Group application");
+    expect(document.querySelector('[data-attr="application-question-label-text"]')).toBeNull();
+    const yes = document.querySelector('[data-attr="application-question-option-0"]') as HTMLInputElement;
+    const no = document.querySelector('[data-attr="application-question-option-1"]') as HTMLInputElement;
+    expect([yes.value, no.value]).toEqual(["Yes", "No"]);
+    expect(document.querySelector('[data-attr="application-question-option-add"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-option-remove"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-option-move-up"]')).toBeNull();
+    fireEvent.change(yes, { target: { value: "Yes, with a group" } });
+    expect((document.querySelector('[data-attr="application-question-option-0"]') as HTMLInputElement).value).toBe("Yes, with a group");
     expect(document.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
   });
 

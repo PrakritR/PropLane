@@ -221,7 +221,7 @@ describe("sections", () => {
   it("the PropLane-required sections are locked: switch disabled, lock glyph, never switched off", () => {
     const onState = vi.fn();
     render(<ApplicationHarness onState={onState} />);
-    for (const id of ["personal", "employment"]) {
+    for (const id of ["personal", "property"]) {
       const sw = document.querySelector(`[data-attr="application-questions-editor-section-switch-${id}"]`) as HTMLButtonElement;
       expect(sw.disabled).toBe(true);
       expect(sw.getAttribute("aria-checked")).toBe("true");

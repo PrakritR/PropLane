@@ -175,40 +175,45 @@ describe("application-field-catalog", () => {
     });
   });
 
-  // C195 (studio decision): built-in questions screening/charges/leases read
-  // directly stay locked; only custom questions are free to remove.
-  it("a manager cannot remove SSN, ID or income via the editor — screening/charges/leases read them directly", () => {
-    // The lock is enforced once, at the editor's own remove action
-    // (`removeListingApplicationField`) — not at every read of a stored
-    // disabled-keys list, which must still honor PropLane's own short-term
-    // curated default that legitimately disables these same fields by
-    // design (see application-form-variants.test.ts).
-    const ssn = catalogField("personal", "Social Security number");
-    const id = catalogField("personal", "Driver's license / ID");
-    const income = catalogField("employment", "Monthly / annual income");
-    expect(NEVER_DISABLED_STANDARD_KEYS).toEqual(
-      expect.arrayContaining([ssn.standardKey, id.standardKey, income.standardKey]),
+  // The captain lifted C195 (built-ins stay locked): only what the application cannot function without is
+  // undeletable. Every other built-in, including the household pair, SSN, ID, DOB and income, can be removed.
+  it("only name, phone, email, property, first room choice and lease term cannot be removed", () => {
+    const keys = (...args: Parameters<typeof catalogField>) => catalogField(...args).standardKey;
+    expect([...NEVER_DISABLED_STANDARD_KEYS].sort()).toEqual(
+      [
+        keys("personal", "Full legal name"),
+        keys("personal", "Phone"),
+        keys("personal", "Email"),
+        keys("property", "Property"),
+        keys("property", "Room choices (1st – 3rd)"),
+        keys("property", "Lease term"),
+      ].sort(),
     );
 
     const sub = createDefaultListingSubmission();
-    for (const def of [ssn, id, income]) {
-      const field = resolveListingApplicationFields(sub, normalizeCustomApplicationFields).find(
-        (f) => f.standardKey === def.standardKey,
-      )!;
+    const resolved = resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
+    for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
+      const field = resolved.find((f) => f.standardKey === def.standardKey)!;
       const result = removeListingApplicationField(sub, field);
-      expect(result.disabledStandardApplicationKeys).not.toContain(def.standardKey);
+      expect(result.disabledStandardApplicationKeys.includes(def.standardKey), def.standardKey).toBe(
+        !NEVER_DISABLED_STANDARD_KEYS.includes(def.standardKey),
+      );
     }
+  });
 
-    // A stored disabled-keys list still resolves as configured (the
-    // short-term default's own legitimate hide), never force-reversed here.
-    const forced = {
-      ...sub,
-      disabledStandardApplicationKeys: [ssn.standardKey, id.standardKey, income.standardKey],
-    };
-    const fields = resolveListingApplicationFields(forced, normalizeCustomApplicationFields);
-    expect(fields.some((f) => f.standardKey === ssn.standardKey)).toBe(false);
-    expect(fields.some((f) => f.standardKey === id.standardKey)).toBe(false);
-    expect(fields.some((f) => f.standardKey === income.standardKey)).toBe(false);
+  it("a deleted household question, SSN, ID or income resolves as not asked", () => {
+    const keys = [
+      catalogField("household", "Group application").standardKey,
+      catalogField("household", "Co-signer planned").standardKey,
+      catalogField("personal", "Social Security number").standardKey,
+      catalogField("personal", "Driver's license / ID").standardKey,
+      catalogField("employment", "Monthly / annual income").standardKey,
+    ];
+    const fields = resolveListingApplicationFields(
+      { ...createDefaultListingSubmission(), disabledStandardApplicationKeys: keys },
+      normalizeCustomApplicationFields,
+    );
+    for (const key of keys) expect(fields.some((f) => f.standardKey === key)).toBe(false);
   });
 
   it("keeps income optional even though it can no longer be disabled", () => {

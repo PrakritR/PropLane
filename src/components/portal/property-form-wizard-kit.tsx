@@ -10,7 +10,7 @@ export type PropertyFormStartFrom = "proplane" | "upload" | "copy";
 
 export const PROPERTY_FORM_START_FROM_OPTIONS: { value: PropertyFormStartFrom; label: string }[] = [
   { value: "proplane", label: "PropLane standard" },
-  { value: "upload", label: "Upload PDF" },
+  { value: "upload", label: "Upload a PDF" },
   { value: "copy", label: "Copy existing" },
 ];
 

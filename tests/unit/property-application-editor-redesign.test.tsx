@@ -68,15 +68,15 @@ describe("F003: Sections step default-sections checklist", () => {
     await waitWorkspace();
 
     jumpRail("sections");
-    // One row per section, a switch each: turning Property information off leaves its row in the list, switched off.
-    const propertySwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-property"]') as HTMLElement | null;
+    // One row per section, a switch each: turning References off leaves its row in the list, switched off.
+    const propertySwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-references"]') as HTMLElement | null;
     expect(propertySwitch).not.toBeNull();
     expect(propertySwitch!.getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(propertySwitch!);
     expect(propertySwitch!.getAttribute("aria-checked")).toBe("false");
 
-    expect(document.querySelectorAll('[data-attr="application-questions-editor-section-property"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-attr="application-questions-editor-section-references"]')).toHaveLength(1);
     const householdSwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-household"]') as HTMLElement | null;
     expect(householdSwitch!.getAttribute("aria-checked")).toBe("true");
   });

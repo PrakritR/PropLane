@@ -55,6 +55,7 @@ export function YesNoPills({
   fieldKey,
   suppressError = false,
   dataAttr,
+  labels,
 }: {
   value: YesNoValue;
   onChange: (v: "yes" | "no") => void;
@@ -64,6 +65,8 @@ export function YesNoPills({
   /** When a parent row (e.g. ApplyFieldRow) renders the error message. */
   suppressError?: boolean;
   dataAttr?: string;
+  /** The wording of each choice (a built-in question the manager reworded); the stored value stays yes / no. */
+  labels?: { yes?: string; no?: string };
 }) {
   return (
     <div data-wizard-field={fieldKey} className={wizardSectionErrorClass(Boolean(error))}>
@@ -77,7 +80,7 @@ export function YesNoPills({
           onClick={() => onChange("yes")}
           data-attr={dataAttr ? `${dataAttr}-yes` : undefined}
         >
-          Yes
+          {labels?.yes || "Yes"}
         </button>
         <button
           type="button"
@@ -86,7 +89,7 @@ export function YesNoPills({
           onClick={() => onChange("no")}
           data-attr={dataAttr ? `${dataAttr}-no` : undefined}
         >
-          No
+          {labels?.no || "No"}
         </button>
       </div>
       {suppressError ? null : <FieldError msg={error} />}

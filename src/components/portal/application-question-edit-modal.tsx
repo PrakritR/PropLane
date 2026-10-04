@@ -78,9 +78,12 @@ export function sanitizeCustomApplicationFieldsForSave(
 export function OptionRowsEditor({
   options,
   onChange,
+  reword = false,
 }: {
   options: readonly string[];
   onChange: (next: string[]) => void;
+  /** Each choice can be reworded only: none is added, removed or moved (the system reads its stored value). */
+  reword?: boolean;
 }) {
   const duplicateIndexes = (() => {
     const seen = new Map<string, number>();
@@ -123,6 +126,8 @@ export function OptionRowsEditor({
             className={duplicateIndexes.has(i) ? "border-red-300 ring-2 ring-red-100" : undefined}
             data-attr={`application-question-option-${i}`}
           />
+          {reword ? null : (
+          <>
           <button
             type="button"
             className={PORTAL_EDIT_ROW_ICON_BUTTON_CLASS}
@@ -155,13 +160,15 @@ export function OptionRowsEditor({
           >
             <X className="h-4 w-4" strokeWidth={2.25} aria-hidden />
           </button>
+          </>
+          )}
           </div>
         </div>
       ))}
       {duplicateIndexes.size > 0 ? (
         <p className="text-xs text-amber-700">Duplicate options are merged when you save.</p>
       ) : null}
-      <button
+      {reword ? null : <button
         type="button"
         onClick={() => onChange([...options, ""])}
         className="inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-border px-3 text-xs font-semibold text-muted transition hover:border-primary/40 hover:text-foreground"
@@ -169,7 +176,7 @@ export function OptionRowsEditor({
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
         Add option
-      </button>
+      </button>}
     </div>
   );
 }
@@ -185,6 +192,7 @@ export function ApplicationQuestionFields({
   editableLabel = true,
   editableRequired = true,
   editableOptions,
+  rewordOptions = false,
   editableType = true,
   blockedTypes = [],
   extraTypes = [],
@@ -204,6 +212,8 @@ export function ApplicationQuestionFields({
   editableLabel?: boolean;
   editableRequired?: boolean;
   editableOptions?: boolean;
+  /** The choices can be reworded only (a built-in the system reads by stored value). */
+  rewordOptions?: boolean;
   editableType?: boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
   /** Types a host form adds beyond the application vocabulary (move-in forms: Photos, Signature). */
@@ -282,6 +292,7 @@ export function ApplicationQuestionFields({
               <OptionRowsEditor
                 options={field.options}
                 onChange={(options) => onPatch({ options })}
+                reword={rewordOptions}
               />
             ) : (
               <div className="space-y-1 rounded-xl border border-border bg-muted/30 p-3" aria-label="Answer choices">

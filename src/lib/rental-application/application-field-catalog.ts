@@ -164,16 +164,12 @@ export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLI
 const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
 
 /**
- * Screening, charges and leases read these built-ins directly — disabling one
- * breaks approval or billing later with no error at disable-time (studio
- * decision C195: "built-in questions stay locked; custom ones are free").
- * Superset of {@link REQUIRED_IDENTITY_STANDARD_KEYS}: name/phone/email (always
- * required, see above) plus SSN, ID and income — but unlike the identity trio
- * these keep their own catalog `required` default (income in particular stays
- * optional, so an unemployed applicant can still submit). This set only ever
- * blocks REMOVING the question, never its required-ness.
+ * Built-ins that screening, charges and leases read BY KEY, so their answer TYPE is fixed (see
+ * {@link TYPE_LOCKED_STANDARD_KEYS}). Name, phone and email (always required) plus date of birth, SSN,
+ * ID and income. Reading a key does not make a question undeletable: a manager may remove any of these
+ * but the ones in {@link NEVER_DISABLED_STANDARD_KEYS}; screening reports a missing answer instead.
  */
-export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+export const SYSTEM_READ_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
     REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
     (field.section === "personal" &&
@@ -181,7 +177,54 @@ export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICAT
     (field.section === "employment" && field.label === "Monthly / annual income"),
 ).map((field) => field.standardKey);
 
+const SYSTEM_READ_STANDARD_KEY_SET = new Set(SYSTEM_READ_STANDARD_KEYS);
+
+/**
+ * The ONLY built-ins a manager cannot remove (the application cannot function without them), each grep-verified:
+ *   fullLegalName, email   lib/generated-lease.ts (tenant), lib/checkr/background-check.ts (screening hand-off),
+ *                          api/portal/resident-approval (the resident account is created from them)
+ *   phone                  forced on in `asStringArray`, `resolveListingApplicationFields`, the publish gate and the
+ *                          PDF import mapping; resident-approval reads it for notices
+ *   propertyId, roomChoice1, leaseTerm
+ *                          validate.ts only asks for them while enabled, and api/stripe/application-fee-checkout,
+ *                          api/public/application-fee-preview and lib/household-charges.ts price the application from
+ *                          the room and the term, so an application without them has nothing to be priced or placed
+ * Everything else (the household questions, dates, DOB, SSN, ID, income ...) can be deleted; the application then
+ * simply does not ask it (an individual applicant, no co-signer, no ID number).
+ */
+export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
+    (field.section === "personal" && field.label === "Full legal name") ||
+    (field.section === "property" &&
+      (field.label === "Property" || field.label === "Room choices (1st – 3rd)" || field.label === "Lease term")),
+).map((field) => field.standardKey);
+
 export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
+
+/**
+ * Built-ins whose answer choices the applicant wizard reads by their STORED VALUE (the wizard compares
+ * `applyingAsGroup === "yes"`). The manager may reword each choice, but position i always stores value i, so the
+ * choices can be neither added, removed nor reordered. Marked here, in code, not in the editor.
+ */
+export const BUILT_IN_ANSWER_VALUES: Readonly<Record<string, readonly string[]>> = {
+  "household-group-application": ["yes", "no"],
+  "household-co-signer-planned": ["yes", "no"],
+};
+
+/** The choices a built-in question shows: the manager's wording when it kept every choice, else the catalog's. */
+export function builtInAnswerOptions(standardKey: string, stored: readonly string[] | undefined, fallback: readonly string[]): string[] {
+  const values = BUILT_IN_ANSWER_VALUES[standardKey];
+  if (!values || !stored || stored.length !== values.length || stored.some((option) => !option.trim())) return [...fallback];
+  return stored.map((option) => option.trim());
+}
+
+/** The wording of the choice that stores `value` on a built-in question (its catalog wording when none was set). */
+export function builtInAnswerLabel(field: Pick<ResolvedApplicationField, "standardKey" | "options"> | null | undefined, value: string, fallback: string): string {
+  const values = field?.standardKey ? BUILT_IN_ANSWER_VALUES[field.standardKey] : undefined;
+  const index = values ? values.indexOf(value) : -1;
+  return index >= 0 ? field?.options[index]?.trim() || fallback : fallback;
+}
 
 /**
  * Built-ins whose stored answer is read BY KEY by code outside the form, so their ANSWER TYPE cannot be
@@ -205,7 +248,7 @@ export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_K
  */
 export const TYPE_LOCKED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
-    NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey) ||
+    SYSTEM_READ_STANDARD_KEY_SET.has(field.standardKey) ||
     field.section === "household" ||
     field.section === "property" ||
     (field.section === "personal" && (field.label.endsWith("front photo") || field.label.endsWith("back photo"))) ||
@@ -320,7 +363,7 @@ function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
   return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((field) => {
     const def = field.standardKey ? CATALOG_BY_KEY.get(field.standardKey) : undefined;
     const normalized = def && def.options.length > 0
-      ? { ...field, options: [...def.options] }
+      ? { ...field, options: builtInAnswerOptions(def.standardKey, field.options, def.options) }
       : field;
     return field.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey)
       ? { ...normalized, required: true }
@@ -514,7 +557,7 @@ function mergeStandardWithOverride(
     type: override.type ?? base.type,
     required: REQUIRED_IDENTITY_STANDARD_KEY_SET.has(def.standardKey) ? true : override.required ?? base.required,
     options: def.options.length > 0
-      ? [...def.options]
+      ? builtInAnswerOptions(def.standardKey, override.options, def.options)
       : override.type === "select" && override.options.length > 0 ? [...override.options] : base.options,
   };
 }
@@ -562,9 +605,18 @@ export function resolveListingApplicationFields(
   );
   const customOnly = saved.filter((f) => !f.standardKey);
 
-  const standardRows = STANDARD_APPLICATION_FIELD_CATALOG.filter((def) => !disabled.has(def.standardKey)).map(
-    (def) => mergeStandardWithOverride(def, overridesByKey.get(def.standardKey)),
-  );
+  // A question's id is its React key and the handle every edit looks it up by, so two questions must never
+  // share one. A built-in override whose stored id collides with another question's (a custom question, or
+  // another built-in) falls back to its own catalog id rather than opening, editing or deleting the wrong row.
+  const customIds = new Set(customOnly.map((f) => f.id));
+  const usedStandardIds = new Set<string>();
+  const standardRows = STANDARD_APPLICATION_FIELD_CATALOG.filter((def) => !disabled.has(def.standardKey)).map((def) => {
+    const row = mergeStandardWithOverride(def, overridesByKey.get(def.standardKey));
+    const ownId = `std-${def.standardKey}`;
+    const id = customIds.has(row.id) || usedStandardIds.has(row.id) ? ownId : row.id;
+    usedStandardIds.add(id);
+    return id === row.id ? row : { ...row, id };
+  });
 
   const resolved = [
     ...standardRows,
