@@ -85,6 +85,21 @@ export type ListingQuote = {
   nonRefundableAtSigning: number;
 };
 
+/**
+ * The receipt's two blocks. A line is "at signing" exactly when the signing matrix collects it
+ * (the same `dueAtSigning` the total sums, which is the same stamp the pay-before-signing charges
+ * carry), so a line is never listed inside the signing block while the total ignores it.
+ */
+export function splitQuoteLinesBySigning(quote: Pick<ListingQuote, "signingLines">): {
+  atSigning: ListingQuoteLine[];
+  later: ListingQuoteLine[];
+} {
+  return {
+    atSigning: quote.signingLines.filter((l) => l.dueAtSigning),
+    later: quote.signingLines.filter((l) => !l.dueAtSigning),
+  };
+}
+
 function amountForTerm(fee: ListingFeeRow, isStay: boolean): number {
   if (isStay && (fee.shortTermAmount ?? "").trim()) return parseMoneyAmount(fee.shortTermAmount ?? "");
   return parseMoneyAmount(fee.amount ?? "");
