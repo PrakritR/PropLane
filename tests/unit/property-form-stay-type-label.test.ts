@@ -10,7 +10,7 @@ describe("stayTypeLabelForLeaseKindDisplay", () => {
   });
 
   it("names short-term and Airbnb stays", () => {
-    expect(stayTypeLabelForLeaseKindDisplay(["Short-Term Stay"], offered)).toBe("Short term");
+    expect(stayTypeLabelForLeaseKindDisplay(["Short-Term Stay"], offered)).toBe("Short-term");
     expect(stayTypeLabelForLeaseKindDisplay(["Long-term", "Airbnb"], offered)).toBe("Long-term, Airbnb");
   });
 

@@ -228,7 +228,7 @@ export function PropertyRoomPricingWorkspace({
     }
     out.push({ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" });
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
-      out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
+      out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short-term", summary: "" });
     }
     return out.map((s) => {
       if (s.id === "bundle") return s;
@@ -317,7 +317,7 @@ export function PropertyRoomPricingWorkspace({
           const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
           const stepTitle =
             activeStepId === SHORT_TERM_LEASE_TERM
-              ? "Short term"
+              ? "Short-term"
               : activeStepId === LONG_TERM_LEASE_TERM
                 ? "Long-term"
                 : String(activeStepId);
@@ -525,7 +525,7 @@ export function PropertyRoomPricingWorkspace({
               entireHomePriceSource: "own",
             });
           };
-          const stepTitle = isStay ? "Short term" : isBaseLong ? "Long-term" : String(activeStepId);
+          const stepTitle = isStay ? "Short-term" : isBaseLong ? "Long-term" : String(activeStepId);
           return (
             <StepColumn>
               <StepHeading title={stepTitle} />
@@ -712,7 +712,7 @@ export function PropertyRoomPricingWorkspace({
             activeStepId === "bundle"
               ? "Bundle"
               : isStay
-                ? "Short term"
+                ? "Short-term"
                 : isBaseLong
                   ? "Long-term"
                   : String(activeStepId);

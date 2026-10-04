@@ -20,7 +20,7 @@ export const PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS: readonly {
   },
   {
     id: "proplane_short_term",
-    label: "PropLane default — short-term stay",
+    label: "PropLane default — short-term",
     detail: "PropLane generates a short-stay agreement with check-in/out dates and stay-total rent.",
   },
   {

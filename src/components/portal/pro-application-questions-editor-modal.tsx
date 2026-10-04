@@ -123,10 +123,10 @@ function collapsedApplicationSections(): Set<string> {
 }
 
 const APPLICATION_FORM_VARIANTS: ReadonlyArray<{ id: ApplicationFormVariant; label: string; hint: string }> = [
-  { id: "standard", label: "Long-term lease", hint: "The full application for standard leases." },
+  { id: "standard", label: "Long-term", hint: "The full application for standard leases." },
   {
     id: "short_term",
-    label: "Short-term stay",
+    label: "Short-term",
     hint: "A shorter guest application for short-term stays — configured separately.",
   },
   {

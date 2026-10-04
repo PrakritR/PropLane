@@ -232,7 +232,7 @@ describe("F-editor c: footer-only commit", () => {
 });
 
 describe("Add lease type picker", () => {
-  it("offers Long-term and Short term only; custom dates and month-to-month are checkboxes", async () => {
+  it("offers Long-term and Short-term only; custom dates and month-to-month are checkboxes", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -248,7 +248,7 @@ describe("Add lease type picker", () => {
     await screen.findByRole("dialog", { name: "New lease" });
     fireEvent.click(screen.getByRole("button", { name: "Type of lease" }));
     expect(await screen.findByRole("option", { name: "Long-term" })).toBeTruthy();
-    expect(await screen.findByRole("option", { name: "Short term" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Short-term" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Month-to-month" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Custom start" })).toBeNull();
   });

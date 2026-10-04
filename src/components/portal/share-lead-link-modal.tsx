@@ -90,8 +90,8 @@ function propertyHasPublishedTourSlots(managerUserId: string, propertyId: string
 }
 
 const APPLY_RENTAL_TYPE_OPTIONS = [
-  { value: "standard", label: "Long-term lease" },
-  { value: "short_term", label: "Short-term stay" },
+  { value: "standard", label: "Long-term" },
+  { value: "short_term", label: "Short-term" },
 ] as const;
 
 /** Omit `rentalType` when both products are allowed or only long-term is selected. */

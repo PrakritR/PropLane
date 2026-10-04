@@ -16,7 +16,7 @@ export const RESIDENT_TERM_ORDER: readonly ResidentTerm[] = ["long_term", "short
 
 export const RESIDENT_TERM_LABELS: Record<ResidentTerm, string> = {
   long_term: "Long term",
-  short_term: "Short term",
+  short_term: "Short-term",
 };
 
 export function residentTermOfRentalType(rentalType: string | null | undefined): ResidentTerm {

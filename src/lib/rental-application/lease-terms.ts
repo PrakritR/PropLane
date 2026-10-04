@@ -167,3 +167,44 @@ export function sortLeaseTermsCanonical(terms: string[]): string[] {
     .sort((a, b) => rank(a.term) - rank(b.term) || a.index - b.index)
     .map((entry) => entry.term);
 }
+
+/**
+ * The ONE display label set for a lease term / lease type on the property record and its rows:
+ * "Long-term", "Short-term", "Month-to-month", "Custom dates", "Airbnb". Display only - the stored keys
+ * ("Short-Term Stay", "Custom", ...) never change, so call this at the point of rendering.
+ */
+export const LONG_TERM_DISPLAY_LABEL = "Long-term";
+export const SHORT_TERM_DISPLAY_LABEL = "Short-term";
+
+export function leaseTermDisplayLabel(term: string | null | undefined): string {
+  const raw = String(term ?? "").trim();
+  if (!raw) return "";
+  const key = raw.toLowerCase().replace(/[\s_]+/g, "-");
+  if (key === "short-term-stay" || key === "short-term" || key === "short" || key === "short-term-lease" || key === "short-term-stay-lease") {
+    return SHORT_TERM_DISPLAY_LABEL;
+  }
+  if (key === "long-term" || key === "standard" || key === "long-term-lease" || isLegacyFixedLeaseTerm(raw)) {
+    return LONG_TERM_DISPLAY_LABEL;
+  }
+  if (key === "month-to-month") return "Month-to-month";
+  if (key === "custom" || key === "custom-dates") return "Custom dates";
+  if (key === "airbnb") return "Airbnb";
+  return raw;
+}
+
+/**
+ * The lease TYPES (Long-term / Short-term / Airbnb) a set of stored terms amounts to, in that order and
+ * without repeats: month-to-month, custom dates and the retired fixed lengths are options on a long-term
+ * lease, not types of their own.
+ */
+export function leaseTypeDisplayLabels(terms: readonly string[]): string[] {
+  const out: string[] = [];
+  const push = (label: string) => {
+    if (!out.includes(label)) out.push(label);
+  };
+  const has = (pred: (t: string) => boolean) => terms.some(pred);
+  if (has((t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM)) push(LONG_TERM_DISPLAY_LABEL);
+  if (has((t) => t === SHORT_TERM_LEASE_TERM)) push(SHORT_TERM_DISPLAY_LABEL);
+  if (has((t) => t === AIRBNB_LEASE_TERM)) push("Airbnb");
+  return out;
+}

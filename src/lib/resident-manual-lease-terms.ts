@@ -150,7 +150,7 @@ export function residentLeaseTermOptionsForProperty(propertyId: string): Residen
   ];
   const shortAllowed = !pid || allowed.includes(SHORT_TERM_LEASE_TERM);
   if (shortAllowed) {
-    options.unshift({ value: RESIDENT_LEASE_TERM_SHORT, label: "Short term" });
+    options.unshift({ value: RESIDENT_LEASE_TERM_SHORT, label: "Short-term" });
   }
   const airbnbAllowed = !pid || allowed.includes(AIRBNB_LEASE_TERM);
   if (airbnbAllowed) {

@@ -132,7 +132,7 @@ describe("Edit lease checkboxes", () => {
     expect(extra.allowedLeaseTerms).toEqual(["Long-term", "Month-to-Month", "Short-Term Stay"]);
   });
 
-  it("hides both boxes on a Short term lease", async () => {
+  it("hides both boxes on a Short-term lease", async () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["Long-term", "Short-Term Stay"];
     render(
@@ -155,12 +155,12 @@ describe("Add lease checkboxes", () => {
     );
   };
 
-  it("hides the boxes once Short term is picked", async () => {
+  it("hides the boxes once Short-term is picked", async () => {
     renderAdd(async () => true);
     await screen.findByRole("dialog", { name: "New lease" });
     expect(box("Allow custom dates")).toBeTruthy();
     fireEvent.click(typePicker());
-    fireEvent.click(await screen.findByRole("option", { name: "Short term" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Short-term" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Allow custom dates" })).toBeNull());
     expect(screen.queryByRole("checkbox", { name: "Allow month-to-month" })).toBeNull();
   });
