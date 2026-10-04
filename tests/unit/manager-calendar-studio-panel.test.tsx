@@ -122,8 +122,6 @@ function mount(tab: "all" | "tours" | "services" | "tasks" = "all", extra: Parti
         tours: [P1],
         services: [SERVICES],
         tasks: [TASKS],
-        inspections: [INSPECTIONS],
-        moves: [MOVES],
       }}
       editKind="tours"
       compactAvailability
@@ -144,8 +142,11 @@ function mount(tab: "all" | "tours" | "services" | "tasks" = "all", extra: Parti
   );
 }
 
+/** The viewer's own availability blocks (the hatch is only the implicit default now). */
 const bandsOn = (date: string) =>
-  [...document.querySelectorAll(`[data-day="${date}"] [data-attr="calendar-open-band"]`)] as HTMLElement[];
+  [
+    ...document.querySelectorAll(`[data-day="${date}"] [data-attr="calendar-availability-block"][data-own="true"]`),
+  ] as HTMLElement[];
 
 describe("bands from the painted windows", () => {
   it("draws Everything as the plain hatch and Tours-only as a tinted, named band", async () => {
@@ -154,19 +155,23 @@ describe("bands from the painted windows", () => {
     const bands = bandsOn(TUE);
     const plain = bands.find((b) => b.getAttribute("data-from") === String(18 * 30))!;
     const tours = bands.find((b) => b.getAttribute("data-from") === String(26 * 30))!;
-    expect(plain.style.boxShadow).toBe("");
-    expect(plain.textContent).toBe("Everything");
-    expect(tours.style.boxShadow).toContain("#2a78d6");
-    expect(tours.textContent).toBe("Tours");
+    // All three kinds read as one block named for all three; Tours-only names just Tours. The old
+    // inspections/moves records ride in on Tasks (merged on read).
+    expect(plain.textContent).toContain("Tours, Services, Tasks");
+    expect(tours.textContent).toContain("Tours");
+    expect(tours.textContent).not.toContain("Services");
+    // Pale in the person's colour: 12% tint, 45% border.
+    expect(tours.style.background).toContain("12%");
+    expect(tours.style.borderColor).toContain("45%");
   });
 
-  it("the Tours tab keeps windows that include Tours; Tasks keeps only Everything (C2-CALA6)", async () => {
+  it("the Tours tab keeps windows that include Tours; Tasks keeps windows that include Tasks (C2-CALA6)", async () => {
     mount("tours");
     await waitFor(() => expect(bandsOn(TUE)).toHaveLength(2));
     cleanup();
     mount("tasks");
     await waitFor(() => expect(bandsOn(TUE)).toHaveLength(1));
-    expect(bandsOn(TUE)[0]!.textContent).toBe("Everything");
+    expect(bandsOn(TUE)[0]!.textContent).toContain("Tours, Services, Tasks");
     cleanup();
     mount("services");
     await waitFor(() => expect(bandsOn(TUE)).toHaveLength(1));
@@ -175,12 +180,12 @@ describe("bands from the painted windows", () => {
   it("names the types on screen in the legend", async () => {
     mount("all");
     await waitFor(() => expect(document.querySelector('[data-attr="calendar-legend"]')?.textContent).toContain("Tours"));
-    expect(document.querySelector('[data-attr="calendar-legend"]')?.textContent).toContain("Everything");
+    expect(document.querySelector('[data-attr="calendar-legend"]')?.textContent).toContain("Tours, Services, Tasks");
   });
 });
 
 describe("drag to add, then Save", () => {
-  it("opens Add availability with the day and times filled in, Everything and This week only (C2-CALA4)", async () => {
+  it("opens Your availability with the day and times filled in, the kind of the view and This week only (C2-CALA4)", async () => {
     mount("all");
     const col = document.querySelector(`[data-day="${MON}"]`)!;
     // 8 am window start: 130 px = 10:10, 190 px = 11:10 → 10 to 11:30 am.
@@ -188,25 +193,26 @@ describe("drag to add, then Save", () => {
     fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
     expect(document.querySelector('[data-attr="calendar-drag-ghost"]')?.textContent).toBe("10 – 11:30 am");
     fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
-    const dialog = await screen.findByRole("dialog", { name: "Add availability" });
-    expect(within(dialog).getAllByText("Everything").length).toBeGreaterThan(0);
+    const dialog = await screen.findByRole("dialog", { name: "Your availability" });
+    expect(within(dialog).getAllByText("Tours").length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText("Everything")).toBeNull();
     expect(dialog.textContent).toContain("This week only");
     expect(dialog.textContent).toContain("10 am");
     expect(dialog.textContent).toContain("11:30 am");
     expect(document.querySelectorAll('[data-attr="calendar-availability-preview-band"]')).toHaveLength(1);
   });
 
-  it("Save writes Everything to every kind and to every house (C2-CALA2)", async () => {
+  it("Save writes Tours to every house, and only Tours (C2-CALA2)", async () => {
     mount("all");
     const col = document.querySelector(`[data-day="${MON}"]`)!;
     fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: 130, clientX: 5 });
     fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
     fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
-    const dialog = await screen.findByRole("dialog", { name: "Add availability" });
+    const dialog = await screen.findByRole("dialog", { name: "Your availability" });
     fireEvent.click(within(dialog).getByText("Add availability", { selector: "button" }));
-    await waitFor(() => expect(writes.length).toBeGreaterThanOrEqual(6));
+    await waitFor(() => expect(writes.length).toBeGreaterThanOrEqual(2));
     const keys = writes.map((w) => w.key).sort();
-    expect(keys).toEqual([INSPECTIONS, MOVES, P1, P2, SERVICES, TASKS].sort());
+    expect(keys).toEqual([P1, P2].sort());
     const slotKeys = ["20", "21", "22"].map((s) => `${MON}:${s}`);
     for (const write of writes) {
       for (const k of slotKeys) expect(write.slots).toContain(k);
@@ -222,7 +228,7 @@ describe("click a band to edit or delete it (C2-CALA5)", () => {
     await waitFor(() => expect(bandsOn(TUE).length).toBeGreaterThan(0));
     const tours = bandsOn(TUE).find((b) => b.getAttribute("data-from") === String(26 * 30))!;
     fireEvent.click(tours);
-    const dialog = await screen.findByRole("dialog", { name: "Edit availability" });
+    const dialog = await screen.findByRole("dialog", { name: "Your availability" });
     expect(within(dialog).getByText("Save", { selector: "button" })).toBeTruthy();
     fireEvent.click(within(dialog).getByText("Delete", { selector: "button" }));
     await waitFor(() => expect(writes.length).toBeGreaterThan(0));
@@ -236,8 +242,9 @@ describe("click a band to edit or delete it (C2-CALA5)", () => {
     mount("all");
     await waitFor(() => expect(bandsOn(TUE).length).toBeGreaterThan(0));
     fireEvent.click(bandsOn(TUE).find((b) => b.getAttribute("data-from") === String(18 * 30))!);
-    const dialog = await screen.findByRole("dialog", { name: "Edit availability" });
+    const dialog = await screen.findByRole("dialog", { name: "Your availability" });
     fireEvent.click(within(dialog).getByText("Delete", { selector: "button" }));
+    // Tours, Services and Tasks, plus the two retired task records the Tasks write folds in and empties.
     await waitFor(() => expect(writes.length).toBe(5));
     for (const write of writes) expect(write.slots.some((k) => k === `${TUE}:18`)).toBe(false);
     expect(writes.find((w) => w.key === P1)!.slots).toContain(`${TUE}:26`);

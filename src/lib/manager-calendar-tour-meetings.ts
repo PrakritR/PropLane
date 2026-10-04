@@ -77,6 +77,20 @@ export function calendarMeetingMatchesQuery(meeting: DemoMeeting, query: string)
   ].some((value) => value?.toLowerCase().includes(needle));
 }
 
+/**
+ * Whose colour a planned event draws in: a task goes to the teammate it was assigned to, a tour to
+ * the manager hosting it. Undefined (a vendor assignee, no owner) keeps the plain kind colour.
+ */
+export function plannedEventPersonUserId(event: {
+  kind?: string;
+  managerUserId?: string;
+  assignee?: { type?: string; id?: string } | null;
+}): string | undefined {
+  if (event.assignee?.type === "team" && event.assignee.id?.trim()) return event.assignee.id.trim();
+  if (event.assignee?.type === "vendor") return undefined;
+  return event.managerUserId?.trim() || undefined;
+}
+
 /** Planned + pending tour meetings visible to the manager calendar filter. */
 export function buildScheduledTourMeetings(
   scheduledTourFilter: ScheduledTourFilter | undefined,
@@ -131,6 +145,7 @@ export function buildScheduledTourMeetings(
             sourceTaskId: event.sourceTaskId,
             assigneeLabel: event.kind === "task" ? event.assignee?.name?.trim() || undefined : undefined,
             hostLabel: hostPeer?.label,
+            personUserId: plannedEventPersonUserId(event),
             isPeerTour,
             allDay: event.kind === "task" ? Boolean(event.allDay) : undefined,
           } satisfies DemoMeeting;
@@ -174,6 +189,7 @@ export function buildScheduledTourMeetings(
             propertyId: row.propertyId,
             roomLabel: row.roomLabel,
             kind: row.kind,
+            personUserId: row.managerUserId?.trim() || undefined,
           } satisfies DemoMeeting;
         })
         .filter(Boolean),

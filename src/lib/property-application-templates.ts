@@ -1,4 +1,5 @@
 import { migrateApplicationTemplateDocumentQuestions } from "@/lib/application-template-document-questions-migration";
+import { STAY_LABEL, type StaySectionKey } from "@/lib/listing-stays";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
@@ -586,4 +587,40 @@ export function withApplicationAppliesTo(
     const kept = (row.defaultFor ?? []).filter((stay) => stay === appliesTo);
     return { ...row, appliesTo, defaultFor: kept.length > 0 ? kept : undefined, updatedAt: nowIso() };
   });
+}
+
+/* ───────────────────────── Long term / Short term / Both grouping ───────────────────────── */
+
+export type ApplicationGroupRow = {
+  template: PropertyApplicationTemplate;
+  appliesTo: ApplicationAppliesTo;
+  /** The ★ Default of its stay: only in a stay section holding two or more applications. Derived on read. */
+  isDefault: boolean;
+};
+
+export type ApplicationGroup = { id: StaySectionKey; label: string; rows: ApplicationGroupRow[] };
+
+/**
+ * Rows -> ordered Long term / Short term / Both groups, empty groups omitted. Each row carries its
+ * derived default flag (`effectiveDefaultApplicationForStay`, the same rule the listing step's star uses).
+ * Pure; reads `appliesTo` / `defaultFor` only.
+ */
+export function groupApplicationTemplatesByStay(
+  templates: readonly PropertyApplicationTemplate[],
+  leases: readonly StayLease[] = [],
+  /** Rows actually drawn (search/filter); defaults are still judged over all `templates`. */
+  visible: readonly PropertyApplicationTemplate[] = templates,
+): ApplicationGroup[] {
+  const order: StaySectionKey[] = ["long_term", "short_term", "both"];
+  const groups: ApplicationGroup[] = order.map((id) => ({ id, label: STAY_LABEL[id], rows: [] }));
+  for (const template of visible) {
+    const appliesTo = applicationAppliesTo(template, leases);
+    const sectionCount = templates.filter((row) => applicationAppliesTo(row, leases) === appliesTo).length;
+    const isDefault =
+      appliesTo !== "both" &&
+      sectionCount >= 2 &&
+      effectiveDefaultApplicationForStay(templates, appliesTo, leases)?.id === template.id;
+    groups.find((group) => group.id === appliesTo)!.rows.push({ template, appliesTo, isDefault });
+  }
+  return groups.filter((group) => group.rows.length > 0);
 }

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_HOUSES,
+  AVAILABILITY_KIND_CHOICES,
   EVERY_WEEK_HORIZON_WEEKS,
   addKeys,
   choicesForStorageKinds,
@@ -63,10 +64,15 @@ describe("exclusive choices (C2-CALA2)", () => {
     expect(toggleExclusiveChoice([ALL_HOUSES], ALL_HOUSES, false, ALL_HOUSES)).toEqual([ALL_HOUSES]);
   });
 
-  it("maps choices to the kinds that are stored, Everything being every kind", () => {
-    expect(storageKindsForChoices(["everything"])).toEqual([...AVAILABILITY_KINDS]);
-    expect(storageKindsForChoices(["tours", "moves"])).toEqual(["tours", "moves"]);
-    expect(choicesForStorageKinds(AVAILABILITY_KINDS)).toEqual(["everything"]);
+  it("offers exactly Tours, Services and Tasks, no Everything", () => {
+    expect(AVAILABILITY_KIND_CHOICES.map((choice) => choice.label)).toEqual(["Tours", "Services", "Tasks"]);
+    expect(AVAILABILITY_KINDS).toEqual(["tours", "services", "tasks"]);
+  });
+
+  it("maps choices to the kinds that are stored, in the fixed order", () => {
+    expect(storageKindsForChoices(["tasks", "tours"])).toEqual(["tours", "tasks"]);
+    expect(storageKindsForChoices([])).toEqual([]);
+    expect(choicesForStorageKinds(AVAILABILITY_KINDS)).toEqual([...AVAILABILITY_KINDS]);
     expect(choicesForStorageKinds(["services", "tours"])).toEqual(["tours", "services"]);
   });
 });
