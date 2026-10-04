@@ -59,8 +59,8 @@ export function canPayHouseholdChargeWithAxisAch(charge: HouseholdCharge): boole
 /**
  * Can the resident pay this line in PropLane?
  *
- *  - `payable`  — PropLane payments are on for the listing and the manager can receive.
- *  - `offline`  — the listing says so: PropLane payments off, or no usable payout account.
+ *  - `payable`  — PropLane payments are on for the listing. An unready payout account uses a platform hold.
+ *  - `offline`  — the listing says PropLane payments are off.
  *  - `unknown`  — the listing could not be resolved at all (a failed property read,
  *    or a record carrying no `v === 1` listing submission).
  *
@@ -74,7 +74,6 @@ export function householdChargeProplanePayability(
   charge: HouseholdCharge,
 ): "payable" | "offline" | "unknown" {
   if (charge.status === "paid") return "offline";
-  if (charge.managerStripeConnectReadySnapshot === false) return "offline";
   if (charge.axisPaymentsEnabledSnapshot === true) return "payable";
   if (charge.axisPaymentsEnabledSnapshot === false) return "offline";
 

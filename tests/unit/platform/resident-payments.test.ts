@@ -79,7 +79,7 @@ describe("household charge payments (Stripe only)", () => {
     expect(chargesSupportPlatformCheckout(charges)).toBe(true);
   });
 
-  it("is not payable when the manager's Stripe account is not ready", () => {
+  it("remains payable through a platform hold when the manager's Stripe account is not ready", () => {
     const charges = [
       mkCharge({
         id: "blocked",
@@ -87,8 +87,8 @@ describe("household charge payments (Stripe only)", () => {
         managerStripeConnectReadySnapshot: false,
       }),
     ];
-    expect(chargesSupportPlatformCheckout(charges)).toBe(false);
-    expect(isPayableHouseholdCharge(charges[0]!)).toBe(false);
+    expect(chargesSupportPlatformCheckout(charges)).toBe(true);
+    expect(isPayableHouseholdCharge(charges[0]!)).toBe(true);
   });
 });
 

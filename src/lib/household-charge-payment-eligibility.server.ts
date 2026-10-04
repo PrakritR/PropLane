@@ -9,52 +9,6 @@ import {
   listingFromPropertyData,
 } from "@/lib/household-charge-payment-eligibility";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { getStripe } from "@/lib/stripe";
-import { validateManagerConnectForDestinationCharge } from "@/lib/stripe-connect";
-
-async function managerStripeConnectReadyByManagerId(
-  db: SupabaseClient,
-  managerIds: string[],
-): Promise<{ ready: Map<string, boolean>; lookupFailed: boolean }> {
-  const out = new Map<string, boolean>();
-  if (managerIds.length === 0) return { ready: out, lookupFailed: false };
-
-  const { data: profiles, error } = await db
-    .from("profiles")
-    .select("id, stripe_connect_account_id")
-    .in("id", managerIds);
-  // A failed read leaves every snapshot undefined, which reads as "payable" -
-  // so the resident would be held at 402 behind a checkout that may not work.
-  // The caller turns this into the retryable answer instead.
-  if (error) return { ready: out, lookupFailed: true };
-
-  let stripe: ReturnType<typeof getStripe> | null = null;
-  try {
-    stripe = getStripe();
-  } catch {
-    stripe = null;
-  }
-
-  for (const row of profiles ?? []) {
-    const id = String(row.id ?? "").trim();
-    const accountId = String(
-      (row as { stripe_connect_account_id?: string | null }).stripe_connect_account_id ?? "",
-    ).trim();
-    if (!id) continue;
-    if (!accountId) {
-      out.set(id, false);
-      continue;
-    }
-    if (!stripe) {
-      out.set(id, true);
-      continue;
-    }
-    const result = await validateManagerConnectForDestinationCharge(stripe, accountId);
-    out.set(id, result.ok);
-  }
-
-  return { ready: out, lookupFailed: false };
-}
 
 export async function resolveListingForHouseholdCharge(
   db: SupabaseClient,
@@ -129,9 +83,6 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
 
   const managerIds = [...new Set(charges.map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
   const listingsByManager = new Map<string, Array<{ buildingName: string; listing: ManagerListingSubmissionV1 | null }>>();
-  const connect = await managerStripeConnectReadyByManagerId(db, managerIds);
-  const connectReadyByManager = connect.ready;
-  if (connect.lookupFailed) lookupFailed = true;
 
   if (managerIds.length > 0) {
     const { data, error } = await db
@@ -165,7 +116,6 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
     }
     return {
       ...enrichHouseholdChargePaymentFlags(charge, listing),
-      managerStripeConnectReadySnapshot: managerId ? connectReadyByManager.get(managerId) : undefined,
     };
   });
   return { charges: enriched, lookupFailed };
