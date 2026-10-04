@@ -52,6 +52,7 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { cn } from "@/lib/utils";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
@@ -1272,9 +1273,18 @@ export function ManagerAllServicesPanel({
 
   const servicesBody = (
     <>
-      <div className="svc30 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-svc-page={serviceState}>
+      {/*
+        * Rows share one joined card with the header. An empty tab drops that outer
+        * chrome: the empty card carries its own border, so keeping both drew a box
+        * in a box. Empty = header card, then the one empty card (like Properties).
+        */}
+      <div
+        className={cn("svc30", !servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm")}
+        data-svc-page={serviceState}
+        data-svc-empty={servicesListIsEmpty ? "true" : undefined}
+      >
       <PortalListControlStack
-        className="plp-header-card !border-0 !shadow-none !rounded-none bg-transparent"
+        className={cn("plp-header-card", servicesListIsEmpty ? "mb-2 max-lg:mb-1.5" : "!border-0 !shadow-none !rounded-none bg-transparent")}
         variant="command"
         embedded={false}
         stickyDestinations={false}
@@ -1296,7 +1306,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className="plp-listsurface border-t border-border" isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className={cn("plp-listsurface", !servicesListIsEmpty && "border-t border-border")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
