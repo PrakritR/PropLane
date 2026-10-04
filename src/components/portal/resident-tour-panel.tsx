@@ -1,26 +1,19 @@
 "use client";
 
-import { Calendar } from "lucide-react";
+import { Calendar, CalendarDays, Home } from "lucide-react";
 import { tourFormatLabel } from "@/lib/tour-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  ManagerPortalFilterRow,
-  ManagerPortalPageShell,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalRecordActionSheet } from "@/components/portal/portal-record-action-sheet";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
-import {
-  ResidentPortalGroupedDataList,
-  RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
-  type ResidentPortalGroupableRow,
-} from "@/components/portal/resident-portal-grouped-data-list";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -41,7 +34,6 @@ import {
   defaultResidentTourSection,
   residentTourBucketForView,
   residentTourSectionForView,
-  residentTourStatusLabel,
   sortResidentTourViews,
   type ResidentTourSection,
 } from "@/lib/resident-tour-list";
@@ -396,58 +388,89 @@ export function ResidentTourPanel({
   const sectionCounts = useMemo(() => countResidentToursBySection(tours), [tours]);
   const [chosenSection, setChosenSection] = useState<ResidentTourSection | null>(null);
   const section = chosenSection ?? defaultResidentTourSection(sectionCounts);
-  const toursForSection = useMemo(
-    () => tours.filter((tour) => residentTourSectionForView(tour) === section),
-    [tours, section],
+  const [tourQuery, setTourQuery] = useState("");
+  const toursForSection = useMemo(() => {
+    const needle = tourQuery.trim().toLowerCase();
+    return tours.filter((tour) => {
+      if (residentTourSectionForView(tour) !== section) return false;
+      if (!needle) return true;
+      return [tour.propertyTitle, tour.roomLabel, tour.managerLabel].some((part) => part?.toLowerCase().includes(needle));
+    });
+  }, [tours, section, tourQuery]);
+
+  // One card per tour, like the manager Properties list: tile, title, place line, a glyph fact. No status word.
+  const renderTourRows = () => (
+    <div data-attr="resident-tour-list">
+      {toursForSection.map((tour) => {
+        const address = [
+          tour.roomLabel
+            ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
+              ? tour.roomLabel.trim()
+              : `Room ${tour.roomLabel.trim()}`
+            : null,
+          tour.managerLabel ? `Host ${tour.managerLabel}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const when = tourWhenLabel(tour);
+        return (
+          <PortalApplicantRecordRow
+            key={tour.inquiryId}
+            name={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
+            tileIcon={Home}
+            address={address || undefined}
+            facts={
+              when ? (
+                <PortalRowFact icon={CalendarDays} srLabel="When">
+                  {when}
+                </PortalRowFact>
+              ) : undefined
+            }
+            onOpen={() => navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId))}
+            dataAttr="resident-tour-row"
+          />
+        );
+      })}
+    </div>
   );
 
-  const tourGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentTourView>[] => {
-    const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
-    return toursForSection.map((tour) => {
-      const address = [
-        tour.roomLabel
-          ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
-            ? tour.roomLabel.trim()
-            : `Room ${tour.roomLabel.trim()}`
-          : null,
-        tour.managerLabel ? `Host ${tour.managerLabel}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const when = tourWhenLabel(tour);
-      const propertyLabel = stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour");
-      return {
-        id: tour.inquiryId,
-        propertyId: tour.propertyId,
-        propertyLabel,
-        dataListRow: {
-          id: tour.inquiryId,
-          data: tour,
-          primary: propertyLabel,
-          meta: [showPropertyInMeta ? propertyLabel : null, address, when].filter(Boolean).join(" · "),
-          trailing: <span className="text-xs text-muted">{residentTourStatusLabel(tour)}</span>,
-          onClick: () =>
-            navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId)),
-        },
-      };
-    });
-  }, [basePath, toursForSection, navigate]);
-
-  const renderTourAddRow = () => (
-    <PortalListAddRow
-      label="Schedule tour"
-      ariaLabel="Schedule a tour"
-      icon={PORTAL_LIST_ADD_ICONS.tour}
-      onClick={openScheduleTour}
-      dataAttr="resident-tour-schedule"
+  const renderToursBand = () => (
+    <PortalListControlStack
+      className="mb-2 max-lg:mb-1.5"
+      variant="command"
+      stickyDestinations={false}
+      destinationRow={
+        <LocalDestinationNav
+          appearance="command"
+          items={RESIDENT_TOUR_SECTION_ORDER.map((id) => ({
+            id,
+            label: RESIDENT_TOUR_SECTION_LABELS[id],
+            count: sectionCounts[id],
+            dataAttr: `resident-tour-section-${id}`,
+          }))}
+          activeId={section}
+          onChange={(id) => setChosenSection(id as ResidentTourSection)}
+          ariaLabel="Tour status"
+          className="w-full"
+        />
+      }
+      search={{ value: tourQuery, onChange: setTourQuery, placeholder: "Search tours", dataAttr: "resident-tour-search" }}
+      primary={
+        <PortalPrimaryIconAction
+          label={portalListAddPrimaryLabel("tour")}
+          onClick={openScheduleTour}
+          data-attr="resident-tour-schedule"
+        />
+      }
     />
   );
 
-  const renderTourList = () => (
-    <>
-      {loading ? (
-        <PortalEmptyState title="Loading your tours…" icon={<Calendar className="h-[26px] w-[26px]" strokeWidth={1.75} />} />
-      ) : loadFailed ? (
+  const renderTourList = () => {
+    if (loading) {
+      return <PortalEmptyState title="Loading your tours…" icon={<Calendar className="h-[26px] w-[26px]" strokeWidth={1.75} />} />;
+    }
+    if (loadFailed) {
+      return (
         <div
           className="rounded-2xl border border-danger/20 bg-danger/5 px-4 py-4 text-sm text-danger"
           data-attr="resident-tour-load-error"
@@ -468,23 +491,31 @@ export function ResidentTourPanel({
             Try again
           </Button>
         </div>
-      ) : toursForSection.length === 0 ? (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
-        </div>
-      ) : (
-        <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
-          <ResidentPortalGroupedDataList
-            items={tourGroupedItems}
-            groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
-            dataAttr="resident-tour-grouped-list"
-            columns={[{ id: "tour", header: "Tour", cell: () => "—" }]}
-          />
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
-        </div>
-      )}
-    </>
-  );
+      );
+    }
+    const sibling = RESIDENT_TOUR_SECTION_ORDER.find((id) => id !== section && sectionCounts[id] > 0);
+    const searching = tourQuery.trim().length > 0;
+    return (
+      <>
+        {renderToursBand()}
+        <PortalRecordListSurface
+          className="mt-0"
+          isEmpty={toursForSection.length === 0}
+          emptyCard={{
+            title: searching ? "No matches" : `Nothing ${RESIDENT_TOUR_SECTION_LABELS[section].toLowerCase()}`,
+            section: "tours",
+            tone: searching ? "muted" : "default",
+            clear: searching ? { label: "Clear search", onClick: () => setTourQuery("") } : null,
+            sibling: !searching && sibling
+              ? { label: `${sectionCounts[sibling]} ${RESIDENT_TOUR_SECTION_LABELS[sibling].toLowerCase()}`, onClick: () => setChosenSection(sibling) }
+              : null,
+          }}
+        >
+          {renderTourRows()}
+        </PortalRecordListSurface>
+      </>
+    );
+  };
 
   if (inquiryId) {
     if (loading) {
@@ -565,30 +596,8 @@ export function ResidentTourPanel({
           else void loadTours();
         }}
       />
-      <ManagerPortalPageShell
-        title="Tour"
-        hideTitleOnMobileNav
-        compactFilterRow
-        filterRow={
-          loading || loadFailed ? undefined : (
-            <ManagerPortalFilterRow>
-              <LocalDestinationNav
-                appearance="command"
-                items={RESIDENT_TOUR_SECTION_ORDER.map((id) => ({
-                  id,
-                  label: RESIDENT_TOUR_SECTION_LABELS[id],
-                  count: sectionCounts[id],
-                  dataAttr: `resident-tour-section-${id}`,
-                }))}
-                activeId={section}
-                onChange={(id) => setChosenSection(id as ResidentTourSection)}
-                ariaLabel="Tour status"
-              />
-            </ManagerPortalFilterRow>
-          )
-        }
-      >
-        {/* Scheduled | Approved | Past tabs with counts; each row still reads its own status as text. */}
+      <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
+        {/* Scheduled · Approved · Past band, one card per tour (the manager Properties format). */}
         {renderTourList()}
       </ManagerPortalPageShell>
     </>

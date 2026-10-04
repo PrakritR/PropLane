@@ -15,7 +15,7 @@ function milestoneIndexForWizardStep(step: number): number {
 export function RentalWizardApplySteps({ currentStep }: { currentStep: number }) {
   const currentIndex = milestoneIndexForWizardStep(currentStep);
   return (
-    <ol className="jr-apply-steps mb-4 flex flex-wrap items-center gap-2" data-jr-apply-steps>
+    <ol className="jr-apply-steps mb-4 mt-5 flex flex-wrap items-center gap-2" data-jr-apply-steps>
       {MILESTONES.map((label, index) => {
         const done = index < currentIndex;
         const on = index === currentIndex;

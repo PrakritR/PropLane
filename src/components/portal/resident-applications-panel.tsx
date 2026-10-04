@@ -28,16 +28,16 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { CalendarDays, Home } from "lucide-react";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarDays, Home, Undo2 } from "lucide-react";
 import {
   RESIDENT_APPLICATION_SECTION_LABELS,
   RESIDENT_APPLICATION_SECTION_ORDER,
   countResidentApplicationSections,
   defaultResidentApplicationSection,
   residentApplicationSectionOf,
-  residentApplicationStatusWord,
   type ResidentApplicationSection,
 } from "@/lib/resident-application-sections";
 import { applicationDateVerb, applicationSubmittedShort } from "@/lib/manager-application-list";
@@ -480,11 +480,19 @@ export function ResidentApplicationsPanel({
   // Long-term / short-term is a fact on each row now, not a tab: the entry link only picks which
   // kind the Apply picker offers.
   const term = parseResidentTermParam(searchParams.get("term")) ?? (rentalType === "short_term" ? "short_term" : "long_term");
-  // The page's three sections: Sent | Approved | Denied (a draft is Sent, "Incomplete").
+  // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row that reads "Started …").
   const sectionCounts = useMemo(() => countResidentApplicationSections(rows), [rows]);
   const [chosenSection, setChosenSection] = useState<ResidentApplicationSection | null>(null);
   const section = chosenSection ?? defaultResidentApplicationSection(sectionCounts);
-  const rowsForSection = useMemo(() => rows.filter((row) => residentApplicationSectionOf(row) === section), [rows, section]);
+  const [applicationQuery, setApplicationQuery] = useState("");
+  const rowsForSection = useMemo(() => {
+    const needle = applicationQuery.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (residentApplicationSectionOf(row) !== section) return false;
+      if (!needle) return true;
+      return [row.property, row.id, row.name, displayRoomForRow(row)].some((part) => part?.toLowerCase().includes(needle));
+    });
+  }, [rows, section, applicationQuery]);
 
   const applyGateKey = useMemo(
     () =>
@@ -991,15 +999,14 @@ export function ResidentApplicationsPanel({
         </Button>
       ) : null}
       {canResidentWithdrawApplication(row) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
+        <PortalIconAction
+          icon={Undo2}
+          label="Withdraw"
+          tone="danger"
+          ring
           data-attr="resident-application-withdraw"
           onClick={() => setWithdrawTarget(row)}
-        >
-          Withdraw
-        </Button>
+        />
       ) : null}
     </PortalSectionActionRow>
   );
@@ -1080,72 +1087,77 @@ export function ResidentApplicationsPanel({
     );
   };
 
-  const renderRoutedList = (listRows: DemoApplicantRow[]) => {
-    // Grouped under the home: one shared group box per house, flat shared rows inside.
-    const byHome = new Map<string, { label: string; rows: DemoApplicantRow[] }>();
-    for (const row of listRows) {
-      const label = stripPropertyRoomCountSuffix(row.property || "Property");
-      const key = row.propertyId?.trim() || row.application?.propertyId?.trim() || label;
-      const group = byHome.get(key) ?? { label, rows: [] };
-      group.rows.push(row);
-      byHome.set(key, group);
-    }
-    return (
-      <div className="space-y-3" data-attr="resident-applications-grouped-list">
-        {[...byHome.entries()].map(([key, group]) => (
-          <PortalListGroup key={key} listKey="resident-applications" groupKey={key} name={group.label}>
-            {group.rows.map((row) => {
-              const room = displayRoomForRow(row);
-              const when = applicationSubmittedShort(row);
-              return (
-                <PortalApplicantRecordRow
-                  key={row.id}
-                  name={group.label}
-                  tileIcon={Home}
-                  address={[room !== "—" ? `Room ${room}` : "", RESIDENT_TERM_LABELS[residentTermOfRecord(row)], row.id]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  facts={
-                    when ? (
-                      <PortalRowFact icon={CalendarDays} srLabel="Date">
-                        {applicationDateVerb(row)} {when}
-                      </PortalRowFact>
-                    ) : undefined
-                  }
-                  statusWord={residentApplicationStatusWord(row)}
-                  checked={selectedIds.has(row.id)}
-                  onSelectedChange={sessionReady ? () => toggleSelected(row.id) : undefined}
-                  onOpen={() => openApplicationRow(row)}
-                  dataAttr="resident-application-row"
-                />
-              );
-            })}
-          </PortalListGroup>
-        ))}
-      </div>
-    );
-  };
+  const renderRoutedList = (listRows: DemoApplicantRow[]) => (
+    // One card per application, like the manager Properties list: no group header, no status word.
+    <div data-attr="resident-applications-list">
+      {listRows.map((row) => {
+        const room = displayRoomForRow(row);
+        const when = applicationSubmittedShort(row);
+        return (
+          <PortalApplicantRecordRow
+            key={row.id}
+            name={stripPropertyRoomCountSuffix(row.property || "Property")}
+            tileIcon={Home}
+            address={[room !== "—" ? `Room ${room}` : "", RESIDENT_TERM_LABELS[residentTermOfRecord(row)], row.id]
+              .filter(Boolean)
+              .join(" · ")}
+            facts={
+              when ? (
+                <PortalRowFact icon={CalendarDays} srLabel="Date">
+                  {applicationDateVerb(row)} {when}
+                </PortalRowFact>
+              ) : undefined
+            }
+            checked={selectedIds.has(row.id)}
+            onSelectedChange={sessionReady ? () => toggleSelected(row.id) : undefined}
+            onOpen={() => openApplicationRow(row)}
+            dataAttr="resident-application-row"
+          />
+        );
+      })}
+    </div>
+  );
 
   const canOpenPropertyPicker = sessionReady;
 
-  const renderApplicationAddRow = () =>
-    sessionReady && canOpenPropertyPicker ? (
-      <PortalListAddRow
-        label="Apply"
-        ariaLabel={
-          term === "short_term"
-            ? "Apply short term to a property"
-            : workspace.mode === "in_progress"
-            ? "Apply to property"
-            : workspace.mode === "submitted"
-              ? "Apply to another property"
-              : "Apply to a property"
-        }
-        icon={PORTAL_LIST_ADD_ICONS.application}
-        onClick={openPropertyPicker}
-        dataAttr="resident-applications-apply"
-      />
-    ) : null;
+  // The Properties band: tabs with counts, search, the round + as the one create action.
+  const renderApplicationsBand = () => (
+    <PortalListControlStack
+      className="mb-2 max-lg:mb-1.5"
+      variant="command"
+      stickyDestinations={false}
+      destinationRow={
+        <LocalDestinationNav
+          appearance="command"
+          items={RESIDENT_APPLICATION_SECTION_ORDER.map((id) => ({
+            id,
+            label: RESIDENT_APPLICATION_SECTION_LABELS[id],
+            count: sectionCounts[id],
+            dataAttr: `resident-applications-section-${id}`,
+          }))}
+          activeId={section}
+          onChange={(id) => setChosenSection(id as ResidentApplicationSection)}
+          ariaLabel="Application status"
+          className="w-full"
+        />
+      }
+      search={{
+        value: applicationQuery,
+        onChange: setApplicationQuery,
+        placeholder: "Search applications",
+        dataAttr: "resident-applications-search",
+      }}
+      primary={
+        sessionReady && canOpenPropertyPicker ? (
+          <PortalPrimaryIconAction
+            label={portalListAddPrimaryLabel("application")}
+            onClick={openPropertyPicker}
+            data-attr="resident-applications-apply"
+          />
+        ) : undefined
+      }
+    />
+  );
 
   const applicationSelectionActions = useMemo((): PortalAdaptiveAction[] => {
     if (selectedIds.size !== 1) return [];
@@ -1236,25 +1248,31 @@ export function ResidentApplicationsPanel({
 
   const renderResidentApplicationList = () => {
     const listRows = rowsForSection;
+    const sibling = RESIDENT_APPLICATION_SECTION_ORDER.find((id) => id !== section && sectionCounts[id] > 0);
+    const searching = applicationQuery.trim().length > 0;
 
     return (
       <>
-        {!sessionReady ? (
-          <div className={PORTAL_DATA_TABLE_WRAP}>
-            <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
-          </div>
-        ) : listRows.length === 0 ? (
-          // No empty-state card (C122: one list, no tab count to echo). The
-          // APPLY row below already says what to do about it — a panel repeating
-          // "none here yet" beside it is a second way of saying nothing.
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
-        ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            {renderRoutedList(listRows)}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
-          </div>
-        )}
-
+        {renderApplicationsBand()}
+        <PortalRecordListSurface
+          className="mt-0"
+          loading={!sessionReady}
+          isEmpty={sessionReady && listRows.length === 0}
+          emptyCard={{
+            title: searching ? "No matches" : `Nothing ${RESIDENT_APPLICATION_SECTION_LABELS[section].toLowerCase()}`,
+            section: "applications",
+            tone: searching ? "muted" : "default",
+            clear: searching ? { label: "Clear search", onClick: () => setApplicationQuery("") } : null,
+            sibling: !searching && sibling
+              ? { label: `${sectionCounts[sibling]} ${RESIDENT_APPLICATION_SECTION_LABELS[sibling].toLowerCase()}`, onClick: () => setChosenSection(sibling) }
+              : null,
+          }}
+          onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }}
+          bulkCount={selectedIds.size}
+          bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}
+        >
+          {renderRoutedList(listRows)}
+        </PortalRecordListSurface>
         {withdrawModal}
         {propertyPickerModal}
       </>
@@ -1286,28 +1304,8 @@ export function ResidentApplicationsPanel({
   if (!applicationIdProp && !applyMode) {
     return (
       <>
-        <ManagerPortalPageShell
-          title="Applications"
-          hideTitleOnMobileNav
-          compactFilterRow
-          filterRow={
-            <ManagerPortalFilterRow>
-              <LocalDestinationNav
-                appearance="command"
-                items={RESIDENT_APPLICATION_SECTION_ORDER.map((id) => ({
-                  id,
-                  label: RESIDENT_APPLICATION_SECTION_LABELS[id],
-                  count: sectionCounts[id],
-                  dataAttr: `resident-applications-section-${id}`,
-                }))}
-                activeId={section}
-                onChange={(id) => setChosenSection(id as ResidentApplicationSection)}
-                ariaLabel="Application status"
-              />
-            </ManagerPortalFilterRow>
-          }
-        >
-          <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{renderResidentApplicationList()}</PortalRecordListSurface>
+        <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav compactFilterRow>
+          {renderResidentApplicationList()}
         </ManagerPortalPageShell>
 
       </>
@@ -1341,8 +1339,8 @@ export function ResidentApplicationsPanel({
           ) : (
             <>
               {renderStandaloneApplySurface()}
-              <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null}</PortalRecordListSurface>
-              <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
+              {renderApplicationsBand()}
+              <PortalRecordListSurface className="mt-0" isEmpty={rowsForBucket.length === 0} emptyCard={{ title: "Nothing sent", section: "applications" }} onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{renderRoutedList(rowsForBucket)}</PortalRecordListSurface>
             </>
           )}
           {withdrawModal}
