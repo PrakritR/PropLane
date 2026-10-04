@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // The room pricing popup (property Pricing tab -> Edit pricing): Month-to-month surcharge, Custom start
-// surcharge and Partial months follow the lease types the room is OFFERED on, and Application fee / Lease fee
-// sit on the step they belong to (captain, Oct 3).
+// surcharge and Partial months follow the lease types the room is OFFERED on, as rows of the Long-term section
+// (there are only two sections, Long term and Short term), and Application fee / Lease fee sit on the step they
+// belong to (captain, Oct 3 / Oct 4).
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
@@ -73,23 +74,26 @@ const tabLabels = () =>
     .map((node) => node.querySelector("span.truncate")?.textContent);
 
 describe("room pricing popup rows follow what the room offers", () => {
-  it("shows Custom start surcharge and Partial months on the Long-term tab; Month-to-month has no surcharge", () => {
+  it("shows the Month-to-month surcharge, Custom start surcharge and Partial months on the Long-term tab, with no tab of their own", () => {
     open(listing());
     expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);
     expect(rowLabel("Partial months").length).toBeGreaterThan(0);
-    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
-    openTab("Month-to-Month");
-    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
-    expect(rowLabel("Custom start surcharge")).toHaveLength(0);
+    expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
+    expect(tab("Month-to-Month")).toBeNull();
     expect(screen.queryByText(/^Fees$/)).toBeNull();
+  });
+
+  it("never offers the Month-to-month surcharge on a Seattle property", () => {
+    open(listing({}, { city: "Seattle", state: "WA", zip: "98105", address: "5259 Brooklyn Ave NE, Seattle, WA 98105" }));
+    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
+    expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);
   });
 
   it("hides Custom start surcharge and Partial months when the room is not offered on Custom", () => {
     open(listing({ offeredLeaseTerms: ["Long-term", "Month-to-Month"] }));
     expect(rowLabel("Custom start surcharge")).toHaveLength(0);
     expect(rowLabel("Partial months")).toHaveLength(0);
-    openTab("Month-to-Month");
-    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
+    expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
   });
 
   it("hides the month-to-month surcharge when the room is not offered on Month-to-month", () => {
@@ -97,8 +101,25 @@ describe("room pricing popup rows follow what the room offers", () => {
     expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
     expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);
     expect(rowLabel("Partial months").length).toBeGreaterThan(0);
-    openTab("Month-to-Month");
-    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
+  });
+
+  it("a room that mirrors another draws just the Pricing dropdown: no stray source label, no repeated caption, no Mirroring sentence", () => {
+    const sub = listing({}, {
+      city: "Tacoma",
+      rooms: [
+        { ...emptyRoom(0), id: "room-7", name: "Room 7", monthlyRent: 800 },
+        { ...emptyRoom(1), id: "room-8", name: "Room 8", monthlyRent: 800 },
+      ],
+      entireHomePriceSource: "own",
+      roomPricingMeta: { "room-7": { copyFromRoomIdByTerm: { "Long-term": "room-8" } } },
+    } as never);
+    open(sub);
+    expect(screen.queryByText(/Mirroring/)).toBeNull();
+    expect(document.querySelector("[data-rp-src]")).toBeNull();
+    expect(screen.queryByText("This property")).toBeNull();
+    // "Pricing" is the row's own label; the dropdown does not caption itself a second time.
+    expect(screen.queryAllByText("Pricing")).toHaveLength(1);
+    expect(screen.getByText("Same as Room 8")).toBeTruthy();
   });
 
   it("keeps Partial months out of a shared room's Long-term step unless Custom is offered", () => {
@@ -157,7 +178,7 @@ describe("Application fee and Lease fee per option", () => {
 describe("the pricing popup's left rail lists the property's leasing options", () => {
   it("lists exactly the offered options, as tabs of one screen with no step numbers", () => {
     open(listing());
-    expect(tabLabels()).toEqual(["Long-term", "Short-term", "Month-to-month"]);
+    expect(tabLabels()).toEqual(["Long-term", "Short-term"]);
     // Tabs, not steps: a single Save, no Continue, no Back, no counter, no custom-dates tab.
     expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /^Continue/ })).toBeNull();

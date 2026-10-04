@@ -3,6 +3,8 @@ import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submissio
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
+  IDENTITY_FLOOR_STANDARD_KEYS,
+  isIdentityFloorStandardKey,
   type ApplicationConfigSlice,
 } from "@/lib/rental-application/application-field-catalog";
 import type { RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
@@ -250,6 +252,15 @@ export function applicationTemplateQuestionPublishGate(
     draft.importProvenance.reviewedDraftFingerprint !== applicationDraftReviewFingerprint(draft)
   )) {
     return { ok: false, reason: "Compare and confirm the imported PDF before publishing." };
+  }
+  const disabled = new Set(draft.disabledStandardApplicationKeys);
+  if (IDENTITY_FLOOR_STANDARD_KEYS.some((key) => disabled.has(key))) {
+    return { ok: false, reason: "Full legal name and email are always asked." };
+  }
+  if (draft.customApplicationFields.some((field) =>
+    isIdentityFloorStandardKey(field.standardKey) && field.required !== true,
+  )) {
+    return { ok: false, reason: "Full legal name and email must remain required." };
   }
   return { ok: true };
 }
@@ -569,6 +580,19 @@ export function withApplicationDefaultForStay(
     const rest = (row.defaultFor ?? []).filter((s) => s !== stay);
     const next = row.id === id ? [...rest, stay] : rest;
     return { ...row, defaultFor: next.length > 0 ? next : undefined };
+  });
+}
+
+/** Clears the default one application holds for a stay; every other row and every other stay is untouched. */
+export function withoutApplicationDefaultForStay(
+  templates: readonly PropertyApplicationTemplate[],
+  id: string,
+  stay: "long_term" | "short_term",
+): PropertyApplicationTemplate[] {
+  return templates.map((row) => {
+    if (row.id !== id) return row;
+    const rest = (row.defaultFor ?? []).filter((s) => s !== stay);
+    return { ...row, defaultFor: rest.length > 0 ? rest : undefined };
   });
 }
 

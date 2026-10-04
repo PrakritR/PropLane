@@ -10,6 +10,7 @@ import type { RentalApplicationSectionId } from "@/lib/rental-application/applic
 import {
   applicationEditorTypes,
   applicationSectionsForEditor,
+  lockedApplicationSectionIds,
   applyApplicationEditorChange,
   type ApplicationEditorState,
 } from "./application-question-sections";
@@ -59,6 +60,7 @@ export function ApplicationQuestionsEditor({
       onChange={handle}
       allowedTypes={useMemo(() => applicationEditorTypes(variant), [variant])}
       linkedFormOptions={linkedFormOptions}
+      lockedSectionIds={useMemo(() => lockedApplicationSectionIds(ctx), [ctx])}
       canAddSection={state.disabledSectionIds.length > 0}
       onRestoreDefaults={onRestoreDefaults}
       restoreLabel={restoreLabel}

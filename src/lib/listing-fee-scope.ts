@@ -42,6 +42,7 @@ export const PRESET_IDS_OFFERED_AT_SIGNING: ReadonlySet<string> = new Set([
   "parking_monthly",
   "hoa_monthly",
   "other_monthly",
+  "mtm_surcharge",
   "custom_lease_surcharge",
 ]);
 
@@ -526,6 +527,7 @@ export const LISTING_FEE_PRESET_ID_FOR_ROW: Readonly<Record<string, string>> = {
   parkingMonthly: "parking_monthly",
   hoaMonthly: "hoa_monthly",
   otherMonthlyFees: "other_monthly",
+  monthToMonthSurcharge: "mtm_surcharge",
   customLeaseSurcharge: "custom_lease_surcharge",
 };
 

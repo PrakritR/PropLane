@@ -151,6 +151,7 @@ import {
   readPropertyApplicationTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
+  withoutApplicationDefaultForStay,
   type ApplicationAppliesTo,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
@@ -619,6 +620,16 @@ function useDraftPublisher(sub: ManagerListingSubmissionV1, onChange: (next: Man
 
 const NO_LEASE = "__default__";
 
+/** The "Applies to" dropdown: only the stays the listing offers, plus Both. */
+function appliesToChoices(sub: ManagerListingSubmissionV1): { value: string; label: string }[] {
+  const offered = listingOfferedStays(sub);
+  return [
+    offered.long_term ? { value: "long_term", label: "Long-term residents" } : null,
+    offered.short_term ? { value: "short_term", label: "Short-term residents" } : null,
+    { value: "both", label: "Both" },
+  ].filter((option): option is { value: string; label: string } => Boolean(option));
+}
+
 /**
  * The first question of a new application: who it is for. Only the stays the listing offers, plus Both. The
  * lease and co-signer links of the new application default from the answer.
@@ -636,12 +647,7 @@ function NewApplicationAsk({
   onCancel: () => void;
   onCreate: () => void;
 }) {
-  const offered = listingOfferedStays(sub);
-  const options = [
-    offered.long_term ? { value: "long_term", label: "Long-term residents" } : null,
-    offered.short_term ? { value: "short_term", label: "Short-term residents" } : null,
-    { value: "both", label: "Both" },
-  ].filter((option): option is { value: string; label: string } => Boolean(option));
+  const options = appliesToChoices(sub);
   return (
     <div className="mb-3 overflow-hidden rounded-2xl border border-primary/40 bg-card" data-attr="listing-v2-application-applies-to-ask">
       <FactRow first required label="Applies to">
@@ -769,6 +775,8 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     if (open === template.id) setOpen(null);
   };
 
+  const appliesToOptions = appliesToChoices(sub);
+
   const startFromOptions = (template: PropertyApplicationTemplate) => [
     { value: "proplane", label: "PropLane standard" },
     ...templates
@@ -876,24 +884,6 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
               <CardMenu
                 label={label}
                 dataAttr="listing-v2-application"
-                extraItems={[
-                  appliesTo !== "both" && !isDefault
-                    ? {
-                        id: "set-default",
-                        label: `Set as default for ${STAY_LABEL[appliesTo].toLowerCase()}`,
-                        dataAttr: "listing-v2-application-set-default",
-                        onSelect: () => commitTemplates(withApplicationDefaultForStay(templates, template.id, appliesTo)),
-                      }
-                    : null,
-                  ...(["long_term", "short_term", "both"] as const)
-                    .filter((target) => target !== appliesTo && (target === "both" || listingOfferedStays(sub)[target]))
-                    .map((target) => ({
-                      id: `applies-${target}`,
-                      label: target === "both" ? "Applies to both" : `Applies to ${STAY_LABEL[target].toLowerCase()} residents`,
-                      dataAttr: `listing-v2-application-applies-${target}`,
-                      onSelect: () => commitTemplates(withApplicationAppliesTo(templates, template.id, target)),
-                    })),
-                ]}
                 onEdit={() => toggleCard(template.id)}
                 onDuplicate={() => duplicate(template)}
                 onDelete={() => remove(template)}
@@ -906,7 +896,32 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
           >
             <div data-attr="listing-v2-application-editor">
               <NameProblem message={names.problem(template.id, taken)} />
-              <FactRow first label="Needed">
+              <FactRow first label="Applies to">
+                <RowSelectCell
+                  ariaLabel={`Who ${label} applies to`}
+                  value={appliesTo}
+                  options={appliesToOptions}
+                  dataAttr="listing-v2-application-applies-to-row"
+                  onChange={(next) => commitTemplates(withApplicationAppliesTo(templates, template.id, next as ApplicationAppliesTo))}
+                />
+              </FactRow>
+              {appliesTo === "both" ? null : (
+                <FactRow label="Default for its section">
+                  <PortalSettingsToggle
+                    checked={effectiveDefaultApplicationForStay(templates, appliesTo, leases)?.id === template.id}
+                    label={`${label}: default for its section`}
+                    dataAttr="listing-v2-application-default"
+                    onChange={(on) =>
+                      commitTemplates(
+                        on
+                          ? withApplicationDefaultForStay(templates, template.id, appliesTo)
+                          : withoutApplicationDefaultForStay(templates, template.id, appliesTo),
+                      )
+                    }
+                  />
+                </FactRow>
+              )}
+              <FactRow label="Needed">
                 <PortalSettingsToggle
                   checked={isApplicationTemplateOffered(template)}
                   label={`${label}: needed`}

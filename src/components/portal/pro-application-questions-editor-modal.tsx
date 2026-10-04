@@ -81,8 +81,13 @@ import {
   type MappingSigningOrder,
 } from "@/lib/application-lease-mapping";
 import {
+  applicationAppliesTo,
   applicationDraftReviewFingerprint,
   applicationFormVariantForTemplate,
+  effectiveDefaultApplicationForStay,
+  withApplicationAppliesTo,
+  withApplicationDefaultForStay,
+  withoutApplicationDefaultForStay,
   applicationTemplateQuestionPublishGate,
   applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
@@ -96,6 +101,7 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { applicationForAppliesTo, defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
@@ -294,6 +300,8 @@ export function ManagerApplicationQuestionsEditorModal({
   // "Applies to" is the first question of a NEW application: who it is for. It picks the form's stay and the
   // lease it links to by default (see `applicationForAppliesTo`).
   const [appliesTo, setAppliesTo] = useState<ApplicationAppliesTo>("long_term");
+  // "Default for its section": whether this application is the one its stay's applicants get (never on Both).
+  const [isSectionDefault, setIsSectionDefault] = useState(false);
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
   // P003: this application's OWN fee/promo — null = "use the account
   // default". Local, dirty-tracked state saved through the normal
@@ -423,7 +431,15 @@ export function ManagerApplicationQuestionsEditorModal({
     // Long-term lease) and PropLane's Co-signer application. The saved links above stay what Save compares to,
     // so a new application always writes them.
     const startAppliesTo: ApplicationAppliesTo = listingOfferedStays(sub).long_term ? "long_term" : "short_term";
-    setAppliesTo(startAppliesTo);
+    const openAppliesTo: ApplicationAppliesTo = applicationTemplate
+      ? applicationAppliesTo(applicationTemplate, leaseCatalog)
+      : startAppliesTo;
+    setAppliesTo(openAppliesTo);
+    setIsSectionDefault(
+      Boolean(applicationTemplate) &&
+        openAppliesTo !== "both" &&
+        effectiveDefaultApplicationForStay(templates ?? [], openAppliesTo, leaseCatalog)?.id === applicationTemplate?.id,
+    );
     const startLease = applicationTemplate
       ? initialLease
       : defaultLeaseIdForApplication(
@@ -869,6 +885,9 @@ export function ManagerApplicationQuestionsEditorModal({
             ? created
             : applicationForAppliesTo(created, appliesTo, { applications: catalogApplications, leases: routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog }),
         ];
+        if (variant !== "cosigner" && appliesTo !== "both" && isSectionDefault) {
+          nextTemplates = withApplicationDefaultForStay(nextTemplates, created.id, appliesTo);
+        }
       } else {
         const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
         nextTemplates = updatePropertyApplicationTemplate(catalogApplications, applicationTemplate!.id, {
@@ -886,6 +905,17 @@ export function ManagerApplicationQuestionsEditorModal({
             disabledSectionIds: [...disabledSectionIds],
           },
         });
+        // Who it is for and whether it is its section's default ride with the form itself.
+        if (variant !== "cosigner") {
+          const savedId = applicationTemplate!.id;
+          const before = applicationAppliesTo(applicationTemplate!, routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog);
+          if (appliesTo !== before) nextTemplates = withApplicationAppliesTo(nextTemplates, savedId, appliesTo);
+          if (appliesTo !== "both") {
+            nextTemplates = isSectionDefault
+              ? withApplicationDefaultForStay(nextTemplates, savedId, appliesTo)
+              : withoutApplicationDefaultForStay(nextTemplates, savedId, appliesTo);
+          }
+        }
       }
       // The first step's links ride with the template (also a brand-new one): the same
       // `setMappingTarget` path Settings used, so an application still carries ONE lease.
@@ -1632,7 +1662,7 @@ export function ManagerApplicationQuestionsEditorModal({
             <StepHeading title="Application" />
             {isTemplateEditor && !isBulkSave ? (
               <PropertyFormWizardCard dataAttr="property-application-step-one-card">
-                {templateEditorMode === "add" && variant !== "cosigner" ? (
+                {variant !== "cosigner" ? (
                   <PropertyFormWizardRow label="Applies to">
                     <FieldSingleSelect
                       hideLabel
@@ -1646,13 +1676,31 @@ export function ManagerApplicationQuestionsEditorModal({
                       onChange={(next) => {
                         const target = next as ApplicationAppliesTo;
                         setAppliesTo(target);
-                        // The lease follows who the application is for (Both links to none of its own).
-                        setLinkedLeaseId(
-                          defaultLeaseIdForApplication(
-                            { kind: target === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: target === "short_term" ? "short_term" : "standard", appliesTo: target },
-                            leaseCatalog,
-                          ),
-                        );
+                        // A default belongs to one section, so moving the form clears it.
+                        setIsSectionDefault(false);
+                        // The lease follows who a NEW application is for (Both links to none of its own); a saved
+                        // form keeps its lease link, which has its own row.
+                        if (templateEditorMode === "add") {
+                          setLinkedLeaseId(
+                            defaultLeaseIdForApplication(
+                              { kind: target === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: target === "short_term" ? "short_term" : "standard", appliesTo: target },
+                              leaseCatalog,
+                            ),
+                          );
+                        }
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {variant !== "cosigner" && appliesTo !== "both" ? (
+                  <PropertyFormWizardRow label="Default for its section">
+                    <PortalSettingsToggle
+                      checked={isSectionDefault}
+                      label="Default for its section"
+                      dataAttr="application-default-for-section"
+                      onChange={(on) => {
+                        setIsSectionDefault(on);
                         setDirty(true);
                       }}
                     />

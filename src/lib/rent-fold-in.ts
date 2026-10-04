@@ -23,6 +23,8 @@
 import {
   CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL,
   CUSTOM_LEASE_SURCHARGE_FEE_ID,
+  MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL,
+  MONTH_TO_MONTH_SURCHARGE_FEE_ID,
   recurringMonthlyFeesForLease,
   shouldBillCustomLeaseSurcharge,
   type LeaseRecurringFeeBillingContext,
@@ -47,6 +49,8 @@ function feeDailyRate(fee: { dailyRate?: unknown }): number | undefined {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+export { MONTH_TO_MONTH_SURCHARGE_FEE_ID };
+export const MONTH_TO_MONTH_SURCHARGE_LABEL = MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL;
 
 /** Genuinely-custom fee rows (the "+ Add custom fee" rows). Preset-backed rows are excluded. */
 export function genuinelyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
@@ -156,6 +160,8 @@ export function monthlyRentFoldInLines(
     ...recurringGenuinelyCustomFees(sub, () => true),
     ...selfBillingPresetFees(sub, "monthly"),
   ];
+  // The month-to-month surcharge never exists on a Seattle listing (the fold-in path is Seattle-only),
+  // so nothing folds here for it; the custom-start surcharge is the only surcharge that folds.
   if (
     shouldBillCustomLeaseSurcharge(ctx, sub) &&
     listingPresetFeeAppliesToLeaseType(sub, "custom_lease_surcharge", ctx.leaseTerm)

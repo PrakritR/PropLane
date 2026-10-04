@@ -8,6 +8,7 @@ import {
   removeListingApplicationField,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  IDENTITY_FLOOR_STANDARD_KEYS,
   STANDARD_APPLICATION_FIELD_CATALOG,
   type StandardApplicationFieldDef,
 } from "@/lib/rental-application/application-field-catalog";
@@ -174,15 +175,15 @@ describe("application-field-catalog", () => {
     });
   });
 
-  // Nothing is undeletable (plan D5): every built-in, including name, phone, email, property, room and term, can be
-  // removed; the application then simply does not ask it.
-  it("every built-in can be removed", () => {
+  // The identity floor: every built-in, including phone, property, room and term, can be removed; the application
+  // then simply does not ask it. The one exception is full legal name and email, which are always asked.
+  it("every built-in can be removed except full legal name and email", () => {
     const sub = createDefaultListingSubmission();
     const resolved = resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
     for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
       const field = resolved.find((f) => f.standardKey === def.standardKey)!;
       const result = removeListingApplicationField(sub, field);
-      expect(result.disabledStandardApplicationKeys.includes(def.standardKey), def.standardKey).toBe(true);
+      expect(result.disabledStandardApplicationKeys.includes(def.standardKey), def.standardKey).toBe(!IDENTITY_FLOOR_STANDARD_KEYS.includes(def.standardKey));
     }
   });
 

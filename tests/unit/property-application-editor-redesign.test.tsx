@@ -81,7 +81,7 @@ describe("F003: Sections step default-sections checklist", () => {
     expect(householdSwitch!.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("no section is locked: Personal information is checked and its switch is live", async () => {
+  it("Personal information is checked and its switch is locked on (name and email are always asked)", async () => {
     const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
     render(
       <ManagerApplicationQuestionsEditorModal
@@ -104,8 +104,9 @@ describe("F003: Sections step default-sections checklist", () => {
     const personalSwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-personal"]') as HTMLButtonElement | null;
     expect(personalSwitch).not.toBeNull();
     expect(personalSwitch!.getAttribute("aria-checked")).toBe("true");
-    expect(personalSwitch!.disabled).toBe(false);
-    expect(document.querySelector('[data-attr="application-questions-editor-section-lock-personal"]')).toBeNull();
+    // Personal holds full legal name and email, which are always asked: the switch is on, disabled and locked.
+    expect(personalSwitch!.disabled).toBe(true);
+    expect(document.querySelector('[data-attr="application-questions-editor-section-lock-personal"]')).not.toBeNull();
   });
 });
 

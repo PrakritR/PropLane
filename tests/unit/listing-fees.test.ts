@@ -243,12 +243,12 @@ describe("lease payment at signing", () => {
     ).toBe(600);
   });
 
-  it("filters lease document monthly surcharges by lease context (month-to-month has none)", () => {
+  it("filters lease document monthly surcharges by lease context", () => {
     let sub = createDefaultListingSubmission();
     sub = applyListingFeesToSubmission(sub, [
       {
         id: "fee-mtm",
-        presetId: "mtm_surcharge" as never,
+        presetId: "mtm_surcharge",
         label: "Month-to-month surcharge",
         amount: "25",
         frequency: "monthly",
@@ -277,8 +277,7 @@ describe("lease payment at signing", () => {
       leaseTerm: "Month-to-Month",
       rentalType: "standard",
     });
-    // The retired month-to-month surcharge row is dropped, never billed or printed.
-    expect(mtm.monthly.map((line) => line.label)).not.toContain("Month-to-month surcharge");
+    expect(mtm.monthly.map((line) => line.label)).toContain("Month-to-month surcharge");
 
     const custom = leaseDocumentFeeLines(normalized, "long-term", {
       leaseStart: "2026-09-22",

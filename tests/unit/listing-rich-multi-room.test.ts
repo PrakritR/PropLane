@@ -77,15 +77,14 @@ describe("listing multi-room lease basics", () => {
     sub.applicationFee = "50";
     // The custom-lease surcharge is gated on the listing OFFERING that lease length (PRP-218).
     sub.allowedLeaseTerms = ["Month-to-Month", "Custom"];
-    // A stale surcharge from before it was retired is never advertised.
-    (sub as unknown as Record<string, string>).monthToMonthSurcharge = "25";
+    sub.monthToMonthSurcharge = "25";
     sub.customLeaseSurcharge = "100";
     sub.holdingDeposit = "50";
     const property = mockProperty({ id: "unified-fees-sidebar", listingSubmission: sub });
     const rich = listingRichFromManagerSubmission(property, sub);
 
     expect(rich.pricingBreakdown?.some((line) => line.label === "Application fee" && line.value === "$50.00")).toBe(true);
-    expect(rich.pricingBreakdown?.some((line) => /month-to-month surcharge/i.test(line.label))).toBe(false);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Month-to-month surcharge" && line.value === "$25.00/mo")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Custom lease" && line.value === "$100.00/mo")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Holding deposit")).toBe(false);
   });
