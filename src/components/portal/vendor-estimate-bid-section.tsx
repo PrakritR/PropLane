@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
-import { ServiceProgressLine } from "@/components/portal/service-vendor-cycle-section";
+import { ServiceStageStepper } from "@/components/portal/service-details-section";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseMoneyAmount } from "@/lib/household-charges";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -194,7 +194,7 @@ export function VendorEstimateBidSection({
 
   return (
     <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-estimate-bid">
-      <ServiceProgressLine stages={vendorServiceStageItems(stage)} />
+      <ServiceStageStepper stages={vendorServiceStageItems(stage)} />
       {sent.length > 0 ? (
         <div className="rounded-2xl border border-border bg-card px-4 py-1" data-attr="vendor-bid-sent">
           {sent.map((item) => (
