@@ -62,3 +62,12 @@ export function sortRoomIndicesByFloor<T extends { floor: string; name: string }
 export function sortUniqueFloorLabels(labels: readonly string[]): string[] {
   return [...new Set(labels.map((l) => l.trim()).filter(Boolean))].sort(compareFloorLabels);
 }
+
+/**
+ * Original indices in the LISTING's own room order - the order House details and Pricing list. A property
+ * record's rooms tabs use this, not the floor sort above, so "Room 1, 2, 3, 4, 5" reads the same on every
+ * tab (the floor sort put Room 5 first on a house whose Room 5 is on the lowest floor).
+ */
+export function roomIndicesInListingOrder<T>(rooms: readonly T[]): number[] {
+  return rooms.map((_, index) => index);
+}

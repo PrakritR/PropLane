@@ -32,7 +32,7 @@ import {
 } from "@/lib/demo-property-pipeline";
 import type { ManagerListingSubmissionV1, ManagerRoomResidentMoveIn, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing, reconcileRoomResidentMoveIn } from "@/lib/manager-listing-submission";
-import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import { roomIndicesInListingOrder } from "@/lib/listing-floor-order";
 import { moveInFactTexts } from "@/lib/property-record-row-facts";
 
 type RoomSaveTarget =
@@ -130,7 +130,7 @@ export function ManagerPropertyRoomMoveInPanel({
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const entireHome = isEntireHomeListing(sub);
-  const roomIndices = useMemo(() => sortRoomIndicesByFloor(sub.rooms), [sub.rooms]);
+  const roomIndices = useMemo(() => roomIndicesInListingOrder(sub.rooms), [sub.rooms]);
 
   const [houseInstructions, setHouseInstructions] = useState(sub.houseMoveInInstructions ?? "");
   const [housePhotos, setHousePhotos] = useState(sub.houseMoveInPhotoDataUrls ?? []);
