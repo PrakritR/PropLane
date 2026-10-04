@@ -22,7 +22,7 @@ import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-rela
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { inspectionDetailHref, moveInInspectionsHref, parseServiceRecordTab } from "@/lib/portal-detail-routes";
+import { inspectionDetailHref, moveInInspectionsHref, parseServiceRecordTab, residentMoveInInspectionsHref } from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -226,7 +226,9 @@ export function pickPrimaryInspectionReport(reports: InspectionSummary[]): Inspe
 }
 
 /**
- * Resident's own Inspections section. Two route grammars share this page:
+ * Resident Inspections, now a tab of My home (`/resident/move-in/inspections`, C1-R5). The list
+ * itself is rendered by `ResidentMoveInShell` (it owns the My home tab row and passes it in as
+ * `hubTabs`); this page renders a single filed report. Two route grammars share it:
  * - New bucket list (`bucket` set): a merged move-in + move-out roster,
  *   grouped Upcoming / In progress / Done, with Move-in/Move-out as a "Type"
  *   filter instead of a top destination (captain, 2026-09-25).
@@ -246,7 +248,8 @@ export function ResidentInspectionsPage({
   bucket?: ResidentInspectionTab;
   typeFilter?: ResidentInspectionTypeFilter;
 }) {
-  if (reportId) return <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
+  const routeBase = residentMoveInInspectionsHref(basePath);
+  if (reportId) return <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={routeBase} />;
   return (
     <ManagerPortalPageShell
       title="Inspections"
@@ -257,7 +260,7 @@ export function ResidentInspectionsPage({
         role="resident"
         initialKind={kind}
         reportId={reportId}
-        routeBase={`${basePath}/inspections`}
+        routeBase={routeBase}
         residentBucket={bucket}
         residentTypeFilter={typeFilter}
       />
@@ -309,7 +312,7 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view your inspections.</p>;
   return (
     <InspectionWorkspace
-      key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}:${residentBucket ?? ""}`}
+      key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}:${residentBucket ?? ""}:${residentTypeFilter ?? ""}`}
       userId={userId ?? "demo"}
       role={role}
       applicationId={applicationId}
@@ -353,6 +356,9 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [residentTypeFilterState, setResidentTypeFilterState] = useState<ResidentInspectionTypeFilter>(
     residentTypeFilter ?? "all",
   );
+  // My home › Inspections (hub mode) shows one merged roster; the Upcoming / In progress / Done
+  // buckets become a Status field in the Filter popover instead of a second row of tabs.
+  const [residentStatusState, setResidentStatusState] = useState<ResidentInspectionTab | "all">("all");
   const propertyOptions = useMemo(
     () => (role === "manager" ? buildManagerPropertyFilterOptions(userId) : []),
     [role, userId],
@@ -460,17 +466,18 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   // record-page card) and every manager render keep the kind-based `rows`
   // above untouched — this block only runs, and is only READ below, when
   // `residentBucket` was actually routed.
-  const isResidentBucketMode = role === "resident" && !embeddedInResident && residentBucket != null;
+  const isResidentHubMode = role === "resident" && !embeddedInResident && hubTabs != null;
+  const isResidentBucketMode = role === "resident" && !embeddedInResident && (residentBucket != null || isResidentHubMode);
   const residentTypeKinds: InspectionKind[] =
     residentTypeFilterState === "all" ? ["move-in", "move-out"] : [residentTypeFilterState];
   const residentAllRows: (InspectionRow & { _kind: InspectionKind })[] = isResidentBucketMode
     ? residentTypeKinds.flatMap((k) => rowsFor(k).map((row) => ({ ...row, _kind: k })))
     : [];
-  const residentActiveBucket: ResidentInspectionTab = residentBucket ?? "upcoming";
+  const residentActiveBucket: ResidentInspectionTab | "all" = isResidentHubMode ? residentStatusState : residentBucket ?? "upcoming";
   const residentBucketCounts: Record<ResidentInspectionTab, number> = { upcoming: 0, "in-progress": 0, done: 0 };
   for (const row of residentAllRows) residentBucketCounts[residentInspectionTab(row.report ?? null)] += 1;
   const residentRowsForBucket = residentAllRows.filter(
-    (row) => residentInspectionTab(row.report ?? null) === residentActiveBucket,
+    (row) => residentActiveBucket === "all" || residentInspectionTab(row.report ?? null) === residentActiveBucket,
   );
   const residentShownRows = filterInspectionRows(residentRowsForBucket, query);
 
@@ -613,8 +620,10 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         return embeddedToolbar ? embeddedToolbar(nav) : nav;
       })()
     ) : isResidentBucketMode ? (
-    <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection status" activeDestinationId={residentActiveBucket}
-      destinations={RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
+    <PortalListControlStack variant="command" stickyDestinations
+      destinationAriaLabel={hubTabs ? hubTabs.ariaLabel : "Inspection status"}
+      activeDestinationId={hubTabs ? hubTabs.activeId : residentActiveBucket}
+      destinations={hubTabs ? hubTabs.destinations : RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
         id,
         label: RESIDENT_INSPECTION_TAB_LABELS[id],
         count: residentBucketCounts[id],
@@ -624,13 +633,29 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       search={{ value: query, onChange: setQuery, placeholder: "Search inspections", dataAttr: "inspections-search" }}
       actions={
         <PortalFilterSortSheet
-          activeCount={portalFilterActiveCount([residentTypeFilterState !== "all" ? residentTypeFilterState : ""])}
+          activeCount={portalFilterActiveCount([
+            residentTypeFilterState !== "all" ? residentTypeFilterState : "",
+            isResidentHubMode && residentStatusState !== "all" ? residentStatusState : "",
+          ])}
           compactPanel
           commandStripTrigger
-          filterFieldCount={1}
-          onReset={() => setResidentTypeFilterState("all")}
+          filterFieldCount={isResidentHubMode ? 2 : 1}
+          onReset={() => { setResidentTypeFilterState("all"); setResidentStatusState("all"); }}
           dataAttr="resident-inspections-type-filter-open"
         >
+          {isResidentHubMode ? (
+            <FieldSingleSelect
+              label="Status"
+              variant="cell"
+              value={residentStatusState}
+              onChange={(next) => setResidentStatusState(next as ResidentInspectionTab | "all")}
+              options={[
+                { value: "all", label: "All statuses" },
+                ...RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({ value: id, label: RESIDENT_INSPECTION_TAB_LABELS[id] })),
+              ]}
+              dataAttr="resident-inspections-status-select"
+            />
+          ) : null}
           <FieldSingleSelect
             label="Type"
             variant="cell"
@@ -738,9 +763,9 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         tone: "muted",
         clear: { label: "Clear search", onClick: () => setQuery(""), dataAttr: "inspections-empty-clear-search" },
       } : isResidentBucketMode ? {
-        title: `No inspections ${residentActiveBucket === "in-progress" ? "in progress" : residentActiveBucket} yet`,
+        title: residentActiveBucket === "all" ? "No inspections yet" : `No inspections ${residentActiveBucket === "in-progress" ? "in progress" : residentActiveBucket} yet`,
         section: "inspections",
-        sibling: routeBase
+        sibling: routeBase && residentActiveBucket !== "all" && !hubTabs
           ? portalEmptySibling(
               RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
                 id,

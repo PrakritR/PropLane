@@ -4,10 +4,6 @@ import {
   RESIDENT_MOVE_IN_TABS,
 } from "@/lib/portal-detail-routes";
 import {
-  RESIDENT_INSPECTION_TAB_LABELS,
-  RESIDENT_INSPECTION_TAB_ORDER,
-} from "@/lib/resident-inspections-tabs";
-import {
   RESIDENT_DOCUMENT_TAB_LABELS,
   RESIDENT_DOCUMENT_TAB_ORDER,
 } from "@/lib/resident-documents-tabs";
@@ -43,22 +39,6 @@ export type ResidentFreeTierSectionId = (typeof RESIDENT_FREE_TIER_SECTION_IDS)[
 const DOCUMENTS_TABS = RESIDENT_DOCUMENT_TAB_ORDER.map((id) => ({
   id,
   label: RESIDENT_DOCUMENT_TAB_LABELS[id],
-}));
-
-/**
- * Move-in and move-out condition reports are the resident's own section since
- * the portal redesign (they used to be a My home sub-tab, which still redirects
- * here). A resident has no general Tasks list — these two obligations ARE the
- * tasks, and they live on the dashboard as required next steps.
- *
- * Top destinations (captain, 2026-09-25): Upcoming / In progress / Done,
- * derived from each report's own status — Move-in / Move-out moved into the
- * header's Filter popover as a "Type" field. See
- * `src/lib/resident-inspections-tabs.ts`.
- */
-const INSPECTIONS_TABS = RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
-  id,
-  label: RESIDENT_INSPECTION_TAB_LABELS[id],
 }));
 
 const MOVE_IN_TABS = RESIDENT_MOVE_IN_TABS.map((id) => ({
@@ -116,7 +96,6 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "services", label: "Services", tabs: [] },
-  { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "payments", label: "Payments", tabs: [] },
   { section: "communication", label: "Communication", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
@@ -154,7 +133,6 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
-  { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
@@ -191,6 +169,8 @@ export const RESIDENT_RENDERED_SECTION_IDS = [
   "applications",
   /** Legacy route — redirects to payments */
   "financials",
+  /** Legacy route — Inspections moved into My home (`/move-in/inspections`) */
+  "inspections",
 ] as const;
 
 /** Default smoke-test paths for web + native WebView (limited resident workspace). */
@@ -201,7 +181,7 @@ export const RESIDENT_PORTAL_SMOKE_PATHS = [
   { label: "Lease", path: `${RESIDENT_PORTAL_BASE_PATH}/lease` },
   { label: "Payments", path: `${RESIDENT_PORTAL_BASE_PATH}/payments` },
   { label: "My home", path: `${RESIDENT_PORTAL_BASE_PATH}/move-in` },
-  { label: "Inspections", path: `${RESIDENT_PORTAL_BASE_PATH}/inspections/move-in` },
+  { label: "Inspections", path: `${RESIDENT_PORTAL_BASE_PATH}/move-in/inspections` },
   { label: "Communication", path: `${RESIDENT_PORTAL_BASE_PATH}/communication/active` },
   { label: "Documents", path: `${RESIDENT_PORTAL_BASE_PATH}/documents/application` },
 ] as const;
