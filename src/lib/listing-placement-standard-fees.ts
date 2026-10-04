@@ -271,12 +271,12 @@ function withoutBlankFees<T extends Partial<Record<PlacementStandardFeeKind, str
 }
 
 /** Writes one stay type's own fees (private room, or the shared arrangement `count`); blank clears so it inherits. */
-export function mergeTermStandardFees(
-  room: ManagerRoomSubmission,
+export function mergeTermStandardFees<T extends { termPricing?: Record<string, ManagerRoomTermPrice> }>(
+  room: T,
   term: string,
   rawPatch: Partial<Record<string, unknown>>,
   count = 1,
-): ManagerRoomSubmission {
+): T {
   // Only the three fees, and only the ones actually being written.
   const patch: Partial<Record<PlacementStandardFeeKind, string>> = {};
   for (const key of FEE_KINDS) {

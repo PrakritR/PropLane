@@ -15,7 +15,11 @@
  *   form's Document step draws).
  * - Move-in     -> "Sends" dropdown and the questions (the same question rows the move-in editor draws).
  * - Pricing     -> the room (or whole-house) fields the room pricing workspace edits, drawn by the same
- *   components.
+ *   components. On a by-the-room listing a Bundles section always follows the room cards: the Whole house
+ *   card first (its own Offered switch), then the custom bundles, each with the same fields as a room.
+ *
+ * The round + on Application, Lease and Move-in offers the choices the property tabs' + offer, including
+ * "Upload a PDF", which runs that step's existing upload (a brand-new draft is saved first through `ensureSaved`).
  *
  * Storage is unchanged. All of it patches the wizard's own submission, so it is saved with the draft or
  * the live listing exactly like every other step; the one thing outside the submission is the workspace
@@ -31,7 +35,6 @@ import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
-  CheckboxOption,
   FactRow,
   MoneyInput,
   PanelSection,
@@ -41,6 +44,19 @@ import {
   StepHeading,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { importApplicationPdf } from "@/components/portal/listing-wizard-v2/inline-application-upload";
+import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
+import { uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
+import { LEASE_TEMPLATE_MAX_BYTES } from "@/lib/lease-template-storage";
 import { InlineApplicationQuestions } from "@/components/portal/listing-wizard-v2/inline-application-questions";
 import { importLeasePdf } from "@/components/portal/listing-wizard-v2/inline-lease-upload";
 import {
@@ -195,8 +211,12 @@ function leaseTypeFact(template: PropertyLeaseTemplate): string {
   if (template.listingSeedKey === "primary") return "Long-term";
   if (template.listingSeedKey === "short-term") return "Short-term";
   if (template.listingSeedKey === "airbnb") return "Airbnb";
-  return template.leaseTemplateDocName?.trim() ? "Uploaded" : "Custom";
+  return template.leaseTemplateDocName?.trim() ? "PDF" : "Custom";
 }
+
+/** True for a lease whose document is an uploaded PDF. */
+const isPdfLease = (template: PropertyLeaseTemplate) =>
+  template.leaseCustomKind === "document" && Boolean(template.leaseTemplateDocUrl || template.leaseTemplateDocName?.trim());
 
 /** The lowest rent across rooms, or the whole-house rent, as "$1,100/mo"; null when none is set. */
 export function pricingFromFact(sub: ManagerListingSubmissionV1): string | null {
@@ -230,14 +250,83 @@ export function listingDetailSummaries(sub: ManagerListingSubmissionV1): Record<
  * The step heading with its count and the round blue + at the top right: exactly the Rooms /
  * Bathrooms / Shared spaces header.
  */
-function CountHeading({ count, noun, addLabel, onAdd, dataAttr }: { count: number; noun: string; addLabel: string; onAdd: () => void; dataAttr: string }) {
+function CountHeading({
+  count,
+  noun,
+  addLabel,
+  onAdd,
+  choices,
+  dataAttr,
+}: {
+  count: number;
+  noun: string;
+  addLabel: string;
+  /** A + that adds straight away. Absent when the + offers `choices`. */
+  onAdd?: () => void;
+  /** The + opens these choices instead (Build / Upload a PDF ...), the same ones the property tabs' + offer. */
+  choices?: readonly AddChoice[];
+  dataAttr: string;
+}) {
+  const choiceItem = (choice: AddChoice) => (
+    <DropdownMenuItem key={choice.id} data-attr={choice.dataAttr} onSelect={() => choice.onSelect?.()}>
+      {choice.label}
+    </DropdownMenuItem>
+  );
   return (
     <div className="pr9-top mb-3 flex items-center justify-between gap-2">
       <StepHeading title={`${count} ${count === 1 ? noun : `${noun}s`}`} />
-      <PortalPrimaryIconAction label={addLabel} onClick={onAdd} data-attr={dataAttr} />
+      {choices ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PortalPrimaryIconAction label={addLabel} data-attr={dataAttr} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {choices.map((choice) =>
+              choice.choices ? (
+                <DropdownMenuSub key={choice.id}>
+                  <DropdownMenuSubTrigger data-attr={choice.dataAttr}>{choice.label}</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>{choice.choices.map(choiceItem)}</DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : (
+                choiceItem(choice)
+              ),
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <PortalPrimaryIconAction label={addLabel} onClick={onAdd} data-attr={dataAttr} />
+      )}
     </div>
   );
 }
+
+/** One choice the round + offers; a choice with `choices` opens a nested list (Start from a template). */
+type AddChoice = { id: string; label: string; dataAttr: string; onSelect?: () => void; choices?: readonly AddChoice[] };
+
+/** The latest rendered value, readable after an await (an upload) without acting on a stale render. */
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
+
+/**
+ * The saved record's id for an upload that needs one. A brand-new draft has none, so it is saved first
+ * through the editor's `ensureSaved` (the same save "Edit in full" does) and the new id is used.
+ */
+async function resolveRecordId(doors: ListingDetailDoors): Promise<string | null> {
+  const known = doors.recordId?.trim();
+  if (known) return known;
+  return (await doors.ensureSaved?.()) ?? null;
+}
+
+const SAVE_FAILED = "Could not save. Nothing was kept.";
+
+/** True for a card whose content came from an uploaded PDF. */
+const isPdfApplication = (template: PropertyApplicationTemplate) =>
+  Boolean(template.draftQuestionConfig?.importProvenance?.sourcePath || template.draftQuestionConfig?.importProvenance?.sourceName);
 
 /** The plain facts under a card's title. */
 function Facts({ items }: { items: ReadonlyArray<string | null | false | undefined> }) {
@@ -443,6 +532,9 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   const { open, setOpen, toggle } = useOneOpen();
   const names = useCardNames();
   const [startFrom, setStartFrom] = useState<Record<string, string>>({});
+  const latest = useLatest({ synced, templates });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   const commitTemplates = (next: PropertyApplicationTemplate[]) => onChange(withApplicationTemplates(synced, next));
   const replace = (next: PropertyApplicationTemplate) =>
@@ -466,6 +558,38 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     commitTemplates([...templates, created]);
     setOpen(created.id);
     setStartFrom((current) => ({ ...current, [created.id]: "proplane" }));
+    publisher.schedule();
+  };
+
+  /**
+   * "Upload a PDF": the existing application PDF import. A brand-new draft is saved first so the import has a
+   * property to store the original against; the application is created once the questions come back.
+   */
+  const importPdf = async (file: File | null) => {
+    if (!file) return;
+    const propertyId = await resolveRecordId(doors);
+    if (!propertyId) {
+      doors.showToast(SAVE_FAILED);
+      return;
+    }
+    const before = latest.current;
+    const fresh = createInlineApplication(before.synced, before.templates, "proplane", deriveFormNameFromFileName(file.name));
+    const imported = await importApplicationPdf({
+      propertyId,
+      templateId: fresh.id,
+      file,
+      showToast: doors.showToast,
+      setBusy: setImporting,
+    });
+    if (!imported) return;
+    const now = latest.current;
+    const created: PropertyApplicationTemplate = {
+      ...fresh,
+      draftQuestionConfig: imported.draft,
+      updatedAt: new Date().toISOString(),
+    };
+    onChange(withApplicationTemplates(now.synced, [...now.templates, created]));
+    setOpen(created.id);
     publisher.schedule();
   };
 
@@ -493,7 +617,31 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
 
   return (
     <StepColumn>
-      <CountHeading count={templates.length} noun="application" addLabel="Add application" onAdd={add} dataAttr="listing-v2-add-application-icon" />
+      <CountHeading
+        count={templates.length}
+        noun="application"
+        addLabel="Add application"
+        choices={[
+          { id: "standard", label: "Build from PropLane standard", dataAttr: "listing-v2-add-application-standard", onSelect: add },
+          { id: "pdf", label: "Upload a PDF", dataAttr: "listing-v2-add-application-pdf", onSelect: () => fileRef.current?.click() },
+        ]}
+        dataAttr="listing-v2-add-application-icon"
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Choose an application PDF"
+        accept="application/pdf,.pdf"
+        disabled={importing}
+        data-attr="listing-v2-application-file"
+        onChange={(event) => {
+          const file = event.target.files?.[0] ?? null;
+          event.target.value = "";
+          void importPdf(file);
+        }}
+      />
 
       {templates.map((template, i) => {
         const stored = normalizePropertyApplicationTemplateLabel(template.label) || "Application";
@@ -521,6 +669,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   fee.value ? `$${fee.value}` : fee.placeholder || "No fee",
                   leaseName,
                   plural(questionCount, "question"),
+                  isPdfApplication(template) && "PDF",
                   !isApplicationTemplateOffered(template) && "Not needed",
                 ]}
               />
@@ -723,6 +872,7 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadFor = useRef<string | null>(null);
+  const latest = useLatest({ synced, templates });
 
   const commitLeases = (
     next: PropertyLeaseTemplate[],
@@ -734,10 +884,12 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
   const patchLease = (id: string, patch: Partial<PropertyLeaseTemplate>) =>
     commitLeases(updatePropertyLeaseTemplate(templates, id, patch));
 
-  const addStandard = () => {
+  const addStandard = (thenUpload = false) => {
     const added = submissionWithStandardLease(synced, templates, "long-term");
     onChange(added.sub);
-    if (added.leaseId) setOpen(added.leaseId);
+    if (!added.leaseId) return;
+    setOpen(added.leaseId);
+    if (thenUpload) pickPdf(added.leaseId);
   };
 
   /** A lease type with no lease yet: add the PropLane standard for it, or add it and ask for a PDF. */
@@ -776,13 +928,20 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
     uploadFor.current = null;
     const template = templates.find((row) => row.id === id);
     if (!file || !template) return;
+    // A brand-new draft is saved first, so the lease upload belongs to a real record.
+    if (!doors.recordId?.trim() && doors.ensureSaved && !(await resolveRecordId(doors))) {
+      doors.showToast(SAVE_FAILED);
+      return;
+    }
     const fields = await importLeasePdf({
       file,
       kind: template.kind,
       showToast: doors.showToast,
       setBusy: (busy) => setBusyId(busy ? template.id : null),
     });
-    if (fields) patchLease(template.id, fields);
+    if (!fields) return;
+    const now = latest.current;
+    onChange(submissionWithLeaseTemplates(now.synced, updatePropertyLeaseTemplate(now.templates, template.id, fields), []));
   };
 
   const changeStart = async (template: PropertyLeaseTemplate, next: string) => {
@@ -814,7 +973,16 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
 
   return (
     <StepColumn>
-      <CountHeading count={templates.length + missingSeeds.length} noun="lease" addLabel="Add lease" onAdd={addStandard} dataAttr="listing-v2-add-lease-icon" />
+      <CountHeading
+        count={templates.length + missingSeeds.length}
+        noun="lease"
+        addLabel="Add lease"
+        choices={[
+          { id: "standard", label: "Add PropLane standard", dataAttr: "listing-v2-add-lease-standard", onSelect: () => addStandard(false) },
+          { id: "pdf", label: "Upload a PDF", dataAttr: "listing-v2-add-lease-pdf", onSelect: () => addStandard(true) },
+        ]}
+        dataAttr="listing-v2-add-lease-icon"
+      />
       <input
         ref={fileRef}
         type="file"
@@ -854,6 +1022,8 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
               <Facts
                 items={[
                   leaseTypeFact(template),
+                  // A lease of its own that was uploaded already reads "PDF" as its type.
+                  isPdfLease(template) && template.listingSeedKey && "PDF",
                   tied.length > 0 ? tied.map((row) => normalizePropertyApplicationTemplateLabel(row.label) || "Application").join(", ") : "No applications",
                   flags.custom && "Custom dates",
                   flags.monthToMonth && "Month-to-month",
@@ -1041,6 +1211,13 @@ function MoveInInlineBody({
           onChange={(value) => onTemplate({ ...template, due: value as MoveInFormTemplate["due"] })}
         />
       </FactRow>
+      {template.source === "upload" ? (
+        <FactRow label="PDF">
+          <span className="truncate text-[13.5px] font-semibold text-foreground" data-attr="listing-v2-movein-pdf-name">
+            {template.pdf?.fileName ?? "Not uploaded"}
+          </span>
+        </FactRow>
+      ) : null}
       {fresh ? (
         <FactRow label="Start from">
           <RowSelectCell
@@ -1076,16 +1253,20 @@ function MoveInInlineBody({
   );
 }
 
-export function StepMoveIn({ sub, onChange }: StepProps) {
+export function StepMoveIn({ sub, onChange, doors }: StepProps) {
   const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
   const { open, setOpen, toggle } = useOneOpen();
   const [freshId, setFreshId] = useState<string | null>(null);
+  const latest = useLatest({ sub, templates });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   /**
    * The first write also stores the starters. Only the form the manager touched keeps its own Sends;
    * untouched starters are stored as "Only when I send it" (same rule as the Move-in tab).
    */
   const write = (list: MoveInFormTemplate[], editedId: string | null) => {
+    const sub = latest.current.sub;
     const firstSave = !Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates);
     const next = firstSave
       ? list.map((item) => (item.id.startsWith("starter-") && item.id !== editedId ? { ...item, trigger: "manual" as const } : item))
@@ -1107,6 +1288,55 @@ export function StepMoveIn({ sub, onChange }: StepProps) {
     setFreshId(created.id);
   };
 
+  /** "Start from a template": one of the starters, added as the manager's own form that sends only when they say. */
+  const addStarter = (starterKey: MoveInFormStarterKey) => {
+    const created: MoveInFormTemplate = {
+      ...newMoveInFormTemplate("built", starterKey),
+      trigger: "manual",
+    };
+    created.name = uniqueFormLabel(templates.map((item) => item.name), created.name || "New form");
+    write([...templates, created], created.id);
+    setOpen(created.id);
+  };
+
+  /**
+   * "Upload a PDF": the existing move-in PDF upload (`uploadMoveInFormPdf`). A brand-new draft is saved first so
+   * the PDF is stored against a real property; the form is added once the PDF is stored.
+   */
+  const uploadPdf = async (file: File | null) => {
+    if (!file) return;
+    if (!(file.type === "application/pdf" || /\.pdf$/i.test(file.name))) {
+      doors.showToast("Choose a PDF file.");
+      return;
+    }
+    if (file.size > LEASE_TEMPLATE_MAX_BYTES) {
+      doors.showToast("The PDF must be 8 MB or smaller.");
+      return;
+    }
+    const propertyId = await resolveRecordId(doors);
+    if (!propertyId) {
+      doors.showToast(SAVE_FAILED);
+      return;
+    }
+    const blank = newMoveInFormTemplate("upload");
+    const created: MoveInFormTemplate = {
+      ...blank,
+      name: uniqueFormLabel(latest.current.templates.map((item) => item.name), deriveFormNameFromFileName(file.name)),
+      // A new form never messages a resident until the manager picks when.
+      trigger: "manual",
+    };
+    setUploading(true);
+    try {
+      const { pdf } = await uploadMoveInFormPdf(propertyId, created.id, file);
+      write([...latest.current.templates, { ...created, pdf }], created.id);
+      setOpen(created.id);
+    } catch (error) {
+      doors.showToast(error instanceof Error ? error.message : "Could not upload that PDF. Try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const duplicate = (template: MoveInFormTemplate) => {
     const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate("built").id);
     if (!copy) return;
@@ -1116,7 +1346,42 @@ export function StepMoveIn({ sub, onChange }: StepProps) {
 
   return (
     <StepColumn>
-      <CountHeading count={templates.length} noun="move-in form" addLabel="Add move-in form" onAdd={add} dataAttr="listing-v2-add-movein-icon" />
+      <CountHeading
+        count={templates.length}
+        noun="move-in form"
+        addLabel="Add move-in form"
+        choices={[
+          { id: "build", label: "Build a form", dataAttr: "listing-v2-add-movein-build", onSelect: add },
+          { id: "pdf", label: "Upload a PDF", dataAttr: "listing-v2-add-movein-pdf", onSelect: () => fileRef.current?.click() },
+          {
+            id: "template",
+            label: "Start from a template",
+            dataAttr: "listing-v2-add-movein-template",
+            choices: MOVE_IN_FORM_STARTERS.filter((starter) => starter.starterKey).map((starter) => ({
+              id: starter.starterKey!,
+              label: starter.name,
+              dataAttr: `listing-v2-add-movein-starter-${starter.starterKey}`,
+              onSelect: () => addStarter(starter.starterKey!),
+            })),
+          },
+        ]}
+        dataAttr="listing-v2-add-movein-icon"
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Choose a move-in form PDF"
+        accept="application/pdf,.pdf"
+        disabled={uploading}
+        data-attr="listing-v2-movein-file"
+        onChange={(event) => {
+          const file = event.target.files?.[0] ?? null;
+          event.target.value = "";
+          void uploadPdf(file);
+        }}
+      />
 
       {templates.map((template, i) => {
         const label = template.name.trim() || "Untitled form";
@@ -1129,7 +1394,15 @@ export function StepMoveIn({ sub, onChange }: StepProps) {
             nameLabel={`Name for move-in form ${i + 1}`}
             namePlaceholder={`Move-in form ${i + 1}`}
             onName={(text) => replace({ ...template, name: text })}
-            facts={<Facts items={[plural(template.questions.length, "question"), moveInSendsFact(template)]} />}
+            facts={
+              <Facts
+                items={[
+                  template.source === "upload" && "PDF",
+                  plural(template.questions.length, "question"),
+                  moveInSendsFact(template),
+                ]}
+              />
+            }
             headerEnd={
               <CardMenu
                 label={label}
@@ -1189,9 +1462,6 @@ export function StepPricing({ sub, onChange }: StepProps) {
   const rooms = (sub.rooms ?? []).filter((room) => room.name.trim() || room.monthlyRent > 0);
   const bundles = sub.bundles ?? [];
   const { open, setOpen, toggle } = useOneOpen();
-  const [bundlesOn, setBundlesOn] = useState(bundles.length > 0);
-  const bundlesShown = bundlesOn || bundles.length > 0;
-  const confirm = useConfirm();
 
   const patch = (next: Partial<ManagerListingSubmissionV1>) => onChange({ ...sub, ...next });
   const updateRoom = (roomId: string, next: ManagerRoomSubmission) => patch(roomPricingPatch(sub, roomId, next));
@@ -1206,21 +1476,8 @@ export function StepPricing({ sub, onChange }: StepProps) {
     patch({ bundles: [...bundles, { id, label: "", price: "", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: [] }] });
     setOpen(id);
   };
-  const turnBundlesOff = async () => {
-    if (bundles.length > 0) {
-      const ok = await confirm({
-        title: "Turn off bundles?",
-        description: `Turn off bundles? This removes ${plural(bundles.length, "bundle")}.`,
-        confirmLabel: "Turn off",
-        tone: "danger",
-        note: null,
-      });
-      if (!ok) return;
-      patch({ bundles: [] });
-    }
-    setBundlesOn(false);
-    setOpen(null);
-  };
+  const wholeHouseRent = typeof sub.entireHomeMonthlyRent === "number" ? sub.entireHomeMonthlyRent : 0;
+  const wholeHouseOffered = Boolean(sub.entireHomeOffered);
 
   return (
     <StepColumn>
@@ -1306,82 +1563,103 @@ export function StepPricing({ sub, onChange }: StepProps) {
 
       {wholeHome ? null : (
         <div className="mt-6" data-attr="listing-v2-bundles">
-          <div className="mb-3 overflow-hidden rounded-2xl border border-border bg-card px-3.5 py-1">
-            <CheckboxOption
-              label="Offer room bundles"
-              checked={bundlesShown}
-              dataAttr="listing-v2-bundles-toggle"
-              onChange={(on) => {
-                if (on) setBundlesOn(true);
-                else void turnBundlesOff();
-              }}
-            />
+          <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-[18px] font-extrabold tracking-tight text-foreground">Bundles</h3>
+            <PortalPrimaryIconAction label="Add bundle" onClick={addBundle} data-attr="listing-v2-add-bundle-icon" />
           </div>
-          {bundlesShown ? (
-            <>
-              <div className="pr9-top mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-[18px] font-extrabold tracking-tight text-foreground">
-                  {plural(bundles.length, "bundle")}
-                </h3>
-                <PortalPrimaryIconAction label="Add bundle" onClick={addBundle} data-attr="listing-v2-add-bundle-icon" />
-              </div>
-              {bundles.map((bundle) => {
-                // Titled by its rooms, the same as the Pricing tab's Room bundles.
-                const label = propertyPricingBundleTitle(bundle, sub);
-                const included = (bundle.includedRoomIds ?? []).filter((id) => rooms.some((room) => room.id === id));
-                const rent = parseMoneyAmount(bundle.price ?? "");
-                return (
-                  <RecordCard
-                    key={bundle.id}
-                    propertyEditor
-                    title={label}
-                    facts={<Facts items={[included.length === 0 && "No rooms yet", rent > 0 ? rentLabel(rent) : "Rent not set"]} />}
-                    headerEnd={
-                      <CardMenu
-                        label={label}
-                        dataAttr="listing-v2-bundle"
-                        onEdit={() => toggle(bundle.id)}
-                        onDuplicate={() => {
-                          const copy = { ...structuredClone(bundle), id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: `${bundle.label.trim() || label} copy` };
-                          const at = bundles.findIndex((b) => b.id === bundle.id);
-                          patch({ bundles: [...bundles.slice(0, at + 1), copy, ...bundles.slice(at + 1)] });
-                          setOpen(copy.id);
-                        }}
-                        onDelete={() => {
-                          patch({ bundles: bundles.filter((b) => b.id !== bundle.id) });
-                          if (open === bundle.id) setOpen(null);
-                        }}
-                      />
-                    }
-                    open={open === bundle.id}
-                    onToggle={() => toggle(bundle.id)}
-                    toggleLabel={label}
-                    dataAttr="listing-v2-bundle-card"
-                  >
-                    <FactRow first label="Rooms in the bundle">
-                      <CheckboxMultiSelect
-                        hideLabel
-                        label={`Rooms in ${label}`}
-                        variant="cell"
-                        className="min-w-[150px] max-w-[240px]"
-                        options={rooms.map((room, ri) => ({ value: room.id, label: roomLabel(room, ri) }))}
-                        selected={included}
-                        emptyLabel="Pick rooms"
-                        dataAttr="listing-v2-bundle-rooms"
-                        onChange={(ids) => writeBundle(bundle.id, { includedRoomIds: ids, roomsLine: "" })}
-                      />
-                    </FactRow>
-                    {PRICING_FORMATS.map((format) => (
-                      <section key={format.term}>
-                        <FormatHeading title={format.title} />
-                        <BundlePricingFields draft={sub} bundle={bundle} activeStepId={format.term} patch={patch} setDraft={onChange} />
-                      </section>
-                    ))}
-                  </RecordCard>
-                );
-              })}
-            </>
-          ) : null}
+          <RecordCard
+            propertyEditor
+            title="Whole house"
+            facts={
+              <Facts
+                items={[
+                  `Long-term · ${wholeHouseRent > 0 ? rentLabel(wholeHouseRent) : "rent not set"}`,
+                  `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
+                  !wholeHouseOffered && "Not offered",
+                ]}
+              />
+            }
+            headerEnd={
+              <>
+                <RentOnRight text={wholeHouseRent > 0 ? rentLabel(wholeHouseRent) : "Rent not set"} />
+                <CardMenu label="Whole house" dataAttr="listing-v2-whole-house" onEdit={() => toggle("whole-house")} />
+              </>
+            }
+            open={open === "whole-house"}
+            onToggle={() => toggle("whole-house")}
+            toggleLabel="Whole house"
+            dataAttr="listing-v2-whole-house-card"
+          >
+            <FactRow first label="Offered">
+              <PortalSettingsToggle
+                checked={wholeHouseOffered}
+                label="Whole house: offered"
+                dataAttr="listing-v2-whole-house-offered"
+                onChange={(on) => patch({ entireHomeOffered: on, entireHomePriceSource: "own" })}
+              />
+            </FactRow>
+            {PRICING_FORMATS.map((format) => (
+              <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
+                <FormatHeading title={format.title} />
+                <WholeHousePricingFields draft={sub} activeStepId={format.term} patch={patch} offerToggle={false} />
+              </section>
+            ))}
+          </RecordCard>
+          {bundles.map((bundle) => {
+            // Titled by its rooms, the same as the Pricing tab's Room bundles.
+            const label = propertyPricingBundleTitle(bundle, sub);
+            const included = (bundle.includedRoomIds ?? []).filter((id) => rooms.some((room) => room.id === id));
+            const rent = parseMoneyAmount(bundle.price ?? "");
+            return (
+              <RecordCard
+                key={bundle.id}
+                propertyEditor
+                title={label}
+                facts={<Facts items={[included.length === 0 && "No rooms yet", rent > 0 ? rentLabel(rent) : "Rent not set"]} />}
+                headerEnd={
+                  <CardMenu
+                    label={label}
+                    dataAttr="listing-v2-bundle"
+                    onEdit={() => toggle(bundle.id)}
+                    onDuplicate={() => {
+                      const copy = { ...structuredClone(bundle), id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: `${bundle.label.trim() || label} copy` };
+                      const at = bundles.findIndex((b) => b.id === bundle.id);
+                      patch({ bundles: [...bundles.slice(0, at + 1), copy, ...bundles.slice(at + 1)] });
+                      setOpen(copy.id);
+                    }}
+                    onDelete={() => {
+                      patch({ bundles: bundles.filter((b) => b.id !== bundle.id) });
+                      if (open === bundle.id) setOpen(null);
+                    }}
+                  />
+                }
+                open={open === bundle.id}
+                onToggle={() => toggle(bundle.id)}
+                toggleLabel={label}
+                dataAttr="listing-v2-bundle-card"
+              >
+                <FactRow first label="Rooms in the bundle">
+                  <CheckboxMultiSelect
+                    hideLabel
+                    label={`Rooms in ${label}`}
+                    variant="cell"
+                    className="min-w-[150px] max-w-[240px]"
+                    options={rooms.map((room, ri) => ({ value: room.id, label: roomLabel(room, ri) }))}
+                    selected={included}
+                    emptyLabel="Pick rooms"
+                    dataAttr="listing-v2-bundle-rooms"
+                    onChange={(ids) => writeBundle(bundle.id, { includedRoomIds: ids, roomsLine: "" })}
+                  />
+                </FactRow>
+                {PRICING_FORMATS.map((format) => (
+                  <section key={format.term}>
+                    <FormatHeading title={format.title} />
+                    <BundlePricingFields draft={sub} bundle={bundle} activeStepId={format.term} patch={patch} setDraft={onChange} />
+                  </section>
+                ))}
+              </RecordCard>
+            );
+          })}
         </div>
       )}
     </StepColumn>

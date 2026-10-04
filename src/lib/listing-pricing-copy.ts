@@ -89,6 +89,10 @@ function copyBundlePricingFields(
     moveInFee: source.moveInFee,
     utilitiesPaymentModel: source.utilitiesPaymentModel,
     utilitiesEstimate: source.utilitiesEstimate,
+    monthToMonthSurcharge: source.monthToMonthSurcharge,
+    customStartSurcharge: source.customStartSurcharge,
+    // A bundle's Lease fee and Application fee ride in its term entries.
+    termPricing: source.termPricing ? structuredClone(source.termPricing) : target.termPricing,
   };
 }
 

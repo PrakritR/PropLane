@@ -605,6 +605,14 @@ export type ManagerBundleRow = {
   utilitiesEstimate?: string;
   /** Lease term id → source bundle id for mirrored bundle pricing (no chains). */
   copyFromBundleIdByTerm?: Partial<Record<string, string>>;
+  /**
+   * The two start surcharges a room keeps on its Private arrangement row, kept flat on the bundle
+   * (it has no arrangement rows). Money strings; advertised like the bundle deposit, never read by
+   * charge generation. A bundle's Lease fee and Application fee live in `termPricing[term]`, the
+   * same entry shape (and the same fields) a room's non-long-term step uses.
+   */
+  monthToMonthSurcharge?: string;
+  customStartSurcharge?: string;
 };
 
 /** How a room uses a specific bathroom row (optional; improves listing copy). */
@@ -2503,6 +2511,14 @@ function normalizeManagerListingSubmissionV1Base(
           ? b.utilitiesEstimate.trim()
           : undefined,
       termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
+      monthToMonthSurcharge:
+        typeof b.monthToMonthSurcharge === "string" && b.monthToMonthSurcharge.trim()
+          ? b.monthToMonthSurcharge.trim()
+          : undefined,
+      customStartSurcharge:
+        typeof b.customStartSurcharge === "string" && b.customStartSurcharge.trim()
+          ? b.customStartSurcharge.trim()
+          : undefined,
       shortTermWeeklyRent: positiveRate((b as ManagerBundleRow).shortTermWeeklyRent),
       pricingMode: (b as ManagerBundleRow).pricingMode === "flexible" ? "flexible" : undefined,
       prorateMethod: (b as ManagerBundleRow).prorateMethod === "daily_rate" ? "daily_rate" : undefined,

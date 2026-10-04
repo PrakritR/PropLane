@@ -306,10 +306,12 @@ describe("Application step", () => {
     if (before) expect(readPropertyApplicationTemplates(live.latest())[0]!.label).toBe(before);
   });
 
-  it("+ adds one inline, already open, started from the PropLane standard", () => {
+  it("+ offers Build from PropLane standard and Upload a PDF; the first adds one inline, already open, started from the standard", async () => {
     const live = mountLive();
     go("application");
-    fireEvent.click(q("[data-attr='listing-v2-add-application-icon']")!);
+    const choices = await openMenu(q("[data-attr='listing-v2-add-application-icon']")!);
+    expect(choices.map((item) => item.textContent)).toEqual(["Build from PropLane standard", "Upload a PDF"]);
+    fireEvent.click(choices[0]!);
     expect(headingText()).toBe("4 applications");
     const created = readPropertyApplicationTemplates(live.latest()).at(-1)!;
     expect(created.listingSeedKey).toBeUndefined();
@@ -432,10 +434,12 @@ describe("Lease step", () => {
     expect(cards("lease")[0]!.textContent).toContain("Month-to-month");
   });
 
-  it("+ adds a PropLane standard lease inline, open", () => {
+  it("+ offers Add PropLane standard and Upload a PDF; the first adds a standard lease inline, open", async () => {
     const live = mountLive(subWithLeases());
     go("lease");
-    fireEvent.click(q("[data-attr='listing-v2-add-lease-icon']")!);
+    const choices = await openMenu(q("[data-attr='listing-v2-add-lease-icon']")!);
+    expect(choices.map((item) => item.textContent)).toEqual(["Add PropLane standard", "Upload a PDF"]);
+    fireEvent.click(choices[0]!);
     expect(readPropertyLeaseTemplates(live.latest()).length).toBe(3);
     expect(headingText()).toBe("4 leases");
     expect(q("[data-attr='listing-v2-lease-start-from']")).not.toBeNull();
@@ -549,10 +553,12 @@ describe("Move-in step", () => {
     expect(stored.some((question) => question.label === "Parking permit number")).toBe(true);
   });
 
-  it("+ adds a form inline, open, that never sends until the manager picks when", () => {
+  it("+ offers Build a form, Upload a PDF and Start from a template; Build adds a form inline, open, that never sends until the manager picks when", async () => {
     const live = mountLive(withMoveInForms());
     go("movein");
-    fireEvent.click(q("[data-attr='listing-v2-add-movein-icon']")!);
+    const choices = await openMenu(q("[data-attr='listing-v2-add-movein-icon']")!);
+    expect(choices.map((item) => item.textContent)).toEqual(["Build a form", "Upload a PDF", "Start from a template"]);
+    fireEvent.click(choices[0]!);
     const forms = readMoveInFormTemplates(live.latest());
     expect(forms.length).toBe(UNSAVED_FORM_COUNT + 1);
     expect(forms.at(-1)!.trigger).toBe("manual");
@@ -666,14 +672,16 @@ describe("Pricing step", () => {
     expect(q("[data-attr='listing-v2-bundles']")).toBeNull();
   });
 
-  it("Bundles: a checkbox at the bottom; off by default, on shows the cards and the round +", () => {
+  it("Bundles: no checkbox; on a by-the-room listing the section is always there, Whole house first, with the round +", () => {
     const live = mountLive();
     go("pricing");
-    const box = q("[data-attr='listing-v2-bundles-toggle']") as HTMLInputElement;
-    expect(box.checked).toBe(false);
-    expect(q("[data-attr='listing-v2-add-bundle-icon']")).toBeNull();
-    fireEvent.click(box);
-    expect((q("[data-attr='listing-v2-bundles-toggle']") as HTMLInputElement).checked).toBe(true);
+    expect(q("[data-attr='listing-v2-bundles']")).not.toBeNull();
+    expect(q("[data-attr='listing-v2-bundles-toggle']")).toBeNull();
+    expect(document.body.textContent).not.toContain("Offer room bundles");
+    // The first card of the section is the whole house; no custom bundle exists yet.
+    const bundleCards = qa("[data-attr='listing-v2-bundles'] .pr9-card");
+    expect(bundleCards[0]!.getAttribute("data-attr")).toBe("listing-v2-whole-house-card");
+    expect(cards("bundle")).toHaveLength(0);
     fireEvent.click(q("[data-attr='listing-v2-add-bundle-icon']")!);
     expect(live.latest().bundles.length).toBe(1);
     const card = cards("bundle")[0]!;
@@ -681,22 +689,35 @@ describe("Pricing step", () => {
     expect(q("[data-attr='listing-v2-bundle-rooms']")).not.toBeNull();
     expect(card.textContent).toContain("Long-term");
     expect(card.textContent).toContain("Short-term");
+    // Whole house still comes before the custom bundles.
+    expect(qa("[data-attr='listing-v2-bundles'] .pr9-card")[0]!.getAttribute("data-attr")).toBe("listing-v2-whole-house-card");
   });
 
-  it("turning bundles off asks first and then clears them", async () => {
-    vi.stubGlobal("confirm", vi.fn(() => true));
+  it("the Whole house card has its own Offered switch; 'Not offered' is its fact while it is off", () => {
+    const live = mountLive();
+    go("pricing");
+    const whole = q("[data-attr='listing-v2-whole-house-card']")!;
+    expect(whole.querySelector(".pr9-facts")!.textContent).toContain("Not offered");
+    openCard(whole);
+    const offered = q("[data-attr='listing-v2-whole-house-offered']")!;
+    fireEvent.click(offered);
+    expect(live.latest().entireHomeOffered).toBe(true);
+    expect(q("[data-attr='listing-v2-whole-house-card'] .pr9-facts")!.textContent).not.toContain("Not offered");
+    fireEvent.click(q("[data-attr='listing-v2-whole-house-offered']")!);
+    expect(live.latest().entireHomeOffered).toBe(false);
+    expect(q("[data-attr='listing-v2-whole-house-card'] .pr9-facts")!.textContent).toContain("Not offered");
+  });
+
+  it("existing bundles show under the Whole house card, with no checkbox to turn them off", () => {
     const base = sub();
-    const live = mountLive({
+    mountLive({
       ...base,
       bundles: [{ id: "b1", label: "Both rooms", price: "2000", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: ["room-a"] }],
     } as unknown as typeof base);
     go("pricing");
-    const box = q("[data-attr='listing-v2-bundles-toggle']") as HTMLInputElement;
-    expect(box.checked).toBe(true);
+    expect(q("[data-attr='listing-v2-bundles-toggle']")).toBeNull();
     expect(cards("bundle")).toHaveLength(1);
-    fireEvent.click(box);
-    await waitFor(() => expect(live.latest().bundles).toEqual([]));
-    expect((q("[data-attr='listing-v2-bundles-toggle']") as HTMLInputElement).checked).toBe(false);
+    expect(qa("[data-attr='listing-v2-bundles'] .pr9-card")[0]!.getAttribute("data-attr")).toBe("listing-v2-whole-house-card");
   });
 });
 
