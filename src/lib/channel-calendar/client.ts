@@ -6,11 +6,6 @@ import type {
   ManagerChannelBookingProperty,
 } from "@/lib/channel-calendar/types";
 
-function apiOrigin(): string {
-  if (typeof window === "undefined") return "";
-  return window.location.origin;
-}
-
 export async function fetchRoomExportCalendarUrl(input: {
   propertyId: string;
   roomId: string;
@@ -18,11 +13,9 @@ export async function fetchRoomExportCalendarUrl(input: {
   /** The site the link is pasted into; "other" is a link that carries every channel's bookings. */
   provider?: ChannelCalendarProvider | "other";
 }): Promise<string> {
-  const origin = apiOrigin();
   const params = new URLSearchParams({
     propertyId: input.propertyId,
     roomId: input.roomId,
-    origin,
   });
   if (input.provider) params.set("provider", input.provider);
   if (input.roomLabel?.trim()) params.set("roomLabel", input.roomLabel.trim());
@@ -38,9 +31,8 @@ export async function fetchRoomExportCalendarUrl(input: {
 export async function fetchChannelCalendarConnections(
   propertyId: string,
 ): Promise<ChannelCalendarConnectionPublic[]> {
-  const origin = encodeURIComponent(apiOrigin());
   const res = await fetch(
-    `/api/portal/channel-calendar/connections?propertyId=${encodeURIComponent(propertyId)}&origin=${origin}`,
+    `/api/portal/channel-calendar/connections?propertyId=${encodeURIComponent(propertyId)}`,
     { credentials: "include" },
   );
   const data = (await res.json()) as { connections?: ChannelCalendarConnectionPublic[]; error?: string };
@@ -55,8 +47,7 @@ export async function saveChannelCalendarConnection(input: {
   label?: string | null;
   importUrl?: string | null;
 }): Promise<ChannelCalendarConnectionPublic> {
-  const origin = encodeURIComponent(apiOrigin());
-  const res = await fetch(`/api/portal/channel-calendar/connections?origin=${origin}`, {
+  const res = await fetch(`/api/portal/channel-calendar/connections`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -94,8 +85,7 @@ export async function syncAllChannelCalendarConnections(
 export async function syncChannelCalendarConnection(
   connectionId: string,
 ): Promise<ChannelCalendarConnectionPublic> {
-  const origin = encodeURIComponent(apiOrigin());
-  const res = await fetch(`/api/portal/channel-calendar/sync?origin=${origin}`, {
+  const res = await fetch(`/api/portal/channel-calendar/sync`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
