@@ -7,13 +7,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { SettingsSectionPicker } from "@/components/portal/settings-section-picker";
 import {
   PHONE_SHEET_BACKDROP_Z_INDEX,
   PHONE_SHEET_Z_INDEX,
+  PhoneSectionPicker,
+  PhoneSheetGlyph,
 } from "@/components/ui/phone-bottom-sheet";
 import type { RecordSections } from "@/lib/portals/record-sections";
 
@@ -40,10 +41,36 @@ const STEPS = [
   { id: "c", label: "Review" },
 ];
 
+// The wizard steps are tabs now; the shared sheet is still what the section pickers and every
+// phone select draw, so the sheet's own contract is exercised through PhoneSectionPicker.
+function StepsPicker() {
+  const todo = STEPS.filter((step) => step.attention).length;
+  return (
+    <PhoneSectionPicker
+      title="Steps"
+      triggerLabel="Jump to step"
+      meta={todo > 0 ? <span>{todo} to finish</span> : null}
+      trigger={<span>Recipient</span>}
+      groups={[
+        {
+          items: STEPS.map((step, index) => ({
+            id: step.id,
+            label: step.label,
+            current: index === 1,
+            srHint: step.attention ? "Needs something" : undefined,
+            glyph: <PhoneSheetGlyph kind={step.attention ? "attention" : index === 1 ? "current" : "todo"} />,
+            onSelect: () => {},
+          })),
+        },
+      ]}
+    />
+  );
+}
+
 function openSteps() {
   const view = render(
     <div data-testid="dialog" style={{ position: "fixed", zIndex: 91 }}>
-      <StepRail steps={STEPS} current={1} onJump={() => {}} />
+      <StepsPicker />
     </div>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Jump to step" }));
@@ -57,6 +84,9 @@ describe("the shared phone bottom sheet", () => {
     expect(root).not.toBeNull();
     expect(getByTestId("dialog").contains(root)).toBe(false);
     expect(root.parentElement).toBe(document.body);
+    // The ROOT carries the layer: a popup (z-[80]) paints over a sheet whose root has no z-index.
+    expect(Number(root.style.zIndex)).toBe(PHONE_SHEET_BACKDROP_Z_INDEX);
+    expect(Number(root.style.zIndex)).toBeGreaterThan(91);
     const panel = root.querySelector("[data-phone-sheet-panel]") as HTMLElement;
     expect(panel.className).toContain("phone-sheet-surface");
     expect(panel.className).toContain("bg-card");

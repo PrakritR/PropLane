@@ -95,9 +95,9 @@ describe("the wizard rail", () => {
     expect(screen.queryByText(/Step 1 of 5$/)).toBeNull();
   });
 
-  it("the phone step picker lists the new steps", () => {
+  it("the phone step tabs list the new steps", () => {
     mount();
-    fireEvent.click(document.querySelector("[data-attr='workspace-step-picker']")!);
+    expect(document.querySelector("[data-attr='workspace-step-picker']")).not.toBeNull();
     for (const id of ["application", "lease", "movein", "pricing"]) {
       expect(document.querySelector(`[data-attr='workspace-step-${id}']`)).not.toBeNull();
     }
