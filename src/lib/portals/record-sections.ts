@@ -236,10 +236,12 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   property: {
     basePathDefault: "/portal",
     ownGroups: [
-      { label: "Property", ids: ["preview", "house-details", "move-in"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
+      { label: "Property", ids: ["preview", "house-details"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
       { label: "Leasing", ids: [
         { id: "application", label: "Applications" },
         { id: "lease", label: "Lease" },
+        // Move-in forms are part of leasing, between the lease and the price (captain, Oct 3).
+        { id: "move-in", label: "Move-in" },
         { id: "pricing", label: "Pricing" },
       ] },
       // "requests" reads "Services" everywhere it is shown — the shared
