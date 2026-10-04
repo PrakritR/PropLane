@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 
@@ -40,6 +41,8 @@ function status(overrides: { address?: string | null; canUse?: boolean; receivin
 const emptyCatalog = { ok: true, json: async () => ({ listings: [] }) };
 
 describe("useListingContactWorkEmail", () => {
+  // The hook's GETs are shared per URL for the page load; every case starts from a cold cache.
+  beforeEach(() => resetSharedGets());
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

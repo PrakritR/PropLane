@@ -276,6 +276,8 @@ function deferCatalogMutation(fn: () => void) {
  */
 /** How long a property route waits on the portfolio sync before it says it could not load. */
 export const PORTFOLIO_SYNC_SETTLE_MS = 20_000;
+/** How long the property record reuses its applications read across tab changes (the store default is 15 s). */
+export const APPLICATIONS_REUSE_MS = 5 * 60_000;
 
 const MANAGER_STAGES = [
   { key: "all", label: "All", buckets: [2, 3, 5] as AdminPropertyBucketIndex[] },
@@ -1817,7 +1819,10 @@ function ManagerHousePropertiesPanelBody({
   const [appTick, setAppTick] = useState(0);
   useEffect(() => {
     if (!scopeUserId || isDemoModeActive()) return;
-    void syncManagerApplicationsFromServer({ managerUserId: scopeUserId }).then(() => setAppTick((t) => t + 1));
+    // The property record remounts this panel on every tab; the default 15 s reuse window is shorter
+    // than a slow read plus a few tab changes, so each change re-sent the whole list. These rows only
+    // decorate the page, and local writes keep the store current through the event below.
+    void syncManagerApplicationsFromServer({ managerUserId: scopeUserId, maxAgeMs: APPLICATIONS_REUSE_MS }).then(() => setAppTick((t) => t + 1));
     const on = () => setAppTick((t) => t + 1);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, on);
     return () => window.removeEventListener(MANAGER_APPLICATIONS_EVENT, on);
