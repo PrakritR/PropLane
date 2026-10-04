@@ -428,6 +428,25 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
 
+  {
+    // Linked forms owed after an application is submitted. The manager's rows go with the manager; the
+    // applicant's go with the applicant. A helper who filled one in only has their id detached, because the
+    // form is the applicant's and the manager's record, not the helper's.
+    table: "application_form_requests",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: {
+      ids: ["applicant_user_id"],
+      detachIds: ["helper_user_id", "filled_by_user_id", "fee_paid_by_user_id"],
+    },
+  },
+  {
+    // The applicant <-> helper link behind "Forms for <applicant>". Either person's deletion removes it.
+    table: "resident_account_links",
+    phase: 1,
+    resident: { ids: ["applicant_user_id", "helper_user_id"] },
+  },
+
   // ------------------------------------------------------------- phase 2: the account rows
   {
     table: "manager_property_access",

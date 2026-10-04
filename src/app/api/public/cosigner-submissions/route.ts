@@ -6,7 +6,16 @@ import { applicationLinkBlock } from "@/lib/rental-application/application-link-
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { notifyManagerCosignerSubmitted } from "@/lib/cosigner-notification.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  completeLinkedFormRequest,
+  completeOpenLinkedFormRequestByForm,
+  loadLinkedFormRequest,
+  resolveLinkedFormViewerRole,
+  type LinkedFormRequestRow,
+} from "@/lib/application-linked-form-requests.server";
+import { linkedFormFeeOwed } from "@/lib/linked-form-fee.server";
 import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/cosigner-template.server";
 import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
@@ -32,8 +41,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 
-    const body = (await req.json()) as Partial<CosignerSubmission>;
-    const signerAppId = normalizeApplicationAxisId(String(body.signerAppId ?? "").trim());
+    const body = (await req.json()) as Partial<CosignerSubmission> & { formRequestId?: unknown };
+
+    // A form owed through a linked-form request: only a signed-in person with access to THAT request may
+    // submit it, the application and template come from the stored request (never from the body), and the
+    // person submitting must have paid its fee, if it has one.
+    const formRequestId = typeof body.formRequestId === "string" ? body.formRequestId.trim() : "";
+    let linkedRequest: LinkedFormRequestRow | null = null;
+    let linkedUserId = "";
+    if (formRequestId) {
+      const auth = await createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await auth.auth.getUser();
+      if (!user) return NextResponse.json({ error: "Sign in to submit this form." }, { status: 401 });
+      const lookupDb = createSupabaseServiceRoleClient();
+      const found = await loadLinkedFormRequest(lookupDb, formRequestId);
+      const viewer = found ? await resolveLinkedFormViewerRole(lookupDb, found, { id: user.id, email: user.email }) : null;
+      if (!found || !viewer || viewer.role === "manager" || found.form_kind !== "application") {
+        return NextResponse.json({ error: "Not found." }, { status: 404 });
+      }
+      if (found.status !== "owed" && found.status !== "shared") {
+        return NextResponse.json({ error: "This form is already finished." }, { status: 409 });
+      }
+      if (new Date(found.expires_at).getTime() <= Date.now()) {
+        return NextResponse.json({ error: "Not found." }, { status: 404 });
+      }
+      if (linkedFormFeeOwed(found) || ((found.fee_cents ?? 0) > 0 && found.fee_paid_by_user_id !== user.id)) {
+        return NextResponse.json({ error: "Pay this form's fee to submit it.", code: "FEE_REQUIRED" }, { status: 402 });
+      }
+      linkedRequest = found;
+      linkedUserId = user.id;
+    }
+
+    const signerAppId = normalizeApplicationAxisId(String(linkedRequest ? linkedRequest.application_id : (body.signerAppId ?? "")).trim());
     if (!signerAppId) {
       return NextResponse.json({ error: "Application ID is required." }, { status: 400 });
     }
@@ -48,7 +89,7 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const variants = [signerAppId, signerAppId.toUpperCase(), body.signerAppId?.trim()].filter(Boolean);
+    const variants = [signerAppId, signerAppId.toUpperCase(), linkedRequest ? linkedRequest.application_id : body.signerAppId?.trim()].filter(Boolean);
     const { data: appRow } = await db
       .from("manager_application_records")
       .select("id, manager_user_id, property_id, row_data")
@@ -66,9 +107,13 @@ export async function POST(req: Request) {
     const managerUserId = appRow.manager_user_id as string | null;
     if (!managerUserId) return NextResponse.json({ error: "Application has no assigned manager." }, { status: 400 });
 
-    const requestedTemplateId = typeof body.applicationTemplateId === "string" ? body.applicationTemplateId : undefined;
+    const requestedTemplateId = linkedRequest
+      ? linkedRequest.form_id
+      : typeof body.applicationTemplateId === "string" ? body.applicationTemplateId : undefined;
     const requestedVersion = Number.isSafeInteger(body.applicationTemplateVersion) ? body.applicationTemplateVersion : undefined;
-    const template = await resolveCosignerTemplateForApplication(db, appRow, requestedTemplateId, requestedVersion);
+    const template = await resolveCosignerTemplateForApplication(db, appRow, requestedTemplateId, requestedVersion, {
+      anyPublishedVariant: Boolean(linkedRequest),
+    });
     if (!template || template.pinMissing || (requestedTemplateId && template.templateId !== requestedTemplateId)) {
       return NextResponse.json({ error: "This co-signer form version is unavailable. Reload the link." }, { status: 409 });
     }
@@ -139,6 +184,24 @@ export async function POST(req: Request) {
       updated_at: new Date().toISOString(),
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (linkedRequest) {
+      // Compare-and-swap on the open statuses: if another submit already finished this form, this one is undone.
+      const finished = await completeLinkedFormRequest(db, linkedRequest.id, { filledByUserId: linkedUserId, submissionRef: id });
+      if (!finished) {
+        await db.from("cosigner_submission_records").delete().eq("id", id);
+        return NextResponse.json({ error: "This form is already finished." }, { status: 409 });
+      }
+    } else if (template.templateId) {
+      // The legacy public co-signer link: it still finishes the request a co-signer rule opened.
+      void completeOpenLinkedFormRequestByForm(db, {
+        applicationId: resolvedSignerAppId,
+        formKind: "application",
+        formId: template.templateId,
+        filledByUserId: null,
+        submissionRef: id,
+      });
+    }
 
     const appData = appRow.row_data as { name?: string; property?: string } | null;
     void notifyManagerCosignerSubmitted({

@@ -3,7 +3,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationConfigForApplicant } from "./application-template-config";
 import type { ApplicationConfigSlice } from "./application-field-catalog";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { applicationFormVariantForTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 export type CosignerTemplateResolution = {
   config: ApplicationConfigSlice;
@@ -18,6 +18,12 @@ export async function resolveCosignerTemplateForApplication(
   app: { manager_user_id: string | null; property_id?: string | null; row_data: unknown },
   templateId?: string,
   templateVersion?: number,
+  /**
+   * Only the authorized linked-form routes set this: a linked form named by a manager's rule may be any
+   * published application template of this property, not just a co-signer one. The public co-signer link
+   * never passes it, so it still serves co-signer templates only.
+   */
+  opts?: { anyPublishedVariant?: boolean },
 ): Promise<CosignerTemplateResolution | null> {
   const row = app.row_data as DemoApplicantRow | null;
   const propertyId = app.property_id || row?.propertyId || row?.application?.propertyId;
@@ -45,7 +51,16 @@ export async function resolveCosignerTemplateForApplication(
       effectiveTemplateId = primaryTemplate.linkedCosignerApplicationTemplateId;
     }
   }
-  const resolved = applicationConfigForApplicant(submission, "cosigner", effectiveTemplateId, templateVersion);
+  const pinnedTemplate =
+    opts?.anyPublishedVariant && effectiveTemplateId && submission
+      ? readPropertyApplicationTemplates(submission).find((candidate) => candidate.id === effectiveTemplateId)
+      : undefined;
+  const resolved = applicationConfigForApplicant(
+    submission,
+    pinnedTemplate ? applicationFormVariantForTemplate(pinnedTemplate) : "cosigner",
+    effectiveTemplateId,
+    templateVersion,
+  );
   // The link is public. Never return a published snapshot's manager-only
   // importProvenance (private source path, reviewer id, draft fingerprint).
   return {

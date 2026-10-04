@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
+import { ResidentLinkedFormsSection } from "@/components/portal/resident-linked-forms-section";
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
@@ -1233,6 +1234,7 @@ export function ResidentApplicationsPanel({
 
     return (
       <>
+        {sessionReady ? <ResidentLinkedFormsSection className="mb-4" /> : null}
         {renderApplicationsBand()}
         <PortalRecordListSurface
           className="mt-0"
