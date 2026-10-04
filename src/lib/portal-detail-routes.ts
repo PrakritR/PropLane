@@ -665,21 +665,31 @@ export function parseVendorTaskListTab(raw: string | undefined | null): VendorTa
   return "in-progress";
 }
 
-export const VENDOR_WORK_ORDER_LIST_TABS = ["pending", "upcoming", "past"] as const;
+/**
+ * The vendor portal's Services tabs are the one service vocabulary: Open · Assigned · Scheduled ·
+ * Completed (service-lifecycle.ts). Old ids (pending / upcoming / past / quote / tour / potential /
+ * current ...) alias onto them and never fall home.
+ */
+export const VENDOR_WORK_ORDER_LIST_TABS = ["open", "assigned", "scheduled", "completed"] as const;
 export type VendorWorkOrderListTabId = (typeof VENDOR_WORK_ORDER_LIST_TABS)[number];
-export const DEFAULT_VENDOR_WORK_ORDER_TAB: VendorWorkOrderListTabId = "pending";
+export const DEFAULT_VENDOR_WORK_ORDER_TAB: VendorWorkOrderListTabId = "open";
 
 export const VENDOR_WORK_ORDER_LIST_TAB_LABELS: Record<VendorWorkOrderListTabId, string> = {
-  pending: "Pending",
-  upcoming: "Upcoming",
-  past: "Past",
+  open: "Open",
+  assigned: "Assigned",
+  scheduled: "Scheduled",
+  completed: "Completed",
 };
 
+/** Old list ids that still arrive in saved links and emails, mapped onto the four tabs. */
 export const VENDOR_WORK_ORDER_LEGACY_LIST_TABS: Record<string, VendorWorkOrderListTabId> = {
-  quote: "pending",
-  tour: "pending",
-  scheduled: "upcoming",
-  completed: "past",
+  pending: "open",
+  potential: "open",
+  quote: "open",
+  tour: "open",
+  upcoming: "scheduled",
+  current: "scheduled",
+  past: "completed",
 };
 
 export function parseVendorWorkOrderListTab(raw: string | undefined | null): VendorWorkOrderListTabId {
@@ -698,12 +708,12 @@ export function vendorWorkOrderListHref(
 }
 
 /**
- * Vendor job (work order) record rail tabs (PLAN-0921-1029, area 2): trimmed
- * to Overview · Schedule · Invoice · Communication. "scope-photos" folds into
- * Overview's Job fact card.
+ * Vendor service page rail: Service · Estimate & bid · Schedule · Invoice · Communication. The old
+ * ids (overview, scope-photos, bid-invoice, quote ...) stay as aliases so saved links keep working.
  */
 export const VENDOR_JOB_DETAIL_TABS = [
-  "overview",
+  "service",
+  "bid",
   "schedule",
   "invoice",
   "communication",
@@ -711,25 +721,29 @@ export const VENDOR_JOB_DETAIL_TABS = [
 export type VendorJobDetailTabId = (typeof VENDOR_JOB_DETAIL_TABS)[number];
 
 const VENDOR_JOB_DETAIL_TAB_ALIASES: Record<string, VendorJobDetailTabId> = {
-  "scope-photos": "overview",
+  overview: "service",
+  "scope-photos": "service",
+  documents: "service",
   "bid-invoice": "invoice",
-  documents: "overview",
+  quote: "bid",
+  estimate: "bid",
+  "estimate-bid": "bid",
 };
 
 export function parseVendorJobDetailTab(raw: string | undefined | null): VendorJobDetailTabId {
   if (raw && (VENDOR_JOB_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as VendorJobDetailTabId;
   }
-  return (raw && VENDOR_JOB_DETAIL_TAB_ALIASES[raw]) || "overview";
+  return (raw && VENDOR_JOB_DETAIL_TAB_ALIASES[raw]) || "service";
 }
 
 export function vendorJobDetailHref(
   basePath: string,
   workOrderId: string,
-  tab: VendorJobDetailTabId = "overview",
+  tab: VendorJobDetailTabId = "service",
 ): string {
   const base = `${basePath}/work-orders/${encodeURIComponent(workOrderId)}`;
-  return tab === "overview" ? base : `${base}/${tab}`;
+  return tab === "service" ? base : `${base}/${tab}`;
 }
 
 /** Vendor invoice record rail tabs (PLAN-0920-1058, area 1c). */

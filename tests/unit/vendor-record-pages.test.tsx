@@ -110,10 +110,10 @@ afterEach(() => {
 });
 
 describe("vendor job record page", () => {
-  it("a row navigates to /vendor/work-orders/<id> (overview, the default tab, omitted)", async () => {
+  it("a row navigates to /vendor/work-orders/<id> (Service, the default section, omitted)", async () => {
     render(
       <AppUiProvider>
-        <VendorWorkOrdersPanel tabId="upcoming" />
+        <VendorWorkOrdersPanel tabId="scheduled" />
       </AppUiProvider>,
     );
     const row = await screen.findByText("Replace water heater");
@@ -121,29 +121,30 @@ describe("vendor job record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/work-orders/wo-1");
   });
 
-  it("the rail has the registry's trimmed sections (PLAN-0921-1029): Overview, Schedule, Invoice, Communication", async () => {
+  it("the rail is Service, Estimate & bid, Schedule, Invoice, Communication, with one primary next step", async () => {
     render(
       <AppUiProvider>
-        <VendorWorkOrdersPanel tabId="upcoming" workOrderId="wo-1" />
+        <VendorWorkOrdersPanel tabId="scheduled" workOrderId="wo-1" />
       </AppUiProvider>,
     );
     await screen.findAllByText("Replace water heater");
 
-    const rail = screen.getByRole("navigation", { name: "Job sections" });
+    const rail = screen.getByRole("navigation", { name: "Service sections" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
-      "Overview",
+      "Service",
+      "Estimate & bid",
       "Schedule",
       "Invoice",
       "Communication",
     ]);
 
-    // Header icon labels — queried by data-attr since "Accept" is also the
-    // phone sticky primary's own button (jsdom renders both, unlike a real
-    // browser where the desktop icon row is `hidden` below `lg`).
-    expect(document.querySelector('[data-attr="record-header-action-accept"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="record-header-action-submit-invoice"]')).not.toBeNull();
+    // A scheduled job's one primary is Complete; Message is the only other icon.
+    const primary = document.querySelector('[data-attr="vendor-job-primary"]');
+    expect(primary?.getAttribute("aria-label") ?? primary?.textContent).toContain("Complete");
+    expect(document.querySelectorAll('[data-attr="vendor-job-primary"]').length).toBe(1);
+    expect(document.querySelector('[data-attr="vendor-job-message"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-accept"]')).toBeNull();
   });
 });
 

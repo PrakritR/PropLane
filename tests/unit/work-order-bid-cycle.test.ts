@@ -277,12 +277,12 @@ describe("self and team work are never payable", () => {
 describe("vendor reply choices", () => {
   const labels = (b?: WorkOrderBid) => vendorReplyChoices(b).map((c) => c.label);
   it("offers all four on a fresh request", () => {
-    expect(labels()).toEqual(["Give estimate", "Book estimate visit", "Submit bid", "Decline"]);
+    expect(labels()).toEqual(["Give estimate", "Book visit", "Submit bid", "Decline"]);
   });
   it("narrows after an estimate, a booked visit, and a finished visit", () => {
-    expect(labels(bid({ estimateCents: 18_000 }))).toEqual(["Submit bid", "Book estimate visit", "Can't do it"]);
-    expect(labels(bid({ consultationVisitAt: "2026-10-05T17:00:00.000Z" }))).toEqual(["Mark visit done", "Submit bid", "Can't do it"]);
-    expect(labels(bid({ consultationVisitAt: "2026-10-05T17:00:00.000Z", estimateVisitDoneAt: "2026-10-05T18:00:00.000Z" }))).toEqual(["Submit bid", "Can't do it"]);
+    expect(labels(bid({ estimateCents: 18_000 }))).toEqual(["Submit bid", "Book visit", "Decline"]);
+    expect(labels(bid({ consultationVisitAt: "2026-10-05T17:00:00.000Z" }))).toEqual(["Visit done", "Submit bid", "Decline"]);
+    expect(labels(bid({ consultationVisitAt: "2026-10-05T17:00:00.000Z", estimateVisitDoneAt: "2026-10-05T18:00:00.000Z" }))).toEqual(["Submit bid", "Decline"]);
   });
 });
 
