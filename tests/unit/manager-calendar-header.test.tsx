@@ -111,8 +111,9 @@ describe("Agenda (studio plan services-vendors-1004)", () => {
   });
 
   it("the day header is a normal block above its rows (never sticky over the first row)", () => {
-    const header = agenda.slice(agenda.indexOf('data-attr="calendar-agenda-day-header"'), agenda.indexOf("calendar-agenda-group") + 2000);
-    expect(header).not.toMatch(/\bsticky\b/);
+    const headerClass = /data-attr="calendar-agenda-day-header"[\s\S]*?className="([^"]*)"/.exec(agenda)?.[1] ?? "";
+    expect(headerClass).toContain("flex");
+    expect(headerClass).not.toMatch(/\bsticky\b/);
     expect(agenda).not.toContain("top-[var(--portal-calendar-header-top,0px)]");
     expect(panels.match(/"--portal-calendar-header-top"/g)).toHaveLength(1);
   });
