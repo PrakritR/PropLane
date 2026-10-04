@@ -45,8 +45,9 @@ describe("workspace navigation", () => {
     expect(options).toHaveLength(4);
     expect(options[0]!.querySelector("svg")).toBeTruthy(); // finished: a check
     expect(options[1]!.textContent).toContain("Needs something"); // red dot
-    expect(options[2]!.textContent).toContain("Here"); // the one you are on
+    expect(options[2]!.getAttribute("aria-current")).toBe("step"); // the one you are on: blue bar + bold
     expect(options[2]!.getAttribute("aria-selected")).toBe("true");
+    expect(options[1]!.getAttribute("aria-current")).toBeNull();
     fireEvent.click(options[1]!);
     expect(onJump).toHaveBeenCalledWith(1);
     expect(document.querySelector("[data-wizard-step-sheet]")).toBeNull();

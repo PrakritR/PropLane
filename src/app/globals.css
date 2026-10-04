@@ -824,6 +824,21 @@ html {
   -webkit-backdrop-filter: none;
 }
 
+/* The shared phone bottom sheet (ui/phone-bottom-sheet.tsx). .bg-card is translucent under
+   [data-theme] (rgba .7 / .1), which let the popup behind it show through the rows. */
+.phone-sheet-surface {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  opacity: 1;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-theme="dark"] .phone-sheet-surface {
+  background: #111827 !important;
+  background-color: #111827 !important;
+}
+
 /* Any opaque surface INSIDE a floating menu (the search row). The shell is already opaque,
    so a translucent child is invisible until the menu overhangs the page — then it is
    plainly see-through. Every layer of a floating menu stays solid. */

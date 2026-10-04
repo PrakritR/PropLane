@@ -596,6 +596,14 @@ describe("Move-in step", () => {
   });
 
   it("an open form has Sends as a dropdown; picking one saves it with no modal", () => {
+  // A desktop pointer: the select is a popover here (a phone gets the shared bottom sheet).
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("pointer: fine"),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+  }));
     const live = mountLive(withMoveInForms());
     go("movein");
     openCard(cards("movein")[1]!);

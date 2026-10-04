@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PhoneSectionPicker, PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
@@ -421,11 +422,13 @@ export function StepRail({
 }
 
 /**
- * The phone step picker: tap the step name and a bottom sheet lists every step.
+ * The phone step picker: tap the step name and the shared bottom sheet lists every step.
  *
- * A check marks a finished step, a red dot one that still needs something, a ring
- * the one you are on ("Here"). The "N to finish" count lives only in this list.
- * Desktop never renders it — the left rail is the list there.
+ * A check marks a finished step, a red dot one that still needs something, a ring the one
+ * you are on (which also carries the blue bar and bold label). The "N to finish" count lives
+ * only in the sheet header. Desktop never renders it — the left rail is the list there.
+ * The sheet itself is `PhoneSectionPicker` (ui/phone-bottom-sheet.tsx), the same surface the
+ * record-page and Settings section pickers and every phone select use.
  */
 export function WizardStepSheet({
   steps,
@@ -440,105 +443,55 @@ export function WizardStepSheet({
   visited?: ReadonlySet<string>;
   todoCount?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const listId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const todo = todoCount ?? steps.filter((step) => (step.attention ?? 0) > 0).length;
   const active = steps[current];
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
-  const pick = (index: number) => {
-    setOpen(false);
-    onJump(index);
-  };
-  const sheet = open ? (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center" data-wizard-step-sheet="">
-      <button type="button" aria-label="Close steps" tabIndex={-1} className="absolute inset-0 bg-foreground/40" onClick={() => setOpen(false)} />
-      <div
-        role="dialog"
-        aria-label="Steps"
-        className="relative max-h-[78dvh] w-full overflow-y-auto rounded-t-[20px] bg-card px-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-2 shadow-[0_-12px_40px_-12px_rgba(11,27,58,0.4)]"
-      >
-        <span className="mx-auto mb-2 block h-1 w-10 rounded-full bg-border" aria-hidden />
-        <div className="flex items-center justify-between gap-3 px-3 pb-2">
-          <b className="text-[17px] font-extrabold tracking-tight text-foreground">Steps</b>
-          {todo > 0 ? (
-            <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-foreground" data-wizard-step-todo="">
-              <span className="size-[7px] rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
-              {todo} to finish
-            </span>
-          ) : null}
-        </div>
-        <div id={listId} role="listbox" aria-label="Jump to step">
-          {steps.map((step, index) => {
-            const on = index === current;
-            const warn = (step.attention ?? 0) > 0;
-            const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
-            return (
-              <button
-                key={step.id}
-                type="button"
-                role="option"
-                aria-selected={on}
-                disabled={step.disabled}
-                onClick={() => pick(index)}
-                data-attr={`workspace-step-${step.id}`}
-                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-accent/40 disabled:opacity-45"
-              >
-                <span className="grid size-5 shrink-0 place-items-center" aria-hidden>
-                  {warn ? (
-                    <span className="size-[9px] rounded-full bg-[var(--status-overdue-fg)]" />
-                  ) : done ? (
-                    <Check className="size-4 text-primary" strokeWidth={2.5} />
-                  ) : on ? (
-                    <span className="size-[18px] rounded-full border-2 border-primary" />
-                  ) : (
-                    <span className="size-[18px] rounded-full border border-border" />
-                  )}
-                </span>
-                <span className={cn("min-w-0 flex-1 truncate text-[15px]", on ? "font-bold text-foreground" : "font-semibold text-foreground/85")}>{step.label}</span>
-                {warn ? <span className="sr-only">Needs something</span> : null}
-                {on ? <span className="shrink-0 text-[12.5px] font-bold text-primary">Here</span> : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  ) : null;
   // A one-step dialog has nowhere to jump: no picker, no "Step 1 of 1".
   if (steps.length <= 1) return null;
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label="Jump to step"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listId}
-        data-attr="workspace-step-picker"
-        onClick={() => setOpen((value) => !value)}
-        className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-card px-3 text-left"
-      >
-        {todo > 0 ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
-        <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-foreground">{active?.label ?? ""}</span>
-        <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-muted">
-          Step {current + 1} of {steps.length}
-          <ChevronDown className="size-4" aria-hidden />
-        </span>
-      </button>
-      {sheet && typeof document !== "undefined" ? createPortal(sheet, document.body) : null}
-    </>
+    <PhoneSectionPicker
+      title="Steps"
+      triggerLabel="Jump to step"
+      triggerDataAttr="workspace-step-picker"
+      rootProps={{ "data-wizard-step-sheet": "" }}
+      controlsLabel="Jump to step"
+      meta={
+        todo > 0 ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-bold text-foreground" data-wizard-step-todo="">
+            <span className="size-[7px] rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
+            {todo} to finish
+          </span>
+        ) : null
+      }
+      trigger={
+        <>
+          {todo > 0 ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
+          <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-foreground">{active?.label ?? ""}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-muted">
+            Step {current + 1} of {steps.length}
+            <ChevronDown className="size-4" aria-hidden />
+          </span>
+        </>
+      }
+      groups={[
+        {
+          items: steps.map((step, index) => {
+            const on = index === current;
+            const warn = (step.attention ?? 0) > 0;
+            const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
+            return {
+              id: step.id,
+              label: step.label,
+              current: on,
+              disabled: step.disabled,
+              dataAttr: `workspace-step-${step.id}`,
+              srHint: warn ? "Needs something" : undefined,
+              glyph: <PhoneSheetGlyph kind={warn ? "attention" : done ? "done" : on ? "current" : "todo"} />,
+              onSelect: () => onJump(index),
+            };
+          }),
+        },
+      ]}
+    />
   );
 }
 
