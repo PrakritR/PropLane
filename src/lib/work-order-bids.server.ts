@@ -751,16 +751,22 @@ export type AcceptBidSuccess = {
  * again with the same bid id re-enters instead of refusing, and does exactly what is still
  * missing:
  *
- *  - the work order already names this bid's vendor (`vendor_user_id` plus a `vendorAssignedAt`
- *    stamp) → the row is correct, so it is NOT rewritten. Re-applying it would roll a visit
- *    since moved to another day back to the bid's `proposed_time` and restart the
- *    "vendor silent after accept" clock. Only the rival-decline and offer-withdraw cleanup
- *    re-runs, and both are conditional on the status they change, so they are idempotent.
- *  - the hire never landed (no `vendor_user_id`, a different one, or no stamp) → the hire is
- *    applied now. Without this an accepted bid whose assign write failed was unrecoverable:
- *    every other exit refuses it (another bid 409s, `removeVendorRequest` refuses an approved
- *    bid, re-requesting bids refuses an approved service) and the silent-vendor re-offer never
- *    fires because it keys on the `vendorAssignedAt` that was never written.
+ *  - SOMEBODY is assigned — this bid's vendor, another vendor, a teammate, or the manager
+ *    themselves — → the row is NOT rewritten. Re-applying the hire would roll a visit since
+ *    moved to another day back to the bid's `proposed_time`, restart the "vendor silent after
+ *    accept" clock, and (because a reassignment clears `vendorAssignedAt` without touching
+ *    `work_order_bids`) silently undo a deliberate hand-off to a teammate. Only the
+ *    rival-decline and offer-withdraw cleanup re-runs, and both are conditional on the status
+ *    they change, so they are idempotent.
+ *  - NOBODY is assigned → the hire is applied now. Without this an accepted bid whose assign
+ *    write failed was unrecoverable: every other exit refuses it (another bid 409s,
+ *    `removeVendorRequest` refuses an approved bid, re-requesting bids refuses an approved
+ *    service) and the silent-vendor re-offer never fires because it keys on the
+ *    `vendorAssignedAt` that was never written.
+ *
+ * So a service the manager deliberately UNASSIGNED can be hired again by this bid — but only
+ * through a direct API retry, because the manager UI never offers Approve on a bid that is
+ * already accepted (`work-order-bid-cycle.ts` counts only `submitted` bids as approvable).
  *
  * A DIFFERENT bid on a service that already has one accepted is still refused with a 409.
  */
@@ -896,11 +902,17 @@ export async function acceptWorkOrderBid(
   const rowData = (workOrder?.row_data ?? {}) as DemoManagerWorkOrderRow;
   const vendorName = winningVendor?.name || rowData.vendorName || "";
 
-  // Already hired by THIS bid's vendor: the row is correct and must not be rewritten (see the
-  // retry contract in the header). Accepted but not hired: finish the half-applied approval.
-  const alreadyHiredByThisBid =
-    (workOrder?.vendor_user_id ?? null) === record.vendor_user_id && Boolean(rowData.vendorAssignedAt);
-  if (workOrder && !(retryOfAcceptedBid && alreadyHiredByThisBid)) {
+  // Anyone assigned at all means the row reflects a decision this call must not overturn (see
+  // the retry contract in the header). A reassignment to a teammate clears `vendorAssignedAt`
+  // while leaving the accepted bid alone, so the stamp's absence cannot be read as "the hire
+  // never landed" on its own. Only a service with NO assignee is a half-applied approval.
+  const workOrderHasAssignee =
+    Boolean(workOrder?.vendor_user_id) ||
+    Boolean(rowData.vendorAssignedAt) ||
+    Boolean(rowData.vendorId) ||
+    rowData.selfAssigned === true ||
+    Boolean(rowData.assignee);
+  if (workOrder && !(retryOfAcceptedBid && workOrderHasAssignee)) {
     const totalCents = approvedAmountCents + record.materials_cents;
     const nextRowData: DemoManagerWorkOrderRow = {
       ...rowData,
@@ -934,12 +946,49 @@ export async function acceptWorkOrderBid(
     if (assignError) return { ok: false, status: 500, error: assignError.message };
   }
 
+  // The rows THIS call flipped, re-asserting the status in the WHERE clause. A retry flips none,
+  // so each losing vendor is told exactly once: by the call that declined them.
+  let declinedNow: BidRecord[] = [];
   if (declined.length > 0) {
-    const { error: declineError } = await db
+    const { data: flippedRows, error: declineError } = await db
       .from("work_order_bids")
       .update({ status: "declined", updated_at: now })
-      .in("id", declined.map((b) => b.id));
+      .in("id", declined.map((b) => b.id))
+      .eq("status", "submitted")
+      .select("id");
     if (declineError) return { ok: false, status: 500, error: declineError.message };
+    const flipped = new Set((flippedRows ?? []).map((row) => String(row.id)));
+    declinedNow = declined.filter((b) => flipped.has(String(b.id)));
+  }
+
+  // Told as soon as their own decline lands, before anything that can still fail: the withdraw
+  // below returns 500, and on the retry these rows are no longer `submitted`, so a loop placed
+  // after it would find nobody left to tell.
+  if (workOrder && declinedNow.length > 0) {
+    const propertyLabel = rowData.propertyName || "";
+    const unit = rowData.unit || "";
+    const workOrderTitle = rowData.title || "";
+    for (const other of declinedNow) {
+      const otherVendor = other.vendor_directory_id ? vendors.get(other.vendor_directory_id) : undefined;
+      if (!otherVendor) continue;
+      const { subject, body: messageBody } = buildVendorBidDeclinedEmail({
+        vendorName: otherVendor.name,
+        workOrderTitle,
+        propertyLabel,
+        unit,
+      });
+      await deliverPortalInboxMessage(db, {
+        senderUserId: actor.userId,
+        senderEmail: actor.email,
+        fromName: actor.fullName || "PropLane Portal",
+        subject,
+        text: messageBody,
+        toUserIds: [other.vendor_user_id],
+        deliverToPortalInbox: true,
+        deliverViaEmail: false,
+        deliverViaSms: false,
+      }).catch(() => undefined);
+    }
   }
 
   // Once a vendor is assigned, no other offered vendor should keep seeing this work
@@ -967,30 +1016,7 @@ export async function acceptWorkOrderBid(
 
   if (workOrder) {
     const propertyLabel = rowData.propertyName || "";
-    const unit = rowData.unit || "";
     const workOrderTitle = rowData.title || "";
-
-    for (const other of declined) {
-      const otherVendor = other.vendor_directory_id ? vendors.get(other.vendor_directory_id) : undefined;
-      if (!otherVendor) continue;
-      const { subject, body: messageBody } = buildVendorBidDeclinedEmail({
-        vendorName: otherVendor.name,
-        workOrderTitle,
-        propertyLabel,
-        unit,
-      });
-      await deliverPortalInboxMessage(db, {
-        senderUserId: actor.userId,
-        senderEmail: actor.email,
-        fromName: actor.fullName || "PropLane Portal",
-        subject,
-        text: messageBody,
-        toUserIds: [other.vendor_user_id],
-        deliverToPortalInbox: true,
-        deliverViaEmail: false,
-        deliverViaSms: false,
-      }).catch(() => undefined);
-    }
 
     const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
       ownerManagerUserId: String(workOrder.manager_user_id),
@@ -1029,7 +1055,7 @@ export async function acceptWorkOrderBid(
     vendorName,
     amountCents: approvedAmountCents,
     materialsCents: record.materials_cents,
-    declinedCount: declined.length,
+    declinedCount: declinedNow.length,
   };
 }
 

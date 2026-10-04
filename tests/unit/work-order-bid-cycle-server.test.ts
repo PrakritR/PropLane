@@ -254,6 +254,82 @@ describe("re-approving an already-accepted bid", () => {
     const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
     expect(result.ok).toBe(true);
   });
+
+  /**
+   * Reassigning a service does not touch `work_order_bids`, so the old vendor's bid stays
+   * accepted while the row loses `vendorAssignedAt`. A retry must read that as "someone else is
+   * on it", never as "the hire never landed".
+   */
+  it("does not revert a service handed to a teammate", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: null,
+      row_data: {
+        id: "wo-1",
+        title: "Leaky faucet",
+        vendorId: undefined,
+        vendorName: undefined,
+        vendorAssignedAt: undefined,
+        selfAssigned: true,
+        assignee: { type: "team", id: "teammate-1", name: "Dana" },
+      },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    expect(WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update")).toBeUndefined();
+  });
+
+  it("does not revert a service the manager took on themselves", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: null,
+      row_data: {
+        id: "wo-1",
+        title: "Leaky faucet",
+        vendorAssignedAt: undefined,
+        selfAssigned: true,
+        assignee: { type: "team", id: "mgr-1", name: "You" },
+      },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    expect(WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update")).toBeUndefined();
+  });
+
+  it("does not revert a service already handed to a different vendor", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: "vendor-other",
+      row_data: { id: "wo-1", vendorId: "dir-other", vendorAssignedAt: "2026-10-04T00:00:00.000Z" },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    expect(WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update")).toBeUndefined();
+  });
+
+  it("re-hires a service the manager unassigned, since nobody holds it", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: null,
+      row_data: {
+        id: "wo-1",
+        title: "Leaky faucet",
+        vendorId: undefined,
+        vendorName: undefined,
+        vendorAssignedAt: undefined,
+        selfAssigned: false,
+        assignee: undefined,
+      },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    const woPatch = WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update");
+    expect(woPatch!.values!.vendor_user_id).toBe("vendor-1");
+  });
 });
 
 describe("an estimate never becomes a payment", () => {
