@@ -38,7 +38,7 @@ import {
   PropertyHouseDetailsEditorModal,
   type HouseDetailsEditorTarget,
 } from "@/components/portal/property-house-details-editor-modal";
-import { HousePrintablesCard } from "@/components/portal/house-printables-card";
+import { HousePrintablesCard, type HousePrintableKind } from "@/components/portal/house-printables-card";
 import {
   HOUSE_INFO_SECTIONS,
   houseInfoRenderSections,
@@ -79,6 +79,9 @@ type SavePayload = {
   managerNotes: string;
 };
 
+/** Resident handouts drawn after the house-info rows: the rules poster and the welcome sheet. */
+const RESIDENT_PRINTABLES: ReadonlyArray<HousePrintableKind> = ["rules", "welcome"];
+
 /** One row's fact line: glyph + short value each, empty values dropped. */
 function rowFacts(list: ReadonlyArray<{ icon: LucideIcon; text: string | null | undefined; sr?: string }>) {
   return list
@@ -100,7 +103,7 @@ export function PropertyHouseDetailsListPanel({
   showToast,
   earlierNotes,
 }: {
-  /** Legacy free-text (General house info / House rules) — a Manager tools row when present. */
+  /** Legacy free-text (General house info / House rules) — an "Earlier notes" row in The house, only when it has content. */
   earlierNotes?: { onOpen: () => void };
   propertyId: string;
   sub: ManagerListingSubmissionV1;
@@ -136,22 +139,23 @@ export function PropertyHouseDetailsListPanel({
     setEditorOpen(true);
   };
 
+  const hasEarlierNotes = Boolean(earlierNotes);
+
   const residentReadSections = useMemo(
     () => houseInfoResidentsReadTabSections(houseInfo),
     [houseInfo],
   );
 
   const tabs = useMemo(() => {
-    const infoCount = residentReadSections.length + 1;
+    const infoCount = residentReadSections.length + 1 + RESIDENT_PRINTABLES.length;
     return [
       { id: "rooms" as const, label: "Rooms", count: rooms.length },
       { id: "baths" as const, label: "Bathrooms", count: baths.length },
       { id: "spaces" as const, label: "Shared spaces", count: spaces.length, hide: spaces.length === 0 },
-      { id: "house" as const, label: "The house", count: 3 },
-      { id: "info" as const, label: "Residents read this", count: infoCount },
-      { id: "manager" as const, label: "Manager tools", count: 3 },
+      { id: "house" as const, label: "The house", count: 4 + (hasEarlierNotes ? 1 : 0) },
+      { id: "residents" as const, label: "For residents", count: infoCount },
     ].filter((t) => !t.hide);
-  }, [rooms.length, baths.length, spaces.length, residentReadSections.length, houseInfo]);
+  }, [rooms.length, baths.length, spaces.length, residentReadSections.length, hasEarlierNotes]);
 
   const activeTab = tabs.find((t) => t.id === tab)?.id ?? tabs[0]?.id ?? "rooms";
 
@@ -298,6 +302,10 @@ export function PropertyHouseDetailsListPanel({
   const otherSummary = houseInfo.other.trim() ? "Filled in" : "Nothing added yet";
   const otherRowVisible = matches(`Anything else ${otherSummary}`);
 
+  const managerNotesSummary = managerNotes.trim() ? "Has notes" : "Nothing added yet";
+  const managerNotesVisible = matches(`Manager notes Manager only ${managerNotesSummary}`);
+  const earlierNotesVisible = hasEarlierNotes && matches("Earlier notes Manager only");
+
   const tabHasRows =
     activeTab === "rooms"
       ? rooms.length > 0
@@ -305,11 +313,7 @@ export function PropertyHouseDetailsListPanel({
         ? baths.length > 0
         : activeTab === "spaces"
           ? spaces.length > 0
-          : activeTab === "info"
-            ? residentReadSections.length > 0 || true
-            : activeTab === "house"
-              ? true
-              : activeTab === "manager";
+          : true;
 
   const visibleRowCount =
     activeTab === "rooms"
@@ -318,15 +322,13 @@ export function PropertyHouseDetailsListPanel({
         ? filteredBaths.length
         : activeTab === "spaces"
           ? filteredSpaces.length
-          : activeTab === "info"
-            ? filteredInfo.length + (otherRowVisible ? 1 : 0)
-            : activeTab === "house"
-              ? (matches("Rules") ? 1 : 0) +
-                (matches(`Property facts ${propertyFactsSummary(sub)}`) ? 1 : 0) +
-                (matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? 1 : 0)
-              : activeTab === "manager"
-                ? 1
-                : 0;
+          : activeTab === "residents"
+            ? filteredInfo.length + (otherRowVisible ? 1 : 0) + RESIDENT_PRINTABLES.length
+            : (matches("Rules") ? 1 : 0) +
+              (matches(`Property facts ${propertyFactsSummary(sub)}`) ? 1 : 0) +
+              (matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? 1 : 0) +
+              (managerNotesVisible ? 1 : 0) +
+              (earlierNotesVisible ? 1 : 0);
 
   const searchNoMatches = Boolean(query.trim()) && tabHasRows && visibleRowCount === 0;
 
@@ -335,13 +337,11 @@ export function PropertyHouseDetailsListPanel({
       ? "Search bathrooms"
       : activeTab === "spaces"
         ? "Search shared spaces"
-        : activeTab === "info"
-          ? "Search house info"
-          : activeTab === "manager"
-            ? "Search manager tools"
-            : activeTab === "house"
-              ? "Search the house"
-              : "Search rooms";
+        : activeTab === "residents"
+          ? "Search for residents"
+          : activeTab === "house"
+            ? "Search the house"
+            : "Search rooms";
 
   const addPrimary =
     activeTab === "rooms"
@@ -534,7 +534,7 @@ export function PropertyHouseDetailsListPanel({
             })
           : null}
 
-        {activeTab === "info"
+        {activeTab === "residents"
           ? (
             <>
               {filteredInfo.map((spec) => (
@@ -580,6 +580,14 @@ export function PropertyHouseDetailsListPanel({
                       ]}
                     />
                   }
+                />
+              ) : null}
+              {propertyId ? (
+                <HousePrintablesCard
+                  propertyId={propertyId}
+                  rooms={rooms}
+                  showToast={showToast}
+                  kinds={RESIDENT_PRINTABLES}
                 />
               ) : null}
             </>
@@ -650,29 +658,26 @@ export function PropertyHouseDetailsListPanel({
               }
             />
             ) : null}
-          </>
-        ) : null}
-
-        {activeTab === "manager" ? (
-          <>
-            <PortalPropertyRecordRow
-              title="Manager notes"
-              leading={<PortalRowIconTile icon={Lock} />}
-              leadingShape="square"
-              onOpen={() => openEditor({ kind: "managerNotes" })}
-              dataAttr="property-house-details-manager-notes-row"
-              facts={rowFacts([
-                { icon: Lock, text: "Manager only", sr: "Audience" },
-                { icon: FileText, text: managerNotes.trim() ? "Has notes" : "Nothing added yet", sr: "Notes" },
-              ])}
-              actions={
-                <RowActionsMenu
-                  label="Manager notes"
-                  items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "managerNotes" }) }]}
-                />
-              }
-            />
-            {earlierNotes ? (
+            {managerNotesVisible ? (
+              <PortalPropertyRecordRow
+                title="Manager notes"
+                leading={<PortalRowIconTile icon={Lock} />}
+                leadingShape="square"
+                onOpen={() => openEditor({ kind: "managerNotes" })}
+                dataAttr="property-house-details-manager-notes-row"
+                facts={rowFacts([
+                  { icon: Lock, text: "Manager only", sr: "Audience" },
+                  { icon: FileText, text: managerNotesSummary, sr: "Notes" },
+                ])}
+                actions={
+                  <RowActionsMenu
+                    label="Manager notes"
+                    items={[{ id: "edit", label: "Edit", onSelect: () => openEditor({ kind: "managerNotes" }) }]}
+                  />
+                }
+              />
+            ) : null}
+            {earlierNotes && earlierNotesVisible ? (
               <PortalPropertyRecordRow
                 title="Earlier notes"
                 leading={<PortalRowIconTile icon={FileText} />}
@@ -685,7 +690,6 @@ export function PropertyHouseDetailsListPanel({
                 }
               />
             ) : null}
-            {propertyId ? <HousePrintablesCard propertyId={propertyId} rooms={rooms} showToast={showToast} /> : null}
           </>
         ) : null}
       </PortalRecordListSurface>

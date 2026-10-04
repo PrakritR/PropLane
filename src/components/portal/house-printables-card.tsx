@@ -14,20 +14,28 @@ import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
  * Printables — everything on the wall or in the welcome folder, drawn from the
  * house details so it can never drift from what the manager typed.
  *
- * Rendered as three rows inside the Manager tools list (studio-redesign
- * property-tabs, 2026-10-03: tile + title + one fact line + one ⋯, no boxed
- * card, no pills, no subtext). The door card and the rules poster carry a QR to
+ * Rendered as rows inside the House details "For residents" list (tile + title
+ * + one fact line + one ⋯, no boxed card, no pills, no subtext). House details
+ * passes `kinds={["rules", "welcome"]}`: the door card's one home is Promotion →
+ * Flyers & printables. The door card and the rules poster carry a QR to
  * the house's PUBLIC page: rules and trash days only. The welcome sheet carries
  * the codes and the Wi-Fi, so it is printed and handed over — it never becomes
  * a link.
  */
 type LinkState = { url: string | null; issuedAt: string | null } | null;
 
+export type HousePrintableKind = "door" | "rules" | "welcome";
+
+const ALL_KINDS: ReadonlyArray<HousePrintableKind> = ["door", "rules", "welcome"];
+
 export function HousePrintablesCard({
   propertyId,
   rooms,
   showToast,
+  kinds = ALL_KINDS,
 }: {
+  /** Which rows to draw; all three by default. */
+  kinds?: ReadonlyArray<HousePrintableKind>;
   propertyId: string;
   rooms: ReadonlyArray<Pick<ManagerRoomSubmission, "id" | "name" | "floor">>;
   showToast?: (message: string) => void;
@@ -110,8 +118,13 @@ export function HousePrintablesCard({
 
   return (
     <>
-      {publicRow("Door card", `/print/door-card/${encodeURIComponent(propertyId)}`, "house-printables-door-card")}
-      {publicRow("House rules poster", `/print/house-rules/${encodeURIComponent(propertyId)}`, "house-printables-rules")}
+      {kinds.includes("door")
+        ? publicRow("Door card", `/print/door-card/${encodeURIComponent(propertyId)}`, "house-printables-door-card")
+        : null}
+      {kinds.includes("rules")
+        ? publicRow("House rules poster", `/print/house-rules/${encodeURIComponent(propertyId)}`, "house-printables-rules")
+        : null}
+      {kinds.includes("welcome") ? (
       <PortalPropertyRecordRow
         title="Welcome sheet"
         leading={<PortalRowIconTile icon={Printer} />}
@@ -130,6 +143,7 @@ export function HousePrintablesCard({
           />
         }
       />
+      ) : null}
 
       <Modal open={welcomeOpen} title="Welcome sheet" onClose={() => setWelcomeOpen(false)}>
         <div className="space-y-3" data-attr="house-printables-welcome-form">

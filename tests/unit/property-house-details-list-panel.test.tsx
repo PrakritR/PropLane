@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { PropertyHouseDetailsListPanel } from "@/components/portal/property-house-details-list-panel";
 import { createDefaultListingSubmission, emptyBathroom, emptySharedSpace } from "@/lib/manager-listing-submission";
 import { normalizeHouseInfo } from "@/lib/house-info";
+import { resolveHouseDetailsTab } from "@/lib/property-house-details-tab";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/properties/all/p1", useRouter: () => ({ push: () => {} }) }));
 
@@ -42,7 +43,7 @@ function renderPanel() {
 
 /** studio-redesign(property-tabs): House details rows are the replica row. */
 describe("PropertyHouseDetailsListPanel", () => {
-  it("fits all header tabs in one row beside the search and the round +", () => {
+  it("fits the five header tabs in one row beside the search and the round +", () => {
     const { container } = renderPanel();
     const stacks = container.querySelectorAll('[data-slot="portal-list-control-stack"]');
     expect(stacks).toHaveLength(1);
@@ -53,8 +54,7 @@ describe("PropertyHouseDetailsListPanel", () => {
       "Bathrooms",
       "Shared spaces",
       "The house",
-      "Residents read this",
-      "Manager tools",
+      "For residents",
     ]);
     // not the stretched equal grid that pushed the active tab out of view
     expect(nav.className).not.toContain("auto-cols-fr");
@@ -81,7 +81,7 @@ describe("PropertyHouseDetailsListPanel", () => {
 
   it("every list row on every tab has exactly one ⋯", () => {
     const { container } = renderPanel();
-    for (const tab of ["baths", "spaces", "house", "info", "manager"]) {
+    for (const tab of ["baths", "spaces", "house", "residents"]) {
       fireEvent.click(container.querySelector(`[data-attr="property-house-details-tab-${tab}"]`)!);
       const rows = container.querySelectorAll(".portal-property-row");
       expect(rows.length, tab).toBeGreaterThan(0);
@@ -92,15 +92,64 @@ describe("PropertyHouseDetailsListPanel", () => {
     }
   });
 
-  it("Manager tools: Printables are rows (Door card, House rules poster, Welcome sheet), not a boxed card with pills", () => {
+  it("The house holds Manager notes; Door card and Manager tools are gone from House details", () => {
     const { container } = renderPanel();
-    fireEvent.click(container.querySelector('[data-attr="property-house-details-tab-manager"]')!);
-    expect(container.querySelector('[data-attr="house-printables"]')).toBeNull();
-    for (const title of ["Manager notes", "Door card", "House rules poster", "Welcome sheet"]) {
+    fireEvent.click(container.querySelector('[data-attr="property-house-details-tab-house"]')!);
+    for (const row of ["facts", "amenities", "house-rules", "manager-notes"]) {
+      expect(container.querySelector(`[data-attr="property-house-details-${row}-row"]`), row).toBeTruthy();
+    }
+    expect(container.querySelector('[data-attr="property-house-details-manager-notes-row"]')).toBeTruthy();
+    expect(container.querySelector('[data-attr="property-house-details-tab-manager"]')).toBeNull();
+    // Door card's one home is Promotion -> Flyers & printables.
+    for (const tab of ["rooms", "baths", "spaces", "house", "residents"]) {
+      fireEvent.click(container.querySelector(`[data-attr="property-house-details-tab-${tab}"]`)!);
+      expect(container.querySelector('[data-attr="house-printables-door-card"]'), tab).toBeNull();
+      expect(screen.queryByText("Door card"), tab).toBeNull();
+    }
+  });
+
+  it("Earlier notes shows in The house only when there is something in it", () => {
+    const { container, unmount } = renderPanel();
+    fireEvent.click(container.querySelector('[data-attr="property-house-details-tab-house"]')!);
+    expect(container.querySelector('[data-attr="property-house-details-earlier-notes-row"]')).toBeNull();
+    unmount();
+    const onOpen = vi.fn();
+    const withNotes = render(
+      <PropertyHouseDetailsListPanel
+        propertyId="p1"
+        sub={listing()}
+        houseInfo={normalizeHouseInfo(undefined)}
+        managerNotes=""
+        managerUserId="mgr-1"
+        onPersist={() => true}
+        earlierNotes={{ onOpen }}
+      />,
+    );
+    fireEvent.click(withNotes.container.querySelector('[data-attr="property-house-details-tab-house"]')!);
+    const row = withNotes.container.querySelector('[data-attr="property-house-details-earlier-notes-row"]')!;
+    expect(row).toBeTruthy();
+    fireEvent.click(row);
+    expect(onOpen).toHaveBeenCalled();
+  });
+
+  it("For residents: the handouts (rules poster, welcome sheet) sit beside the resident-read rows", () => {
+    const { container } = renderPanel();
+    fireEvent.click(container.querySelector('[data-attr="property-house-details-tab-residents"]')!);
+    for (const title of ["Anything else", "House rules poster", "Welcome sheet"]) {
       expect(screen.getByText(title), title).toBeTruthy();
     }
     expect(container.querySelector(".portal-badge-info, .portal-badge-notice")).toBeNull();
     expect(container.textContent).not.toContain("Made from the details above");
+  });
+
+  it("old sub-tab ids still land somewhere sensible", () => {
+    expect(resolveHouseDetailsTab("info")).toBe("residents");
+    expect(resolveHouseDetailsTab("manager")).toBe("house");
+    expect(resolveHouseDetailsTab("residents")).toBe("residents");
+    expect(resolveHouseDetailsTab("nonsense")).toBeNull();
+    window.localStorage.setItem("property-house-details-tab:p1", "manager");
+    const { container } = renderPanel();
+    expect(container.querySelector('[data-attr="property-house-details-manager-notes-row"]')).toBeTruthy();
   });
 
   it("opens the room editor Edit-first: the ⋯ lists Edit before Duplicate", () => {

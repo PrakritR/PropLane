@@ -30,7 +30,7 @@ const ROOMS = [
 ];
 
 /**
- * studio-redesign(property-tabs): Printables are three rows of the Manager tools
+ * studio-redesign(property-tabs): Printables are rows of the House details For residents
  * list (tile · title · one fact · one ⋯) — no boxed card, no pills, no subtext.
  * The behaviour is unchanged: the two public printables open their print route,
  * the private welcome sheet is printed for a chosen room, and the QR link can
@@ -52,6 +52,14 @@ describe("HousePrintablesCard", () => {
     expect(rows[0]!.textContent).toContain("Public · no codes");
     expect(rows[2]!.textContent).toContain("Private · has codes");
     rows.forEach((row) => expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1));
+  });
+
+  it("kinds narrows the rows: House details omits the Door card (its home is Promotion)", () => {
+    const { container } = render(<HousePrintablesCard propertyId="prop-1" rooms={ROOMS} kinds={["rules", "welcome"]} />);
+    expect(container.querySelector('[data-attr="house-printables-door-card"]')).toBeNull();
+    expect(container.querySelector('[data-attr="house-printables-rules"]')).toBeTruthy();
+    expect(container.querySelector('[data-attr="house-printables-welcome-row"]')).toBeTruthy();
+    expect(container.querySelectorAll(".portal-property-row")).toHaveLength(2);
   });
 
   it("the welcome sheet link carries the chosen room and resident", () => {

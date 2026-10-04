@@ -328,7 +328,7 @@ export function houseInfoSectionIsEmpty(info: HouseInfoV1, spec: HouseInfoSectio
   return houseInfoSectionCount(info, spec).filled === 0;
 }
 
-/** House details → Residents read this (rules live on The house; access/Wi-Fi on Move-in). */
+/** House details → For residents (rules live on The house; access/Wi-Fi on Move-in). */
 export function houseInfoResidentsReadTabSections(
   info: HouseInfoV1,
 ): readonly HouseInfoSectionSpec[] {
