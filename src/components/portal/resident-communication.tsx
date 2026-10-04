@@ -6,7 +6,9 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
-import { PenSquare } from "lucide-react";
+import { PenSquare, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import type { ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
@@ -36,6 +38,7 @@ import {
   inboxThreadSortMs,
   inboxMessageOutbound,
   loadPersistedInbox,
+  residentPhoneStateFor,
   syncPersistedInboxFromServerWithStatus,
 } from "@/lib/portal-inbox-storage";
 import { buildActiveCommunicationThreads, emailThreadJoinKeys } from "@/lib/communication-active-rows";
@@ -154,6 +157,10 @@ function ResidentUnifiedInbox({
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
   const initialListReady = initialListState === "ready" && initialListViewerId === viewerId;
+  // Server-reported (resident scope): a phone on file that is not verified, or
+  // that another account also verified, never links texts to this resident.
+  const [phoneState, setPhoneState] = useState<ResidentPhoneState | null>(null);
+  const needsPhoneVerification = Boolean(phoneState && ((phoneState.hasPhone && !phoneState.verified) || phoneState.ambiguous));
 
   useEffect(() => {
     const syncEmail = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
@@ -199,7 +206,10 @@ function ResidentUnifiedInbox({
       smsUiEnabled ? loadResidentSms(requestGeneration) : Promise.resolve(true),
     ]);
     if (requestGeneration !== initialLoadGeneration.current || inbox.stale) return;
-    if (inbox.ok) setEmailThreads(inbox.rows);
+    if (inbox.ok) {
+      setEmailThreads(inbox.rows);
+      setPhoneState(residentPhoneStateFor(RESIDENT_INBOX_STORAGE_KEY));
+    }
     setInitialListState(inbox.ok && smsOk ? "ready" : "error");
   }, [
     loadResidentSms,
@@ -260,7 +270,7 @@ function ResidentUnifiedInbox({
         // into Unread or active rows back into Archived.
         rows = rows.filter((t) => {
           const manager = resolveResidentThreadManager(t, managerContacts);
-          const hay = [t.from, manager.name, manager.homeLabel, t.email, t.subject, t.body, t.preview]
+          const hay = [t.from, manager.name, manager.workspaceName, manager.homeLabel, t.email, t.subject, t.body, t.preview]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -399,6 +409,16 @@ function ResidentUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentCommunicationIdentityCard />
+      {needsPhoneVerification ? (
+        <Link
+          href={`${RESIDENT_PORTAL_BASE_PATH}/profile?tab=messaging`}
+          className="mx-3 mb-1 flex h-9 shrink-0 items-center gap-2 rounded-xl border border-primary/30 bg-primary/[0.06] px-3 text-sm font-medium text-primary hover:bg-primary/[0.1]"
+          data-attr="resident-communication-verify-phone"
+        >
+          <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden />
+          Verify your number
+        </Link>
+      ) : null}
       <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
         <InboxListSegmentTabs
           commBase={commBase}
@@ -453,7 +473,12 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
+              // A text-only conversation is derived, read-only: nothing to archive.
+              trailing={
+                emailThreads.find((t) => t.id === row.threadId)?.smsOnly ? undefined : (
+                  <CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />
+                )
+              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}

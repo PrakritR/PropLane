@@ -13,8 +13,14 @@ import type { ResidentManagerContact } from "@/hooks/use-resident-manager-contac
 import { conversationHouseLabels, inboxRowAddressLabel } from "@/lib/communication-row-meta";
 
 export type ResidentThreadManager = {
-  /** Who the conversation is with: the manager's name, else what the thread carries. */
+  /** Who the conversation is with: the server-stamped manager name, else what the thread carries. */
   name: string;
+  /** The manager's workspace, from the server-stamped counterparty. */
+  workspaceName?: string;
+  /** The work number the resident texts (server-stamped counterparty, else the matched contact's). */
+  workPhone?: string;
+  /** Server-stamped initials, when the conversation carries a counterparty. */
+  initials?: string;
   /** Street of the home the conversation is about, when one is known. */
   homeLabel?: string;
   email?: string;
@@ -35,12 +41,17 @@ export function matchResidentManagerContact(
 }
 
 export function resolveResidentThreadManager(
-  thread: Pick<PersistedInboxThread, "from" | "email" | "houses" | "folder">,
+  thread: Pick<PersistedInboxThread, "from" | "email" | "houses" | "folder" | "counterparty">,
   contacts: readonly ResidentManagerContact[],
 ): ResidentThreadManager {
+  // The server resolved WHO this conversation is with from its workspace key;
+  // that wins over matching the thread's email against the contact list, which
+  // stays only for rows the server could not stamp.
+  const counterparty = thread.counterparty;
   const matched = matchResidentManagerContact(thread.email, contacts);
   const sole = contacts.length === 1 ? contacts[0] : undefined;
   const name =
+    counterparty?.name?.trim() ||
     matched?.managerName?.trim() ||
     thread.from?.trim() ||
     (thread.folder === "sent" ? thread.email?.trim() : "") ||
@@ -51,10 +62,14 @@ export function resolveResidentThreadManager(
     inboxRowAddressLabel(matched?.propertyLabel) ??
     inboxRowAddressLabel(sole?.propertyLabel);
   const email = thread.email?.trim() || matched?.email?.trim() || undefined;
+  const workPhone = counterparty?.workPhone?.trim() || matched?.phone?.trim() || undefined;
   return {
     name,
+    ...(counterparty?.workspaceName?.trim() ? { workspaceName: counterparty.workspaceName.trim() } : {}),
+    ...(counterparty?.initials ? { initials: counterparty.initials } : {}),
+    ...(workPhone ? { workPhone } : {}),
     ...(homeLabel ? { homeLabel } : {}),
     ...(email ? { email } : {}),
-    ...(matched?.phone ? { phone: matched.phone } : {}),
+    ...(workPhone ? { phone: workPhone } : {}),
   };
 }

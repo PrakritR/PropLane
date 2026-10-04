@@ -1,6 +1,6 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
-import type { ResidentCounterparty } from "@/lib/communication/resident-conversation";
+import type { ResidentCounterparty, ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import {
   assistantInboxCollapseKey,
   boundManagerUserIdFromThread,
@@ -235,6 +235,19 @@ export type PersistedInboxSyncResult = {
 };
 
 const inboxSyncPromiseByKey = new Map<string, Promise<PersistedInboxSyncResult>>();
+/** The resident scope's phone state from the last good read (response-only; never persisted or trusted back). */
+const residentPhoneByCacheKey = new Map<string, ResidentPhoneState>();
+
+/** Whether the resident's phone is on file / verified / ambiguous, per the last resident-scope read. */
+export function residentPhoneStateFor(key: string): ResidentPhoneState | null {
+  return residentPhoneByCacheKey.get(viewerCacheKey(key)) ?? null;
+}
+
+function parseResidentPhoneState(value: unknown): ResidentPhoneState | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  return { hasPhone: v.hasPhone === true, verified: v.verified === true, ambiguous: v.ambiguous === true };
+}
 let inboxViewerGeneration = 0;
 
 /**
@@ -263,6 +276,7 @@ function viewerCacheKey(key: string): string {
 function purgeInboxCaches(): void {
   inboxViewerGeneration += 1;
   memoryByKey.clear();
+  residentPhoneByCacheKey.clear();
     inboxSuccessfulServerSyncAtByKey.clear();
   inboxSyncPromiseByKey.clear();
   if (!canUse()) return;
@@ -457,12 +471,15 @@ export async function syncPersistedInboxFromServerWithStatus(
         inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
         return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
       }
-      const body = (await res.json()) as { rows?: PersistedInboxThread[] };
+      const body = (await res.json()) as { rows?: PersistedInboxThread[]; residentPhone?: unknown };
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
         return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
       }
+      const phoneState = key === RESIDENT_INBOX_STORAGE_KEY ? parseResidentPhoneState(body.residentPhone) : null;
+      if (phoneState) residentPhoneByCacheKey.set(cacheKey, phoneState);
+      else residentPhoneByCacheKey.delete(cacheKey);
       const rows = inboxThreadsFromUnknown(body.rows);
       const existing = memoryByKey.get(cacheKey) ?? [];
       const merged = mergeInboxRowsWithLocalTrash(rows, existing, {

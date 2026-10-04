@@ -1,7 +1,8 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Mail, MailOpen, Phone, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Mail, MailOpen, MessageSquare, Phone, Trash2 } from "lucide-react";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { useSearchParams } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
@@ -1242,8 +1243,23 @@ export const ResidentInboxPanel = forwardRef<
         </>
       );
     }
-    const managerPhone = activeManagerContact?.phone?.trim() || null;
+    const managerPhone = activeManager?.workPhone?.trim() || activeManagerContact?.phone?.trim() || null;
     const managerEmail = activeManagerContact?.email?.trim() || null;
+    // A text-only conversation is derived and read-only: reach the manager by
+    // text, nothing to mark unread or archive.
+    if (activeThread.smsOnly) {
+      return managerPhone ? (
+        <a
+          href={`sms:${managerPhone}`}
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Text your property manager"
+          title="Text your property manager"
+          data-attr="inbox-thread-text-manager"
+        >
+          <Phone className="h-4 w-4" aria-hidden />
+        </a>
+      ) : undefined;
+    }
     return (
       <>
         {managerPhone ? (
@@ -1291,7 +1307,7 @@ export const ResidentInboxPanel = forwardRef<
         </button>
       </>
     );
-  }, [activeThread, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
+  }, [activeThread, activeManager, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
 
   useEffect(() => {
     if (!embeddedInCommunication) return;
@@ -1324,7 +1340,14 @@ export const ResidentInboxPanel = forwardRef<
   // line (Resident · House, Room · email) turned around: who they are to the
   // resident, the home it is about, and the address they write from.
   const activeThreadSubtitle = activeManager
-    ? ["Property manager", activeManager.homeLabel, activeManager.email].filter(Boolean).join(" · ")
+    ? [
+        activeManager.workspaceName ?? "Property manager",
+        activeManager.homeLabel,
+        // A text-only conversation has no address: the work number is how to reach them.
+        activeThread?.smsOnly ? formatSmsPhoneLabel(activeManager.workPhone) : activeManager.email,
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : undefined;
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
@@ -1491,7 +1514,7 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const sendActiveReply = useCallback(async () => {
-    if (!activeThread) return;
+    if (!activeThread || activeThread.smsOnly) return;
     const text = replyDraft.trim();
     const attachmentUrls = replyAttachments
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
@@ -1627,6 +1650,24 @@ export const ResidentInboxPanel = forwardRef<
   // menu and Send — that is all.
   const activeThreadComposer = useMemo(() => {
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
+    // A text-only conversation has no in-app send: the composer is replaced by
+    // one action that opens the resident's own texting app to the work number.
+    if (activeThread.smsOnly) {
+      const workPhone = activeManager?.workPhone?.trim();
+      if (!workPhone) return undefined;
+      return (
+        <div className="shrink-0 border-t border-border p-3">
+          <a
+            href={`sms:${workPhone}`}
+            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            data-attr="resident-inbox-text-manager"
+          >
+            <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />
+            Text {formatSmsPhoneLabel(workPhone) ?? workPhone}
+          </a>
+        </div>
+      );
+    }
     return (
       <InboxComposer
         value={replyDraft}
@@ -1684,6 +1725,7 @@ export const ResidentInboxPanel = forwardRef<
       />
     );
   }, [
+    activeManager,
     activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,
