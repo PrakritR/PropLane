@@ -64,7 +64,7 @@ export function pacificCalendarDateYmd(now: Date | number = Date.now()): string 
 export function pacificStartOfDayMs(ymd: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
   if (!match) return null;
-  return zonedWallTimeMs(Number(match[1]), Number(match[2]), Number(match[3]), 0);
+  return zonedWallTimeMs(Number(match[1]), Number(match[2]), Number(match[3]), 0, PACIFIC_TIME_ZONE);
 }
 
 /**
@@ -75,7 +75,7 @@ export function pacificEndOfDayMs(ymd: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
   if (!match) return null;
   const next = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1));
-  return zonedWallTimeMs(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0);
+  return zonedWallTimeMs(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, PACIFIC_TIME_ZONE);
 }
 
 /** The instant the Pacific calendar day containing `now` began. */

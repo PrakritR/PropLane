@@ -783,8 +783,9 @@ export async function acceptWorkOrderBid(
     return { ok: false, status: 400, error: "This bid has already been resolved." };
   }
   if (
+    !retryOfAcceptedBid &&
     !bidCanBeApproved({
-      status: "submitted",
+      status: record.status,
       amountCents: record.amount_cents,
       bidSubmittedAt: record.bid_submitted_at ?? null,
     })
@@ -874,9 +875,12 @@ export async function acceptWorkOrderBid(
   const vendors = await vendorNamesById(db, [record.vendor_directory_id ?? "", ...declined.map((b) => b.vendor_directory_id ?? "")]);
   const winningVendor = record.vendor_directory_id ? vendors.get(record.vendor_directory_id) : undefined;
   const rowData = (workOrder?.row_data ?? {}) as DemoManagerWorkOrderRow;
-  let vendorName = winningVendor?.name || "";
+  const vendorName = winningVendor?.name || rowData.vendorName || "";
 
-  if (workOrder) {
+  // A retry re-runs only the cleanup below. Re-applying the hire would overwrite live state with
+  // the bid's original terms: a visit since moved to another day would snap back to
+  // `proposed_time`, and the "vendor silent after accept" clock would start over.
+  if (workOrder && !retryOfAcceptedBid) {
     const totalCents = approvedAmountCents + record.materials_cents;
     const nextRowData: DemoManagerWorkOrderRow = {
       ...rowData,
@@ -908,7 +912,6 @@ export async function acceptWorkOrderBid(
       .update({ vendor_user_id: record.vendor_user_id, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", record.work_order_id);
     if (assignError) return { ok: false, status: 500, error: assignError.message };
-    vendorName = winningVendor?.name || rowData.vendorName || "";
   }
 
   if (declined.length > 0) {

@@ -475,6 +475,12 @@ export async function reofferWorkOrderToNextVendor(
     vendorAssignedAt: undefined,
     biddingOpen: false,
     biddingResolvedAt: undefined,
+    // The released vendor's approved figure goes with them. Left on the row it would be the
+    // payout anchor for a job nobody holds, and the next vendors are about to bid against it.
+    cost: "",
+    vendorCostCents: undefined,
+    materialsCostCents: undefined,
+    vendorPriceSetAt: undefined,
   };
   const { error } = await db
     .from("portal_work_order_records")

@@ -84,6 +84,10 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
  * What the manager bills the RESIDENT for the job goes too. It is the manager's markup over the
  * bid the vendor is about to submit, and a vendor who has only been offered the job has no
  * business reading it.
+ *
+ * So does the job's recorded vendor price. On a service re-offered after its hired vendor went
+ * silent, those fields still hold THAT vendor's approved figure — handing it to the competitors
+ * now being asked to bid against it.
  */
 export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
   const area = workOrderGeneralArea(row);
@@ -98,6 +102,10 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     residentChargeId: _residentChargeId,
     residentReminderSentAt: _residentReminderSentAt,
     expenseEntryIds: _expenseEntryIds,
+    cost: _cost,
+    vendorCostCents: _vendorCostCents,
+    materialsCostCents: _materialsCostCents,
+    vendorPriceSetAt: _vendorPriceSetAt,
     photoDataUrls,
     ...rest
   } = row;
@@ -105,6 +113,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     ...rest,
     propertyName: area,
     unit: "—",
+    cost: "",
     ...(row.offerSharePhotos === true && photoDataUrls?.length ? { photoDataUrls } : {}),
   };
 }
