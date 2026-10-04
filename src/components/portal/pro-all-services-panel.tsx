@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
@@ -87,6 +87,7 @@ import {
   deleteServiceRequest,
   readAllServiceRequests,
   syncServiceRequestsFromServer,
+  updateServiceRequest,
   SERVICE_REQUESTS_EVENT,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
@@ -120,7 +121,10 @@ import {
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
+import { deriveAddOnStages, serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
+import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cycle-section";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { SERVICE_TAB_URL_SEGMENT, serviceTabFromSegment } from "@/lib/unified-service-rows";
 
 type FilterType = "requests" | "work-orders";
 
@@ -196,6 +200,8 @@ export function ManagerAllServicesPanel({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
+  const { teamMembers } = useWorkAssignmentDirectory({ managerUserId: userId });
+  const pathname = usePathname();
   const [propertyTick, setPropertyTick] = useState(0);
   const [dataTick, setDataTick] = useState(0);
   const [applicationTick, setApplicationTick] = useState(0);
@@ -219,7 +225,24 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
-  const [serviceState, setServiceState] = useState<ServiceRowState>("open");
+  // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
+  // back/forward, and when the page is reached from a link. A tab click writes the URL back.
+  const urlTabSegment = lockedPropertyId || tabId !== "work-orders" ? null : serviceTabFromSegment(workOrderBucketProp);
+  const [serviceState, setServiceStateRaw] = useState<ServiceRowState>(
+    () => serviceTabFromSegment(pathname?.split("/").filter(Boolean).pop()) ?? urlTabSegment ?? "open",
+  );
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    const fromUrl = lockedPropertyId ? null : serviceTabFromSegment(pathname?.split("/").filter(Boolean).pop());
+    if (fromUrl && fromUrl !== serviceState) setServiceStateRaw(fromUrl);
+  }
+  const setServiceState = (next: ServiceRowState) => {
+    setServiceStateRaw(next);
+    if (lockedPropertyId || typeof window === "undefined") return;
+    const href = `${basePath}/services/work-orders/${SERVICE_TAB_URL_SEGMENT[next]}`;
+    if (window.location.pathname !== href) window.history.pushState(null, "", href);
+  };
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
   const [bulkDeleteRequest, setBulkDeleteRequest] = useState<ServiceRequest | null>(null);
@@ -913,25 +936,43 @@ export function ManagerAllServicesPanel({
     const backHref = serviceRequestListHref(basePath, reqBucket);
     const ownContent =
       activeTab === "vendor-schedule" ? (
-        <div className="space-y-4 px-3 pb-6 sm:px-4" data-attr="service-request-vendor-schedule">
-          {detailRequest.assignee ? (
-            <RecordFactCard title="Assigned">
-              <RecordFactRow label={detailRequest.assignee.type === "vendor" ? "Vendor" : "Team"} value={detailRequest.assignee.name} />
-            </RecordFactCard>
-          ) : (
-            <PortalListEmptyCard title="No vendor for this service" workspaceAware={false} dataAttr="service-request-vendor-empty" />
-          )}
-          {detailRequest.proposedVisit ? (
-            <RecordFactCard title="Visit">
-              <RecordFactRow
-                label="Proposed"
-                value={new Date(detailRequest.proposedVisit.iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              />
-            </RecordFactCard>
-          ) : (
-            <PortalListEmptyCard title="Not scheduled yet" workspaceAware={false} dataAttr="service-request-schedule-empty" />
-          )}
-        </div>
+        (() => {
+          // An add-on stays with the manager team (`assignableKindsFor`: a vendor takes tasks and
+          // maintenance only), so Assign offers yourself and teammates, nobody can be requested for
+          // bids, and the + is not drawn.
+          const current = detailRequest.assignee;
+          const assignValue = current ? (current.id === userId ? "me" : `team:${current.id}`) : "";
+          const assignGroups = [
+            {
+              label: "Team",
+              options: [
+                ...(userId ? [{ value: "me", label: "Myself" }] : []),
+                ...teamMembers.filter((m) => m.userId !== userId).map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
+              ],
+            },
+          ];
+          return (
+            <ServiceVendorCycleSection
+              stages={deriveAddOnStages(detailRequest.status)}
+              requests={[]}
+              assignValue={assignValue}
+              assignGroups={assignGroups}
+              approvingBidId={null}
+              emptyTitle="No vendors on this service"
+              onAssign={(value) => {
+                const id = value === "me" ? userId : value.replace(/^team:/, "");
+                if (!id) return;
+                const name = value === "me" ? "You" : teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate";
+                updateServiceRequest(detailRequest.id, { assignee: { type: "team", id, name } });
+                setDataTick((t) => t + 1);
+                showToast(value === "me" ? "You're handling this yourself." : `Assigned ${name}.`);
+              }}
+              onApprove={() => undefined}
+              onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+              onRemove={() => undefined}
+            />
+          );
+        })()
       ) : activeTab === "incoming-payments" ? (
         <ServiceIncomingPaymentsList
           rows={buildServiceIncomingRows({
@@ -957,12 +998,12 @@ export function ManagerAllServicesPanel({
           recordLabel: detailRequest.offerName,
           overviewTiles: [
             { id: "status", label: "Status", value: detailRequest.status.charAt(0).toUpperCase() + detailRequest.status.slice(1).toLowerCase() },
-            { id: "vendor", label: "Vendor", value: detailRequest.assignee?.name ?? "None", detail: detailRequest.assignee ? undefined : "Not assigned", tone: detailRequest.assignee ? "default" : "danger" },
+            { id: "vendor", label: "Vendor", value: detailRequest.assignee?.name ?? "Not assigned" },
             { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
             { id: "requested", label: "Requested", value: formatPortalListDate(detailRequest.requestedAt) },
           ],
           overviewNeeds: !detailRequest.assignee
-            ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
+            ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "vendor-schedule")) }]
             : [],
           overviewCards: [
             {

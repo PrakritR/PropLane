@@ -138,7 +138,8 @@ export function RecordFactRow({
 export type RecordNeedsYouItem = {
   id: string;
   title: string;
-  detail: string;
+  /** A muted second line. Omit it: a row says what to do, not why (no-subtext rule). */
+  detail?: string;
   href?: string;
   onClick?: () => void;
 };
@@ -169,7 +170,7 @@ export function RecordNeedsYou({
               <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
-                <span className="block truncate text-[12px] text-muted">{row.detail}</span>
+                {row.detail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
               </span>
               {row.href || row.onClick ? <ArrowRight className="size-4 shrink-0 text-muted" aria-hidden /> : null}
             </>

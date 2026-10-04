@@ -10,7 +10,7 @@ import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/por
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { cn } from "@/lib/utils";
 import { formatServiceMoney } from "@/lib/manager-service-workflow";
-import type { ServiceStage, VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import type { StageBarItem, VendorRequestRow } from "@/lib/work-order-bid-cycle";
 
 /** `Mon, Oct 5, 4:00 PM` - a visit or bid time as one short fact. */
 function shortWhen(iso: string | null | undefined): string {
@@ -21,7 +21,7 @@ function shortWhen(iso: string | null | undefined): string {
 }
 
 /** The stage bar: Pending · Bids requested · Bid approved · Scheduled · Completed · Paid. */
-export function ServiceStageBar({ stages }: { stages: readonly ServiceStage[] }) {
+export function ServiceStageBar({ stages }: { stages: readonly StageBarItem[] }) {
   return (
     <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs" aria-label="Service stages" data-attr="service-stage-bar">
       {stages.map((stage, index) => (
@@ -102,17 +102,20 @@ export function ServiceVendorCycleSection({
   onApprove,
   onMessage,
   onRemove,
+  emptyTitle = "No vendors requested yet",
 }: {
-  stages: readonly ServiceStage[];
+  stages: readonly StageBarItem[];
   requests: readonly VendorRequestRow[];
   assignValue: string;
   assignGroups: Array<{ label: string; options: Array<{ value: string; label: string }> }>;
   approvingBidId: string | null;
   onAssign: (value: string) => void;
-  onRequestMore: () => void;
+  /** Omit where vendors cannot be requested (an add-on service): the + is not drawn at all. */
+  onRequestMore?: () => void;
   onApprove: (row: VendorRequestRow) => void;
   onMessage: (row: VendorRequestRow) => void;
   onRemove: (row: VendorRequestRow) => void;
+  emptyTitle?: string;
 }) {
   const visible = requests.filter((r) => r.state !== "declined" || r.bidId);
   return (
@@ -129,19 +132,21 @@ export function ServiceVendorCycleSection({
             dataAttr="service-assign-select"
             wrapperClassName="min-w-0 flex-1"
           />
-          <PortalIconAction
-            icon={Plus}
-            label="Request more vendors"
-            ring
-            ringPrimary
-            data-attr="service-request-more-vendors"
-            onClick={onRequestMore}
-          />
+          {onRequestMore ? (
+            <PortalIconAction
+              icon={Plus}
+              label="Request more vendors"
+              ring
+              ringPrimary
+              data-attr="service-request-more-vendors"
+              onClick={onRequestMore}
+            />
+          ) : null}
         </div>
       </div>
 
       {visible.length === 0 ? (
-        <PortalListEmptyCard title="No vendors requested yet" workspaceAware={false} dataAttr="service-vendor-requests-empty" />
+        <PortalListEmptyCard title={emptyTitle} workspaceAware={false} dataAttr="service-vendor-requests-empty" />
       ) : (
         <div data-attr="service-vendor-requests">
           {visible.map((row) => {

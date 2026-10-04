@@ -286,3 +286,28 @@ export function serviceListStageFact(
   if (requests.length > 0) return `Bids requested · ${requests.length}`;
   return "Pending";
 }
+
+export type StageBarItem = { id: string; label: string; state: "done" | "current" | "todo" };
+
+/**
+ * The stage bar for an add-on service request (a resident-bought service such as storage). It has no
+ * bid cycle - vendors cannot take add-on services, `assignableKindsFor` - so its stages are the
+ * request's own: Pending -> Approved -> Completed (a returned item), or Pending -> Declined.
+ */
+export function deriveAddOnStages(status: string | undefined | null): StageBarItem[] {
+  const value = (status ?? "").toLowerCase();
+  const steps: Array<{ id: string; label: string }> =
+    value === "denied"
+      ? [
+          { id: "pending", label: "Pending" },
+          { id: "declined", label: "Declined" },
+        ]
+      : [
+          { id: "pending", label: "Pending" },
+          { id: "approved", label: "Approved" },
+          { id: "completed", label: "Completed" },
+        ];
+  const currentId = value === "denied" ? "declined" : value === "returned" ? "completed" : value === "approved" ? "approved" : "pending";
+  const currentIdx = steps.findIndex((step) => step.id === currentId);
+  return steps.map((step, idx) => ({ ...step, state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo" }));
+}

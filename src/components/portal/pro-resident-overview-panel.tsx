@@ -205,7 +205,7 @@ export function ResidentOverviewPanel({
   preferredContactLabel?: string;
   onCopyField?: (label: string, value: string) => void;
   /** Extra "Needs attention" lines owned by the caller (late move-in forms); shown first. */
-  extraNeedsYou?: Array<{ id: string; title: string; detail: string; href?: string; onClick?: () => void }>;
+  extraNeedsYou?: Array<{ id: string; title: string; detail?: string; href?: string; onClick?: () => void }>;
 }) {
   const [showAllNeeds, setShowAllNeeds] = useState(false);
 
@@ -239,7 +239,7 @@ export function ResidentOverviewPanel({
         id: extra.id,
         icon: "lease",
         title: extra.title,
-        fact: extra.detail,
+        fact: extra.detail ?? "",
         urgent: true,
         rank: -1000 + index,
         href: extra.href,

@@ -1712,7 +1712,7 @@ export function ManagerWorkOrdersPanel({
             overviewTiles: [
               { id: "status", label: "Status", value: (() => { const raw = (routeWorkOrder.status || routeWorkOrder.bucket || "").trim(); return raw.charAt(0).toUpperCase() + raw.slice(1); })() },
               { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
-              { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || "None", tone: routeWorkOrder.vendorName?.trim() ? "default" : "danger", detail: routeWorkOrder.vendorName?.trim() ? undefined : "Not assigned" },
+              { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || (routeWorkOrder.selfAssigned ? "You" : "Not assigned") },
               { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
               // C253: bid count, visible from Overview without opening Vendor & schedule.
               ...(routeWorkOrder.biddingOpen || (bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0) > 0
@@ -1727,14 +1727,13 @@ export function ManagerWorkOrdersPanel({
             ],
             overviewNeeds: [
               ...(!routeWorkOrder.vendorName?.trim() && !routeWorkOrder.selfAssigned
-                ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet", onClick: () => setAssignSheetRow(routeWorkOrder) }]
+                ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendor-schedule")) }]
                 : []),
               ...(routeWorkOrder.automationStatus === "vendor_marked_done"
                 ? [
                     {
                       id: "approve-invoice",
                       title: "Approve invoice",
-                      detail: formatServiceMoney((routeWorkOrder.vendorCostCents ?? 0) + (routeWorkOrder.materialsCostCents ?? 0)) || "Awaiting line items",
                       onClick: () => (pendingServiceInvoiceId ? void approveInvoiceForRow(routeWorkOrder) : approvePay(routeWorkOrder)),
                     },
                   ]

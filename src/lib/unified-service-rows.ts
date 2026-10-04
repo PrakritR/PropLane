@@ -238,3 +238,27 @@ function titleCase(value: string | undefined | null): string {
   if (!raw) return "";
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
+
+
+/** Services tabs, as the URL names them: `/services/work-orders/<open|scheduled|completed>`. */
+export const SERVICE_TAB_URL_SEGMENT: Record<ServiceRowState, string> = {
+  open: "open",
+  scheduled: "scheduled",
+  done: "completed",
+  declined: "completed",
+};
+
+/** The tab a Services URL selects, or null when its last segment is not a tab (a record, a request bucket). */
+export function serviceTabFromSegment(segment: string | null | undefined): ServiceRowState | null {
+  switch ((segment ?? "").toLowerCase()) {
+    case "open":
+      return "open";
+    case "scheduled":
+      return "scheduled";
+    case "completed":
+    case "done":
+      return "done";
+    default:
+      return null;
+  }
+}
