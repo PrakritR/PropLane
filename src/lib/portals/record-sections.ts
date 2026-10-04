@@ -21,7 +21,6 @@ import {
   RefreshCw,
   Send,
   Share2,
-  Star,
   Trash2,
   Upload,
   UserPlus,
@@ -496,24 +495,19 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "outgoing-payments", label: "Outgoing payments" },
       ] },
     ],
-    // Message · Edit · Request bids or assign · Schedule, then the primary next step
-    // (Request bids / Compare bids / Schedule / Complete / Pay, chosen from the lifecycle in
-    // pro-work-orders-panel.tsx), with Cancel service and Delete - the only red items - in ⋯.
+    // One header for both kinds (add-on and maintenance): Message · Edit · ⋯ · the ONE labeled primary,
+    // the next step from the lifecycle (Approve then Mark done on an add-on, `service-header-next-step.ts`;
+    // Request bids / Approve bid / Schedule / Complete / Pay on maintenance, pro-work-orders-panel.tsx).
+    // The ⋯ holds Cancel service (Decline request on an add-on) and Delete - the only red items.
     headerActions: [
       { id: "message", label: "Message", icon: Mail },
       { id: "edit", label: "Edit", icon: Pencil },
-      { id: "assign", label: "Request bids or assign", icon: UserPlus },
-      { id: "schedule", label: "Schedule", icon: Calendar },
-      { id: "complete", label: "Complete", icon: CheckCircle2 },
-      // Only rendered once the service is completed and a vendor is assigned
-      // (gated in pro-work-orders-panel.tsx's headerActions filter).
-      { id: "review", label: "Leave a review", icon: Star },
       { id: "cancel", label: "Cancel service", icon: Trash2, tone: "danger" },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
       vendors: [
-        { id: "assign", label: "Request bids or assign", icon: UserPlus },
+        { id: "send-job", label: "Send job to vendors", icon: UserPlus },
       ],
       "incoming-payments": [
         { id: "add-charge", label: "Add charge", icon: Plus },

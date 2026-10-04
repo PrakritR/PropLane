@@ -341,6 +341,8 @@ async function workOrderEventImpl(
     senderName: input.senderName,
     payload: {
       reference: input.facts.reference,
+      // Labels the thread's `recordRef` (`service-record-ref.ts`), so the service's own Communication finds it.
+      title: input.facts.title,
       emergency: input.facts.emergency === true,
       propertyId: input.facts.propertyId?.trim() || null,
     },

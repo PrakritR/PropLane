@@ -1,4 +1,5 @@
 "use client";
+import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ServiceRequestCatalogEditor } from "@/components/portal/service-request-catalog-editor";
@@ -106,7 +107,7 @@ export function ManagerPropertyRequestsPanel({
     void dataTick;
     const id = propertyId?.trim();
     if (!managerUserId || !id) return [];
-    return readManagerWorkOrderRows()
+    return withoutLinkedVendorJobs(readManagerWorkOrderRows())
       .filter((r) => moduleRowVisibleToPortalUser(r, managerUserId, "services"))
       .filter((r) => samePropertyId(r.propertyId, id));
   }, [managerUserId, propertyId, dataTick]);

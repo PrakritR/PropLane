@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MANAGER_TASK_LIST_TABS,
@@ -22,10 +24,17 @@ const task = (over: Partial<ManagerTask>): ManagerTask => ({
 });
 
 describe("manager task list tabs", () => {
-  it("is the one service vocabulary plus Arrivals & departures last", () => {
-    expect(MANAGER_TASK_LIST_TABS).toEqual([...SERVICE_STAGE_IDS, "arrivals-departures"]);
+  it("is exactly the one service vocabulary - Arrivals & departures is gone", () => {
+    expect(MANAGER_TASK_LIST_TABS).toEqual([...SERVICE_STAGE_IDS]);
     for (const id of SERVICE_STAGE_IDS) expect(MANAGER_TASK_LIST_TAB_LABELS[id]).toBe(SERVICE_STAGE_LABEL[id]);
-    expect(MANAGER_TASK_LIST_TAB_LABELS["arrivals-departures"]).toBe("Arrivals & departures");
+    expect(MANAGER_TASK_LIST_TABS).not.toContain("arrivals-departures");
+    expect(Object.keys(MANAGER_TASK_LIST_TAB_LABELS)).toEqual([...SERVICE_STAGE_IDS]);
+  });
+
+  it("the removed tab's address redirects to the task list, ahead of the app router", () => {
+    const config = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
+    expect(config).toContain('source: "/portal/tasks/arrivals-departures", destination: "/portal/tasks"');
+    expect(existsSync(join(process.cwd(), "src/components/portal/manager-arrivals-departures-panel.tsx"))).toBe(false);
   });
 
   it("has no Overdue or Done tab", () => {
@@ -42,7 +51,9 @@ describe("manager task list tabs", () => {
     expect(parseManagerTaskListTab("completed")).toBe("completed");
     expect(parseManagerTaskListTab("assigned")).toBe("assigned");
     expect(parseManagerTaskListTab("scheduled")).toBe("scheduled");
-    expect(parseManagerTaskListTab("arrivals-departures")).toBe("arrivals-departures");
+    // The removed tab: a saved link lands on the task list.
+    expect(parseManagerTaskListTab("arrivals-departures")).toBe("open");
+    expect(legacyTaskListSectionRedirectPath("/portal", ["arrivals-departures"])).toBe("/portal/tasks");
     for (const legacy of ["in-progress", "overdue", "done", "completed", "open"]) {
       expect(parseManagerTaskListTab(legacy)).toBe(parseServiceStage(legacy));
     }

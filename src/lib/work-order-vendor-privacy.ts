@@ -102,6 +102,8 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     residentChargeId: _residentChargeId,
     residentReminderSentAt: _residentReminderSentAt,
     expenseEntryIds: _expenseEntryIds,
+    // The add-on this vendor job serves is the manager's own record; the vendor only ever sees the job.
+    linkedServiceRequestId: _linkedServiceRequestId,
     cost: _cost,
     vendorCostCents: _vendorCostCents,
     materialsCostCents: _materialsCostCents,

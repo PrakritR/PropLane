@@ -9,6 +9,8 @@ import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
+import type { RecordRef } from "@/lib/portals/record-kinds";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import {
   postTeamThreadMessage,
@@ -210,6 +212,8 @@ async function deliverProjection(
     propertyId?: string | null;
     /** The workspace owner the event belongs to: whose number a vendor text leaves from. */
     managerUserId?: string | null;
+    /** The service this event is about (`service-record-ref.ts`), stamped on the thread for the record's Communication section. */
+    recordRef?: RecordRef;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
@@ -366,6 +370,7 @@ async function deliverProjection(
     urgent: input.urgent,
     ownerManagerUserId: input.managerUserId?.trim() || undefined,
     propertyId: input.propertyId ?? null,
+    ...(input.recordRef ? { recordRef: input.recordRef } : {}),
   }).catch((error: unknown) => ({
     ok: false as const,
     error: error instanceof Error ? error.message : "Delivery failed",
@@ -597,6 +602,7 @@ export async function emitActionEvent(
       draftForReview: recipient.draftForReview,
       propertyId,
       managerUserId: input.managerUserId,
+      recordRef: serviceRecordRefForEvent(input.domain, input.entityId, input.payload?.title),
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -644,7 +650,7 @@ export async function retryDueActionEventDeliveries(
     if (!claim) continue;
     attempted++;
     const { data: event, error: eventError } = await db.from("action_events")
-      .select("event_key,category,manager_user_id,sender_user_id,sender_email,sender_name,domain,event_type,payload")
+      .select("event_key,category,manager_user_id,sender_user_id,sender_email,sender_name,domain,event_type,entity_id,payload")
       .eq("id", row.event_id)
       .maybeSingle();
     if (eventError || !event?.sender_user_id || !event.sender_email) {
@@ -700,6 +706,11 @@ export async function retryDueActionEventDeliveries(
       draftForReview,
       propertyId,
       managerUserId: event.manager_user_id ? String(event.manager_user_id) : null,
+      recordRef: serviceRecordRefForEvent(
+        event.domain ? String(event.domain) : undefined,
+        event.entity_id ? String(event.entity_id) : undefined,
+        (event.payload as { title?: unknown } | null)?.title,
+      ),
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

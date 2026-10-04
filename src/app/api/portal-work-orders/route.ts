@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { isLinkedVendorJob } from "@/lib/add-on-vendor-job";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
@@ -336,6 +337,9 @@ async function emitCreatedWorkOrder(
   managerUserId: string | null | undefined,
 ): Promise<void> {
   if (actor.admin) return;
+  // The vendor job behind an add-on is the manager's own record: no "new service" notice to the team, and
+  // it has no resident to acknowledge (`add-on-vendor-job.ts`).
+  if (isLinkedVendorJob(row)) return;
   const ownerId = managerUserId?.trim() || row.managerUserId?.trim() || (actor.role === "resident" ? "" : actor.userId);
   if (!ownerId) return;
   const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
