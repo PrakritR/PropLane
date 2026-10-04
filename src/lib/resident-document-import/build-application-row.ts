@@ -3,6 +3,7 @@ import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import type { ResidentDocumentImportReview } from "@/lib/resident-document-import/types";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
+import { mapParsedFieldsToApplicationAnswers } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
 
 /**
  * Moved out of `commit-import.client.ts` (isomorphic — no browser-only import
@@ -36,7 +37,7 @@ export function buildApplicationRow(args: {
     review.residentMode === "existing" && review.existingApplicationId?.trim()
       ? review.existingApplicationId.trim()
       : `PROPLANE-${Date.now().toString(36).toUpperCase().slice(-8)}`;
-  const bucket =
+  const suggestedBucket =
     review.kind === "application" && parse.suggestedApplicationBucket === "pending" ? "pending" : "approved";
   const hasLeasePdf = review.kind === "lease" && review.dataUrl.trim().length > 0;
   const roomChoice =
@@ -47,6 +48,18 @@ export function buildApplicationRow(args: {
   const existing = review.residentMode === "existing" && review.existingApplicationId?.trim()
     ? readManagerApplicationRows().find((row) => row.id === review.existingApplicationId)
     : null;
+
+  // An application uploaded for a resident who already has one fills that application in; it never
+  // moves them to another stage (an applicant still under review must not turn approved by an upload).
+  const bucket = existing && review.kind === "application" ? existing.bucket : suggestedBucket;
+
+  // The answers read off an uploaded application, keyed by the applicant wizard's own form keys.
+  const applicantAnswers =
+    review.kind === "application"
+      ? mapParsedFieldsToApplicationAnswers(
+          Object.entries(fields).map(([key, value]) => ({ key, value, confidence: "high" as const })),
+        ).answers
+      : {};
 
   const base: DemoApplicantRow = existing
     ? { ...existing }
@@ -67,7 +80,7 @@ export function buildApplicationRow(args: {
     email: email || base.email,
     property: args.propertyLabel || base.property,
     bucket,
-    stage: bucket === "approved" ? "Active" : base.stage,
+    stage: existing && review.kind === "application" ? base.stage : bucket === "approved" ? "Active" : base.stage,
     assignedPropertyId: review.propertyId || base.assignedPropertyId,
     assignedRoomChoice: roomChoice || base.assignedRoomChoice,
     signedMonthlyRent: rent ?? base.signedMonthlyRent,
@@ -92,6 +105,7 @@ export function buildApplicationRow(args: {
     },
     application: {
       ...(base.application ?? {}),
+      ...applicantAnswers,
       propertyId: review.propertyId || base.application?.propertyId,
       roomChoice1: roomChoice || base.application?.roomChoice1,
       leaseStart: fields.leaseStart?.trim() || base.application?.leaseStart,

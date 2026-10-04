@@ -5,7 +5,7 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail, Settings as SettingsIcon, Pencil } from "lucide-react";
+import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail, Settings as SettingsIcon, Pencil, Send, ScrollText, Upload } from "lucide-react";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -41,6 +41,8 @@ import {
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
+import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
+import { UploadForResidentModal } from "@/components/portal/upload-for-resident-modal";
 import { createChargesForExecutedLease } from "@/lib/lease-signing-charges.client";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
@@ -625,6 +627,9 @@ export function ManagerResidents({
     body: string;
   } | null>(null);
   /** The one Send lease screen: a lease row, or an application whose Draft lease it creates. */
+  /** Send application / Upload for resident, opened from the resident record header. */
+  const [sendApplicationOpen, setSendApplicationOpen] = useState(false);
+  const [uploadForResidentOpen, setUploadForResidentOpen] = useState(false);
   const [sendLeaseTarget, setSendLeaseTarget] = useState<{ leaseId?: string; applicationId?: string } | null>(null);
   const [signingLease, setSigningLease] = useState<LeasePipelineRow | null>(null);
   const [signingLeaseError, setSigningLeaseError] = useState<string | null>(null);
@@ -3233,9 +3238,20 @@ export function ManagerResidents({
 
   const residentRecordHeaderActions = useMemo(() => {
     const sections = recordSections("manager", "resident", { basePath: portalBase, residentsTab });
+    // Send application · Send lease · Upload for resident sit with the record's other leasing actions,
+    // ahead of Delete (which stays last).
+    const sendActions = [
+      { id: "send-application", label: "Send application", icon: Send },
+      { id: "send-lease", label: "Send lease", icon: ScrollText },
+      { id: "upload-for-resident", label: "Upload for resident", icon: Upload },
+    ];
+    const deleteAt = sections.headerActions.findIndex((action) => action.id === "delete");
+    const base = deleteAt === -1
+      ? [...sections.headerActions, ...sendActions]
+      : [...sections.headerActions.slice(0, deleteAt), ...sendActions, ...sections.headerActions.slice(deleteAt)];
     const withSetup = selectedHasPortalAccount
-      ? sections.headerActions
-      : [...sections.headerActions, { id: "setup", label: "Send setup", icon: Mail }];
+      ? base
+      : [...base, { id: "setup", label: "Send setup", icon: Mail }];
     return withSetup;
   }, [portalBase, residentsTab, selectedHasPortalAccount]);
 
@@ -3378,6 +3394,19 @@ export function ManagerResidents({
         return;
       case "setup":
         openResidentEmailSetup(selected);
+        return;
+      case "send-application":
+        setSendApplicationOpen(true);
+        return;
+      case "send-lease":
+        if (!selectedApplicationRow) {
+          showToast("This resident has no application to send a lease from.");
+          return;
+        }
+        openSendLeaseForApplication(selectedApplicationRow.id);
+        return;
+      case "upload-for-resident":
+        setUploadForResidentOpen(true);
         return;
       default:
         showToast("Coming soon");
@@ -4751,6 +4780,28 @@ export function ManagerResidents({
           const res = welcomePreviewFor;
           setWelcomePreviewFor(null);
           void sendResidentAccountEmail(res, { channels, draft });
+        }}
+      />
+
+      <ShareLeadLinkModal
+        open={sendApplicationOpen}
+        onClose={() => setSendApplicationOpen(false)}
+        kind="apply"
+        properties={propertyOptions}
+        preselectedPropertyId={selected?.propertyId || undefined}
+        initialRecipient={{ name: selected?.name, email: selected?.email, phone: selectedApplicationRow?.manualResidentDetails?.phone ?? selectedApplicationRow?.application?.phone }}
+      />
+
+      <UploadForResidentModal
+        open={uploadForResidentOpen}
+        onClose={() => setUploadForResidentOpen(false)}
+        managerUserId={userId ?? null}
+        properties={propertyOptions}
+        initialKind="application"
+        residentApplicationId={selectedApplicationRow?.id ?? null}
+        onCreated={() => {
+          setLeaseTick((n) => n + 1);
+          setHcTick((n) => n + 1);
         }}
       />
 
