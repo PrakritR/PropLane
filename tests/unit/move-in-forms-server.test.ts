@@ -467,7 +467,7 @@ describe("dispatch", () => {
   it("sends the templates for the trigger with a snapshot and a due date from the move-in date", async () => {
     properties[0]!.templates = [enabled("a"), enabled("b", { enabled: false } as never), enabled("c", { trigger: "application-approved" }), enabled("d", { trigger: "manual" })];
     const result = await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
-    expect(result).toEqual({ sent: 1 });
+    expect(result).toEqual({ sent: 1, failed: 0 });
     expect(forms.map((row) => row.form_id)).toEqual(["a"]);
     expect(forms[0]).toMatchObject({ status: "sent", resident_email: "a@example.test", room_label: "Room 1", manager_user_id: "owner" });
     expect((forms[0]!.snapshot as { questions: unknown[] }).questions).toHaveLength(1);
@@ -478,7 +478,7 @@ describe("dispatch", () => {
   it("is idempotent: a second dispatch sends nothing new", async () => {
     properties[0]!.templates = [enabled("a")];
     await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     expect(forms).toHaveLength(1);
     expect(emitted.calls).toHaveLength(1);
   });
@@ -487,7 +487,7 @@ describe("dispatch", () => {
     properties[0]!.templates = [enabled("a")];
     await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
     forms[0]!.status = "submitted";
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     expect(forms).toHaveLength(1);
     expect(emitted.calls).toHaveLength(1);
   });
@@ -496,17 +496,17 @@ describe("dispatch", () => {
     properties[0]!.templates = [enabled("a")];
     await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never });
     forms[0]!.status = "cancelled";
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1, failed: 0 });
   });
 
   it("a property that never saved its forms sends nothing at lease signing; saving the checklist with that trigger sends it", async () => {
     properties[0]!.templates = null;
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     expect(forms).toEqual([]);
     const checklist = MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "move-in-checklist")!;
     expect(checklist.trigger).toBe("lease-signed");
     properties[0]!.templates = [checklist];
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1, failed: 0 });
     expect(forms.map((row) => row.form_id)).toEqual(["starter-move-in-checklist"]);
   });
 
@@ -522,17 +522,17 @@ describe("dispatch", () => {
 
   it("sends a whole-house form to the primary signer only", async () => {
     properties[0]!.templates = [enabled("house", { audience: { kind: "whole-house" } })];
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never, secondaryMember: true })).toEqual({ sent: 0 });
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never, secondaryMember: true })).toEqual({ sent: 0, failed: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1, failed: 0 });
   });
 
   it("does nothing for a residency that is not approved, withdrawn, or unknown", async () => {
     properties[0]!.templates = [enabled("a")];
     applications[0]!.app_bucket = "pending";
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     applications[0]!.app_bucket = "approved"; applications[0]!.app_withdrawn_at = "2026-10-02";
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
-    expect(await dispatchMoveInFormsForResidency("NOPE", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
+    expect(await dispatchMoveInFormsForResidency("NOPE", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     expect(forms).toEqual([]);
   });
 
@@ -543,16 +543,16 @@ describe("dispatch", () => {
       enabled("up2", { source: "upload", pdf: pdf(`victim/move-in-forms/up2/1-${UUID}.pdf`) }),
     ];
     (objects["lease-templates"] ??= new Map()).set(`victim/move-in-forms/up2/1-${UUID}.pdf`, new Uint8Array([1]));
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
     (objects["lease-templates"]!).set(`owner/move-in-forms/up1/1-${UUID}.pdf`, new TextEncoder().encode("%PDF-1.4 x"));
-    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1, failed: 0 });
     // The fingerprint is recomputed from the stored bytes, never taken from the property JSON.
     expect((forms[0]!.snapshot as { pdf: { sha256: string } }).pdf.sha256).toBe(createHash("sha256").update("%PDF-1.4 x").digest("hex"));
   });
 
-  it("never throws into the caller", async () => {
+  it("never throws into the caller, and reports the failure so a retrying caller can see it", async () => {
     const broken = { from: () => { throw new Error("db down"); }, storage };
-    await expect(dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: broken as never })).resolves.toEqual({ sent: 0 });
+    await expect(dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: broken as never })).resolves.toEqual({ sent: 0, failed: 1 });
   });
 
   it("a signed lease reaches the primary signer and joint members through the service client", async () => {
@@ -578,7 +578,7 @@ describe("dispatch: intake, links and move-out", () => {
 
     it("sends the Intake form to a PENDING application, with its kind in the snapshot", async () => {
       applications[0]!.app_bucket = "pending";
-      expect(await send("application-submitted")).toEqual({ sent: 1 });
+      expect(await send("application-submitted")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["default-intake"]);
       expect(forms[0]).toMatchObject({ status: "sent", resident_email: "a@example.test", manager_user_id: "owner", form_name: "Intake form" });
       expect((forms[0]!.snapshot as { kind: string }).kind).toBe("intake");
@@ -586,37 +586,37 @@ describe("dispatch: intake, links and move-out", () => {
     });
 
     it("also sends it to an application that is already approved", async () => {
-      expect(await send("application-submitted")).toEqual({ sent: 1 });
+      expect(await send("application-submitted")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("does nothing for a withdrawn or declined application", async () => {
       applications[0]!.app_bucket = "pending";
       applications[0]!.app_withdrawn_at = "2026-10-02";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_withdrawn_at = undefined;
       applications[0]!.app_bucket = "declined";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       expect(forms).toEqual([]);
     });
 
     it("is sent once: not again on a second dispatch, nor after the application is approved, nor after it was submitted", async () => {
       applications[0]!.app_bucket = "pending";
-      expect(await send("application-submitted")).toEqual({ sent: 1 });
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 1, failed: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_bucket = "approved";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       forms[0]!.status = "submitted";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       expect(forms).toHaveLength(1);
     });
 
     it("is not sent by the other triggers, and a pending application does not get a lease-signed form", async () => {
       properties[0]!.templates = [defaultMoveInForm("intake"), form("signed")];
       applications[0]!.app_bucket = "pending";
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
-      expect(await send("application-approved")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
+      expect(await send("application-approved")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_bucket = "approved";
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["signed"]);
     });
 
@@ -638,10 +638,10 @@ describe("dispatch: intake, links and move-out", () => {
     it("a property that never saved its forms (no moveInFormTemplates key) sends nothing, even for application-submitted", async () => {
       properties[0]!.templates = null;
       applications[0]!.app_bucket = "pending";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_bucket = "approved";
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 0, failed: 0 });
       expect(forms).toEqual([]);
     });
 
@@ -649,11 +649,11 @@ describe("dispatch: intake, links and move-out", () => {
       properties[0]!.templates = [form("mine")];
       applications[0]!.app_bucket = "pending";
       applications[0]!.app_lease_end = "2026-10-20";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_bucket = "approved";
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 3 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 3 })).toEqual({ sent: 0, failed: 0 });
       // The lease-signed default is restored by hand-only too, so only the manager's own form goes out.
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["mine"]);
     });
 
@@ -666,9 +666,9 @@ describe("dispatch: intake, links and move-out", () => {
     it("a default the manager saved keeps its own Sends", async () => {
       properties[0]!.templates = [{ ...defaultMoveInForm("intake"), trigger: "application-approved" }];
       applications[0]!.app_bucket = "pending";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_bucket = "approved";
-      expect(await send("application-approved")).toEqual({ sent: 1 });
+      expect(await send("application-approved")).toEqual({ sent: 1, failed: 0 });
     });
   });
 
@@ -677,45 +677,45 @@ describe("dispatch: intake, links and move-out", () => {
 
     it("a form linked to tplA is not sent to a tplB application, and is sent to a tplA one", async () => {
       properties[0]!.templates = [form("only-a", { linkedApplicationTemplateIds: ["tplA"] })];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
       expect(forms).toEqual([]);
       applications[0]!.app_template_id = "tplA";
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["only-a"]);
     });
 
     it("an empty linked list means every application", async () => {
       properties[0]!.templates = [form("any", { linkedApplicationTemplateIds: [] })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("a list with several ids admits any of them", async () => {
       properties[0]!.templates = [form("ab", { linkedApplicationTemplateIds: ["tplA", "tplB"] })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("an application that recorded no template is never guessed into a linked form", async () => {
       properties[0]!.templates = [form("only-a", { linkedApplicationTemplateIds: ["tplA"] }), form("any")];
       applications[0]!.app_template_id = undefined;
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["any"]);
     });
 
     it("the link applies to the Intake form on a pending application too", async () => {
       properties[0]!.templates = [{ ...defaultMoveInForm("intake"), linkedApplicationTemplateIds: ["tplA"] }];
       applications[0]!.app_bucket = "pending";
-      expect(await send("application-submitted")).toEqual({ sent: 0 });
+      expect(await send("application-submitted")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_template_id = "tplA";
-      expect(await send("application-submitted")).toEqual({ sent: 1 });
+      expect(await send("application-submitted")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("both links must admit the residency", async () => {
       properties[0]!.templates = [form("both", { linkedApplicationTemplateIds: ["tplB"], linkedLeaseTemplateIds: ["leaseX"] })];
       leases = [{ "row_data->>axisId": "AXIS-A", generated: "leaseX", first: null, voided: null }];
       applications[0]!.app_template_id = "tplA";
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
       applications[0]!.app_template_id = "tplB";
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
   });
 
@@ -725,51 +725,51 @@ describe("dispatch: intake, links and move-out", () => {
 
     it("matches the lease row's own template, generated or lease-first", async () => {
       leases = [lease({ generated: "leaseY" })];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
       leases = [lease({ generated: "leaseX" })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       forms = [];
       leases = [lease({ first: "leaseX" })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("prefers the generated template over the lease-first one", async () => {
       leases = [lease({ generated: "leaseY", first: "leaseX" })];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
     });
 
     it("skips a voided lease and reads the live one", async () => {
       leases = [lease({ generated: "leaseX", voided: "2026-10-01" }), lease({ generated: "leaseY" })];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
       leases = [lease({ generated: "leaseY", voided: "2026-10-01" }), lease({ generated: "leaseX" })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
 
     it("another residency's lease does not count", async () => {
       leases = [lease({ "row_data->>axisId": "AXIS-Z", generated: "leaseX" })];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
     });
 
     it("with no lease row, falls back to the lease its application template maps to", async () => {
       applications[0]!.app_template_id = "tplA";
       properties[0]!.applicationTemplates = [{ id: "tplA", linkedLeaseTemplateId: "leaseX" }];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       forms = [];
       properties[0]!.applicationTemplates = [{ id: "tplA", linkedLeaseTemplateId: "leaseY" }];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
       properties[0]!.applicationTemplates = [{ id: "tplA" }];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
     });
 
     it("an unknown lease template never matches a linked form", async () => {
       leases = [];
-      expect(await send("lease-signed")).toEqual({ sent: 0 });
+      expect(await send("lease-signed")).toEqual({ sent: 0, failed: 0 });
     });
 
     it("a form with no lease link sends whatever the lease is", async () => {
       properties[0]!.templates = [form("any")];
       leases = [lease({ generated: "leaseY" })];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
     });
   });
 
@@ -796,10 +796,10 @@ describe("dispatch: intake, links and move-out", () => {
     });
 
     it("is sent once the lease is within N days of ending, and not before", async () => {
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 15 })).toEqual({ sent: 0 });
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 30 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 15 })).toEqual({ sent: 0, failed: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 30 })).toEqual({ sent: 0, failed: 0 });
       expect(forms).toEqual([]);
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 14 })).toEqual({ sent: 1 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 14 })).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["default-move-out"]);
       expect((forms[0]!.snapshot as { kind: string }).kind).toBe("move-out");
     });
@@ -807,42 +807,42 @@ describe("dispatch: intake, links and move-out", () => {
     it("is sent on every day inside the window up to the last day, but not the day after the lease ended", async () => {
       for (const days of [14, 7, 1, 0]) {
         forms = [];
-        expect(await send("before-move-out", { daysUntilLeaseEnd: days })).toEqual({ sent: 1 });
+        expect(await send("before-move-out", { daysUntilLeaseEnd: days })).toEqual({ sent: 1, failed: 0 });
       }
       forms = [];
-      expect(await send("before-move-out", { daysUntilLeaseEnd: -1 })).toEqual({ sent: 0 });
-      expect(await send("before-move-out", { daysUntilLeaseEnd: -30 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: -1 })).toEqual({ sent: 0, failed: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: -30 })).toEqual({ sent: 0, failed: 0 });
       expect(forms).toEqual([]);
     });
 
     it("sends nothing when the caller says nothing about how long the lease has left", async () => {
-      expect(await send("before-move-out")).toEqual({ sent: 0 });
+      expect(await send("before-move-out")).toEqual({ sent: 0, failed: 0 });
     });
 
     it("follows each form's own window: 7, 14 or 30 days", async () => {
       properties[0]!.templates = [moveOut(7, { id: "w7", name: "w7" }), moveOut(30, { id: "w30", name: "w30" })];
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 20 })).toEqual({ sent: 1 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 20 })).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["w30"]);
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 7 })).toEqual({ sent: 1 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 7 })).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["w30", "w7"]);
     });
 
     it("is idempotent and never re-sent to a resident who finished it", async () => {
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 10 })).toEqual({ sent: 1 });
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 9 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 10 })).toEqual({ sent: 1, failed: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 9 })).toEqual({ sent: 0, failed: 0 });
       forms[0]!.status = "submitted";
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 8 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 8 })).toEqual({ sent: 0, failed: 0 });
       expect(forms).toHaveLength(1);
     });
 
     it("needs an approved residency", async () => {
       applications[0]!.app_bucket = "pending";
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 0, failed: 0 });
     });
 
     it("the days window does not hold back other triggers", async () => {
       properties[0]!.templates = [moveOut(), form("signed")];
-      expect(await send("lease-signed")).toEqual({ sent: 1 });
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
       expect(forms.map((row) => row.form_id)).toEqual(["signed"]);
     });
 
@@ -872,7 +872,7 @@ describe("dispatch: intake, links and move-out", () => {
 
     it("an unknown lease end leaves the move-out form with no due date, but still sends it", async () => {
       applications[0]!.app_lease_end = "";
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 10 })).toEqual({ sent: 1 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 10 })).toEqual({ sent: 1, failed: 0 });
       expect(forms[0]!.due_at).toBeNull();
     });
 
@@ -882,8 +882,8 @@ describe("dispatch: intake, links and move-out", () => {
 
     it("a roommate does not get a whole-house move-out form, the primary does", async () => {
       properties[0]!.templates = [moveOut(14, { audience: { kind: "whole-house" } })];
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 5, secondaryMember: true })).toEqual({ sent: 0 });
-      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 1 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 5, secondaryMember: true })).toEqual({ sent: 0, failed: 0 });
+      expect(await send("before-move-out", { daysUntilLeaseEnd: 5 })).toEqual({ sent: 1, failed: 0 });
     });
   });
 });

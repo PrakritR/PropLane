@@ -475,12 +475,20 @@ async function templateLinksAdmit(db: SupabaseClient, property: PropertyFacts, r
 
 /* --------------------------------------------------------------- dispatch */
 
+/** What one residency's dispatch did: forms sent, and sends that errored out. */
+export type MoveInFormDispatchResult = { sent: number; failed: number };
+
 /**
  * Sends every form whose trigger matches to a residency. Called from server events
  * (lease fully signed, application approved) with an id the SERVER read, never one from a
  * request body. Idempotent (a form the residency already has, waiting or submitted, is skipped),
  * best-effort, and never throws into its caller: a form that fails to go out must not break signing
  * a lease.
+ *
+ * Because nothing throws, the result carries `failed`: how many sends errored out. A caller that
+ * owns a retry (the daily move-out sweep's day claim) needs to tell a quiet pass from a broken one,
+ * which a `sent` of zero alone cannot say. A form skipped on purpose — already held, wrong room,
+ * links that do not admit it, a PDF not uploaded yet — is not a failure.
  */
 export async function dispatchMoveInFormsForResidency(
   applicationId: string,
@@ -491,15 +499,15 @@ export async function dispatchMoveInFormsForResidency(
     /** `before-move-out` only: days left on the lease. A form goes once its "N days before" has been reached. */
     daysUntilLeaseEnd?: number;
   } = {},
-): Promise<{ sent: number }> {
+): Promise<MoveInFormDispatchResult> {
   try {
     const db = options.db ?? createSupabaseServiceRoleClient();
     const residency = await readResidency(db, applicationId);
     // An intake form goes out the moment an application is submitted; everything else waits for approval.
     const eligible = trigger === "application-submitted" ? residency?.inPlay : residency?.approved;
-    if (!residency || !eligible || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0 };
+    if (!residency || !eligible || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0, failed: 0 };
     const property = await readProperty(db, residency.identity.property_id);
-    if (!property) return { sent: 0 };
+    if (!property) return { sent: 0, failed: 0 };
     // The property's actual owner, not a stale stamp on the application.
     const room = resolveRoom(property, residency);
     const dispatchable = property.templates.filter((template) =>
@@ -509,10 +517,11 @@ export async function dispatchMoveInFormsForResidency(
       // A whole-house form is one per lease: the primary signer gets it, roommates do not.
       !(options.secondaryMember && template.audience.kind === "whole-house") &&
       templateAppliesToRoom(template, room.id));
-    if (dispatchable.length === 0) return { sent: 0 };
+    if (dispatchable.length === 0) return { sent: 0, failed: 0 };
     const cache: PdfCache = new Map();
     const already = await liveFormIds(db, residency.id);
     let sent = 0;
+    let failed = 0;
     for (const template of dispatchable) {
       if (already.has(template.id)) continue;
       try {
@@ -527,13 +536,14 @@ export async function dispatchMoveInFormsForResidency(
         sent++;
         void emitMoveInFormEvent(db, { row: result.row, event: "sent" }).catch(() => undefined);
       } catch (error) {
+        failed++;
         console.error("[move-in-forms] dispatch failed for one form", error instanceof Error ? error.name : "unknown");
       }
     }
-    return { sent };
+    return { sent, failed };
   } catch (error) {
     console.error("[move-in-forms] dispatch failed", error instanceof Error ? error.name : "unknown");
-    return { sent: 0 };
+    return { sent: 0, failed: 1 };
   }
 }
 

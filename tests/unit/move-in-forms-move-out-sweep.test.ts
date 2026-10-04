@@ -97,7 +97,7 @@ const EIGHT_AM = new Date("2026-10-10T15:00:00Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  dispatch.mockImplementation(async () => ({ sent: 1 }));
+  dispatch.mockImplementation(async () => ({ sent: 1, failed: 0 }));
   leaseRows = [];
   applicationRows = [];
   failTable = null;
@@ -166,6 +166,23 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(1);
   });
 
+  it("releases the day when a dispatch reported a failure, even though nothing threw", async () => {
+    dispatch.mockImplementation(async () => ({ sent: 0, failed: 1 }));
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(0);
+    expect(auditKeys.size).toBe(0);
+    dispatch.mockImplementation(async () => ({ sent: 1, failed: 0 }));
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(1);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes a clean day that had nothing to send, so it is not retried", async () => {
+    applicationRows = [application("A", "2027-06-01")];
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(0);
+    expect([...auditKeys.keys()]).toEqual(["move_in_form_move_out_sweep:2026-10-10"]);
+    expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(0);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("follows the Pacific clock through the change to standard time (08:00 PST is 16:00Z)", async () => {
     applicationRows = [application("A", "2026-12-20")];
     expect(await sweepMoveOutForms(db, new Date("2026-12-10T15:00:00Z"))).toBe(0);
@@ -184,7 +201,7 @@ describe("runMoveOutDispatch", () => {
   it("dispatches a before-move-out send for each lease ending in 0..30 days, with the days left", async () => {
     leaseRows = [lease("today"), lease("two-weeks"), lease("edge")];
     applicationRows = [application("today", "2026-10-10"), application("two-weeks", "2026-10-24"), application("edge", "2026-11-09")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(3);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0 });
     const byId = Object.fromEntries(dispatch.mock.calls.map(([id, , options]) => [id, options.daysUntilLeaseEnd]));
     expect(byId).toEqual({ today: 0, "two-weeks": 14, edge: 30 });
     for (const [, trigger, options] of dispatch.mock.calls) {
@@ -199,7 +216,7 @@ describe("runMoveOutDispatch", () => {
       application("ended", "2026-09-01"), application("far", "2027-06-01"),
       application("just-far", "2026-11-10"), application("yesterday", "2026-10-09"),
     ];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(0);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0 });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -210,14 +227,14 @@ describe("runMoveOutDispatch", () => {
       lease("ok"),
     ];
     applicationRows = [application("unsigned", "2026-10-20"), application("voided", "2026-10-20"), application("ok", "2026-10-20")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(1);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0 });
     expect(dispatch.mock.calls.map(([id]) => id)).toEqual(["ok"]);
   });
 
   it("skips an application with no usable lease end", async () => {
     leaseRows = [lease("blank"), lease("junk"), lease("missing"), lease("ok")];
     applicationRows = [application("blank", ""), application("junk", "someday"), application("missing", null), application("ok", "2026-10-12")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(1);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0 });
     expect(dispatch.mock.calls.map(([id]) => id)).toEqual(["ok"]);
   });
 
@@ -231,7 +248,7 @@ describe("runMoveOutDispatch", () => {
   it("joint lease members are dispatched with secondaryMember true; the primary signer with false", async () => {
     leaseRows = [lease("A", { jointLeaseMembers: [{ applicationId: "B" }, { applicationId: "C" }, { applicationId: "" }, {}] })];
     applicationRows = [application("A", "2026-10-20"), application("B", "2026-10-20"), application("C", "2026-10-20")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(3);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0 });
     const secondary = Object.fromEntries(dispatch.mock.calls.map(([id, , options]) => [id, options.secondaryMember]));
     expect(secondary).toEqual({ A: false, B: true, C: true });
     for (const [, , options] of dispatch.mock.calls) expect(options.daysUntilLeaseEnd).toBe(10);
@@ -272,12 +289,12 @@ describe("runMoveOutDispatch", () => {
   it("adds up what the dispatches sent", async () => {
     leaseRows = [lease("A"), lease("B"), lease("C")];
     applicationRows = [application("A", "2026-10-20"), application("B", "2026-10-20"), application("C", "2026-10-20")];
-    dispatch.mockImplementation(async (id: string) => ({ sent: id === "B" ? 0 : 2 }));
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(4);
+    dispatch.mockImplementation(async (id: string) => ({ sent: id === "B" ? 0 : 2, failed: 0 }));
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 4, failed: 0 });
   });
 
   it("does nothing and dispatches nothing with no leases", async () => {
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(0);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0 });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -285,7 +302,7 @@ describe("runMoveOutDispatch", () => {
     const total = 520;
     leaseRows = Array.from({ length: total }, (_, i) => lease(`R${i}`));
     applicationRows = Array.from({ length: total }, (_, i) => application(`R${i}`, "2026-10-20"));
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toBe(total);
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: total, failed: 0 });
     expect(dispatch).toHaveBeenCalledTimes(total);
     const lookups = selects.filter((entry) => entry.table === "manager_application_records");
     expect(lookups.map((entry) => entry.ids)).toEqual([100, 100, 100, 100, 100, 20]);
