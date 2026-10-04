@@ -1,6 +1,6 @@
 /**
  * The daily "Before move-out" send: `sweepMoveOutForms` (gated to the 8 o'clock Pacific hour and to one
- * claimed pass per Pacific day) and the ungated `runMoveOutDispatch` it calls. The send itself (`dispatchMoveInFormsForResidency`) has its own
+ * capped three attempt slots per Pacific day) and the ungated `runMoveOutDispatch` it calls. The send itself (`dispatchMoveInFormsForResidency`) has its own
  * tests in move-in-forms-server.test.ts; here it is mocked so the sweep's own choices are what is
  * asserted: which leases are looked at, which residencies get a dispatch, with which `daysUntilLeaseEnd`
  * and `secondaryMember`.
@@ -132,7 +132,7 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
         if (dispatch.mock.calls.length > 0) ran.push(hour);
       }
     }
-    // 08:00-08:59 PDT is 15:00-15:59Z: the first of its four ticks claims the day, the rest skip.
+    // 08:00-08:59 PDT is 15:00-15:59Z: the first of its four ticks wins the day's slot, the rest skip.
     expect(ran).toEqual([15]);
   });
 
@@ -144,41 +144,55 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
     for (let minute = 5; minute < 60; minute += 5) {
       expect(await sweepMoveOutForms(counted, new Date(Date.UTC(2026, 9, 10, 15, minute)))).toBe(0);
     }
-    expect(from.mock.calls.map(([table]) => table)).toEqual(Array.from({ length: 11 }, () => "audit_log"));
+    expect(new Set(from.mock.calls.map(([table]) => table))).toEqual(new Set(["audit_log"]));
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it("claims each Pacific day on its own, so the next morning runs again", async () => {
+  it("a clean pass settles every attempt slot of its own Pacific day; the next morning runs again", async () => {
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(1);
     expect(await sweepMoveOutForms(db, new Date("2026-10-11T15:00:00Z"))).toBe(1);
     expect(dispatch).toHaveBeenCalledTimes(2);
-    expect([...auditKeys.keys()]).toEqual([
-      "move_in_form_move_out_sweep:2026-10-10",
-      "move_in_form_move_out_sweep:2026-10-11",
+    expect([...auditKeys.keys()].sort()).toEqual([
+      "move_in_form_move_out_sweep:2026-10-10:1",
+      "move_in_form_move_out_sweep:2026-10-10:2",
+      "move_in_form_move_out_sweep:2026-10-10:3",
+      "move_in_form_move_out_sweep:2026-10-11:1",
+      "move_in_form_move_out_sweep:2026-10-11:2",
+      "move_in_form_move_out_sweep:2026-10-11:3",
     ]);
   });
 
-  it("releases the day when the pass fails, so a later tick retries it", async () => {
+  it("leaves the next attempt slot free when the pass throws, so a later tick retries it", async () => {
     failTable = "portal_lease_pipeline_records";
     await expect(sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).rejects.toThrow(/portal_lease_pipeline_records down/);
-    expect(auditKeys.size).toBe(0);
+    expect([...auditKeys.keys()]).toEqual(["move_in_form_move_out_sweep:2026-10-10:1"]);
     failTable = null;
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(1);
+    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it("releases the day when a dispatch reported a failure, even though nothing threw", async () => {
+  it("retries when a dispatch reported a failure, even though nothing threw", async () => {
     dispatch.mockImplementation(async () => ({ sent: 0, failed: 1 }));
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(0);
-    expect(auditKeys.size).toBe(0);
     dispatch.mockImplementation(async () => ({ sent: 1, failed: 0 }));
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(1);
     expect(dispatch).toHaveBeenCalledTimes(2);
   });
 
+  it("gives a deterministically failing day three passes and no more, and records which residencies failed", async () => {
+    dispatch.mockImplementation(async () => ({ sent: 0, failed: 1 }));
+    for (let minute = 0; minute < 60; minute += 5) {
+      expect(await sweepMoveOutForms(db, new Date(Date.UTC(2026, 9, 10, 15, minute)))).toBe(0);
+    }
+    expect(dispatch).toHaveBeenCalledTimes(3);
+    expect([...auditKeys.values()].map((row) => (row.result_summary as { failed_application_ids?: string[] }).failed_application_ids))
+      .toEqual([["A"], ["A"], ["A"]]);
+  });
+
   it("closes a clean day that had nothing to send, so it is not retried", async () => {
     applicationRows = [application("A", "2027-06-01")];
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:00:00Z"))).toBe(0);
-    expect([...auditKeys.keys()]).toEqual(["move_in_form_move_out_sweep:2026-10-10"]);
+    expect(auditKeys.size).toBe(3);
     expect(await sweepMoveOutForms(db, new Date("2026-10-10T15:05:00Z"))).toBe(0);
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -201,7 +215,7 @@ describe("runMoveOutDispatch", () => {
   it("dispatches a before-move-out send for each lease ending in 0..30 days, with the days left", async () => {
     leaseRows = [lease("today"), lease("two-weeks"), lease("edge")];
     applicationRows = [application("today", "2026-10-10"), application("two-weeks", "2026-10-24"), application("edge", "2026-11-09")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0, failedApplicationIds: [] });
     const byId = Object.fromEntries(dispatch.mock.calls.map(([id, , options]) => [id, options.daysUntilLeaseEnd]));
     expect(byId).toEqual({ today: 0, "two-weeks": 14, edge: 30 });
     for (const [, trigger, options] of dispatch.mock.calls) {
@@ -216,7 +230,7 @@ describe("runMoveOutDispatch", () => {
       application("ended", "2026-09-01"), application("far", "2027-06-01"),
       application("just-far", "2026-11-10"), application("yesterday", "2026-10-09"),
     ];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0, failedApplicationIds: [] });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -227,14 +241,14 @@ describe("runMoveOutDispatch", () => {
       lease("ok"),
     ];
     applicationRows = [application("unsigned", "2026-10-20"), application("voided", "2026-10-20"), application("ok", "2026-10-20")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0, failedApplicationIds: [] });
     expect(dispatch.mock.calls.map(([id]) => id)).toEqual(["ok"]);
   });
 
   it("skips an application with no usable lease end", async () => {
     leaseRows = [lease("blank"), lease("junk"), lease("missing"), lease("ok")];
     applicationRows = [application("blank", ""), application("junk", "someday"), application("missing", null), application("ok", "2026-10-12")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 1, failed: 0, failedApplicationIds: [] });
     expect(dispatch.mock.calls.map(([id]) => id)).toEqual(["ok"]);
   });
 
@@ -248,7 +262,7 @@ describe("runMoveOutDispatch", () => {
   it("joint lease members are dispatched with secondaryMember true; the primary signer with false", async () => {
     leaseRows = [lease("A", { jointLeaseMembers: [{ applicationId: "B" }, { applicationId: "C" }, { applicationId: "" }, {}] })];
     applicationRows = [application("A", "2026-10-20"), application("B", "2026-10-20"), application("C", "2026-10-20")];
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 3, failed: 0, failedApplicationIds: [] });
     const secondary = Object.fromEntries(dispatch.mock.calls.map(([id, , options]) => [id, options.secondaryMember]));
     expect(secondary).toEqual({ A: false, B: true, C: true });
     for (const [, , options] of dispatch.mock.calls) expect(options.daysUntilLeaseEnd).toBe(10);
@@ -290,11 +304,11 @@ describe("runMoveOutDispatch", () => {
     leaseRows = [lease("A"), lease("B"), lease("C")];
     applicationRows = [application("A", "2026-10-20"), application("B", "2026-10-20"), application("C", "2026-10-20")];
     dispatch.mockImplementation(async (id: string) => ({ sent: id === "B" ? 0 : 2, failed: 0 }));
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 4, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 4, failed: 0, failedApplicationIds: [] });
   });
 
   it("does nothing and dispatches nothing with no leases", async () => {
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0, failedApplicationIds: [] });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -302,7 +316,7 @@ describe("runMoveOutDispatch", () => {
     const total = 520;
     leaseRows = Array.from({ length: total }, (_, i) => lease(`R${i}`));
     applicationRows = Array.from({ length: total }, (_, i) => application(`R${i}`, "2026-10-20"));
-    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: total, failed: 0 });
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: total, failed: 0, failedApplicationIds: [] });
     expect(dispatch).toHaveBeenCalledTimes(total);
     const lookups = selects.filter((entry) => entry.table === "manager_application_records");
     expect(lookups.map((entry) => entry.ids)).toEqual([100, 100, 100, 100, 100, 20]);

@@ -363,6 +363,18 @@ function pdfPathTrusted(path: string, ownerId: string, formId: string): boolean 
 type PdfCache = Map<string, { sha256: string } | null>;
 
 /**
+ * Whether a storage download failed because the object is not there. A missing PDF is a form the
+ * manager has not finished — a quiet skip. Any other download failure is the bucket being
+ * unreachable, which is worth retrying and must not read as "nothing to send".
+ */
+function storageObjectMissing(error: unknown): boolean {
+  const detail = error as { status?: unknown; statusCode?: unknown; message?: unknown } | null;
+  const status = Number(detail?.status ?? detail?.statusCode ?? NaN);
+  if (Number.isFinite(status)) return status === 400 || status === 404;
+  return /not ?found|missing|does not exist|no such/i.test(String(detail?.message ?? ""));
+}
+
+/**
  * The questions (and PDF fingerprint) a resident will be asked. A template lives in property
  * JSON a client can write, so its PDF path is never trusted: it must sit under the property
  * owner's own move-in-forms prefix, and the fingerprint is recomputed from the stored bytes.
@@ -383,7 +395,8 @@ async function buildSnapshot(
   let entry = cache.get(pdf.storagePath);
   if (entry === undefined) {
     const { data, error } = await db.storage.from(LEASE_TEMPLATE_BUCKET).download(pdf.storagePath);
-    entry = error || !data ? null : { sha256: sha256(new Uint8Array(await data.arrayBuffer())) };
+    if (error && !storageObjectMissing(error)) throw new MoveInFormError("Could not read the form's PDF.", 500);
+    entry = data ? { sha256: sha256(new Uint8Array(await data.arrayBuffer())) } : null;
     cache.set(pdf.storagePath, entry);
   }
   if (!entry) return null;
@@ -488,7 +501,8 @@ export type MoveInFormDispatchResult = { sent: number; failed: number };
  * Because nothing throws, the result carries `failed`: how many sends errored out. A caller that
  * owns a retry (the daily move-out sweep's day claim) needs to tell a quiet pass from a broken one,
  * which a `sent` of zero alone cannot say. A form skipped on purpose — already held, wrong room,
- * links that do not admit it, a PDF not uploaded yet — is not a failure.
+ * links that do not admit it, a PDF the manager never uploaded — is not a failure; a bucket or table
+ * that could not be read is.
  */
 export async function dispatchMoveInFormsForResidency(
   applicationId: string,

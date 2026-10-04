@@ -127,7 +127,26 @@ function daysBetween(fromKey: string, toKey: string): number {
 }
 
 const MOVE_OUT_SWEEP_ACTION = "move_in_form_move_out_sweep";
-const moveOutDayKey = (dayKey: string) => `${MOVE_OUT_SWEEP_ACTION}:${dayKey}`;
+/** How many fleet-wide passes one Pacific day may cost: the pass, plus two retries after a failure. */
+export const MOVE_OUT_SWEEP_MAX_ATTEMPTS = 3;
+/** Enough failed ids to act on, few enough to keep the audit row small. */
+const MOVE_OUT_SWEEP_LOGGED_FAILURES = 20;
+const moveOutAttemptKey = (dayKey: string, attempt: number) => `${MOVE_OUT_SWEEP_ACTION}:${dayKey}:${attempt}`;
+
+type SweepActor = ReturnType<typeof systemAuditActor>;
+
+/** Takes the day's remaining attempt slots, so a settled day is never passed over again. */
+async function settleMoveOutDay(actor: SweepActor, dayKey: string, fromAttempt: number): Promise<void> {
+  for (let attempt = fromAttempt; attempt <= MOVE_OUT_SWEEP_MAX_ATTEMPTS; attempt++) {
+    await writeAuditLog(actor, {
+      action: MOVE_OUT_SWEEP_ACTION,
+      toolName: "move-in-forms",
+      inputSummary: { day: dayKey, attempt },
+      resultSummary: { status: "settled" },
+      dedupeKey: moveOutAttemptKey(dayKey, attempt),
+    });
+  }
+}
 
 /**
  * The daily "Before move-out" send: for every fully signed, not voided lease whose end date is within
@@ -135,45 +154,59 @@ const moveOutDayKey = (dayKey: string) => `${MOVE_OUT_SWEEP_ACTION}:${dayKey}`;
  * lease ends" has been reached. The due date is anchored on the lease end (`move-out-day`,
  * `N-days-before-move-out`).
  *
- * It runs once a day. The claim is the audit row itself: `audit_log.dedupe_key` is unique, so the
- * first tick in the 8 o'clock Pacific hour wins the day and the dozen later ticks of that hour read
- * nothing at all — paginating every signed lease twelve times is egress this project cannot spend.
- * A pass that throws, or whose dispatches reported a failure, clears the key again so a later tick
- * retries it; a clean pass closes the day even when it had nothing to send. Releasing the day is
- * itself best-effort (`updateAuditResult` swallows its own error), and the retry is a cushion rather
- * than a guarantee: dispatch sends a form on any morning the lease still sits in its window, so a
- * lost day only matters for a lease ending that same day.
+ * A Pacific day holds three attempt slots, and each is claimed by one audit insert
+ * (`audit_log.dedupe_key` is unique), so a tick runs the pass only if it wins a slot that is still
+ * free. The first tick in the 8 o'clock Pacific hour takes slot 1; a pass that comes back clean
+ * settles the remaining slots so the dozen later ticks of that hour read no leases at all —
+ * paginating every signed lease twelve times is egress this project cannot spend. A pass that threw
+ * or reported a failure leaves the next slot free, so a later tick retries it and the failed
+ * residencies are logged; once the three slots are gone the day is closed whatever is left over,
+ * which bounds a deterministically poisoned row to three passes instead of one every tick.
  *
- * Dispatch also skips any form a residency already holds (`liveFormIds`), so a retry, a missed day or
- * an overlapping run never sends the same form twice. Returns how many forms went out.
+ * The retry is a cushion rather than a guarantee: dispatch sends a form on any morning the lease
+ * still sits in its window, so a lost day only matters for a lease ending that same day. Dispatch
+ * also skips any form a residency already holds (`liveFormIds`), so a retry, a missed day or an
+ * overlapping run never sends the same form twice. Returns how many forms went out.
  */
 export async function sweepMoveOutForms(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hour12: false }).format(now)) % 24;
   if (hour !== 8) return 0;
   const actor = systemAuditActor(db);
-  const dedupeKey = moveOutDayKey(pacificTodayKey(now));
-  const claim = await writeAuditLog(actor, {
-    action: MOVE_OUT_SWEEP_ACTION,
-    toolName: "move-in-forms",
-    inputSummary: { day: pacificTodayKey(now) },
-    dedupeKey,
-  });
-  if (!claim.recorded) {
-    if (claim.duplicate) return 0;
-    throw new Error(claim.error);
+  const dayKey = pacificTodayKey(now);
+  for (let attempt = 1; attempt <= MOVE_OUT_SWEEP_MAX_ATTEMPTS; attempt++) {
+    const dedupeKey = moveOutAttemptKey(dayKey, attempt);
+    const claim = await writeAuditLog(actor, {
+      action: MOVE_OUT_SWEEP_ACTION,
+      toolName: "move-in-forms",
+      inputSummary: { day: dayKey, attempt },
+      dedupeKey,
+    });
+    if (!claim.recorded) {
+      if (claim.duplicate) continue;
+      throw new Error(claim.error);
+    }
+    try {
+      const { sent, failed, failedApplicationIds } = await runMoveOutDispatch(db, now);
+      const loggedFailures = failedApplicationIds.slice(0, MOVE_OUT_SWEEP_LOGGED_FAILURES);
+      if (failed > 0) {
+        console.error("[move-in-forms] move-out dispatch failed for some residencies", { day: dayKey, attempt, applicationIds: loggedFailures });
+      }
+      await updateAuditResult(actor, dedupeKey, { status: failed > 0 ? "failed" : "success", sent, failed, failed_application_ids: loggedFailures });
+      if (failed === 0) await settleMoveOutDay(actor, dayKey, attempt + 1);
+      return sent;
+    } catch (error) {
+      await updateAuditResult(actor, dedupeKey, { status: "failed" });
+      throw error;
+    }
   }
-  try {
-    const { sent, failed } = await runMoveOutDispatch(db, now);
-    await updateAuditResult(actor, dedupeKey, { status: failed > 0 ? "failed" : "success", sent, failed }, { clearDedupeKey: failed > 0 });
-    return sent;
-  } catch (error) {
-    await updateAuditResult(actor, dedupeKey, { status: "failed" }, { clearDedupeKey: true });
-    throw error;
-  }
+  return 0;
 }
 
+/** What one fleet-wide pass did: the dispatch totals, plus which residencies reported a failure. */
+export type MoveOutSweepResult = MoveInFormDispatchResult & { failedApplicationIds: string[] };
+
 /** The pass itself, without the hour gate or the day claim (the cron tick calls `sweepMoveOutForms`). */
-export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Date()): Promise<MoveInFormDispatchResult> {
+export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Date()): Promise<MoveOutSweepResult> {
   // Loaded here, not at the top: the reminder sweep above stays light (and testable) without the send machinery.
   const { dispatchMoveInFormsForResidency } = await import("@/lib/move-in-forms/server");
   const todayKey = pacificTodayKey(now);
@@ -203,6 +236,7 @@ export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Dat
   const ids = [...primary, ...secondary];
   let sent = 0;
   let failed = 0;
+  const failedApplicationIds: string[] = [];
   for (let start = 0; start < ids.length; start += 100) {
     const { data, error } = await db.from("manager_application_records")
       .select("id,lease_end:row_data->application->>leaseEnd")
@@ -218,7 +252,8 @@ export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Dat
       });
       sent += result.sent;
       failed += result.failed;
+      if (result.failed > 0) failedApplicationIds.push(String(record.id));
     }
   }
-  return { sent, failed };
+  return { sent, failed, failedApplicationIds };
 }

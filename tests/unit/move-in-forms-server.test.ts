@@ -550,6 +550,16 @@ describe("dispatch", () => {
     expect((forms[0]!.snapshot as { pdf: { sha256: string } }).pdf.sha256).toBe(createHash("sha256").update("%PDF-1.4 x").digest("hex"));
   });
 
+  it("an unreadable bucket is a failure, while a PDF that is simply not there stays a quiet skip", async () => {
+    const pdf = (storagePath: string) => ({ storagePath, fileName: "x.pdf", pageCount: 1, sha256: "a".repeat(64) });
+    properties[0]!.templates = [enabled("up1", { source: "upload", pdf: pdf(`owner/move-in-forms/up1/1-${UUID}.pdf`) })];
+    const outage = { from: () => ({ download: async () => ({ data: null, error: { status: 503, message: "upstream" } }) }) };
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: { from: builder, storage: outage } as never }))
+      .toEqual({ sent: 0, failed: 1 });
+    expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 0, failed: 0 });
+    expect(forms).toEqual([]);
+  });
+
   it("never throws into the caller, and reports the failure so a retrying caller can see it", async () => {
     const broken = { from: () => { throw new Error("db down"); }, storage };
     await expect(dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: broken as never })).resolves.toEqual({ sent: 0, failed: 1 });
