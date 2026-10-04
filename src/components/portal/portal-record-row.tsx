@@ -329,10 +329,21 @@ export function PortalPropertyRecordRow({
 
 
 /** One glyph fact on a record row — an icon and a short value. */
-export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {
+export function PortalRowFact({
+  icon: Icon,
+  children,
+  srLabel,
+  tone,
+}: {
+  icon: LucideIcon;
+  children: ReactNode;
+  srLabel?: string;
+  /** "danger" draws the fact in the overdue red — a fact, never a pill. */
+  tone?: "danger";
+}) {
   if (typeof children === "string" && /^Moved (?:in|out)\s*[—–-]$/.test(children.trim())) return null;
   return (
-    <span className="inline-flex min-w-0 items-center gap-1">
+    <span className={cn("inline-flex min-w-0 items-center gap-1", tone === "danger" && "text-[var(--status-overdue-fg)]")}>
       <Icon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
       {srLabel ? <span className="sr-only">{srLabel}</span> : null}
       <span className="truncate">{children}</span>

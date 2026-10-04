@@ -37,6 +37,7 @@ export function managerWorkOrderToCalendarMeeting(row: DemoManagerWorkOrderRow):
     name: row.residentName?.trim() || undefined,
     email: row.residentEmail?.trim() || undefined,
     kind: "service",
+    assigneeLabel: selfAssigned ? "You" : row.vendorName?.trim() || undefined,
     propertyTitle: workOrderPropertyLabel(row),
     propertyId: row.propertyId ?? row.assignedPropertyId,
     notes: row.description || undefined,

@@ -28,7 +28,6 @@ import {
   managerKindAvailabilityStorageKey,
   type AvailabilityKind,
 } from "@/lib/manager-availability-kinds";
-import { CALENDAR_KIND_COLOR } from "@/lib/calendar-grid";
 import {
   managerTourSettingsToDefaultAvailability,
   normalizeManagerTourSettings,
@@ -56,8 +55,13 @@ import {
   useGoogleCalendarBusyMeetings,
 } from "@/hooks/use-google-calendar-busy";
 import { listManagerServiceCalendarMeetings } from "@/lib/manager-service-calendar";
+import { meetingRecordHref } from "@/lib/calendar-item-href";
+import { managerTaskStage } from "@/lib/manager-task-stage";
+import { readManagerTasksLocal } from "@/lib/manager-tasks";
+import { readAllServiceRequests } from "@/lib/service-requests-storage";
 import {
   MANAGER_WORK_ORDERS_EVENT,
+  readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
 } from "@/lib/manager-work-orders-storage";
 import {
@@ -71,8 +75,10 @@ import {
   calendarViewHref,
   managerTourDetailHref,
   parseCalendarViewTab,
+  parseWorkOrderBucket,
   toursHubHref,
   type CalendarViewTabId,
+  type ManagerTaskListTabId,
   type ToursHubTabId,
   type VendorCalendarViewTabId,
 } from "@/lib/portal-detail-routes";
@@ -103,11 +109,6 @@ export function PortalCalendar(props: PortalCalendarProps) {
   return <PortalCalendarManager {...props} portal={props.portal} />;
 }
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
-const CALENDAR_TAB_DOT_COLOR: Partial<Record<CalendarViewTabId, string>> = {
-  tours: CALENDAR_KIND_COLOR.tour,
-  services: CALENDAR_KIND_COLOR.service,
-  tasks: CALENDAR_KIND_COLOR.task,
-};
 
 function PortalCalendarManager({
   portal,
@@ -457,8 +458,6 @@ function PortalCalendarManager({
             count: calendarTabCounts[id],
             href: calendarViewHref(MANAGER_PORTAL_BASE, id),
             dataAttr: `calendar-view-tab-${id}`,
-            // The tabs are the legend: a dot in the colour the blocks of that type wear (C2-CALP2).
-            dotColor: CALENDAR_TAB_DOT_COLOR[id],
           })),
     [calendarTabCounts, schedulingHub],
   );
@@ -646,6 +645,35 @@ function PortalCalendarManager({
     [router],
   );
 
+  /**
+   * Where a calendar item opens: the record behind it. Buckets come from the source rows (work
+   * order, add-on, task); a meeting whose record cannot be resolved returns null and the caller
+   * keeps the quick-look dialog.
+   */
+  const recordHrefForMeeting = useCallback(
+    (meeting: DemoMeeting): string | null => {
+      if (portal !== "manager") return null;
+      const tasks = userId ? readManagerTasksLocal(userId) : [];
+      return meetingRecordHref(MANAGER_PORTAL_BASE, meeting, {
+        workOrderBucket: (id) => {
+          const row = readManagerWorkOrderRows().find((r) => r.id === id);
+          return row ? parseWorkOrderBucket(row.bucket) : undefined;
+        },
+        serviceRequestBucket: (id) => {
+          const req = readAllServiceRequests().find((r) => r.id === id);
+          if (!req) return undefined;
+          return req.status === "approved" ? "approved" : req.status === "denied" ? "denied" : "pending";
+        },
+        taskTab: (id) => {
+          const task = tasks.find((t) => t.id === id);
+          return task ? (managerTaskStage(task) as ManagerTaskListTabId) : undefined;
+        },
+      });
+    },
+    [portal, userId],
+  );
+  const openCalendarRecord = useCallback((href: string) => router.push(href), [router]);
+
   useEffect(() => {
     if (portal !== "manager" || !authReady || !userId || isDemoModeActive()) return;
     let cancelled = false;
@@ -724,7 +752,6 @@ function PortalCalendarManager({
               href: tab.href,
               count: tab.count,
               dataAttr: tab.dataAttr,
-              dotColor: "dotColor" in tab ? tab.dotColor : undefined,
             }))}
             activeDestinationId={schedulingHub ? toursHubTab : calendarView}
             destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
@@ -813,6 +840,8 @@ function PortalCalendarManager({
             filteredPropertyId={soleCalendarPropertyId || undefined}
             onViewModeChange={setCalendarViewMode}
             onRescheduleTour={rescheduleTourFromCalendar}
+            recordHrefFor={portal === "manager" ? recordHrefForMeeting : undefined}
+            onOpenRecord={openCalendarRecord}
             scheduleTourPropertyOptions={calendarTourPropertyOptions}
             extraAvailabilityAction={calendarGoogleCalendarButton}
             availabilityHeading={

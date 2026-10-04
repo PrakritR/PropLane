@@ -515,22 +515,22 @@ export function managerBookingListHref(
  * come from `src/lib/portals/record-sections.ts`; this is the URL contract
  * they and `render-portal-section.tsx` both read.
  */
-export const BOOKING_DETAIL_TABS = [
-  "overview",
-  "guest",
-  "charges",
-  "communication",
-  "documents",
-  "activity",
-] as const;
+export const BOOKING_DETAIL_TABS = ["overview", "guest", "payments", "communication"] as const;
 export type BookingDetailTabId = (typeof BOOKING_DETAIL_TABS)[number];
 export const DEFAULT_BOOKING_DETAIL_TAB: BookingDetailTabId = "overview";
+
+/** Tabs declared before the page rendered them (charges, documents, activity) land on their nearest home. */
+const BOOKING_DETAIL_TAB_ALIASES: Record<string, BookingDetailTabId> = {
+  charges: "payments",
+  documents: "overview",
+  activity: "overview",
+};
 
 export function parseBookingDetailTab(raw: string | undefined | null): BookingDetailTabId {
   if (raw && (BOOKING_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as BookingDetailTabId;
   }
-  return DEFAULT_BOOKING_DETAIL_TAB;
+  return (raw && BOOKING_DETAIL_TAB_ALIASES[raw]) || DEFAULT_BOOKING_DETAIL_TAB;
 }
 
 /**
@@ -633,7 +633,11 @@ export function propertyTourDetailHref(
   return `${propertyTourListHref(basePath, stage, propertyKey, bucket)}/${encodeURIComponent(tourId)}`;
 }
 
-export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed", "arrivals-departures"] as const;
+/**
+ * Manager Tasks tabs: the one service vocabulary (Open · Assigned · Scheduled · Completed,
+ * `service-lifecycle.ts`) plus Arrivals & departures. Overdue is a red fact on a row, not a tab.
+ */
+export const MANAGER_TASK_LIST_TABS = ["open", "assigned", "scheduled", "completed", "arrivals-departures"] as const;
 export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
 
 /** Vendor task list keeps two tabs — overdue is manager-only. */
@@ -645,19 +649,44 @@ export const VENDOR_TASK_LIST_TAB_LABELS: Record<VendorTaskListTabId, string> = 
   completed: "Completed",
 };
 
+/*
+ * This file stays import-free (service-lifecycle.ts reaches it transitively, so importing the
+ * labels would be a cycle). tests/unit/manager-task-list-tabs.test.ts pins these four labels and
+ * the legacy ids below to `SERVICE_STAGE_LABEL` / `parseServiceStage`.
+ */
 export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
-  // Open / Overdue / Done — the slugs stay, so every saved link still lands.
-  "in-progress": "Open",
-  overdue: "Overdue",
-  completed: "Done",
+  open: "Open",
+  assigned: "Assigned",
+  scheduled: "Scheduled",
+  completed: "Completed",
   "arrivals-departures": "Arrivals & departures",
 };
 
+const LEGACY_MANAGER_TASK_TAB_ALIASES: Record<string, ManagerTaskListTabId> = {
+  "in-progress": "open",
+  overdue: "open",
+  late: "open",
+  pending: "open",
+  upcoming: "scheduled",
+  active: "scheduled",
+  done: "completed",
+  complete: "completed",
+  past: "completed",
+};
+
+/**
+ * Old task tab slugs that may still sit in a bookmark, an email or a reminder: `in-progress` and
+ * `overdue` / `late` land on Open, `done` on Completed. A link never falls home.
+ */
 export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
-  if (raw === "completed") return "completed";
-  if (raw === "overdue" || raw === "late") return "overdue";
-  if (raw === "arrivals-departures") return "arrivals-departures";
-  return "in-progress";
+  const key = (raw ?? "").trim().toLowerCase();
+  if ((MANAGER_TASK_LIST_TABS as readonly string[]).includes(key)) return key as ManagerTaskListTabId;
+  return LEGACY_MANAGER_TASK_TAB_ALIASES[key] ?? "open";
+}
+
+/** True when the first path segment under /tasks is not already a canonical tab slug. */
+export function isLegacyManagerTaskTabSlug(raw: string | undefined | null): boolean {
+  return Boolean(raw) && !(MANAGER_TASK_LIST_TABS as readonly string[]).includes(raw!);
 }
 
 export function parseVendorTaskListTab(raw: string | undefined | null): VendorTaskListTabId {
@@ -788,9 +817,9 @@ export function vendorPayoutDetailHref(
 
 export function managerTaskListHref(
   basePath: string,
-  tab: ManagerTaskListTabId = "in-progress",
+  tab: ManagerTaskListTabId | VendorTaskListTabId = "open",
 ): string {
-  if (tab === "in-progress") return `${basePath}/tasks`;
+  if (tab === "open") return `${basePath}/tasks`;
   return `${basePath}/tasks/${tab}`;
 }
 
@@ -800,10 +829,11 @@ export function legacyTaskListSectionRedirectPath(
   tabParts?: string[],
 ): string {
   const tab = tabParts?.[0];
-  if (!tab || tab === "in-progress") return `${basePath}/tasks`;
-  if (tab === "late") return `${basePath}/tasks/overdue`;
+  if (!tab) return `${basePath}/tasks`;
+  const canonical = parseManagerTaskListTab(tab);
   const tail = tabParts!.length > 1 ? `/${tabParts!.slice(1).join("/")}` : "";
-  return `${basePath}/tasks/${tab}${tail}`;
+  if (canonical === "open" && !tail) return `${basePath}/tasks`;
+  return `${basePath}/tasks/${canonical}${tail}`;
 }
 
 export const TOURS_HUB_TABS = ["tours", "services"] as const;
@@ -1418,7 +1448,7 @@ export function workOrderDetailHref(
  * instead of staying separate tabs — a task has no rooms, so its own
  * `ownGroups` simply never lists that id.
  */
-export const SERVICE_RECORD_TABS = ["overview", "rooms", "payments", "communication"] as const;
+export const SERVICE_RECORD_TABS = ["overview", "rooms", "payments", "linked", "communication"] as const;
 export type ServiceRecordTabId = (typeof SERVICE_RECORD_TABS)[number];
 
 const SERVICE_RECORD_TAB_ALIASES: Record<string, ServiceRecordTabId> = {
@@ -1433,6 +1463,7 @@ export const SERVICE_RECORD_TAB_LABELS: Record<ServiceRecordTabId, string> = {
   rooms: "Rooms",
   communication: "Communication",
   payments: "Payments",
+  linked: "Linked",
 };
 
 export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
@@ -1440,6 +1471,7 @@ export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string>
   rooms: "Room-by-room checklist",
   communication: "Thread for this service",
   payments: "Outgoing and charges",
+  linked: "Records tied to this one",
 };
 
 export const SERVICE_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
@@ -1452,10 +1484,12 @@ export const TASK_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = 
   rooms: "Not used by tasks",
   communication: "Thread for this task",
   payments: "None yet",
+  linked: "Property, service, tour",
 };
 
 export const TASK_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
-  { label: "Task", ids: ["overview", "communication"] },
+  { label: "Task", ids: ["overview", "linked"] },
+  { label: "", ids: ["communication"] },
 ];
 
 export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
@@ -1463,6 +1497,7 @@ export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, stri
   rooms: "Room-by-room checklist",
   communication: "Thread for this report",
   payments: "None",
+  linked: "None",
 };
 
 export const INSPECTION_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [

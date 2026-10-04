@@ -1001,17 +1001,12 @@ export async function renderPortalSection(
 
     if (section === "tasks") {
       const taskTab = tabParts?.[0];
-      if (taskTab === "in-progress" && (tabParts?.length ?? 0) <= 1) {
-        redirect(`${def.basePath}/tasks`);
-      }
-      if (taskTab === "late") {
-        redirect(`${def.basePath}/tasks/overdue`);
-      }
-      const { MANAGER_TASK_LIST_TABS, parseManagerTaskListTab } = await import(
+      const { MANAGER_TASK_LIST_TABS, parseManagerTaskListTab, legacyTaskListSectionRedirectPath } = await import(
         "@/lib/portal-detail-routes"
       );
+      // Old slugs (in-progress, overdue, late, done...) land on their stage tab, tail preserved.
       if (taskTab && !(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
-        redirect(`${def.basePath}/tasks`);
+        redirect(legacyTaskListSectionRedirectPath(def.basePath, tabParts));
       }
       if (tabParts && tabParts.length > 3) notFound();
       const taskId =

@@ -29,6 +29,7 @@ import {
   XCircle,} from "lucide-react";
 import {
   applicationDetailHref,
+  bookingRecordHref,
   documentRecordHref,
   inspectionDetailHref,
   leaseDetailHref,
@@ -52,6 +53,7 @@ import {
   workOrderDetailHref,
   type ApplicationBucketId,
   type ApplicationDetailTabId,
+  type BookingDetailTabId,
   type DocumentDetailTabId,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
@@ -540,14 +542,20 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   task: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Communication. "Payments", "Vendor"
-    // and "Resident" fold into Overview's own fact cards.
+    // Studio plan services-vendors-1004: TASK: Task · Linked, then Communication. The Task section keeps
+    // the `overview` id so every saved task link still lands.
     ownGroups: [
-      { label: "Task", ids: [{ id: "overview", label: "Task" }] },
+      { label: "Task", ids: [
+        { id: "overview", label: "Task" },
+        { id: "linked", label: "Linked" },
+      ] },
     ],
+    // Edit · Assign · Schedule · Complete (the filled primary, `primaryId="complete"`) · Delete (last, red).
     headerActions: [
-      { id: "mark-done", label: "Mark done", icon: CheckCircle2 },
-      { id: "reassign", label: "Reassign", icon: RefreshCw },
+      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "assign", label: "Assign", icon: UserPlus },
+      { id: "schedule", label: "Schedule", icon: Calendar },
+      { id: "complete", label: "Complete", icon: CheckCircle2, tone: "primary" },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
@@ -557,7 +565,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
-      const listTab = ctx.taskListTab ?? "in-progress";
+      const listTab = ctx.taskListTab ?? "open";
       return (recordId, tab) => managerTaskDetailHref(basePath, listTab as never, recordId, tab as never);
     },
   },
@@ -639,11 +647,27 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   booking: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Booking", ids: [{ id: "overview", label: "Overview" }] }],
-    headerActions: [{ id: "edit", label: "Edit booking", icon: Pencil }, { id: "message", label: "Message", icon: Mail }, { id: "download", label: "Download", icon: Download }],
+    // Studio plan services-vendors-1004: BOOKING: Booking · Guest, LINKED: Payments, then
+    // Communication (the shared trio). The Booking section keeps the `overview` id.
+    ownGroups: [
+      { label: "Booking", ids: [
+        { id: "overview", label: "Booking" },
+        { id: "guest", label: "Guest" },
+      ] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
+    ],
+    // Message is the filled primary (there is no check-in-details action to lead with); Edit is
+    // dropped by the page for a channel stay, which only the channel can change.
+    headerActions: [
+      { id: "message", label: "Message", icon: Mail, tone: "primary" },
+      { id: "edit", label: "Edit", icon: Pencil },
+    ],
     hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "bookings"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => bookingRecordHref(basePath, recordId, tab as BookingDetailTabId);
+    },
   },
   document: {
     basePathDefault: "/portal",

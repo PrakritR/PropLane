@@ -25,7 +25,7 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { CalendarClock, ChevronLeft, ChevronRight, Clock, Mail, Plus, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Clock, ExternalLink, Mail, Plus, X } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ConfirmRows, PortalDialog, type PortalDialogAction } from "@/components/portal/portal-dialog";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -644,6 +644,8 @@ export type DemoMeeting = {
   kind?: "partner" | "tour" | "service" | "task";
   /** Present on manager task blocks — links back to the task list row. */
   sourceTaskId?: string;
+  /** Who is doing a service or task ("You", a vendor, a teammate) — the Agenda's "Service · Rapid Pipes". */
+  assigneeLabel?: string;
   /**
    * A task synthesized from a due DATE with no explicit time. Drawn in the
    * "All day" row instead of the synthetic 9am slot its `startSlot` still
@@ -1044,6 +1046,8 @@ export function PortalCalendarPanels({
   calendarTab = "all",
   filteredPropertyId,
   onRescheduleTour,
+  recordHrefFor,
+  onOpenRecord,
   onViewModeChange,
 }: {
   storageKey: string | null;
@@ -1113,6 +1117,13 @@ export function PortalCalendarPanels({
   filteredPropertyId?: string;
   /** Agenda ⋯ → Reschedule for a tour: the page opens that tour's reschedule popup. */
   onRescheduleTour?: (meeting: DemoMeeting) => void;
+  /**
+   * The record a meeting opens (service, tour, task), or null when it has none the page can
+   * resolve. Agenda rows and the quick-look dialog's Open action navigate there with
+   * `onOpenRecord`; a meeting with no record keeps the dialog.
+   */
+  recordHrefFor?: (meeting: DemoMeeting) => string | null;
+  onOpenRecord?: (href: string) => void;
   /** Lets the page count tabs for the range the view shows (day / week / month). */
   onViewModeChange?: (mode: CalendarMode) => void;
   otherProperties?: { id: string; name: string }[];
@@ -1181,29 +1192,6 @@ export function PortalCalendarPanels({
   const pageFlowScroll = flowScroll && !embeddedInModal;
   const compactShellRef = useRef<HTMLDivElement | null>(null);
   const compactToolbarRef = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const shell = compactShellRef.current;
-    const toolbar = compactToolbarRef.current;
-    if (!shell || !toolbar) return;
-    const publish = () => {
-      // ONLY in flowScroll. There, the toolbar and the grid share the page's
-      // one scroll container, so a header row stuck at 0 would slide under the
-      // toolbar and the offset is what keeps it clear. Everywhere else the grid
-      // scrolls inside its own body while the toolbar sits OUTSIDE that
-      // scroller — nothing to clear — and offsetting anyway pushed the day row
-      // down by a toolbar's height, leaving a blank band under the week nav and
-      // the time gutter colliding with the dates.
-      shell.style.setProperty(
-        "--portal-calendar-header-top",
-        pageFlowScroll ? `${Math.round(toolbar.offsetHeight)}px` : "0px",
-      );
-    };
-    publish();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(publish);
-    observer.observe(toolbar);
-    return () => observer.disconnect();
-  });
   useEffect(() => {
     onModalFooterChange?.(null);
     return () => onModalFooterChange?.(null);
@@ -2296,24 +2284,40 @@ export function PortalCalendarPanels({
     onViewModeChange?.(viewMode);
   }, [onViewModeChange, viewMode]);
 
-  // The page's command bar is sticky; Agenda's date headers stick directly under it.
+  /*
+   * The ONE owner of `--portal-calendar-header-top` (the offset the Agenda's day headers and the
+   * week's day strip stick at). Two effects used to write it and the last render won:
+   *   - manager Calendar: the page's sticky command bar sits above the list, so headers pin under
+   *     it - its measured height (plus the phone's top chrome);
+   *   - the compact week toolbar, when it shares the page's one scroll container (`flowScroll`):
+   *     the toolbar's own height. Anywhere else the toolbar is outside the scroller: 0.
+   * Re-measured on every render (the host elements mount late) and on resize.
+   */
   useLayoutEffect(() => {
-    if (!studioActive) return;
     const shell = compactShellRef.current;
-    const stack = typeof document === "undefined" ? null : document.querySelector<HTMLElement>('[data-slot="portal-list-control-stack"]');
-    if (!shell || !stack) return;
+    if (!shell) return;
+    const measured = studioActive
+      ? typeof document === "undefined"
+        ? null
+        : document.querySelector<HTMLElement>('[data-slot="portal-list-control-stack"]')
+      : compactToolbarRef.current;
+    if (!measured) return;
     const publish = () => {
       shell.style.setProperty(
         "--portal-calendar-header-top",
-        `calc(var(--portal-mobile-top-chrome, 0px) + ${Math.round(stack.offsetHeight)}px)`,
+        studioActive
+          ? `calc(var(--portal-mobile-top-chrome, 0px) + ${Math.round(measured.offsetHeight)}px)`
+          : pageFlowScroll
+            ? `${Math.round(measured.offsetHeight)}px`
+            : "0px",
       );
     };
     publish();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(publish);
-    observer.observe(stack);
+    observer.observe(measured);
     return () => observer.disconnect();
-  }, [studioActive]);
+  });
 
   const rangeDates = useMemo<string[]>(
     () => (viewMode === "day" ? [anchorDateStr] : fullWeekDateStrs),
@@ -2408,6 +2412,15 @@ export function PortalCalendarPanels({
       openSlotDetails(item.meeting.dateStr, item.meeting.startSlot, target ?? document.body, item.meeting);
     },
     [openSlotDetails],
+  );
+  /** Agenda: a row (and its ⋯ Open) goes to the record; with no record behind it, the quick-look dialog. */
+  const openAgendaItem = useCallback(
+    (item: CalendarGridItem, target: HTMLElement | null) => {
+      const href = onOpenRecord ? recordHrefFor?.(item.meeting) : null;
+      if (href && onOpenRecord) onOpenRecord(href);
+      else openGridItem(item, target);
+    },
+    [onOpenRecord, openGridItem, recordHrefFor],
   );
 
   /* ---- Add availability: the clock menu, the Day panel, a drag and a band all open the one popup */
@@ -3072,6 +3085,10 @@ export function PortalCalendarPanels({
   const selectedMeetingChrome =
     selectedBlock?.kind === "meeting" ? calendarEventDialogActions(selectedBlock.meeting) : null;
 
+  /** The record the open quick-look item belongs to (its Open action), when the page can resolve one. */
+  const selectedRecordHref =
+    selectedBlock?.kind === "meeting" && onOpenRecord ? (recordHrefFor?.(selectedBlock.meeting) ?? null) : null;
+
   const selectedBlockTitle =
     selectedBlock?.kind === "meeting"
       ? selectedMeetingChrome?.title ?? selectedBlock.meeting.title
@@ -3295,17 +3312,30 @@ export function PortalCalendarPanels({
       dismissBlocked={tourActionBusy}
       dataAttr="calendar-event-detail-modal"
       headerAction={
-        selectedBlock?.kind === "meeting" &&
-        selectedMeetingChrome?.showMessage &&
-        !pendingMeetingDeleteArmed ? (
-          <PortalIconAction
-            icon={Mail}
-            label={selectedMeetingChrome.messageLabel}
-            data-attr="tour-open-message-thread"
-            onClick={() =>
-              openGuestMessageCompose(selectedBlock.meeting.email, selectedBlock.meeting.phone)
-            }
-          />
+        selectedBlock?.kind === "meeting" && !pendingMeetingDeleteArmed && (selectedRecordHref || selectedMeetingChrome?.showMessage) ? (
+          <>
+            {selectedRecordHref ? (
+              <PortalIconAction
+                icon={ExternalLink}
+                label="Open"
+                data-attr="calendar-event-open-record"
+                onClick={() => {
+                  closeSelectedBlock();
+                  onOpenRecord?.(selectedRecordHref);
+                }}
+              />
+            ) : null}
+            {selectedMeetingChrome?.showMessage ? (
+              <PortalIconAction
+                icon={Mail}
+                label={selectedMeetingChrome.messageLabel}
+                data-attr="tour-open-message-thread"
+                onClick={() =>
+                  openGuestMessageCompose(selectedBlock.meeting.email, selectedBlock.meeting.phone)
+                }
+              />
+            ) : null}
+          </>
         ) : undefined
       }
       primaryAction={
@@ -3979,11 +4009,6 @@ export function PortalCalendarPanels({
             : null
         }
         onJump={jumpToDate}
-        addMenu={
-          canEditWeekStudio && !readOnly
-            ? renderAddMenu(<PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-empty-add" />)
-            : null
-        }
       />
     ) : null;
 
@@ -4010,7 +4035,7 @@ export function PortalCalendarPanels({
           items={listItems}
           todayDs={todayDs}
           emptyStrip={emptyStrip}
-          onOpenItem={openGridItem}
+          onOpenItem={openAgendaItem}
           onRescheduleTour={onRescheduleTour ? (item) => onRescheduleTour(item.meeting) : undefined}
         />
       );

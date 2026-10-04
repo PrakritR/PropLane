@@ -75,7 +75,7 @@ describe("buildManagerTaskReminderPreview", () => {
     expect(preview.subject).toContain("Overdue tour");
     expect(preview.body).toContain("tour slot has passed");
     expect(preview.body).toContain("Type: Tour");
-    expect(preview.body).toContain("/portal/tasks/overdue");
+    expect(preview.body).toContain("/portal/tasks");
   });
 
   it("tailors work order reminders", () => {

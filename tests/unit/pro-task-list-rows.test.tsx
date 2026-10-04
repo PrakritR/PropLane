@@ -112,7 +112,7 @@ describe("Tasks card rows", () => {
   it("renders one card per task with the place line and no table markup", async () => {
     tasks.push(makeTask({ id: "task-1", title: "Fix the porch light", propertyTitle: "12 Maple St" }));
     tasks.push(makeTask({ id: "task-2", title: "Replace filter", propertyId: "prop-2", propertyTitle: "9 Cedar Ln" }));
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
@@ -134,13 +134,14 @@ describe("Tasks card rows", () => {
         assignee: { type: "team", id: "u2", name: "Dana Ramirez" },
       }),
     );
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    // An assigned task with no visit time sits on Assigned.
+    render(<ManagerTaskList tabId="assigned" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
-    // The assignee is the tile's initials, the due date the one dated fact.
-    expect(screen.getByText("DR")).toBeInTheDocument();
-    expect(screen.getByText("Due Sep 25")).toBeInTheDocument();
+    // Two glyph facts: who has it, and when it is due (or overdue, in red).
+    expect(screen.getByText("Dana Ramirez")).toBeInTheDocument();
+    expect(screen.getByText(/^(Due Sep 25|Overdue · was due Sep 25)/)).toBeInTheDocument();
     expect(screen.queryByText("High")).toBeNull();
     // No pill/badge classes on the row.
     const row = document.querySelector('[data-attr="manager-task-row"]');
@@ -149,33 +150,33 @@ describe("Tasks card rows", () => {
 
   it("names Normal priority nowhere on the row", async () => {
     tasks.push(makeTask({ id: "task-1", title: "Fix the porch light", priority: "medium" }));
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     expect(screen.queryByText("Normal")).toBeNull();
   });
 
-  it("opens a ⋯ menu per row in the shared order: Edit, Mark done, then Delete", async () => {
+  it("opens a ⋯ menu per row in the shared order: Edit, Complete, then Delete", async () => {
     tasks.push(makeTask());
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Fix the porch light/i }), { key: "ArrowDown" });
     const menu = await screen.findByRole("menu");
     const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((el) => el.textContent);
-    expect(labels).toEqual(["Edit", "Mark done", "Delete"]);
+    expect(labels).toEqual(["Edit", "Complete", "Delete"]);
   });
 
   it("marks the task done from its own ⋯ menu", async () => {
     tasks.push(makeTask());
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Fix the porch light/i }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark done" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Complete" }));
     await waitFor(() => {
       expect(updateManagerTask).toHaveBeenCalledWith("mgr-1", "task-1", { completed: true });
     });
@@ -183,7 +184,7 @@ describe("Tasks card rows", () => {
 
   it("deletes a task from its own ⋯ menu after confirming", async () => {
     tasks.push(makeTask());
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
@@ -212,13 +213,13 @@ describe("Tasks card rows", () => {
 
   it("shows the shared empty card and correct tab counts when a tab has no rows", async () => {
     tasks.push(makeTask({ id: "task-1", title: "Fix the porch light" }));
-    render(<ManagerTaskList tabId="overdue" basePath="/portal" />);
+    render(<ManagerTaskList tabId="assigned" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByRole("link", { name: /^Open/i })).toBeInTheDocument();
     });
-    // Open carries the one in-progress task; Overdue is empty.
+    // Open carries the one unassigned task; Assigned is empty.
     expect(screen.getByRole("link", { name: /^Open/i }).textContent).toContain("1");
-    expect(screen.getByRole("link", { name: /Overdue/i }).textContent).toContain("0");
+    expect(screen.getByRole("link", { name: /^Assigned/i }).textContent).toContain("0");
     expect(screen.queryByText("Fix the porch light")).not.toBeInTheDocument();
   });
 });

@@ -56,7 +56,7 @@ describe("taskDueLabel", () => {
 });
 
 describe("TaskListCardRow", () => {
-  it("is the Payments card: initials tile, task title, place line, one dated fact, no figure", () => {
+  it("is the Services card: task tile, title, place line, who and when facts, no figure", () => {
     render(
       <TaskListCardRow
         task={task({ dueDate: "2999-10-05", assignee: { type: "team", id: "u1", name: "Dana Ramirez" } })}
@@ -69,10 +69,10 @@ describe("TaskListCardRow", () => {
     );
     expect(screen.getByText("Fix the porch light")).toBeTruthy();
     expect(screen.getByText("Ash Flats 6")).toBeTruthy();
-    expect(screen.getByText("DR")).toBeTruthy();
+    expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
     expect(screen.getByText(/^Due Oct 5, 2999$/)).toBeTruthy();
-    // Assignee and priority ride the tile, not extra facts or pills.
-    expect(screen.queryByText("Dana Ramirez")).toBeNull();
+    // Priority is never a fact or a pill.
     expect(screen.queryByText("Normal")).toBeNull();
     const card = document.querySelector(".portal-property-row");
     expect(card?.className).toContain("rounded-xl");
@@ -81,18 +81,20 @@ describe("TaskListCardRow", () => {
     expect(factLine?.querySelector("svg")).toBeTruthy();
   });
 
-  it("shows the property glyph instead of initials when nobody is assigned", () => {
+  it("says No one yet when nobody is assigned", () => {
     render(
       <TaskListCardRow task={task({ dueDate: "2999-10-05" })} propertyLabel="Ash Flats 6" formatRange={formatRange} onOpen={() => {}} />,
     );
     expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+    expect(screen.getByText("No one yet")).toBeTruthy();
   });
 
-  it("reads an overdue task as Overdue with the same glyph, no red pill", () => {
+  it("reads an overdue task as a red fact (\"Overdue · was due Oct 2\"), never a pill", () => {
     render(
       <TaskListCardRow task={task({ dueDate: "2020-10-02" })} propertyLabel="Ash Flats 6" formatRange={formatRange} onOpen={() => {}} />,
     );
-    expect(screen.getByText("Overdue Oct 2, 2020")).toBeTruthy();
+    const fact = screen.getByText("Overdue · was due Oct 2, 2020");
+    expect(fact.parentElement?.className).toContain("status-overdue-fg");
     const row = document.querySelector(".portal-property-row");
     expect(row?.querySelector('[class*="rounded-full"][class*="bg-"]')).toBeNull();
   });

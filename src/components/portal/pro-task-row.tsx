@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * The manager Tasks row — the Payments row (`PortalApplicantRecordRow`), one
- * rounded card per task with a gap between cards (AGENTS.md → Portal UI
- * system: "Every list tab copies Properties"). The tile is the assignee's
- * initials (the property glyph when nobody is assigned), the title is the
- * task, the place line is "<house> · <room/unit>", and the one fact is a dated
- * glyph — "Due Oct 5", "Overdue Oct 2" (same glyph, no red pill), or on the
- * Done tab "Completed Oct 2". The ⋯ the list surface draws on a selectable row
- * carries the row's own actions.
+ * The manager Tasks row — the Services row shape (studio plan services-vendors-1004): one rounded
+ * card per task, a neutral task tile, the task as the title, "<house> · <room>" as the place line,
+ * and two glyph facts: who ("No one yet" when open) and when. When is "Due Oct 5", a booked slot,
+ * or — in red, never a pill — "Overdue · was due Oct 2". A completed task says "Completed Oct 1".
+ * The ⋯ the list surface draws on a selectable row carries the row's own actions.
  *
  * No table, no columns, no priority/due pills: the tab already says the
  * bucket (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 
-import { Building2, CalendarDays, CheckCircle2 } from "lucide-react";
+import { useState } from "react";
+import { CalendarDays, CheckCircle2, ListChecks, UserRound } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { compactTaskRoomLabel } from "@/lib/manager-task-display";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
@@ -84,9 +82,9 @@ export function TaskListCardRow({
 }: {
   task: ManagerTask;
   propertyLabel: string;
-  /** @deprecated The assignee reads from the tile; kept so callers need not change. */
+  /** @deprecated The assignee reads from the facts; kept so callers need not change. */
   viewerUserId?: string | null;
-  /** True on the Done tab — swaps the due fact for a completed date. */
+  /** True on the Completed tab — swaps the due fact for a completed date. */
   showDoneDate?: boolean;
   formatRange: (start: string, end: string) => string;
   checked?: boolean;
@@ -94,22 +92,41 @@ export function TaskListCardRow({
   onOpen: () => void;
   dataAttr?: string;
 }) {
+  const [nowMs] = useState(() => Date.now());
   const assigneeName = task.assignee?.name?.trim() ?? "";
   const room = compactTaskRoomLabel(task.roomLabel);
   const place = [propertyLabel, room].filter(Boolean).join(" · ") || "No property";
-  const completedOn = showDoneDate ? formatPortalRowDate(task.updatedAt) : "";
+  const completed = showDoneDate || task.completed;
+  const completedOn = completed ? formatPortalRowDate(task.updatedAt) : "";
+  const overdueOn = !completed && taskDueState(task, nowMs) === "overdue";
+  const overdueDate = !overdueOn
+    ? ""
+    : task.start && task.end
+      ? formatRange(task.start, task.end)
+      : formatPortalRowDate(task.dueDate || task.start);
 
   return (
     <PortalApplicantRecordRow
       name={task.title}
-      tileLabel={assigneeName || undefined}
-      tileIcon={assigneeName ? undefined : Building2}
+      tileIcon={ListChecks}
       address={place}
       facts={
-        showDoneDate ? (
-          <PortalRowFact icon={CheckCircle2}>{completedOn ? `Completed ${completedOn}` : "Completed"}</PortalRowFact>
+        completed ? (
+          <>
+            <PortalRowFact icon={CheckCircle2}>{completedOn ? `Completed ${completedOn}` : "Completed"}</PortalRowFact>
+            {assigneeName ? <PortalRowFact icon={UserRound}>{assigneeName}</PortalRowFact> : null}
+          </>
         ) : (
-          <PortalRowFact icon={CalendarDays}>{taskDueLabel(task, formatRange)}</PortalRowFact>
+          <>
+            <PortalRowFact icon={UserRound}>{assigneeName || "No one yet"}</PortalRowFact>
+            {overdueOn ? (
+              <PortalRowFact icon={CalendarDays} tone="danger">
+                {overdueDate ? `Overdue · was due ${overdueDate}` : "Overdue"}
+              </PortalRowFact>
+            ) : (
+              <PortalRowFact icon={CalendarDays}>{taskDueLabel(task, formatRange, nowMs)}</PortalRowFact>
+            )}
+          </>
         )
       }
       checked={checked}

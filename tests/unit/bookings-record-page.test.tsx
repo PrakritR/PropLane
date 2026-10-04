@@ -34,12 +34,31 @@ const block: PropertyBookingEntry = {
 };
 
 describe("booking record and actions", () => {
-  const page = (entry = block) => render(<AppUiProvider><BookingsRecordPage bookingId={bookingEntryKey(entry)} basePath="/portal" entries={[entry]} loading={false} residentOptions={[]} onSaveBlock={noop} onRemoveBlock={noop} showToast={() => {}} /></AppUiProvider>);
-  it("keeps Overview and Communication with Guest and Stay cards", () => {
+  const page = (entry = block, tab?: string) => render(<AppUiProvider><BookingsRecordPage bookingId={bookingEntryKey(entry)} tab={tab} basePath="/portal" entries={[entry]} loading={false} residentOptions={[]} onSaveBlock={noop} onRemoveBlock={noop} showToast={() => {}} /></AppUiProvider>);
+  it("renders every declared section: Booking, Guest, Payments, Communication", () => {
     page();
-    expect(within(screen.getByRole("navigation", { name: "Booking sections" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Communication"]);
+    expect(within(screen.getByRole("navigation", { name: "Booking sections" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["Booking", "Guest", "Payments", "Communication"]);
+    expect(screen.getByRole("heading", { name: "Booking" })).toBeTruthy();
+    expect(screen.getByText("Dates")).toBeTruthy();
+    expect(screen.getByText("Where")).toBeTruthy();
+  });
+  it("Guest shows name, email, phone and past stays", () => {
+    page({ ...block, residentEmail: "p@x.com", residentPhone: "+12065550100" }, "guest");
     expect(screen.getByRole("heading", { name: "Guest" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Stay" })).toBeTruthy();
+    expect(screen.getByText("p@x.com")).toBeTruthy();
+    expect(screen.getByText("Past stays")).toBeTruthy();
+    expect(screen.getByText("None yet")).toBeTruthy();
+  });
+  it("Payments shows the rate and nights", () => {
+    page({ ...block, rate: 100, rateBasis: "daily" }, "payments");
+    expect(screen.getByRole("heading", { name: "Payments" })).toBeTruthy();
+    expect(screen.getByText("Stay total")).toBeTruthy();
+    expect(screen.getByText("$500.00")).toBeTruthy();
+  });
+  it("Message is the filled primary action", () => {
+    page();
+    expect(document.querySelector('[data-attr="record-header-action-message"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="record-header-action-download"]')).toBeNull();
   });
   it("opens the unified editor for a manual booking", () => {
     page();
@@ -56,8 +75,8 @@ describe("booking record and actions", () => {
   it("keeps channel records read-only and identifies a calendar UID honestly", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "event-uid" });
     expect(document.querySelector('[data-attr="record-header-action-edit"]')).toBeNull();
-    expect(screen.getByText("Calendar event")).toBeTruthy();
-    expect(screen.getByText("event-uid")).toBeTruthy();
+    expect(screen.getByText("Channel")).toBeTruthy();
+    expect(screen.getByText("Airbnb · event-uid")).toBeTruthy();
   });
   it("resolves previously shared links and replaces them with stable ids", () => {
     render(<AppUiProvider><BookingsRecordPage bookingId={bookingLegacyEntryKey(block)} basePath="/portal" entries={[block]} loading={false} residentOptions={[]} onSaveBlock={noop} onRemoveBlock={noop} showToast={() => {}} /></AppUiProvider>);

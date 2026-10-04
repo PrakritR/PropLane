@@ -83,7 +83,7 @@ export function buildManagerTaskReminderPreview(input: {
   const subject = `${reminderSubjectPrefix(taskType, late)}: ${task.title.trim()}`;
   const tasksUrl =
     input.tasksUrl?.trim() ||
-    `https://prop-lane.space${managerTaskListHref("/portal", late ? "overdue" : "in-progress")}`;
+    `https://prop-lane.space${managerTaskListHref("/portal", "open")}`;
 
   const intro =
     taskType === "tour"

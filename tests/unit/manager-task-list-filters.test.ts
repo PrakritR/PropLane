@@ -90,13 +90,14 @@ describe("taskListRowMatchesSearch", () => {
 describe("countTaskListFilterBuckets", () => {
   it("counts tours, house tasks, general tasks, and service orders separately", () => {
     const counts = countTaskListFilterBuckets({
-      tabId: "in-progress",
+      tabId: "open",
       matchesProperty: () => true,
       tasks: [
         baseTask({ id: "general", taskType: "general" }),
         baseTask({ id: "house", taskType: "house", propertyId: "p1", roomLabel: "A" }),
         baseTask({ id: "tour", taskType: "tour" }),
       ],
+      // An add-on with no assignee yet is Open.
       services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
     });
     expect(counts).toEqual({
@@ -108,30 +109,16 @@ describe("countTaskListFilterBuckets", () => {
     });
   });
 
-  it("splits overdue from in-progress and omits service orders on overdue", () => {
-    const pastEnd = "2026-08-01T10:00:00.000Z";
-    const countsInProgress = countTaskListFilterBuckets({
-      tabId: "in-progress",
-      matchesProperty: () => true,
-      tasks: [
-        baseTask({ id: "on-time", end: "2099-08-01T11:00:00.000Z", start: "2099-08-01T10:00:00.000Z" }),
-        baseTask({ id: "late", end: pastEnd, start: "2026-08-01T09:00:00.000Z" }),
-      ],
-      services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
-    });
-    expect(countsInProgress.all).toBe(2);
-    expect(countsInProgress.service_orders).toBe(1);
-
-    const countsOverdue = countTaskListFilterBuckets({
-      tabId: "overdue",
-      matchesProperty: () => true,
-      tasks: [
-        baseTask({ id: "on-time", end: "2099-08-01T11:00:00.000Z", start: "2099-08-01T10:00:00.000Z" }),
-        baseTask({ id: "late", end: pastEnd, start: "2026-08-01T09:00:00.000Z" }),
-      ],
-      services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
-    });
-    expect(countsOverdue.all).toBe(1);
-    expect(countsOverdue.service_orders).toBe(0);
+  it("splits tasks by stage, not by lateness", () => {
+    const assignee = { type: "team" as const, id: "u1", name: "Alex" };
+    const tasks = [
+      baseTask({ id: "open", end: "2026-08-01T10:00:00.000Z" }),
+      baseTask({ id: "assigned", assignee }),
+      baseTask({ id: "scheduled", assignee, start: "2099-08-01T10:00:00.000Z", end: "2099-08-01T11:00:00.000Z" }),
+      baseTask({ id: "done", completed: true }),
+    ];
+    const count = (tabId: "open" | "assigned" | "scheduled" | "completed") =>
+      countTaskListFilterBuckets({ tabId, matchesProperty: () => true, tasks, services: [] }).all;
+    expect([count("open"), count("assigned"), count("scheduled"), count("completed")]).toEqual([1, 1, 1, 1]);
   });
 });

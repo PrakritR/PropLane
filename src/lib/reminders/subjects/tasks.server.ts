@@ -135,7 +135,7 @@ async function sweepManagerTasks(
           propertyLabel: task.propertyTitle ?? null,
           counterpartyName: task.assignee.name,
           notes: task.notes ?? null,
-          url: `${origin}${managerTaskListHref("/portal", "in-progress")}`,
+          url: `${origin}${managerTaskListHref("/portal", "open")}`,
           notificationCategory: managerNotificationCategoryForTask(task),
         },
       },
