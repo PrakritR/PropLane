@@ -4,6 +4,8 @@
  *     (the manager-intent regexes went with the regex command layer they backed;
  *     the manager SMS surface is an LLM agent now, no hint extraction)
  *   - js/incomplete-url-substring-sanitization on the Apple OAuth diagnostic
+ *   - js/incomplete-multi-character-sanitization + js/bad-tag-filter on the two
+ *     lease HTML-to-plain-text strips (nested tags, every `</script …>` form)
  *
  * Each ReDoS case proves two things:
  *   1. Behaviour parity — the shipped function still accepts/rejects and captures
@@ -16,6 +18,8 @@ import { describe, expect, it } from "vitest";
 import { listingGeocodeQuery } from "@/lib/geocode-address";
 import { extractPropertyIdHint, extractPropertyLabelHint } from "@/lib/claw-leasing-links";
 import { htmlToBlocks } from "@/lib/reports/export/document-pdf";
+import { stripLeaseHtmlToPlainText } from "@/lib/property-lease-preview";
+import { parseLeaseHtmlSections } from "@/lib/lease-html-sections";
 import { slugifyWorkspaceBrowseSlug } from "@/lib/workspace-browse-slug";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { validateRentalWizardStep } from "@/lib/rental-application/validate";
@@ -173,5 +177,50 @@ describe("rental application entered money — leading-whitespace ReDoS", () => 
 
   it("runs in linear time on a long leading whitespace run", () => {
     expectFast(() => monthlyIncomeError(`${"\t".repeat(60_000)}x`));
+  });
+});
+
+describe("lease HTML to plain text — nested-tag and end-tag sanitization", () => {
+  it("still strips the ordinary document down to its words", () => {
+    expect(
+      stripLeaseHtmlToPlainText("<style>h1{}</style><h1>Lease</h1><p>Hello &amp; welcome.</p>"),
+    ).toBe("Lease Hello & welcome.");
+    expect(stripLeaseHtmlToPlainText('<script src="x">bad()</script><p>Kept</p>')).toBe("Kept");
+    expect(stripLeaseHtmlToPlainText("<STYLE>h1{}</STYLE><p>Kept</p>")).toBe("Kept");
+  });
+
+  it("closes a script block on every end-tag form, not just `</script>`", () => {
+    // A bare `<\/script>` left the block (and its code as text) behind on these
+    // three — CodeQL js/bad-tag-filter.
+    for (const endTag of ["</script >", '</script foo="bar">', "</script\t\n bar>"]) {
+      expect(stripLeaseHtmlToPlainText(`<script>alert(1)${endTag}<p>Kept</p>`)).toBe("Kept");
+    }
+  });
+
+  it("drops a script block that only re-forms after the first removal pass", () => {
+    // One pass removed the inner `<script>x()</script>` and re-formed the outer
+    // one from `<scr` + `ipt>`, leaking `alert(1)` into the snippet. Repeating to
+    // a fixpoint is what closes it.
+    const nested = "<scr<script>x()</script>ipt>alert(1)</script><p>Kept</p>";
+    expect(stripLeaseHtmlToPlainText(nested)).toBe("Kept");
+  });
+
+  it("never leaves a tag behind, including an unterminated one", () => {
+    const plain = stripLeaseHtmlToPlainText("<p>Before</p><script>unterminated");
+    expect(plain).not.toContain("<");
+    expect(plain).toContain("Before");
+  });
+
+  it("runs in linear time on a deeply nested hostile document", () => {
+    const deep = `${"<scr".repeat(20_000)}<script>x</script>${"ipt>".repeat(20_000)}`;
+    expectFast(() => expect(stripLeaseHtmlToPlainText(deep)).not.toContain("<script"), 500);
+  });
+
+  it("keeps section titles exactly as parsed", () => {
+    const sections = parseLeaseHtmlSections(
+      "<h2>Section <b>One</b></h2><p>Body</p><h2>Rent &amp; Fees</h2><p>Body</p>",
+    );
+    expect(sections.map((section) => section.title)).toEqual(["Section One", "Rent & Fees"]);
+    expect(sections.map((section) => section.id)).toEqual(["section-one", "rent-fees"]);
   });
 });

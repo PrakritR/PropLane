@@ -4,7 +4,7 @@
  * consent and no STOP, waits for the vendor's quiet hours, and is deduped on a
  * stable key. In-app and email are never held back by any of it.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const { enqueueMock, optedOutMock, consentMock, vendorSettingsMock, sendResidentSmsMock } = vi.hoisted(() => ({
@@ -198,6 +198,17 @@ describe("sendVendorEventSms: consent, STOP, dedupe, credit-bearing dispatcher",
 });
 
 describe("deliverPortalInboxMessage to a vendor: the text no longer dies on the resident path", () => {
+  // The SMS leg runs through the vendor's own quiet hours (default 8pm-7am
+  // Pacific), read off the clock: unpinned, every "queues the text" assertion
+  // below silently inverts after 8pm Pacific. Noon PDT keeps the window open.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-29T19:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const base = {
     senderUserId: "mgr-1",
     senderEmail: "mgr@seattle.test",
@@ -257,6 +268,16 @@ describe("deliverPortalInboxMessage to a vendor: the text no longer dies on the 
     // The channel gate closes the text (STOP); nothing is ever queued.
     if (result.ok) expect(result.smsOutcomes.every((o) => o.status === "unavailable")).toBe(true);
     expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("inside the vendor's quiet hours the text is reported unavailable, never queued", async () => {
+    vi.setSystemTime(new Date("2026-09-30T03:30:00.000Z")); // 8:30pm PDT
+    const { db, tables } = makeDb([MANAGER, vendorProfile()]);
+    const result = await deliverPortalInboxMessage(db, { ...base, ownerManagerUserId: "mgr-1", propertyId: "prop-1" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.smsOutcomes).toEqual([{ recipientEmail: "north@vendor.test", status: "unavailable" }]);
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(tables.portal_inbox_thread_records.length).toBeGreaterThan(0);
   });
 
   it("a retry of the same event carries the same dedupe key (the dispatcher then queues nothing new)", async () => {
