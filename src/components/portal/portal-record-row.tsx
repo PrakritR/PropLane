@@ -149,6 +149,7 @@ export function PortalPropertyRecordRow({
   omitActionView = false,
   selectLabel,
   dataAttr,
+  rowId,
 }: {
   title: string;
   /** A row needing the viewer's attention carries a blue dot before its title — never a pill (`portal-entry-row.tsx`). */
@@ -199,6 +200,8 @@ export function PortalPropertyRecordRow({
   /** Bookings ⋯ is Edit + Delete — RecordActionMenu adds View when `onOpen` is set. */
   omitActionView?: boolean;
   dataAttr?: string;
+  /** DOM id on the card, for deep links and tests (`svc-row-…`). */
+  rowId?: string;
 }) {
   const selectable = Boolean(onSelectedChange);
   const openable = Boolean(onOpen);
@@ -266,6 +269,7 @@ export function PortalPropertyRecordRow({
     ) : null;
   return (
     <div
+      id={rowId}
       className={cn(
         // One white card per property when the row stands alone — no group
         // heading, no repeated status badge — with the row title opening the
@@ -351,6 +355,7 @@ export function PortalApplicantRecordRow({
   name,
   kind = "applicant",
   tileLabel,
+  tileIcon,
   // Every existing caller (residents, tours, applications, leases, vendors,
   // bookings, payments) renders this tile with none opting into a shape, so
   // the default must keep the pre-`leadingShape` look — the wide rounded
@@ -368,6 +373,11 @@ export function PortalApplicantRecordRow({
    * should always be the person the ⋯ acts for.
    */
   tileLabel?: string;
+  /**
+   * A glyph in the tile instead of initials — for a row with no person to
+   * name (a service with no requester, an unassigned task). The property glyph.
+   */
+  tileIcon?: LucideIcon;
   /** Square keeps today's wide rectangular tile; round gives a circular avatar. */
   leadingShape?: PortalRecordRowLeadingShape;
 }) {
@@ -382,9 +392,22 @@ export function PortalApplicantRecordRow({
     <PortalPropertyRecordRow
       title={name}
       leading={
-        kind === "cosigner" ? (
-          <div aria-hidden className={cn("grid h-[4.125rem] w-[4.125rem] place-items-center bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-[3.125rem]", tileRounding)}>
-            <UserRound className="size-[22px]" strokeWidth={1.5} />
+        kind === "cosigner" || tileIcon ? (
+          <div
+            aria-hidden
+            data-slot={tileIcon ? "portal-row-glyph-tile" : undefined}
+            className={cn(
+              "grid place-items-center bg-accent/60 text-muted/80",
+              tileIcon && leadingShape !== "round"
+                ? "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14"
+                : "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]",
+              tileRounding,
+            )}
+          >
+            {(() => {
+              const Glyph = tileIcon ?? UserRound;
+              return <Glyph className="size-[22px]" strokeWidth={1.5} />;
+            })()}
           </div>
         ) : (
           <div

@@ -4,7 +4,6 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -28,6 +27,8 @@ import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/pro-task-filter-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { TaskListCardRow } from "@/components/portal/pro-task-row";
+import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -45,7 +46,7 @@ import {
   MANAGER_TASK_LIST_FILTER_LABELS,
   compactTaskLocationLabel,
   openTasksForListTab,
-  serviceRequestLocationLabel,
+  compactTaskPropertyLabel,
   serviceRequestsAssignedToViewer,
   selectManagerTaskListRows,
   type ManagerTaskListFilterId,
@@ -598,7 +599,6 @@ export function ManagerTaskList({
             key={task.id}
             task={task}
             propertyLabel={task.propertyTitle ?? propertyLabelForId(task.propertyId)}
-            viewerUserId={userId}
             showDoneDate={tabId === "completed"}
             formatRange={formatRangeLabel}
             checked={selectedIds.has(task.id)}
@@ -610,27 +610,24 @@ export function ManagerTaskList({
       }
       const request = row.request;
       const bucket = serviceRequestBucket(request);
-      const location = serviceRequestLocationLabel(request);
+      // An assigned service rides the same Payments-shaped card as a task:
+      // the requester's name, "service · house", and when it was requested.
       return (
-        <div
+        <ManagerServiceCardRow
           key={`service-${request.id}`}
-          className="portal-property-row mb-2 flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-sm max-md:px-2.5 max-md:py-2.5"
-          data-attr="manager-task-service-row"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[15px] font-semibold text-foreground">{request.offerName}</span>
-            <span className="block truncate text-[13px] text-muted">
-              {[location, request.status].filter(Boolean).join(" · ")}
-            </span>
-          </span>
-          <Link
-            href={serviceRequestDetailHref(basePath, bucket, request.id)}
-            className="text-xs font-semibold text-primary"
-            data-attr="manager-task-list-service-link"
-          >
-            Open
-          </Link>
-        </div>
+          row={{
+            title: request.offerName,
+            residentName: request.residentName,
+            residentEmail: request.residentEmail,
+            propertyLabel: compactTaskPropertyLabel(request.propertyId) ?? "",
+            unitLabel: "",
+            scheduledIso: "",
+            createdIso: request.requestedAt,
+          }}
+          figure={managerServiceRequestCardFigure(request)}
+          onOpen={() => navigate(serviceRequestDetailHref(basePath, bucket, request.id))}
+          dataAttr="manager-task-service-row"
+        />
       );
     });
   }

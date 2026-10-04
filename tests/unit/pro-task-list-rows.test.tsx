@@ -138,9 +138,10 @@ describe("Tasks card rows", () => {
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
-    expect(screen.getByText("Dana Ramirez")).toBeInTheDocument();
-    expect(screen.getByText("High")).toBeInTheDocument();
-    expect(screen.getByText("Fri, Sep 25")).toBeInTheDocument();
+    // The assignee is the tile's initials, the due date the one dated fact.
+    expect(screen.getByText("DR")).toBeInTheDocument();
+    expect(screen.getByText("Due Sep 25")).toBeInTheDocument();
+    expect(screen.queryByText("High")).toBeNull();
     // No pill/badge classes on the row.
     const row = document.querySelector('[data-attr="manager-task-row"]');
     expect(row?.querySelector(".portal-badge, [class*=\"rounded-full\"][class*=\"bg-\"]")).toBeNull();
@@ -206,7 +207,7 @@ describe("Tasks card rows", () => {
     await waitFor(() => {
       expect(screen.getByText("Replace filter")).toBeInTheDocument();
     });
-    expect(screen.getByText("Wed, Sep 9")).toBeInTheDocument();
+    expect(screen.getByText("Completed Sep 9")).toBeInTheDocument();
   });
 
   it("shows the shared empty card and correct tab counts when a tab has no rows", async () => {

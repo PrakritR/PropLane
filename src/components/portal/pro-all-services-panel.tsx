@@ -3,13 +3,9 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
-import {
-  managerServiceListGlyphFact,
-  managerServicePlaceLine,
-  managerServiceStageFact,
-} from "@/lib/manager-service-list-row";
+import { managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
 import { managerServiceRequestRowMenuItems, managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
   fetchVendorInvoiceIdForWorkOrder,
@@ -63,7 +59,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Clock } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -104,7 +99,6 @@ import {
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
-import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
@@ -744,29 +738,11 @@ export function ManagerAllServicesPanel({
       row.kind === "maintenance" ? filteredWorkOrders.find((w) => w.id === row.id) ?? null : null;
     const addOnRequest =
       row.kind === "add-on" ? filteredRequests.find((r) => r.id === row.id) ?? null : null;
-    const assignee =
-      maintenanceRow ? resolveWorkOrderAssignee(maintenanceRow) : row.kind === "add-on"
-        ? filteredRequests.find((r) => r.id === row.id)?.assignee
-          ? { kind: "vendor" as const, id: "", name: filteredRequests.find((r) => r.id === row.id)!.assignee!.name }
-          : null
-        : null;
-    const placeLine = maintenanceRow
-      ? managerServicePlaceLine({
-          residentName: row.residentName,
-          residentEmail: row.residentEmail,
-          propertyLabel: omitPropertyInSubtitle ? undefined : row.propertyLabel,
-          unitLabel: row.unitLabel,
-        })
-      : [row.residentName || row.residentEmail, omitPropertyInSubtitle ? null : row.propertyLabel, row.unitLabel]
-          .filter(Boolean)
-          .join(" · ");
-    const stageFact =
-      maintenanceRow
-        ? managerServiceStageFact(maintenanceRow, bidCount)
-        : { icon: Clock, text: row.statusLabel ?? "" };
-    const listGlyphFact =
-      maintenanceRow ? managerServiceListGlyphFact(assignee, stageFact) : stageFact.text ? stageFact : null;
-    const costFigure = maintenanceRow ? managerServiceListCostFigure(maintenanceRow) : undefined;
+    const costFigure = maintenanceRow
+      ? managerServiceListCostFigure(maintenanceRow) || undefined
+      : addOnRequest
+        ? managerServiceRequestCardFigure(addOnRequest)
+        : undefined;
     const menuItems = maintenanceRow
       ? managerServiceRowMenuItems(maintenanceRow, {
           bidCount,
@@ -866,18 +842,11 @@ export function ManagerAllServicesPanel({
       openRow();
     };
     return (
-      <PortalServiceRecordRow
+      <ManagerServiceCardRow
         key={rowKey}
-        title={row.title}
-        subtitle={placeLine || undefined}
-        facts={
-          listGlyphFact ? (
-            <PortalRowFact icon={listGlyphFact.icon} srLabel="Service status">
-              {listGlyphFact.text}
-            </PortalRowFact>
-          ) : undefined
-        }
-        figure={costFigure || undefined}
+        row={row}
+        omitProperty={omitPropertyInSubtitle}
+        figure={costFigure}
         menu={
           menuItems.length > 0 ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />

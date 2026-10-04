@@ -6,6 +6,7 @@ import {
   type ManagerServiceAssignee,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
+import { formatPortalRowDate } from "@/lib/portal-display-dates";
 
 /** Resident · property · room — assignee is a row fact, not part of the place line. */
 export function managerServicePlaceLine(
@@ -73,4 +74,55 @@ export function managerServiceStageFact(
   else if (lower.includes("hired") || lower.includes("assigned")) icon = UserRound;
   else if (lower.includes("published")) icon = Users;
   return { icon, text: label };
+}
+
+/**
+ * What a Services card row says, in the Payments row's slots: the requester's
+ * name as the title (the service itself when nobody requested it), "service ·
+ * property · room" as the place line, and one dated fact — when it is scheduled
+ * or, failing that, when it was requested. The tab already says the bucket, so
+ * no status word rides on the row.
+ */
+export function managerServiceCardParts(
+  row: {
+    title: string;
+    residentName?: string | null;
+    residentEmail?: string | null;
+    propertyLabel?: string | null;
+    unitLabel?: string | null;
+    scheduledIso?: string | null;
+    createdIso?: string | null;
+  },
+  opts: { omitProperty?: boolean; nowMs?: number } = {},
+): {
+  /** The row title: the person, or the service when there is no person. */
+  name: string;
+  hasPerson: boolean;
+  placeLine: string;
+  dateFact: { verb: "Scheduled" | "Requested"; date: string; text: string } | null;
+} {
+  const person = row.residentName?.trim() || row.residentEmail?.trim() || "";
+  const placeLine = [
+    person ? row.title : null,
+    opts.omitProperty ? null : row.propertyLabel?.trim() || null,
+    row.unitLabel?.trim() || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const scheduled = formatPortalRowDate(row.scheduledIso, opts.nowMs);
+  const requested = formatPortalRowDate(row.createdIso, opts.nowMs);
+  const dateFact = scheduled
+    ? { verb: "Scheduled" as const, date: scheduled, text: `Scheduled ${scheduled}` }
+    : requested
+      ? { verb: "Requested" as const, date: requested, text: `Requested ${requested}` }
+      : null;
+  return { name: person || row.title, hasPerson: Boolean(person), placeLine, dateFact };
+}
+
+/** An add-on's price as the row's right-hand figure; nothing when it has none (a custom request awaiting a quote). */
+export function managerServiceRequestCardFigure(req: { price?: string | null }): string | undefined {
+  const raw = req.price?.trim();
+  if (!raw || !/\d/.test(raw)) return undefined;
+  if (/^\d[\d,]*(\.\d+)?$/.test(raw)) return `$${raw}`;
+  return raw;
 }

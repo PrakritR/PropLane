@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
 // The shared task card row: due state from wall dates, facts derived from the
-// row data, no pills, and priority named only when it is not Normal.
+// row data, and no pills. It is the Payments row: initials tile, title, place line, one dated fact.
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { TaskListCardRow, taskDueFact, taskDueState } from "@/components/portal/pro-task-row";
+import { TaskListCardRow, taskDueFact, taskDueLabel, taskDueState } from "@/components/portal/pro-task-row";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
 // Fri Sep 11 2026, 19:30 local.
@@ -44,40 +44,57 @@ describe("taskDueFact", () => {
   });
 });
 
+describe("taskDueLabel", () => {
+  it("reads Due for upcoming days and Overdue (same glyph, no pill) for past ones", () => {
+    expect(taskDueLabel(task({ dueDate: "2026-09-25" }), formatRange, NOW)).toBe("Due Sep 25");
+    expect(taskDueLabel(task({ dueDate: "2026-09-10" }), formatRange, NOW)).toBe("Overdue Sep 10");
+    expect(taskDueLabel(task({}), formatRange, NOW)).toBe("No due date");
+    expect(
+      taskDueLabel(task({ start: "2026-09-25T13:30:00Z", end: "2026-09-25T14:30:00Z" }), formatRange, NOW),
+    ).toBe("Due RANGE(2026-09-25T13:30:00Z–2026-09-25T14:30:00Z)");
+  });
+});
+
 describe("TaskListCardRow", () => {
-  it("is a card, not a table: title, place line, due/assignee facts, Normal priority stays silent", () => {
+  it("is the Payments card: initials tile, task title, place line, one dated fact, no figure", () => {
     render(
       <TaskListCardRow
-        task={task({ dueDate: "2026-09-08" })}
+        task={task({ dueDate: "2999-10-05", assignee: { type: "team", id: "u1", name: "Dana Ramirez" } })}
         propertyLabel="Ash Flats 6"
-        viewerUserId="u1"
         formatRange={formatRange}
+        onSelectedChange={() => {}}
         onOpen={() => {}}
         dataAttr="manager-task-row"
       />,
     );
     expect(screen.getByText("Fix the porch light")).toBeTruthy();
     expect(screen.getByText("Ash Flats 6")).toBeTruthy();
-    expect(screen.getByText("Unassigned")).toBeTruthy();
-    // Normal priority never shows — only High/Low earn a fact.
+    expect(screen.getByText("DR")).toBeTruthy();
+    expect(screen.getByText(/^Due Oct 5, 2999$/)).toBeTruthy();
+    // Assignee and priority ride the tile, not extra facts or pills.
+    expect(screen.queryByText("Dana Ramirez")).toBeNull();
     expect(screen.queryByText("Normal")).toBeNull();
-    const row = document.querySelector('[data-attr="manager-task-row"]');
-    // No table grid, no pill-shaped badge classes on the row.
-    expect(row?.className).not.toContain("grid");
+    const card = document.querySelector(".portal-property-row");
+    expect(card?.className).toContain("rounded-xl");
+    expect(card?.className).toContain("mb-3");
+    const factLine = document.querySelector('[data-attr="record-row-facts"]');
+    expect(factLine?.querySelector("svg")).toBeTruthy();
   });
 
-  it("says You for the viewer's own task and names a non-Normal priority", () => {
+  it("shows the property glyph instead of initials when nobody is assigned", () => {
     render(
-      <TaskListCardRow
-        task={task({ dueDate: "2026-10-01", priority: "high", assignee: { type: "team", id: "u1", name: "Test Manager" } })}
-        propertyLabel="Ash Flats 6"
-        viewerUserId="u1"
-        formatRange={formatRange}
-        onOpen={() => {}}
-      />,
+      <TaskListCardRow task={task({ dueDate: "2999-10-05" })} propertyLabel="Ash Flats 6" formatRange={formatRange} onOpen={() => {}} />,
     );
-    expect(screen.getByText("You")).toBeTruthy();
-    expect(screen.getByText("High")).toBeTruthy();
+    expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+  });
+
+  it("reads an overdue task as Overdue with the same glyph, no red pill", () => {
+    render(
+      <TaskListCardRow task={task({ dueDate: "2020-10-02" })} propertyLabel="Ash Flats 6" formatRange={formatRange} onOpen={() => {}} />,
+    );
+    expect(screen.getByText("Overdue Oct 2, 2020")).toBeTruthy();
+    const row = document.querySelector(".portal-property-row");
+    expect(row?.querySelector('[class*="rounded-full"][class*="bg-"]')).toBeNull();
   });
 
   it("shows a completed date instead of the due fact on the Done tab", () => {
@@ -85,12 +102,11 @@ describe("TaskListCardRow", () => {
       <TaskListCardRow
         task={task({ completed: true, updatedAt: "2026-09-09" })}
         propertyLabel=""
-        viewerUserId="u1"
         formatRange={formatRange}
         showDoneDate
         onOpen={() => {}}
       />,
     );
-    expect(screen.getByText("Wed, Sep 9")).toBeTruthy();
+    expect(screen.getByText(/^Completed Sep 9/)).toBeTruthy();
   });
 });

@@ -5,12 +5,13 @@ import { ServiceRequestCatalogEditor } from "@/components/portal/service-request
 import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { samePropertyId } from "@/lib/co-manager-calendar";
 import { moduleRowVisibleToPortalUser } from "@/lib/manager-portfolio-access";
-import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
+import { managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
+import { managerServiceListCostFigure } from "@/lib/manager-service-workflow";
 import {
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
@@ -155,15 +156,20 @@ export function ManagerPropertyRequestsPanel({
         }}
       >
         {visibleRows.map((row) => {
-          const subtitleParts = [
-            row.statusLabel,
-            row.scheduledIso ? `Scheduled ${formatServiceVisitLabel(row.scheduledIso)}` : null,
-          ].filter(Boolean);
+          const addOn = row.kind === "add-on" ? scopedAddOns.find((r) => r.id === row.id) : undefined;
+          const workOrder = row.kind === "maintenance" ? scopedWorkOrders.find((r) => r.id === row.id) : undefined;
           return (
-            <PortalServiceRecordRow
+            <ManagerServiceCardRow
               key={`${row.kind}::${row.id}`}
-              title={row.title}
-              subtitle={subtitleParts.join(" · ") || undefined}
+              row={row}
+              omitProperty
+              figure={
+                addOn
+                  ? managerServiceRequestCardFigure(addOn)
+                  : workOrder
+                    ? managerServiceListCostFigure(workOrder) || undefined
+                    : undefined
+              }
               onOpen={() => {
                 if (row.kind === "add-on") {
                   const raw = scopedAddOns.find((r) => r.id === row.id);
