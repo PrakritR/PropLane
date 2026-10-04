@@ -337,7 +337,7 @@ export const markJobDoneTool = defineWriteTool({
       title: "Mark job done",
       summary: `Mark "${res.target.row.title || res.target.id}" as done and notify the manager for approval.`,
       fields: lines,
-      confirmLabel: "Mark done",
+      confirmLabel: "Complete",
     };
   },
   handler: async (ctx: VendorAgentContext, input) => {

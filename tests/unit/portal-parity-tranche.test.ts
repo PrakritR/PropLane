@@ -29,7 +29,9 @@ describe("vendor profile parity", () => {
     expect(detail).toContain("const summaryRequest = useRef(0)");
     expect(detail).toContain("if (summaryRequest.current !== request) return");
     expect(detail).toContain("PortalApplicantRecordRow");
-    expect(detail).toContain("onNavigate(managerVendorSummaryJobHref(basePath, job))");
+    // Vendor jobs now open from the vendor record's Services tab (four-stage lists).
+    const servicesTab = read("src/components/portal/vendor-record-services-tab.tsx");
+    expect(servicesTab).toContain("onNavigate(workOrderDetailHref(");
   });
 });
 

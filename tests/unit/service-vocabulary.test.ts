@@ -26,14 +26,6 @@ const ALLOWED = new Set<string>([]);
  * tasks) rewrite that copy; once they land, delete the entry. A file listed here that no longer
  * has a hit costs nothing.
  */
-const OWNED_BY_OTHER_BRANCHES = [
-  join("src", "components", "portal", "pro-task-list.tsx"),
-  join("src", "components", "portal", "vendor-quote-wizard.tsx"),
-  join("src", "components", "portal", "vendor-work-orders-panel.tsx"),
-  join("src", "lib", "tools", "domains", "vendor", "job-actions.ts"),
-  join("src", "lib", "vendor-work-order-tabs.ts"),
-];
-
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
@@ -63,7 +55,6 @@ describe("service vocabulary guard", () => {
     const files = [...walk(join("src", "components", "portal")), ...walk(join("src", "lib"))].filter((f) => UI_FILE.test(f));
     const offenders: string[] = [];
     for (const file of files) {
-      if (OWNED_BY_OTHER_BRANCHES.includes(file)) continue;
       const source = readFileSync(file, "utf8");
       for (const phrase of RETIRED) {
         for (const hit of copyHits(source, phrase)) {
