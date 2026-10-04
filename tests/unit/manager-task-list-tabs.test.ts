@@ -9,7 +9,7 @@ import {
 } from "@/lib/portal-detail-routes";
 import { SERVICE_STAGE_IDS, SERVICE_STAGE_LABEL, parseServiceStage } from "@/lib/service-lifecycle";
 import { managerTaskStage } from "@/lib/manager-task-stage";
-import { selectManagerTaskListRows, tasksForListTab } from "@/lib/manager-task-display";
+import { managerTaskRowInScope, selectManagerTaskListRows, tasksForListTab } from "@/lib/manager-task-display";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
 const task = (over: Partial<ManagerTask>): ManagerTask => ({
@@ -126,7 +126,27 @@ describe("the Tasks list shows a task on its stage tab", () => {
     expect(rows("completed", all)).toEqual(["completed"]);
   });
 
-  it("an account-level task (no house) is not dropped when the workspace holds it", () => {
-    expect(rows("open", [task({ id: "no-house", propertyId: undefined })])).toEqual(["no-house"]);
+  it("a task with no house is shown in a partitioned account (the workspace rule rejects a house-less row)", () => {
+    // `workspaceContainsProperty` answers false for a house-less row once an account holds two workspaces.
+    const workspaceContains = (id?: string) => Boolean(id) && id === "house-a";
+    const rowsFor = (tabId: "open" | "assigned" | "scheduled" | "completed", tasks: ManagerTask[], propertyFilterId = "") =>
+      selectManagerTaskListRows({
+        tabId,
+        tasks,
+        assignedServices: [],
+        matchesProperty: (id) => managerTaskRowInScope(id, { workspaceContains, propertyFilterId }),
+        listFilter: "all",
+        assigneeFilterId: "",
+        priorityFilter: "",
+        sortId: "newest",
+        propertyLabelForId: () => "",
+      }).map((row) => (row.kind === "task" ? row.task.id : row.id));
+    const smoke = task({ id: "smoke", assignee: person, start: "2026-10-06T16:30:00Z", end: "2026-10-06T17:30:00Z" });
+    expect(rowsFor("scheduled", [smoke])).toEqual(["smoke"]);
+    expect(rowsFor("open", [task({ id: "bare" })])).toEqual(["bare"]);
+    // A task that names a house outside the workspace stays out; the Property filter narrows to its house.
+    expect(rowsFor("open", [task({ id: "other", propertyId: "house-z" })])).toEqual([]);
+    expect(rowsFor("open", [task({ id: "mine", propertyId: "house-a" })], "house-a")).toEqual(["mine"]);
+    expect(rowsFor("open", [task({ id: "bare" })], "house-a")).toEqual([]);
   });
 });

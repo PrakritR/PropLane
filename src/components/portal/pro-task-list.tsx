@@ -47,6 +47,7 @@ import {
   compactTaskLocationLabel,
   compactTaskPropertyLabel,
   isManagerTaskLate,
+  managerTaskRowInScope,
   serviceRequestsAssignedToViewer,
   selectManagerTaskListRows,
   type ManagerTaskListFilterId,
@@ -283,7 +284,8 @@ export function ManagerTaskList({
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
 
   const matchesProperty = useCallback(
-    (propertyId?: string) => workspaceContainsProperty(propertyId) && (!propertyFilterId || propertyId === propertyFilterId),
+    (propertyId?: string) =>
+      managerTaskRowInScope(propertyId, { workspaceContains: workspaceContainsProperty, propertyFilterId }),
     [propertyFilterId],
   );
 

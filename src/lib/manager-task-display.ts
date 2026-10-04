@@ -363,3 +363,21 @@ export function selectManagerTaskListRows(args: {
     .filter((row) => taskListRowMatchesSearch(row, searchQuery))
     .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
 }
+
+/**
+ * Whether a Tasks-list row belongs on the list for the active workspace and the Property filter.
+ *
+ * A task is the manager's own work, and Add task leaves the house optional - so a task with no house is
+ * account-level and is shown in every workspace. (`workspaceContainsProperty` answers false for a house-less
+ * row once an account holds more than one workspace; that rule is right for a lead or an application, but it
+ * hid every house-less task from all four Tasks tabs while the Calendar still drew it.) A task that names a
+ * house follows the workspace that holds the house; the Property filter, when set, narrows to that house.
+ */
+export function managerTaskRowInScope(
+  propertyId: string | undefined,
+  opts: { workspaceContains: (propertyId?: string) => boolean; propertyFilterId?: string },
+): boolean {
+  const house = propertyId?.trim();
+  if (!house) return !opts.propertyFilterId;
+  return opts.workspaceContains(house) && (!opts.propertyFilterId || house === opts.propertyFilterId);
+}
