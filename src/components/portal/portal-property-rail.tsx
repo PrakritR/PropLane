@@ -26,8 +26,8 @@ export type PropertyRailItem = RecordRailItem;
  * content down.
  */
 const RAIL_GROUPS: Array<{ label: string; ids: string[] }> = [
-  { label: "Property", ids: ["preview", "house-details", "move-in"] },
-  { label: "Leasing", ids: ["tours", "bookings", "application", "lease"] },
+  { label: "Property", ids: ["preview", "house-details"] },
+  { label: "Leasing", ids: ["tours", "bookings", "application", "lease", "move-in", "pricing"] },
   { label: "Operations", ids: ["requests", "promotion", "ai-info"] },
   // The shared trio — no heading, reads as universal record chrome.
   { label: "", ids: ["communication", "documents", "activity"] },

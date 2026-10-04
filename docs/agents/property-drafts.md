@@ -128,3 +128,11 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   against the workspace's `WORKSPACE_PROPERTY_LIMIT`
   (`src/lib/workspaces/types.ts`, enforced by the database trigger), which is
   what the wizard's workspace-full save refusal is about.
+- **Application, Lease, Move-in and Pricing are wizard steps** (between Shared spaces and
+  Review, none required; `listing-wizard-v2/listing-detail-steps.tsx`). Each is flat rows over
+  the property's own data, and the pencil ("Edit in full") opens the same editor the property
+  page opens. Application, lease and move-in edits patch the wizard's own submission, so they
+  save with the draft or live edit; Pricing's workspace saves through the property's save
+  target, so the wizard saves first and reads the result back. A brand-new draft is saved on
+  the first "Edit in full" (the editors need a record id). Coverage:
+  `tests/unit/listing-wizard-leasing-steps.test.tsx`.
