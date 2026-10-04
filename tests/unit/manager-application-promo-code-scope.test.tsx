@@ -67,11 +67,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderModal() {
+function renderModal(onClose = () => undefined) {
   return render(
     <ProPortalSettingsModal
       open
-      onClose={() => undefined}
+      onClose={onClose}
       initialTab="applications"
       // The promo code + automation toggles live on the Automation pane; the
       // Form pane is the question-template editor. Real callers that open
@@ -172,5 +172,79 @@ describe("automation toggles across several properties", () => {
       expect(patch).toHaveProperty("automation");
       expect(patch).not.toHaveProperty("waiverCode");
     }
+  });
+});
+
+
+describe("waiver code save on leaving settings", () => {
+  it("flushes a focused edit on Escape without relying on blur", async () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    await userEvent.clear(promoField());
+    await userEvent.type(promoField(), "ESCAPE10");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(patches).toEqual([{ propertyId: "prop-1", waiverCode: "ESCAPE10" }]);
+  });
+
+  it("waits for the waiver request before closing and does not duplicate a blur save", async () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    let finish!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => { finish = resolve; });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("manager-application-settings") && init?.method === "PATCH") {
+        patches.push(JSON.parse(String(init.body)));
+        return response;
+      }
+      return originalFetch(input, init);
+    }));
+    await userEvent.clear(promoField());
+    await userEvent.type(promoField(), "WAIT10");
+    fireEvent.blur(promoField());
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { finish(new Response("{}", { status: 200 })); });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(patches).toHaveLength(1);
+  });
+
+  it("flushes clearing the code and skips an unchanged blur", async () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    fireEvent.blur(promoField());
+    expect(patches).toHaveLength(0);
+    await userEvent.clear(promoField());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(patches).toEqual([{ propertyId: "prop-1", waiverCode: "" }]);
+  });
+
+  it("keeps the dialog open and the edit available when the save fails", async () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("manager-application-settings") && init?.method === "PATCH") {
+        return new Response(JSON.stringify({ error: "That code is already in use on another property." }), { status: 400 });
+      }
+      return originalFetch(input, init);
+    }));
+    await userEvent.clear(promoField());
+    await userEvent.type(promoField(), "TAKEN10");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("That code is already in use on another property."));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(promoField()).toHaveValue("TAKEN10");
+    vi.stubGlobal("fetch", originalFetch);
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(patches).toEqual([{ propertyId: "prop-1", waiverCode: "TAKEN10" }]);
   });
 });
