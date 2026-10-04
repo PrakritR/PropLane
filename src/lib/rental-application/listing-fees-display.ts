@@ -297,7 +297,7 @@ export function utilitiesListingEstimateDetail(sub: ManagerListingSubmissionV1 |
   return lines.length ? lines.join("\n") : "Utilities TBD.";
 }
 
-function roomSecurityDepositAmount(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): number {
+export function roomSecurityDepositAmount(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): number {
   const roomDep = parseMoneyAmount(room.securityDeposit ?? "");
   if (roomDep > 0) return roomDep;
   return parseMoneyAmount(sub.securityDeposit ?? "");
