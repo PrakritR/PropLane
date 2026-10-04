@@ -4,7 +4,7 @@
  * consent and no STOP, waits for the vendor's quiet hours, and is deduped on a
  * stable key. In-app and email are never held back by any of it.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const { enqueueMock, optedOutMock, consentMock, vendorSettingsMock, sendResidentSmsMock } = vi.hoisted(() => ({
@@ -121,12 +121,24 @@ const vendorProfile = (over: Partial<Row> = {}): Row => ({
   ...over,
 });
 
+// The default vendor quiet window is 20:00-07:00 Los Angeles, and the channel
+// gate reads the real clock, so run at noon Pacific: the suite no longer flips
+// between "queued" and "unavailable" with the time of day it is run. Only Date
+// is faked, so awaited promises and timers behave normally.
+const NOON_PACIFIC = new Date("2026-10-01T19:00:00.000Z");
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOON_PACIFIC);
   vi.clearAllMocks();
   optedOutMock.mockResolvedValue(false);
   consentMock.mockResolvedValue({ allowed: true, conversationKey: "ck-vendor-1" });
   enqueueMock.mockResolvedValue({ ok: true, outboxId: "ob-1", status: "queued", deduplicated: false });
   vendorSettingsMock.mockResolvedValue(DEFAULT_VENDOR_NOTIFICATION_SETTINGS);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("sendVendorEventSms: consent, STOP, dedupe, credit-bearing dispatcher", () => {
