@@ -1,5 +1,6 @@
 "use client";
 
+import { composePropertyTitle } from "@/lib/property-title";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -143,7 +144,7 @@ function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
   return [
     {
       key: p.id,
-      label: `${p.buildingName} · ${p.unitLabel}`,
+      label: composePropertyTitle(p.buildingName, p.unitLabel),
       subtitle: `${p.neighborhood} · ${p.rentLabel}`,
       property: p,
     },

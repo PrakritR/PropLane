@@ -1,3 +1,4 @@
+import { composePropertyTitle } from "@/lib/property-title";
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
   clearPropertyRecordOutbox,
@@ -1270,7 +1271,7 @@ export function buildMockPropertyFromDraft(row: ManagerPendingPropertyRow, listi
   };
   const buildingName = str(row.buildingName);
   const unitLabel = str(row.unitLabel);
-  const title = `${buildingName || "Property"} · ${unitLabel || "Unit"}`;
+  const title = composePropertyTitle(buildingName, unitLabel);
   const owner = row.submittedByUserId ?? LEGACY_MANAGER_SCOPE_USER_ID;
   const monthlyRent = num(row.monthlyRent, 0);
   const beds = Math.max(0, Math.floor(num(row.beds, 1)));

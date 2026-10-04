@@ -1,5 +1,6 @@
 "use client";
 
+import { composePropertyTitle } from "@/lib/property-title";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -384,7 +385,7 @@ export function AdminPropertiesClient({ detailId }: { detailId?: string } = {}) 
           return (
             <PortalPropertyRecordRow
               key={rowKey}
-              title={`${row.buildingName} · ${row.unitLabel}`}
+              title={composePropertyTitle(row.buildingName, row.unitLabel)}
               address={`${row.address}${row.zip ? `, ${row.zip}` : ""}`}
               summary={`${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`}
               checked={selectedIds.has(rowKey)}

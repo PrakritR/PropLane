@@ -1,3 +1,4 @@
+import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
 import { mockProperties } from "@/data/mock-properties";
@@ -507,7 +508,7 @@ export function getRoomChoiceLabel(roomChoiceValue: string): string {
     return parts.length ? parts.join(" · ") : room.name.trim();
   }
   const r = getPropertyById(t);
-  return r ? `${r.buildingName} · ${r.unitLabel}` : "";
+  return r ? composePropertyTitle(r.buildingName, r.unitLabel) : "";
 }
 
 /** Dropdown: one row per listing (property + unit). */
@@ -590,7 +591,7 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
     seen.add(p.id);
     out.push({
       value: p.id,
-      label: p.unitLabel ? `${p.buildingName} · ${p.unitLabel}` : p.title,
+      label: p.unitLabel ? composePropertyTitle(p.buildingName, p.unitLabel) : p.title,
     });
   }
   return out;
