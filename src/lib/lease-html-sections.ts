@@ -91,9 +91,12 @@ export function scopeLeaseDocumentStyles(
  * editor only through {@link scopeLeaseDocumentStyles}.
  */
 export function stripLeaseDocumentShell(fragment: string): string {
+  // Run to a true fixpoint, like {@link stripHtmlTags}: removing a whole element can join the text
+  // around it back into the tag it just split (`<scr` + `ipt>`), so a capped number of passes would
+  // leave a reconstructed `<script` in the output (CodeQL js/incomplete-multi-character-sanitization).
+  // Every replacement here only deletes, so the string shrinks on each pass and the loop terminates.
   let out = fragment;
   let previous: string;
-  let passes = 0;
   do {
     previous = out;
     out = out
@@ -101,8 +104,7 @@ export function stripLeaseDocumentShell(fragment: string): string {
       .replace(/<!doctype[^>]*>/gi, "")
       .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
       .replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
-    passes += 1;
-  } while (out !== previous && passes < 10);
+  } while (out !== previous);
   return out;
 }
 

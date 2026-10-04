@@ -122,6 +122,18 @@ describe("UploadedLeasePdfPreview", () => {
     expect(link.getAttribute("target")).toBe("_blank");
   });
 
+  it("never points the document link or frame at a script-running URL", async () => {
+    setUserAgent(DESKTOP_UA);
+
+    const { container } = render(
+      // A caller handing over a `javascript:` string must not get a live link out of the preview.
+      <UploadedLeasePdfPreview dataUrl="javascript:alert(1)" title="Lease PDF preview" fileName="Lease.pdf" />,
+    );
+
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBeNull();
+    expect(container.querySelector("a")?.getAttribute("href")).toBeNull();
+  });
+
   it("hands pages to <img> as object URLs and revokes them on unmount", async () => {
     stubCanvas();
     setUserAgent(IPHONE_UA);

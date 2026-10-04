@@ -15,6 +15,25 @@ function prefersRasterPreview(): boolean {
   return ios || document.documentElement.hasAttribute("data-native");
 }
 
+/**
+ * Prefix allowlist for the string that reaches this preview's `<a href>` / `<iframe src>`.
+ * Callers hand over a `data:application/pdf` URL, a locally-minted `blob:` object URL, or a
+ * same-origin API path - never a scheme that can run script. Checking the exact value that reaches
+ * the sink keeps a `javascript:` or `data:text/html` string from ever being opened as "the document"
+ * (the same convention as the upload previews in `resident-other-documents.tsx`).
+ */
+function isSafeDocumentUrl(url: string): boolean {
+  return (
+    url.startsWith("data:application/pdf") ||
+    // A .pdf the OS reported no MIME type for reads back as octet-stream.
+    url.startsWith("data:application/octet-stream") ||
+    url.startsWith("blob:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("/")
+  );
+}
+
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.includes(",") ? (dataUrl.split(",")[1] ?? "") : dataUrl;
   const binary = atob(base64);
@@ -144,6 +163,8 @@ export function UploadedLeasePdfPreview({
   /** Stack pages in the page scroll instead of a nested preview scroller. */
   documentFlow?: boolean;
 }) {
+  // `undefined` rather than "": React renders an empty src/href as a link back to the page itself.
+  const documentUrl = isSafeDocumentUrl(dataUrl) ? dataUrl : undefined;
   const [useRaster, setUseRaster] = useState(() => prefersRasterPreview() || documentFlow);
   const [pages, setPages] = useState<string[]>([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -217,7 +238,7 @@ export function UploadedLeasePdfPreview({
   const header = (
     <div className="border-b border-border bg-card px-3 py-2 text-xs">
       <a
-        href={dataUrl}
+        href={documentUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="font-medium text-primary underline-offset-2 hover:underline"
@@ -238,7 +259,7 @@ export function UploadedLeasePdfPreview({
         {header}
         <iframe
           title={title}
-          src={dataUrl}
+          src={documentUrl}
           className={`block w-full border-0 bg-white ${embeddedInFlex ? "min-h-[70dvh] flex-1" : documentFlow ? "min-h-[50rem]" : "min-h-[min(80dvh,900px)]"}`}
         />
       </div>

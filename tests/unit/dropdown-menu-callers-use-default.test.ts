@@ -17,7 +17,9 @@ describe("dropdown menus keep the liquid default", () => {
       .trim()
       .split("\n")
       .filter(Boolean);
-    expect(out.map((l) => l.replace(/:\d+:.*$/, ""))).toEqual([
+    // `grep -r` walks directories in filesystem order, which differs between
+    // macOS and CI, so compare the set of files rather than grep's ordering.
+    expect(out.map((l) => l.replace(/:\d+:.*$/, "")).sort()).toEqual([
       "src/components/portal/application-form-builder.tsx",
       // The shared question editor's ⋯ menu lives in the same full-page editor modals.
       "src/components/portal/question-editor/question-sections-editor.tsx",
