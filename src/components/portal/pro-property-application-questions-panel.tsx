@@ -18,7 +18,9 @@ import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-f
 import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
-import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
+import { applicationFeeFactForTerms } from "@/lib/form-resolved-fee";
+import { applicationIdForStayTerm, offeredStayTypeTerms } from "@/lib/property-form-stay-type-routing";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -180,6 +182,21 @@ export function ManagerPropertyApplicationQuestionsPanel({
   // editor modal) can edit the same values.
   const rowFactPropertyId = settingsPropertyId ?? (bulkPropertyIds.length === 0 ? saveTarget?.saveId ?? null : null);
   const formSetup = usePropertyFormSetupSettings(rowFactPropertyId);
+
+  // The stay types each application serves (the same routing the form editor's fee card uses), so a row's
+  // fee is the number the listing shows for that lease type.
+  const applicationTermsFor = useCallback(
+    (templateId: string): string[] => {
+      const offered = offeredStayTypeTerms(syncedSub);
+      const leases = readPropertyLeaseTemplates(syncedSub);
+      const catalog = { applications: templates, leases };
+      const routed = offered.filter(
+        (term) => applicationIdForStayTerm(catalog, "application_then_lease", leases, term) === templateId,
+      );
+      return routed.length ? routed : offered;
+    },
+    [syncedSub, templates],
+  );
 
   const persistSubmission = useCallback(
     async (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -497,7 +514,11 @@ export function ManagerPropertyApplicationQuestionsPanel({
             template.publishedQuestionConfig?.importProvenance?.sourceName ??
             template.draftQuestionConfig?.importProvenance?.sourceName ??
             null;
-          const feeCents = formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null;
+          const feeFact = applicationFeeFactForTerms(
+            syncedSub,
+            applicationTermsFor(template.id),
+            formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null,
+          );
           const rowLabel = normalizePropertyApplicationTemplateLabel(template.label);
           const openPreview = () => setPreviewTemplateId(template.id);
           const openEditor = () => openEditApplication(template);
@@ -563,7 +584,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
                       </PortalRowFact>
                     ) : null}
                     <PortalRowFact icon={CreditCard} srLabel="Application fee">
-                      {feeCents != null && feeCents > 0 ? `${formatFeeCentsForFact(feeCents)} fee` : "No fee"}
+                      {feeFact}
                     </PortalRowFact>
                     {sourceName ? (
                       <PortalRowFact icon={FileUp} srLabel="Source">

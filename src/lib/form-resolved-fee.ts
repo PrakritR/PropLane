@@ -79,3 +79,36 @@ export function resolvedFormFees(
 ): FormResolvedFee[] {
   return terms.map((term) => resolvedFormFeeForTerm(sub, kind, term));
 }
+
+/**
+ * The application-fee fact on an application row: `Application fee $50`, `Application fee $25-$45` when the
+ * rooms differ, and `No fee` only when the resolver says every placement is 0. Reads the same resolver the
+ * listing and the wizard read, for the stay types this application serves. `accountFeeCents` is the account's
+ * Application system fee, used only for a placement nothing in Pricing sets (the amount charged at checkout).
+ */
+export function applicationFeeFactForTerms(
+  sub: ManagerListingSubmissionV1,
+  terms: readonly string[],
+  accountFeeCents: number | null = null,
+): string {
+  const rows = resolvedFormFees(sub, "application", terms);
+  if (rows.length === 0) return "No fee";
+  const mins: number[] = [];
+  const maxes: number[] = [];
+  for (const row of rows) {
+    if (row.set) {
+      mins.push(row.minCents);
+      maxes.push(row.maxCents);
+    } else if (accountFeeCents != null) {
+      mins.push(accountFeeCents);
+      maxes.push(accountFeeCents);
+    } else {
+      mins.push(0);
+      maxes.push(0);
+    }
+  }
+  const min = Math.min(...mins);
+  const max = Math.max(...maxes);
+  if (max <= 0) return "No fee";
+  return min === max ? `Application fee ${dollars(max)}` : `Application fee ${dollars(min)}-${dollars(max)}`;
+}
