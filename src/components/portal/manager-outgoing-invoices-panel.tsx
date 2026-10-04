@@ -18,12 +18,15 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PortalDialog, ConfirmRows } from "@/components/portal/portal-dialog";
+import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import { VendorInvoiceManagerPaySheet } from "@/components/portal/vendor-invoice-manager-pay-sheet";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
+import { buildPayeePaymentRows, MANAGER_OUTGOING_PAYMENTS_EVENT, type ManagerExpenseSnapshot, type PayeePaymentRow } from "@/lib/manager-outgoing-payments";
+import { fetchPayeeBook } from "@/lib/manager-payees-client";
+import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
-import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FILTER_FIELD_LABEL_CLASS } from "@/components/portal/filter-field-lists";
@@ -96,21 +99,15 @@ export function ManagerOutgoingInvoicesPanel({
   const [view, setView] = useState<OutgoingInvoice | null>(null);
   const [pay, setPay] = useState<OutgoingInvoice | null>(null);
   const [picker, setPicker] = useState(false);
-  const [newBill, setNewBill] = useState(false);
-  const [billId, setBillId] = useState("");
-  const [billTitle, setBillTitle] = useState("");
-  const [billAmount, setBillAmount] = useState("");
-  const [serviceId, setServiceId] = useState("");
-  const [services, setServices] = useState<Array<{ id: string; title: string; vendorUserId: string }>>([]);
   const [destination, setDestination] = useState<string | null>(null);
-  const [selected, setSelected] = useState("");
   const [availableBalanceCents, setAvailableBalanceCents] = useState<number | null>(null);
   const [vendorRoster, setVendorRoster] = useState<ManagerVendorRow[]>([]);
+  const { userId: managerUserId } = useManagerUserId();
+  const [payeePayments, setPayeePayments] = useState<PayeePaymentRow[]>([]);
   useEffect(() => setTab(tabId), [tabId]);
   useEffect(() => {
     let active = true;
     fetch("/api/portal/payment-preferences").then(response => response.json()).then(data => { if (active) setSource(data.defaultPaymentSource === "bank" ? "bank" : "balance"); }).catch(() => {});
-    fetch("/api/manager/vendor-invoices?choices=1").then(response => response.json()).then(data => { if (active) setServices(data.services ?? []); }).catch(() => {});
     return () => { active = false; };
   }, [vendorUserId]);
   useEffect(() => {
@@ -151,6 +148,14 @@ export function ManagerOutgoingInvoicesPanel({
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Could not load outgoing payments.");
       setRows(body.invoices); setPayouts(body.payouts ?? []); setTotals(body.totals);
+      // Payments to a saved payee (mortgage, utility, teammate...) are expenses, already made: they list under Paid.
+      if (!vendorId) {
+        try {
+          const [expenseRes, book] = await Promise.all([fetch("/api/expenses", { credentials: "include", cache: "no-store" }), fetchPayeeBook()]);
+          const expenseBody = expenseRes.ok ? await expenseRes.json() as { expenses?: ManagerExpenseSnapshot[] } : { expenses: [] };
+          setPayeePayments(buildPayeePaymentRows(expenseBody.expenses ?? [], new Map(book.payees.map(payee => [payee.id, payee]))));
+        } catch { setPayeePayments([]); }
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load outgoing payments."); }
     finally { setLoading(false); }
   }, [vendorId]);
@@ -170,7 +175,8 @@ export function ManagerOutgoingInvoicesPanel({
   const bucket = (row: OutgoingInvoice): Bucket => row.status === "paid" ? "paid" : row.status === "scheduled" && Boolean(row.scheduledFor && row.scheduledFor > pacificCalendarDateYmd()) ? "scheduled" : "to-pay";
   const passesFilters = (row: { vendorUserId: string; propertyName?: string }) => (!vendorFilter || row.vendorUserId === vendorFilter) && (!propertyFilter || row.propertyName === propertyFilter);
   const filtered = rows.filter(passesFilters);
-  const tabs = (["to-pay", "scheduled", "paid"] as const).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: filtered.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).length : 0) }));
+  const shownPayeePayments = tab === "paid" && !vendorFilter && !propertyFilter ? payeePayments.filter(row => matchesPortalListSearch(search, row.name, row.typeLabel, row.memo)) : [];
+  const tabs = (["to-pay", "scheduled", "paid"] as const).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: filtered.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).length + (vendorFilter ? 0 : payeePayments.length) : 0) }));
   const inBucket = filtered.filter(row => bucket(row) === tab);
   const shown = inBucket.filter(row => matchesPortalListSearch(search, row.vendorName, row.invoiceNumber, row.serviceTitle, row.propertyName, row.memo));
   const shownPayouts = tab === "paid" && !propertyFilter ? payouts.filter(row => (!vendorFilter || row.vendorUserId === vendorFilter) && matchesPortalListSearch(search, row.vendorName, row.workOrderId)) : [];
@@ -184,7 +190,6 @@ export function ManagerOutgoingInvoicesPanel({
     if (!res.ok) { setActionError(data.error || "Could not update payment."); return false; }
     await refresh(); return true;
   };
-  const unpaid = rows.filter(row => row.status !== "paid");
   const recordHref = (id: string) => outgoingPaymentRecordHref(basePath, id);
   const plannedMethod = source === "bank" ? "Bank" : "PropLane balance";
   const methodOf = (row: OutgoingInvoice) => row.status === "paid"
@@ -214,12 +219,7 @@ export function ManagerOutgoingInvoicesPanel({
         { label: "Total", value: <strong>{money(view.totalCents)}</strong> },
       ]} /> : null}
     </PortalDialog>
-    <PortalDialog open={picker} onClose={() => setPicker(false)} title="Pay vendor" primaryAction={{ label: newBill ? "Create bill" : "Continue", disabled: newBill ? !serviceId || !billTitle || !/^\d+(?:\.\d{1,2})?$/.test(billAmount) : !selected, onClick: async () => {
-      if (!newBill) { setPay(unpaid.find(row => row.id === selected) ?? null); setPicker(false); return; }
-      const res = await fetch("/api/manager/vendor-invoices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: billId, workOrderId: serviceId, title: billTitle, amountCents: Math.round(Number(billAmount) * 100) }) });
-      const data = await res.json(); if (!res.ok) { setActionError(data.error || "Could not create bill."); return; }
-      setPicker(false); await refresh(); showToast("Bill created.");
-    } }}><div className="space-y-4"><FieldSingleSelect label="Payment" value={newBill ? "new" : "invoice"} onChange={value => setNewBill(value === "new")} options={[{ value: "invoice", label: "Approved invoice" }, { value: "new", label: "New bill" }]} />{newBill ? <><FieldSingleSelect label="Service" value={serviceId} onChange={setServiceId} placeholder="Choose service" options={services.filter(service => !vendorUserId || service.vendorUserId === vendorUserId).map(service => ({ value: service.id, label: service.title }))} /><label>Description<Input value={billTitle} onChange={event => setBillTitle(event.target.value)} /></label><label>Amount<Input inputMode="decimal" value={billAmount} onChange={event => setBillAmount(event.target.value)} /></label></> : <FieldSingleSelect label="Invoice" value={selected} onChange={setSelected} placeholder="Choose an approved invoice" options={unpaid.map(row => ({ value: row.id, label: `${row.vendorName} · ${row.invoiceNumber || row.serviceTitle || "Invoice"} · ${money(row.totalCents)}` }))} />}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
+    <ManagerAddOutgoingPaymentModal open={picker} onClose={() => setPicker(false)} managerUserId={managerUserId} initialVendorId={vendorId} basePath={basePath} onPayVendorInvoice={invoiceId => { const match = rows.find(row => row.id === invoiceId); if (match) setPay(match); }} onSubmitted={() => void refresh()} />
     <PortalDialog open={Boolean(pay)} onClose={() => { setPay(null); setActionError(""); }} title="Pay vendor" primaryAction={{ label: pay ? `Pay ${money(pay.totalCents)}` : "Pay", disabled: Boolean(pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents), onClick: async () => {
       if (!pay) return;
       if (source === "bank") { setCheckout(pay); setPay(null); return; }
@@ -415,8 +415,8 @@ export function ManagerOutgoingInvoicesPanel({
           <FieldSingleSelect label="Property" value={propertyFilter} onChange={setPropertyFilter} options={[{ value: "", label: "All properties" }, ...propertyOptions]} dataAttr="outgoing-filter-property" />
         </PortalFilterSortSheet>
       )}
-      primary={scoped && !vendorUserId ? null : <PortalPrimaryIconAction label={scoped ? "Add payment" : "New bill or payment"} icon={Plus} onClick={() => { setSelected(unpaid[0]?.id ?? ""); setNewBill(false); setBillId(crypto.randomUUID()); setActionError(""); setPicker(true); }} />} />
-    <PortalRecordListSurface loading={loading} loadError={error} onRetry={() => void load()} isEmpty={!shown.length && !shownPayouts.length} emptyCard={emptyCard}>
+      primary={scoped && !vendorUserId ? null : <PortalPrimaryIconAction label="Add payment" icon={Plus} onClick={() => { setActionError(""); setPicker(true); }} />} />
+    <PortalRecordListSurface loading={loading} loadError={error} onRetry={() => void load()} isEmpty={!shown.length && !shownPayouts.length && !shownPayeePayments.length} emptyCard={emptyCard}>
       {shown.map(row => {
         const rowBucket = bucket(row);
         const planned = row.status !== "paid";
@@ -443,6 +443,12 @@ export function ManagerOutgoingInvoicesPanel({
         <DropdownMenuItem onSelect={() => navigate(recordHref(row.id))}>View payment</DropdownMenuItem>
         {row.workOrderId ? <DropdownMenuItem onSelect={() => navigate(workOrderDetailHref(basePath, "completed", row.workOrderId!))}>Open service</DropdownMenuItem> : null}
       </> }}><PortalApplicantRecordRow name={row.vendorName} address="Payment" omitActionView facts={<PortalRowFact icon={CalendarDays}>Paid {shortDate(row.createdAt)}</PortalRowFact>} trailing={<strong>{money(row.amountCents)}</strong>} onOpen={() => navigate(recordHref(row.id))} dataAttr="outgoing-payout-row" /></RecordActionContext.Provider>)}
+      {shownPayeePayments.map(row => <RecordActionContext.Provider key={row.id} value={{ scope: row.id, clear: () => {}, actions: null }}><PortalApplicantRecordRow
+        name={row.name}
+        address={[row.typeLabel, (row.propertyId && resolvePropertyLabelForId(row.propertyId)) || "Portfolio"].filter(Boolean).join(" · ")}
+        omitActionView
+        facts={<PortalRowFact icon={CalendarDays}>{[row.referenceLabel, `paid ${shortDate(row.dateIso) || "—"}`].filter(Boolean).join(" · ")}</PortalRowFact>}
+        trailing={<strong>{money(row.amountCents)}</strong>} onOpen={() => {}} dataAttr="outgoing-payee-payment-row" /></RecordActionContext.Provider>)}
     </PortalRecordListSurface>
     {dialogs}
   </div>;

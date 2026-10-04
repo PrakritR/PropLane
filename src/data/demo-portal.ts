@@ -210,6 +210,12 @@ export type DemoManagerOutgoingPaymentRow = {
   propertyName: string;
   categoryLabel: string;
   payeeLabel: string;
+  /** Saved payee this payment was made to (an expense recorded through "Add payment"). */
+  payeeId?: string;
+  /** "Mortgage", "Utility", "Teammate"... — the payee's type, shown on the place line. */
+  payeeTypeLabel?: string;
+  /** "Loan ••4821" — the payee's account reference masked to its last four, never the full number. */
+  payeeReferenceLabel?: string;
   chargeTitle: string;
   amountLabel: string;
   dueDate: string;

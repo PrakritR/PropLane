@@ -923,6 +923,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Saved payees (mortgage lender, utility, teammate...). Deleted with the manager; a row that
+    // merely points at a departing teammate keeps the payee's name and only loses the login link.
+    table: "manager_payees",
+    phase: 2,
+    manager: { ids: ["manager_user_id"], detachIds: ["teammate_user_id"] },
+  },
+  {
     table: "audit_log",
     phase: 2,
     // The manager's own audit trail goes with the account; on every other scope the row is
@@ -1117,6 +1124,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
  * does.
  */
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
+  "manager_payees.email": "Contact address of a payee the manager pays (lender, utility), not a PropLane login.",
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
   "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",

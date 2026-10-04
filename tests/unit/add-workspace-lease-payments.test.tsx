@@ -31,10 +31,11 @@ describe("Pack 1 add workspaces (source)", () => {
     expect(src("src/components/portal/pro-add-payment-modal.tsx")).toContain('title="Add charge"');
   });
 
-  it("outgoing last step is Save and keeps the existing save selector", () => {
+  it("outgoing is the one Add payment door and keeps the existing save selector", () => {
     const outgoing = src("src/components/portal/pro-add-outgoing-payment-modal.tsx");
     expect(outgoing).toContain('title="Add payment"');
-    expect(outgoing).toContain('lastLabel="Save"');
+    expect(outgoing).toContain('lastLabel={lastLabel}');
+    expect(outgoing).toContain('"Add payment"');
     expect(outgoing).toContain('finishDataAttr="outgoing-payment-save"');
   });
 

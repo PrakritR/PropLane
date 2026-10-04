@@ -8,6 +8,12 @@ import { portalSessionViewerId, onPortalSessionViewerChange } from "@/lib/auth/p
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import {
+  maskAccountReference,
+  PAYEE_TYPE_SHORT_LABEL,
+  payeeReferenceNoun,
+  type ManagerPayee,
+} from "@/lib/manager-payees";
 import { serviceIsVendorPayable } from "@/lib/work-order-bid-cycle";
 
 export type ManagerExpenseSnapshot = {
@@ -20,8 +26,21 @@ export type ManagerExpenseSnapshot = {
   expenseDate: string;
   memo?: string | null;
   vendorId?: string | null;
+  /** The saved payee an expense recorded through "Add payment" was made to. */
+  payeeId?: string | null;
   sourceWorkOrderId?: string | null;
 };
+
+/** Payee name, type and masked reference for a row ("Chase Home Lending" / "Mortgage" / "Loan ••4821"). */
+export function outgoingPayeeDetails(payee: ManagerPayee): { name: string; typeLabel: string; referenceLabel?: string } {
+  const typeLabel = payee.kind === "teammate" ? "Teammate" : payee.payeeType ? PAYEE_TYPE_SHORT_LABEL[payee.payeeType] : "Payee";
+  const masked = maskAccountReference(payee.accountReference);
+  return {
+    name: payee.name,
+    typeLabel,
+    referenceLabel: masked ? `${payeeReferenceNoun(payee.payeeType)} ${masked}` : undefined,
+  };
+}
 
 export const MANAGER_OUTGOING_PAYMENTS_EVENT = "axis:manager-outgoing-payments";
 const SESSION_KEY = "axis:manager-outgoing-expenses:v1";
@@ -261,6 +280,44 @@ export function buildVisitFeeOutgoingRows(
   return rows;
 }
 
+/** One expense recorded to a saved payee, as the Outgoing page lists it (the Paid tab; an expense is a payment already made). */
+export type PayeePaymentRow = {
+  id: string;
+  payeeId: string;
+  name: string;
+  typeLabel: string;
+  referenceLabel?: string;
+  propertyId: string | null;
+  amountCents: number;
+  dateIso: string;
+  memo: string;
+};
+
+/** The expenses that name a saved payee, newest first. An expense whose payee is gone (archived) keeps no row here. */
+export function buildPayeePaymentRows(
+  expenses: readonly ManagerExpenseSnapshot[],
+  payeeById: ReadonlyMap<string, ManagerPayee>,
+): PayeePaymentRow[] {
+  const rows: PayeePaymentRow[] = [];
+  for (const expense of expenses) {
+    const payee = expense.payeeId ? payeeById.get(expense.payeeId) : undefined;
+    if (!payee) continue;
+    const details = outgoingPayeeDetails(payee);
+    rows.push({
+      id: `payee-payment-${expense.id}`,
+      payeeId: payee.id,
+      name: details.name,
+      typeLabel: details.typeLabel,
+      referenceLabel: details.referenceLabel,
+      propertyId: expense.propertyId ?? null,
+      amountCents: expense.amountCents,
+      dateIso: expense.expenseDate,
+      memo: expense.memo?.trim() ?? "",
+    });
+  }
+  return rows.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+}
+
 export function buildManagerOutgoingPaymentRows(input: {
   managerUserId: string | null;
   expenses: ManagerExpenseSnapshot[];
@@ -270,6 +327,8 @@ export function buildManagerOutgoingPaymentRows(input: {
   propertyLabelById?: Map<string, string>;
   vendorNameById?: Map<string, string>;
   vendorById?: Map<string, ManagerVendorRow>;
+  /** Saved payees by id; an expense naming one is titled by the payee, not by its memo. */
+  payeeById?: Map<string, ManagerPayee>;
 }): DemoManagerOutgoingPaymentRow[] {
   const rows: DemoManagerOutgoingPaymentRow[] = [];
   const propertyLabelById = input.propertyLabelById ?? new Map<string, string>();
@@ -286,7 +345,10 @@ export function buildManagerOutgoingPaymentRows(input: {
       (expense.propertyId && propertyLabelById.get(expense.propertyId)) ||
       expense.propertyName?.trim() ||
       "Portfolio";
+    const savedPayee = expense.payeeId ? input.payeeById?.get(expense.payeeId) : undefined;
+    const payeeDetails = savedPayee ? outgoingPayeeDetails(savedPayee) : undefined;
     const payee =
+      payeeDetails?.name ||
       (expense.vendorId && vendorNameById.get(expense.vendorId)) ||
       (expense.categoryCode === "service_fees" ? "PropLane" : "—");
     const sourceWorkOrder = expense.sourceWorkOrderId
@@ -300,6 +362,8 @@ export function buildManagerOutgoingPaymentRows(input: {
       propertyName,
       categoryLabel: expense.categoryLabel,
       payeeLabel: payee,
+      ...(expense.payeeId ? { payeeId: expense.payeeId } : {}),
+      ...(payeeDetails ? { payeeTypeLabel: payeeDetails.typeLabel, payeeReferenceLabel: payeeDetails.referenceLabel } : {}),
       chargeTitle: expense.memo?.trim() || expense.categoryLabel,
       amountLabel: formatMoney(expense.amountCents),
       dueDate: dueDateLabelFromIso(expense.expenseDate),
