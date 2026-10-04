@@ -775,11 +775,20 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       vendorTab === "overview" ||
       vendorTab === "profile" ||
       vendorTab === "jobs" ||
-      vendorTab === "check-ins"
+      vendorTab === "check-ins" ||
+      vendorTab === "communication"
         ? vendorTab
         : "overview";
     const baseSections = recordSections("manager", "vendor", { basePath });
-    const sections = baseSections;
+    // A vendor who was already invited is re-invited, not invited: the same icon, the honest word.
+    const sections = {
+      ...baseSections,
+      headerActions: baseSections.headerActions.map((action) =>
+        action.id === "invite" && routeVendor.invitedAt && !routeVendor.vendorUserId
+          ? { ...action, label: "Resend invite" }
+          : action,
+      ),
+    };
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
@@ -815,7 +824,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onVendorHeaderAction} />
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onVendorHeaderAction} primaryId="message" />
           </PortalRecordActions>
           <PortalRecordSectionChrome
             sections={sections}
@@ -828,7 +837,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             ariaLabel="Vendor sections"
             onHeaderAction={onVendorHeaderAction}
           >
-            {vendorTab === "communication" || vendorTab === "documents" || vendorTab === "activity" ? (
+            {vendorTab === "documents" || vendorTab === "activity" ? (
               renderRecordSection(vendorTab, {
                 role: "manager",
                 kind: "vendor",

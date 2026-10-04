@@ -56,12 +56,18 @@ const DATE_WORD: Record<Bucket, string> = { "to-pay": "Due", scheduled: "Pays", 
 export function ManagerOutgoingInvoicesPanel({
   tabId = "to-pay",
   vendorUserId,
+  vendorId,
+  vendorName,
   basePath = "/portal",
   paymentId,
   paymentTab = "overview",
 }: {
   tabId?: string;
+  /** The vendor record's linked login, when it has one: only then can a new bill be filed here. */
   vendorUserId?: string;
+  /** A vendor record (roster row) id: lists every payment to that payee, with or without a linked login. */
+  vendorId?: string;
+  vendorName?: string;
   basePath?: string;
   /** Set on `outgoing/payment/<id>`: the one payment as a record page (Payment · Communication). */
   paymentId?: string;
@@ -70,6 +76,7 @@ export function ManagerOutgoingInvoicesPanel({
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
+  const scoped = Boolean(vendorId);
   const [source, setSource] = useState("balance");
   const [checkout, setCheckout] = useState<OutgoingInvoice | null>(null);
   const [actionRow, setActionRow] = useState<OutgoingInvoice | null>(null);
@@ -107,12 +114,12 @@ export function ManagerOutgoingInvoicesPanel({
     return () => { active = false; };
   }, [vendorUserId]);
   useEffect(() => {
-    const invoiceId = pay?.id ?? (vendorUserId ? rows[0]?.id : null);
+    const invoiceId = pay?.id;
     if (!invoiceId) return;
     let active = true;
     fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/outgoing`).then(response => response.json()).then(data => { if (active) setDestination(data.destination ?? null); }).catch(() => {});
     return () => { active = false; };
-  }, [pay?.id, vendorUserId, rows]);
+  }, [pay?.id]);
   useEffect(() => {
     if (!pay) { setAvailableBalanceCents(null); return; }
     let active = true;
@@ -139,14 +146,14 @@ export function ManagerOutgoingInvoicesPanel({
     setLoading(true); setError("");
     try {
       const params = new URLSearchParams({ status: "approved,scheduled,paid", outgoing: "1" });
-      if (vendorUserId) params.set("vendorUserId", vendorUserId);
+      if (vendorId) params.set("vendorId", vendorId);
       const response = await fetch(`/api/manager/vendor-invoices?${params}`, { credentials: "include" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Could not load outgoing payments.");
       setRows(body.invoices); setPayouts(body.payouts ?? []); setTotals(body.totals);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load outgoing payments."); }
     finally { setLoading(false); }
-  }, [vendorUserId]);
+  }, [vendorId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -160,10 +167,10 @@ export function ManagerOutgoingInvoicesPanel({
     const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
     window.history.replaceState(null, "", next);
   }, [rows]);
-  const bucket = (row: OutgoingInvoice): Bucket => row.status === "paid" ? "paid" : row.status === "scheduled" && Boolean(row.scheduledFor && row.scheduledFor > pacificCalendarDateYmd()) && !vendorUserId ? "scheduled" : "to-pay";
+  const bucket = (row: OutgoingInvoice): Bucket => row.status === "paid" ? "paid" : row.status === "scheduled" && Boolean(row.scheduledFor && row.scheduledFor > pacificCalendarDateYmd()) ? "scheduled" : "to-pay";
   const passesFilters = (row: { vendorUserId: string; propertyName?: string }) => (!vendorFilter || row.vendorUserId === vendorFilter) && (!propertyFilter || row.propertyName === propertyFilter);
   const filtered = rows.filter(passesFilters);
-  const tabs = (vendorUserId ? (["to-pay", "paid"] as const) : (["to-pay", "scheduled", "paid"] as const)).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: filtered.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).length : 0) }));
+  const tabs = (["to-pay", "scheduled", "paid"] as const).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: filtered.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).length : 0) }));
   const inBucket = filtered.filter(row => bucket(row) === tab);
   const shown = inBucket.filter(row => matchesPortalListSearch(search, row.vendorName, row.invoiceNumber, row.serviceTitle, row.propertyName, row.memo));
   const shownPayouts = tab === "paid" && !propertyFilter ? payouts.filter(row => (!vendorFilter || row.vendorUserId === vendorFilter) && matchesPortalListSearch(search, row.vendorName, row.workOrderId)) : [];
@@ -369,14 +376,14 @@ export function ManagerOutgoingInvoicesPanel({
 
   /* ------------------------------------------------------------------ the list */
   const currentTab: Bucket = tab === "paid" ? "paid" : tab === "scheduled" ? "scheduled" : "to-pay";
+  const nothingToThisVendor = scoped && !loading && !error && rows.length === 0 && payouts.length === 0;
   const emptyCard = search.trim()
     ? { title: portalEmptyNoMatchTitle("payments", search), section: "payments", tone: "muted" as const, clear: { label: "Clear search", onClick: () => setSearch("") } }
-    : { title: EMPTY_TITLE[currentTab], section: "payments" };
+    : { title: nothingToThisVendor ? `No payments to ${vendorName?.trim() || "this vendor"} yet` : EMPTY_TITLE[currentTab], section: "payments" };
   const filterCount = portalFilterActiveCount([vendorFilter, propertyFilter]);
   return <div data-attr="manager-outgoing-invoices">
-    {vendorUserId ? <dl className="mb-4 grid grid-cols-3 divide-x divide-border rounded-xl border border-border bg-card p-4"><div><dt>Paid this year</dt><dd className="text-xl font-semibold">{loading || error ? "—" : money(totals.paidThisYearCents)}</dd></div><div className="pl-4"><dt>Owed now</dt><dd className="text-xl font-semibold">{loading || error ? "—" : money(totals.owedCents)}</dd></div><div className="pl-4"><dt>Paid via</dt><dd>{destination ?? "—"}</dd></div></dl> : null}
     <PortalListControlStack variant="command" stickyDestinations={false}
-      {...(vendorUserId
+      {...(scoped
         ? {
             destinationRow: (
               <LocalDestinationNav
@@ -395,7 +402,7 @@ export function ManagerOutgoingInvoicesPanel({
           }
         : { destinations: tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: `${basePath}/outgoing/${t.id}`, dataAttr: `outgoing-tab-${t.id}` })), activeDestinationId: tab, destinationAriaLabel: "Outgoing payments" })}
       search={{ value: search, onChange: setSearch, placeholder: "Search outgoing payments" }}
-      actions={vendorUserId ? null : (
+      actions={scoped ? null : (
         <PortalFilterSortSheet
           activeCount={filterCount}
           compactPanel
@@ -408,7 +415,7 @@ export function ManagerOutgoingInvoicesPanel({
           <FieldSingleSelect label="Property" value={propertyFilter} onChange={setPropertyFilter} options={[{ value: "", label: "All properties" }, ...propertyOptions]} dataAttr="outgoing-filter-property" />
         </PortalFilterSortSheet>
       )}
-      primary={<PortalPrimaryIconAction label={vendorUserId ? "Pay vendor" : "New bill or payment"} icon={Plus} onClick={() => { setSelected(unpaid[0]?.id ?? ""); setNewBill(false); setBillId(crypto.randomUUID()); setActionError(""); setPicker(true); }} />} />
+      primary={scoped && !vendorUserId ? null : <PortalPrimaryIconAction label={scoped ? "Add payment" : "New bill or payment"} icon={Plus} onClick={() => { setSelected(unpaid[0]?.id ?? ""); setNewBill(false); setBillId(crypto.randomUUID()); setActionError(""); setPicker(true); }} />} />
     <PortalRecordListSurface loading={loading} loadError={error} onRetry={() => void load()} isEmpty={!shown.length && !shownPayouts.length} emptyCard={emptyCard}>
       {shown.map(row => {
         const rowBucket = bucket(row);
@@ -417,14 +424,14 @@ export function ManagerOutgoingInvoicesPanel({
           {planned ? <DropdownMenuItem onSelect={() => setPay(row)}>Pay now</DropdownMenuItem> : null}
           {planned ? <DropdownMenuItem onSelect={() => openSchedule(row)}>{row.status === "scheduled" ? "Change date" : "Schedule payment"}</DropdownMenuItem> : null}
           <DropdownMenuItem onSelect={() => setView(row)}>View invoice</DropdownMenuItem>
-          {vendorUserId && row.workOrderId ? <DropdownMenuItem onSelect={() => navigate(workOrderDetailHref(basePath, "open", row.workOrderId!))}>Open service</DropdownMenuItem> : null}
+          {scoped && row.workOrderId ? <DropdownMenuItem onSelect={() => navigate(workOrderDetailHref(basePath, "open", row.workOrderId!))}>Open service</DropdownMenuItem> : null}
           <DropdownMenuItem onSelect={() => messageVendor(row)}>Message vendor</DropdownMenuItem>
           {planned ? <DropdownMenuItem onSelect={() => openMarkPaid(row)}>Mark paid</DropdownMenuItem> : null}
           {row.managerEntered && planned ? <DropdownMenuItem className="text-[var(--status-overdue-fg)] focus:text-[var(--status-overdue-fg)]" onSelect={() => void deleteBill(row)}>Delete bill</DropdownMenuItem> : null}
         </> }}><PortalApplicantRecordRow
-          name={vendorUserId ? (row.serviceTitle || row.invoiceNumber || "Invoice") : row.vendorName}
+          name={scoped ? (row.serviceTitle || row.invoiceNumber || "Invoice") : row.vendorName}
           tileLabel={row.vendorName}
-          address={vendorUserId ? (row.propertyName ?? "") : [row.serviceTitle || row.invoiceNumber || "Invoice", row.propertyName].filter(Boolean).join(" · ")}
+          address={scoped ? (row.propertyName ?? "") : [row.serviceTitle || row.invoiceNumber || "Invoice", row.propertyName].filter(Boolean).join(" · ")}
           omitActionView
           facts={<>
             <PortalRowFact icon={rowBucket === "paid" ? CalendarDays : Clock}>{`${DATE_WORD[rowBucket]} ${shortDate(dateOf(row)) || "—"}`}</PortalRowFact>

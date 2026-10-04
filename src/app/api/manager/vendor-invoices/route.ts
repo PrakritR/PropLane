@@ -54,16 +54,47 @@ export async function GET(req: Request) {
       .filter((s): s is VendorInvoiceStatus => (VENDOR_INVOICE_STATUSES as readonly string[]).includes(s));
     if (statuses.length === 0) return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
 
-    let query = auth.db
-      .from("vendor_invoices")
-      .select(MANAGER_VENDOR_INVOICE_SELECT)
-      .eq("manager_user_id", auth.userId)
-      .in("status", statuses)
-      .order("submitted_at", { ascending: false }).order("id", { ascending: true });
-    if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
-    if (workOrderId) query = query.eq("work_order_id", workOrderId);
+    // A vendor RECORD (roster row) is the payee a manager sees on the Vendors page, whether or not that
+    // vendor has signed up. Ownership is checked against the signed-in manager, so a foreign or
+    // guessed record id yields 404 and never widens the list. A bill matches by the record id it was
+    // filed under (`vendor_id`) or by the record's linked login (`vendor_user_id`), de-duplicated.
+    const vendorRecordId = url.searchParams.get("vendorId")?.trim() || null;
+    let recordUserId: string | null = null;
+    if (vendorRecordId) {
+      const { data: record, error: recordError } = await auth.db
+        .from("manager_vendor_records")
+        .select("id, vendor_user_id")
+        .eq("id", vendorRecordId)
+        .eq("manager_user_id", auth.userId)
+        .maybeSingle();
+      if (recordError) throw new Error(recordError.message);
+      if (!record) return NextResponse.json({ error: "Vendor not found." }, { status: 404 });
+      recordUserId = String(record.vendor_user_id ?? "").trim() || null;
+    }
 
-    const rows = (await allRows(query)).filter(row => !row.voided_at);
+    const fetchInvoices = (column: "vendor_id" | "vendor_user_id" | null, value?: string) => {
+      let query = auth.db
+        .from("vendor_invoices")
+        .select(MANAGER_VENDOR_INVOICE_SELECT)
+        .eq("manager_user_id", auth.userId)
+        .in("status", statuses)
+        .order("submitted_at", { ascending: false }).order("id", { ascending: true });
+      if (column === "vendor_id" && value) query = query.eq("vendor_id", value);
+      if (column === "vendor_user_id" && value) query = query.eq("vendor_user_id", value);
+      if (workOrderId) query = query.eq("work_order_id", workOrderId);
+      return allRows(query);
+    };
+    let fetched: Awaited<ReturnType<typeof fetchInvoices>>;
+    if (vendorRecordId) {
+      const byRecord = await fetchInvoices("vendor_id", vendorRecordId);
+      const byLogin = recordUserId ? await fetchInvoices("vendor_user_id", recordUserId) : [];
+      fetched = [...new Map([...byRecord, ...byLogin].map((row) => [String(row.id), row])).values()]
+        .sort((a, b) => String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? "")) || String(a.id).localeCompare(String(b.id)));
+    } else {
+      fetched = await fetchInvoices(vendorUserId ? "vendor_user_id" : null, vendorUserId ?? undefined);
+    }
+
+    const rows = fetched.filter(row => !row.voided_at);
 
     const vendorUserIds = [...new Set(rows.map((row) => String(row.vendor_user_id ?? "")).filter(Boolean))];
     const namesById = new Map<string, string>();
@@ -100,8 +131,10 @@ export async function GET(req: Request) {
     if (url.searchParams.get("outgoing") === "1") {
       let payoutQuery = auth.db.from("vendor_payouts").select("id, vendor_user_id, work_order_id, invoice_id, amount_cents, created_at, updated_at")
         .eq("manager_user_id", auth.userId).eq("status", "paid").order("id", { ascending: true });
-      if (vendorUserId) payoutQuery = payoutQuery.eq("vendor_user_id", vendorUserId);
-      const payouts = await allRows(payoutQuery);
+      // Payouts carry only the login, so a record with no linked login has none to add.
+      const payoutVendorUserId = vendorRecordId ? recordUserId : vendorUserId;
+      if (payoutVendorUserId) payoutQuery = payoutQuery.eq("vendor_user_id", payoutVendorUserId);
+      const payouts = vendorRecordId && !recordUserId ? [] : await allRows(payoutQuery);
       const invoiceIds = new Set(invoices.map(invoice => invoice.id));
       const unmatched = (payouts ?? []).filter(payout => !invoiceIds.has(payout.invoice_id));
       const payoutVendorIds = [...new Set(unmatched.map(payout => payout.vendor_user_id).filter(id => !namesById.has(id)))];

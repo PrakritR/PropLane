@@ -12,14 +12,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ManagerOutgoingInvoicesPanel } from "@/components/portal/manager-outgoing-invoices-panel";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalApplicantRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { VendorReviewDialog, type VendorReviewDialogRow } from "@/components/portal/vendor-review-dialog";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work-order-modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { ManagerInbox } from "@/components/portal/pro-inbox";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -63,9 +68,9 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
-import { Plus, Pencil, ChevronDown, ChevronUp,  X } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, X, CalendarDays, Star } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
-import { canEditVendorReview, formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
+import { canEditVendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
 type ManagerFacingVendorReview = {
   id: string;
@@ -506,7 +511,8 @@ export function ManagerVendorDetail({
   const [reviewPicker, setReviewPicker] = useState(false);
   const [reviewServiceId, setReviewServiceId] = useState("");
   const [reviewRevision, setReviewRevision] = useState(0);
-  const [inboxTab, setInboxTab] = useState<"all" | "trash">("all");
+  const [reviewsTab, setReviewsTab] = useState<"reviews" | "ratings">("reviews");
+  const [reviewSearch, setReviewSearch] = useState("");
   const messaging = useManagerMessagingNumberStatus();
   const smsAvailable = Boolean(messaging.status?.sendingAvailable && messaging.status?.number);
 
@@ -730,78 +736,88 @@ export function ManagerVendorDetail({
         </div>
       ) : null}
 
-      {tab === "reviews" ? (
-        <div className="space-y-5 px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
-          <section data-attr="vendor-detail-manager-reviews">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Reviews</h2>
-              <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={managerReviewsState !== "ready" || reviewableJobs.length === 0} onClick={() => setReviewPicker(true)} />
-              <span className="text-[13px] text-muted">
-                {managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—"}
-              </span>
-            </div>
-            {managerReviewsState === "loading" ? (
-              <p className="py-6 text-center text-sm">Loading reviews…</p>
-            ) : managerReviewsState === "error" ? (
-              <p className="py-6 text-center text-sm">Could not load reviews.</p>
-            ) : !managerReviews || managerReviews.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted">No reviews from PropLane managers yet.</p>
-            ) : (
-              <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
-                {managerReviews.map((review) => (
-                  <li key={review.id} className="space-y-1 px-3 py-2.5 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <VendorReviewStarDisplay stars={review.stars} />
-                      <span className="text-[13px] text-muted">{review.reviewerLabel} · {formatPortalListDate(review.createdAt)}</span>
-                    </div>
-                    {review.isOwnWorkspace && canEditVendorReview(review.createdAt) ? <PortalIconAction label="Edit review" icon={Pencil} onClick={() => setReviewJob({ id: review.workOrderId, title: jobs.find(job => job.id === review.workOrderId)?.title ?? "Service", vendorName: row.name })} /> : null}
-                    {review.body ? <p className="text-[13.5px]">{review.body}</p> : null}
-                    {review.vendorReply ? (
-                      <p className="rounded-lg bg-muted/10 px-2.5 py-1.5 text-[13px] text-muted">
-                        <span className="font-medium text-foreground">Vendor reply: </span>
-                        {review.vendorReply}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section data-attr="vendor-detail-resident-ratings">
-            <h2 className="text-sm font-semibold">Resident ratings</h2>
-            {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading ratings…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load ratings.</p> : ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
-              <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
-                {ratings.map((rating) => <li key={rating.id} className="flex items-center justify-between px-3 py-2.5 text-sm"><span>{rating.title}</span><strong>{rating.rating} / 5</strong></li>)}
-              </ul>
-            )}
-          </section>
-        </div>
-      ) : null}
+      {tab === "reviews" ? (() => {
+        const reviewsLoading = managerReviewsState === "loading" || managerReviewsState === "idle";
+        const allReviews = managerReviews ?? [];
+        const shownReviews = allReviews.filter((review) => matchesPortalListSearch(reviewSearch, review.reviewerLabel, review.body, review.vendorReply));
+        const shownRatings = ratings.filter((rating) => matchesPortalListSearch(reviewSearch, rating.title));
+        const onRatings = reviewsTab === "ratings";
+        const loadError = onRatings
+          ? (summaryState === "error" ? "Could not load ratings." : undefined)
+          : (managerReviewsState === "error" ? "Could not load reviews." : undefined);
+        const emptyTitle = reviewSearch.trim()
+          ? portalEmptyNoMatchTitle(onRatings ? "ratings" : "reviews", reviewSearch)
+          : onRatings ? `No resident ratings for ${row.name} yet` : `No reviews of ${row.name} yet`;
+        return (
+          <div data-attr="vendor-detail-reviews">
+            <PortalListControlStack variant="command" stickyDestinations={false}
+              destinationRow={
+                <LocalDestinationNav
+                  appearance="command"
+                  items={[
+                    { id: "reviews", label: "Reviews", count: allReviews.length, dataAttr: "vendor-reviews-tab-reviews" },
+                    { id: "ratings", label: "Resident ratings", count: ratings.length, dataAttr: "vendor-reviews-tab-ratings" },
+                  ]}
+                  activeId={reviewsTab}
+                  onChange={(id) => setReviewsTab(id === "ratings" ? "ratings" : "reviews")}
+                  ariaLabel="Review views"
+                />
+              }
+              search={{ value: reviewSearch, onChange: setReviewSearch, placeholder: onRatings ? "Search ratings" : "Search reviews" }}
+              primary={onRatings ? null : <PortalPrimaryIconAction label="Add review" icon={Plus} disabled={managerReviewsState !== "ready" || reviewableJobs.length === 0} onClick={() => setReviewPicker(true)} />} />
+            <PortalRecordListSurface
+              loading={onRatings ? summaryState === "loading" : reviewsLoading}
+              loadError={loadError}
+              onRetry={() => { if (onRatings) void refreshSummary(true); else setReviewRevision((value) => value + 1); }}
+              isEmpty={onRatings ? shownRatings.length === 0 : shownReviews.length === 0}
+              emptyCard={{ title: emptyTitle, section: "vendors", tone: reviewSearch.trim() ? "muted" : "default", clear: reviewSearch.trim() ? { label: "Clear search", onClick: () => setReviewSearch("") } : null }}
+            >
+              {onRatings
+                ? shownRatings.map((rating) => (
+                    <RecordActionContext.Provider key={rating.id} value={null}>
+                      <PortalApplicantRecordRow
+                        name={rating.title}
+                        tileIcon={Star}
+                        facts={<PortalRowFact icon={Star}>Resident rating</PortalRowFact>}
+                        trailing={<span>{rating.rating} / 5</span>}
+                        onOpen={() => onNavigate(workOrderDetailHref(basePath, "completed", rating.id))}
+                        dataAttr="vendor-resident-rating-row"
+                      />
+                    </RecordActionContext.Provider>
+                  ))
+                : shownReviews.map((review) => {
+                    const editable = review.isOwnWorkspace && canEditVendorReview(review.createdAt);
+                    const editReview = () => setReviewJob({ id: review.workOrderId, title: jobs.find((job) => job.id === review.workOrderId)?.title ?? "Service", vendorName: row.name });
+                    const text = [review.body, review.vendorReply ? `Vendor reply: ${review.vendorReply}` : ""].filter(Boolean).join(" · ");
+                    return (
+                      <RecordActionContext.Provider
+                        key={review.id}
+                        value={editable ? { scope: review.id, clear: () => {}, actions: <DropdownMenuItem onSelect={editReview}>Edit review</DropdownMenuItem> } : null}
+                      >
+                        <PortalApplicantRecordRow
+                          name={review.reviewerLabel}
+                          address={text || undefined}
+                          omitActionView
+                          facts={<PortalRowFact icon={CalendarDays}>{formatPortalListDate(review.createdAt)}</PortalRowFact>}
+                          trailing={<VendorReviewStarDisplay stars={review.stars} />}
+                          onOpen={() => { if (editable) editReview(); }}
+                          dataAttr="vendor-review-row"
+                        />
+                      </RecordActionContext.Provider>
+                    );
+                  })}
+            </PortalRecordListSurface>
+          </div>
+        );
+      })() : null}
 
       {tab === "communication" ? (
         <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
-          <div className="px-2 pb-2 sm:px-3">
-            <LocalDestinationNav
-              appearance="command"
-              items={[
-                { id: "all", label: "Active", count: 0 },
-                { id: "trash", label: "Archived", count: 0 },
-              ]}
-              activeId={inboxTab}
-              onChange={(id) => setInboxTab(id === "trash" ? "trash" : "all")}
-              ariaLabel="Message folders"
-            />
-          </div>
-          <ManagerInbox
-            tabId={inboxTab}
-            embeddedInCommunication
-            filterVendorEmail={draft.email}
-            filterVendorPhone={draft.phone}
-            emptyThreadFallback={
-              <p className="px-4 py-10 text-center text-sm text-muted">
-                No messages with {callName} yet.
-              </p>
-            }
+          <RecordCommunicationSection
+            role="manager"
+            recordRef={{ kind: "vendor", id: row.id, label: row.name }}
+            contactIds={draft.email.trim() ? [draft.email.trim()] : []}
+            contactPhone={draft.phone.trim() || undefined}
           />
         </div>
       ) : null}
@@ -819,27 +835,52 @@ export function ManagerVendorDetail({
         />
       ) : null}
 
-      {tab === "jobs" || tab === "services" ? <div data-attr="vendor-services-list">
-        <PortalListControlStack variant="command" stickyDestinations={false}
-          destinationRow={
-            <LocalDestinationNav
-              appearance="command"
-              items={[
-                { id: "open", label: "Open", count: openJobs.length },
-                { id: "done", label: "Done", count: jobs.length - openJobs.length },
-              ]}
-              activeId={serviceTab}
-              onChange={setServiceTab}
-              ariaLabel="Service status"
-            />
-          }
-          search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} primary={<PortalPrimaryIconAction label="Add service" icon={Plus} onClick={() => setRequestService(true)} />} />
-        <PortalRecordListSurface loading={summaryState === "loading"} loadError={summaryState === "error" ? "Could not load services." : undefined} onRetry={() => void refreshSummary(true)}>
-          {jobs.filter(job => (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") && [job.title, job.propertyName, job.unit].join(" ").toLowerCase().includes(serviceSearch.toLowerCase())).map(job =>
-            <PortalApplicantRecordRow key={job.id} name={job.title} address={[job.propertyName, job.unit].filter(Boolean).join(" · ")} facts={<span>{job.status}</span>} trailing={<span>{jobMoney(job.finalInvoiceCents)}</span>} onOpen={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} />)}
-        </PortalRecordListSurface>
-      </div> : null}
-      {tab === "invoices" ? row.vendorUserId ? <ManagerOutgoingInvoicesPanel vendorUserId={row.vendorUserId} basePath={basePath} /> : <p className="p-4 text-sm">No linked vendor account.</p> : null}
+      {tab === "jobs" || tab === "services" ? (() => {
+        const shownJobs = jobs.filter((job) =>
+          (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") &&
+          matchesPortalListSearch(serviceSearch, job.title, job.propertyName, job.unit));
+        return (
+          <div data-attr="vendor-services-list">
+            <PortalListControlStack variant="command" stickyDestinations={false}
+              destinationRow={
+                <LocalDestinationNav
+                  appearance="command"
+                  items={[
+                    { id: "open", label: "Open", count: openJobs.length, dataAttr: "vendor-services-tab-open" },
+                    { id: "done", label: "Done", count: jobs.length - openJobs.length, dataAttr: "vendor-services-tab-done" },
+                  ]}
+                  activeId={serviceTab}
+                  onChange={setServiceTab}
+                  ariaLabel="Service status"
+                />
+              }
+              search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} primary={<PortalPrimaryIconAction label="Add service" icon={Plus} onClick={() => setRequestService(true)} />} />
+            <PortalRecordListSurface
+              loading={summaryState === "loading"}
+              loadError={summaryState === "error" ? "Could not load services." : undefined}
+              onRetry={() => void refreshSummary(true)}
+              isEmpty={shownJobs.length === 0}
+              emptyCard={serviceSearch.trim()
+                ? { title: portalEmptyNoMatchTitle("services", serviceSearch), section: "services", tone: "muted", clear: { label: "Clear search", onClick: () => setServiceSearch("") } }
+                : { title: serviceTab === "done" ? `No finished services with ${row.name} yet` : `No open services with ${row.name}`, section: "services", actions: serviceTab === "open" ? [{ label: "Add service", onClick: () => setRequestService(true), dataAttr: "vendor-services-empty-add" }] : [] }}
+            >
+              {shownJobs.map((job) => (
+                <ManagerServiceCardRow
+                  key={job.id}
+                  row={{ title: job.title, residentName: "", residentEmail: "", propertyLabel: job.propertyName === "—" ? "" : job.propertyName, unitLabel: job.unit ?? "", scheduledIso: "", createdIso: "" }}
+                  figure={job.finalInvoiceCents != null ? jobMoney(job.finalInvoiceCents) : undefined}
+                  onOpen={() => onNavigate(managerVendorSummaryJobHref(basePath, job))}
+                  dataAttr="vendor-service-row"
+                  rowId={job.id}
+                />
+              ))}
+            </PortalRecordListSurface>
+          </div>
+        );
+      })() : null}
+      {tab === "invoices" ? (
+        <ManagerOutgoingInvoicesPanel vendorId={row.id} vendorUserId={row.vendorUserId ?? undefined} vendorName={row.name} basePath={basePath} />
+      ) : null}
       <PortalDialog primaryAction={null} open={reviewPicker} title="Review a service" onClose={() => setReviewPicker(false)}><div className="space-y-4"><FieldSingleSelect label="Completed service" value={reviewServiceId} onChange={setReviewServiceId} placeholder="Choose a service" options={[{ value: "", label: "Choose a service" }, ...reviewableJobs.map((job) => ({ value: job.id, label: job.title }))]} /><Button disabled={!reviewServiceId} onClick={() => { const job = jobs.find(job => job.id === reviewServiceId); if (job) setReviewJob({ id: job.id, title: job.title, vendorName: row.name }); setReviewPicker(false); }}>Continue</Button></div></PortalDialog>
       <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} defaultVendor={{ id: row.id, name: row.name, vendorUserId: row.vendorUserId ?? null }} />
       <VendorReviewDialog open={Boolean(reviewJob)} row={reviewJob} onClose={() => setReviewJob(null)} onSaved={() => setReviewRevision(value => value + 1)} />

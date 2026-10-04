@@ -23,21 +23,25 @@ import type { RecordSections } from "@/lib/portals/record-sections";
 export function PortalRecordHeaderIconActions({
   actions,
   onAction,
+  primaryId,
 }: {
   actions: RecordSections["headerActions"];
   onAction?: (actionId: string) => void;
+  /** The one filled action, when it is not the first icon (a vendor leads with Edit but fills Message). */
+  primaryId?: string;
 }) {
   if (actions.length === 0) return null;
+  const filledIndex = primaryId ? actions.findIndex((action) => action.id === primaryId) : 0;
   return (
     <PortalAdaptiveActionRow
       align="end"
       gapPx={6}
       actions={actions.map((action, index) => ({
         id: action.id,
-        tone: index === 0 && action.tone !== "danger" ? "primary" : action.tone,
+        tone: index === filledIndex && action.tone !== "danger" ? "primary" : action.tone,
         node: <PortalIconAction
           ring
-          ringPrimary={index === 0 && action.tone !== "danger"}
+          ringPrimary={index === filledIndex && action.tone !== "danger"}
           tone={action.tone}
           icon={action.icon}
           label={action.label}

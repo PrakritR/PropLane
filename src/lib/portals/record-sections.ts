@@ -24,7 +24,6 @@ import {
   Star,
   Trash2,
   Upload,
-  UserMinus,
   UserPlus,
   Copy,
   XCircle,} from "lucide-react";
@@ -570,11 +569,13 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "reviews", label: "Reviews" },
       ] },
     ],
+    // Edit · Invite · Message · Remove. Message is the filled primary (the most common act, so the
+    // vendor page passes `primaryId="message"`); Remove is the red Trash2 and always last.
     headerActions: [
-      { id: "message", label: "Message", icon: Mail },
-      { id: "edit", label: "Edit", icon: Pencil },
-      { id: "invite", label: "Send invite", icon: UserPlus },
-      { id: "remove", label: "Remove", icon: UserMinus, tone: "danger" },
+      { id: "edit", label: "Edit vendor", icon: Pencil },
+      { id: "invite", label: "Invite to PropLane", icon: UserPlus },
+      { id: "message", label: "Message", icon: Send, tone: "primary" },
+      { id: "remove", label: "Remove vendor", icon: Trash2, tone: "danger" },
     ],
     hasDocuments: false,
     hasActivity: false,
