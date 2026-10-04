@@ -86,7 +86,7 @@ describe("isGenuineVisitFeeInvoice", () => {
 });
 
 describe("work_order_bid_estimates migration", () => {
-  const sql = readFileSync("supabase/migrations/20261003230000_work_order_bid_estimates.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261003231000_work_order_bid_estimates.sql", "utf8");
   it("adds the five columns idempotently", () => {
     for (const column of ["estimate_cents", "estimate_given_at", "bid_submitted_at", "estimate_visit_fee_cents", "estimate_visit_done_at"]) {
       expect(sql).toMatch(new RegExp(`add column if not exists[\\s\\S]*${column}`));

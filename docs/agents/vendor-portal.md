@@ -223,7 +223,7 @@ stored row; a body amount is never used for a payout.
 **The estimate-visit fee is its own outgoing payment.** `complete_estimate_visit` (vendor marks the
 visit happened; refused 422 before the visit time) files one vendor invoice per bid
 (`invoice_number = VISIT-<bid id>`, unique index in
-`20261003230000_work_order_bid_estimates.sql`, `ensureVisitFeeInvoice`) for the stored fee. It rides
+`20261003231000_work_order_bid_estimates.sql`, `ensureVisitFeeInvoice`) for the stored fee. It rides
 the normal Approve & pay rail; `isGenuineVisitFeeInvoice` is what lets it be paid although that vendor
 was never hired, and only when it matches a real bid whose visit happened at that fee. The job's own
 invoice (`ensureSubmittedVendorInvoiceForMarkedDone`) ignores `VISIT-` invoices. The job payout is

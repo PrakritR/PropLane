@@ -8,7 +8,7 @@ import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber, VISIT_FEE_INVOICE_PREFI
  * The estimate-visit fee is the manager's own outgoing payment: it rides the SAME vendor-invoice
  * rail as a finished job (Approve & pay -> bill -> Stripe / balance), as a second invoice on the
  * service. Exactly one per bid, keyed by `VISIT-<bid id>` (unique index in
- * 20261003230000_work_order_bid_estimates.sql). The amount is read from the stored bid row,
+ * 20261003231000_work_order_bid_estimates.sql). The amount is read from the stored bid row,
  * never from a request body.
  */
 export async function ensureVisitFeeInvoice(
