@@ -28,7 +28,10 @@ its own shell.
    glyph; state changes inside the row's sheet or ⋯.
 6. Phone: same header and content; the section chips are replaced by
    `PortalRecordSectionPicker` — a dropdown listing the sections, `+` expands
-   a section's sub-tabs, a row navigates, Close closes.
+   a section's sub-tabs, a row navigates, Close closes. A property is the
+   exception (`phoneTabs`): its sections are underline command tabs that scroll
+   sideways, and its header is Edit + one ⋯ (Share, Unlist, Duplicate, Delete,
+   Email) so the name keeps one line (`PropertyPhoneHeaderActions`).
 7. Communication inside a record renders the record's thread(s) and a
    composer only. Never the inbox chrome.
 8. Money: Payments on every kind lists the charges whose `recordRef` is this
