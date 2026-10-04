@@ -96,6 +96,8 @@ export type ManualExpenseInput = {
   expenseDate?: string | null;
   memo?: string | null;
   vendorId?: string | null;
+  /** Who the money went to. The CALLER must already have proven the payee belongs to this manager. */
+  payeeId?: string | null;
   taxDeductible?: boolean | null;
 };
 
@@ -135,6 +137,7 @@ export async function recordManualExpense(
       expense_date: input.expenseDate.trim(),
       memo: input.memo?.trim() || null,
       vendor_id: input.vendorId?.trim() || null,
+      ...(input.payeeId?.trim() ? { payee_id: input.payeeId.trim() } : {}),
       tax_deductible: taxDeductible,
       updated_at: now,
     })

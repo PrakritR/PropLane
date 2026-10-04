@@ -148,11 +148,16 @@ export function ManagerOutgoingPaymentsPanel({
     <div data-attr={groupMode === "house" ? "outgoing-payments-house-groups" : "outgoing-payments-payee-groups"}>
       {orderedRows.map((row) => {
         const payee = outgoingPayeeLabel(row);
-        const place = [payee ? row.chargeTitle : "", row.categoryLabel, row.propertyName]
+        // A saved payee reads "Mortgage · 1200 Cascade Ave" with the loan or account last four as a fact.
+        const place = (row.payeeTypeLabel
+          ? [row.payeeTypeLabel, row.propertyName]
+          : [payee ? row.chargeTitle : "", row.categoryLabel, row.propertyName])
           .map((part) => part?.trim() ?? "")
           .filter(Boolean)
           .join(" · ");
-        const due = formatOutgoingDue(row.dueDate);
+        const due = row.payeeTypeLabel
+          ? [row.payeeReferenceLabel, row.dueDate ? `${row.bucket === "paid" ? "paid" : "due"} ${row.dueDate}` : ""].filter(Boolean).join(" · ")
+          : formatOutgoingDue(row.dueDate);
         // C251: an overdue vendor payment carries the same urgency cue an overdue resident
         // charge already gets — the glyph fact itself in red, never a pill (no-pills rule).
         const dueFact = due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : undefined;

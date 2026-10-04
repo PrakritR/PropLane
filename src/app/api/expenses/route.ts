@@ -6,6 +6,7 @@ import {
   resolveExpenseTaxDeductible,
   SYSTEM_CHART_ACCOUNTS,
 } from "@/lib/reports/categories";
+import { findOwnedPayee } from "@/lib/manager-payees.server";
 import { recordManualExpense, updateManualExpense } from "@/lib/reports/manual-entries.server";
 import {
   applyWorkspaceRowScope,
@@ -52,6 +53,7 @@ export async function GET() {
         expenseDate: e.expense_date,
         memo: e.memo,
         vendorId: e.vendor_id,
+        payeeId: e.payee_id ?? null,
         sourceWorkOrderId: e.source_work_order_id ? String(e.source_work_order_id) : undefined,
         taxDeductible: resolveExpenseTaxDeductible(e.category_code, e.tax_deductible),
       })),
@@ -76,8 +78,19 @@ export async function POST(req: Request) {
       expenseDate?: string;
       memo?: string;
       vendorId?: string;
+      payeeId?: string;
       taxDeductible?: boolean;
     };
+
+    // A payee id is a claim, not authorization: it must be a live payee of THIS manager. A foreign,
+    // archived or missing id is the same 404, so no other manager's payee list can be probed.
+    const payeeId = typeof body.payeeId === "string" ? body.payeeId.trim() : "";
+    if (body.payeeId !== undefined && body.payeeId !== null && typeof body.payeeId !== "string") {
+      return NextResponse.json({ error: "Invalid payee." }, { status: 400 });
+    }
+    if (payeeId && !(await findOwnedPayee(auth.db, auth.userId, payeeId))) {
+      return NextResponse.json({ error: "Payee not found." }, { status: 404 });
+    }
 
     // An expense tied to a house must land in the manager's active workspace.
     // An account-level expense (no house, e.g. a portfolio software fee) has
@@ -90,7 +103,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const result = await recordManualExpense(auth.db, auth.userId, body);
+    const result = await recordManualExpense(auth.db, auth.userId, { ...body, payeeId: payeeId || undefined });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({ expense: result.entry });
   } catch (e) {

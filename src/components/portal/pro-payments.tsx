@@ -22,6 +22,8 @@ import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from 
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 import { ManagerOutgoingPaymentsPanel } from "@/components/portal/pro-outgoing-payments-panel";
+import { fetchPayeeBook } from "@/lib/manager-payees-client";
+import type { ManagerPayee } from "@/lib/manager-payees";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import type { ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import {
@@ -362,6 +364,19 @@ export function ManagerPayments({
     if (direction !== "incoming") setResidentFilters([]);
   }, [direction]);
 
+  const [payeeById, setPayeeById] = useState<Map<string, ManagerPayee>>(() => new Map());
+  useEffect(() => {
+    if (!authReady || !userId || isDemoModeActive()) return;
+    let active = true;
+    const load = () =>
+      void fetchPayeeBook()
+        .then((book) => { if (active) setPayeeById(new Map(book.payees.map((payee) => [payee.id, payee]))); })
+        .catch(() => {});
+    load();
+    window.addEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, load);
+    return () => { active = false; window.removeEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, load); };
+  }, [authReady, userId]);
+
   useEffect(() => {
     const onOutgoing = () => setOutgoingTick((n) => n + 1);
     void syncManagerOutgoingExpensesFromServer().then(onOutgoing);
@@ -576,8 +591,9 @@ export function ManagerPayments({
       propertyLabelById,
       vendorNameById,
       vendorById,
+      payeeById,
     });
-  }, [userId, ledgerDataVersion, propertyLabelById, vendorById]);
+  }, [userId, ledgerDataVersion, propertyLabelById, vendorById, payeeById]);
 
   const residentOptions = useMemo(() => {
     const seen = new Map<string, string>();
