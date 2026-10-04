@@ -195,3 +195,70 @@ describe("lease first is gone: stale lease-first flags change nothing", () => {
     expect(await redirectTargetFor("lease")).toBe("/resident/dashboard");
   });
 });
+
+/**
+ * C1-R5 — resident Inspections is a tab of My home now, not a sidebar section. Every old
+ * `/resident/inspections/*` address (reminder emails, push deep links, bookmarks) must still land
+ * on it, resolved before the stage guard like every other legacy alias.
+ */
+describe("resident Inspections moved into My home", () => {
+  const signedLease = {
+    applicationApproved: true,
+    leaseAccessUnlocked: true,
+    leaseSigned: true,
+    hasSubmittedApplication: true,
+    hasCompletedApplicationSubmission: true,
+  };
+  const reportId = "0b7d3c1e-5f2a-4c8e-9a41-2d6e8f1a7b30";
+
+  beforeEach(() => {
+    Object.assign(residentAccess, signedLease);
+  });
+
+  it("sends a bare /resident/inspections to the My home Inspections tab", async () => {
+    expect(await redirectTargetFor("inspections")).toBe("/resident/move-in/inspections");
+  });
+
+  it("sends the old bucket lists to the merged list, keeping an explicit type", async () => {
+    expect(await redirectTargetFor("inspections", ["upcoming"])).toBe("/resident/move-in/inspections");
+    expect(await redirectTargetFor("inspections", ["done"], { type: "move-out" })).toBe(
+      "/resident/move-in/inspections/move-out",
+    );
+  });
+
+  it("keeps a kind list and a single filed report addressable", async () => {
+    expect(await redirectTargetFor("inspections", ["move-in"])).toBe("/resident/move-in/inspections/move-in");
+    expect(await redirectTargetFor("inspections", ["move-in", reportId])).toBe(
+      `/resident/move-in/inspections/move-in/${reportId}`,
+    );
+  });
+
+  it("resolves for a resident who has not signed yet (the new address then judges them)", async () => {
+    Object.assign(residentAccess, { applicationApproved: false, leaseAccessUnlocked: false, leaseSigned: false });
+    expect(await redirectTargetFor("inspections")).toBe("/resident/move-in/inspections");
+    // ...and the stage guard holds Inspections back: an approved resident gets Forms alone.
+    Object.assign(residentAccess, { applicationApproved: true });
+    expect(await redirectTargetFor("move-in", ["inspections"])).toBe("/resident/dashboard");
+  });
+
+  it("renders the Inspections tab inside My home once the lease is signed", async () => {
+    const node = (await renderPortalSection("resident", "move-in", ["inspections"])) as { props: Record<string, unknown> };
+    expect(node.props.tabId).toBe("inspections");
+    expect(node.props.inspectionsTypeFilter).toBeUndefined();
+    const typed = (await renderPortalSection("resident", "move-in", ["inspections", "move-out"])) as { props: Record<string, unknown> };
+    expect(typed.props.inspectionsTypeFilter).toBe("move-out");
+  });
+
+  it("opens a single report on its own page and rejects malformed addresses", async () => {
+    const node = (await renderPortalSection("resident", "move-in", ["inspections", "move-in", reportId])) as { props: Record<string, unknown> };
+    expect(node.props.reportId).toBe(reportId);
+    expect(node.props.kind).toBe("move-in");
+    await expect(renderPortalSection("resident", "move-in", ["inspections", "sideways"])).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(renderPortalSection("resident", "move-in", ["inspections", "move-in", "not-a-uuid"])).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(renderPortalSection("resident", "move-in", ["inspections", "move-in", reportId, "extra"])).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("keeps the retired Amenities address alive under Move-in details", async () => {
+    expect(await redirectTargetFor("move-in", ["amenities"])).toBe("/resident/move-in/info");
+  });
+});

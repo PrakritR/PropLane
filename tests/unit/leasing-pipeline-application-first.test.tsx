@@ -292,19 +292,21 @@ describe("application before a tour: only the workspace setting decides", () => 
       applicationRows = [];
     });
 
-    it("workspace required: the tour is gated until a submitted application exists", async () => {
+    it("workspace required: the tour is gated until an approved application exists", async () => {
       pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
       propertyData = withForms(formWith("workspace"));
       expect(await ask()).toMatchObject({ required: true, hasApplication: false });
       expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "p@example.com" })).toMatch(/application before a tour/i);
       applicationRows = [{ row_data: { stage: "Submitted", propertyId: "prop-1" } }];
-      expect(await ask()).toMatchObject({ required: true, hasApplication: true });
+      expect(await ask()).toMatchObject({ required: true, hasApplication: true, blocked: "pending_approval" });
+      applicationRows = [{ row_data: { stage: "Approved", bucket: "approved", propertyId: "prop-1" } }];
+      expect(await ask()).toMatchObject({ required: true, hasApplication: true, blocked: null });
       expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "p@example.com" })).toBeNull();
     });
 
     it("a form's stored tour order is ignored by the server gate, both ways", async () => {
       propertyData = withForms(formWith("before_tour"));
-      expect(await ask()).toEqual({ required: false });
+      expect(await ask()).toMatchObject({ required: false, blocked: null });
       pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
       propertyData = withForms(formWith("after_tour"));
       expect(await ask()).toMatchObject({ required: true, hasApplication: false });
@@ -312,13 +314,13 @@ describe("application before a tour: only the workspace setting decides", () => 
 
     it("a form on 'use the workspace setting' follows it both ways", async () => {
       propertyData = withForms(formWith("workspace"));
-      expect(await ask()).toEqual({ required: false });
+      expect(await ask()).toMatchObject({ required: false, blocked: null });
       pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
       expect(await ask()).toMatchObject({ required: true });
     });
 
     it("no forms on the property: only the workspace setting decides, as before", async () => {
-      expect(await ask()).toEqual({ required: false });
+      expect(await ask()).toMatchObject({ required: false, blocked: null });
       pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
       expect(await ask()).toMatchObject({ required: true, hasApplication: false });
     });

@@ -2,6 +2,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import type { PortalTab } from "@/lib/portal-types";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import type { ResidentInspectionTypeFilter } from "@/lib/resident-inspections-tabs";
 import { loadResidentMoveInForEmail } from "@/lib/resident-move-in-info";
 
 export async function ResidentMoveInPanel({
@@ -12,6 +13,7 @@ export async function ResidentMoveInPanel({
   focusRoomId,
   leaseSigned = false,
   formsOnly = false,
+  inspectionsTypeFilter,
 }: {
   residentEmail?: string | null;
   basePath?: string;
@@ -22,9 +24,12 @@ export async function ResidentMoveInPanel({
   leaseSigned?: boolean;
   /** Approved but not yet leased: only the Forms tab, with none of the house's details loaded. */
   formsOnly?: boolean;
+  /** Inspections tab only: the list preselected to one type. */
+  inspectionsTypeFilter?: ResidentInspectionTypeFilter;
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
-  const resolved = email && !formsOnly ? await loadResidentMoveInForEmail(email) : null;
+  // The inspections tab loads its own data, so it skips the (heavier) house projection.
+  const resolved = email && !formsOnly && tabId !== "inspections" ? await loadResidentMoveInForEmail(email) : null;
 
   return (
     <ManagerPortalPageShell title="My home" hideTitleOnMobileNav compactFilterRow>
@@ -36,6 +41,7 @@ export async function ResidentMoveInPanel({
         focusRoomId={focusRoomId}
         leaseSigned={leaseSigned}
         formsOnly={formsOnly}
+        inspectionsTypeFilter={inspectionsTypeFilter}
       />
     </ManagerPortalPageShell>
   );

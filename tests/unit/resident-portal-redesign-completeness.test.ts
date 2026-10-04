@@ -240,15 +240,18 @@ describe("resident portal redesign completeness", () => {
       const payments = readPanel("resident-payments-panel.tsx");
       expect(payments).toContain('variant="command"');
       expect(payments).toContain("ResidentPortalGroupedDataList");
-      // Tour (C120) and Applications (C122) collapsed their band-2 bucket tabs
-      // into one merged list with per-row status text, so neither renders a
-      // `variant="command"` destination bar at the list level anymore —
-      // ResidentPortalGroupedDataList is still the shared grouped-list kit both use.
+      // Tour (C1-R2: Scheduled | Approved | Past) and Applications (C1-R1: Sent | Approved |
+      // Denied) carry section tabs with counts; each row still reads its own status as text.
+      // Tour keeps the shared grouped-list kit; Applications groups its flat rows under the
+      // home with the shared PortalListGroup box.
       const tour = readPanel("resident-tour-panel.tsx");
       expect(tour).toContain("ResidentPortalGroupedDataList");
       expect(tour).toContain("PortalListAddRow");
+      expect(tour).toContain("LocalDestinationNav");
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("ResidentPortalGroupedDataList");
+      expect(applications).toContain("PortalListGroup");
+      expect(applications).toContain("LocalDestinationNav");
+      expect(applications).toContain("PortalListAddRow");
       expect(applications).not.toContain("useResidentPortalListFilterState");
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain('variant="command"');

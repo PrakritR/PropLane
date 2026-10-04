@@ -82,9 +82,14 @@ describe("the page's tab row", () => {
 });
 
 describe("resident My home", () => {
-  it("keeps the forms tab first and labels it Move-in", () => {
+  it("keeps the forms tab first and labels it Forms", () => {
     expect(RESIDENT_MOVE_IN_TABS[0]).toBe("forms");
-    expect(RESIDENT_MOVE_IN_TAB_LABELS.forms).toBe("Move-in");
+    expect(RESIDENT_MOVE_IN_TAB_LABELS.forms).toBe("Forms");
+  });
+
+  it("carries Inspections as its own tab, last", () => {
+    expect(RESIDENT_MOVE_IN_TABS.at(-1)).toBe("inspections");
+    expect(RESIDENT_MOVE_IN_TAB_LABELS.inspections).toBe("Inspections");
   });
 });
 
@@ -113,8 +118,9 @@ describe("Inspections left the manager sidebar", () => {
     expect(grouped.find((g) => g.id === "tenancy")?.items.map((i) => i.section)).toEqual(["residents", "move-in", "payments"]);
   });
 
-  it("keeps the resident's own Inspections row", () => {
-    expect(PORTAL_NAV_GROUPS.resident.find((g) => g.id === "my-home")?.sections).toContain("inspections");
+  it("moved the resident's Inspections row into My home", () => {
+    expect(PORTAL_NAV_GROUPS.resident.flatMap((g) => g.sections)).not.toContain("inspections");
+    expect(PORTAL_NAV_GROUPS.resident.find((g) => g.id === "my-home")?.sections).toContain("move-in");
   });
 });
 

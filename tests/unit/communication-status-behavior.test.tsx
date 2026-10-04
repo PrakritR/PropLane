@@ -56,27 +56,16 @@ describe.each([ResidentCommunication, VendorCommunication])("status filtering", 
   });
 });
 
-describe("resident reaches an archived conversation through the Status filter (no tab)", () => {
-  it("has no Active|Archived tab and lists Archived among the Status options", async () => {
-    render(<ResidentCommunication />);
-    await waitForInboxReady();
-    expect(screen.queryByRole("link", { name: "Archived" })).toBeNull();
-    const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
-    expect(options).toContain("Archived");
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "archived" } });
-    fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
-    await waitFor(() => expect(screen.getByText(/Archived body/)).toBeTruthy());
-    expect(screen.queryByText(/Unread body/)).toBeNull();
-  });
-});
-
-describe("vendor reaches an archived conversation through the Active|Archived tab (captain, 2026-09-26: matches manager)", () => {
+describe.each([
+  ["resident", ResidentCommunication, "2026-10-03"],
+  ["vendor", VendorCommunication, "2026-09-26"],
+] as const)("%s reaches an archived conversation through the Active|Archived tab (captain, %s: matches manager)", (_name, Component) => {
   it("has no Archived option in the Status filter, only the tab", async () => {
-    render(<VendorCommunication />);
+    render(<Component />);
     await waitForInboxReady();
     const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
     expect(options).not.toContain("Archived");
-    fireEvent.click(screen.getByRole("link", { name: "Archived" }));
+    fireEvent.click(screen.getByRole("link", { name: /^Archived/ }));
     fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
     await waitFor(() => expect(screen.getByText(/Archived body/)).toBeTruthy());
     expect(screen.queryByText(/Unread body/)).toBeNull();

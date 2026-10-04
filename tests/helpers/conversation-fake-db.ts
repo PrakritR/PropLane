@@ -216,6 +216,14 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
         row.workspace_id = args.p_workspace;
         return Promise.resolve({ data: { adopted: true, id: row.id }, error: null });
       }
+      if (fn === "stamp_sms_projection_conversation") {
+        const row = table("sms_projection_conversations").find((candidate) => candidate.id === args.p_conversation_id);
+        if (!row) return Promise.resolve({ data: false, error: null });
+        const changed = row.conversation_key !== args.p_key || row.workspace_id !== args.p_workspace;
+        row.conversation_key = args.p_key;
+        row.workspace_id = args.p_workspace;
+        return Promise.resolve({ data: changed, error: null });
+      }
       return Promise.resolve({ data: null, error: { code: "42883", message: "unknown function" } });
     },
   };

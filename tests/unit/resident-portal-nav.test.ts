@@ -186,8 +186,8 @@ describe("resident portal nav — Forms open at approval, the rest of My home at
     expect(isResidentPathAllowedForAccess("/resident/move-in/forms", preLeaseApproved)).toBe(true);
   });
 
-  it("keeps placement, housemates, info and amenities locked until the lease is signed", () => {
-    for (const tab of ["placement", "housemates", "info", "amenities", "inspections", "move-in"]) {
+  it("keeps placement, housemates, info and inspections locked until the lease is signed", () => {
+    for (const tab of ["placement", "housemates", "info", "amenities", "inspections", "inspections/move-in", "move-in"]) {
       expect({ tab, allowed: isResidentPathAllowedForAccess(`/resident/move-in/${tab}`, preLeaseApproved) }).toEqual({ tab, allowed: false });
       expect({ tab, allowed: isResidentPathAllowedForAccess(`/resident/move-in/${tab}`, signed) }).toEqual({ tab, allowed: true });
     }
@@ -307,5 +307,55 @@ describe("resident portal nav — submitted application with a form waiting (app
 
   it("My home stays visible in the nav at the new stage", () => {
     expect(residentNavSectionVisibleInNav("move-in", "application_submitted_forms")).toBe(true);
+  });
+});
+
+/**
+ * C1-R5 — Inspections is a tab of My home, so no stage may unlock (or list) a separate
+ * `inspections` section, and the bottom bar / stage tables must keep agreeing.
+ */
+describe("resident portal nav — Inspections lives inside My home", () => {
+  const stages = ["pre_approval", "application_submitted", "application_submitted_forms", "booking_residency", "post_approval_pre_lease", "post_lease"] as const;
+  const signed = { leaseAccessUnlocked: true, applicationApproved: true, hasCompletedApplicationSubmission: true };
+  const approved = { leaseAccessUnlocked: false, applicationApproved: true, hasCompletedApplicationSubmission: true };
+
+  it("no stage unlocks a standalone inspections section, and no bottom bar promotes one", () => {
+    for (const stage of stages) {
+      expect({ stage, unlocked: residentSectionUnlockedForStage("inspections", stage) }).toEqual({ stage, unlocked: false });
+      expect(RESIDENT_BOTTOM_NAV_PRIMARY[stage]).not.toContain("inspections");
+    }
+  });
+
+  it("the stage tables still agree: every bottom-bar section is unlocked at its own stage", () => {
+    for (const stage of stages) {
+      for (const section of RESIDENT_BOTTOM_NAV_PRIMARY[stage]) {
+        expect({ stage, section, unlocked: residentSectionUnlockedForStage(section, stage) }).toEqual({ stage, section, unlocked: true });
+      }
+    }
+  });
+
+  it("My home › Inspections opens with the signed lease, exactly like the rest of My home", () => {
+    expect(isResidentPathAllowedForAccess("/resident/move-in/inspections", signed)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/inspections/move-in/abc", signed)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/inspections", approved)).toBe(false);
+  });
+
+  it("the old /resident/inspections address passes the shared guard so the renderer can redirect it", () => {
+    expect(isResidentPathAllowedForAccess("/resident/inspections", approved)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/inspections/upcoming", signed)).toBe(true);
+  });
+
+  it("is in no resident sidebar catalog", async () => {
+    const sections = await import("@/lib/portals/resident-sections");
+    for (const list of [
+      sections.RESIDENT_UNIFIED_PORTAL_SECTIONS,
+      sections.RESIDENT_APPROVED_PORTAL_SECTIONS,
+      sections.RESIDENT_LIMITED_PORTAL_SECTIONS,
+    ]) {
+      expect(list.map((s) => s.section)).not.toContain("inspections");
+    }
+    expect(sections.RESIDENT_PORTAL_SECTION_IDS as readonly string[]).not.toContain("inspections");
+    const native = await import("@/lib/native/portal-bottom-nav");
+    expect(native.NATIVE_BOTTOM_NAV_RESIDENT_ORDER as readonly string[]).not.toContain("inspections");
   });
 });

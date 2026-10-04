@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { INSPECTIONS_CHANGED, loadInspectionList, type InspectionList } from "@/lib/inspections/client";
 import type { InspectionKind } from "@/lib/inspections/model";
+import { residentMoveInInspectionsHref } from "@/lib/portal-detail-routes";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 type NextStep = {
@@ -46,9 +47,7 @@ function stepsFromList(list: InspectionList, basePath: string): NextStep[] {
         detail: [room, required ? "Required" : "Optional", due ? `due ${due}` : null].filter(Boolean).join(" · "),
         required,
         done,
-        href: report
-          ? `${basePath}/inspections/${kind}/${encodeURIComponent(report.id)}`
-          : `${basePath}/inspections/${kind}`,
+        href: residentMoveInInspectionsHref(basePath, kind, report?.id),
       });
     }
   }

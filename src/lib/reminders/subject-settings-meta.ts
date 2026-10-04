@@ -537,7 +537,7 @@ const PLAN_0915_META: Partial<Record<ReminderSubjectKind, ReminderSubjectSetting
   resident_welcome: compactMeta({ directions: ["after"], timingLabel: "Send after the account is created", counterparty: "Resident",
     subject: "Welcome to PropLane", body: ["Welcome to {propertyTitle}. Set up your account, add a payment method, and request service any time from Services.", "", "{url}"], preview: { url: "https://proplane.ai/resident/dashboard" } }),
   inspection_acknowledge: compactMeta({ directions: ["after"], timingLabel: "Remind after the report is shared", counterparty: "Resident",
-    subject: "Review your inspection report", body: ["Your {title} for {propertyTitle} was shared {duePhrase} and is waiting for your acknowledgement.", "", "{url}"], preview: { title: "move-in report", duePhrase: "5 days ago", url: "https://proplane.ai/resident/inspections" } }),
+    subject: "Review your inspection report", body: ["Your {title} for {propertyTitle} was shared {duePhrase} and is waiting for your acknowledgement.", "", "{url}"], preview: { title: "move-in report", duePhrase: "5 days ago", url: "https://proplane.ai/resident/move-in/inspections" } }),
 };
 
 export const REMINDER_SUBJECT_SETTINGS_META: Partial<

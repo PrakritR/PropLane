@@ -2,8 +2,8 @@ import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/po
 import {
   parseResidentInspectionTypeFilter,
   RESIDENT_INSPECTION_TAB_ORDER,
-  type ResidentInspectionTab,
 } from "@/lib/resident-inspections-tabs";
+import type { InspectionKind } from "@/lib/inspections/model";
 import {
   parseResidentDocumentKindFilter,
   RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
@@ -89,6 +89,7 @@ import {
   parseApplicationDetailTab,
   parseResidentMoveInTab,
   residentLeaseDetailHref,
+  residentMoveInInspectionsHref,
 } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
@@ -377,6 +378,19 @@ export async function renderPortalSection(
         legacy?.status ? { status: legacy.status } : undefined,
       )}`,
     );
+  }
+
+  // Resident Inspections moved into My home (C1-R5). `/resident/inspections[/...]` keeps resolving —
+  // reminder emails, push deep links and bookmarks all point here. The old bucket URLs
+  // (`upcoming|in-progress|done`, optionally `?type=`) land on the merged list, with the type kept.
+  // Must run BEFORE findSection (it is no longer a nav section) and before the stage guard.
+  if (kind === "resident" && section === "inspections") {
+    const legacyBucket = (RESIDENT_INSPECTION_TAB_ORDER as readonly string[]).includes(tabParts?.[0] ?? "");
+    if (!tabParts?.length || legacyBucket) {
+      const type = parseResidentInspectionTypeFilter(firstSearchParam(searchParams, "type"));
+      redirect(residentMoveInInspectionsHref(def.basePath, type === "all" ? undefined : type));
+    }
+    redirect(`${def.basePath}/move-in/inspections/${tabParts!.map(encodeURIComponent).join("/")}`);
   }
 
   // Resident feedback has no sidebar section of its own — it lives in Settings.
@@ -1580,40 +1594,7 @@ export async function renderPortalSection(
     );
   }
 
-  if (kind === "resident" && section === "inspections") {
-    // Locked until the lease is signed, like My home — there is no room to inspect before then.
-    if (!residentAccess?.leaseAccessUnlocked) redirect(`${def.basePath}/dashboard`);
-    if (!tabParts?.length) redirect(`${def.basePath}/inspections/upcoming`);
-    const seg = tabParts[0]!;
-    // Legacy Move-in / Move-out LIST url (no report id) — captain, 2026-09-25:
-    // the top destinations are now the Upcoming / In progress / Done buckets,
-    // and Move-in / Move-out moved into the Filter popover's "Type" field.
-    // Land on Upcoming with that type preselected rather than 404ing.
-    if ((seg === "move-in" || seg === "move-out") && !tabParts[1]) {
-      redirect(`${def.basePath}/inspections/upcoming?type=${seg}`);
-    }
-    // Detail via the kind segment (`/inspections/{move-in|move-out}/{id}`) is
-    // unchanged — a filed report always opens under its own real kind,
-    // whichever bucket/type filter the resident found it from.
-    if (seg === "move-in" || seg === "move-out") {
-      if (tabParts.length > 2) notFound();
-      if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-      return <ResidentInspectionsPage kind={seg} reportId={tabParts[1]} basePath={def.basePath} />;
-    }
-    // New bucket LIST route: `/inspections/{upcoming|in-progress|done}`.
-    if (!(RESIDENT_INSPECTION_TAB_ORDER as readonly string[]).includes(seg) || tabParts.length > 1) notFound();
-    return (
-      <ResidentInspectionsPage
-        bucket={seg as ResidentInspectionTab}
-        basePath={def.basePath}
-        typeFilter={parseResidentInspectionTypeFilter(firstSearchParam(searchParams, "type"))}
-      />
-    );
-  }
-
   if (kind === "resident" && section === "move-in") {
-    // The old My home → Inspections sub-tab is its own section now; keep the URL alive.
-    if (tabParts?.[0] === "inspections") redirect(`${def.basePath}/inspections/move-in`);
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
     const allowedTabs = meta.tabs.map((t) => t.id);
     // Use the same entitlement as navigation, including attested off-platform tenancies. An approved
@@ -1635,8 +1616,30 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/move-in/${preLeaseFormsOnly ? "forms" : allowedTabs[0] ?? "placement"}`);
     }
-    if (tabParts.length > 1) notFound();
     const moveInTab = tabParts[0]!;
+    // My home › Inspections: `/inspections` (all), `/inspections/{move-in|move-out}` (one type) and
+    // `/inspections/{move-in|move-out}/{reportId}` (one filed report, on its own page).
+    if (moveInTab === "inspections") {
+      if (preLeaseFormsOnly) redirect(`${def.basePath}/move-in/forms`);
+      const [, inspectionKind, reportId, ...extra] = tabParts;
+      if (inspectionKind !== undefined && inspectionKind !== "move-in" && inspectionKind !== "move-out") notFound();
+      if (extra.length > 0) notFound();
+      if (reportId !== undefined) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportId)) notFound();
+        return <ResidentInspectionsPage kind={inspectionKind as InspectionKind} reportId={reportId} basePath={def.basePath} />;
+      }
+      return (
+        <ResidentMoveInPanel
+          residentEmail={moveInEmail}
+          basePath={def.basePath}
+          tabId="inspections"
+          tabs={meta.tabs}
+          leaseSigned={residentAccess?.leaseSigned ?? false}
+          inspectionsTypeFilter={inspectionKind ? parseResidentInspectionTypeFilter(inspectionKind) : undefined}
+        />
+      );
+    }
+    if (tabParts.length > 1) notFound();
     if (preLeaseFormsOnly && !RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(moveInTab)) {
       redirect(`${def.basePath}/move-in/forms`);
     }

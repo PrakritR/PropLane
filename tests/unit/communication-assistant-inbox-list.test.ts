@@ -11,6 +11,7 @@ import {
   resolveCommunicationViewerId,
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
+import { buildActiveCommunicationThreads } from "@/lib/communication-active-rows";
 import { unifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
 const RESIDENT = "d1b42a92-0784-4ccc-b857-41db374547e1";
@@ -156,5 +157,22 @@ describe("communication assistant inbox list", () => {
   it("labels assistant rows with the PropLane channel", () => {
     const thread = buildResidentAssistantPlaceholderThread(RESIDENT);
     expect(propLaneAssistantListSubtitle(thread)).toBe("PropLane");
+  });
+
+  it("builds no assistant row for the resident list or badge, and drops a leftover one (captain 2026-10-03)", () => {
+    const leftover = buildResidentAssistantPlaceholderThread(RESIDENT);
+    const person = { ...leftover, id: "res-thr-1", from: "Test Manager", email: "m@example.com", threadType: undefined };
+    for (const listSegment of ["active", "unread", "archived"] as const) {
+      const rows = buildActiveCommunicationThreads([leftover, person], {
+        portal: "resident",
+        viewerId: RESIDENT,
+        smsUiEnabled: false,
+        listSegment,
+      });
+      expect(rows.map((row) => row.id)).toEqual(["res-thr-1"]);
+    }
+    expect(
+      buildActiveCommunicationThreads([], { portal: "resident", viewerId: RESIDENT, smsUiEnabled: false }),
+    ).toEqual([]);
   });
 });

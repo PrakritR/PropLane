@@ -62,7 +62,7 @@ export function residentLinkPaths() {
     /** Maintenance requests and add-on services. */
     services: residentPortalPath("services"),
     documents: "/resident/documents",
-    inspections: "/resident/inspections",
+    inspections: "/resident/move-in/inspections",
     inbox: residentPortalPath("inbox"),
     /** Pick a real open time on the manager's calendar. */
     scheduleTour: "/resident/tour/schedule",

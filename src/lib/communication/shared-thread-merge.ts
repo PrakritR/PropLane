@@ -22,7 +22,8 @@
  */
 
 /** A synthetic root (`<threadId>-root`, or `merged:`) is derived at render time, never a stored turn. */
-const DERIVED_MESSAGE_ID = /(?:^merged:|-root$)/;
+/** A text projected from the SMS store (`sms-proj:`) is also derived: the store holds it, a row never does. */
+const DERIVED_MESSAGE_ID = /(?:^merged:|^sms-proj:|-root$)/;
 
 /** How many cleared-turn tombstones a row keeps. Enough to outlive any stale tab. */
 const MAX_CLEARED_TOMBSTONES = 500;

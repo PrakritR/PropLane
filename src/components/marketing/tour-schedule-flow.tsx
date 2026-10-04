@@ -224,9 +224,9 @@ export function TourScheduleFlow({
     phone: string;
     inquiryId: string;
   } | null>(null);
-  const applicationGate = useTourApplicationGate(property);
   const contactAutofill = useProspectContactAutofill();
   const signedInUserId = contactAutofill.userId;
+  const applicationGate = useTourApplicationGate(property, { signedIn: Boolean(signedInUserId) });
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [tick, setTick] = useState(0);
   const [selectedRoomKey, setSelectedRoomKey] = useState<string | null>(null);
@@ -396,10 +396,14 @@ export function TourScheduleFlow({
   if (applicationGate.status === "checking") {
     return <div className="px-2 py-6 text-sm text-muted">Checking this home…</div>;
   }
-  if (applicationGate.status === "apply_first") {
+  if (
+    applicationGate.status === "apply_first" ||
+    applicationGate.status === "pending_approval" ||
+    applicationGate.status === "denied"
+  ) {
     return (
       <div className={embedded ? "space-y-6" : PUBLIC_PROSPECT_CANVAS_CLASS}>
-        <TourApplicationFirstPanel propertyId={property.id} propertyTitle={property.title} />
+        <TourApplicationFirstPanel propertyId={property.id} propertyTitle={property.title} reason={applicationGate.status} />
       </div>
     );
   }

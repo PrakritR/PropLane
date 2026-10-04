@@ -57,6 +57,16 @@ export async function mirrorAssistantEmailConversation(
      */
     workspaceId?: string | null;
     workLine?: string | null;
+    /**
+     * The sender's account, ONLY when the sender was classified as a resident of
+     * THIS manager (`classifyAssistantEmailSender`, tenant-bound). Their own
+     * Communication then gains the same turn in their conversation with this
+     * workspace, so a Gmail they send to the work address and the texts and
+     * in-app messages they exchange with that manager are one conversation.
+     * The assistant's answer is NOT copied: the assistant is not a party to a
+     * resident's conversation with their manager.
+     */
+    residentUserId?: string | null;
   },
 ): Promise<void> {
   const senderEmail = args.senderEmail.trim().toLowerCase();
@@ -92,6 +102,39 @@ export async function mirrorAssistantEmailConversation(
       workLine: args.workLine ?? null,
     },
   });
+
+  const residentUserId = args.residentUserId?.trim() ?? "";
+  if (residentUserId) {
+    try {
+      await deliverPortalMessageThreadSide(db, {
+        scope: scopeForRole("resident"),
+        folder: "inbox",
+        ownerUserId: residentUserId,
+        participantEmail: senderEmail,
+        otherPartyEmail: managerEmail,
+        fallbackId: `assistant-email-r-${emailId}`,
+        fromName,
+        subject,
+        body: inboundText,
+        preview: previewOf(inboundText),
+        when,
+        // The resident wrote it: from their own point of view it is outgoing and already read.
+        unread: false,
+        outbound: true,
+        messageId: `assistant-email-in-${emailId}`,
+        channel: "email",
+        messageSubject: subject,
+        conversation: {
+          workspaceId: args.workspaceId ?? null,
+          managerUserId: args.managerUserId,
+          workLine: args.workLine ?? null,
+        },
+      });
+    } catch (cause) {
+      // The manager's copy is already stored; the resident's twin is derived from the same send.
+      console.error("assistant-email resident copy failed", cause instanceof Error ? cause.message : "unknown");
+    }
+  }
 
   const replyText = args.replyText?.trim() ?? "";
   if (!replyText) return;

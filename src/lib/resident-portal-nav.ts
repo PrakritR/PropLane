@@ -82,7 +82,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "move-in",
     "profile",
   ],
-  // Lease/Payments/Documents/Services/My home (move-in + inspections) unlock
+  // Lease/Payments/Documents/Services/My home (forms, details, roommates, inspections) unlock
   // exactly as a signed lease would, without an application or lease row.
   // "applications"/"lease" stay UNLOCKED (never a dead padlocked row) but are
   // hidden from the rendered nav by `residentNavSectionVisibleInNav` below —
@@ -96,7 +96,6 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "communication",
     "lease",
     "move-in",
-    "inspections",
     "documents",
     "profile",
   ],
@@ -109,7 +108,6 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "communication",
     "lease",
     "move-in",
-    "inspections",
     "documents",
     "profile",
   ],
@@ -157,7 +155,8 @@ function residentPathSection(pathname: string): string {
 /**
  * Legacy section aliases. None of these is a resident nav section — every one is
  * rewritten by `renderPortalSection` to a real destination (`finances` /
- * `financials` → Payments, `inbox` → Communication, `bugs-feedback` → Settings),
+ * `financials` → Payments, `inbox` → Communication, `bugs-feedback` → Settings,
+ * `inspections` → My home › Inspections),
  * and the guard then judges THAT path.
  *
  * They must be allowed through here, in the SHARED guard, for two reasons:
@@ -168,7 +167,7 @@ function residentPathSection(pathname: string): string {
  *    never landed — this is why the fix looked correct in unit tests and was
  *    still broken in the browser.
  */
-const RESIDENT_LEGACY_SECTION_ALIASES = new Set(["inbox", "financials", "finances", "bugs-feedback"]);
+const RESIDENT_LEGACY_SECTION_ALIASES = new Set(["inbox", "financials", "finances", "bugs-feedback", "inspections"]);
 
 /** Client + server route guard — whether the resident may open this path at their stage. */
 export function isResidentPathAllowedForAccess(

@@ -3,12 +3,21 @@
 import Link from "next/link";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import { buildProspectApplyHref } from "@/lib/prospect-public-nav";
+import { TOUR_BLOCK_MESSAGES, type TourBlockReason } from "@/lib/application-before-tour-policy";
 
 /**
  * Shown in place of the tour flow when the property's workspace asks for an application first and
  * this visitor has none. The Apply door is the same one every listing CTA uses.
  */
-export function TourApplicationFirstPanel({ propertyId, propertyTitle }: { propertyId: string; propertyTitle?: string }) {
+export function TourApplicationFirstPanel({
+  propertyId,
+  propertyTitle,
+  reason = "apply_first",
+}: {
+  propertyId: string;
+  propertyTitle?: string;
+  reason?: TourBlockReason;
+}) {
   const autofill = useProspectContactAutofill();
   const applyHref = buildProspectApplyHref(
     { propertyId },
@@ -16,8 +25,12 @@ export function TourApplicationFirstPanel({ propertyId, propertyTitle }: { prope
   );
   return (
     <div className="space-y-4 py-2" data-attr="tour-application-first">
-      <p className="text-base font-semibold text-foreground">Apply before you tour{propertyTitle ? ` ${propertyTitle}` : ""}</p>
-      <p className="text-sm text-muted">This home asks for an application before a tour. Apply first, then book your tour.</p>
+      <p className="text-base font-semibold text-foreground">
+        {reason === "apply_first" ? "Apply before you tour" : reason === "pending_approval" ? "Tour opens once approved" : "Tours are closed for this home"}
+        {propertyTitle ? ` ${propertyTitle}` : ""}
+      </p>
+      <p className="text-sm text-muted">{TOUR_BLOCK_MESSAGES[reason]}</p>
+      {reason === "apply_first" ? (
       <Link
         href={applyHref}
         data-attr="tour-application-first-apply"
@@ -25,6 +38,7 @@ export function TourApplicationFirstPanel({ propertyId, propertyTitle }: { prope
       >
         Apply
       </Link>
+      ) : null}
     </div>
   );
 }

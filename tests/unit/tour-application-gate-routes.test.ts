@@ -74,17 +74,43 @@ describe("GET /api/public/tour-application-gate", () => {
       roles: ["resident"],
       effectiveRole: "resident",
     } as never);
-    resolveApplicationBeforeTour.mockResolvedValue({ required: true, hasApplication: false, ownerUserId: "owner-1" });
+    resolveApplicationBeforeTour.mockResolvedValue({
+      required: true,
+      hasApplication: false,
+      applicationStatus: "none",
+      blocked: "apply_first",
+      ownerUserId: "owner-1",
+    });
     const res = await get("prop-1");
-    expect(await res.json()).toEqual({ required: true, hasApplication: false, signedIn: true });
+    expect(await res.json()).toEqual({
+      required: true,
+      hasApplication: false,
+      applicationStatus: "none",
+      allowed: false,
+      reason: "apply_first",
+      signedIn: true,
+    });
     expect(resolveApplicationBeforeTour.mock.calls[0]![1]).toEqual({ propertyId: "prop-1", verifiedEmail: "account@example.com" });
   });
 
   it("reads not required for a workspace that does not ask, and never leaks the owner", async () => {
-    resolveApplicationBeforeTour.mockResolvedValue({ required: false });
+    resolveApplicationBeforeTour.mockResolvedValue({
+      required: false,
+      hasApplication: false,
+      applicationStatus: "none",
+      blocked: null,
+      ownerUserId: null,
+    });
     const res = await get("prop-1");
     const body = await res.json();
-    expect(body).toEqual({ required: false, hasApplication: false, signedIn: false });
+    expect(body).toEqual({
+      required: false,
+      hasApplication: false,
+      applicationStatus: "none",
+      allowed: true,
+      reason: null,
+      signedIn: false,
+    });
     expect(resolveApplicationBeforeTour.mock.calls[0]![1]).toEqual({ propertyId: "prop-1", verifiedEmail: null });
   });
 

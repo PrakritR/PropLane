@@ -49,9 +49,20 @@ export function buildPortalInboxThreadUpsert(row: Record<string, unknown>, user:
 export function buildClientPortalInboxThreadUpsert(
   row: Record<string, unknown>,
   user: InboxThreadUpsertUser,
-  trusted: { scope: string; isAdmin: boolean },
+  trusted: {
+    scope: string;
+    isAdmin: boolean;
+    /**
+     * A resident-scope write: the conversation's identity (key, workspace,
+     * counterparty) is decided by the server, so none of it is taken from the
+     * body. A client-chosen `ws:<uuid>` key made the next list name that
+     * workspace's owner and work number.
+     */
+    stripConversationIdentity: boolean;
+  },
 ) {
   if (trusted.isAdmin) return { ...buildPortalInboxThreadUpsert(row, user), scope: trusted.scope };
+  if (trusted.stripConversationIdentity) row = withoutServerOwnedConversationKeys(row);
   const participantEmail = sentLikeInboxFolder(row) ? null : String(user.email ?? "").trim().toLowerCase() || null;
   return {
     id: row.id,
@@ -65,7 +76,22 @@ export function buildClientPortalInboxThreadUpsert(
   };
 }
 
+/** Row keys only the server may set on a conversation: who it is with and where it lives. */
+export const SERVER_OWNED_CONVERSATION_KEYS = [
+  "conversationKey",
+  "workspaceId",
+  "counterparty",
+  "smsOnly",
+  "identityFlag",
+] as const;
+
+export function withoutServerOwnedConversationKeys(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+  for (const key of SERVER_OWNED_CONVERSATION_KEYS) delete out[key];
+  return out;
+}
+
 /** Ids the server derives deterministically; a client never creates them. */
 export function isServerReservedInboxThreadId(id: string): boolean {
-  return /^(agent_notice_|property_mgr_|team-thread:)/.test(id);
+  return /^(agent_notice_|property_mgr_|team-thread:|resident_sms_)/.test(id);
 }

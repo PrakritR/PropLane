@@ -26,4 +26,13 @@ describe("buildInboxMessageTimeline", () => {
 
     expect(items.map((item) => item.key)).toEqual(["merged:tour-root", "merged:tour-root#2"]);
   });
+
+  it("always tags a projected text turn with its channel, even in an all-text thread", () => {
+    const items = buildInboxMessageTimeline([
+      { id: "sms-proj:1", author: "Dana", body: "hi", at: "9:00", direction: "inbound", channel: "sms" },
+      { id: "plain-sms", author: "Dana", body: "hi", at: "9:01", direction: "outbound", channel: "sms" },
+    ]);
+    const shown = items.filter((i) => i.type === "message").map((i) => (i.type === "message" ? i.showChannel : null));
+    expect(shown).toEqual([true, false]);
+  });
 });

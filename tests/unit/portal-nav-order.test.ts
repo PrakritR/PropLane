@@ -73,10 +73,8 @@ describe("portal nav order contracts", () => {
       "services",
       "payments",
       "communication",
+      // Inspections is a tab of My home now (C1-R5) — no row of its own.
       "move-in",
-      // Inspections is the resident's own section since the redesign; it sits
-      // with My home, before the reference sections.
-      "inspections",
       "documents",
     ]);
   });
@@ -154,7 +152,7 @@ describe("resident portal nav grouping", () => {
   it("approved: leads with resident operations before reference sections", () => {
     const sections = sectionIds(RESIDENT_APPROVED_PORTAL_SECTIONS);
     expect(sections.slice(0, 4)).toEqual(["services", "payments", "dashboard", "tour"]);
-    expectContiguousBlock(sections, ["applications", "lease", "move-in", "inspections"], "communication", "documents");
+    expectContiguousBlock(sections, ["applications", "lease", "move-in"], "communication", "documents");
   });
 
   it("approved: ends navigation with documents, then the trailing Settings entry", () => {

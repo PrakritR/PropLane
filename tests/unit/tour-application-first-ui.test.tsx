@@ -66,13 +66,53 @@ describe("useTourApplicationGate", () => {
   });
 });
 
+describe("useTourApplicationGate — approval matrix (reason from the server)", () => {
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function SignedInProbe() {
+    const gate = useTourApplicationGate({ id: "prop-1", applicationBeforeTour: undefined }, { signedIn: true });
+    return <div data-testid="gate">{gate.status}</div>;
+  }
+
+  it.each([
+    [{ required: true, allowed: false, reason: "apply_first" }, "apply_first"],
+    [{ required: true, allowed: false, reason: "pending_approval" }, "pending_approval"],
+    [{ required: true, allowed: true, reason: null }, "open"],
+    [{ required: false, allowed: false, reason: "denied" }, "denied"],
+    [{ required: false, allowed: true, reason: null }, "open"],
+  ])("signed in: %j reads %s, even when the property does not require an application", async (body, expected) => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => body } as never);
+    render(<SignedInProbe />);
+    await waitFor(() => expect(screen.getByTestId("gate").textContent).toBe(expected));
+  });
+
+  it("a signed-out visitor on a not-required property is never asked", () => {
+    render(<Probe required={false} />);
+    expect(screen.getByTestId("gate").textContent).toBe("open");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("TourApplicationFirstPanel", () => {
   afterEach(cleanup);
+
+  it("pending approval and denied give the reason and no Apply door", () => {
+    const { rerender } = render(<TourApplicationFirstPanel propertyId="prop-1" reason="pending_approval" />);
+    expect(screen.getByText(/still being reviewed/i)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Apply" })).toBeNull();
+    rerender(<TourApplicationFirstPanel propertyId="prop-1" reason="denied" />);
+    expect(screen.getByText(/was denied/i)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Apply" })).toBeNull();
+  });
 
   it("offers one Apply door for the property", () => {
     render(<TourApplicationFirstPanel propertyId="prop-1" propertyTitle="Maple House" />);
     const apply = screen.getByRole("link", { name: "Apply" });
     expect(apply.getAttribute("href")).toContain("prop-1");
-    expect(screen.getByText(/asks for an application before a tour/i)).toBeTruthy();
+    expect(screen.getByText(/asks for an approved application before a tour/i)).toBeTruthy();
   });
 });

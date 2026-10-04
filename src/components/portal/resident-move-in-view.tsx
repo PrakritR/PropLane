@@ -20,13 +20,15 @@ import {
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
 import { loadInspectionList } from "@/lib/inspections/client";
-import { pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
+import { InspectionsPanel, pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
+import type { ResidentInspectionTypeFilter } from "@/lib/resident-inspections-tabs";
 import { cn } from "@/lib/utils";
 import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
   RESIDENT_MOVE_IN_TABS,
   residentMoveInHref,
+  residentMoveInInspectionsHref,
   parseResidentMoveInTab,
   type ResidentMoveInTabId,
 } from "@/lib/portal-detail-routes";
@@ -111,7 +113,7 @@ function MoveInChecklist({ basePath, leaseSigned }: { basePath: string; leaseSig
     <div className="overflow-hidden rounded-2xl border border-border bg-card" data-attr="move-in-checklist">
       <MoveInChecklistRow label="Lease signed" status={leaseSigned} href={`${basePath}/lease`} />
       <MoveInChecklistRow label="Move-in charges paid" status={chargesSettled} href={`${basePath}/payments`} />
-      <MoveInChecklistRow label="Move-in inspection photographed" status={inspectionDone} href={`${basePath}/inspections/move-in`} />
+      <MoveInChecklistRow label="Move-in inspection photographed" status={inspectionDone} href={residentMoveInInspectionsHref(basePath, "move-in")} />
     </div>
   );
 }
@@ -249,17 +251,13 @@ function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
   );
 }
 
-function AmenitiesTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
-  if (resolved.amenities.length === 0) {
-    return (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        <PortalDataTableEmpty icon="default" message="No amenities have been listed for this home yet." />
-      </div>
-    );
-  }
+/** Amenities read as a section of Move-in details; a home that lists none shows nothing here. */
+function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolved }) {
+  if (resolved.amenities.length === 0) return null;
 
   return (
-    <div className={PORTAL_LIST_PAGE_BODY}>
+    <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-move-in-amenities">
+      <h3 className="mb-1.5 text-sm font-semibold text-foreground">Amenities</h3>
       <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-foreground">
         {resolved.amenities.map((amenity) => (
           <li key={amenity}>{amenity}</li>
@@ -373,16 +371,15 @@ function ResidentMoveInTabContent({
         <div className="space-y-6">
           <InfoTabContent resolved={resolved} />
           <InstructionsTabContent resolved={resolved} focusRoomId={focusRoomId} />
+          <AmenitiesSection resolved={resolved} />
         </div>
       );
-    case "amenities":
-      return <AmenitiesTabContent resolved={resolved} />;
     default:
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
   }
 }
 
-/** My home — routed sub-tabs (placement, housemates, info, amenities, move-in). */
+/** My home — routed sections (forms, placement, move-in details, roommates, inspections). */
 export function ResidentMoveInShell({
   basePath = "/resident",
   resolved,
@@ -392,6 +389,7 @@ export function ResidentMoveInShell({
   focusRoomId,
   leaseSigned = false,
   formsOnly = false,
+  inspectionsTypeFilter,
 }: {
   activeTab?: string;
   basePath?: string;
@@ -404,6 +402,8 @@ export function ResidentMoveInShell({
   focusRoomId?: string;
   /** Feeds the placement tab's move-in checklist (C130) — already resolved by the caller. */
   leaseSigned?: boolean;
+  /** My home › Inspections list preselected to one type (`.../inspections/{move-in|move-out}`). */
+  inspectionsTypeFilter?: ResidentInspectionTypeFilter;
 }) {
   const tabId = parseResidentMoveInTab(activeTab);
 
@@ -445,6 +445,16 @@ export function ResidentMoveInShell({
           />
           <ResidentMoveInForms />
         </>
+      ) : tabId === "inspections" ? (
+        // Inspections load their own residencies and reports, so this tab needs no resolved
+        // placement; the panel leads with the My home tab row (one control stack, like the
+        // manager Move-in hub).
+        <InspectionsPanel
+          role="resident"
+          routeBase={residentMoveInInspectionsHref(basePath)}
+          residentTypeFilter={inspectionsTypeFilter}
+          hubTabs={{ destinations, activeId: "inspections", ariaLabel: "My home" }}
+        />
       ) : !resolved ? (
         <PortalDataTableEmpty icon="residents" message="No placement assigned yet." />
       ) : (

@@ -97,13 +97,13 @@ describe("F7 — two applications for one room must not render identically", () 
     // These lists render as DataList card rows, not a <tbody> table. The
     // assertion is about what a resident can READ on each row, so read the rows.
     const rowText = Array.from(
-      view.container.querySelectorAll('[data-slot="data-list-mobile-row"]'),
+      view.container.querySelectorAll('.portal-property-row'),
     ).map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
     console.log("\nF7 evidence — resident application rows\n" + rowText.map((t) => `    ${t}`).join("\n") + "\n");
 
     expect(rowText).toHaveLength(2);
     expect(rowText[0]).not.toBe(rowText[1]);
-    expect(rowText.join(" ")).toContain("Started 8/1/2026, 7:48:40 PM");
-    expect(rowText.join(" ")).toContain("Submitted 8/3/2026, 5:24:39 PM");
+    expect(rowText.join(" ")).toContain("Started Aug 1");
+    expect(rowText.join(" ")).toContain("Submitted Aug 3");
   });
 });

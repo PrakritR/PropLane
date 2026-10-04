@@ -3,6 +3,7 @@ import {
   type CommunicationAssistantPortal,
 } from "@/lib/communication-assistant-inbox-list";
 import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assistant-thread";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
@@ -55,6 +56,10 @@ export function buildActiveCommunicationThreads(
   // state; the flag controls SMS chrome, not the availability of history.
   const emailOnly = filterEmailInboxThreads(rows, { keepSmsLike: opts.portal === "manager" || !opts.smsUiEnabled });
   const base = opts.portal === "manager" ? collapsePersonInboxThreads(emailOnly, { mergeFolders: true }) : emailOnly;
+  // Resident Communication has no PropLane assistant at all (captain 2026-10-03):
+  // no placeholder row is pinned and any leftover assistant thread is dropped,
+  // so neither the list nor the sidebar badge can count one.
+  if (opts.portal === "resident") return base.filter((thread) => !isPropLaneAssistantInboxThread(thread));
   return withPinnedPropLaneAssistantThreads(
     base,
     opts.portal,

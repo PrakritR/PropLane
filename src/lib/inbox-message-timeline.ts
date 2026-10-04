@@ -116,8 +116,11 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const sameDirAsNext = next?.direction === message.direction && !nextDayChanged && !nextHouseHeader;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
-    // Single-channel threads need no repeated channel chrome.
-    const showChannel = mixedChannels && showMeta && message.channel != null;
+    // Single-channel threads need no repeated channel chrome - except a text
+    // projected from the SMS store (a resident's read-only text turns), which
+    // always carries the text glyph so it never reads as an in-app message.
+    const projectedText = message.channel === "sms" && message.id.startsWith("sms-proj:");
+    const showChannel = (mixedChannels || projectedText) && showMeta && message.channel != null;
     // Inbox storage de-duplicates known persisted histories, but this shared
     // UI primitive also accepts caller-supplied messages. Keep rendered keys
     // unique if malformed data still contains an id collision.

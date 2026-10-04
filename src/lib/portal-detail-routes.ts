@@ -1108,40 +1108,43 @@ export function residentTourDetailHref(
   return `${basePath}/tour/${bucket}/${encodeURIComponent(inquiryId)}`;
 }
 
+/**
+ * My home sections, in page order (captain, 2026-10-03, C1-R5 — the resident twin of the manager
+ * Move-in hub): the forms to fill out, the placement + move-in checklist, the move-in details
+ * (house info, rules, access, amenities), the roommates, and the move-in / move-out inspections.
+ * Inspections used to be a sidebar section of its own; `/resident/inspections/*` redirects here.
+ */
 export const RESIDENT_MOVE_IN_TABS = [
   "forms",
   "placement",
-  "housemates",
   "info",
-  "amenities",
+  "housemates",
+  "inspections",
 ] as const;
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Move-in",
+  forms: "Forms",
   placement: "Your placement",
-  housemates: "Housemates",
-  info: "Info & rules",
-  amenities: "Amenities",
+  info: "Move-in details",
+  housemates: "Roommates",
+  inspections: "Inspections",
 };
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Move-in",
+  forms: "Forms",
   placement: "Placement",
-  housemates: "Mates",
-  info: "Rules",
-  amenities: "Amenity",
+  info: "Details",
+  housemates: "Roommates",
+  inspections: "Inspections",
 };
 
 /**
- * "Move-in" sat next to "Inspections" and read as the same thing, so the arrival details it
- * held — keys, parking, access codes — now live under Info & rules and the tab is gone.
- * The URL it owned still resolves rather than silently dropping a resident on Placement.
- * "Inspections" became the resident's own section (`/resident/inspections`); the
- * section renderer redirects that old sub-tab URL before this parser sees it.
+ * Retired sub-tabs keep their URL rather than silently dropping a resident on Placement:
+ * `instructions` (arrival details) and `amenities` both live under Move-in details now.
  */
-const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info" };
+const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info", amenities: "info" };
 
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
   if (raw && (RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) {
@@ -1155,6 +1158,21 @@ export function residentMoveInHref(
   tab: ResidentMoveInTabId = "placement",
 ): string {
   return `${basePath}/move-in/${tab}`;
+}
+
+/**
+ * The resident's inspections now live inside My home: `/resident/move-in/inspections` lists them
+ * all, `.../{move-in|move-out}` narrows the list to one type, and `.../{kind}/{reportId}` opens a
+ * single report. The pre-merge `/resident/inspections/*` URLs redirect here.
+ */
+export function residentMoveInInspectionsHref(
+  basePath: string,
+  kind?: "move-in" | "move-out",
+  reportId?: string,
+): string {
+  const base = `${basePath}/move-in/inspections`;
+  if (!kind) return base;
+  return reportId ? `${base}/${kind}/${encodeURIComponent(reportId)}` : `${base}/${kind}`;
 }
 
 /** Manager lease pipeline tabs (Appendix D5). */
