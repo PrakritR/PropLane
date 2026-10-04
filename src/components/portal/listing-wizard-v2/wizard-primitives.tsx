@@ -315,6 +315,8 @@ export function SideBelow({ children }: { children: ReactNode }) {
 export type StepRailItem = {
   id: string;
   disabled?: boolean;
+  /** Why a locked step is locked ("Verify your phone first"): tapping it on the phone tabs hands this to `onLockedTap`. */
+  lockedReason?: string;
   label: string;
   /** Off the short path — Continue skips it; the manager opens it when they want to. */
   offPath?: boolean;
@@ -352,6 +354,7 @@ export function StepRail({
   current,
   onJump,
   visited,
+  onLockedTap,
   numbered = false,
   todoCount,
 }: {
@@ -362,6 +365,8 @@ export function StepRail({
   todoCount?: number;
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
+  /** A locked step's `lockedReason`, when the phone tabs' locked tab is tapped. */
+  onLockedTap?: (reason: string) => void;
   /**
    * Legacy compatibility prop. POP5 uses the same dot/accent rail for all editors.
    */
@@ -378,7 +383,7 @@ export function StepRail({
   return (
     <>
       <div className="lg:hidden">
-        <WizardStepTabs steps={steps} current={current} onJump={onJump} visited={visited} />
+        <WizardStepTabs steps={steps} current={current} onJump={onJump} visited={visited} onLockedTap={onLockedTap} />
       </div>
       <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
@@ -435,7 +440,7 @@ export function StepRail({
  *
  * A check before the label marks a finished step, a small red dot after it one that still needs
  * something. A locked step is greyed and `aria-disabled`: tapping it does nothing, so it can never
- * be jumped to early. Any other step is reachable from any step, exactly like the desktop rail.
+ * be jumped to early (when the step has a `lockedReason` it is handed to `onLockedTap`, which the caller shows as a toast). Any other step is reachable from any step, exactly like the desktop rail.
  * The row scrolls sideways and keeps the active tab in view on every step change. Desktop never
  * renders it; the left rail is the list there. The "Step N of M" count lives in the popup footer.
  */
@@ -444,11 +449,14 @@ export function WizardStepTabs({
   current,
   onJump,
   visited,
+  onLockedTap,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
   visited?: ReadonlySet<string>;
+  /** Called with a locked step's `lockedReason` when it is tapped (the caller shows it as a toast). */
+  onLockedTap?: (reason: string) => void;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
@@ -486,7 +494,10 @@ export function WizardStepTabs({
             aria-disabled={locked || undefined}
             data-attr={`workspace-step-${step.id}`}
             onClick={() => {
-              if (locked) return;
+              if (locked) {
+                if (step.lockedReason) onLockedTap?.(step.lockedReason);
+                return;
+              }
               onJump(index);
             }}
             className={cn(

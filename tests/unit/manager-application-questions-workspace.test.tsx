@@ -802,4 +802,55 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "primary")!.id);
     expect(saved?.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
   });
+  it("a new application asks 'Applies to' first (offered stays + Both); Short term stores the short-term form and its lease", async () => {
+    const persist = vi.fn().mockResolvedValue(true);
+    const seeded = submissionWithDefaultLeasingSetup({
+      ...createDefaultListingSubmission(),
+      shortTermRentalsAllowed: true,
+      allowedLeaseTerms: ["Long-term", "Short-Term Stay"],
+    });
+    const apps = readPropertyApplicationTemplates(seeded);
+    const leases = readPropertyLeaseTemplates(seeded);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } })));
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Add application"
+        sub={seeded}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="add"
+        applicationTemplate={null}
+        templates={apps}
+        signingOrder="application_then_lease"
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Add application");
+    const trigger = document.querySelector('[data-attr="application-applies-to"]') as HTMLElement;
+    // It is the first row of the card, and it starts on the first offered stay.
+    const card = document.querySelector('[data-attr="property-application-step-one-card"]') as HTMLElement;
+    expect(card.textContent?.indexOf("Applies to")).toBeLessThan(card.textContent?.indexOf("Form type") ?? Infinity);
+    expect(trigger.textContent).toContain("Long-term residents");
+    fireEvent.click(trigger);
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual(["Long-term residents", "Short-term residents", "Both"]);
+    const short = within(listbox).getByText("Short-term residents");
+    fireEvent.pointerDown(short, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(short, { pointerId: 1, clientX: 10, clientY: 10 });
+    // The lease follows the answer.
+    expect((document.querySelector('[data-attr="application-lease-link"]') as HTMLElement).textContent).toContain("Short-term lease");
+    fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Weekend stays" } });
+    jumpRail("sections");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Weekend stays");
+    expect(saved?.appliesTo).toBe("short_term");
+    expect(saved?.formVariant).toBe("short_term");
+    expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "short-term")!.id);
+  });
 });

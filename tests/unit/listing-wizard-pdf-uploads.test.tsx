@@ -134,7 +134,10 @@ describe("Application: Upload a PDF", () => {
     );
     const created = readPropertyApplicationTemplates(live.latest()).at(-1)!;
     expect(created.draftQuestionConfig?.importProvenance?.sourceName).toBe("Pike Application.pdf");
-    const card = qa("[data-attr='listing-v2-application-card']").at(-1)!;
+    // Cards are grouped by stay sections, so the imported card is found by its own name, not by position.
+    const card = qa("[data-attr='listing-v2-application-card']").find((node) =>
+      Array.from(node.querySelectorAll("input")).some((input) => (input as HTMLInputElement).value === "Pike Application"),
+    )!;
     expect(card.querySelector(".pr9-facts")!.textContent).toContain("PDF");
   });
 

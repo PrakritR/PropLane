@@ -1,5 +1,6 @@
 import { migrateApplicationTemplateDocumentQuestions } from "@/lib/application-template-document-questions-migration";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
   type ApplicationConfigSlice,
@@ -444,13 +445,21 @@ export function syncLegacyApplicationFieldsFromTemplates(
   templates: PropertyApplicationTemplate[],
 ): ManagerListingSubmissionV1 {
   const hasShortTerm = templates.some((t) => t.formVariant === "short_term");
+  // A short-term application implies short-term stays only until the manager has said otherwise: once
+  // Basics ("Stays you offer") stored an explicit choice, a hidden short-term form never switches the
+  // stay back on.
+  const infersShortTerm = hasShortTerm && sub.shortTermRentalsAllowed === undefined;
+  // A listing that never stated its stays offers Long term. Turning short term on must ADD it: with nothing
+  // stored, "Short-Term Stay" alone would read as the whole offer and silently drop Long term (and every
+  // Long term card with it).
+  const statesNoStay = (sub.allowedLeaseTerms ?? []).length === 0 && !sub.leaseTermsBody?.trim();
   return {
     ...sub,
     propertyApplicationTemplates: templates,
-    // A short-term application implies short-term stays only until the manager has said otherwise: once
-    // Basics ("Stays you offer") stored an explicit choice, a hidden short-term form never switches the
-    // stay back on.
-    shortTermRentalsAllowed: hasShortTerm && sub.shortTermRentalsAllowed === undefined ? true : sub.shortTermRentalsAllowed,
+    shortTermRentalsAllowed: infersShortTerm ? true : sub.shortTermRentalsAllowed,
+    ...(infersShortTerm && statesNoStay
+      ? { allowedLeaseTerms: sortLeaseTermsCanonical([LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM]) }
+      : {}),
   };
 }
 

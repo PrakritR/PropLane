@@ -399,6 +399,7 @@ export function WorkNumberSetupModal({
       done: index === 0 ? verifyDone : index === 1 ? numberDone : numberDone,
       // A locked step is greyed on the phone tabs and the desktop rail alike; it never opens early.
       disabled: (index === 1 && !verifyDone) || (index === 2 && !numberDone),
+      lockedReason: index === 1 && !verifyDone ? "Verify your phone first" : index === 2 && !numberDone ? "Get your work number first" : undefined,
     }));
   }, [assignedPhone, phoneVerified]);
 
@@ -542,6 +543,7 @@ export function WorkNumberSetupModal({
             steps={railSteps}
             current={stepIndex}
             onJump={onJump}
+            onLockedTap={showToast}
             visited={new Set(STEP_IDS.filter((_, i) => i <= stepIndex))}
           />
         }

@@ -26,6 +26,7 @@ import {
 import { createPropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing";
 import { applicationForAppliesTo, defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { pricingSectionOptions } from "@/lib/pricing-lease-options";
 
 const published = {
@@ -85,6 +86,21 @@ describe("Basics: Stays you offer writes the existing lease-term fields", () => 
     // A listing that never stated it still reads a short-term application as short-term stays.
     const unset = { ...base(), shortTermRentalsAllowed: undefined };
     expect(syncLegacyApplicationFieldsFromTemplates(unset, [short]).shortTermRentalsAllowed).toBe(true);
+  });
+});
+
+describe("saving an application never changes the stays on offer", () => {
+  it("the seeded short-term form does not switch Short term on for a long-term listing", () => {
+    const longOnly = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: false };
+    const synced = syncPropertyApplicationTemplatesFromListing(longOnly);
+    expect(synced.shortTermRentalsAllowed).toBe(false);
+    expect(listingOfferedStays(synced)).toEqual({ long_term: true, short_term: false });
+  });
+
+  it("a listing that never stated its stays keeps Long term when a short-term form turns Short term on", () => {
+    const unset = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: undefined, allowedLeaseTerms: [] };
+    const next = syncLegacyApplicationFieldsFromTemplates(unset, [form("Short-term application", "short-term", { formVariant: "short_term" })]);
+    expect(listingOfferedStays(next)).toEqual({ long_term: true, short_term: true });
   });
 });
 

@@ -790,7 +790,8 @@ describe("Pricing step", () => {
     go("pricing");
     openCard(cards("pricing")[0]!);
     expect(tabLabels()).toEqual(["Long term", "Short term"]);
-    expect(q("[role='tab']")).toBeNull();
+    // No tab strip inside Pricing (the wizard's own step tabs are elsewhere on the page).
+    expect(q("[data-attr='listing-v2-pricing-options'] [role='tab']")).toBeNull();
     expect(document.body.textContent).not.toMatch(/Both/);
     const long = q("[data-attr='listing-v2-pricing-format-long']")!;
     for (const label of ["Rent /mo", "Utilities /mo", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {

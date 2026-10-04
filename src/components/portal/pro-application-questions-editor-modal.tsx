@@ -86,6 +86,7 @@ import {
   applicationTemplateQuestionPublishGate,
   applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
+  type ApplicationAppliesTo,
   draftQuestionConfigForTemplate,
   makePropertyApplicationTemplateId,
   withPropertyApplicationTemplatesExplicit,
@@ -97,7 +98,8 @@ import {
 import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import { defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { applicationForAppliesTo, defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { listingOfferedStays } from "@/lib/listing-stays";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
@@ -289,6 +291,9 @@ export function ManagerApplicationQuestionsEditorModal({
   const [localSub, setLocalSub] = useState(sub);
   const [variant, setVariant] = useState<ApplicationFormVariant>("standard");
   const [templateLabel, setTemplateLabel] = useState("");
+  // "Applies to" is the first question of a NEW application: who it is for. It picks the form's stay and the
+  // lease it links to by default (see `applicationForAppliesTo`).
+  const [appliesTo, setAppliesTo] = useState<ApplicationAppliesTo>("long_term");
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
   // P003: this application's OWN fee/promo — null = "use the account
   // default". Local, dirty-tracked state saved through the normal
@@ -417,9 +422,14 @@ export function ManagerApplicationQuestionsEditorModal({
     // A NEW application starts from the PropLane defaults: the default lease of its type (Standard ->
     // Long-term lease) and PropLane's Co-signer application. The saved links above stay what Save compares to,
     // so a new application always writes them.
+    const startAppliesTo: ApplicationAppliesTo = listingOfferedStays(sub).long_term ? "long_term" : "short_term";
+    setAppliesTo(startAppliesTo);
     const startLease = applicationTemplate
       ? initialLease
-      : defaultLeaseIdForApplication({ kind: "long-term", listingSeedKey: undefined, formVariant: "standard" }, leaseCatalog);
+      : defaultLeaseIdForApplication(
+          { kind: startAppliesTo === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: startAppliesTo === "short_term" ? "short_term" : "standard", appliesTo: startAppliesTo },
+          leaseCatalog,
+        );
     const startCosigner = applicationTemplate
       ? initialCosigner
       : (templates ?? []).find((template) => isCosignerApplicationTemplate(template))?.id ?? null;
@@ -455,6 +465,12 @@ export function ManagerApplicationQuestionsEditorModal({
   const cosignerFormOptions = (templates ?? [])
     .filter((template) => template.id !== applicationTemplate?.id && (isCosignerApplicationTemplate(template) || template.id === linkedCosignerId))
     .map((template) => ({ value: template.id, label: template.label }));
+  const offeredStaysNow = listingOfferedStays(sub);
+  const appliesToOptions = [
+    offeredStaysNow.long_term ? { value: "long_term", label: "Long-term residents" } : null,
+    offeredStaysNow.short_term ? { value: "short_term", label: "Short-term residents" } : null,
+    { value: "both", label: "Both" },
+  ].filter((option): option is { value: string; label: string } => Boolean(option));
   const linkRowsAvailable = isTemplateEditor && !isBulkSave && variant !== "cosigner";
   const showLeaseRow =
     linkRowsAvailable &&
@@ -822,9 +838,7 @@ export function ManagerApplicationQuestionsEditorModal({
         routingApplicationTemplates.length > 0 ? routingApplicationTemplates : templates;
       let nextTemplates: PropertyApplicationTemplate[];
       if (templateEditorMode === "add") {
-        nextTemplates = [
-          ...catalogApplications,
-          {
+        const created: PropertyApplicationTemplate = {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
             // F004/F007: reuse the SAME id a staged import was parsed
             // against (and a Setup "Default" pick already wrote to this
@@ -846,7 +860,14 @@ export function ManagerApplicationQuestionsEditorModal({
               questionDisplayOrder: applicationFields.map((field) => field.id),
               disabledSectionIds: [...disabledSectionIds],
             },
-          },
+        };
+        // Who it is for: the section it lands in, its stay's form and kind, and the default lease and co-signer
+        // links. The first step's own lease / co-signer picks (below) are applied after this and win.
+        nextTemplates = [
+          ...catalogApplications,
+          variant === "cosigner"
+            ? created
+            : applicationForAppliesTo(created, appliesTo, { applications: catalogApplications, leases: routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog }),
         ];
       } else {
         const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
@@ -1611,6 +1632,32 @@ export function ManagerApplicationQuestionsEditorModal({
             <StepHeading title="Application" />
             {isTemplateEditor && !isBulkSave ? (
               <PropertyFormWizardCard dataAttr="property-application-step-one-card">
+                {templateEditorMode === "add" && variant !== "cosigner" ? (
+                  <PropertyFormWizardRow label="Applies to">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Applies to"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={appliesTo}
+                      dataAttr="application-applies-to"
+                      options={appliesToOptions}
+                      onChange={(next) => {
+                        const target = next as ApplicationAppliesTo;
+                        setAppliesTo(target);
+                        // The lease follows who the application is for (Both links to none of its own).
+                        setLinkedLeaseId(
+                          defaultLeaseIdForApplication(
+                            { kind: target === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: target === "short_term" ? "short_term" : "standard", appliesTo: target },
+                            leaseCatalog,
+                          ),
+                        );
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
                 {templateEditorMode === "edit" ? (
                   <PropertyFormWizardRow label="Form type">
                     <span className="text-sm font-semibold text-foreground" data-attr="application-form-type-fact">

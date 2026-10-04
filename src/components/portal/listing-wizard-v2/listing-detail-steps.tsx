@@ -702,7 +702,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
 
   // "Applies to" is asked FIRST: the + opens this question, and the application is made only once it is answered.
   const [pendingNew, setPendingNew] = useState<{ mode: "standard" | "pdf"; appliesTo: ApplicationAppliesTo } | null>(null);
-  const pdfAppliesTo = useRef<ApplicationAppliesTo>("long_term");
+  const pdfAppliesTo = useRef<ApplicationAppliesTo | null>(null);
   const askAppliesTo = (mode: "standard" | "pdf") => {
     const offered = listingOfferedStays(sub);
     setPendingNew({ mode, appliesTo: offered.long_term ? "long_term" : "short_term" });
@@ -740,8 +740,12 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     });
     if (!imported) return;
     const now = latest.current;
+    // Chosen in the "Applies to" question; a file picked without it goes to the first stay the listing offers,
+    // never to a stay whose section is not drawn (the card would vanish).
+    const target = pdfAppliesTo.current ?? (listingOfferedStays(sub).long_term ? "long_term" : "short_term");
+    pdfAppliesTo.current = null;
     const created: PropertyApplicationTemplate = {
-      ...applicationForAppliesTo(fresh, pdfAppliesTo.current, { applications: now.templates, leases }),
+      ...applicationForAppliesTo(fresh, target, { applications: now.templates, leases }),
       draftQuestionConfig: imported.draft,
       updatedAt: new Date().toISOString(),
     };
