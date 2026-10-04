@@ -101,7 +101,13 @@ function fromDatetimeLocalValue(s: string): string | null {
   return d.toISOString();
 }
 
-const SAFE_PHOTO_HREF_RE = /^(?:data:image\/|https?:\/\/)/;
+/**
+ * Fully anchored over a charset with no HTML meta-characters. A prefix-only
+ * scheme test still let `<` / `"` through into the href/src attribute, so it was
+ * not a barrier (CodeQL js/xss-through-dom).
+ */
+const SAFE_PHOTO_HREF_RE =
+  /^(?:data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+)$/i;
 
 type BidDraft = { amount: string; materials: string; proposedTime: string; note: string };
 

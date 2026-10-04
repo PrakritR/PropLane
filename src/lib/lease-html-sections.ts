@@ -43,16 +43,20 @@ export function scopeLeaseDocumentStyles(css: string, scopeSelector: string): st
 }
 
 function stripHtmlTags(value: string): string {
-  return value.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  // `>?` so an unterminated `<script` is dropped too: `<[^>]+>` alone left it in
+  // the "plain text" (CodeQL js/incomplete-multi-character-sanitization).
+  return value.replace(/<[^>]*>?/g, "").replace(/\s+/g, " ").trim();
 }
 
 function decodeBasicEntities(value: string): string {
+  // `&amp;` last: decoding it first turns `&amp;lt;` into `&lt;` and then into a
+  // real `<` — a double unescape (CodeQL js/double-escaping).
   return value
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 function slugifySectionTitle(title: string): string {

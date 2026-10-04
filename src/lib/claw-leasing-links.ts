@@ -259,28 +259,32 @@ export function extractBundleIdHint(text: string): string | null {
 
 /** Pull a human listing/bundle name from a CTA draft for server-side resolve. */
 export function extractPropertyLabelHint(text: string): string | null {
-  // Each label capture is anchored to non-whitespace on both ends
-  // (`\S(?:.*?\S)?`) instead of a bare `(.+?)` wedged between `\s+` and the
-  // optional trailing period. In the original, the leading `\s+` and the lazy
-  // `.` (which also matches whitespace) can carve the same run of spaces two
-  // ways, backtracking polynomially (CodeQL js/polynomial-redos). The capture is
-  // trimmed downstream, so the extracted label is identical for real CTA copy.
-  const patterns = [
-    /apply for the bundle\s+"[^"]+"\s+at\s+(\S(?:.*?\S)?)\.?$/i,
-    /apply for a room bundle at\s+(\S(?:.*?\S)?)\.?$/i,
-    /schedule a tour for\s+(\S(?:.*?\S)?)\.?$/i,
-    /tour for\s+(\S(?:.*?\S)?)\.?$/i,
-    /apply for .+? at\s+(\S(?:.*?\S)?)\.?$/i,
-    /apply for\s+(\S(?:.*?\S)?)\.?$/i,
-    /question about .+? at\s+(\S(?:.*?\S)?)\.?$/i,
-    /question about\s+(\S(?:.*?\S)?)\.?$/i,
-    /(?:more )?info(?:rmation)? about\s+(\S(?:.*?\S)?)\.?$/i,
-    /tell me about\s+(\S(?:.*?\S)?)\.?$/i,
-    /interested in\s+(\S(?:.*?\S)?)\.?$/i,
+  // Every pattern ends in one greedy `(\S.*)` with nothing after it, so the
+  // capture matches on the first try and never backtracks. The previous
+  // `(\S(?:.*?\S)?)\.?$` made the lazy `.*?` rescan the tail from every
+  // restart position, and the `X at LABEL` shapes used a lazy `.+?` that could
+  // swallow its own ` at` separator — both polynomial (CodeQL
+  // js/polynomial-redos). The ` at ` split that `.+?` used to do is now done on
+  // the captured label, which is the same answer for real CTA copy.
+  const rules: Array<{ re: RegExp; splitAt?: boolean }> = [
+    { re: /apply for the bundle\s+"[^"]+"\s+at\s+(\S.*)/i },
+    { re: /apply for a room bundle at\s+(\S.*)/i },
+    { re: /schedule a tour for\s+(\S.*)/i },
+    { re: /tour for\s+(\S.*)/i },
+    { re: /apply for\s+(\S.*)/i, splitAt: true },
+    { re: /question about\s+(\S.*)/i, splitAt: true },
+    { re: /(?:more )?info(?:rmation)? about\s+(\S.*)/i },
+    { re: /tell me about\s+(\S.*)/i },
+    { re: /interested in\s+(\S.*)/i },
   ];
-  for (const re of patterns) {
-    const m = text.trim().match(re);
-    const label = m?.[1]?.trim();
+  const body = text.trim();
+  for (const rule of rules) {
+    let label = body.match(rule.re)?.[1]?.trim();
+    if (label && rule.splitAt) {
+      const at = label.toLowerCase().lastIndexOf(" at ");
+      if (at >= 0) label = label.slice(at + 4).trim();
+    }
+    label = label?.replace(/\.$/, "").trim();
     if (label && !/^the bundle\b/i.test(label)) return label;
   }
   return null;

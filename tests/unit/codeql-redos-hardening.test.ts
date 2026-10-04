@@ -16,6 +16,9 @@ import { describe, expect, it } from "vitest";
 import { listingGeocodeQuery } from "@/lib/geocode-address";
 import { extractPropertyIdHint, extractPropertyLabelHint } from "@/lib/claw-leasing-links";
 import { htmlToBlocks } from "@/lib/reports/export/document-pdf";
+import { slugifyWorkspaceBrowseSlug } from "@/lib/workspace-browse-slug";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { validateRentalWizardStep } from "@/lib/rental-application/validate";
 // @ts-expect-error — plain .mjs diagnostic script, no type declarations.
 import { isAppleRedirectHost } from "../../scripts/diagnose-apple-web-oauth.mjs";
 
@@ -83,6 +86,21 @@ describe("leasing extractPropertyLabelHint — label-capture ReDoS", () => {
     expect(extractPropertyLabelHint("I'm interested in Willow Flats.")).toBe("Willow Flats");
   });
 
+  it("still takes the label after ' at ' for the X-at-Y shapes", () => {
+    // These used to be their own `apply for .+? at` / `question about .+? at`
+    // patterns; the lazy wildcard is gone and the split happens on the label.
+    expect(extractPropertyLabelHint("I'd like to apply for a room at Maple Court.")).toBe(
+      "Maple Court",
+    );
+    expect(extractPropertyLabelHint("Question about the studio at Cedar Lofts")).toBe(
+      "Cedar Lofts",
+    );
+    expect(extractPropertyLabelHint("I'd like to apply for a room bundle at Birch Place.")).toBe(
+      "Birch Place",
+    );
+    expect(extractPropertyLabelHint("no cta here")).toBeNull();
+  });
+
   it("runs in linear time on a long trailing whitespace run", () => {
     const pathological = `apply for Cedar${" ".repeat(60_000)}`;
     expectFast(() => extractPropertyLabelHint(pathological));
@@ -121,5 +139,39 @@ describe("Apple OAuth redirect host allowlist", () => {
     expect(isAppleRedirectHost("http://appleid.apple.com@evil.com/")).toBe(false);
     expect(isAppleRedirectHost(null)).toBe(false);
     expect(isAppleRedirectHost("not a url")).toBe(false);
+  });
+});
+
+describe("workspace browse slug — trim-run ReDoS", () => {
+  it("slugifies exactly as before", () => {
+    expect(slugifyWorkspaceBrowseSlug("Axis Housing — Seattle!")).toBe("axis-housing-seattle");
+    expect(slugifyWorkspaceBrowseSlug("  ///Pioneer Square///  ")).toBe("pioneer-square");
+    expect(slugifyWorkspaceBrowseSlug("")).toBe("workspace");
+    expect(slugifyWorkspaceBrowseSlug("---")).toBe("");
+  });
+
+  it("runs in linear time on a long separator run", () => {
+    expectFast(() => slugifyWorkspaceBrowseSlug(`Axis${"-".repeat(60_000)}`));
+  });
+});
+
+describe("rental application entered money — leading-whitespace ReDoS", () => {
+  const monthlyIncomeError = (monthlyIncome: string): string | undefined =>
+    validateRentalWizardStep(6, {
+      ...createInitialRentalWizardState(),
+      notEmployed: true,
+      monthlyIncome,
+    }).monthlyIncome;
+
+  it("accepts and rejects the same amounts as before", () => {
+    expect(monthlyIncomeError("  $ 1,200.50  ")).toBeUndefined();
+    expect(monthlyIncomeError("3200")).toBeUndefined();
+    expect(monthlyIncomeError("$4,000")).toBeUndefined();
+    expect(monthlyIncomeError("12,34")).toBeDefined();
+    expect(monthlyIncomeError("1200.567")).toBeDefined();
+  });
+
+  it("runs in linear time on a long leading whitespace run", () => {
+    expectFast(() => monthlyIncomeError(`${"\t".repeat(60_000)}x`));
   });
 });

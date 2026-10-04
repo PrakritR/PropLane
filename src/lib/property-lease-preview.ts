@@ -388,16 +388,20 @@ export function buildPropertyLeasePreview(
 }
 
 export function stripLeaseHtmlToPlainText(html: string): string {
+  // `<\/script\s*>` matches the `</script >` form a bare `<\/script>` missed
+  // (CodeQL js/bad-tag-filter); `<[^>]*>?` also drops an unterminated `<script`
+  // (js/incomplete-multi-character-sanitization); and `&amp;` is decoded last so
+  // `&amp;lt;` cannot become a real `<` (js/double-escaping).
   return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/<style[\s\S]*?<\/style\s*>/gi, "")
+    .replace(/<[^>]*>?/g, " ")
     .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -15,7 +15,9 @@ import { CHANNEL_STAY_TOMBSTONE_RECORD_TYPE } from "@/lib/portal-schedule-record
 
 /** Record id is a hash of the identity so a retried Remove is the same row, never a second one. */
 export function channelStayTombstoneRecordId(key: string): string {
-  return `axis_channel_tombstone_${createHash("sha1").update(key).digest("hex")}`;
+  // sha256, not sha1: the key carries the guest-facing source uid, and sha1 is a
+  // broken digest (CodeQL js/weak-cryptographic-algorithm).
+  return `axis_channel_tombstone_${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
 }
 
 function parseTombstoneRow(rowData: unknown): ChannelStayTombstone | null {

@@ -619,7 +619,7 @@ describe("schedule_message", () => {
 
     expect(tables.audit_log).toHaveLength(1);
     expect(String(tables.audit_log[0]!.dedupe_key)).toMatch(
-      new RegExp(`^schedule_message:manager_a:pat@x\\.com:${FUTURE.replace(/[.+]/g, "\\$&")}:[0-9a-f]{8}$`),
+      new RegExp(`^schedule_message:manager_a:pat@x\\.com:${FUTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:[0-9a-f]{8}$`),
     );
 
     // Same recipient + time + subject => already scheduled, no second row.

@@ -27,6 +27,14 @@ export function PromotionPostPreview({ draft, options }: { draft: PromotionDraft
   </article>;
 }
 
+/**
+ * `URL.createObjectURL` always hands back `blob:<origin>/<uuid>`, but the value
+ * still carries the picked file as its taint source, so pin it to that shape
+ * before it reaches an `src` / `href` / `data` attribute. Fully anchored over a
+ * charset with no HTML meta-characters (CodeQL js/xss-through-dom).
+ */
+const OBJECT_URL_RE = /^blob:[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+$/;
+
 /** Preview the selected local file, never a fabricated marketing image. */
 export function PromotionUploadPreview({ file }: { file: File | null }) {
   const [source, setSource] = useState<{ file: File; url: string } | null>(null);
@@ -36,7 +44,7 @@ export function PromotionUploadPreview({ file }: { file: File | null }) {
     setSource({ file, url });
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  const url = source?.file === file ? source.url : null;
+  const url = source?.file === file && OBJECT_URL_RE.test(source.url) ? source.url : null;
   if (!file) return <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">Choose a file</div>;
   return <article className="overflow-hidden rounded-xl border border-border bg-card" data-attr="promotion-upload-preview">
     <p className="break-words border-b border-border px-4 py-3 text-sm font-semibold">{file.name}</p>
