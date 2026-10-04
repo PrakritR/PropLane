@@ -295,7 +295,8 @@ describe("CalendarEmptyStrip (C2-CALP6)", () => {
     expect(screen.getByText("Nothing scheduled this week")).toBeTruthy();
     fireEvent.click(screen.getByText("Next: Renew umbrella insurance · Mon, Oct 5"));
     expect(onJump).toHaveBeenCalledWith("2026-10-05");
-    expect(screen.getByText("add")).toBeTruthy();
+    // The header + is the calendar's only create action; the strip never draws a second one.
+    expect(screen.queryByText("add")).toBeNull();
   });
 });
 
