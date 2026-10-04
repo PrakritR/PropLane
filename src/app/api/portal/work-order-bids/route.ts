@@ -5,6 +5,9 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import {
   acceptWorkOrderBid,
+  completeEstimateVisit,
+  giveWorkOrderEstimate,
+  removeVendorRequest,
   scheduleWorkOrderConsultation,
   submitWorkOrderBid,
   withdrawWorkOrderBid,
@@ -33,6 +36,11 @@ type BidJson = {
   status: "submitted" | "accepted" | "declined";
   createdAt: string;
   updatedAt: string;
+  estimateCents: number | null;
+  estimateGivenAt: string | null;
+  bidSubmittedAt: string | null;
+  estimateVisitFeeCents: number;
+  estimateVisitDoneAt: string | null;
 };
 
 async function sessionActor(db: Db) {
@@ -72,6 +80,11 @@ function toJson(bid: BidRecord, vendors: Map<string, { name: string; email: stri
     status: bid.status,
     createdAt: bid.created_at,
     updatedAt: bid.updated_at,
+    estimateCents: bid.estimate_cents ?? null,
+    estimateGivenAt: bid.estimate_given_at ?? null,
+    bidSubmittedAt: bid.bid_submitted_at ?? null,
+    estimateVisitFeeCents: bid.estimate_visit_fee_cents ?? 0,
+    estimateVisitDoneAt: bid.estimate_visit_done_at ?? null,
   };
 }
 
@@ -111,8 +124,26 @@ export async function POST(req: Request) {
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json().catch(() => ({}))) as {
-      action?: "submit" | "accept" | "schedule_consultation" | "withdraw";
+      /**
+       * Vendor: give_estimate | book_estimate_visit | complete_estimate_visit | submit_bid | withdraw.
+       * Manager: approve_bid | remove_request. (`submit`, `accept` and `schedule_consultation` are the
+       * original names, kept as aliases.)
+       */
+      action?:
+        | "give_estimate"
+        | "book_estimate_visit"
+        | "complete_estimate_visit"
+        | "submit_bid"
+        | "approve_bid"
+        | "remove_request"
+        | "submit"
+        | "accept"
+        | "schedule_consultation"
+        | "withdraw";
       workOrderId?: string;
+      estimateCents?: number;
+      visitFeeCents?: number;
+      offerId?: string;
       amountCents?: number;
       materialsCents?: number;
       proposedTime?: string;
@@ -122,17 +153,32 @@ export async function POST(req: Request) {
       consultationVisitAt?: string;
     };
 
-    if (body.action === "accept") {
+    if (body.action === "give_estimate") {
+      const result = await giveWorkOrderEstimate(db, actor, body);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "complete_estimate_visit") {
+      const result = await completeEstimateVisit(db, actor, body);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true, feeCents: result.feeCents });
+    }
+    if (body.action === "remove_request") {
+      const result = await removeVendorRequest(db, actor, body);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "accept" || body.action === "approve_bid") {
       const result = await acceptWorkOrderBid(db, actor, body);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
-    if (body.action === "submit") {
+    if (body.action === "submit" || body.action === "submit_bid") {
       const result = await submitWorkOrderBid(db, actor, body);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
-    if (body.action === "schedule_consultation") {
+    if (body.action === "schedule_consultation" || body.action === "book_estimate_visit") {
       const result = await scheduleWorkOrderConsultation(db, actor, body);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true, consultationVisitAt: result.consultationVisitAt });

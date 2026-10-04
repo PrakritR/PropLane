@@ -8,6 +8,7 @@ import { portalSessionViewerId, onPortalSessionViewerChange } from "@/lib/auth/p
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { serviceIsVendorPayable } from "@/lib/work-order-bid-cycle";
 
 export type ManagerExpenseSnapshot = {
   id: string;
@@ -201,10 +202,71 @@ export async function syncManagerOutgoingExpensesFromServer(force = false): Prom
   return entry.refresher.run(force);
 }
 
+/**
+ * One estimate-visit fee owed (or paid) to a vendor. Derived from a bid row whose visit the vendor
+ * marked done; the amount is the fee stored on that bid, never typed by the manager.
+ */
+export type VisitFeeSnapshot = {
+  bidId: string;
+  workOrderId: string;
+  vendorId?: string;
+  vendorName?: string;
+  feeCents: number;
+  /** `estimate_visit_done_at` - the fee is not payable before this is set. */
+  visitDoneAt: string | null | undefined;
+  /** Set once the fee invoice is paid. */
+  paidAt?: string | null;
+};
+
+/**
+ * The fee rows: one per bid, only after the visit happened, only for a positive fee. Idempotent -
+ * the same bid listed twice still yields one row. Fee rows carry no `workOrderId` so they can never
+ * be routed into the job's Approve & pay.
+ */
+export function buildVisitFeeOutgoingRows(
+  fees: readonly VisitFeeSnapshot[],
+  workOrders: readonly DemoManagerWorkOrderRow[],
+  propertyLabelById: Map<string, string> = new Map(),
+): DemoManagerOutgoingPaymentRow[] {
+  const workOrderById = new Map(workOrders.map((workOrder) => [workOrder.id, workOrder]));
+  const seen = new Set<string>();
+  const rows: DemoManagerOutgoingPaymentRow[] = [];
+  for (const fee of fees) {
+    if (seen.has(fee.bidId)) continue;
+    if (!fee.visitDoneAt || !Number.isSafeInteger(fee.feeCents) || fee.feeCents <= 0) continue;
+    seen.add(fee.bidId);
+    const workOrder = workOrderById.get(fee.workOrderId);
+    const propertyId = workOrder?.assignedPropertyId?.trim() || workOrder?.propertyId?.trim() || undefined;
+    const paid = Boolean(fee.paidAt);
+    const dateIso = (paid ? fee.paidAt : fee.visitDoneAt) ?? undefined;
+    rows.push({
+      id: `visit-fee-${fee.bidId}`,
+      kind: "visit-fee",
+      visitFeeBidId: fee.bidId,
+      serviceId: fee.workOrderId,
+      propertyId,
+      propertyName: (propertyId && propertyLabelById.get(propertyId)) || workOrder?.propertyName || "Portfolio",
+      categoryLabel: "Estimate visit",
+      payeeLabel: fee.vendorName?.trim() || "Vendor",
+      chargeTitle: workOrder?.title ? `${workOrder.title} · estimate visit` : "Estimate visit",
+      amountLabel: formatMoney(fee.feeCents),
+      amountCents: fee.feeCents,
+      dueDate: dueDateLabelFromIso(dateIso),
+      dueDateSortMs: dueDateMsFromIso(dateIso),
+      bucket: paid ? "paid" : "pending",
+      statusLabel: paid ? "Paid" : "Awaiting approval",
+      vendorId: fee.vendorId,
+    });
+  }
+  return rows;
+}
+
 export function buildManagerOutgoingPaymentRows(input: {
   managerUserId: string | null;
   expenses: ManagerExpenseSnapshot[];
   workOrders?: DemoManagerWorkOrderRow[];
+  /** Estimate-visit fees owed to vendors, built separately from the job payout. */
+  visitFees?: readonly VisitFeeSnapshot[];
   propertyLabelById?: Map<string, string>;
   vendorNameById?: Map<string, string>;
   vendorById?: Map<string, ManagerVendorRow>;
@@ -257,6 +319,8 @@ export function buildManagerOutgoingPaymentRows(input: {
 
   for (const workOrder of workOrders) {
     if (input.managerUserId && workOrder.managerUserId && workOrder.managerUserId !== input.managerUserId) continue;
+    // Only an assigned vendor's job is payable: yourself and teammates never create an outgoing row.
+    if (!serviceIsVendorPayable(workOrder)) continue;
     const bucket = workOrderBucket(workOrder);
     if (!bucket || bucket === "paid") continue;
     if (workOrderExpenseIds.has(workOrder.id)) continue;
@@ -286,6 +350,7 @@ export function buildManagerOutgoingPaymentRows(input: {
   for (const workOrder of workOrders) {
     if (input.managerUserId && workOrder.managerUserId && workOrder.managerUserId !== input.managerUserId) continue;
     if (workOrder.automationStatus !== "paid") continue;
+    if (!serviceIsVendorPayable(workOrder)) continue;
     if (workOrderExpenseIds.has(workOrder.id)) continue;
     const amountCents = workOrderAmountCents(workOrder);
     const vendor = workOrder.vendorId ? vendorById.get(workOrder.vendorId) : undefined;
@@ -313,6 +378,8 @@ export function buildManagerOutgoingPaymentRows(input: {
     };
     rows.push(enrichOutgoingRowWithVendorPayments(baseRow, vendor));
   }
+
+  rows.push(...buildVisitFeeOutgoingRows(input.visitFees ?? [], workOrders, propertyLabelById));
 
   // No manager-side processing-cost rows here. On Free/Business (and Pro when the
   // resident pays) the manager receives the full charge amount. When a Pro manager

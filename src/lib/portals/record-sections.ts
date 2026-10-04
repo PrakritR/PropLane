@@ -481,16 +481,18 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   service: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Vendor & schedule · Photos ·
-    // Payments · Communication. "Vendor & bids" and "Schedule" merge into one
-    // section; "Invoice" folds into Payments (a service's invoice IS its charge).
+    // Service · Vendor & schedule · (Linked) Incoming payments · Outgoing payments · Communication.
+    // The old Overview and Photos are one Service tab (the resident's photos are a strip inside it);
+    // Payments split into what the resident pays in and what the manager pays vendors out.
     ownGroups: [
       { label: "Service", ids: [
-        { id: "overview", label: "Overview" },
+        { id: "service", label: "Service" },
         { id: "vendor-schedule", label: "Vendor & schedule" },
-        { id: "photos", label: "Photos" },
       ] },
-      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
+      { label: "Linked", ids: [
+        { id: "incoming-payments", label: "Incoming payments" },
+        { id: "outgoing-payments", label: "Outgoing payments" },
+      ] },
     ],
     headerActions: [
       { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
@@ -505,14 +507,13 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       "vendor-schedule": [
         { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
         { id: "propose-time", label: "Propose a time", icon: Calendar },
-        { id: "invite-vendor", label: "Invite another vendor", icon: Mail },
+        { id: "invite-vendor", label: "Request bids", icon: Mail },
       ],
-      photos: [
-        { id: "add-photos", label: "Add photos", icon: Camera },
-        { id: "download-all", label: "Download all", icon: Download },
-      ],
-      payments: [
+      "incoming-payments": [
         { id: "add-charge", label: "Add charge", icon: Plus },
+        { id: "export", label: "Export", icon: Download },
+      ],
+      "outgoing-payments": [
         { id: "export", label: "Export", icon: Download },
       ],
       communication: [

@@ -111,6 +111,80 @@ describe("buildManagerOutgoingPaymentRows", () => {
   });
 });
 
+const doneWorkOrder = (over: Partial<DemoManagerWorkOrderRow> = {}): DemoManagerWorkOrderRow => ({
+  id: "wo-x",
+  propertyName: "Magnolia House",
+  unit: "Room 1",
+  title: "Leaky faucet",
+  priority: "Medium",
+  status: "Completed",
+  bucket: "completed",
+  description: "",
+  scheduled: "—",
+  cost: "$200.00",
+  vendorName: "Rainier Plumbing",
+  vendorId: "vendor-1",
+  vendorCostCents: 20000,
+  automationStatus: "vendor_marked_done",
+  vendorMarkedDoneAt: new Date().toISOString(),
+  ...over,
+});
+
+describe("outgoing rows follow the vendor cycle", () => {
+  it("creates no outgoing row for work you or a teammate did", () => {
+    const rows = buildManagerOutgoingPaymentRows({
+      managerUserId: "mgr-1",
+      expenses: [],
+      workOrders: [
+        doneWorkOrder({ id: "self", selfAssigned: true, vendorId: undefined, vendorName: undefined }),
+        doneWorkOrder({ id: "team", vendorId: undefined, vendorName: undefined, assignee: { type: "team", id: "co-1", name: "Co" } }),
+        doneWorkOrder({ id: "paid-self", selfAssigned: true, automationStatus: "paid", paidAt: "2026-06-02T12:00:00.000Z" }),
+        doneWorkOrder({ id: "vendor" }),
+      ],
+    });
+    expect(rows.map((row) => row.workOrderId)).toEqual(["vendor"]);
+  });
+
+  it("creates no outgoing row before the vendor marks the service done (an estimate is never payable)", () => {
+    const rows = buildManagerOutgoingPaymentRows({
+      managerUserId: "mgr-1",
+      expenses: [],
+      workOrders: [doneWorkOrder({ bucket: "scheduled", status: "Scheduled", automationStatus: undefined, vendorMarkedDoneAt: undefined })],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("adds a visit-fee row only after the visit happened, only for a positive fee, and only once per bid", () => {
+    const wo = doneWorkOrder({ id: "wo-fee", automationStatus: undefined, vendorMarkedDoneAt: undefined, bucket: "scheduled" });
+    const base = { bidId: "bid-1", workOrderId: "wo-fee", vendorName: "Rainier Plumbing", feeCents: 4000 };
+    const build = (visitFees: Parameters<typeof buildManagerOutgoingPaymentRows>[0]["visitFees"]) =>
+      buildManagerOutgoingPaymentRows({ managerUserId: "mgr-1", expenses: [], workOrders: [wo], visitFees }).filter((row) => row.kind === "visit-fee");
+
+    expect(build([{ ...base, visitDoneAt: null }])).toEqual([]);
+    expect(build([{ ...base, visitDoneAt: "2026-10-05T18:00:00.000Z", feeCents: 0 }])).toEqual([]);
+    const once = build([
+      { ...base, visitDoneAt: "2026-10-05T18:00:00.000Z" },
+      { ...base, visitDoneAt: "2026-10-05T18:00:00.000Z" },
+    ]);
+    expect(once).toHaveLength(1);
+    expect(once[0]).toMatchObject({ id: "visit-fee-bid-1", amountCents: 4000, bucket: "pending", serviceId: "wo-fee" });
+    // Never routed into the job's own Approve & pay.
+    expect(once[0]!.workOrderId).toBeUndefined();
+    const paid = build([{ ...base, visitDoneAt: "2026-10-05T18:00:00.000Z", paidAt: "2026-10-06T10:00:00.000Z" }]);
+    expect(paid[0]).toMatchObject({ bucket: "paid", statusLabel: "Paid" });
+  });
+
+  it("keeps the visit fee and the job payout as two separate rows", () => {
+    const rows = buildManagerOutgoingPaymentRows({
+      managerUserId: "mgr-1",
+      expenses: [],
+      workOrders: [doneWorkOrder({ id: "wo-both" })],
+      visitFees: [{ bidId: "bid-9", workOrderId: "wo-both", feeCents: 4000, visitDoneAt: "2026-10-05T18:00:00.000Z" }],
+    });
+    expect(rows.map((row) => row.id).sort()).toEqual(["visit-fee-bid-9", "work-order-wo-both"]);
+  });
+});
+
 describe("deleteManagerOutgoingExpense", () => {
   beforeEach(() => {
     window.sessionStorage.clear();

@@ -1,9 +1,12 @@
 import type { VendorInvoice } from "@/lib/vendor-invoices";
+import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 
 export type OutgoingInvoice = VendorInvoice & { vendorUserId: string; vendorName: string; serviceTitle?: string; propertyName?: string };
 /** Historical payments stay visible even after a service is reassigned. */
-export function invoiceBelongsInOutgoing(invoice: Pick<OutgoingInvoice, "status" | "workOrderId" | "vendorUserId">, assignedVendorUserId: string | null): boolean {
+export function invoiceBelongsInOutgoing(invoice: Pick<OutgoingInvoice, "status" | "workOrderId" | "vendorUserId"> & { invoiceNumber?: string | null }, assignedVendorUserId: string | null): boolean {
   if (invoice.status === "paid") return true;
+  // An estimate-visit fee is owed whether or not that vendor was the one hired.
+  if (isVisitFeeInvoiceNumber(invoice.invoiceNumber)) return invoice.status === "approved" || invoice.status === "scheduled";
   return (invoice.status === "approved" || invoice.status === "scheduled") &&
     Boolean(invoice.workOrderId && assignedVendorUserId && assignedVendorUserId === invoice.vendorUserId);
 }

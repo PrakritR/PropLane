@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 import { resolveOwnVendorRecords } from "@/lib/vendor-own-record";
+import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { insertVendorInvoiceRow, type PreparedVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 
 async function workOrderInvoiceTotalCents(
@@ -46,11 +47,13 @@ export async function ensureSubmittedVendorInvoiceForMarkedDone(
   if (input.row.selfAssigned || assignee?.kind === "team") return;
   if (!input.vendorUserId) return;
 
-  const { data: existing } = await db
+  // The job invoice only: an estimate-visit fee invoice (VISIT-<bid id>) on the same service is a
+  // different bill and must neither satisfy nor break this check.
+  const { data: existingRows } = await db
     .from("vendor_invoices")
-    .select("id, status")
-    .eq("work_order_id", input.workOrderId)
-    .maybeSingle();
+    .select("id, status, invoice_number")
+    .eq("work_order_id", input.workOrderId);
+  const existing = (existingRows ?? []).find((invoice) => !isVisitFeeInvoiceNumber((invoice as { invoice_number?: string | null }).invoice_number));
   if (existing && existing.status !== "rejected") return;
 
   const totalCents = await workOrderInvoiceTotalCents(db, input.workOrderId, input.row);

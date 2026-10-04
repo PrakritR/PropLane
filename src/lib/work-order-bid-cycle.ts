@@ -1,0 +1,231 @@
+/**
+ * The vendor-bid cycle as pure functions (docs/agents/vendor-portal.md § Estimate vs bid).
+ *
+ *   Pending -> Bids requested (several vendors) -> estimate and/or estimate visit ->
+ *   bid submitted -> manager approves ONE bid -> Scheduled -> Completed -> Paid
+ *
+ * An ESTIMATE is a rough price; it is never approvable and never a payment. A BID is the real
+ * price plus a time and is the only thing a manager can approve. Server and UI both read the
+ * same predicates here so the two cannot disagree about what "has a bid" means.
+ */
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import type { WorkOrderBid } from "@/lib/work-order-bids";
+import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
+import { resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
+
+export {
+  MAX_ESTIMATE_VISIT_FEE_CENTS,
+  VISIT_FEE_INVOICE_PREFIX,
+  isVisitFeeInvoiceNumber,
+  parseVisitFeeCents,
+  visitFeeInvoiceNumber,
+} from "@/lib/work-order-visit-fee";
+
+export { bidCanBeApproved, type BidApprovalFacts } from "@/lib/work-order-bid-approval";
+import { bidCanBeApproved, type BidApprovalFacts } from "@/lib/work-order-bid-approval";
+
+/** Client bids from before the estimate columns existed carry a price but no stamp; the price is the bid. */
+export function clientBidApprovalFacts(bid: WorkOrderBid): BidApprovalFacts {
+  return {
+    status: bid.status,
+    amountCents: bid.amountCents,
+    bidSubmittedAt: bid.bidSubmittedAt ?? (bid.amountCents != null ? bid.updatedAt : null),
+  };
+}
+
+export type VendorRequestState =
+  | "requested"
+  | "estimate"
+  | "visit_booked"
+  | "visit_done"
+  | "bid"
+  | "approved"
+  | "declined";
+
+export type VendorRequestRow = {
+  key: string;
+  vendorDirectoryId: string | null;
+  vendorUserId: string | null;
+  vendorName: string;
+  offerId: string | null;
+  bidId: string | null;
+  state: VendorRequestState;
+  estimateCents: number | null;
+  visitAt: string | null;
+  visitFeeCents: number;
+  visitDone: boolean;
+  bidAmountCents: number | null;
+  bidMaterialsCents: number;
+  bidTotalCents: number | null;
+  proposedTime: string | null;
+  note: string | null;
+  canApprove: boolean;
+};
+
+function stateOfBid(bid: WorkOrderBid): VendorRequestState {
+  if (bid.status === "accepted") return "approved";
+  if (bid.status === "declined") return "declined";
+  if (bidCanBeApproved(clientBidApprovalFacts(bid))) return "bid";
+  if (bid.consultationVisitAt) return bid.estimateVisitDoneAt ? "visit_done" : "visit_booked";
+  if (bid.estimateCents != null) return "estimate";
+  return "requested";
+}
+
+/**
+ * One row per requested vendor: every bid row, plus every still-open offer that has no bid yet.
+ * A vendor-declined offer reads as declined; a manager-withdrawn offer is not a row at all.
+ */
+export function deriveVendorRequestRows(
+  bids: readonly WorkOrderBid[],
+  offers: readonly WorkOrderVendorOffer[],
+): VendorRequestRow[] {
+  const rows: VendorRequestRow[] = [];
+  const seenVendors = new Set<string>();
+  for (const bid of bids) {
+    const state = stateOfBid(bid);
+    if (bid.vendorDirectoryId) seenVendors.add(bid.vendorDirectoryId);
+    const offer = offers.find(
+      (o) => (bid.vendorDirectoryId && o.vendorDirectoryId === bid.vendorDirectoryId) || (o.vendorUserId && o.vendorUserId === bid.vendorUserId),
+    );
+    const total = bid.amountCents != null ? bid.amountCents + bid.materialsCents : null;
+    rows.push({
+      key: `bid-${bid.id}`,
+      vendorDirectoryId: bid.vendorDirectoryId,
+      vendorUserId: bid.vendorUserId,
+      vendorName: bid.vendorName?.trim() || offer?.vendorName?.trim() || "Vendor",
+      offerId: offer?.id ?? null,
+      bidId: bid.id,
+      state,
+      estimateCents: bid.estimateCents ?? null,
+      visitAt: bid.consultationVisitAt,
+      visitFeeCents: bid.estimateVisitFeeCents ?? 0,
+      visitDone: Boolean(bid.estimateVisitDoneAt),
+      bidAmountCents: bid.amountCents,
+      bidMaterialsCents: bid.materialsCents,
+      bidTotalCents: total,
+      proposedTime: bid.proposedTime,
+      note: bid.note,
+      canApprove: state === "bid",
+    });
+  }
+  for (const offer of offers) {
+    if (offer.status === "withdrawn") continue;
+    if (seenVendors.has(offer.vendorDirectoryId)) continue;
+    if (offer.vendorUserId && bids.some((b) => b.vendorUserId === offer.vendorUserId)) continue;
+    rows.push({
+      key: `offer-${offer.id}`,
+      vendorDirectoryId: offer.vendorDirectoryId,
+      vendorUserId: offer.vendorUserId,
+      vendorName: offer.vendorName?.trim() || "Vendor",
+      offerId: offer.id,
+      bidId: null,
+      state: offer.status === "declined" ? "declined" : "requested",
+      estimateCents: null,
+      visitAt: null,
+      visitFeeCents: 0,
+      visitDone: false,
+      bidAmountCents: null,
+      bidMaterialsCents: 0,
+      bidTotalCents: null,
+      proposedTime: null,
+      note: offer.declinedReason ?? null,
+      canApprove: false,
+    });
+  }
+  return rows;
+}
+
+export type ServiceStageId = "pending" | "requested" | "approved" | "scheduled" | "completed" | "paid";
+export type ServiceStage = { id: ServiceStageId; label: string; state: "done" | "current" | "todo" };
+
+const STAGE_LABEL: Record<ServiceStageId, string> = {
+  pending: "Pending",
+  requested: "Bids requested",
+  approved: "Bid approved",
+  scheduled: "Scheduled",
+  completed: "Completed",
+  paid: "Paid",
+};
+
+/**
+ * The stage bar, derived from server data only (never a stored stage). A service that goes
+ * straight to a vendor/teammate/yourself skips the two bid stages; one that never involves a
+ * vendor drops Paid, since self and team work creates no outgoing payment.
+ */
+export function deriveServiceStages(
+  row: DemoManagerWorkOrderRow,
+  data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
+): { stages: ServiceStage[]; currentId: ServiceStageId } {
+  const assignee = resolveWorkOrderAssignee(row);
+  const anyBid = data.bids.length > 0;
+  const anyOpenOffer = data.offers.some((o) => o.status === "sent");
+  const biddingTouched = Boolean(row.biddingOpen || row.biddingResolvedAt) || anyBid || anyOpenOffer || data.offers.length > 0;
+  const approvedBid = data.bids.some((b) => b.status === "accepted");
+  const bidFlow = biddingTouched;
+  const paid = row.automationStatus === "paid";
+  const completed = row.bucket === "completed" || row.automationStatus === "vendor_marked_done" || paid;
+  const scheduled = row.bucket === "scheduled" || Boolean(row.scheduledAtIso) || completed;
+  const vendorJob = assignee?.kind === "vendor" || (!assignee && bidFlow);
+
+  const ids: ServiceStageId[] = ["pending"];
+  if (bidFlow) ids.push("requested", "approved");
+  ids.push("scheduled", "completed");
+  if (vendorJob) ids.push("paid");
+
+  let currentId: ServiceStageId = "pending";
+  if (paid) currentId = "paid";
+  else if (completed) currentId = "completed";
+  else if (scheduled) currentId = "scheduled";
+  else if (bidFlow && (approvedBid || (assignee?.kind === "vendor" && row.biddingResolvedAt))) currentId = "approved";
+  else if (bidFlow && (row.biddingOpen || anyBid || anyOpenOffer)) currentId = "requested";
+  if (!ids.includes(currentId)) currentId = ids[ids.length - 1]!;
+
+  const currentIdx = ids.indexOf(currentId);
+  const stages = ids.map((id, idx): ServiceStage => ({
+    id,
+    label: STAGE_LABEL[id],
+    state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo",
+  }));
+  return { stages, currentId };
+}
+
+/** Self or team work is never paid through PropLane; only an assigned vendor's job can be. */
+export function serviceIsVendorPayable(row: DemoManagerWorkOrderRow): boolean {
+  if (row.selfAssigned) return false;
+  const assignee = resolveWorkOrderAssignee(row);
+  return assignee?.kind === "vendor";
+}
+
+export type VendorReplyChoice =
+  | "give_estimate"
+  | "book_estimate_visit"
+  | "submit_bid"
+  | "complete_estimate_visit"
+  | "decline"
+  | "cant_do_it";
+
+/**
+ * What a vendor can answer, given where their row stands:
+ *  - fresh: Give estimate · Book estimate visit · Submit bid · Decline
+ *  - estimate given: Submit bid · Book estimate visit · Decline
+ *  - visit booked: Mark visit done · Submit bid · Can't do it
+ *  - visit done: Submit bid · Can't do it
+ * "Decline" answers an offer with no row yet; "Can't do it" withdraws a row that exists.
+ */
+export function vendorReplyChoices(bid: WorkOrderBid | undefined): Array<{ value: VendorReplyChoice; label: string }> {
+  const labels: Record<VendorReplyChoice, string> = {
+    give_estimate: "Give estimate",
+    book_estimate_visit: "Book estimate visit",
+    submit_bid: "Submit bid",
+    complete_estimate_visit: "Mark visit done",
+    decline: "Decline",
+    cant_do_it: "Can't do it",
+  };
+  let values: VendorReplyChoice[];
+  if (!bid) values = ["give_estimate", "book_estimate_visit", "submit_bid", "decline"];
+  else if (bid.consultationVisitAt && bid.estimateVisitDoneAt) values = ["submit_bid", "cant_do_it"];
+  else if (bid.consultationVisitAt) values = ["complete_estimate_visit", "submit_bid", "cant_do_it"];
+  else if (bid.estimateCents != null && bid.amountCents == null) values = ["submit_bid", "book_estimate_visit", "cant_do_it"];
+  else values = ["give_estimate", "book_estimate_visit", "submit_bid", "cant_do_it"];
+  return values.map((value) => ({ value, label: labels[value] }));
+}

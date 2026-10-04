@@ -233,6 +233,12 @@ export type DemoManagerOutgoingPaymentRow = {
   achAvailable?: boolean;
   paidViaChannel?: "ach" | "balance";
   paidAtLabel?: string;
+  /** "visit-fee" = an estimate-visit fee owed to a vendor (its own payment, never part of the job payout). */
+  kind?: "job" | "visit-fee";
+  /** The bid a visit-fee row bills; one fee row per bid. */
+  visitFeeBidId?: string;
+  /** The service a row belongs to (set on visit-fee rows, which deliberately carry no `workOrderId`). */
+  serviceId?: string;
 };
 
 export const demoManagerPaymentLedgerRows: DemoManagerPaymentLedgerRow[] = [];

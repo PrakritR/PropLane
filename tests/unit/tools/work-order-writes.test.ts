@@ -543,6 +543,7 @@ describe("accept_bid", () => {
         vendor_directory_id: "v1",
         amount_cents: 40000,
         materials_cents: 2500,
+        bid_submitted_at: "2026-10-02T00:00:00.000Z",
         status: "submitted",
       },
       {
@@ -553,6 +554,7 @@ describe("accept_bid", () => {
         vendor_directory_id: "v2",
         amount_cents: 55000,
         materials_cents: 0,
+        bid_submitted_at: "2026-10-02T00:00:00.000Z",
         status: "submitted",
       },
       // Foreign landlord's bid — must be invisible and unactionable.

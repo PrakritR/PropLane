@@ -1308,26 +1308,30 @@ export function serviceRequestListHref(basePath: string, bucket: ServiceRequestB
  * orders since both route through the one Services rail.
  */
 /**
- * PLAN-0921-1029, area 2: trimmed to Overview · Vendor & schedule · Photos ·
- * Payments · Communication. "vendor-bids" and "schedule" merge into one
- * "vendor-schedule" section; "invoice" folds into the Payments section
- * (a service's invoice IS its charge).
+ * A service record's rail: Service · Vendor & schedule · (Linked) Incoming payments · Outgoing
+ * payments · Communication. Incoming = what the resident is charged for the service; Outgoing =
+ * what the manager pays vendors for it. The old Overview and Photos tabs are the Service tab now
+ * (the resident's photos render inside it), and Payments is Incoming payments - every old link
+ * keeps resolving through the aliases below.
  */
 export const SERVICE_DETAIL_TABS = [
-  "overview",
+  "service",
   "vendor-schedule",
-  "photos",
-  "payments",
+  "incoming-payments",
+  "outgoing-payments",
   "communication",
 ] as const;
 export type ServiceDetailTabId = (typeof SERVICE_DETAIL_TABS)[number];
-export const DEFAULT_SERVICE_DETAIL_TAB: ServiceDetailTabId = "overview";
+export const DEFAULT_SERVICE_DETAIL_TAB: ServiceDetailTabId = "service";
 
 const SERVICE_DETAIL_TAB_ALIASES: Record<string, ServiceDetailTabId> = {
+  overview: "service",
+  photos: "service",
+  documents: "service",
   "vendor-bids": "vendor-schedule",
   schedule: "vendor-schedule",
-  invoice: "payments",
-  documents: "photos",
+  payments: "incoming-payments",
+  invoice: "incoming-payments",
 };
 
 export function parseServiceDetailTab(raw: string | undefined | null): ServiceDetailTabId {

@@ -953,14 +953,15 @@ export async function renderPortalSection(
           ? decodeURIComponent(tabParts[2]!)
           : undefined;
       // A service record's own rail tab (docs/agents/record-page.md).
-      const { parseServiceDetailTab } = await import("@/lib/portal-detail-routes");
+      const { parseServiceDetailTab, DEFAULT_SERVICE_DETAIL_TAB } = await import("@/lib/portal-detail-routes");
       const serviceDetailTabRaw = tabParts.length >= 4 ? tabParts[3]! : undefined;
       const serviceDetailTab =
         serviceRequestId || workOrderId ? parseServiceDetailTab(serviceDetailTabRaw) : undefined;
       if ((serviceRequestId || workOrderId) && serviceDetailTabRaw && serviceDetailTab !== serviceDetailTabRaw) {
-        redirect(
-          `${def.basePath}/services/${servicesTab}/${tabParts[1]}/${encodeURIComponent(tabParts[2]!)}/${serviceDetailTab}`,
-        );
+        // Old Overview / Photos / Payments links land on Service / Incoming payments; the default
+        // tab is the bare record URL, same as workOrderDetailHref builds it.
+        const recordPath = `${def.basePath}/services/${servicesTab}/${tabParts[1]}/${encodeURIComponent(tabParts[2]!)}`;
+        redirect(serviceDetailTab === DEFAULT_SERVICE_DETAIL_TAB ? recordPath : `${recordPath}/${serviceDetailTab}`);
       }
 
       const ManagerAllServicesPanel = await loadManagerAllServicesPanel();

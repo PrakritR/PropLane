@@ -1,9 +1,14 @@
 /**
- * Shared work-order bid logic (submit / schedule consultation / accept /
+ * Shared work-order bid logic (estimate / estimate visit / bid / approve /
  * set price / mark done), extracted from the API routes so the agent tool layer
  * calls the exact same code path as the manager/vendor UI — one implementation,
  * not two. Functions return plain results ({ ok } | { ok:false, status, error });
  * the routes map them onto NextResponse, the tools onto ExecuteResult.
+ *
+ * ESTIMATE vs BID (docs/agents/vendor-portal.md): `estimate_cents` is a rough price that can never
+ * be approved and never becomes a payment; only a row with `amount_cents` AND `bid_submitted_at`
+ * (a submitted bid) can be approved. An estimate visit may carry a fee the manager pays once
+ * `estimate_visit_done_at` is set - as its own vendor invoice, never inside the job payout.
  *
  * Invariant carried over from the routes: an accepted bid's amount_cents is the
  * immutable payout anchor. setVendorPriceForWorkOrder refuses (409) to touch an
@@ -23,6 +28,10 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
+import { bidCanBeApproved } from "@/lib/work-order-bid-approval";
+import { parseVisitFeeCents } from "@/lib/work-order-visit-fee";
+import { ensureVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
+import { safeFormatDateTime } from "@/lib/pacific-time";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -48,6 +57,11 @@ export type BidRecord = {
   status: "submitted" | "accepted" | "declined";
   created_at: string;
   updated_at: string;
+  estimate_cents: number | null;
+  estimate_given_at: string | null;
+  bid_submitted_at: string | null;
+  estimate_visit_fee_cents: number;
+  estimate_visit_done_at: string | null;
 };
 
 /** The acting session identity. `userId` is always the authenticated user (or the
@@ -147,15 +161,16 @@ async function resolveVendorWorkOrderAccess(
   if (!rowData.biddingOpen) {
     const { data: pendingBid } = await db
       .from("work_order_bids")
-      .select("quote_mode, amount_cents, consultation_visit_at, status")
+      .select("quote_mode, amount_cents, consultation_visit_at, estimate_cents, status")
       .eq("work_order_id", workOrderId)
       .eq("vendor_user_id", actor.userId)
       .maybeSingle();
+    // A vendor who already gave an estimate or booked a visit may still answer with a bid
+    // even if the manager has since closed the general bidding window.
     const pricingPending =
       pendingBid?.status === "submitted" &&
-      pendingBid.quote_mode === "after_consultation" &&
-      pendingBid.consultation_visit_at &&
-      pendingBid.amount_cents == null;
+      pendingBid.amount_cents == null &&
+      Boolean(pendingBid.consultation_visit_at || pendingBid.estimate_cents != null);
     if (!pricingPending) {
       return { ok: false, status: 400, error: "Bidding is not open for this service." };
     }
@@ -274,6 +289,7 @@ export async function submitWorkOrderBid(
     proposed_time: proposedDate.toISOString(),
     note: note || null,
     status: "submitted" as const,
+    bid_submitted_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
@@ -319,6 +335,30 @@ export async function withdrawWorkOrderBid(
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
   if (!access.ok) return access;
 
+  // "Can't do it" after a paid estimate visit must keep the row: the visit fee invoice is verified
+  // against it. Everything else is simply removed so the manager is not left waiting.
+  const { data: current } = await db
+    .from("work_order_bids")
+    .select("id, status, estimate_visit_done_at, estimate_visit_fee_cents")
+    .eq("work_order_id", workOrderId)
+    .eq("vendor_user_id", actor.userId)
+    .maybeSingle();
+  if (!current || current.status !== "submitted") {
+    return { ok: false, status: 409, error: "This bid was already accepted or declined." };
+  }
+  const feeOwed = Boolean(current.estimate_visit_done_at) && Number(current.estimate_visit_fee_cents) > 0;
+  if (feeOwed) {
+    const { data: declined, error: declineError } = await db
+      .from("work_order_bids")
+      .update({ status: "declined", updated_at: new Date().toISOString() })
+      .eq("id", current.id)
+      .eq("status", "submitted")
+      .select("id")
+      .maybeSingle();
+    if (declineError) return { ok: false, status: 500, error: declineError.message };
+    if (!declined) return { ok: false, status: 409, error: "This bid was already accepted or declined." };
+    return { ok: true };
+  }
   const { data, error } = await db
     .from("work_order_bids")
     .delete()
@@ -334,13 +374,14 @@ export async function withdrawWorkOrderBid(
   return { ok: true };
 }
 
-/** Vendor's first step of the "quote after consultation" mode: book (or manually set) a
- * consultation visit and save a pricing-pending placeholder bid row. The vendor prices the
- * job afterward via submitWorkOrderBid, which preserves quote_mode/consultation_visit_at. */
+/** Vendor books (or manually sets) an ESTIMATE VISIT and saves a pricing-pending placeholder row,
+ * optionally with a visit fee the manager pays once the visit happened. The vendor submits a bid
+ * afterward via submitWorkOrderBid, which preserves quote_mode/consultation_visit_at and the fee.
+ * The fee is fixed once the visit is marked done (the fee invoice is built from the stored value). */
 export async function scheduleWorkOrderConsultation(
   db: Db,
   actor: WorkOrderActor,
-  body: { workOrderId?: string; mode?: "auto" | "manual"; consultationVisitAt?: string; note?: string },
+  body: { workOrderId?: string; mode?: "auto" | "manual"; consultationVisitAt?: string; note?: string; visitFeeCents?: number },
 ): Promise<{ ok: true; consultationVisitAt: string } | WorkOrderActionFailure> {
   if (actor.role !== "vendor") return { ok: false, status: 403, error: "Forbidden." };
 
@@ -352,12 +393,19 @@ export async function scheduleWorkOrderConsultation(
 
   const { data: existing } = await db
     .from("work_order_bids")
-    .select("id, status, amount_cents, materials_cents, proposed_time, note")
+    .select("id, status, amount_cents, materials_cents, proposed_time, note, estimate_visit_done_at, estimate_visit_fee_cents")
     .eq("work_order_id", workOrderId)
     .eq("vendor_user_id", actor.userId)
     .maybeSingle();
   if (existing && existing.status !== "submitted") {
     return { ok: false, status: 403, error: "This bid has already been resolved." };
+  }
+  if (existing?.estimate_visit_done_at) {
+    return { ok: false, status: 409, error: "The estimate visit already happened." };
+  }
+  const visitFeeCents = body.visitFeeCents === undefined ? Number(existing?.estimate_visit_fee_cents ?? 0) : parseVisitFeeCents(body.visitFeeCents);
+  if (visitFeeCents === null || !Number.isFinite(visitFeeCents)) {
+    return { ok: false, status: 400, error: "Enter a valid visit fee." };
   }
 
   let consultationVisitAt: string;
@@ -421,16 +469,241 @@ export async function scheduleWorkOrderConsultation(
     proposed_time: existing?.proposed_time ?? null,
     note: note || null,
     status: "submitted" as const,
+    estimate_visit_fee_cents: visitFeeCents,
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await db
-    .from("work_order_bids")
-    .upsert(existing ? { id: existing.id, ...record } : record, { onConflict: "work_order_id,vendor_user_id" });
-  if (error) return { ok: false, status: 500, error: error.message };
+  if (existing) {
+    // Compare-and-swap on status: a manager approving or removing between the read and here wins.
+    const { data: updated, error } = await db
+      .from("work_order_bids")
+      .update(record)
+      .eq("id", existing.id)
+      .eq("status", "submitted")
+      .select("id")
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (!updated) return { ok: false, status: 409, error: "This request changed before your visit saved." };
+  } else {
+    const { error } = await db.from("work_order_bids").insert(record);
+    if (error) return { ok: false, status: 500, error: error.message };
+  }
 
   track("work_order_consultation_scheduled", actor.userId, { work_order_id: workOrderId });
   return { ok: true, consultationVisitAt };
+}
+
+/** Sanity ceiling on a single estimate or bid figure ($1,000,000). */
+const MAX_ESTIMATE_CENTS = 100_000_000;
+
+/**
+ * Vendor gives a rough ESTIMATE ("about $180") before seeing the job. It is stored apart from the
+ * bid, can never be approved, and never becomes a payment. The vendor may follow it with a bid.
+ */
+export async function giveWorkOrderEstimate(
+  db: Db,
+  actor: WorkOrderActor,
+  body: { workOrderId?: string; estimateCents?: number; note?: string },
+): Promise<{ ok: true } | WorkOrderActionFailure> {
+  if (actor.role !== "vendor") return { ok: false, status: 403, error: "Forbidden." };
+
+  const workOrderId = String(body.workOrderId ?? "").trim();
+  const estimateCents = Math.round(Number(body.estimateCents));
+  const note = String(body.note ?? "").trim().slice(0, 2000);
+  if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
+  if (!Number.isFinite(estimateCents) || estimateCents <= 0 || estimateCents > MAX_ESTIMATE_CENTS) {
+    return { ok: false, status: 400, error: "Enter a valid estimate." };
+  }
+
+  const limited = await rateLimit(`work-order-estimate:${actor.userId}`, 40, 60 * 60 * 1000);
+  if (!limited.ok) return { ok: false, status: 429, error: "Too many requests - try again in a bit." };
+
+  const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
+  if (!access.ok) return access;
+
+  const { data: existing } = await db
+    .from("work_order_bids")
+    .select("id, status, bid_submitted_at")
+    .eq("work_order_id", workOrderId)
+    .eq("vendor_user_id", actor.userId)
+    .maybeSingle();
+  if (existing && existing.status !== "submitted") {
+    return { ok: false, status: 403, error: "This bid has already been resolved." };
+  }
+  if (existing?.bid_submitted_at) {
+    return { ok: false, status: 409, error: "You already submitted a bid - update it instead." };
+  }
+
+  const now = new Date().toISOString();
+  if (existing) {
+    const { data: updated, error } = await db
+      .from("work_order_bids")
+      .update({ estimate_cents: estimateCents, estimate_given_at: now, ...(note ? { note } : {}), updated_at: now })
+      .eq("id", existing.id)
+      .eq("status", "submitted")
+      .select("id")
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (!updated) return { ok: false, status: 409, error: "This request changed before your estimate saved." };
+  } else {
+    const { data: vendorDirectoryRow } = await db
+      .from("manager_vendor_records")
+      .select("id")
+      .eq("vendor_user_id", actor.userId)
+      .eq("manager_user_id", access.access.managerUserId)
+      .maybeSingle();
+    const { error } = await db.from("work_order_bids").insert({
+      work_order_id: workOrderId,
+      vendor_user_id: actor.userId,
+      vendor_directory_id: (vendorDirectoryRow?.id as string | undefined) ?? null,
+      manager_user_id: access.access.managerUserId,
+      quote_mode: "upfront",
+      consultation_visit_at: null,
+      amount_cents: null,
+      materials_cents: 0,
+      proposed_time: null,
+      note: note || null,
+      status: "submitted",
+      estimate_cents: estimateCents,
+      estimate_given_at: now,
+      updated_at: now,
+    });
+    if (error) return { ok: false, status: 500, error: error.message };
+  }
+
+  track("work_order_estimate_given", actor.userId, { work_order_id: workOrderId });
+  return { ok: true };
+}
+
+/**
+ * Vendor marks the estimate visit as having happened. From here the visit fee (if any) is owed:
+ * it becomes its own vendor invoice - one per bid, built from the stored fee, never a body amount -
+ * which the manager pays through the normal Approve & pay rail. Safe to retry.
+ */
+export async function completeEstimateVisit(
+  db: Db,
+  actor: WorkOrderActor,
+  body: { workOrderId?: string },
+): Promise<{ ok: true; feeCents: number } | WorkOrderActionFailure> {
+  if (actor.role !== "vendor") return { ok: false, status: 403, error: "Forbidden." };
+
+  const workOrderId = String(body.workOrderId ?? "").trim();
+  if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
+
+  const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
+  if (!access.ok) return access;
+
+  const { data: bid } = await db
+    .from("work_order_bids")
+    .select("id, status, manager_user_id, consultation_visit_at, estimate_visit_done_at, estimate_visit_fee_cents")
+    .eq("work_order_id", workOrderId)
+    .eq("vendor_user_id", actor.userId)
+    .maybeSingle();
+  if (!bid || !bid.consultation_visit_at) {
+    return { ok: false, status: 422, error: "Book an estimate visit first." };
+  }
+  if (bid.status !== "submitted") {
+    return { ok: false, status: 403, error: "This bid has already been resolved." };
+  }
+  if (bid.manager_user_id !== access.access.managerUserId) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  if (!bid.estimate_visit_done_at && new Date(String(bid.consultation_visit_at)).getTime() > Date.now()) {
+    return { ok: false, status: 422, error: "The estimate visit hasn't happened yet." };
+  }
+
+  if (!bid.estimate_visit_done_at) {
+    const now = new Date().toISOString();
+    const { error } = await db
+      .from("work_order_bids")
+      .update({ estimate_visit_done_at: now, updated_at: now })
+      .eq("id", bid.id)
+      .eq("status", "submitted")
+      .is("estimate_visit_done_at", null);
+    if (error) return { ok: false, status: 500, error: error.message };
+  }
+
+  const feeCents = Number(bid.estimate_visit_fee_cents) || 0;
+  if (feeCents > 0) {
+    try {
+      await ensureVisitFeeInvoice(db as never, {
+        bidId: String(bid.id),
+        workOrderId,
+        managerUserId: access.access.managerUserId,
+        vendorUserId: actor.userId,
+        feeCents,
+        title: access.access.rowData.title || "Service",
+        reference: access.access.rowData.reference,
+      });
+    } catch (e) {
+      return { ok: false, status: 500, error: e instanceof Error ? e.message : "Could not file the visit fee." };
+    }
+  }
+
+  track("work_order_estimate_visit_done", actor.userId, { work_order_id: workOrderId });
+  return { ok: true, feeCents };
+}
+
+/**
+ * Manager removes one vendor from the request. The vendor's open offer is withdrawn and their
+ * unresolved row removed - except when an estimate-visit fee is owed, where the row is kept
+ * (declined) because the fee invoice is verified against it. An approved bid is never removable.
+ */
+export async function removeVendorRequest(
+  db: Db,
+  actor: WorkOrderActor,
+  body: { workOrderId?: string; bidId?: string; offerId?: string },
+): Promise<{ ok: true } | WorkOrderActionFailure> {
+  if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const workOrderId = String(body.workOrderId ?? "").trim();
+  const bidId = String(body.bidId ?? "").trim();
+  const offerId = String(body.offerId ?? "").trim();
+  if (!workOrderId || (!bidId && !offerId)) return { ok: false, status: 400, error: "Pick a vendor to remove." };
+
+  const { data: workOrder } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id")
+    .eq("id", workOrderId)
+    .maybeSingle();
+  if (!workOrder || (!actor.admin && workOrder.manager_user_id !== actor.userId)) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const now = new Date().toISOString();
+
+  let vendorDirectoryId: string | null = null;
+  if (bidId) {
+    const { data: bid } = await db
+      .from("work_order_bids")
+      .select("id, work_order_id, status, vendor_directory_id, estimate_visit_done_at, estimate_visit_fee_cents")
+      .eq("id", bidId)
+      .maybeSingle();
+    if (!bid || bid.work_order_id !== workOrderId) return { ok: false, status: 404, error: "Request not found." };
+    if (bid.status === "accepted") {
+      return { ok: false, status: 409, error: "An approved bid can't be removed." };
+    }
+    vendorDirectoryId = (bid.vendor_directory_id as string | null) ?? null;
+    if (bid.status === "submitted") {
+      const feeOwed = Boolean(bid.estimate_visit_done_at) && Number(bid.estimate_visit_fee_cents) > 0;
+      const { error } = feeOwed
+        ? await db.from("work_order_bids").update({ status: "declined", updated_at: now }).eq("id", bidId).eq("status", "submitted")
+        : await db.from("work_order_bids").delete().eq("id", bidId).eq("status", "submitted");
+      if (error) return { ok: false, status: 500, error: error.message };
+    }
+  }
+
+  let offerQuery = db
+    .from("work_order_vendor_offers")
+    .update({ status: "withdrawn", updated_at: now })
+    .eq("work_order_id", workOrderId)
+    .eq("status", "sent");
+  if (offerId) offerQuery = offerQuery.eq("id", offerId);
+  else if (vendorDirectoryId) offerQuery = offerQuery.eq("vendor_directory_id", vendorDirectoryId);
+  else return { ok: true };
+  const { error: offerError } = await offerQuery;
+  if (offerError) return { ok: false, status: 500, error: offerError.message };
+  return { ok: true };
 }
 
 export type AcceptBidSuccess = {
@@ -444,16 +717,20 @@ export type AcceptBidSuccess = {
 };
 
 /**
- * Manager accepts a vendor's bid: marks it accepted, declines every other
+ * Manager APPROVES a vendor's submitted bid: marks it accepted, declines every other
  * submitted bid on the work order, withdraws outstanding offers, patches the
- * work order's row_data (vendorId/vendorName/cost/biddingOpen false) directly,
- * and notifies the winner plus each declined vendor (best-effort). The bid's
- * amount_cents is never taken from the caller — the stored row is the anchor.
+ * work order's row_data (vendorId/vendorName/cost/biddingOpen false, and the bid's proposed time
+ * booked as the scheduled visit) directly, and notifies the winner plus each declined vendor
+ * (best-effort). The bid's amount_cents is never taken from the caller - the stored row is the
+ * anchor - and ownership is re-derived from the work order row, not from the request.
+ *
+ * Only a SUBMITTED BID qualifies (`bidCanBeApproved`): an estimate or a booked visit alone is
+ * refused with a 422, so an estimate can never become a payment.
  */
 export async function acceptWorkOrderBid(
   db: Db,
   actor: WorkOrderActor,
-  body: { bidId?: string },
+  body: { bidId?: string; workOrderId?: string },
 ): Promise<AcceptBidSuccess | WorkOrderActionFailure> {
   if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
     return { ok: false, status: 403, error: "Forbidden." };
@@ -464,19 +741,38 @@ export async function acceptWorkOrderBid(
   const { data: bid } = await db.from("work_order_bids").select("*").eq("id", bidId).maybeSingle();
   if (!bid) return { ok: false, status: 404, error: "Bid not found." };
   const record = bid as BidRecord;
-  if (!actor.admin && record.manager_user_id !== actor.userId) {
+  // The bid must belong to the service the caller named, and that service must belong to the
+  // caller's workspace - re-derived from the work order row, never from the bid's denormalized copy alone.
+  const claimedWorkOrderId = String(body.workOrderId ?? "").trim();
+  if (claimedWorkOrderId && claimedWorkOrderId !== record.work_order_id) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const { data: ownerRow } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id")
+    .eq("id", record.work_order_id)
+    .maybeSingle();
+  if (!ownerRow) return { ok: false, status: 403, error: "Forbidden." };
+  if (!actor.admin && (ownerRow.manager_user_id !== actor.userId || record.manager_user_id !== actor.userId)) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
   if (record.status !== "submitted") {
     return { ok: false, status: 400, error: "This bid has already been resolved." };
   }
-  if (record.amount_cents == null) {
+  if (
+    !bidCanBeApproved({
+      status: record.status,
+      amountCents: record.amount_cents,
+      bidSubmittedAt: record.bid_submitted_at ?? null,
+    })
+  ) {
     return {
       ok: false,
-      status: 400,
-      error: "This vendor hasn't priced the job yet — it's still pending their consultation.",
+      status: 422,
+      error: "This vendor hasn't submitted a bid yet - an estimate can't be approved.",
     };
   }
+  const approvedAmountCents = record.amount_cents as number;
 
   const now = new Date().toISOString();
   // The `record.status !== "submitted"` check above is an in-memory read of a
@@ -560,7 +856,7 @@ export async function acceptWorkOrderBid(
 
   if (workOrder) {
     const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
-    const totalCents = record.amount_cents + record.materials_cents;
+    const totalCents = approvedAmountCents + record.materials_cents;
     const nextRowData: DemoManagerWorkOrderRow = {
       ...rowData,
       vendorId: record.vendor_directory_id ?? undefined,
@@ -571,10 +867,19 @@ export async function acceptWorkOrderBid(
       vendorSilentEscalatedAt: undefined,
       selfAssigned: false,
       cost: `$${(totalCents / 100).toFixed(2)}`,
-      vendorCostCents: record.amount_cents,
+      vendorCostCents: approvedAmountCents,
       materialsCostCents: record.materials_cents,
       biddingOpen: false,
       biddingResolvedAt: now,
+      // The approved bid's proposed time is booked as the visit; either side can still move it.
+      ...(record.proposed_time && rowData.bucket !== "completed"
+        ? {
+            bucket: "scheduled" as const,
+            status: "Scheduled",
+            scheduledAtIso: record.proposed_time,
+            scheduled: safeFormatDateTime(record.proposed_time),
+          }
+        : {}),
     };
     await db
       .from("portal_work_order_records")
@@ -628,7 +933,7 @@ export async function acceptWorkOrderBid(
         propertyLabel: propertyLabel || undefined,
         scheduledFor: record.proposed_time ?? undefined,
         vendorName: vendorName || undefined,
-        amountCents: record.amount_cents + record.materials_cents,
+        amountCents: approvedAmountCents + record.materials_cents,
       },
       recipients: [
         { audience: "vendor", userId: record.vendor_user_id },
@@ -643,7 +948,7 @@ export async function acceptWorkOrderBid(
     ok: true,
     workOrderId: record.work_order_id,
     vendorName,
-    amountCents: record.amount_cents,
+    amountCents: approvedAmountCents,
     materialsCents: record.materials_cents,
     declinedCount: declined.length,
   };
@@ -831,3 +1136,6 @@ export async function markWorkOrderDoneByVendor(
   track("work_order_vendor_marked_done", actor.userId, { work_order_id: workOrderId });
   return { ok: true, workOrder: finalRowData };
 }
+
+/** Same function, named for what the manager does with it. */
+export const approveWorkOrderBid = acceptWorkOrderBid;

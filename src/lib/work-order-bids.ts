@@ -1,7 +1,8 @@
 /** Client-side shape returned by GET /api/portal/work-order-bids; shared by the manager and vendor work-order panels.
- * "upfront" bids price the work order directly; "after_consultation" bids start with only
- * a consultationVisitAt set — amountCents/proposedTime stay null until the vendor prices the
- * job post-visit. */
+ * One row per requested vendor. A row moves through: requested -> estimate and/or estimate visit
+ * (consultationVisitAt) -> bid (amountCents + bidSubmittedAt) -> accepted or declined.
+ * An estimate (estimateCents) is NOT a bid: amountCents/proposedTime stay null until the vendor
+ * submits a real bid, and only a row with a submitted bid can be approved. */
 export type WorkOrderBid = {
   id: string;
   workOrderId: string;
@@ -18,6 +19,15 @@ export type WorkOrderBid = {
   status: "submitted" | "accepted" | "declined";
   createdAt: string;
   updatedAt: string;
+  /** The vendor's rough price before seeing the job. Never approvable, never a payment. */
+  estimateCents?: number | null;
+  estimateGivenAt?: string | null;
+  /** Set when the vendor submitted a real bid; only a bid with this set can be approved. */
+  bidSubmittedAt?: string | null;
+  /** Optional fee the manager pays once the estimate visit happened (0 = free visit). */
+  estimateVisitFeeCents?: number;
+  /** The vendor marked the estimate visit as having happened; the fee is payable from here. */
+  estimateVisitDoneAt?: string | null;
 };
 
 export async function fetchWorkOrderBids(workOrderId?: string): Promise<WorkOrderBid[]> {

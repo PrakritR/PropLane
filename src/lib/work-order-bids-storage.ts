@@ -64,6 +64,10 @@ export function upsertWorkOrderBid(input: {
   status?: WorkOrderBid["status"];
   vendorName?: string;
   vendorEmail?: string;
+  estimateCents?: number | null;
+  estimateVisitFeeCents?: number;
+  estimateVisitDoneAt?: string | null;
+  bidSubmittedAt?: string | null;
 }): WorkOrderBid {
   hydrateBidsFromSession();
   const now = new Date().toISOString();
@@ -88,6 +92,11 @@ export function upsertWorkOrderBid(input: {
     proposedTime: input.proposedTime !== undefined ? input.proposedTime : (existing?.proposedTime ?? null),
     note: input.note !== undefined ? input.note : (existing?.note ?? null),
     status: input.status ?? existing?.status ?? "submitted",
+    estimateCents: input.estimateCents !== undefined ? input.estimateCents : (existing?.estimateCents ?? null),
+    estimateGivenAt: input.estimateCents ? now : (existing?.estimateGivenAt ?? null),
+    bidSubmittedAt: input.bidSubmittedAt !== undefined ? input.bidSubmittedAt : (existing?.bidSubmittedAt ?? null),
+    estimateVisitFeeCents: input.estimateVisitFeeCents ?? existing?.estimateVisitFeeCents ?? 0,
+    estimateVisitDoneAt: input.estimateVisitDoneAt !== undefined ? input.estimateVisitDoneAt : (existing?.estimateVisitDoneAt ?? null),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

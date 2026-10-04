@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { postGlBillPaid } from "@/lib/reports/gl-posting";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
+import { isGenuineVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
 import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
 
 export async function authorizeOutgoingInvoice(db: SupabaseClient, managerId: string, invoiceId: string) {
@@ -12,7 +13,11 @@ export async function authorizeOutgoingInvoice(db: SupabaseClient, managerId: st
   if (serviceError) throw new Error(serviceError.message);
   const scope = await resolveActiveWorkspaceRowScope(db, managerId);
   if (!service || !rowAllowedInWorkspaceScope(scope, service.property_id)) throw new Error("Invoice not found.");
-  if (invoice.status !== "paid" && service.vendor_user_id !== invoice.vendor_user_id) throw new Error("Service must be assigned to this vendor.");
+  // An estimate-visit fee is owed to a vendor who was never hired for the job, so it is exempt from
+  // the "assigned to this vendor" rule - but only when it matches a real bid whose visit happened.
+  if (invoice.status !== "paid" && service.vendor_user_id !== invoice.vendor_user_id && !(await isGenuineVisitFeeInvoice(db, invoice))) {
+    throw new Error("Service must be assigned to this vendor.");
+  }
   return invoice;
 }
 export async function claimInvoicePayment(db: SupabaseClient, managerId: string, invoiceId: string, rail: "stripe" | "balance" | "offline") {

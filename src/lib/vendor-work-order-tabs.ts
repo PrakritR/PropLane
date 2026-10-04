@@ -28,14 +28,13 @@ export const VENDOR_WORK_ORDER_LEGACY_TABS: Record<string, VendorWorkOrderTab> =
   completed: "past",
 };
 
-/** Consultation booked; vendor still owes labor price + work date. */
+/** An estimate was given or a visit booked; the vendor still owes a real bid (labor price + work date). */
 export function isPricingPendingBid(bid: WorkOrderBid | undefined): boolean {
   return Boolean(
     bid &&
-      bid.quoteMode === "after_consultation" &&
-      bid.consultationVisitAt &&
       bid.amountCents == null &&
-      bid.status === "submitted",
+      bid.status === "submitted" &&
+      ((bid.quoteMode === "after_consultation" && bid.consultationVisitAt) || bid.estimateCents != null),
   );
 }
 
