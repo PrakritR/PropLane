@@ -200,7 +200,7 @@ function roomUtilitiesForTerm(
  * `roomId` null quotes the whole place — an entire-home listing, where the
  * listing's own rent stands in for a room's.
  */
-export type ListingQuoteStartKind = "std" | "m2m" | "cst";
+export type ListingQuoteStartKind = "std" | "cst";
 
 export function buildListingQuote(
   sub: ManagerListingSubmissionV1,
@@ -353,9 +353,6 @@ export function buildListingQuote(
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge) {
-    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
-  }
   if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {
     monthlyRent += parseMoneyAmount(arrangementRow.customStartSurcharge);
   }

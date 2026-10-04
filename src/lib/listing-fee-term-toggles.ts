@@ -7,7 +7,6 @@ import {
 } from "@/lib/manager-listing-submission";
 import {
   listingOffersCustomLeaseSurcharge,
-  listingOffersMonthToMonthSurcharge,
   listingPresetFeeAmount,
   removedStandardListingFeeRowSet,
   type ListingFeePresetId,
@@ -25,7 +24,6 @@ export type ListingFeeRowId =
   | "parkingMonthly"
   | "hoaMonthly"
   | "otherMonthlyFees"
-  | "monthToMonthSurcharge"
   | "customLeaseSurcharge";
 
 export type ListingStandardFeeRowId = ListingFeeRowId;
@@ -97,12 +95,6 @@ export const LISTING_STANDARD_FEE_ROWS: readonly {
     ltField: "otherMonthlyFees",
   },
   {
-    id: "monthToMonthSurcharge",
-    label: "Month-to-month surcharge",
-    stField: "shortTermMonthToMonthSurcharge",
-    ltField: "monthToMonthSurcharge",
-  },
-  {
     id: "customLeaseSurcharge",
     label: "Custom lease",
     ltField: "customLeaseSurcharge",
@@ -120,7 +112,6 @@ function emptyFeeToggles(): ListingFeeToggles {
     parkingMonthly: false,
     hoaMonthly: false,
     otherMonthlyFees: false,
-    monthToMonthSurcharge: false,
     customLeaseSurcharge: false,
   };
 }
@@ -214,7 +205,6 @@ const PRESET_FOR_FEE_FIELD: Partial<Record<keyof ManagerListingSubmissionV1, Lis
   parkingMonthly: "parking_monthly",
   hoaMonthly: "hoa_monthly",
   otherMonthlyFees: "other_monthly",
-  monthToMonthSurcharge: "mtm_surcharge",
   customLeaseSurcharge: "custom_lease_surcharge",
   shortTermDailyCost: "short_term_nightly",
   shortTermDeposit: "short_term_deposit",
@@ -387,7 +377,7 @@ export function listingLtFeeFieldsRequired(_hasLongTerm: boolean): (keyof Manage
 
 // The two lease-length predicates live in listing-fees so the display and lease-document
 // readers there can apply the same gate without importing this module (which imports them).
-export { listingOffersCustomLeaseSurcharge, listingOffersMonthToMonthSurcharge };
+export { listingOffersCustomLeaseSurcharge };
 
 /** Standard fee rows hidden until the matching lease length is offered. */
 export function leaseLengthGatedHiddenFeeRowIds(
@@ -397,7 +387,6 @@ export function leaseLengthGatedHiddenFeeRowIds(
   >,
 ): ReadonlySet<ListingFeeRowId> {
   const hidden = new Set<ListingFeeRowId>();
-  if (!listingOffersMonthToMonthSurcharge(sub)) hidden.add("monthToMonthSurcharge");
   if (!listingOffersCustomLeaseSurcharge(sub)) hidden.add("customLeaseSurcharge");
   return hidden;
 }
@@ -416,8 +405,6 @@ function feeRowIdForPreset(presetId: ListingFeePresetId): ListingFeeRowId | null
       return "hoaMonthly";
     case "other_monthly":
       return "otherMonthlyFees";
-    case "mtm_surcharge":
-      return "monthToMonthSurcharge";
     case "custom_lease_surcharge":
       return "customLeaseSurcharge";
     case "short_term_nightly":
@@ -439,7 +426,6 @@ export function listingPresetFeeAmountIfEnabled(
   const rowId = feeRowIdForPreset(presetId);
   if (rowId) {
     if (removedStandardListingFeeRowSet(sub).has(rowId)) return 0;
-    if (rowId === "monthToMonthSurcharge" && !listingOffersMonthToMonthSurcharge(sub)) return 0;
     if (rowId === "customLeaseSurcharge" && !listingOffersCustomLeaseSurcharge(sub)) return 0;
     const lt = deriveListingLtFeeToggles(sub);
     const st = deriveListingStFeeToggles(sub);

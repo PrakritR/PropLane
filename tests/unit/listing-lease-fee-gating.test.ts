@@ -6,21 +6,16 @@ import {
   deriveListingLtFeeToggles,
   leaseLengthGatedHiddenFeeRowIds,
   listingOffersCustomLeaseSurcharge,
-  listingOffersMonthToMonthSurcharge,
   listingPresetFeeAmountIfEnabled,
 } from "@/lib/listing-fee-term-toggles";
 
 describe("listing lease-length fee gating", () => {
-  it("hides MTM surcharge until Month-to-Month is offered", () => {
+  it("has no month-to-month surcharge row to gate, offered or not", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month"];
-    sub.monthToMonthSurcharge = "25";
-    expect(listingOffersMonthToMonthSurcharge(sub)).toBe(false);
-    expect(leaseLengthGatedHiddenFeeRowIds(sub).has("monthToMonthSurcharge")).toBe(true);
-
+    expect([...leaseLengthGatedHiddenFeeRowIds(sub)]).toEqual(["customLeaseSurcharge"].filter((id) => !listingOffersCustomLeaseSurcharge(sub)));
     sub.allowedLeaseTerms = ["Month-to-Month"];
-    expect(listingOffersMonthToMonthSurcharge(sub)).toBe(true);
-    expect(leaseLengthGatedHiddenFeeRowIds(sub).has("monthToMonthSurcharge")).toBe(false);
+    expect(leaseLengthGatedHiddenFeeRowIds(sub).has("monthToMonthSurcharge" as never)).toBe(false);
   });
 
   it("shows custom lease surcharge when Custom or Long-term is offered", () => {
@@ -48,39 +43,37 @@ describe("listing lease-length fee gating", () => {
 
 /**
  * The gate has to hold everywhere the fee is READ, not just in the wizard that hides the row
- * (PRP-218). Both readers below filtered on amount alone, so a listing that dropped
- * Month-to-Month from its lease terms kept advertising the month-to-month surcharge on its
- * public page and printing it into the lease document.
+ * (PRP-218). The month-to-month surcharge is retired, so only the custom-lease surcharge is gated now, and a
+ * stale month-to-month value is never shown.
  */
 describe("lease-length gating reaches the listing and lease readers", () => {
   function surchargeListing(terms: string[]) {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = terms as never;
-    sub.monthToMonthSurcharge = "25";
+    // A listing saved while the month-to-month surcharge existed.
+    (sub as unknown as Record<string, string>).monthToMonthSurcharge = "25";
     sub.customLeaseSurcharge = "40";
     return normalizeManagerListingSubmissionV1(sub);
   }
 
   const labels = (rows: { title: string; id: string }[]) => rows.map((r) => `${r.id} ${r.title}`);
 
-  it("omits both surcharges from the public listing rows when neither term is offered", () => {
+  it("omits the custom-lease surcharge from the public listing rows when Custom is not offered", () => {
     const rows = listingFeeDisplayRows(surchargeListing(["Month-to-Month"]), (raw) => raw);
     expect(labels(rows).join(" | ")).not.toMatch(/custom lease/i);
-
-    const noMtm = listingFeeDisplayRows(surchargeListing(["12-Month"]), (raw) => raw);
-    expect(labels(noMtm).join(" | ")).not.toMatch(/month-to-month/i);
   });
 
-  it("still shows a surcharge whose lease length IS offered", () => {
-    const rows = listingFeeDisplayRows(surchargeListing(["Month-to-Month"]), (raw) => raw);
-    expect(labels(rows).join(" | ")).toMatch(/month-to-month/i);
+  it("never shows a month-to-month surcharge, offered or not", () => {
+    for (const terms of [["12-Month"], ["Month-to-Month"]]) {
+      const rows = listingFeeDisplayRows(surchargeListing(terms), (raw) => raw);
+      expect(labels(rows).join(" | ")).not.toMatch(/month-to-month/i);
+    }
   });
 
-  it("omits the month-to-month surcharge from the lease document when MTM is not offered", () => {
-    const { monthly } = leaseDocumentFeeLines(surchargeListing(["12-Month"]));
-    expect(monthly.map((l) => l.label).join(" | ")).not.toMatch(/month-to-month/i);
-
-    const offered = leaseDocumentFeeLines(surchargeListing(["Month-to-Month"]));
-    expect(offered.monthly.map((l) => l.label).join(" | ")).toMatch(/month-to-month/i);
+  it("never prints a month-to-month surcharge in the lease document", () => {
+    for (const terms of [["12-Month"], ["Month-to-Month"]]) {
+      const { monthly } = leaseDocumentFeeLines(surchargeListing(terms));
+      expect(monthly.map((l) => l.label).join(" | ")).not.toMatch(/month-to-month/i);
+    }
   });
 });

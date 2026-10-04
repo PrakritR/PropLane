@@ -611,7 +611,6 @@ export type ManagerBundleRow = {
    * charge generation. A bundle's Lease fee and Application fee live in `termPricing[term]`, the
    * same entry shape (and the same fields) a room's non-long-term step uses.
    */
-  monthToMonthSurcharge?: string;
   customStartSurcharge?: string;
 };
 
@@ -795,7 +794,6 @@ export type ManagerListingSubmissionV1 = {
     leaseFee?: string;
     applicationFee?: string;
     moveInFee?: string;
-    monthToMonthSurcharge?: string;
     customStartSurcharge?: string;
     shortTermLeaseFee?: string;
     shortTermApplicationFee?: string;
@@ -930,8 +928,6 @@ export type ManagerListingSubmissionV1 = {
   shortTermHoaMonthly?: string;
   /** Short-term other monthly fees (parallel to {@link otherMonthlyFees}). */
   shortTermOtherMonthlyFees?: string;
-  /** Short-term month-to-month surcharge (parallel to {@link monthToMonthSurcharge}). */
-  shortTermMonthToMonthSurcharge?: string;
   applicationFee: string;
   /** Optional code applicants enter to waive the application fee for this listing. */
   applicationFeeWaiverCode?: string;
@@ -1034,8 +1030,6 @@ export type ManagerListingSubmissionV1 = {
   parkingMonthly: string;
   hoaMonthly: string;
   otherMonthlyFees: string;
-  /** Extra monthly charge added automatically when tenant is on month-to-month (e.g. $25). */
-  monthToMonthSurcharge?: string;
   /**
    * When true, a fixed-term lease CONTINUES month-to-month at the end of its
    * term instead of terminating.
@@ -2511,10 +2505,6 @@ function normalizeManagerListingSubmissionV1Base(
           ? b.utilitiesEstimate.trim()
           : undefined,
       termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
-      monthToMonthSurcharge:
-        typeof b.monthToMonthSurcharge === "string" && b.monthToMonthSurcharge.trim()
-          ? b.monthToMonthSurcharge.trim()
-          : undefined,
       customStartSurcharge:
         typeof b.customStartSurcharge === "string" && b.customStartSurcharge.trim()
           ? b.customStartSurcharge.trim()
@@ -2868,8 +2858,6 @@ function normalizeManagerListingSubmissionV1Base(
     shortTermParkingMonthly: typeof sub.shortTermParkingMonthly === "string" ? sub.shortTermParkingMonthly : "",
     shortTermHoaMonthly: typeof sub.shortTermHoaMonthly === "string" ? sub.shortTermHoaMonthly : "",
     shortTermOtherMonthlyFees: typeof sub.shortTermOtherMonthlyFees === "string" ? sub.shortTermOtherMonthlyFees : "",
-    shortTermMonthToMonthSurcharge:
-      typeof sub.shortTermMonthToMonthSurcharge === "string" ? sub.shortTermMonthToMonthSurcharge : "",
     shortTermApplicationFee:
       typeof sub.shortTermApplicationFee === "string" ? sub.shortTermApplicationFee : "",
     removedStandardListingFeeRows: Array.isArray(sub.removedStandardListingFeeRows)
@@ -2877,7 +2865,6 @@ function normalizeManagerListingSubmissionV1Base(
       : [],
     holdingDeposit: typeof sub.holdingDeposit === "string" ? sub.holdingDeposit : "",
     holdingDepositTiming: sub.holdingDepositTiming === "at_application" ? "at_application" : "after_approval",
-    monthToMonthSurcharge: typeof sub.monthToMonthSurcharge === "string" ? sub.monthToMonthSurcharge : "",
     longTermLengthsOffered: normalizeLongTermLengths(sub.longTermLengthsOffered),
     // Only an explicit `true` turns rollover on. Anything else — absent, a
     // string, a stored null — keeps the standard "terminates at the end of the

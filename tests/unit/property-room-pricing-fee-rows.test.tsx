@@ -73,13 +73,13 @@ const tabLabels = () =>
     .map((node) => node.querySelector("span.truncate")?.textContent);
 
 describe("room pricing popup rows follow what the room offers", () => {
-  it("shows Custom start surcharge and Partial months on the Long-term tab and the Month-to-month surcharge on its own tab", () => {
+  it("shows Custom start surcharge and Partial months on the Long-term tab; Month-to-month has no surcharge", () => {
     open(listing());
     expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);
     expect(rowLabel("Partial months").length).toBeGreaterThan(0);
     expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
     openTab("Month-to-Month");
-    expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
+    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
     expect(rowLabel("Custom start surcharge")).toHaveLength(0);
     expect(screen.queryByText(/^Fees$/)).toBeNull();
   });
@@ -89,7 +89,7 @@ describe("room pricing popup rows follow what the room offers", () => {
     expect(rowLabel("Custom start surcharge")).toHaveLength(0);
     expect(rowLabel("Partial months")).toHaveLength(0);
     openTab("Month-to-Month");
-    expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
+    expect(rowLabel("Month-to-month surcharge")).toHaveLength(0);
   });
 
   it("hides the month-to-month surcharge when the room is not offered on Month-to-month", () => {

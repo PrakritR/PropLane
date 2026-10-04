@@ -88,14 +88,13 @@ describe("lease rollover to month-to-month", () => {
     expect(html).not.toContain("Any continued occupancy after termination");
   });
 
-  it("names the month-to-month surcharge only when one is configured", () => {
-    const withFee = buildLeaseHtml(
-      ctx({ rolloverToMonthToMonth: true, monthToMonthSurcharge: "25" }),
+  it("never names a month-to-month surcharge, even on a listing saved while one existed", () => {
+    const stale = buildLeaseHtml(
+      ctx({ rolloverToMonthToMonth: true, monthToMonthSurcharge: "25" } as Partial<ManagerListingSubmissionV1>),
       SEATTLE_LEASE_CONFIG,
     );
-    expect(withFee).toContain("month-to-month surcharge");
-    const withoutFee = buildLeaseHtml(ctx({ rolloverToMonthToMonth: true }), SEATTLE_LEASE_CONFIG);
-    expect(withoutFee).not.toContain("month-to-month surcharge");
+    expect(stale).toContain(CONTINUES);
+    expect(stale).not.toContain("month-to-month surcharge");
   });
 
   it("only an explicit true turns it on", () => {

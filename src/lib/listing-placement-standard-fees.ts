@@ -313,7 +313,7 @@ export function longTermPrivateArrangementRow(room: ManagerRoomSubmission): Room
 
 export function mergeLongTermPrivateArrangementRow(
   room: ManagerRoomSubmission,
-  patch: Partial<Pick<RoomOccupancyPrice, PlacementStandardFeeKind | "monthToMonthSurcharge" | "customStartSurcharge">>,
+  patch: Partial<Pick<RoomOccupancyPrice, PlacementStandardFeeKind | "customStartSurcharge">>,
 ): ManagerRoomSubmission {
   const row = { ...longTermPrivateArrangementRow(room), ...patch, count: 1 as const };
   const rest = (room.occupancyPrices ?? []).filter((r) => r.count !== 1);

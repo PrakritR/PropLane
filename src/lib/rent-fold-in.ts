@@ -23,11 +23,8 @@
 import {
   CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL,
   CUSTOM_LEASE_SURCHARGE_FEE_ID,
-  MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL,
-  MONTH_TO_MONTH_SURCHARGE_FEE_ID,
   recurringMonthlyFeesForLease,
   shouldBillCustomLeaseSurcharge,
-  shouldBillMonthToMonthSurcharge,
   type LeaseRecurringFeeBillingContext,
 } from "@/lib/custom-lease-billing";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
@@ -50,8 +47,6 @@ function feeDailyRate(fee: { dailyRate?: unknown }): number | undefined {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-export { MONTH_TO_MONTH_SURCHARGE_FEE_ID };
-export const MONTH_TO_MONTH_SURCHARGE_LABEL = MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL;
 
 /** Genuinely-custom fee rows (the "+ Add custom fee" rows). Preset-backed rows are excluded. */
 export function genuinelyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
@@ -124,14 +119,12 @@ function recurringGenuinelyCustomFees(
  */
 function surchargePresetLine(
   sub: ManagerListingSubmissionV1,
-  presetId: "mtm_surcharge" | "custom_lease_surcharge",
+  presetId: "custom_lease_surcharge",
 ): MonthlyFeeLine | null {
   const amount = listingPresetFeeAmountIfEnabled(sub, presetId);
   if (!(amount > 0)) return null;
   const row = (sub.customFees ?? []).find((fee) => (fee as { presetId?: string }).presetId === presetId);
-  return presetId === "mtm_surcharge"
-    ? { id: MONTH_TO_MONTH_SURCHARGE_FEE_ID, label: row?.label?.trim() || MONTH_TO_MONTH_SURCHARGE_LABEL, amount }
-    : { id: CUSTOM_LEASE_SURCHARGE_FEE_ID, label: row?.label?.trim() || CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL, amount };
+  return { id: CUSTOM_LEASE_SURCHARGE_FEE_ID, label: row?.label?.trim() || CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL, amount };
 }
 
 function dedupeById(lines: MonthlyFeeLine[]): MonthlyFeeLine[] {
@@ -163,13 +156,6 @@ export function monthlyRentFoldInLines(
     ...recurringGenuinelyCustomFees(sub, () => true),
     ...selfBillingPresetFees(sub, "monthly"),
   ];
-  if (
-    shouldBillMonthToMonthSurcharge(ctx) &&
-    listingPresetFeeAppliesToLeaseType(sub, "mtm_surcharge", ctx.leaseTerm)
-  ) {
-    const mtm = surchargePresetLine(sub, "mtm_surcharge");
-    if (mtm) lines.push(mtm);
-  }
   if (
     shouldBillCustomLeaseSurcharge(ctx, sub) &&
     listingPresetFeeAppliesToLeaseType(sub, "custom_lease_surcharge", ctx.leaseTerm)

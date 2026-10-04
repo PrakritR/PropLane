@@ -219,13 +219,8 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
         shortLeaseSurchargeMonthly: room.shortLeaseSurchargeMonthly,
         shortLeaseMaxMonths: room.shortLeaseMaxMonths,
       })),
-      termSurcharges: [
-        {
-          term: "Month-to-Month",
-          offered: availableTerms.includes("Month-to-Month"),
-          monthlySurcharge: submission?.monthToMonthSurcharge?.trim() || null,
-        },
-      ],
+      // Month-to-month carries no surcharge, so no lease term has one.
+      termSurcharges: [],
       customCalendarSurcharge: {
         eligible: submission ? listingOffersCustomLeaseSurcharge(submission) : false,
         monthlySurcharge: submission?.customLeaseSurcharge?.trim() || null,

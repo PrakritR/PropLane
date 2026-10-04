@@ -610,20 +610,11 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
    * holdover rate for the tenancy it just granted.
    */
   const rollsOverToMonthToMonth = input.sub?.rolloverToMonthToMonth === true;
-  const mtmSurchargeAmount = input.parseAmount(input.sub?.monthToMonthSurcharge ?? "") ?? 0;
-  // On a Seattle listing the surcharge is rent, so the clause says the rent rises rather
-  // than that a fee is added — the ledger bills exactly one rent line either way.
-  const monthToMonthSurchargeClause =
-    rollsOverToMonthToMonth && mtmSurchargeAmount > 0
-      ? input.rentFoldsMonthlyFees
-        ? ` During that period the monthly rent increases by <strong>${fmtUsd(mtmSurchargeAmount)}</strong>; that increase is a month-to-month surcharge that is part of the rent, not a separate fee.`
-        : ` A month-to-month surcharge of <strong>${fmtUsd(mtmSurchargeAmount)}</strong> per month applies during that period.`
-      : "";
   const leaseTermSection = isMonthToMonthLease
     ? `<p>This tenancy is month-to-month beginning <strong>${leaseStart}</strong> and continuing until lawfully ended. Either party may provide written notice to terminate ${monthToMonthNotice}.</p>`
     : rollsOverToMonthToMonth
       ? `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
-<p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${monthToMonthNotice}. All other terms of this Agreement remain in effect during the month-to-month period.${monthToMonthSurchargeClause}</p>
+<p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${monthToMonthNotice}. All other terms of this Agreement remain in effect during the month-to-month period.</p>
 ${earlyTerminationBlock(input)}`
       : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
 <p>This Agreement <strong>does not automatically continue as a month-to-month tenancy</strong> after the end of the lease term. Ending, renewing or not renewing the tenancy is subject to applicable federal, state and local law, including any renewal-offer, just-cause and notice requirements that apply to the Premises, and nothing in this Section waives a right applicable law gives either party.</p>

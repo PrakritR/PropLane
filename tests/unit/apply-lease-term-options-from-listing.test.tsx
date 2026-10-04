@@ -121,13 +121,13 @@ function pick(label: string) {
 
 afterEach(() => cleanup());
 
-describe("apply wizard — Lease term is exactly Long-term or Short-term, from the listing", () => {
-  it("never offers a retired length a listing still stores, nor Month-to-Month or Custom as terms", () => {
+describe("apply wizard — Lease term lists only the lease types the property enabled", () => {
+  it("never offers a retired length a listing still stores; Month-to-month and Custom are offered when enabled", () => {
     renderLeaseTermStep(LEGACY_STORED);
     expect(openLeaseTermMenu()).toEqual(["Long-term"]);
     cleanup();
     renderLeaseTermStep(["12-Month", "Month-to-Month", "Custom"]);
-    expect(openLeaseTermMenu()).toEqual(["Long-term"]);
+    expect(openLeaseTermMenu()).toEqual(["Long-term", "Custom", "Month-to-month"]);
   });
 
   it("offers Short-term only when the listing permits a short stay", () => {
@@ -138,65 +138,62 @@ describe("apply wizard — Lease term is exactly Long-term or Short-term, from t
     expect(openLeaseTermMenu()).toEqual(["Long-term"]);
   });
 
+  it("lists all four, in order, when all four are enabled", () => {
+    renderLeaseTermStep(["Month-to-Month", "Custom", "Long-term", "Short-Term Stay"], "", true);
+    expect(openLeaseTermMenu()).toEqual(["Long-term", "Short-term", "Custom", "Month-to-month"]);
+  });
+
   it("the placeholder reads 'Select a lease term'", () => {
     renderLeaseTermStep(["Long-term"]);
     expect(leaseTermTrigger().textContent).toContain("Select a lease term");
     expect(screen.queryByText("Select lease length")).toBeNull();
   });
 
-  it("keeps a resumed draft's own stored answer selected, reading as Long-term or Short-term", () => {
+  it("keeps a resumed draft's own stored answer selected, reading as its lease type", () => {
     renderLeaseTermStep(LEGACY_STORED, "12-Month");
     expect(leaseTermTrigger().textContent).toContain("Long-term");
     cleanup();
     renderLeaseTermStep(["Custom"], "Custom");
-    expect(leaseTermTrigger().textContent).toContain("Long-term");
+    expect(leaseTermTrigger().textContent).toContain("Custom");
     cleanup();
     renderLeaseTermStep(["Long-term", "Short-Term Stay"], "Short-Term Stay", true);
     expect(leaseTermTrigger().textContent).toContain("Short-term");
   });
 
-  it("a property that stores only Custom shows Long-term, and the dates step shows the start and end date pickers", () => {
-    renderLeaseTermStep(["Custom"], "Custom");
-    expect(leaseTermTrigger().textContent).toContain("Long-term");
-    cleanup();
+  it("Custom shows the start and end date pickers; Month-to-month only the start date", () => {
     renderLeaseTermStep(["Custom"], "Custom", false, () => {}, {}, 3);
     expect(document.getElementById("leaseStart")).not.toBeNull();
     expect(document.getElementById("leaseEnd")).not.toBeNull();
+    cleanup();
+    renderLeaseTermStep(["Long-term", "Month-to-Month"], "Month-to-Month", false, () => {}, {}, 3);
+    expect(document.getElementById("leaseStart")).not.toBeNull();
+    expect(document.getElementById("leaseEnd")).toBeNull();
   });
 
-  it("a property that allows month-to-month shows the Length sub-choice under Long-term; one that does not shows none", () => {
-    renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term");
-    const length = document.querySelector("[data-attr='rental-wizard-lease-length']") as HTMLElement;
-    expect(length).not.toBeNull();
-    expect(length.textContent).toContain("Fixed term");
-    cleanup();
+  it("has ONE Lease term select: no separate Length control and no month-to-month price notice", () => {
     renderLeaseTermStep(["Long-term", "Month-to-Month"], "Month-to-Month");
-    expect((document.querySelector("[data-attr='rental-wizard-lease-length']") as HTMLElement).textContent).toContain("Month-to-month");
-    cleanup();
-    renderLeaseTermStep(["Long-term", "Custom"], "Long-term");
     expect(document.querySelector("[data-attr='rental-wizard-lease-length']")).toBeNull();
-    cleanup();
-    // No length row while nothing, or Short-term, is chosen.
-    renderLeaseTermStep(["Long-term", "Month-to-Month", "Short-Term Stay"], "", true);
-    expect(document.querySelector("[data-attr='rental-wizard-lease-length']")).toBeNull();
+    expect(screen.queryByText(/^Length$/)).toBeNull();
+    expect(document.body.textContent).not.toContain("$25");
+    expect(document.body.textContent).not.toMatch(/additional .* charge to rent/i);
   });
 
   it("translates the pick to the existing stored term the server routes on", () => {
     const patched: Record<string, unknown>[] = [];
-    renderLeaseTermStep(["Long-term", "Month-to-Month", "Short-Term Stay"], "", true, (next) => patched.push(next));
-    openLeaseTermMenu();
-    pick("Long-term");
-    expect(patched.at(-1)).toMatchObject({ leaseTerm: "Long-term", rentalType: "standard" });
-    cleanup();
-    renderLeaseTermStep(["Long-term", "Month-to-Month", "Short-Term Stay"], "", true, (next) => patched.push(next));
-    openLeaseTermMenu();
-    pick("Short-term");
-    expect(patched.at(-1)).toMatchObject({ leaseTerm: "Short-Term Stay", rentalType: "short_term" });
-    cleanup();
-    renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term", false, (next) => patched.push(next));
-    fireEvent.click(document.querySelector("[data-attr='rental-wizard-lease-length']")!);
-    pick("Month-to-month");
-    expect(patched.at(-1)).toMatchObject({ leaseTerm: "Month-to-Month", rentalType: "standard", leaseEnd: "" });
+    const all = ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay"];
+    const picks: [string, Record<string, unknown>][] = [
+      ["Long-term", { leaseTerm: "Long-term", rentalType: "standard" }],
+      ["Short-term", { leaseTerm: "Short-Term Stay", rentalType: "short_term" }],
+      ["Custom", { leaseTerm: "Custom", rentalType: "standard" }],
+      ["Month-to-month", { leaseTerm: "Month-to-Month", rentalType: "standard", leaseEnd: "" }],
+    ];
+    for (const [label, expected] of picks) {
+      renderLeaseTermStep(all, "", true, (next) => patched.push(next));
+      openLeaseTermMenu();
+      pick(label);
+      expect(patched.at(-1)).toMatchObject(expected);
+      cleanup();
+    }
   });
 });
 

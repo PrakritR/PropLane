@@ -9,7 +9,6 @@ import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.se
 import {
   applicantChoiceFromStored,
   applicantTermOptions,
-  storedTermAfterStartChange,
   storedTermForApplicant,
 } from "@/lib/rental-application/applicant-lease-term";
 import { mergeLongTermPrivateArrangementRow, mergeTermStandardFees } from "@/lib/listing-placement-standard-fees";
@@ -17,45 +16,37 @@ import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } f
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 
 describe("what the applicant can pick", () => {
-  it("is exactly Long-term and Short-term, filtered to what the property offers", () => {
-    expect(applicantTermOptions(["Long-term", "Month-to-Month", "Custom"]).map((o) => o.label)).toEqual(["Long-term"]);
+  it("is the four lease types, filtered to what the property enabled", () => {
+    expect(applicantTermOptions(["Long-term", "Month-to-Month", "Custom"]).map((o) => o.label)).toEqual(["Long-term", "Custom", "Month-to-month"]);
     expect(applicantTermOptions(["Long-term", "Short-Term Stay"]).map((o) => o.label)).toEqual(["Long-term", "Short-term"]);
     expect(applicantTermOptions(["Short-Term Stay"]).map((o) => o.label)).toEqual(["Short-term"]);
     expect(applicantTermOptions(["Airbnb"]).map((o) => o.label)).toEqual(["Short-term"]);
-    expect(applicantTermOptions(["Custom"]).map((o) => o.label)).toEqual(["Long-term"]);
+    expect(applicantTermOptions(["Custom"]).map((o) => o.label)).toEqual(["Custom"]);
   });
 
-  it("reads every stored term back as Long-term or Short-term", () => {
-    for (const stored of ["Long-term", "Custom", "3-Month", "6-Month", "9-Month", "12-Month"]) {
-      expect(applicantChoiceFromStored(stored)).toEqual({ term: "long", length: "fixed" });
-    }
-    expect(applicantChoiceFromStored("Month-to-Month")).toEqual({ term: "long", length: "month_to_month" });
-    expect(applicantChoiceFromStored("Short-Term Stay").term).toBe("short");
-    expect(applicantChoiceFromStored("Airbnb").term).toBe("short");
-    expect(applicantChoiceFromStored("").term).toBe("");
+  it("reads every stored term back as its lease type", () => {
+    for (const stored of ["Long-term", "3-Month", "6-Month", "9-Month", "12-Month"]) expect(applicantChoiceFromStored(stored)).toBe("long_term");
+    expect(applicantChoiceFromStored("Custom")).toBe("custom");
+    expect(applicantChoiceFromStored("Month-to-Month")).toBe("month_to_month");
+    expect(applicantChoiceFromStored("Short-Term Stay")).toBe("short_term");
+    expect(applicantChoiceFromStored("Airbnb")).toBe("short_term");
+    expect(applicantChoiceFromStored("")).toBe("");
   });
 });
 
 describe("translating the pick to the stored term", () => {
   const all = ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay"];
-  it("maps each choice to an existing stored term", () => {
-    expect(storedTermForApplicant({ offered: all, term: "short" })).toBe("Short-Term Stay");
-    expect(storedTermForApplicant({ offered: ["Airbnb"], term: "short" })).toBe("Airbnb");
-    expect(storedTermForApplicant({ offered: all, term: "long", length: "month_to_month" })).toBe("Month-to-Month");
-    expect(storedTermForApplicant({ offered: ["Long-term"], term: "long", length: "month_to_month" })).toBe("Long-term");
-    expect(storedTermForApplicant({ offered: ["Custom"], term: "long" })).toBe("Custom");
-    expect(storedTermForApplicant({ offered: ["12-Month"], term: "long" })).toBe("12-Month");
+  it("maps each choice to its stored term", () => {
+    expect(storedTermForApplicant({ offered: all, term: "long_term" })).toBe("Long-term");
+    expect(storedTermForApplicant({ offered: all, term: "short_term" })).toBe("Short-Term Stay");
+    expect(storedTermForApplicant({ offered: ["Airbnb"], term: "short_term" })).toBe("Airbnb");
+    expect(storedTermForApplicant({ offered: all, term: "month_to_month" })).toBe("Month-to-Month");
+    expect(storedTermForApplicant({ offered: all, term: "custom" })).toBe("Custom");
+    expect(storedTermForApplicant({ offered: ["12-Month"], term: "long_term" })).toBe("12-Month");
   });
 
-  it("where Long-term and Custom are both offered, a mid-month start is Custom and a first-of-the-month start is Long-term", () => {
-    expect(storedTermForApplicant({ offered: all, term: "long", leaseStart: "2026-11-01" })).toBe("Long-term");
-    expect(storedTermForApplicant({ offered: all, term: "long", leaseStart: "2026-11-15" })).toBe("Custom");
-    expect(storedTermForApplicant({ offered: all, term: "long" })).toBe("Long-term");
-    expect(storedTermAfterStartChange({ offered: all, currentStored: "Long-term", leaseStart: "2026-11-15" })).toBe("Custom");
-    expect(storedTermAfterStartChange({ offered: all, currentStored: "Custom", leaseStart: "2026-12-01" })).toBe("Long-term");
-    // Month-to-month and short stays are never rewritten by a start date.
-    expect(storedTermAfterStartChange({ offered: all, currentStored: "Month-to-Month", leaseStart: "2026-11-15" })).toBe("Month-to-Month");
-    expect(storedTermAfterStartChange({ offered: all, currentStored: "Short-Term Stay", leaseStart: "2026-11-15" })).toBe("Short-Term Stay");
+  it("a start date never rewrites the pick: Long-term stays Long-term mid-month", () => {
+    expect(storedTermForApplicant({ offered: all, term: "long_term" })).toBe("Long-term");
   });
 });
 
@@ -90,10 +81,10 @@ describe("the fee preview for each choice equals the amount charged", () => {
   };
 
   const cases: Array<{ name: string; pick: Parameters<typeof storedTermForApplicant>[0]; cents: number }> = [
-    { name: "Long-term, first of the month", pick: { offered: [], term: "long", leaseStart: "2026-11-01" }, cents: 3000 },
-    { name: "Long-term, custom (mid-month) start", pick: { offered: [], term: "long", leaseStart: "2026-11-15" }, cents: 2000 },
-    { name: "Long-term, month-to-month", pick: { offered: [], term: "long", length: "month_to_month" }, cents: 1000 },
-    { name: "Short-term", pick: { offered: [], term: "short" }, cents: 500 },
+    { name: "Long-term", pick: { offered: [], term: "long_term" }, cents: 3000 },
+    { name: "Custom", pick: { offered: [], term: "custom" }, cents: 2000 },
+    { name: "Month-to-month", pick: { offered: [], term: "month_to_month" }, cents: 1000 },
+    { name: "Short-term", pick: { offered: [], term: "short_term" }, cents: 500 },
   ];
   for (const { name, pick, cents } of cases) {
     it(`${name}`, async () => {

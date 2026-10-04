@@ -45,6 +45,7 @@ import {
   LISTING_ROOM_CHOICE_SEP,
   parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
+import { onlyOfferedStoredTerm } from "@/lib/rental-application/applicant-lease-term";
 import { roomResidentPriceForSlot } from "@/lib/room-pricing";
 import {
   SHORT_TERM_LEASE_TERM,
@@ -1306,8 +1307,7 @@ function RentalApplicationWizardInner({
         // the only option (AXI-153). Only ever fills a BLANK field — an answer
         // already given, or a term the listing no longer offers, is left alone
         // for validation to surface rather than silently rewritten.
-        const listingTerms = listingOfferedLeaseTerms(pid);
-        const soleListingTerm = listingTerms.length === 1 ? listingTerms[0]! : "";
+        const soleListingTerm = onlyOfferedStoredTerm(listingOfferedLeaseTerms(pid)) ?? "";
         const leaseTerm = shortTermFromLink
           ? (prev.leaseTerm || SHORT_TERM_LEASE_TERM)
           : prev.leaseTerm || soleListingTerm;

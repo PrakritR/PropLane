@@ -136,6 +136,74 @@ export function acceptedLeaseTermsFromStored(stored: readonly string[]): string[
   return sortLeaseTermsCanonical([...new Set(merged)]);
 }
 
+/**
+ * THE four lease types (captain, Oct 4 2026): Long-term, Short-term, Custom and Month-to-month. The manager
+ * picks which a property offers ("Lease terms"), the applicant picks one of those, and the lease document and
+ * the charge schedule follow the pick. This list is the one owner: pickers, validation and docs all read it.
+ *
+ * `term` is the STORED value (`allowedLeaseTerms`, `leaseTerm`) and never changes, so signed leases and saved
+ * listings read the same. The retired 3/6/9/12-Month lengths read as Long-term; Airbnb (an off-platform stay)
+ * reads as Short-term.
+ */
+export type LeaseTypeId = "long_term" | "short_term" | "custom" | "month_to_month";
+
+export const MONTH_TO_MONTH_LEASE_TERM = "Month-to-Month";
+
+export const LEASE_TYPES: readonly { id: LeaseTypeId; term: string; label: string }[] = [
+  { id: "long_term", term: LONG_TERM_LEASE_TERM, label: "Long-term" },
+  { id: "short_term", term: SHORT_TERM_LEASE_TERM, label: "Short-term" },
+  { id: "custom", term: CUSTOM_LEASE_TERM, label: "Custom" },
+  { id: "month_to_month", term: MONTH_TO_MONTH_LEASE_TERM, label: "Month-to-month" },
+];
+
+/** The lease type a stored term is, or null for a blank / unknown value. */
+export function leaseTypeIdForStoredTerm(stored: string | null | undefined): LeaseTypeId | null {
+  const term = String(stored ?? "").trim();
+  if (!term) return null;
+  if (term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM) return "short_term";
+  if (term === CUSTOM_LEASE_TERM) return "custom";
+  if (term === MONTH_TO_MONTH_LEASE_TERM) return "month_to_month";
+  if (term === LONG_TERM_LEASE_TERM || isLegacyFixedLeaseTerm(term)) return "long_term";
+  return null;
+}
+
+/** The lease types a set of stored terms offers, in the fixed order Long-term, Short-term, Custom, Month-to-month. */
+export function leaseTypeIdsFromStored(stored: readonly string[]): LeaseTypeId[] {
+  const present = new Set(stored.map(leaseTypeIdForStoredTerm));
+  return LEASE_TYPES.filter((type) => present.has(type.id)).map((type) => type.id);
+}
+
+export function leaseTypeLabel(id: LeaseTypeId): string {
+  return LEASE_TYPES.find((type) => type.id === id)?.label ?? id;
+}
+
+/**
+ * The stored term for a lease type. Short-term stores "Airbnb" only when that is all the property offers
+ * of the two stay terms.
+ */
+export function storedTermForLeaseType(id: LeaseTypeId, offeredStored: readonly string[] = []): string {
+  if (id === "short_term") {
+    return !offeredStored.includes(SHORT_TERM_LEASE_TERM) && offeredStored.includes(AIRBNB_LEASE_TERM)
+      ? AIRBNB_LEASE_TERM
+      : SHORT_TERM_LEASE_TERM;
+  }
+  if (id === "long_term") {
+    // A listing that still stores only a retired fixed length keeps answering with it.
+    if (!offeredStored.includes(LONG_TERM_LEASE_TERM)) {
+      const legacy = offeredStored.find((t) => isLegacyFixedLeaseTerm(t));
+      if (legacy) return legacy;
+    }
+    return LONG_TERM_LEASE_TERM;
+  }
+  return LEASE_TYPES.find((type) => type.id === id)!.term;
+}
+
+/** Is this stored term one of the lease types the property offers? (The server-side "not enabled" test.) */
+export function leaseTermIsOfferedType(offeredStored: readonly string[], term: string | null | undefined): boolean {
+  const id = leaseTypeIdForStoredTerm(term);
+  return id !== null && leaseTypeIdsFromStored(offeredStored).includes(id);
+}
+
 export function isAirbnbRentalType(rentalType?: string | null): boolean {
   return rentalType === "airbnb";
 }

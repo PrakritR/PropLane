@@ -4324,7 +4324,6 @@ export function ManagerAddListingForm({
                       term="Month-to-Month"
                       longTermRent={room.monthlyRent}
                       longTermDeposit={room.securityDeposit ?? ""}
-                      surcharge={sub.monthToMonthSurcharge}
                       longTermUtilities={room.utilitiesEstimate ?? ""}
                       price={room.termPricing?.["Month-to-Month"]}
                       onChange={(next) => setRoomTermPrice(i, "Month-to-Month", next)}
@@ -4584,7 +4583,6 @@ export function ManagerAddListingForm({
                     longTermRent={parseSanitizedMoneyNumber(bundle.price ?? "")}
                     longTermDeposit={bundle.securityDeposit ?? ""}
                     longTermUtilities={bundle.utilitiesEstimate ?? ""}
-                    surcharge={sub.monthToMonthSurcharge}
                     price={bundle.termPricing?.["Month-to-Month"]}
                     onChange={(next) => setBundleTermPrice(i, "Month-to-Month", next)}
                     footer={
