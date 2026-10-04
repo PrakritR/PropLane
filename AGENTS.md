@@ -413,6 +413,7 @@ answer. Fail closed to `true`.
 | Area | Read first | Never violate |
 | --- | --- | --- |
 | Resident My home | `docs/agents/resident-my-home.md` | Peer details redacted server-side; missing prefs disclose nothing |
+| Services system | `docs/agents/services-system.md` | One vocabulary: Open · Assigned · Scheduled · Completed (`service-lifecycle.ts`); only a submitted bid is approvable; offered vendors see the general area only |
 | Vendor portal | `docs/agents/vendor-portal.md` | Scope by `vendor_user_id = auth.uid()`; accepted bid `amount_cents` is immutable |
 | Financials | `docs/agents/financials.md` | Ledger is write-through (`syncLedger*`); `security_deposit` is liability |
 | Vendor invoicing | `docs/agents/vendor-invoicing.md` | Totals recomputed server-side; vendor tools stay on `vendorAgentRegistry` |
@@ -466,7 +467,7 @@ Two stored-title matchers must keep saying "Work order" (legacy row titles).
 never a bucket of your own, and the retired words fail
 `tests/unit/service-vocabulary.test.ts`. A vendor's answer, the manager's
 actions and the service record's rail are in
-[`docs/agents/vendor-portal.md`](docs/agents/vendor-portal.md) § One vocabulary.
+[`docs/agents/services-system.md`](docs/agents/services-system.md) § One vocabulary.
 
 # Property ownership / plans / drafts / groups
 

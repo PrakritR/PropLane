@@ -5,7 +5,7 @@
  * not two. Functions return plain results ({ ok } | { ok:false, status, error });
  * the routes map them onto NextResponse, the tools onto ExecuteResult.
  *
- * ESTIMATE vs BID (docs/agents/vendor-portal.md): `estimate_cents` is a rough price that can never
+ * ESTIMATE vs BID (docs/agents/services-system.md): `estimate_cents` is a rough price that can never
  * be approved and never becomes a payment; only a row with `amount_cents` AND `bid_submitted_at`
  * (a submitted bid) can be approved. An estimate visit may carry a fee the manager pays once
  * `estimate_visit_done_at` is set - as its own vendor invoice, never inside the job payout.

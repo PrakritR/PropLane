@@ -1,5 +1,5 @@
 /**
- * The one service vocabulary (studio plan claude-2/services-vendors-1004 § One vocabulary).
+ * The one service vocabulary (docs/agents/services-system.md § One vocabulary).
  *
  * Every service list in every portal (manager Services page, property Services, vendor record
  * Services, vendor portal, resident) and the task list use the same four tabs, in this order:

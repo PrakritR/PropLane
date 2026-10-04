@@ -1,5 +1,5 @@
 /**
- * The vendor-bid cycle as pure functions (docs/agents/vendor-portal.md § Estimate vs bid).
+ * The vendor-bid cycle as pure functions (docs/agents/services-system.md § Estimate vs bid).
  *
  *   Open -> bids requested (several vendors) -> estimate and/or estimate visit ->
  *   bid submitted -> manager approves ONE bid -> Assigned -> Scheduled -> Completed -> Paid

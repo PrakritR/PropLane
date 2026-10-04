@@ -1,5 +1,5 @@
 /**
- * Estimate vs bid on the server (docs/agents/vendor-portal.md): approving refuses anything that is
+ * Estimate vs bid on the server (docs/agents/services-system.md): approving refuses anything that is
  * not a submitted bid and anything outside the caller's workspace; an estimate never becomes a
  * payment; the estimate-visit fee is billed once, only after the visit happened.
  */
