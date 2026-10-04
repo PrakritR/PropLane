@@ -246,6 +246,7 @@ export async function processManagerAssistantInboundEmail(
           replySent,
           workspaceId,
           workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
+          residentUserId: sender.role === "resident" ? sender.ctx.userId : null,
         });
       } catch (cause) {
         console.error("assistant-email conversation mirror failed", cause);

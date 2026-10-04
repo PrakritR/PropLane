@@ -524,6 +524,38 @@ Coverage: `tests/unit/conversation-key.test.ts`, `one-conversation-per-person.te
 `reply-thread-key-check.test.ts`, `conversation-house-visibility.test.ts`,
 `conversation-backfill.test.ts`.
 
+## A resident's texts are in their conversation (C1-R4)
+
+A resident has ONE conversation per manager workspace (`ws:<workspace>`); their
+texts to that manager's work number are in it, with the in-app and email turns.
+`src/lib/communication/resident-conversations.server.ts` reads them, the pure rules
+are `resident-conversation.ts` (`tests/unit/resident-conversation.test.ts`):
+
+- A text conversation is a resident's only via the account the SMS pipeline
+  resolved (`counterparty_user_id`) or a phone **they verified**
+  (`profiles.phone_verified_at`, `decideResidentSmsLink`). An unverified phone
+  never links; if another account verified the same number nothing links by phone
+  (the response says `residentPhone.ambiguous`); another account's, manager,
+  admin, vendor and unresolved conversations never appear. The PropLane
+  Assistant thread has no manager and no texts.
+- The workspace is the **work line's** (`manager_sms_numbers.workspace_id`), never
+  a summary's stamp, so a mis-stamped row cannot cross workspaces. Texting two
+  managers is two conversations.
+- The texts are derived per GET (`applyResidentConversationExtras`), never stored
+  on a resident row: ids `sms-proj:<turn>` are in `shared-thread-merge`'s derived
+  set so a save never persists them, and a text-only conversation is a read-only
+  row `resident_sms_<workspace>` (`smsOnly`, reserved id, no email).
+- Every workspace-keyed resident row carries a server-stamped `counterparty`
+  (`name`, `workspaceName`, `workPhone`, `initials`; no avatar column exists
+  today). A body's `counterparty` / `smsOnly` is discarded.
+- A Gmail from a resident's account email to the work address is also written
+  into THEIR conversation (`mirrorAssistantEmailConversation` `residentUserId`,
+  only for a sender classified as that manager's resident); the assistant's
+  answer is not copied.
+- Verifying a phone (`PUT /api/manager/phone`) calls `linkVerifiedPhoneHistory`,
+  which re-keys the number's past SMS projection rows through the one resolver
+  (`acct:` where the resident is linked to the workspace, else the `tel:` key).
+
 ## A reply leaves on the channel the person reached you on
 
 Person threads in Communication default the composer to the **last inbound

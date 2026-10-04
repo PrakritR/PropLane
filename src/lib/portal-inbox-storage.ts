@@ -1,5 +1,6 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
+import type { ResidentCounterparty } from "@/lib/communication/resident-conversation";
 import {
   assistantInboxCollapseKey,
   boundManagerUserIdFromThread,
@@ -206,6 +207,14 @@ export type PersistedInboxThread = {
   housesRestricted?: boolean;
   /** Old ids this conversation absorbed (tour links, deep links, archive state keep working). */
   aliasIds?: string[];
+  /**
+   * Response-only, resident scope: WHO the conversation is with (the manager's
+   * name, workspace and work number), resolved by the server from the
+   * conversation's workspace key. Never trusted from a body.
+   */
+  counterparty?: ResidentCounterparty;
+  /** Response-only: the conversation exists only as texts; the resident replies from their phone. */
+  smsOnly?: boolean;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";

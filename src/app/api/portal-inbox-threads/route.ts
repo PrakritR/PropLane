@@ -20,6 +20,7 @@ import {
   type ThreadMergeRefusal,
 } from "@/lib/communication/shared-thread-merge";
 import { threadHouseIds } from "@/lib/communication/conversation-house-filter";
+import { applyResidentConversationExtras } from "@/lib/communication/resident-conversations.server";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -354,6 +355,27 @@ export async function GET(request: Request) {
           : scopeParam === VENDOR_INBOX_SCOPE
             ? collapsePersonInboxThreads(rows, { mergeFolders: true, keyedOnly: true })
             : rows;
+
+    // A resident's list names who each conversation is with and folds in the
+    // texts that are THEIRS (verified phone / resolved account) - read-only,
+    // derived per request, never stored on their row. Best-effort: the stored
+    // conversations must still list if the text read fails.
+    if (scopeParam === RESIDENT_INBOX_SCOPE) {
+      try {
+        const extras = await applyResidentConversationExtras(
+          ctx.db,
+          {
+            id: ctx.user.id,
+            name: ctx.user.name,
+            mayReadResidentTexts: await callerMayWriteInboxScope(ctx.db, ctx.user, RESIDENT_INBOX_SCOPE),
+          },
+          collapsed,
+        );
+        return NextResponse.json({ rows: extras.rows, residentPhone: extras.phone });
+      } catch (e) {
+        console.error("resident conversation extras failed", e instanceof Error ? e.message : "unknown");
+      }
+    }
 
     return NextResponse.json({
       rows:

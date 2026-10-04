@@ -418,6 +418,16 @@ export async function PUT(req: Request) {
   }
   await db.from("phone_verifications").delete().eq("user_id", user.id);
 
+  // Verifying a phone links the texts that were already there: the conversation
+  // key is re-stamped on this number's past text history (best-effort, idempotent;
+  // the resident's own Communication derives the same answer without it).
+  try {
+    const { linkVerifiedPhoneHistory } = await import("@/lib/communication/resident-conversations.server");
+    await linkVerifiedPhoneHistory(db, user.id);
+  } catch {
+    /* non-critical */
+  }
+
   // First verified personal phone → PropLane messaging assistant intro (idempotent).
   try {
     const { maybeSendManagerPropLaneAssistantIntro } = await import("@/lib/claw-onboarding-sms.server");

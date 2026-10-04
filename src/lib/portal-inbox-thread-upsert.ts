@@ -67,5 +67,5 @@ export function buildClientPortalInboxThreadUpsert(
 
 /** Ids the server derives deterministically; a client never creates them. */
 export function isServerReservedInboxThreadId(id: string): boolean {
-  return /^(agent_notice_|property_mgr_|team-thread:)/.test(id);
+  return /^(agent_notice_|property_mgr_|team-thread:|resident_sms_)/.test(id);
 }
