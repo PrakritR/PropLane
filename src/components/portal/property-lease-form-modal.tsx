@@ -193,7 +193,12 @@ export function PropertyLeaseFormModal({
    */
   onSave: (
     nextTemplates: PropertyLeaseTemplate[],
-    extra?: { applications?: PropertyApplicationTemplate[]; allowedLeaseTerms?: string[] },
+    extra?: {
+      applications?: PropertyApplicationTemplate[];
+      allowedLeaseTerms?: string[];
+      /** Which checkboxes changed, so a bulk save can apply the same change to each property's own terms. */
+      touchedLeaseOptions?: LeaseOptionKey[];
+    },
   ) => boolean | Promise<boolean>;
   onDelete?: () => void;
   /** Reload listing submission after assistant confirms a lease edit. */
@@ -674,7 +679,11 @@ export function PropertyLeaseFormModal({
     const savingLeaseId = mode === "add" ? (addModeLeaseTemplateId ?? makePropertyLeaseTemplateId()) : template?.id ?? "";
     const nextApplicationLink = linkedApplicationTemplateId;
     // The property's applications ride along; so do the listing's allowed terms when an option changed.
-    const saveExtra: { applications: PropertyApplicationTemplate[]; allowedLeaseTerms?: string[] } = {
+    const saveExtra: {
+      applications: PropertyApplicationTemplate[];
+      allowedLeaseTerms?: string[];
+      touchedLeaseOptions?: LeaseOptionKey[];
+    } = {
       applications: routingApplicationTemplates,
     };
     const touchedOptions: LeaseOptionKey[] =
@@ -683,6 +692,7 @@ export function PropertyLeaseFormModal({
         : (["custom", "monthToMonth"] as const).filter((key) => optionFlags[key] !== initialOptionFlags[key]);
     const withAllowedTerms = (finalTemplates: PropertyLeaseTemplate[]) => {
       if (touchedOptions.length > 0) {
+        saveExtra.touchedLeaseOptions = [...touchedOptions];
         saveExtra.allowedLeaseTerms = allowedTermsAfterLeaseOptions(
           resolveAllowedLeaseTerms(sub),
           finalTemplates,
