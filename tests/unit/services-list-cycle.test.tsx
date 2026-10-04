@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The Services list follows the bid cycle: Open / Scheduled / Done only (no Vendors tab), each
+// The Services list follows the lifecycle: Open / Assigned / Scheduled / Completed only (no Vendors tab), each
 // service in the tab its stage says, the SAME list embedded in a property record scoped to that
 // property, and rows that carry no pill.
 import { readFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
-import { serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
+import { workOrderServiceStage, workOrderStageFact } from "@/lib/service-lifecycle";
 import { buildUnifiedServiceRows, countServiceRowsByState } from "@/lib/unified-service-rows";
 import { managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 
@@ -30,41 +30,56 @@ const offer = (over: Partial<WorkOrderVendorOffer> = {}): WorkOrderVendorOffer =
 
 describe("which Services tab a service sits in (the stage function)", () => {
   const none = { bids: [], offers: [] };
-  it("Open = pending and bids requested", () => {
-    expect(serviceListBucket(wo(), none)).toBe("open");
-    expect(serviceListBucket(wo({ biddingOpen: true }), { bids: [], offers: [offer()] })).toBe("open");
+  it("Open = new, or out for bids", () => {
+    expect(workOrderServiceStage(wo(), none)).toBe("open");
+    expect(workOrderServiceStage(wo({ biddingOpen: true }), { bids: [], offers: [offer()] })).toBe("open");
+    expect(workOrderServiceStage(wo({ biddingOpen: true }), { bids: [bid({ amountCents: 1, bidSubmittedAt: "2026-10-02T00:00:00.000Z" })], offers: [] })).toBe("open");
   });
-  it("Scheduled = bid approved or assigned and scheduled", () => {
+  it("Assigned = a bid approved, or someone picked, with no time yet", () => {
     const hired = { vendorId: "d1", vendorName: "Pacific", biddingResolvedAt: "2026-10-06T00:00:00.000Z" };
-    expect(serviceListBucket(wo({ ...hired }), { bids: [bid({ status: "accepted", amountCents: 1 })], offers: [] })).toBe("scheduled");
-    expect(serviceListBucket(wo({ bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00.000Z", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("scheduled");
+    expect(workOrderServiceStage(wo({ ...hired }), { bids: [bid({ status: "accepted", amountCents: 1 })], offers: [] })).toBe("assigned");
+    expect(workOrderServiceStage(wo({ selfAssigned: true, assignee: { type: "team", id: "m", name: "You" } }), none)).toBe("assigned");
   });
-  it("Done = completed and paid", () => {
-    expect(serviceListBucket(wo({ bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("done");
-    expect(serviceListBucket(wo({ bucket: "scheduled", automationStatus: "vendor_marked_done", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("done");
+  it("Scheduled = has a visit time", () => {
+    expect(workOrderServiceStage(wo({ bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00.000Z", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("scheduled");
+  });
+  it("Completed = completed, vendor-marked-done and paid", () => {
+    expect(workOrderServiceStage(wo({ bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("completed");
+    expect(workOrderServiceStage(wo({ bucket: "scheduled", automationStatus: "vendor_marked_done", vendorId: "d1", vendorName: "Pacific" }), none)).toBe("completed");
   });
   it("counts per tab come from the same function (unified rows carry the derived state)", () => {
     const rows = buildUnifiedServiceRows({
       addOns: [],
       maintenance: [
-        { ...wo({ id: "a" }), state: serviceListBucket(wo({ id: "a" }), none) },
+        { ...wo({ id: "a" }), state: workOrderServiceStage(wo({ id: "a" }), none) },
+        { ...wo({ id: "a2", vendorId: "d1", vendorName: "P" }), state: workOrderServiceStage(wo({ id: "a2", vendorId: "d1", vendorName: "P" }), none) },
         { ...wo({ id: "b", bucket: "scheduled", vendorId: "d1", vendorName: "P", scheduledAtIso: "2026-10-08T16:00:00.000Z" }), state: "scheduled" as const },
-        { ...wo({ id: "c", bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "P" }), state: "done" as const },
+        { ...wo({ id: "c", bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "P" }), state: "completed" as const },
       ],
     });
-    expect(countServiceRowsByState(rows)).toEqual({ open: 1, scheduled: 1, done: 1, declined: 0 });
+    expect(countServiceRowsByState(rows)).toEqual({ open: 1, assigned: 1, scheduled: 1, completed: 1, declined: 0 });
   });
 });
 
 describe("the stage fact on a row", () => {
-  it("reads 3 bids / Visit … / Scheduled … / Completed / Paid / Pending", () => {
-    const bids = ["a", "b", "c"].map((id) => bid({ id, vendorUserId: id, vendorDirectoryId: `d-${id}`, amountCents: 10000, bidSubmittedAt: "2026-10-02T00:00:00.000Z" }));
-    expect(serviceListStageFact(wo({ biddingOpen: true }), { bids, offers: [] })).toBe("3 bids");
-    expect(serviceListStageFact(wo(), { bids: [], offers: [] })).toBe("Pending");
-    expect(serviceListStageFact(wo({ biddingOpen: true }), { bids: [], offers: [offer(), offer({ id: "o2", vendorDirectoryId: "d2" })] })).toBe("Bids requested · 2");
-    expect(serviceListStageFact(wo({ biddingOpen: true }), { bids: [bid({ quoteMode: "after_consultation", consultationVisitAt: "2026-10-05T17:00:00.000Z" })], offers: [] })).toMatch(/^Visit /);
-    expect(serviceListStageFact(wo({ bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00.000Z", vendorId: "d1", vendorName: "P" }), { bids: [], offers: [] })).toMatch(/^Scheduled /);
-    expect(serviceListStageFact(wo({ bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "P" }), { bids: [], offers: [] })).toBe("Paid");
+  it("Open: N bids · lowest $X / N estimates / Requested N vendors / New", () => {
+    const bids = [["a", 15_200], ["b", 20_000], ["c", 18_000]].map(([id, cents]) => bid({ id: id as string, vendorUserId: id as string, vendorDirectoryId: `d-${id}`, amountCents: cents as number, bidSubmittedAt: "2026-10-02T00:00:00.000Z" }));
+    expect(workOrderStageFact(wo({ biddingOpen: true }), { bids, offers: [] })).toBe("3 bids · lowest $152");
+    expect(workOrderStageFact(wo({ biddingOpen: true }), { bids: [bid({ estimateCents: 18_000 }), bid({ id: "b2", vendorUserId: "v2", vendorDirectoryId: "d2", estimateCents: 9_000 })], offers: [] })).toBe("2 estimates");
+    expect(workOrderStageFact(wo({ biddingOpen: true }), { bids: [], offers: [offer(), offer({ id: "o2", vendorDirectoryId: "d2" })] })).toBe("Requested 2 vendors");
+    expect(workOrderStageFact(wo(), { bids: [], offers: [] })).toBe("New");
+  });
+  it("Assigned: <assignee> · no time yet", () => {
+    expect(workOrderStageFact(wo({ vendorId: "d1", vendorName: "Rapid Pipes" }), { bids: [], offers: [] })).toBe("Rapid Pipes · no time yet");
+  });
+  it("Scheduled: Wed, Oct 8 · 9am · <assignee>", () => {
+    const iso = new Date(2026, 9, 8, 9, 0).toISOString();
+    expect(workOrderStageFact(wo({ bucket: "scheduled", scheduledAtIso: iso, vendorId: "d1", vendorName: "Rapid Pipes" }), { bids: [], offers: [] })).toBe("Thu, Oct 8 · 9am · Rapid Pipes");
+  });
+  it("Completed: To pay / Paid / <assignee>", () => {
+    expect(workOrderStageFact(wo({ bucket: "completed", vendorId: "d1", vendorName: "P" }), { bids: [], offers: [] })).toBe("To pay");
+    expect(workOrderStageFact(wo({ bucket: "completed", automationStatus: "paid", vendorId: "d1", vendorName: "P" }), { bids: [], offers: [] })).toBe("Paid");
+    expect(workOrderStageFact(wo({ bucket: "completed", selfAssigned: true, assignee: { type: "team", id: "m", name: "Jordan Lee" } }), { bids: [], offers: [] })).toBe("Jordan Lee");
   });
   it("the row menu offers Request bids, Assign, Message and Delete", () => {
     const labels = managerServiceRowMenuItems(wo(), { communicationHref: "/x" }).map((i) => i.label);
@@ -74,14 +89,14 @@ describe("the stage fact on a row", () => {
 });
 
 describe("the Services page has no Vendors tab", () => {
-  it("lists exactly Open, Scheduled, Done", async () => {
+  it("lists exactly Open, Assigned, Scheduled, Completed", async () => {
     const mod = await import("@/components/portal/pro-all-services-panel");
-    expect(mod.SERVICE_STATE_TABS.map((t) => t.label)).toEqual(["Open", "Scheduled", "Done"]);
+    expect(mod.SERVICE_STATE_TABS.map((t) => t.label)).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
   });
   it("no longer renders the Vendors tab body", () => {
     const src = read("src/components/portal/pro-all-services-panel.tsx");
     expect(src).not.toContain("ManagerServicesVendorsTab");
-    expect(src).not.toMatch(/"vendors"/);
+    expect(src).not.toMatch(/id: "vendors"/);
   });
 });
 
@@ -134,7 +149,7 @@ describe("embedded Services list (property record)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows only this property's services, with Open / Scheduled / Done and no Vendors tab or property filter chip", async () => {
+  it("shows only this property's services, with Open / Assigned / Scheduled / Completed and no Vendors tab or property filter chip", async () => {
     const { AppUiProvider } = await import("@/components/providers/app-ui-provider");
     const { ManagerAllServicesPanel } = await import("@/components/portal/pro-all-services-panel");
     render(
@@ -146,7 +161,7 @@ describe("embedded Services list (property record)", () => {
     expect(document.body.textContent).toContain("Maya Chen");
     expect(document.body.textContent).not.toContain("Sam Lee");
     expect(screen.queryByRole("button", { name: /^Vendors/ })).toBeNull();
-    for (const label of ["Open", "Scheduled", "Done"]) {
+    for (const label of ["Open", "Assigned", "Scheduled", "Completed"]) {
       expect(screen.getAllByRole("button", { name: new RegExp(`^${label}`) }).length).toBeGreaterThan(0);
     }
     // The embedded list is not the page: no page title shell.

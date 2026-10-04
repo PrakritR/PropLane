@@ -63,7 +63,9 @@ export function ServiceAssignDialog({
     ...(others.length > 0 ? ([{ value: "team", label: "A teammate" }] as const) : []),
     ...(meUserId ? ([{ value: "me", label: "Me" }] as const) : []),
   ];
-  const firstMode: ServiceAssignMode = modes.find((m) => m.value === initialMode)?.value ?? modes[0]?.value ?? "me";
+  // A maintenance service opens on Request bids; an add-on (no vendors) opens on Me.
+  const defaultMode: ServiceAssignMode = allowVendors ? "bids" : meUserId ? "me" : "team";
+  const firstMode: ServiceAssignMode = modes.find((m) => m.value === initialMode)?.value ?? modes.find((m) => m.value === defaultMode)?.value ?? modes[0]?.value ?? "me";
   const [mode, setMode] = useState<ServiceAssignMode>(firstMode);
   const [vendorIds, setVendorIds] = useState<string[]>([]);
   const [vendorId, setVendorId] = useState("");

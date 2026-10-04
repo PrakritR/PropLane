@@ -73,15 +73,22 @@ const underBand = (root: string) => {
 };
 
 describe("every service record section opens with the standard band", () => {
-  it("Service: Details · Photos · Activity with counts, the Edit icon, the progress line, no search", () => {
+  it("Service: Details · Photos · Activity with counts, the Edit icon, the stage stepper above it, no search", () => {
     renderTab("service", wo({ photoDataUrls: ["https://example.com/a.jpg"], vendorAssignedAt: "2026-10-02T00:00:00.000Z" }));
     expect(bandTabs("service-details")).toEqual(["Details", "Photos", "Activity"]);
     const band = document.querySelector('[data-attr="service-details"]')!;
     expect(band.querySelector('[data-attr="service-details-tab-photos"]')!.textContent).toMatch(/Photos\s*1/);
     expect(band.querySelector('[data-attr="service-details-tab-activity"]')!.textContent).toMatch(/Activity\s*1/);
     expect(document.querySelector('[data-attr="service-details-edit"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="service-progress-line"]')).not.toBeNull();
+    const stepper = document.querySelector('[data-attr="service-stage-stepper"]')!;
+    expect(stepper).not.toBeNull();
+    expect([...stepper.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
+    expect(stepper.compareDocumentPosition(band.querySelector('[data-attr="service-details-tab-details"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector('[data-attr="record-overview-card-request"]')).not.toBeNull();
+    // Assigned to and Visit are fields of the Service tab.
+    const assignment = document.querySelector('[data-attr="record-overview-card-assignment"]')!;
+    expect(assignment.textContent).toMatch(/Assigned to/);
+    expect(assignment.textContent).toMatch(/Visit/);
     // The old inline stage-radio row is gone.
     expect(document.body.textContent).not.toMatch(/Progress/);
     fireEvent.click(screen.getByRole("button", { name: /^Photos/ }));
@@ -90,17 +97,17 @@ describe("every service record section opens with the standard band", () => {
     expect(document.querySelector('[data-attr="record-activity-list"]')).not.toBeNull();
   });
 
-  it("Vendor & schedule: the whole cycle as tabs with counts, search, Assign icon and the round +", () => {
-    renderTab("vendor-schedule");
-    expect(bandTabs("service-vendor-cycle")).toEqual(["Requested", "Estimates", "Visits", "Bids", "Approved", "Scheduled", "Completed", "Paid"]);
+  it("Vendors: Requested · Estimates · Bids · Approved · Declined with counts, search and the round + (Request bids); no stage line", () => {
+    renderTab("vendors");
+    expect(bandTabs("service-vendor-cycle")).toEqual(["Requested", "Estimates", "Bids", "Approved", "Declined"]);
     const band = document.querySelector('[data-attr="service-vendor-cycle"]')!;
     expect(band.firstElementChild!.contains(screen.getByPlaceholderText("Search vendors"))).toBe(true);
-    expect(screen.getByRole("button", { name: "Assign" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add vendors" })).toBeTruthy();
-    // The progress line replaces the inline stage row and the old Assign dropdown card.
-    expect(band.querySelector('[data-attr="service-progress-line"]')).not.toBeNull();
+    const plus = band.querySelector('[data-attr="service-request-more-vendors"]') as HTMLElement;
+    expect(plus.getAttribute("aria-label")).toBe("Request bids");
+    // One band: no separate stage / progress lines, no old Assign dropdown card.
+    expect(band.querySelector('[data-attr="service-progress-line"]')).toBeNull();
+    expect(band.querySelector('[data-attr="service-stage-stepper"]')).toBeNull();
     expect(band.querySelector('[data-attr="service-assign-select"]')).toBeNull();
-    expect(band.firstElementChild!.contains(band.querySelector('[data-attr="service-progress-line"]'))).toBe(false);
     expect(document.querySelectorAll('[data-attr="portal-list-empty-card"]')).toHaveLength(1);
   });
 
@@ -137,22 +144,34 @@ describe("every service record section opens with the standard band", () => {
   });
 });
 
-describe("the Assign icon opens the Assign popup", () => {
-  it("opens the standard popup with Request bids / a vendor / a teammate / myself, nothing chosen yet", () => {
-    renderTab("vendor-schedule");
+describe("Request bids or assign opens one popup", () => {
+  it("the header icon opens it: Request bids / A vendor / A teammate / Me, nothing chosen yet", () => {
+    renderTab("vendors");
     expect(document.querySelector('[data-attr="service-assign-dialog"]')).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
-    const dialog = document.querySelector('[data-attr="service-assign-dialog"]')!;
+    fireEvent.click(screen.getByRole("button", { name: "Request bids or assign" }));
+    const dialog = document.querySelector('[data-attr="service-assign-dialog"]') as HTMLElement;
     expect(dialog).not.toBeNull();
-    expect(within(dialog as HTMLElement).getByText("Request bids from vendors")).toBeTruthy();
+    expect(within(dialog).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Request bids", "A vendor", "Me"]);
+    expect(within(dialog).getByRole("checkbox", { name: /PropLane vendors within/ })).toBeTruthy();
+    expect((within(dialog).getByRole("checkbox", { name: /PropLane vendors within/ }) as HTMLInputElement).checked).toBe(false);
     const submit = document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toBe("Request bids");
   });
 
-  it("the round + on Vendor & schedule opens the same popup on Request bids", () => {
-    renderTab("vendor-schedule");
-    fireEvent.click(screen.getByRole("button", { name: "Add vendors" }));
-    expect(document.querySelector('[data-attr="service-assign-dialog"]')).not.toBeNull();
+  it("the round + on Vendors opens the same popup on Request bids", () => {
+    renderTab("vendors");
+    fireEvent.click(document.querySelector('[data-attr="service-request-more-vendors"]') as HTMLElement);
+    const dialog = document.querySelector('[data-attr="service-assign-dialog"]') as HTMLElement;
+    expect(dialog).not.toBeNull();
+    expect(within(dialog).getAllByRole("radio").find((r) => r.getAttribute("aria-checked") === "true")?.textContent).toBe("Request bids");
+  });
+
+  it("Me assigns with one click", () => {
+    renderTab("vendors");
+    fireEvent.click(screen.getByRole("button", { name: "Request bids or assign" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Me" }));
+    expect((document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement).textContent).toBe("Assign to me");
   });
 });
 

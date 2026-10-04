@@ -190,6 +190,41 @@ lightweight `biddingOpen` / `biddingOpenedAt` / `biddingResolvedAt` flag
 (`DemoManagerWorkOrderRow` fields) plus the existing `vendorId` /
 `vendorName` / `cost` fields that already model final vendor assignment.
 
+## One vocabulary (services-vendors-1004)
+
+Every service list - the manager Services page, a property's Services tab, a vendor record's
+Services tab, the resident list, the vendor portal and the task list - uses ONE set of words, owned by
+`src/lib/service-lifecycle.ts` (ids and legacy-id parsing in `src/lib/service-stage-ids.ts`). Import
+from it; never re-declare a stage label or tab set.
+
+- **Stages (the tabs):** Open - Assigned - Scheduled - Completed (`SERVICE_STAGE_TABS`). Open =
+  nobody is doing it yet (new, or out for bids); Assigned = someone is, with no visit time; Scheduled
+  = has a visit time; Completed = finished, and a vendor job then carries **To pay** or **Paid** as its
+  fact (`completedPaymentFact`), never a fifth tab. A maintenance row is staged by
+  `workOrderServiceStage`, an add-on by `addOnServiceStage`; the row fact (`workOrderStageFact`) and
+  the record's stepper (`workOrderStageSteps`) come from the same functions, so a tab, its count, the
+  fact and the stepper cannot disagree.
+- **A vendor's answer** on one service: Requested - Estimate - Bid - Approved | Declined
+  (`VENDOR_ANSWER_TABS`, `vendorAnswerGroup`, `vendorRequestFact`). An estimate is never approvable;
+  only a Bids row has **Approve bid**; `compareBids()` lays submitted bids side by side.
+- **Actions:** Request bids - Assign - Approve bid - Schedule - Complete - Pay
+  (`MANAGER_SERVICE_ACTION_LABEL`); vendor side Give estimate - Book visit - Submit bid - Decline -
+  Complete - Send invoice (`VENDOR_SERVICE_ACTION_LABEL`).
+- **Old tab ids still resolve.** `done`, `pending`, `potential`, `active`, `current`, `upcoming`,
+  `past` ... go through `parseServiceStage` (and `/services/work-orders/<id>` redirects, keeping any
+  record path), and the old `vendor-schedule` section id is an alias of `vendors`
+  (`SERVICE_DETAIL_TAB_ALIASES`). A saved link never falls home.
+- **Retired words** (`tests/unit/service-vocabulary.test.ts` fails them in service / vendor / task UI
+  copy): "Vendor & schedule", "Mark done", "Publish to vendors", "Compare quotes", "Potential",
+  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too.
+- **The service record** (`record-sections.ts` `service`): rail Service - Vendors | Linked: Incoming
+  payments - Outgoing payments - Communication. Header icons in order: Message - Edit - Request bids or
+  assign - Schedule - more (Cancel service and Delete, the only red items) - then ONE primary, the next
+  step from the lifecycle (Request bids, Compare bids, Schedule, Complete, Pay;
+  `managerServiceNextStep`). "Request bids or assign" is one dialog (`ServiceAssignDialog`): Request
+  bids (your vendors, up to 10, optionally PropLane vendors within a radius through the existing
+  marketplace reach in `sendWorkOrderVendorOffers`) - A vendor - A teammate - Me.
+
 ## Estimate vs bid, and the service cycle (vendor-bids-1003)
 
 **An estimate is not a bid.** The old note that a service goes to one vendor at a time is gone: a
@@ -230,49 +265,48 @@ invoice (`ensureSubmittedVendorInvoiceForMarkedDone`) ignores `VISIT-` invoices.
 built only when the service is completed AND assigned to a vendor
 (`serviceIsVendorPayable`): yourself and teammates never create an outgoing row.
 
-**The manager record** (`record-sections.ts` `service`): Service · Vendor & schedule · (Linked)
+**The manager record** (`record-sections.ts` `service`): Service · Vendors · (Linked)
 Incoming payments · Outgoing payments · Communication. Overview and Photos are one Service tab (the
 resident's photos are a strip inside it); Payments is Incoming payments. Old `/overview`, `/photos`,
-`/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). Vendor & schedule shows the stage bar
-(Pending · Bids requested · Bid approved · Scheduled · Completed · Paid, derived by
-`deriveServiceStages`, never stored), one row per requested vendor (`deriveVendorRequestRows`),
-Approve bid only on a row with a submitted bid, an Assign dropdown (Request bids / a vendor / a
-teammate / myself) and a + to request more vendors. The vendor answers in `VendorBidReplyDialog`
+`/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). The Service tab opens with the stage
+stepper (Open · Assigned · Scheduled · Completed, + Paid for a vendor job; derived, never stored);
+Vendors is one band (Requested · Estimates · Bids · Approved · Declined) with one row per requested
+vendor (`deriveVendorRequestRows`), Approve bid only on a Bids row, a Compare toggle and a + (Request
+bids). The vendor answers in `VendorBidReplyDialog`
 (choices from `vendorReplyChoices`).
 
-**Flow.** The manager requests vendors from the service's Vendor & schedule section (the + or
-"Request bids" in Assign), which sets `biddingOpen: true` on the work order (mirrored through the
+**Flow.** The manager requests vendors from the service's Vendors section (the + or
+"Request bids" in the Request bids or assign dialog), which sets `biddingOpen: true` on the work order (mirrored through the
 local-first `updateManagerWorkOrder` -> `/api/portal-work-orders` "replace" sync) and sends each vendor
 an offer through the SAME vendor resolution + email (Resend) + `deliverPortalInboxMessage` + audit-log
 pipeline as the visit-scheduled email (`buildVendorBidOfferEmail` in `src/lib/vendor-visit-email.ts`).
 A vendor may act only while they hold a `sent` offer or are the assigned vendor, and only while bidding
 is open (or their own row is awaiting a bid after an estimate or visit) - a client-supplied work order
-id never attaches a row to an unrelated manager's record. The manager reviews the rows on Vendor &
-schedule and approves one; the approve action (server-side, service-role) sets that bid `accepted`,
+id never attaches a row to an unrelated manager's record. The manager reviews the rows on Vendors
+and approves one; the approve action (server-side, service-role) sets that bid `accepted`,
 every other `submitted` row on the service `declined`, patches the work order's `row_data` directly
 (`vendorId`, `vendorName`, `cost`, `biddingOpen: false`, and the booked visit), bypassing the client
 mirror (the manager's browser picks it up on its next `syncManagerWorkOrdersFromServer`), and notifies
 the winner and, best-effort, each declined vendor.
 
-**The three service lists follow the cycle.** The manager Services page has Open (Pending + Bids
-requested) · Scheduled (Bid approved + Scheduled) · Done (Completed + Paid), each tab and count from
-`serviceListBucket`, the same stage the record's stage bar shows; there is no Vendors tab. A property
-record's Operations > Services tab is that same list (`ManagerAllServicesPanel` with
+**The service lists follow the lifecycle.** The manager Services page has Open - Assigned - Scheduled -
+Completed (see One vocabulary), each tab and count from `workOrderServiceStage`; there is no Vendors
+tab. A property record's Operations > Services tab is that same list (`ManagerAllServicesPanel` with
 `lockedPropertyId`, in `PropertyServicesTab`), with the property's service catalog behind its settings
-icon. A vendor record's Services tab is Requested · Active · Done (`buildVendorServiceItems`), the same
-shared row with that vendor's own estimate or bid as the figure; its + requests the vendor for an open
-service or creates a service assigned to them.
+icon. A vendor record's Services tab uses the same four stages (`buildVendorServiceItems`; Open shows
+that vendor's own answer as the fact), the same shared row with that vendor's own estimate or bid as the
+figure; its + requests a bid on an open service or creates a service assigned to them.
 
 **Every record section opens with one band** (`record-list-band.tsx`: `RecordTabBand` for a section,
 `RecordListBand` for a list, both the Payments header). Service = Details · Photos · Activity + Edit;
-Vendor & schedule = the cycle as tabs with counts (Requested · Estimates · Visits · Bids · Approved ·
-Scheduled · Completed · Paid, `cycleTabForRow`) + Filter, the Assign icon and the round +; Incoming =
+Vendors = the vendor answers as tabs with counts (Requested · Estimates · Bids · Approved · Declined,
+`vendorAnswerGroup`) + Filter, Compare on Bids and the round + (Request bids); Incoming =
 Pending · Overdue · Paid + Add charge; Outgoing = To pay · Paid + Add payment; Communication = the
 counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup (add-ons never offer
 vendors). Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
 stamped with the service id (`createManagerCharge({ workOrderId })`) so it lists under Incoming, and no
 amount or ownership comes from the client. The stage is `deriveServiceStages` (maintenance) or
-`deriveAddOnStages` (Pending · Assigned · Scheduled · Completed · Paid); the Services list facts use the
+`deriveAddOnStages` (Open · Assigned · Scheduled · Completed); the Services list facts use the
 same functions.
 
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):

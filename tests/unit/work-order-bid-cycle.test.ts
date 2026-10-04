@@ -3,10 +3,9 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import {
-  CYCLE_TAB_IDS,
-  addOnStageFact,
   bidCanBeApproved,
-  cycleTabForRow,
+  compareBids,
+  countSubmittedBids,
   deriveAddOnStages,
   clientBidApprovalFacts,
   deriveServiceStages,
@@ -14,6 +13,7 @@ import {
   serviceIsVendorPayable,
   vendorReplyChoices,
 } from "@/lib/work-order-bid-cycle";
+import { VENDOR_ANSWER_TABS, addOnStageFact, vendorAnswerGroup, vendorRequestFact } from "@/lib/service-lifecycle";
 import { parseVisitFeeCents, isVisitFeeInvoiceNumber, visitFeeInvoiceNumber, MAX_ESTIMATE_VISIT_FEE_CENTS } from "@/lib/work-order-visit-fee";
 import { invoiceBelongsInOutgoing } from "@/lib/manager-outgoing-invoices";
 
@@ -124,7 +124,7 @@ describe("stage derivation (server data only)", () => {
   const ids = (r: DemoManagerWorkOrderRow, bids: WorkOrderBid[] = [], offers: WorkOrderVendorOffer[] = []) =>
     deriveServiceStages(r, { bids, offers });
 
-  it("starts Pending with no vendor involved", () => {
+  it("starts Open with no vendor involved", () => {
     const { stages, currentId } = ids(row());
     expect(currentId).toBe("pending");
     expect(stages.map((s) => s.id)).toEqual(["pending", "scheduled", "completed"]);
@@ -133,7 +133,7 @@ describe("stage derivation (server data only)", () => {
   it("is Requested once vendors are asked, with the full cycle ahead", () => {
     const { stages, currentId } = ids(row({ biddingOpen: true }), [], [offer()]);
     expect(currentId).toBe("requested");
-    expect(stages.map((s) => s.label)).toEqual(["Pending", "Requested", "Estimates", "Visits", "Bids", "Approved", "Scheduled", "Completed", "Paid"]);
+    expect(stages.map((s) => s.label)).toEqual(["Open", "Requested", "Estimates", "Visits", "Bids", "Assigned", "Scheduled", "Completed", "Paid"]);
     expect(stages.map((s) => s.state)).toEqual(["done", "current", "todo", "todo", "todo", "todo", "todo", "todo", "todo"]);
   });
 
@@ -170,32 +170,83 @@ describe("stage derivation (server data only)", () => {
   });
 });
 
-describe("cycle tabs place each vendor row", () => {
-  it("lists the eight tabs in cycle order", () => {
-    expect([...CYCLE_TAB_IDS]).toEqual(["requested", "estimates", "visits", "bids", "approved", "scheduled", "completed", "paid"]);
+describe("vendor answers group into the five Vendors tabs", () => {
+  it("lists the tabs in order", () => {
+    expect(VENDOR_ANSWER_TABS.map((t) => t.label)).toEqual(["Requested", "Estimates", "Bids", "Approved", "Declined"]);
   });
-  it("puts a row under the tab it has got to, and the approved row follows the service", () => {
+  it("puts a row under the tab its answer has reached; an estimate visit counts as an estimate", () => {
     const rows = deriveVendorRequestRows(
       [
         bid({ id: "e", vendorUserId: "a", vendorDirectoryId: "da", estimateCents: 100 }),
         bid({ id: "v", vendorUserId: "b", vendorDirectoryId: "db", quoteMode: "after_consultation", consultationVisitAt: "2026-10-05T17:00:00.000Z" }),
         bid({ id: "b", vendorUserId: "c", vendorDirectoryId: "dc", amountCents: 100, bidSubmittedAt: "2026-10-06T00:00:00.000Z" }),
         bid({ id: "w", vendorUserId: "d", vendorDirectoryId: "dd", status: "accepted", amountCents: 100, bidSubmittedAt: "2026-10-06T00:00:00.000Z" }),
+        bid({ id: "x", vendorUserId: "f", vendorDirectoryId: "df", status: "declined" }),
       ],
       [offer({ vendorDirectoryId: "dz" })],
     );
-    const tabs = (stage: Parameters<typeof cycleTabForRow>[1]) => rows.map((r) => `${r.bidId ?? r.offerId}:${cycleTabForRow(r, stage)}`);
-    expect(tabs("approved")).toEqual(["e:estimates", "v:visits", "b:bids", "w:approved", "offer-1:requested"]);
-    expect(tabs("scheduled")).toContain("w:scheduled");
-    expect(tabs("completed")).toContain("w:completed");
-    expect(tabs("paid")).toContain("w:paid");
+    expect(rows.map((r) => `${r.bidId ?? r.offerId}:${vendorAnswerGroup(r.state)}`)).toEqual([
+      "e:estimates",
+      "v:estimates",
+      "b:bids",
+      "w:approved",
+      "x:declined",
+      "offer-1:requested",
+    ]);
+  });
+  it("words each answer as a plain fact", () => {
+    const rows = deriveVendorRequestRows(
+      [
+        bid({ id: "e", vendorUserId: "a", vendorDirectoryId: "da", estimateCents: 18_000, estimateGivenAt: "2026-10-03T12:00:00.000Z" }),
+        bid({ id: "b", vendorUserId: "c", vendorDirectoryId: "dc", amountCents: 15_200, materialsCents: 1_200, bidSubmittedAt: "2026-10-06T00:00:00.000Z", proposedTime: "2026-10-08T16:00:00.000Z" }),
+      ],
+      [offer({ createdAt: "2026-10-03T12:00:00.000Z" })],
+    );
+    const fact = (key: string) => vendorRequestFact(rows.find((r) => (r.bidId ?? r.offerId) === key)!);
+    expect(fact("e")).toMatch(/^Estimate \$180 · Oct 3$/);
+    expect(fact("b")).toMatch(/^Bid \$152 \+ \$12 materials · can start \w{3}, Oct 8$/);
+    expect(fact("offer-1")).toBe("Requested Oct 3 · waiting");
+  });
+});
+
+describe("compareBids", () => {
+  const rows = deriveVendorRequestRows(
+    [
+      bid({ id: "hi", vendorName: "City Fix Co.", vendorUserId: "a", vendorDirectoryId: "da", amountCents: 20_000, bidSubmittedAt: "2026-10-06T00:00:00.000Z", proposedTime: "2026-10-07T16:00:00.000Z" }),
+      bid({ id: "lo", vendorName: "Rapid Pipes", vendorUserId: "b", vendorDirectoryId: "db", amountCents: 15_200, materialsCents: 1_200, bidSubmittedAt: "2026-10-06T00:00:00.000Z", proposedTime: "2026-10-08T16:00:00.000Z", quoteMode: "after_consultation", consultationVisitAt: "2026-10-06T23:00:00.000Z" }),
+      bid({ id: "est", vendorUserId: "c", vendorDirectoryId: "dc", estimateCents: 9_000 }),
+    ],
+    [offer()],
+  );
+  it("sorts submitted bids by total and flags the lowest; an estimate is never compared", () => {
+    const compared = compareBids(rows);
+    expect(compared.map((c) => c.vendorName)).toEqual(["Rapid Pipes", "City Fix Co."]);
+    expect(compared.map((c) => c.totalCents)).toEqual([16_400, 20_000]);
+    expect(compared.map((c) => c.lowest)).toEqual([true, false]);
+    expect(compared[0]).toMatchObject({ laborCents: 15_200, materialsCents: 1_200, earliestAt: "2026-10-08T16:00:00.000Z", estimateVisitAt: "2026-10-06T23:00:00.000Z" });
+    expect(compared[1]!.estimateVisitAt).toBeNull();
+  });
+  it("flags every vendor tied at the lowest total, and returns nothing without a bid", () => {
+    const tie = deriveVendorRequestRows(
+      [
+        bid({ id: "t1", vendorUserId: "a", vendorDirectoryId: "da", amountCents: 100, bidSubmittedAt: "2026-10-06T00:00:00.000Z" }),
+        bid({ id: "t2", vendorUserId: "b", vendorDirectoryId: "db", amountCents: 100, bidSubmittedAt: "2026-10-06T00:00:00.000Z" }),
+      ],
+      [],
+    );
+    expect(compareBids(tie).map((c) => c.lowest)).toEqual([true, true]);
+    expect(compareBids([])).toEqual([]);
+    expect(compareBids(rows.filter((r) => r.state !== "bid"))).toEqual([]);
+  });
+  it("counts only submitted bids", () => {
+    expect(countSubmittedBids([bid({ id: "x", amountCents: 100, bidSubmittedAt: "2026-10-06T00:00:00.000Z" }), bid({ id: "y", estimateCents: 50 })])).toBe(1);
   });
 });
 
 describe("add-on cycle", () => {
   const ids = (input: Parameters<typeof deriveAddOnStages>[0]) => deriveAddOnStages(input);
-  it("is Pending · Assigned · Scheduled · Completed · Paid", () => {
-    expect(ids({ status: "pending" }).stages.map((s) => s.label)).toEqual(["Pending", "Assigned", "Scheduled", "Completed", "Paid"]);
+  it("is Open · Assigned · Scheduled · Completed · Paid", () => {
+    expect(ids({ status: "pending" }).stages.map((s) => s.label)).toEqual(["Open", "Assigned", "Scheduled", "Completed", "Paid"]);
   });
   it("moves through the stages from the request's own data", () => {
     expect(ids({ status: "pending" }).currentId).toBe("pending");
@@ -207,8 +258,9 @@ describe("add-on cycle", () => {
     expect(ids({ status: "denied" }).stages.map((s) => s.id)).toEqual(["pending", "declined"]);
   });
   it("the Services row fact is the same stage", () => {
-    expect(addOnStageFact({ status: "approved", assignee: { id: "m" } })).toBe("Assigned");
-    expect(addOnStageFact({ status: "pending" })).toBe("Pending");
+    expect(addOnStageFact({ status: "approved", assignee: { id: "m", name: "Jordan Lee" } })).toBe("Jordan Lee · no time yet");
+    expect(addOnStageFact({ status: "pending" })).toBe("New");
+    expect(addOnStageFact({ status: "denied" })).toBe("Declined");
   });
 });
 

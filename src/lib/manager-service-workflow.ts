@@ -95,6 +95,7 @@ export function managerServiceNextStep(
   const assignee = resolveWorkOrderAssignee(row);
   const bidCount = opts.bidCount ?? 0;
   if (!assignee) {
+    if (row.bucket === "scheduled" && !row.automationStatus) return { key: "complete", label: "Complete" };
     if (bidCount > 0) return { key: "compare-bids", label: "Compare bids" };
     if (row.biddingOpen) return null;
     return { key: "request-bids", label: "Request bids" };
