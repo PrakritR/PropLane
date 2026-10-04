@@ -134,6 +134,22 @@ describe("UploadedLeasePdfPreview", () => {
     expect(container.querySelector("a")?.getAttribute("href")).toBeNull();
   });
 
+  it("percent-encodes attribute meta-characters without touching a real document URL", async () => {
+    setUserAgent(DESKTOP_UA);
+
+    const { container } = render(
+      <UploadedLeasePdfPreview
+        dataUrl={`/api/move-in-forms/template-pdf?portal=manager&path=O'Brien">x`}
+        title="Lease PDF preview"
+      />,
+    );
+
+    // The query survives as a URL; nothing is left that could close the attribute it is written into.
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBe(
+      "/api/move-in-forms/template-pdf?portal=manager&path=O%27Brien%22%3Ex",
+    );
+  });
+
   it("hands pages to <img> as object URLs and revokes them on unmount", async () => {
     stubCanvas();
     setUserAgent(IPHONE_UA);

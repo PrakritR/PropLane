@@ -95,15 +95,16 @@ export function stripLeaseDocumentShell(fragment: string): string {
   // around it back into the tag it just split (`<scr` + `ipt>`), so a capped number of passes would
   // leave a reconstructed `<script` in the output (CodeQL js/incomplete-multi-character-sanitization).
   // Every replacement here only deletes, so the string shrinks on each pass and the loop terminates.
+  // Each pass assigns back into `out` rather than chaining off one receiver, so every replacement -
+  // not just the last link of a chain - is visibly the one being repeated until the string settles.
   let out = fragment;
   let previous: string;
   do {
     previous = out;
-    out = out
-      .replace(/<(style|script|title|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-      .replace(/<!doctype[^>]*>/gi, "")
-      .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
-      .replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
+    out = out.replace(/<(style|script|title|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+    out = out.replace(/<!doctype[^>]*>/gi, "");
+    out = out.replace(/<\/?(?:html|body)\b[^>]*>/gi, "");
+    out = out.replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
   } while (out !== previous);
   return out;
 }
