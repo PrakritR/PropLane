@@ -8,6 +8,7 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { normalizeAssignee } from "@/lib/work-assignment";
+import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
 
 /** Street-only property label for task rows — avoids repeating room count and rent in the subtitle. */
 export function compactTaskPropertyLabel(
@@ -137,11 +138,10 @@ function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskLis
   return true;
 }
 
-export function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
-  if (tabId === "completed") return tasks.filter((task) => task.completed);
-  const open = tasks.filter((task) => !task.completed);
-  if (tabId === "overdue") return open.filter((task) => isManagerTaskLate(task));
-  return open.filter((task) => !isManagerTaskLate(task));
+/** The tasks one tab shows: its stage (Open · Assigned · Scheduled · Completed). Arrivals has none. */
+export function tasksForListTab(tasks: readonly ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
+  if (tabId === "arrivals-departures") return [];
+  return tasks.filter((task) => managerTaskStage(task) === tabId);
 }
 
 export const MANAGER_TASK_LIST_SORTS = [
@@ -236,14 +236,13 @@ export function countTaskListFilterBuckets(input: {
   tabId: ManagerTaskListTabId;
   matchesProperty: (propertyId?: string) => boolean;
 }): Record<ManagerTaskListFilterId, number> {
-  const taskRows = openTasksForListTab(input.tasks, input.tabId).filter((task) =>
+  const taskRows = tasksForListTab(input.tasks, input.tabId).filter((task) =>
     input.matchesProperty(task.propertyId),
   );
 
-  const serviceRows =
-    input.tabId === "in-progress"
-      ? input.services.filter((req) => input.matchesProperty(req.propertyId))
-      : [];
+  const serviceRows = input.services.filter(
+    (req) => serviceRequestTaskStage(req) === input.tabId && input.matchesProperty(req.propertyId),
+  );
 
   const tours = taskRows.filter((task) => inferManagerTaskType(task) === "tour").length;
   const houseTasks = taskRows.filter((task) => {
@@ -320,9 +319,7 @@ export type ManagerTaskListRow =
  */
 export function selectManagerTaskListRows(args: {
   tabId: ManagerTaskListTabId;
-  inProgressTasks: readonly ManagerTask[];
-  overdueTasks: readonly ManagerTask[];
-  doneTasks: readonly ManagerTask[];
+  tasks: readonly ManagerTask[];
   assignedServices: readonly ServiceRequest[];
   /** Workspace scoping plus the Property filter, already combined by the caller. */
   matchesProperty: (propertyId?: string) => boolean;
@@ -336,9 +333,7 @@ export function selectManagerTaskListRows(args: {
 }): ManagerTaskListRow[] {
   const {
     tabId,
-    inProgressTasks,
-    overdueTasks,
-    doneTasks,
+    tasks,
     assignedServices,
     matchesProperty,
     listFilter,
@@ -348,17 +343,12 @@ export function selectManagerTaskListRows(args: {
     propertyLabelForId,
     searchQuery = "",
   } = args;
-  const taskSource =
-    tabId === "completed" ? doneTasks : tabId === "overdue" ? overdueTasks : inProgressTasks;
-  const taskRows: ManagerTaskListRow[] = taskSource
+  const taskRows: ManagerTaskListRow[] = tasksForListTab(tasks, tabId)
     .filter((task) => matchesProperty(task.propertyId))
     .map((task) => ({ kind: "task", id: task.id, task }));
-  const serviceRows: ManagerTaskListRow[] =
-    tabId === "in-progress"
-      ? assignedServices
-          .filter((req) => matchesProperty(req.propertyId))
-          .map((request) => ({ kind: "service", id: `service-${request.id}`, request }))
-      : [];
+  const serviceRows: ManagerTaskListRow[] = assignedServices
+    .filter((req) => serviceRequestTaskStage(req) === tabId && matchesProperty(req.propertyId))
+    .map((request) => ({ kind: "service", id: `service-${request.id}`, request }));
   return [...taskRows, ...serviceRows]
     .filter((row) => taskListRowMatchesFilter(row, listFilter))
     .filter((row) => {

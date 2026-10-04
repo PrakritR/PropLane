@@ -129,6 +129,7 @@ export function buildScheduledTourMeetings(
             instructions: event.instructions,
             kind: event.kind,
             sourceTaskId: event.sourceTaskId,
+            assigneeLabel: event.kind === "task" ? event.assignee?.name?.trim() || undefined : undefined,
             hostLabel: hostPeer?.label,
             isPeerTour,
             allDay: event.kind === "task" ? Boolean(event.allDay) : undefined,

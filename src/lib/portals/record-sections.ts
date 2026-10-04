@@ -536,14 +536,20 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   task: {
     basePathDefault: "/portal",
-    // PLAN-0921-1029, area 2: Overview · Communication. "Payments", "Vendor"
-    // and "Resident" fold into Overview's own fact cards.
+    // Studio plan services-vendors-1004: TASK: Task · Linked, then Communication. The Task section keeps
+    // the `overview` id so every saved task link still lands.
     ownGroups: [
-      { label: "Task", ids: [{ id: "overview", label: "Task" }] },
+      { label: "Task", ids: [
+        { id: "overview", label: "Task" },
+        { id: "linked", label: "Linked" },
+      ] },
     ],
+    // Edit · Assign · Schedule · Complete (the filled primary, `primaryId="complete"`) · Delete (last, red).
     headerActions: [
-      { id: "mark-done", label: "Mark done", icon: CheckCircle2 },
-      { id: "reassign", label: "Reassign", icon: RefreshCw },
+      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "assign", label: "Assign", icon: UserPlus },
+      { id: "schedule", label: "Schedule", icon: Calendar },
+      { id: "complete", label: "Complete", icon: CheckCircle2, tone: "primary" },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
@@ -553,7 +559,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
-      const listTab = ctx.taskListTab ?? "in-progress";
+      const listTab = ctx.taskListTab ?? "open";
       return (recordId, tab) => managerTaskDetailHref(basePath, listTab as never, recordId, tab as never);
     },
   },

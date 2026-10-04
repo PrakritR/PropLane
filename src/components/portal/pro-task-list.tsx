@@ -45,8 +45,8 @@ import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-acces
 import {
   MANAGER_TASK_LIST_FILTER_LABELS,
   compactTaskLocationLabel,
-  openTasksForListTab,
   compactTaskPropertyLabel,
+  isManagerTaskLate,
   serviceRequestsAssignedToViewer,
   selectManagerTaskListRows,
   type ManagerTaskListFilterId,
@@ -67,12 +67,22 @@ import {
   MANAGER_TASK_LIST_TABS,
   managerTaskDetailHref,
   managerTaskListHref,
+  managerTourDetailHref,
   parseServiceRecordTab,
+  parseWorkOrderBucket,
   propertyDetailHref,
   serviceRequestDetailHref,
   vendorDetailHref,
+  workOrderDetailHref,
   type ManagerTaskListTabId,
 } from "@/lib/portal-detail-routes";
+import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
+import { TaskAssignDialog } from "@/components/portal/task-assign-dialog";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
+import { readPlannedEvents } from "@/lib/demo-admin-scheduling";
+import type { RecordRowItem } from "@/components/portal/portal-record-overview-kit";
+import type { WorkAssignee } from "@/lib/work-assignment";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -103,18 +113,14 @@ type TaskListRow =
  */
 function TaskFilterApplyLabel({
   tabId,
-  inProgressTasks,
-  overdueTasks,
-  doneTasks,
+  tasks,
   assignedServices,
   workspaceAllowsProperty,
   applied,
   propertyLabelForId,
 }: {
   tabId: ManagerTaskListTabId;
-  inProgressTasks: ManagerTask[];
-  overdueTasks: ManagerTask[];
-  doneTasks: ManagerTask[];
+  tasks: ManagerTask[];
   assignedServices: ServiceRequest[];
   workspaceAllowsProperty: (propertyId?: string) => boolean;
   applied: {
@@ -130,9 +136,7 @@ function TaskFilterApplyLabel({
   const pendingPropertyId = draft[PORTAL_FILTER_DRAFT_PROPERTY_FILTERS][0] ?? "";
   const count = selectManagerTaskListRows({
     tabId,
-    inProgressTasks,
-    overdueTasks,
-    doneTasks,
+    tasks,
     assignedServices,
     matchesProperty: (propertyId) =>
       workspaceAllowsProperty(propertyId) && (!pendingPropertyId || propertyId === pendingPropertyId),
@@ -149,6 +153,46 @@ function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "de
   if (req.status === "approved") return "approved";
   if (req.status === "denied") return "denied";
   return "pending";
+}
+
+/**
+ * The Linked section of a task: its property, the service it was filed for (`linkedWorkOrderId`)
+ * and the tour it prepares (`linkedTourId`), each a record row that links out. Only what exists.
+ */
+function taskLinkedRows(task: ManagerTask, basePath: string, nowMs: number): RecordRowItem[] {
+  const rows: RecordRowItem[] = [];
+  if (task.propertyId) {
+    rows.push({
+      id: "property",
+      title: compactTaskPropertyLabel(task.propertyId, task.propertyTitle) ?? task.propertyTitle ?? "Property",
+      sub: "Property",
+      href: propertyDetailHref(basePath, "all", task.propertyId, "preview"),
+    });
+  }
+  if (task.linkedWorkOrderId) {
+    const order = readManagerWorkOrderRows().find((row) => row.id === task.linkedWorkOrderId);
+    if (order) {
+      rows.push({
+        id: "service",
+        title: order.title,
+        sub: ["Service", order.propertyName].filter(Boolean).join(" · "),
+        href: workOrderDetailHref(basePath, parseWorkOrderBucket(order.bucket), order.id),
+      });
+    }
+  }
+  if (task.linkedTourId) {
+    const tour = readPlannedEvents().find((event) => event.id === task.linkedTourId);
+    if (tour) {
+      const ended = Date.parse(tour.end) < nowMs;
+      rows.push({
+        id: "tour",
+        title: tour.title,
+        sub: "Tour",
+        href: managerTourDetailHref(basePath, ended ? "past" : "upcoming", tour.id),
+      });
+    }
+  }
+  return rows;
 }
 
 export function ManagerTaskList({
@@ -235,13 +279,8 @@ export function ManagerTaskList({
   }, [userId]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  const overdueTasks = useMemo(() => openTasksForListTab(tasks, "overdue"), [tasks]);
-  const inProgressTasks = useMemo(
-    () => openTasksForListTab(tasks, "in-progress"),
-    [tasks],
-  );
-  const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
 
   const matchesProperty = useCallback(
     (propertyId?: string) => workspaceContainsProperty(propertyId) && (!propertyFilterId || propertyId === propertyFilterId),
@@ -258,9 +297,7 @@ export function ManagerTaskList({
     (): TaskListRow[] =>
       selectManagerTaskListRows({
         tabId,
-        inProgressTasks,
-        overdueTasks,
-        doneTasks,
+        tasks,
         assignedServices,
         matchesProperty,
         listFilter,
@@ -273,12 +310,10 @@ export function ManagerTaskList({
     [
     assignedServices,
     assigneeFilterId,
-    doneTasks,
-    inProgressTasks,
+    tasks,
     listFilter,
     listSearch,
     matchesProperty,
-    overdueTasks,
     priorityFilter,
     propertyLabelForId,
     sortId,
@@ -347,9 +382,7 @@ export function ManagerTaskList({
       applyLabel={
         <TaskFilterApplyLabel
           tabId={tabId}
-          inProgressTasks={inProgressTasks}
-          overdueTasks={overdueTasks}
-          doneTasks={doneTasks}
+          tasks={tasks}
           assignedServices={assignedServices}
           workspaceAllowsProperty={workspaceContainsProperty}
           propertyLabelForId={propertyLabelForId}
@@ -381,42 +414,22 @@ export function ManagerTaskList({
     </PortalFilterSortSheet>
   );
 
-  useEffect(() => {
-    if (tabId !== "in-progress" && listFilter === "service_orders") {
-      setListFilter("all");
-    }
-  }, [listFilter, tabId]);
-
   const tabItems = useMemo(() => {
-    const serviceCount = assignedServices.filter((req) => matchesProperty(req.propertyId)).length;
-    const inProgressCount =
-      inProgressTasks.filter((task) => matchesProperty(task.propertyId)).length + serviceCount;
-    const overdueCount = overdueTasks.filter((task) => matchesProperty(task.propertyId)).length;
-    const completedCount = doneTasks.filter((task) => matchesProperty(task.propertyId)).length;
-
+    const counts: Record<string, number> = { open: 0, assigned: 0, scheduled: 0, completed: 0 };
+    for (const task of tasks) {
+      if (matchesProperty(task.propertyId)) counts[managerTaskStage(task)] += 1;
+    }
+    for (const req of assignedServices) {
+      if (matchesProperty(req.propertyId)) counts[serviceRequestTaskStage(req)] += 1;
+    }
     return MANAGER_TASK_LIST_TABS.map((id) => ({
       id,
       label: MANAGER_TASK_LIST_TAB_LABELS[id],
       href: managerTaskListHref(basePath, id),
-      count:
-        id === "arrivals-departures"
-          ? undefined
-          : id === "completed"
-            ? completedCount
-            : id === "overdue"
-              ? overdueCount
-              : inProgressCount,
-      alert: id === "overdue" && overdueCount > 0,
+      count: id === "arrivals-departures" ? undefined : counts[id],
       dataAttr: `manager-task-list-tab-${id}`,
     }));
-  }, [
-    assignedServices,
-    basePath,
-    doneTasks,
-    inProgressTasks,
-    matchesProperty,
-    overdueTasks,
-  ]);
+  }, [assignedServices, basePath, matchesProperty, tasks]);
 
   function beginEdit(task: ManagerTask) {
     setEditingId(task.id);
@@ -522,7 +535,7 @@ export function ManagerTaskList({
       });
     }
 
-    const completeLabel = tabId === "completed" ? "Reopen" : "Mark done";
+    const completeLabel = tabId === "completed" ? "Reopen" : "Complete";
     const completeHandler = () => {
       void bulkSetCompleted(tabId !== "completed");
     };
@@ -643,16 +656,38 @@ export function ManagerTaskList({
   }
   if (routeTask) {
     const recordTab = parseServiceRecordTab(taskTabProp);
-    const sections = recordSections("manager", "task", { basePath, taskListTab: tabId });
+    const sections = recordSections("manager", "task", { basePath, taskListTab: tabId }, recordTab);
+    const headerActions = sections.headerActions.map((action) =>
+      action.id === "complete" && routeTask.completed ? { ...action, label: "Reopen" } : action,
+    );
+    const setCompleted = (completed: boolean) => {
+      if (!userId) return;
+      void updateManagerTask(userId, routeTask.id, { completed }).then(() => {
+        setTasks((prev) => prev.map((row) => (row.id === routeTask.id ? { ...row, completed } : row)));
+        showToast(completed ? "Task completed." : "Task reopened.");
+      });
+    };
+    const assignTask = async (assignee: WorkAssignee | null) => {
+      if (!userId) return;
+      try {
+        await updateManagerTask(userId, routeTask.id, { assignee });
+        setTasks((prev) => prev.map((row) => (row.id === routeTask.id ? { ...row, assignee: assignee ?? undefined } : row)));
+        showToast(assignee ? `Assigned to ${assignee.name?.trim() || "teammate"}.` : "Task unassigned.");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not assign the task.");
+      }
+    };
     const onTaskHeaderAction = (actionId: string) => {
-      if (actionId === "mark-done") {
-        if (!userId) return;
-        void updateManagerTask(userId, routeTask.id, { completed: !routeTask.completed }).then(() => {
-          setTasks((prev) =>
-            prev.map((row) => (row.id === routeTask.id ? { ...row, completed: !routeTask.completed } : row)),
-          );
-          showToast(routeTask.completed ? "Task reopened." : "Task completed.");
-        });
+      if (actionId === "complete") {
+        setCompleted(!routeTask.completed);
+        return;
+      }
+      if (actionId === "edit" || actionId === "schedule") {
+        beginEdit(routeTask);
+        return;
+      }
+      if (actionId === "assign") {
+        setAssignOpen(true);
         return;
       }
       if (actionId === "delete") {
@@ -662,9 +697,7 @@ export function ManagerTaskList({
           showToast("Task deleted.");
           navigate(managerTaskListHref(basePath, tabId));
         });
-        return;
       }
-      showToast("Coming soon");
     };
     return (
       <>
@@ -681,10 +714,10 @@ export function ManagerTaskList({
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onTaskHeaderAction} />
+            <PortalRecordHeaderIconActions actions={headerActions} onAction={onTaskHeaderAction} primaryId="complete" />
           </PortalRecordActions>
           <PortalRecordSectionChrome
-            sections={sections}
+            sections={{ ...sections, headerActions }}
             recordId={routeTask.id}
             activeId={recordTab}
             title={routeTask.title}
@@ -699,61 +732,89 @@ export function ManagerTaskList({
                 : routeTask.dueDate
                   ? new Date(routeTask.dueDate).toLocaleDateString()
                   : "—";
-              const dueSoon = !routeTask.completed && Boolean(routeTask.dueDate) && new Date(routeTask.dueDate!).getTime() - nowMs <= 3 * 24 * 60 * 60 * 1000;
+              const overdue = !routeTask.completed && isManagerTaskLate(routeTask, nowMs);
+              const dueSoon = !overdue && !routeTask.completed && Boolean(routeTask.dueDate) && new Date(routeTask.dueDate!).getTime() - nowMs <= 3 * 24 * 60 * 60 * 1000;
               const vendorAssignee = routeTask.assignee?.type === "vendor" ? routeTask.assignee : undefined;
-              return recordTab === "communication" ? (
-                renderRecordSection("communication", {
+              if (recordTab === "communication") {
+                return renderRecordSection("communication", {
                   role: "manager",
                   kind: "task",
                   kindLabel: "task",
                   recordId: routeTask.id,
                   recordLabel: routeTask.title,
-                })
-              ) : (
-                renderRecordSection("overview", {
+                });
+              }
+              if (recordTab === "linked") {
+                return renderRecordSection("overview", {
                   role: "manager",
                   kind: "task",
                   kindLabel: "task",
                   recordId: routeTask.id,
                   recordLabel: routeTask.title,
-                  overviewTiles: [
-                    { id: "status", label: "Status", value: routeTask.completed ? "Done" : "Open" },
-                    { id: "due", label: "Due", value: dueLabel, tone: dueSoon ? "danger" : "default" },
-                    { id: "assignee", label: "Assignee", value: routeTask.assignee?.name || "Unassigned" },
-                    { id: "priority", label: "Priority", value: routeTask.priority ? MANAGER_TASK_PRIORITY_LABELS[routeTask.priority] : "—" },
-                  ],
-                  overviewNeeds: dueSoon
-                    ? [{ id: "due", title: "Due soon", detail: dueLabel }]
-                    : [],
                   overviewCards: [
                     {
-                      id: "task",
-                      title: "Task",
-                      action: { label: "Property", href: routeTask.propertyId ? propertyDetailHref(basePath, "all", routeTask.propertyId, "preview") : `${basePath}/properties/all` },
-                      rows: [
-                        { label: "Property", value: routeTask.propertyTitle || "—" },
-                        { label: "Assignee", value: routeTask.assignee?.name || "Unassigned" },
-                        ...(routeTask.notes ? [{ label: "Details", value: routeTask.notes }] : []),
-                      ],
+                      kind: "rows",
+                      id: "linked",
+                      title: "Linked",
+                      rows: taskLinkedRows(routeTask, basePath, nowMs),
+                      emptyLabel: "Nothing is linked to this task.",
                     },
-                    // Only a task that has a vendor shows a vendor card; an
-                    // empty "Unassigned" card is unrelated chrome.
-                    ...(vendorAssignee
-                      ? [
-                          {
-                            id: "vendor",
-                            title: "Vendor",
-                            rows: [{ label: "Assigned", value: vendorAssignee.name }],
-                            action: { label: "Vendor record", href: vendorDetailHref(basePath, vendorAssignee.id) },
-                          },
-                        ]
-                      : []),
                   ],
-                })
-              );
+                });
+              }
+              return renderRecordSection("overview", {
+                role: "manager",
+                kind: "task",
+                kindLabel: "task",
+                recordId: routeTask.id,
+                recordLabel: routeTask.title,
+                overviewTiles: [
+                  { id: "status", label: "Status", value: MANAGER_TASK_LIST_TAB_LABELS[managerTaskStage(routeTask)] },
+                  { id: "due", label: "Due", value: overdue ? `Overdue · ${dueLabel}` : dueLabel, tone: overdue || dueSoon ? "danger" : "default" },
+                  { id: "assignee", label: "Assignee", value: routeTask.assignee?.name || "No one yet" },
+                  { id: "priority", label: "Priority", value: routeTask.priority ? MANAGER_TASK_PRIORITY_LABELS[routeTask.priority] : "—" },
+                ],
+                overviewNeeds: overdue
+                  ? [{ id: "due", title: "Overdue", detail: dueLabel }]
+                  : dueSoon
+                    ? [{ id: "due", title: "Due soon", detail: dueLabel }]
+                    : [],
+                overviewCards: [
+                  {
+                    id: "task",
+                    title: "Task",
+                    action: { label: "Property", href: routeTask.propertyId ? propertyDetailHref(basePath, "all", routeTask.propertyId, "preview") : `${basePath}/properties/all` },
+                    rows: [
+                      { label: "Property", value: routeTask.propertyTitle || "—" },
+                      { label: "Assigned to", value: routeTask.assignee?.name || "No one yet" },
+                      ...(routeTask.notes ? [{ label: "Details", value: routeTask.notes }] : []),
+                    ],
+                  },
+                  // Only a task that has a vendor shows a vendor card; an
+                  // empty "Unassigned" card is unrelated chrome.
+                  ...(vendorAssignee
+                    ? [
+                        {
+                          id: "vendor",
+                          title: "Vendor",
+                          rows: [{ label: "Assigned", value: vendorAssignee.name }],
+                          action: { label: "Vendor record", href: vendorDetailHref(basePath, vendorAssignee.id) },
+                        },
+                      ]
+                    : []),
+                ],
+              });
             })()}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
+        <TaskAssignDialog
+          open={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          current={routeTask.assignee ?? null}
+          teamMembers={teamMembers}
+          vendors={vendors}
+          onAssign={assignTask}
+        />
         {userId ? (
           <ManagerTaskFormModal
             open={addOpen}
@@ -840,7 +901,7 @@ export function ManagerTaskList({
                 ? portalEmptyNoMatchTitle("tasks", listSearch)
                 : activeFilterChips.length > 0
                   ? portalEmptyNoMatchTitle("tasks")
-                  : portalEmptyCopy(`tasks.${tabId === "in-progress" ? "open" : tabId}` as PortalEmptyCopyKey).title
+                  : portalEmptyCopy(`tasks.${tabId}` as PortalEmptyCopyKey).title
             }
             clear={
               listSearch.trim()
@@ -863,8 +924,8 @@ export function ManagerTaskList({
                 : null
             }
             sibling={listSearch.trim() || activeFilterChips.length > 0 ? null : portalEmptySibling(tabItems, tabId)}
-            // Overdue and Done are states a task falls into; a new one starts open.
-            actions={tabId === "in-progress" ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }] : []}
+            // Assigned, Scheduled and Completed are stages a task moves into; a new one starts open.
+            actions={tabId === "open" ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }] : []}
             dataAttr="manager-task-empty"
           />
         ) : null}

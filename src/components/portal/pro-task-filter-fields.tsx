@@ -22,9 +22,8 @@ import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 
 function taskListFilterOptions(tabId: ManagerTaskListTabId) {
-  return MANAGER_TASK_LIST_FILTERS.filter(
-    (id) => (tabId === "in-progress" || id !== "service_orders"),
-  ).map(
+  void tabId;
+  return MANAGER_TASK_LIST_FILTERS.map(
     (id) => ({
       value: id,
       label: MANAGER_TASK_LIST_FILTER_LABELS[id],

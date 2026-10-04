@@ -371,7 +371,7 @@ export async function sendTaskAssigneeEmail(input: {
 
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const late = isManagerTaskLate(input.task);
-  const tasksUrl = `${origin}${managerTaskListHref("/portal", late ? "overdue" : "in-progress")}`;
+  const tasksUrl = `${origin}${managerTaskListHref("/portal", "open")}`;
   const dueLabel = input.task.dueDate
     ? new Date(input.task.dueDate).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })
     : "No due date";

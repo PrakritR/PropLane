@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
 //
 // The Calendar header is one row (studio-redesign-0929 C2-CALP1/CALP2/CALP7):
-// All / Tours / Services / Tasks tabs with counts and a type-colour dot, then
+// All / Tours / Services / Tasks tabs with counts (no dots), then
 // Search, < Today > with the range, the view dropdown, Filter, the clock and +.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { DestinationNav } from "@/components/ui/destination-nav";
-import { CALENDAR_KIND_COLOR } from "@/lib/calendar-grid";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/calendar",
@@ -22,32 +21,25 @@ const page = readFileSync(join(process.cwd(), "src/components/portal/portal-cale
 const panels = readFileSync(join(process.cwd(), "src/components/portal/portal-calendar-panels.tsx"), "utf8");
 
 describe("tab dots", () => {
-  it("draws a small dot in the type colour before Tours, Services and Tasks — the tabs are the legend", () => {
+  it("draws no colored dot on any calendar tab — the tabs are plain words and counts", () => {
     const { container } = render(
       <DestinationNav
         appearance="command"
         activeId="all"
         items={[
           { id: "all", label: "All", href: "/portal/calendar", count: 6 },
-          { id: "tours", label: "Tours", href: "/portal/calendar/tours", count: 2, dotColor: CALENDAR_KIND_COLOR.tour },
-          { id: "services", label: "Services", href: "/portal/calendar/services", count: 1, dotColor: CALENDAR_KIND_COLOR.service },
-          { id: "tasks", label: "Tasks", href: "/portal/calendar/tasks", count: 2, dotColor: CALENDAR_KIND_COLOR.task },
+          { id: "tours", label: "Tours", href: "/portal/calendar/tours", count: 2 },
+          { id: "services", label: "Services", href: "/portal/calendar/services", count: 1 },
+          { id: "tasks", label: "Tasks", href: "/portal/calendar/tasks", count: 2 },
         ]}
       />,
     );
-    const dots = [...container.querySelectorAll('[data-slot="destination-nav-dot"]')] as HTMLElement[];
-    expect(dots).toHaveLength(3);
-    expect(dots.map((d) => d.style.backgroundColor)).toEqual(["rgb(42, 120, 214)", "rgb(235, 104, 52)", "rgb(27, 175, 122)"]);
-    expect(dots.every((d) => d.getAttribute("aria-hidden") === "true")).toBe(true);
-    // The All tab has no dot.
-    expect(container.querySelector('a[href="/portal/calendar"] [data-slot="destination-nav-dot"]')).toBeNull();
+    expect(container.querySelectorAll('[data-slot="destination-nav-dot"]')).toHaveLength(0);
   });
 
-  it("the page gives the three type tabs their dot colours", () => {
-    expect(page).toContain("tours: CALENDAR_KIND_COLOR.tour,");
-    expect(page).toContain("services: CALENDAR_KIND_COLOR.service,");
-    expect(page).toContain("tasks: CALENDAR_KIND_COLOR.task,");
-    expect(page).toContain('dotColor: "dotColor" in tab ? tab.dotColor : undefined,');
+  it("the page no longer hands the tabs a dot colour", () => {
+    expect(page).not.toContain("dotColor");
+    expect(page).not.toContain("CALENDAR_TAB_DOT_COLOR");
   });
 });
 

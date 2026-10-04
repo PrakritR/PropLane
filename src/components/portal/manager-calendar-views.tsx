@@ -141,13 +141,10 @@ export function CalendarEmptyStrip({
   label,
   jump,
   onJump,
-  addMenu,
 }: {
   label: string;
   jump?: { text: string; dateStr: string } | null;
   onJump?: (dateStr: string) => void;
-  /** The round + (the same Add menu as the header) so the empty state is never a dead end. */
-  addMenu?: ReactNode;
 }) {
   return (
     <div
@@ -165,8 +162,6 @@ export function CalendarEmptyStrip({
           {jump.text}
         </button>
       ) : null}
-      <span className="flex-1" />
-      {addMenu}
     </div>
   );
 }
@@ -445,6 +440,18 @@ export function CalendarTimeGrid({
     };
   }, [canEditAvailability]);
 
+  /*
+   * A band's name is written once: on the first day that carries it. Seven columns of the same
+   * "Tours" / "Open for tours" label read as noise; the legend and the hatch already say the rest.
+   */
+  const bandLabelDay = new Map<string, string>();
+  for (const dateStr of dates) {
+    for (const band of bandsByDate.get(dateStr) ?? []) {
+      const key = `${band.source}|${bandKindsLabel(band.kinds, false)}|${band.startMin}|${band.endMin}`;
+      if (!bandLabelDay.has(key)) bandLabelDay.set(key, dateStr);
+    }
+  }
+
   const gutter = "var(--cal-gutter, 56px)";
   const gridTemplate = `${gutter} repeat(${cols}, minmax(0, 1fr))`;
 
@@ -612,13 +619,17 @@ export function CalendarTimeGrid({
                       const px = ((e - s) / 60) * GRID_HOUR_PX;
                       const typed = band.source === "typed";
                       const paint = bandPaint(band.kinds);
-                      const label = typed
-                        ? px >= 22
-                          ? bandKindsLabel(band.kinds, false)
-                          : ""
-                        : isDay && e - s >= 90
-                          ? "Open for tours"
-                          : "";
+                      const bandKey = `${band.source}|${bandKindsLabel(band.kinds, false)}|${band.startMin}|${band.endMin}`;
+                      const ownsLabel = bandLabelDay.get(bandKey) === dateStr;
+                      const label = !ownsLabel
+                        ? ""
+                        : typed
+                          ? px >= 22
+                            ? bandKindsLabel(band.kinds, false)
+                            : ""
+                          : isDay && e - s >= 90
+                            ? "Open for tours"
+                            : "";
                       const title = `${bandKindsLabel(band.kinds, true)} · ${formatClockRange(band.startMin, band.endMin)}${typed ? " · click to edit" : ""}`;
                       return (
                         <div
@@ -911,6 +922,13 @@ function daysBetween(a: string, b: string): number {
 
 /* ------------------------------------------------------------------ agenda */
 
+/** "Service · Rapid Pipes", "Task · Jordan Lee", "Tour" — the type, and who has it when someone does. */
+export function agendaTypeFact(item: Pick<CalendarGridItem, "kind" | "meeting">): string {
+  const label = CALENDAR_KIND_LABEL[item.kind];
+  const who = item.kind === "service" || item.kind === "task" ? item.meeting.assigneeLabel?.trim() : "";
+  return who ? `${label} · ${who}` : label;
+}
+
 export function CalendarAgendaView({
   dates,
   items,
@@ -952,14 +970,16 @@ export function CalendarAgendaView({
     else groups.push({ dateStr: item.dateStr, rows: [item] });
   }
   return (
-    <div className="flex flex-col gap-3.5" data-attr="calendar-agenda-view">
+    <div className="flex flex-col gap-4" data-attr="calendar-agenda-view">
       {groups.map((group) => {
         const weekday = weekdayOfDateStr(group.dateStr);
         return (
           <section key={group.dateStr} data-attr="calendar-agenda-group">
             <div
               data-attr="calendar-agenda-day-header"
-              className="sticky top-[var(--portal-calendar-header-top,0px)] z-[4] flex items-baseline gap-2 bg-background px-1 py-2 text-[13px] text-muted"
+              // Solid ground and its own bottom edge, so a row scrolling under it never shows through; the
+              // offset has one owner (`--portal-calendar-header-top`, portal-calendar-panels.tsx).
+              className="sticky top-[var(--portal-calendar-header-top,0px)] z-[4] flex items-baseline gap-2 border-b border-border/60 bg-background px-1 pb-2 pt-1.5 text-[13px] text-muted"
             >
               <b className="text-[13.5px] text-foreground">{DOW_LONG[weekday]}</b>
               <span>{dayLabel(group.dateStr, false)}</span>
@@ -969,7 +989,7 @@ export function CalendarAgendaView({
               <span className="flex-1" />
               <i className="text-[11.5px] not-italic text-muted/80">{group.rows.length}</i>
             </div>
-            <div className="mt-1">
+            <div className="pt-2">
               {group.rows.map((item) => {
                 const Icon = KIND_ICON[item.kind];
                 const canReschedule =
@@ -985,11 +1005,11 @@ export function CalendarAgendaView({
                     leadingShape="square"
                     leading={
                       <span
-                        className="flex size-14 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--k)_15%,var(--card))] text-[color:var(--k)]"
-                        style={kindStyle(item.kind)}
+                        className="flex size-14 items-center justify-center rounded-xl bg-accent/60 text-muted/80"
+                        data-slot="calendar-agenda-tile"
                         aria-hidden
                       >
-                        <Icon className="size-5" />
+                        <Icon className="size-5" strokeWidth={1.5} />
                       </span>
                     }
                     facts={
@@ -1000,7 +1020,7 @@ export function CalendarAgendaView({
                             : formatClockRange(item.startMin, item.startMin + (item.durationMin || 30))}
                         </PortalRowFact>
                         <PortalRowFact icon={Icon} srLabel="Type">
-                          {CALENDAR_KIND_LABEL[item.kind]}
+                          {agendaTypeFact(item)}
                         </PortalRowFact>
                       </>
                     }
