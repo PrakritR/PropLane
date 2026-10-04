@@ -1758,6 +1758,10 @@ function ManagerHousePropertiesPanelBody({
 
   useEffect(() => {
     if (!scopeUserId) return;
+    // A sync started under the previous workspace (or the previous retry) must not settle this
+    // one's state: a late "failed" from the scope we just left would replace the "pending" of a
+    // request that is still in flight, showing "could not load" for work that is going fine.
+    let cancelled = false;
     // A retry re-enters "pending" so the list shows the loading treatment
     // again instead of sitting on the stale error/retry card while the new
     // request is in flight.
@@ -1768,6 +1772,7 @@ function ManagerHousePropertiesPanelBody({
       // and the writes are sequential now, so a second run doubled the POSTs
       // per page load and toasted a plan refusal twice. One owner, one run.
       void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then((synced) => {
+        if (cancelled) return;
         setPortfolioLoad(synced ? "ready" : "failed");
         setTick((t) => t + 1);
       });
@@ -1784,6 +1789,7 @@ function ManagerHousePropertiesPanelBody({
         return;
       }
       void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then((synced) => {
+        if (cancelled) return;
         if (synced) setPortfolioLoad("ready");
         setTick((t) => t + 1);
       });
@@ -1803,6 +1809,7 @@ function ManagerHousePropertiesPanelBody({
       setPortfolioLoad((state) => (state === "pending" ? "failed" : state));
     }, PORTFOLIO_SYNC_SETTLE_MS);
     return () => {
+      cancelled = true;
       window.clearTimeout(settleTimer);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);

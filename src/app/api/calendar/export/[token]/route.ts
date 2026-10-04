@@ -21,21 +21,104 @@ function day(raw: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
+const APPROVED_ROW_SELECT =
+  "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
+const APPROVED_ROW_PAGE = 500;
+const APPROVED_ROW_MAX_PAGES = 40;
+
+/**
+ * Where an approved row can name this property. These are exactly the four sources the JavaScript
+ * match below consults, so narrowing on them in the DATABASE drops nothing: the property columns,
+ * and the two `propertyId::roomId` room-choice values (an imported channel stay carries only the
+ * latter). Each is its own filter rather than one `or(...)` expression, so a property id is never
+ * interpolated into filter grammar and no id is ever too exotic to narrow on.
+ */
+const APPROVED_ROW_SOURCES = ["assigned", "property", "assignedChoice", "preferredChoice"] as const;
+type ApprovedRowSource = (typeof APPROVED_ROW_SOURCES)[number];
+
+type ApprovedRow = {
+  id: unknown;
+  choice: unknown;
+  preferred: unknown;
+  lease_start: unknown;
+  lease_end: unknown;
+  manual_start: unknown;
+  manual_end: unknown;
+  manually_added: unknown;
+  ical_connection: unknown;
+  assigned_property_id: unknown;
+  property_id: unknown;
+};
+
+async function readApprovedRowPage(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  managerUserId: string,
+  propertyId: string,
+  source: ApprovedRowSource,
+  page: number,
+): Promise<ApprovedRow[]> {
+  const base = db
+    .from("manager_application_records")
+    .select(APPROVED_ROW_SELECT)
+    .eq("manager_user_id", managerUserId)
+    .eq("row_data->>bucket", "approved");
+  const choicePrefix = `${propertyId}::%`;
+  const scoped =
+    source === "assigned"
+      ? base.eq("assigned_property_id", propertyId)
+      : source === "property"
+        ? base.eq("property_id", propertyId)
+        : source === "assignedChoice"
+          ? base.like("row_data->>assignedRoomChoice", choicePrefix)
+          : base.like("row_data->application->>roomChoice1", choicePrefix);
+  // One row past the page, so "is there more?" is answered by the same read: a source whose row
+  // count lands exactly on a page boundary must not be mistaken for a truncated one.
+  const { data, error } = await scoped
+    .order("id", { ascending: true })
+    .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as ApprovedRow[];
+}
+
+async function readApprovedRowsForProperty(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  managerUserId: string,
+  propertyId: string,
+): Promise<ApprovedRow[]> {
+  const rows: ApprovedRow[] = [];
+  const seen = new Set<string>();
+  for (const source of APPROVED_ROW_SOURCES) {
+    let exhausted = false;
+    for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
+      const batch = await readApprovedRowPage(db, managerUserId, propertyId, source, page);
+      const hasMore = batch.length > APPROVED_ROW_PAGE;
+      for (const row of hasMore ? batch.slice(0, APPROVED_ROW_PAGE) : batch) {
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        rows.push(row);
+      }
+      if (!hasMore) {
+        exhausted = true;
+        break;
+      }
+    }
+    // Rows beyond the bound are occupancy this feed never read. Publishing it anyway would
+    // advertise occupied dates as free, so refuse the feed rather than serve a truncated one.
+    if (!exhausted) throw new Error("Approved-application read for this room exceeded its page bound.");
+  }
+  return rows;
+}
+
 async function occupancyRangesForRoom(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   managerUserId: string,
   propertyId: string,
   roomId: string,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select(
-      "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId",
-    )
-    .eq("manager_user_id", managerUserId)
-    .eq("row_data->>bucket", "approved")
-    .limit(500);
-  if (error) throw new Error(error.message);
+  const data = await readApprovedRowsForProperty(db, managerUserId, propertyId);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;

@@ -19,7 +19,22 @@ function matches(row: Row, col: string, val: unknown): boolean {
 
 /** Just enough of PostgREST's `or()` grammar for the shapes this repo's `.or()` callers generate. */
 function buildOrMatcher(expr: string): (row: Row) => boolean {
-  const clauses = expr.split(",");
+  // Split on top-level commas only: `status.in.(pending,failed)` is ONE clause, and splitting
+  // inside its parentheses silently turned it into two unparseable ones.
+  const clauses: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of expr) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      clauses.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current) clauses.push(current);
   const matchers = clauses.map((clause) => {
     const inMatch = clause.match(/^(\w+)\.in\.\(([^)]*)\)$/);
     if (inMatch) {

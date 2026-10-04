@@ -201,6 +201,12 @@ non-interchangeable (viewer id, window, portal role). Tag server-sync store
 events (`serverSyncOriginatedEvent`) so listeners do not refetch the snapshot
 they just wrote. Calendar polling plan: `docs/realtime-schedule-invalidation.md`.
 
+A plain portal GET several components each read goes through `sharedGet`
+(`src/lib/shared-get-cache.ts`): one request per URL per page load, keyed on the
+full URL so scopes never share an answer, invalidated by `invalidateSharedGets`
+after a write. Never add a second bare `fetch` for a route another component
+already reads.
+
 Never re-upload the local portfolio on page load: the sync replaces the local
 copy with the server's. Local-first property writes go through the outbox
 (`src/lib/property-record-outbox.ts`), which the sync flushes first; an empty

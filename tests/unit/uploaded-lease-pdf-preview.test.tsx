@@ -122,6 +122,34 @@ describe("UploadedLeasePdfPreview", () => {
     expect(link.getAttribute("target")).toBe("_blank");
   });
 
+  it("never points the document link or frame at a script-running URL", async () => {
+    setUserAgent(DESKTOP_UA);
+
+    const { container } = render(
+      // A caller handing over a `javascript:` string must not get a live link out of the preview.
+      <UploadedLeasePdfPreview dataUrl="javascript:alert(1)" title="Lease PDF preview" fileName="Lease.pdf" />,
+    );
+
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBeNull();
+    expect(container.querySelector("a")?.getAttribute("href")).toBeNull();
+  });
+
+  it("percent-encodes attribute meta-characters without touching a real document URL", async () => {
+    setUserAgent(DESKTOP_UA);
+
+    const { container } = render(
+      <UploadedLeasePdfPreview
+        dataUrl={`/api/move-in-forms/template-pdf?portal=manager&path=O'Brien">x`}
+        title="Lease PDF preview"
+      />,
+    );
+
+    // The query survives as a URL; nothing is left that could close the attribute it is written into.
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBe(
+      "/api/move-in-forms/template-pdf?portal=manager&path=O%27Brien%22%3Ex",
+    );
+  });
+
   it("hands pages to <img> as object URLs and revokes them on unmount", async () => {
     stubCanvas();
     setUserAgent(IPHONE_UA);

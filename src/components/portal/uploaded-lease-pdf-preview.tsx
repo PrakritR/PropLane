@@ -15,6 +15,32 @@ function prefersRasterPreview(): boolean {
   return ios || document.documentElement.hasAttribute("data-native");
 }
 
+/**
+ * The exact string this preview may write into its `<a href>` / `<iframe src>`, or `undefined` when
+ * the caller handed over something that is not a document URL.
+ *
+ * Callers hand over a `data:application/pdf` URL, a locally-minted `blob:` object URL, or a
+ * same-origin API path - never a scheme that can run script. Quotes and angle brackets are
+ * percent-encoded first: none of those URLs can legitimately carry one unencoded, so encoding them
+ * cannot change a real document URL, and nothing that reaches the attribute can break out of it
+ * (CodeQL js/xss-through-dom). The prefix allowlist then keeps a `javascript:` or `data:text/html`
+ * string from ever being opened as "the document" (the same convention as the upload previews in
+ * `resident-other-documents.tsx`).
+ */
+function safeDocumentUrl(url: string): string | undefined {
+  // `encodeURIComponent` leaves `'` alone, so percent-encode the four characters directly.
+  const encoded = url.replace(/["'<>]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  const allowed =
+    encoded.startsWith("data:application/pdf") ||
+    // A .pdf the OS reported no MIME type for reads back as octet-stream.
+    encoded.startsWith("data:application/octet-stream") ||
+    encoded.startsWith("blob:") ||
+    encoded.startsWith("http://") ||
+    encoded.startsWith("https://") ||
+    encoded.startsWith("/");
+  return allowed ? encoded : undefined;
+}
+
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.includes(",") ? (dataUrl.split(",")[1] ?? "") : dataUrl;
   const binary = atob(base64);
@@ -144,6 +170,8 @@ export function UploadedLeasePdfPreview({
   /** Stack pages in the page scroll instead of a nested preview scroller. */
   documentFlow?: boolean;
 }) {
+  // `undefined` rather than "": React renders an empty src/href as a link back to the page itself.
+  const documentUrl = safeDocumentUrl(dataUrl);
   const [useRaster, setUseRaster] = useState(() => prefersRasterPreview() || documentFlow);
   const [pages, setPages] = useState<string[]>([]);
   const [totalPages, setTotalPages] = useState(0);
@@ -217,7 +245,7 @@ export function UploadedLeasePdfPreview({
   const header = (
     <div className="border-b border-border bg-card px-3 py-2 text-xs">
       <a
-        href={dataUrl}
+        href={documentUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="font-medium text-primary underline-offset-2 hover:underline"
@@ -238,7 +266,7 @@ export function UploadedLeasePdfPreview({
         {header}
         <iframe
           title={title}
-          src={dataUrl}
+          src={documentUrl}
           className={`block w-full border-0 bg-white ${embeddedInFlex ? "min-h-[70dvh] flex-1" : documentFlow ? "min-h-[50rem]" : "min-h-[min(80dvh,900px)]"}`}
         />
       </div>

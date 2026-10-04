@@ -291,6 +291,40 @@ export async function resolveApplicationFeeProperty(
  * application is actually submitted under. Pure — no I/O, easy to test in
  * isolation from Stripe/DB.
  */
+/**
+ * Every selector the application fee is priced by, besides the template. A
+ * paid fee only proves the applicant paid for THIS application when the whole
+ * basis still matches; the fee is per room, per bundle, per lease type and per
+ * rental type, so the template alone is not the basis.
+ */
+export type ApplicationFeeBasisSelectors = {
+  roomId?: string | null | undefined;
+  leaseTerm?: string | null | undefined;
+  bundleId?: string | null | undefined;
+  rentalType?: string | null | undefined;
+};
+
+const APPLICATION_FEE_BASIS_KEYS = ["roomId", "leaseTerm", "bundleId", "rentalType"] as const;
+
+/**
+ * True only when the paid basis provably equals the submitted one. An `undefined`
+ * value on the PAID side (a session stamped before that selector was recorded)
+ * is unknown, never a match — the amount check then has to carry the decision.
+ */
+export function applicationFeeBasisMatches(
+  paid: ApplicationFeeBasisSelectors | null | undefined,
+  submitted: ApplicationFeeBasisSelectors | null | undefined,
+): boolean {
+  if (!paid && !submitted) return true;
+  if (!paid || !submitted) return false;
+  return APPLICATION_FEE_BASIS_KEYS.every((key) => {
+    const paidValue = paid[key];
+    const submittedValue = submitted[key];
+    if (paidValue === undefined) return submittedValue === undefined;
+    return String(paidValue ?? "").trim() === String(submittedValue ?? "").trim();
+  });
+}
+
 export function applicationFeePaymentSatisfiesTemplate(input: {
   /** The template the application is ACTUALLY being submitted under. */
   submittedApplicationTemplateId: string | null | undefined;
@@ -300,17 +334,21 @@ export function applicationFeePaymentSatisfiesTemplate(input: {
   paidFeeCents: number;
   /** The fee currently required for `submittedApplicationTemplateId`, freshly re-resolved. */
   requiredFeeCents: number;
+  /** Room / bundle / lease type / rental type stamped on the PAID session. */
+  paidFeeBasis?: ApplicationFeeBasisSelectors | null;
+  /** The same selectors read off the draft about to be submitted. */
+  submittedFeeBasis?: ApplicationFeeBasisSelectors | null;
 }): boolean {
   const submitted = (input.submittedApplicationTemplateId ?? "").trim();
   const paid = (input.paidApplicationTemplateId ?? "").trim();
-  // Same template (including "no template selected" on both sides — a
-  // listing with a single template/no overrides never has anything to
-  // mismatch) is always satisfied regardless of amount: it is the exact
-  // charge the applicant already completed.
-  if (submitted === paid) return true;
-  // A different template is still fine as long as what was actually paid
-  // covers what the ACTUAL template now requires (e.g. overpaying, or two
-  // templates that happen to charge the same amount).
+  // The exact charge the applicant already completed — same template AND the
+  // same priced basis (including "nothing selected" on both sides) — is always
+  // satisfied regardless of amount: the amount was validated server-side at
+  // checkout time, and a manager's later price change never re-charges it.
+  if (submitted === paid && applicationFeeBasisMatches(input.paidFeeBasis, input.submittedFeeBasis)) return true;
+  // Anything else is fine only as long as what was actually paid covers what
+  // the submitted template/room/bundle/term now requires (e.g. overpaying, or
+  // two selectors that happen to be priced the same).
   return input.paidFeeCents >= input.requiredFeeCents;
 }
 
@@ -322,7 +360,7 @@ export function applicationFeePaymentSatisfiesTemplate(input: {
  * row, never a caller-supplied claim), so the resolver's ownership guard is
  * a same-value no-op rather than a real authorization check at this call site.
  */
-export async function resolveRequiredApplicationFeeCents(
+export async function resolveRequiredApplicationFee(
   db: SupabaseClient,
   input: {
     propertyId: string;
@@ -333,7 +371,8 @@ export async function resolveRequiredApplicationFeeCents(
     leaseTerm?: string | null;
     rentalType?: "standard" | "short_term";
   },
-): Promise<number> {
+): Promise<{ cents: number; basis: ApplicationFeeBasisSelectors }> {
+  const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const resolved = await resolveApplicationFeeProperty(
     db,
     {
@@ -347,7 +386,71 @@ export async function resolveRequiredApplicationFeeCents(
     },
     { allowZeroFee: true },
   );
-  return resolved.ok ? resolved.value.applicationFeeCents : 0;
+  const bundleId = (input.bundleId ?? "").trim();
+  if (!resolved.ok) {
+    return { cents: 0, basis: { roomId: "", leaseTerm: "", bundleId, rentalType } };
+  }
+  return {
+    cents: resolved.value.applicationFeeCents,
+    basis: {
+      roomId: resolved.value.feeRoomId ?? "",
+      leaseTerm: resolved.value.feeLeaseTerm,
+      bundleId,
+      rentalType,
+    },
+  };
+}
+
+export async function resolveRequiredApplicationFeeCents(
+  db: SupabaseClient,
+  input: {
+    propertyId: string;
+    managerUserId: string;
+    applicationTemplateId?: string | null;
+    roomChoice1?: string | null;
+    bundleId?: string | null;
+    leaseTerm?: string | null;
+    rentalType?: "standard" | "short_term";
+  },
+): Promise<number> {
+  return (await resolveRequiredApplicationFee(db, input)).cents;
+}
+
+/**
+ * Stamped on every session this version of the checkout creates, so a reader can tell "the
+ * checkout recorded the complete basis" from "this session predates part of it" WITHOUT relying
+ * on an empty metadata value surviving the round trip through Stripe (an empty value is how
+ * Stripe unsets a key, so an absent key and a stamped empty string are indistinguishable).
+ */
+export const APPLICATION_FEE_BASIS_VERSION = "1";
+
+/**
+ * Selectors whose stamped value is legitimately empty — no room on a whole-house listing, no
+ * bundle on most applications, no lease type offered. A missing key for these can only mean
+ * "nothing selected", never "not recorded".
+ */
+const APPLICATION_FEE_OPTIONAL_BASIS_KEYS = new Set(["fee_room_id", "fee_lease_term", "fee_bundle_id"]);
+
+/**
+ * The priced basis a paid Stripe session recorded. A selector the session never
+ * stamped stays `undefined` (unknown), which `applicationFeeBasisMatches`
+ * refuses to read as a match.
+ */
+export function applicationFeeBasisFromSessionMetadata(
+  metadata: Record<string, string> | null | undefined,
+): ApplicationFeeBasisSelectors {
+  const complete = String(metadata?.fee_basis_v ?? "").trim() === APPLICATION_FEE_BASIS_VERSION;
+  const read = (key: string): string | undefined => {
+    const raw = metadata?.[key];
+    if (raw !== undefined) return raw.trim();
+    return complete || APPLICATION_FEE_OPTIONAL_BASIS_KEYS.has(key) ? "" : undefined;
+  };
+  return {
+    roomId: read("fee_room_id"),
+    leaseTerm: read("fee_lease_term"),
+    bundleId: read("fee_bundle_id"),
+    rentalType: read("fee_rental_type"),
+  };
 }
 
 export type ApplicationFeeItemization = {
@@ -479,6 +582,12 @@ export async function createApplicationFeeCheckout(
     fee_room_id: (resolved.value.feeRoomId ?? "").slice(0, 120),
     fee_lease_term: resolved.value.feeLeaseTerm.slice(0, 40),
     fee_source: resolved.value.feeSource,
+    // The remaining two selectors the fee is priced by. Without them a later
+    // step cannot tell "this is the exact basis that was paid for" from "the
+    // applicant changed what they are applying for after paying".
+    fee_bundle_id: (input.bundleId ?? "").trim().slice(0, 120),
+    fee_rental_type: input.rentalType === "short_term" ? "short_term" : "standard",
+    fee_basis_v: APPLICATION_FEE_BASIS_VERSION,
   };
   if (input.residentName) metadata.resident_name = input.residentName.slice(0, 450);
 

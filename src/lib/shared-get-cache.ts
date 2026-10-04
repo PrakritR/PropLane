@@ -42,25 +42,27 @@ type Entry = {
 
 const entries = new Map<string, Entry>();
 
+function makeRefresher(url: string, entry: () => Entry): CoalescedRefresher<SharedGetResult> {
+  return createCoalescedRefresher<SharedGetResult>(async () => {
+    const startedGeneration = entry().generation;
+    try {
+      const res = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" }, SHARED_GET_TIMEOUT_MS);
+      if (!res.ok) return { ok: false, status: res.status, data: null };
+      const data = (await res.json().catch(() => null)) as unknown;
+      const result: SharedGetResult & { ok: true } = { ok: true, status: res.status, data };
+      if (entry().generation === startedGeneration) entry().settled = { at: Date.now(), result };
+      return result;
+    } catch {
+      return { ok: false, status: 0, data: null };
+    }
+  });
+}
+
 function entryFor(url: string): Entry {
-  let entry = entries.get(url);
-  if (entry) return entry;
-  const created: Entry = {
-    generation: 0,
-    refresher: createCoalescedRefresher<SharedGetResult>(async () => {
-      const startedGeneration = created.generation;
-      try {
-        const res = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" }, SHARED_GET_TIMEOUT_MS);
-        if (!res.ok) return { ok: false, status: res.status, data: null };
-        const data = (await res.json().catch(() => null)) as unknown;
-        const result: SharedGetResult & { ok: true } = { ok: true, status: res.status, data };
-        if (created.generation === startedGeneration) created.settled = { at: Date.now(), result };
-        return result;
-      } catch {
-        return { ok: false, status: 0, data: null };
-      }
-    }),
-  };
+  const existing = entries.get(url);
+  if (existing) return existing;
+  const created = { generation: 0 } as Entry;
+  created.refresher = makeRefresher(url, () => created);
   entries.set(url, created);
   return created;
 }
@@ -75,12 +77,21 @@ export function sharedGet(url: string, opts?: { force?: boolean; ttlMs?: number 
   return entry.refresher.run(opts?.force === true);
 }
 
-/** Drop settled answers (all, or those whose URL starts with `prefix`) after a write to the route. */
+/**
+ * Drop settled answers (all, or those whose URL starts with `prefix`) after a write to the route.
+ *
+ * The entry's refresher is replaced too, not just its cached answer: a request that started BEFORE
+ * the write would otherwise still be joined by the next unforced reader (`run(false)` joins any
+ * in-flight run), handing a reader that mounted after the write the pre-write answer with nothing
+ * to refetch it. A fresh refresher makes the next reader start a request of its own; the callers
+ * already waiting on the old flight keep the answer they asked for.
+ */
 export function invalidateSharedGets(prefix?: string): void {
   for (const [url, entry] of entries) {
     if (prefix && !url.startsWith(prefix)) continue;
     entry.settled = undefined;
     entry.generation += 1;
+    entry.refresher = makeRefresher(url, () => entry);
   }
 }
 
@@ -98,10 +109,19 @@ if (typeof window !== "undefined") {
  * settles (success or not) every cached read under `url` is dropped, so the
  * next reader asks the server instead of serving the pre-write answer.
  */
-export async function writeThroughFetch(url: string, init: RequestInit): Promise<Response> {
+export async function writeThroughFetch(
+  url: string,
+  init: RequestInit,
+  /**
+   * What to invalidate, when the write URL is not a prefix of every read it affects — a write to
+   * `…?workspaceId=x` does not prefix-match the same route read without the query. Pass the route
+   * path and every scope's cached answer for it is dropped.
+   */
+  opts?: { invalidatePrefix?: string },
+): Promise<Response> {
   try {
     return await fetch(url, init);
   } finally {
-    invalidateSharedGets(url);
+    invalidateSharedGets(opts?.invalidatePrefix ?? url);
   }
 }

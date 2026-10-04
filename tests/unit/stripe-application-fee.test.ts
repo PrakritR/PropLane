@@ -291,3 +291,115 @@ describe("markApplicationDepositPaidFromStripeSession", () => {
     expect(ledgerInsert).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The pending row's amount is computed in the APPLICANT'S BROWSER from their own copy of the
+ * listing, so it can disagree with what checkout resolved and Stripe actually collected. The
+ * money collected wins: the booked row, the ledger payment entry and therefore any later refund
+ * all read the server-stamped `fee_cents`, never the client's figure.
+ */
+describe("markApplicationFeePaidFromStripeSession — the booked amount equals the money collected", () => {
+  const serverPricedSession = {
+    id: "cs_test_reconcile",
+    payment_status: "paid",
+    metadata: {
+      purpose: "rental_application_fee",
+      property_id: "prop-1",
+      resident_email: "res@test.com",
+      // Checkout resolved $75 for the chosen room / lease type; the applicant's browser had booked $50.
+      fee_cents: "7500",
+      // The processing fee the applicant also paid is NOT part of the application fee.
+      subtotal_cents: "7500",
+    },
+  } as never;
+
+  const MANAGER_ID = "3b9c2c65-6f0f-4d3a-9a3e-0b7f6f8a1c2d";
+
+  function baseCharge(status: "pending" | "paid") {
+    return {
+      id: "hc-1",
+      kind: "application_fee" as const,
+      propertyId: "prop-1",
+      managerUserId: MANAGER_ID,
+      residentUserId: null,
+      residentEmail: "res@test.com",
+      propertyLabel: "Unit 1",
+      status,
+      ...(status === "paid" ? { paidAt: "2026-01-02T00:00:00.000Z" } : {}),
+      amountLabel: "$50.00",
+      balanceLabel: status === "paid" ? "$0.00" : "$50.00",
+      title: "Application fee",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  function makeDb(row: ReturnType<typeof baseCharge>) {
+    const ledgerInsert = vi.fn();
+    const chargeEq = vi.fn().mockResolvedValue({ data: [{ id: row.id, row_data: row, status: row.status }], error: null });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const updateEq = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn().mockReturnValue({ eq: updateEq });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const ledgerEq1 = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle }) });
+    const insertChain = vi.fn((entry: unknown) => {
+      ledgerInsert(entry);
+      return { select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { id: "ledger-1" }, error: null }) }) };
+    });
+    const from = vi.fn((table: string) => {
+      if (table === "manager_property_records") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { manager_user_id: MANAGER_ID }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "portal_household_charge_records") {
+        return { select: vi.fn().mockReturnValue({ eq: chargeEq }), upsert, update };
+      }
+      return { select: vi.fn().mockReturnValue({ eq: ledgerEq1 }), insert: insertChain };
+    });
+    return { db: { from } as never, upsert, update, ledgerInsert };
+  }
+
+  it("books the server-stamped fee, not the pending row's client-computed amount", async () => {
+    const { db, upsert, ledgerInsert } = makeDb(baseCharge("pending"));
+
+    const result = await markApplicationFeePaidFromStripeSession(db, serverPricedSession);
+
+    expect(result).toMatchObject({ ok: true, chargeId: "hc-1" });
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert.mock.calls[0][0].row_data).toMatchObject({
+      status: "paid",
+      amountLabel: "$75.00",
+      balanceLabel: "$0.00",
+    });
+    expect(ledgerInsert).toHaveBeenCalledTimes(1);
+    expect(ledgerInsert.mock.calls[0][0]).toMatchObject({ entry_type: "payment", amount_cents: 7500 });
+  });
+
+  it("corrects an already-paid row booked at the wrong amount, and heals its ledger entry", async () => {
+    const { db, update, ledgerInsert } = makeDb(baseCharge("paid"));
+
+    const result = await markApplicationFeePaidFromStripeSession(db, serverPricedSession);
+
+    expect(result).toMatchObject({ ok: true, chargeId: "hc-1", alreadyPaid: true });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0].row_data).toMatchObject({ amountLabel: "$75.00" });
+    expect(ledgerInsert.mock.calls[0][0]).toMatchObject({ amount_cents: 7500 });
+  });
+
+  it("leaves the row alone when the session never stamped an amount (legacy sessions)", async () => {
+    const { db, upsert } = makeDb(baseCharge("pending"));
+    const legacySession = {
+      id: "cs_test_legacy",
+      payment_status: "paid",
+      metadata: { purpose: "rental_application_fee", property_id: "prop-1", resident_email: "res@test.com" },
+    } as never;
+
+    await markApplicationFeePaidFromStripeSession(db, legacySession);
+
+    expect(upsert.mock.calls[0][0].row_data).toMatchObject({ amountLabel: "$50.00" });
+  });
+});

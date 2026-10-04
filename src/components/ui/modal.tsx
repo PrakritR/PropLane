@@ -408,7 +408,12 @@ function ModalPanelInner({
           bodyFillsPanel
             ? cn("flex min-h-0 min-w-0 flex-col overflow-hidden", middleGrows ? "flex-1" : "shrink-0")
             : "flex shrink-0 flex-col",
-          "sm:flex-row",
+          // The asides are `lg:block`, so the row only has a second column at `lg`. Below it the
+          // assistant strip (which has no responsive gate of its own) must stack UNDER the form,
+          // not sit beside it as a narrow column. An EXPANDED strip keeps its own earlier
+          // container-query breakpoint.
+          assistantSideLayout ? "@2xl:flex-row" : undefined,
+          "lg:flex-row",
         )}
       >
         {contextPanel !== null ? (

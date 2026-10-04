@@ -133,7 +133,15 @@ export async function emailManagerOfMoveInFormSubmission(
   if (!rendered) return false;
   const link = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/move-in`;
   const text = `${rendered.text}\n\n${link}`;
-  const escape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Quotes too: this value also lands inside an `href="…"`, where an unescaped double quote would
+  // close the attribute and let the rest of it become new markup.
+  const escape = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   const response = await postResendEmail({
     apiKey,
     actorUserId: row.manager_user_id,

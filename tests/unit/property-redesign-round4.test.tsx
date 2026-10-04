@@ -167,6 +167,30 @@ describe("shared GET cache", () => {
     expect(failing).toHaveBeenCalledTimes(2);
   });
 
+  it("a reader that mounts after a write never joins the request that started before it", async () => {
+    // The in-flight read is the PRE-write one. Joining it would hand the new reader stale data
+    // with nothing left to refetch it.
+    const releases: (() => void)[] = [];
+    const fetchMock = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const inFlight = sharedGet("/api/portal/manager-application-settings?propertyId=p9");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    invalidateSharedGets("/api/portal/manager-application-settings");
+    const afterWrite = sharedGet("/api/portal/manager-application-settings?propertyId=p9");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    for (const release of releases) release();
+    await inFlight;
+    await afterWrite;
+  });
+
   it("the Applications and Lease panels' form-setup hook, mounted twice for one property, sends one request", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

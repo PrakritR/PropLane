@@ -56,6 +56,22 @@ describe("lease document style containment", () => {
     expect(stripped).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
   });
 
+  it("strips a shell rebuilt by its own removal, however deeply it is nested", () => {
+    // Removing `<script>…</script>` joins the text on either side back into a new `<script`, so the
+    // strip has to run to a fixpoint - a capped pass count leaves the deepest nesting behind.
+    let nested = "<script>alert(1)</script>";
+    for (let i = 0; i < 25; i++) nested = `<scr${nested}ipt>`;
+    expect(stripLeaseDocumentShell(nested)).not.toMatch(/<script|<style|<head/i);
+  });
+
+  it("strips a shell rebuilt by a different removal", () => {
+    // Dropping `<html>` / `<!doctype>` splices the text around it together, which can hand back a
+    // tag no earlier pass ever saw: `<scr<html>ipt>` only becomes `<script>` after the html removal.
+    expect(stripLeaseDocumentShell("<scr<html>ipt>alert(1)</scr<!doctype html>ipt>")).not.toMatch(
+      /<script|<style|<head|<html|<!doctype/i,
+    );
+  });
+
   it("leaseHtmlForScopedDomDisplay re-emits only scoped styles", () => {
     const display = leaseHtmlForScopedDomDisplay(LEASE_HTML, ".resident-lease-doc");
     const styles = [...display.matchAll(/<style>([\s\S]*?)<\/style>/g)];

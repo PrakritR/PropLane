@@ -49,11 +49,18 @@ const MAX_TEMPLATES = 40;
 const MAX_QUESTIONS = 60;
 const MAX_OPTIONS = 40;
 
+/**
+ * Id for a template / question / option. `crypto.getRandomValues` is available in insecure contexts
+ * (plain-HTTP LAN dev, older WebViews) where `crypto.randomUUID` is not, so the fallback is still
+ * unguessable and collision-resistant rather than a timestamp two editors could both mint.
+ */
 function randomId(): string {
-  const uuid = typeof globalThis.crypto?.randomUUID === "function"
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  return uuid.replace(/-/g, "").slice(0, 24);
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+  }
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function question(

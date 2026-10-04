@@ -23,10 +23,11 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   (admin Accounts only — a global per-plan default, not a per-row action) ·
   Import your portfolio `Upload` (Properties) · Send application link `Send`
   (Applications).
-- The primary is `PortalPrimaryIconAction`: `Plus` for "add"; `Link2` (Link
-  Airbnb), `PenSquare` (New message), `Upload` (documents), `FileBarChart`
-  (reports) where the job is not "add". Keep the accessible name specific
-  ("Add property"), keep the `data-attr`.
+- The primary is `PortalPrimaryIconAction`: `Plus` for "add";
+  `MessageSquarePlus` / `PenSquare` (New message), `Upload` (documents),
+  `FileBarChart` (reports) where the job is not "add". Keep the accessible name
+  specific ("Add property"), keep the `data-attr`. Linking a channel calendar is
+  NOT a primary — it is the `CalendarSync` utility above.
 - Exactly one add per screen: the bar's primary, plus the titled
   `PortalListEmptyCard` button only while the list is empty. The dashed
   `PortalListAddRow` survives only for an embedded ledger with no bar.

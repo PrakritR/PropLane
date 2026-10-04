@@ -91,18 +91,40 @@ export function scopeLeaseDocumentStyles(
  * editor only through {@link scopeLeaseDocumentStyles}.
  */
 export function stripLeaseDocumentShell(fragment: string): string {
+  // Run to a true fixpoint, like {@link stripHtmlTags}: removing a whole element can join the text
+  // around it back into the tag it just split (`<scr` + `ipt>`), so a capped number of passes would
+  // leave a reconstructed `<script` in the output (CodeQL js/incomplete-multi-character-sanitization).
+  // Every replacement here only deletes, so the string shrinks on each pass and the loop terminates.
+  //
+  // Each removal that can rebuild a dangerous tag gets its own loop, compared against that one
+  // replacement. Sharing a single loop across all four is not a complete sanitizer: the exit test
+  // then sees the string only after the three later replacements have also run, so no individual
+  // replacement is provably repeated until it stops matching.
   let out = fragment;
   let previous: string;
-  let passes = 0;
+  let outerPrevious: string;
   do {
-    previous = out;
-    out = out
-      .replace(/<(style|script|title|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-      .replace(/<!doctype[^>]*>/gi, "")
-      .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
-      .replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
-    passes += 1;
-  } while (out !== previous && passes < 10);
+    outerPrevious = out;
+
+    // Whole elements, contents included.
+    do {
+      previous = out;
+      out = out.replace(/<(style|script|title|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+    } while (out !== previous);
+
+    // Neither of these can re-form a tag on its own, but deleting one can: `<scr<html>ipt>` becomes
+    // a fresh `<script>`, so the outer loop hands it back to the removals around them. Their position
+    // between the two fixpoint loops is load-bearing - moving them changes what the stray-tag pass
+    // below is able to consume in one bite.
+    out = out.replace(/<!doctype[^>]*>/gi, "");
+    out = out.replace(/<\/?(?:html|body)\b[^>]*>/gi, "");
+
+    // Stray shell tags, including an unterminated trailing `<script`.
+    do {
+      previous = out;
+      out = out.replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
+    } while (out !== previous);
+  } while (out !== outerPrevious);
   return out;
 }
 

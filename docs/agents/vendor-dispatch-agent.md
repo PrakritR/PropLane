@@ -56,7 +56,7 @@ the visit is scheduled (`resolveWorkOrderAccessInfo` overlays property defaults 
 resident's per-work-order `entryPermission`/`entryNotes` from intake).
 
 **Conversations reuse the once-dormant `agent_sessions`/`agent_messages` tables**
-(`20260716120000_vendor_agent_sessions.sql`; kind `vendor_work_order`, one session per
+(`20260716120001_vendor_agent_sessions.sql`; kind `vendor_work_order`, one session per
 (work order, vendor), non-partial unique index because PostgREST upsert can't infer partial
 indexes). Both channels share one session + one vendor inbox thread (`thread_type:
 "vendor_agent"`): inbound SMS (`/api/twilio/inbound` for manager work numbers (legacy `/api/webhooks/twilio/sms` remains available) — Twilio signature over

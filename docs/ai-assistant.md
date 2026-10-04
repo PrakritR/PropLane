@@ -488,7 +488,7 @@ Database: migrations `20260625000000_agent_observability.sql`
 (`audit_log`, `agent_sessions`, `agent_messages`),
 `20260713000000_agent_pending_actions.sql` (creates `agent_pending_actions`,
 claimed on `user_id` + status `proposed`, 15-minute default expiry) and
-`20260716090000_agent_pending_actions.sql` (additive only — the `portal` and
+`20260716090000_agent_pending_actions_portal_columns.sql` (additive only — the `portal` and
 `session_id` columns; it must never rename the claim key). Apply with
 `npm run db:push` (dev/test project only — see
 `docs/database-environments.md`).
