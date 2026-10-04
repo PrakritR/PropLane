@@ -212,9 +212,12 @@ npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
 
 ## Standing branches, lanes, and the promote ladder
 
-Prakrit's standing instruction (2026-09-20): keep exactly six agent lanes
-active, plus the `prakrit` integration worktree. Each lane syncs with `prakrit`
-at the start of every prompt and serves its own port.
+Prakrit's standing instruction (2026-10-04, replacing the six-lane roster of
+2026-09-20): keep exactly **three** standing agent lanes, plus the `prakrit`
+integration worktree. Every change ends up on `prakrit`. Origin carries only
+the three lanes, `prakrit`, the release ladder (`main`, `staging`,
+`production`) and Akhil's own branches; anything else is pruned. Each lane
+syncs with `prakrit` at the start of every prompt and serves its own port.
 
 **The lane roster itself is machine-local config and is deliberately not
 copied here** (root `AGENTS.md`: "Keeper names live in local instructions
@@ -229,6 +232,13 @@ truth are:
 Each pane owns one standing lane across prompts. Do not make a new branch for
 each prompt, and do not delete a standing lane after integration.
 
+**Sub-branches.** When the captain opens another agent tab from a lane
+(Cmd+Shift+T), that agent works on its own `<lane>-branch-<N>` cut from the
+lane, in its own worktree and port. Its work merges back into **its parent
+lane** (fast-forward push, never force), never straight into `prakrit`, and the
+sub-branch is deleted from origin once merged. The parent lane carries it to
+`prakrit` through `/promote prakrit` like any other lane work.
+
 `prakrit` is the integration rung, and it is **locked** unless the captain has
 typed `/prakrit` in that pane (a session-start hook re-locks it when the pane
 restarts). Nobody hand-pushes to it, and there is no separate captain
@@ -240,11 +250,15 @@ lane's own pane. That command:
 1. syncs the lane (merges `origin/prakrit`, and `origin/main` if `prakrit`
    lacks commits `main` has) - the lane must already be clean and pushed;
 2. runs the full no-mistakes pipeline on the merged tip;
-3. fast-forwards `prakrit` to the validated tip and pushes;
-4. fans `prakrit` back out to every other lane (merge commit allowed on lanes,
+3. runs a **security review** of `origin/prakrit...<lane tip>` (the captain's
+   rule for every merge into `prakrit`); a high or medium finding stops the
+   land until it is fixed and re-validated;
+4. fast-forwards `prakrit` to the validated, reviewed tip and pushes;
+5. fans `prakrit` back out to every other lane (merge commit allowed on lanes,
    never rebase or force; a dirty or conflicting lane is skipped and reported);
-5. refreshes the `prakrit` worktree and restarts `:3000`;
-6. marks the lane's plan `merged` and refreshes the studio.
+6. refreshes the `prakrit` worktree, restarts `:3000` and opens
+   http://localhost:3000 for the captain to review `prakrit`;
+7. marks the lane's plan `merged` and refreshes the studio.
 
 Climbing further up the ladder is the same grammar, always fast-forward, always
 the captain's own typed word:
