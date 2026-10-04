@@ -17,6 +17,7 @@ import { HOUSEHOLD_CHARGES_EVENT, recordApprovedApplicationCharges } from "@/lib
 import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
 import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
 import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
+import { leaseHtmlForScopedDomDisplay } from "@/lib/lease-html-sections";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
@@ -116,8 +117,10 @@ export function ResidentSignAndPayClient() {
       <section className="rounded-2xl border border-border bg-card p-4">
         <h2 className="text-sm font-bold text-foreground">Lease document</h2>
         <div
-          className="prose prose-sm mt-3 max-h-64 overflow-y-auto rounded-xl border border-border bg-accent/20 p-3 text-sm text-foreground"
-          dangerouslySetInnerHTML={{ __html: leaseBody }}
+          className="resident-lease-doc prose prose-sm mt-3 max-h-64 overflow-y-auto rounded-xl border border-border bg-accent/20 p-3 text-sm text-foreground"
+          // Display only: the lease's own stylesheet is scoped to this box so it cannot restyle the page.
+          // The signature hash above is computed from `leaseBody`, which this does not touch.
+          dangerouslySetInnerHTML={{ __html: leaseHtmlForScopedDomDisplay(leaseBody, ".resident-lease-doc", { dropRootLayout: true }) }}
         />
         {loadingDoc ? <p className="mt-2 text-xs font-semibold text-muted">Loading lease…</p> : null}
       </section>
