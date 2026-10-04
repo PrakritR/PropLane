@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { composePropertyTitle } from "@/lib/property-title";
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
@@ -490,6 +491,9 @@ export function resetPropertyPipelineClientCache(opts?: { preserveInflightViewer
   }
 }
 
+/** How long the property-records request may take before the sync reports failure instead of hanging. */
+export const PROPERTY_PIPELINE_FETCH_TIMEOUT_MS = 15_000;
+
 export async function syncPropertyPipelineFromServer(opts?: {
   force?: boolean;
   userId?: string | null;
@@ -546,7 +550,9 @@ async function runPropertyPipelineSync(opts?: {
     ownPromise = (async () => {
       // Unsent local-first writes go first, so the snapshot below includes them.
       await flushPropertyRecordOutbox(viewerKey);
-      const res = await fetch("/api/property-records", { credentials: "include", cache: "no-store" });
+      // Bounded: this request sits inside a coalesced refresher, and one that never settles would hold
+      // the in-flight slot for good, queueing every later forced sync (and "Try again") behind it.
+      const res = await fetchWithTimeout("/api/property-records", { credentials: "include", cache: "no-store" }, PROPERTY_PIPELINE_FETCH_TIMEOUT_MS);
       const body = (await res.json()) as {
         snapshot?: PropertyPipelineSnapshot;
         linkedPropertyIds?: string[];

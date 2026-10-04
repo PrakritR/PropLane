@@ -1169,6 +1169,12 @@ function ManagerPropertyInlineDetails({
   // render" on. It gates rendering only.
   if (!row || !mock || !managerSubmission) return null;
 
+  // The Activity tab's events, filtered by the band's Category filter; its count is the band's "Activity n" tab.
+  const activityEvents =
+    activeDetailTab === "activity"
+      ? filterPropertyActivity(importedActivity(row?.importFile, row?.importedAt), activityCategoryFilter)
+      : importedActivity(row?.importFile, row?.importedAt);
+
   // Wires the phone sticky action (and its ⋯ overflow) from
   // PortalRecordSectionChrome to the SAME handlers the desktop icon row
   // above already calls — real functionality per bucket, "Coming soon" for a
@@ -1468,6 +1474,7 @@ function ManagerPropertyInlineDetails({
           record kind uses; see src/components/portal/record-section-renderers.tsx. */}
       {activeDetailTab === "activity" ? (
         <PortalPropertySectionToolbar
+          tab={{ id: "activity", label: "Activity", count: activityEvents.length }}
           filter={{
             label: "Category",
             options: [...PROPERTY_ACTIVITY_CATEGORY_OPTIONS],
@@ -1484,10 +1491,7 @@ function ManagerPropertyInlineDetails({
             kindLabel: "home",
             recordId: propertyRouteKey,
             recordLabel: propertyShareLabel,
-            activity:
-              activeDetailTab === "activity"
-                ? filterPropertyActivity(importedActivity(row?.importFile, row?.importedAt), activityCategoryFilter)
-                : importedActivity(row?.importFile, row?.importedAt),
+            activity: activityEvents,
           })
         : null}
 
@@ -2168,21 +2172,22 @@ function ManagerHousePropertiesPanelBody({
    * every one of those read as "Property not found." Find the record's real
    * stage and send the manager there instead (PRP-429).
    */
-  const routePropertyStageElsewhere = useMemo(() => {
+  const routePropertyElsewhere = useMemo(() => {
     void tick;
     if (!propertyKeyProp || routePropertyEntry || !scopeUserId) return null;
     const decoded = decodeURIComponent(propertyKeyProp);
     for (const stage of MANAGER_STAGES) {
       if (stage.key === activeStage) continue;
       for (const bucket of stage.buckets) {
-        const hit = readAdminPropertyRows(bucket, scopeUserId).some(
-          (row) => (row.listingId?.trim() || row.adminRefId.trim()) === decoded || row.adminRefId === decoded,
+        const row = readAdminPropertyRows(bucket, scopeUserId).find(
+          (candidate) => (candidate.listingId?.trim() || candidate.adminRefId.trim()) === decoded || candidate.adminRefId === decoded,
         );
-        if (hit) return stage.key;
+        if (row) return { stage: stage.key, sourceBucket: bucket, row };
       }
     }
     return null;
   }, [activeStage, propertyKeyProp, routePropertyEntry, scopeUserId, tick]);
+  const routePropertyStageElsewhere = routePropertyElsewhere?.stage ?? null;
 
   useEffect(() => {
     if (!routePropertyStageElsewhere || !propertyKeyProp) return;
@@ -2242,11 +2247,16 @@ function ManagerHousePropertiesPanelBody({
   );
 
   if (propertyKeyProp) {
-    if (!routePropertyEntry) {
+    // The record is shown from wherever it really sits. The stage correction above only tidies the URL:
+    // a record whose stage differs from the URL used to wait on that `router.replace` landing, and a
+    // replace that was dropped or superseded (a tab click racing it) left the skeleton up forever,
+    // outside the sync's own 20 s bound.
+    const routeEntry = routePropertyEntry ?? routePropertyElsewhere;
+    if (!routeEntry) {
       // Only the loaded-and-really-absent case is a missing property. While the
       // portfolio is still arriving — or when it failed to arrive at all — say
       // that instead, so a slow first paint stops reading as a deleted listing.
-      if (routePropertyStageElsewhere || portfolioLoad === "pending") {
+      if (portfolioLoad === "pending") {
         return <ListSkeleton rows={3} showLeading={false} className="p-1" />;
       }
       if (portfolioLoad === "failed") {
@@ -2264,7 +2274,7 @@ function ManagerHousePropertiesPanelBody({
         />
       );
     }
-    const { sourceBucket, row } = routePropertyEntry;
+    const { sourceBucket, row } = routeEntry;
     const rowKey = row.adminRefId + (row.listingId ?? "");
     const address = propertyRowAddress(row);
     return (

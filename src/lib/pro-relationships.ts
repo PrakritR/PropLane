@@ -3,6 +3,7 @@
  * Primary flow: `/api/pro/account-links` + `account_link_invites` table.
  */
 
+import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { PRO_RELATIONSHIPS_EVENT, serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
@@ -242,7 +243,7 @@ export async function syncProRelationshipsFromServer(
 async function runRelationshipsSync(userId: string): Promise<ProRelationshipRecord[]> {
   const promise = (async () => {
     try {
-      const res = await fetch("/api/portal-pro-relationships", { credentials: "include", cache: "no-store" });
+      const res = await fetchWithTimeout("/api/portal-pro-relationships", { credentials: "include", cache: "no-store" }, 15_000);
       if (!res.ok) return memoryByUser.get(userId) ?? [];
       const body = (await res.json()) as { rows?: unknown[] };
       const rows = (body.rows ?? [])

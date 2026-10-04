@@ -5,6 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CheckboxMultiSelect, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 
 /** A section's status checklist inside its Filter popover — same shape everywhere. */
 export type PortalPropertySectionFilterConfig = {
@@ -27,6 +28,7 @@ export type PortalPropertySectionFilterConfig = {
  * gear rather than a fabricated one).
  */
 export function PortalPropertySectionToolbar({
+  tab,
   filter,
   onSettings,
   settingsLabel = "Settings",
@@ -36,6 +38,8 @@ export function PortalPropertySectionToolbar({
   addDataAttr,
   className,
 }: {
+  /** The band's one text tab, "Activity 3" — what every other tab's band leads with. */
+  tab?: { id: string; label: string; count: number };
   filter?: PortalPropertySectionFilterConfig;
   onSettings?: () => void;
   settingsLabel?: string;
@@ -73,6 +77,18 @@ export function PortalPropertySectionToolbar({
       className={className ?? "mb-2 max-lg:mb-1.5"}
       variant="command"
       filterRow={filterRow}
+      destinationRow={
+        tab ? (
+          <LocalDestinationNav
+            appearance="command"
+            items={[{ id: tab.id, label: tab.label, count: tab.count, dataAttr: `property-section-tab-${tab.id}` }]}
+            activeId={tab.id}
+            onChange={() => {}}
+            ariaLabel={tab.label}
+          />
+        ) : undefined
+      }
+      activeDestinationId={tab?.id}
       actions={
         onSettings ? (
           <PortalIconAction
