@@ -22,7 +22,7 @@ function stayListing(signing: string[]): ManagerListingSubmissionV1 {
     securityDeposit: "500",
     allowedLeaseTerms: [LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM],
     shortTermRentalsAllowed: true,
-    rooms: [{ ...base.rooms[0]!, id: "room-a", name: "Unit 2A", monthlyRent: 10502 }],
+    rooms: [{ ...base.rooms[0]!, id: "room-a", name: "Unit 2A", monthlyRent: 10502, shortTermRent: "120" }],
   } as ManagerListingSubmissionV1);
   return {
     ...normalized,

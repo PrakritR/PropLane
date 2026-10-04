@@ -248,7 +248,23 @@ export function buildListingQuote(
     isStay,
   });
 
-  const baseMonthlyRent = slotPrice
+  // A stay is priced by its own rate (night / week / the term's own price). With none set there is
+  // no stay figure at all: the long-term monthly rent is never a stand-in for it.
+  const nightly = staySlot
+    ? parseMoneyAmount(staySlot.shortTermRent ?? "") || 0
+    : room
+      ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
+      : parseMoneyAmount(sub.shortTermDailyCost ?? "");
+  const weekly = staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
+  const stayTermRent = room?.termPricing?.[leaseTerm]?.monthlyRent;
+  const hasStayRate =
+    !isStay ||
+    nightly > 0 ||
+    weekly > 0 ||
+    Boolean(slotPrice) ||
+    (typeof stayTermRent === "number" && Number.isFinite(stayTermRent) && stayTermRent > 0);
+
+  const baseMonthlyRent = !hasStayRate ? 0 : slotPrice
     ? slotPrice.monthlyRent
     : arrangementPrice && !isStay
       ? arrangementPrice.monthlyRent
@@ -363,18 +379,20 @@ export function buildListingQuote(
    * short by a month of fees.
    */
   const firstPeriodExtras = [...folded, ...recurring];
-  const signingLines: ListingQuoteLine[] = [
-    {
-      key: rentKey,
-      label: isStay ? "First stay payment" : "First month's rent",
-      note:
-        firstPeriodExtras.length > 0
-          ? `Includes ${firstPeriodExtras.map((f) => f.label.toLowerCase()).join(", ")}`
-          : undefined,
-      amount: monthlyRent + recurringTotal,
-      dueAtSigning: rentDueAtSigning,
-    },
-  ];
+  const signingLines: ListingQuoteLine[] = hasStayRate
+    ? [
+        {
+          key: rentKey,
+          label: isStay ? "First stay payment" : "First month's rent",
+          note:
+            firstPeriodExtras.length > 0
+              ? `Includes ${firstPeriodExtras.map((f) => f.label.toLowerCase()).join(", ")}`
+              : undefined,
+          amount: monthlyRent + recurringTotal,
+          dueAtSigning: rentDueAtSigning,
+        },
+      ]
+    : [];
   if (!isStay && monthlyUtilities > 0) {
     signingLines.push({
       key: "first_month_utilities",
@@ -432,12 +450,6 @@ export function buildListingQuote(
     oneTime.filter((fee) => !isRefundable(fee)).reduce((sum, fee) => sum + amountForTerm(fee, isStay), 0) +
     placementNonRefundable;
 
-  const nightly = staySlot
-    ? parseMoneyAmount(staySlot.shortTermRent ?? "") || 0
-    : room
-      ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
-      : parseMoneyAmount(sub.shortTermDailyCost ?? "");
-  const weekly = staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
 
   return {
     leaseTerm,

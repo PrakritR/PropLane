@@ -4463,6 +4463,7 @@ export function recordApprovedApplicationCharges(
         ? stayPlacementLeaseTerm(row.application?.leaseTerm)
         : row.application?.leaseTerm,
       roomId: room?.id ?? null,
+      customFeeId,
     });
     if (atSigningOnly && !dueAtSigning) return;
     const label = moneyAmountLabel(Number(finalAmount.toFixed(2)));

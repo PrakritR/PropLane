@@ -4,7 +4,7 @@ import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEnti
 import { buildListingQuote, type ListingQuote } from "@/lib/listing-quote";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
-import { paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
+import { isPaymentDueAtSigning, PAYMENT_AT_SIGNING_FEE_KEY_PREFIX, paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   formatUtilitiesListingLine,
@@ -316,9 +316,11 @@ function roomMonthlyUtilitiesAmount(room: ManagerRoomSubmission): number {
   return parseMoneyAmount(room.utilitiesEstimate ?? "");
 }
 
-function listingOneTimeCustomFeesTotal(sub: ManagerListingSubmissionV1): number {
+/** One-time custom fees collected at signing: only the ones the manager ticked, like the preview. */
+function listingOneTimeCustomFeesTotal(sub: ManagerListingSubmissionV1, roomId?: string | null): number {
   return (sub.customFees ?? [])
     .filter((fee) => {
+      if (!isPaymentDueAtSigning(sub, `${PAYMENT_AT_SIGNING_FEE_KEY_PREFIX}${fee.id}`, "", roomId)) return false;
       const presetId = (fee as { presetId?: string }).presetId;
       if (presetId && presetId !== "custom") return false;
       if (fee.frequency !== "one-time") return false;
@@ -338,7 +340,7 @@ export function listingRoomPaymentAtSigningAmount(
     moveInFee: roomMoveInFeeAmount(room, n),
     monthlyRent: roomIsDailyPriced(room) ? 0 : room.monthlyRent,
     monthlyUtilities: roomMonthlyUtilitiesAmount(room),
-    customOneTimeFees: listingOneTimeCustomFeesTotal(n),
+    customOneTimeFees: listingOneTimeCustomFeesTotal(n, room.id),
   });
 }
 

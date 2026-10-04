@@ -1,5 +1,6 @@
 import { resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import {
+  chargeKindDueAtSigning,
   isRoomLeaseFeeRowId,
   leaseFeeDollarsFromOverlaidSubmission,
   readLeaseFeeWaiver,
@@ -373,13 +374,23 @@ export function buildLeaseBillingSnapshot(
       chargeReceivedAmount(c);
   }
   const residentSlot = applicant.application?.residentSlot;
+  // A custom one-time fee is part of the TOTAL at signing only when the manager ticked it (the same tick the
+  // preview and the charge step read); unticked, it is still owed before move-in, just not at signing.
+  const signingLeaseTerm = isShortTerm
+    ? stayPlacementLeaseTerm(applicant.application?.leaseTerm)
+    : applicant.application?.leaseTerm;
+  let customOneTimeFeesAtSigning = 0;
   const customOneTimeFeesDue = (sub?.customFees ?? []).reduce((sum, fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
     if (presetId && presetId !== "custom") return sum;
     if (isRoomLeaseFeeRowId(fee.id)) return sum; // counted once, as `leaseFeeDue`
     if (!isShortTerm && fee.frequency !== "one-time") return sum;
     if (!feeAppliesToResidentSlot(fee as ListingFeeRow, residentSlot)) return sum;
-    return sum + (oneTimeCustomFeeBalances[fee.id] ?? parseMoneyLabel(isShortTerm ? fee.shortTermAmount ?? "0" : fee.amount ?? "0"));
+    const owed = oneTimeCustomFeeBalances[fee.id] ?? parseMoneyLabel(isShortTerm ? fee.shortTermAmount ?? "0" : fee.amount ?? "0");
+    if (sub && chargeKindDueAtSigning("other_cost", { sub, leaseTerm: signingLeaseTerm, roomId: selectedRoom?.id ?? null, customFeeId: fee.id })) {
+      customOneTimeFeesAtSigning += owed;
+    }
+    return sum + owed;
   }, 0);
   const stayRentDue = stayRent != null ? remainingForKind("stay_total", stayRent) : undefined;
   // An unpaid holding charge and the net security charge are two portions of ONE
@@ -496,7 +507,7 @@ export function buildLeaseBillingSnapshot(
         monthlyUtilities: firstPeriodUtilitiesDue,
         firstPeriodFees: firstPeriodFeesDue,
         otherSigningCost: otherCostDue,
-        customOneTimeFees: customOneTimeFeesDue,
+        customOneTimeFees: customOneTimeFeesAtSigning,
       },
       applicant.application?.leaseTerm,
     );
