@@ -71,6 +71,9 @@ export function MoveInFormChooser({
       title={view === "starters" ? "Start from a template" : "New move-in form"}
       onBack={view === "starters" ? () => setView("main") : undefined}
       primaryAction={null}
+      // A pick-one chooser has no form values to snapshot: no empty left column, no "Preview: No changes".
+      contextPanel={null}
+      preview={null}
       dataAttr="move-in-form-chooser"
     >
       {view === "main" ? (

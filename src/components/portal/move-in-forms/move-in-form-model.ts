@@ -294,6 +294,36 @@ export function templateSourceLine(template: Pick<MoveInFormTemplate, "source" |
   return `${template.pdf.fileName} · ${pages} page${pages === 1 ? "" : "s"}`;
 }
 
+export type MoveInFormRowFactId = "questions" | "audience" | "sends" | "source" | "linked";
+
+/**
+ * The facts on a property move-in form row, in reading order: how many questions, who gets it (only when it
+ * is not every room), when it sends, "PDF" for an uploaded PDF (a form built in PropLane says nothing), and
+ * which application / lease it is tied to (only the part that is not the default of "all"). One glyph line.
+ */
+export function moveInFormRowFacts(
+  template: Pick<MoveInFormTemplate, "source" | "questions" | "audience" | "trigger" | "moveOutDaysBefore" | "linkedApplicationTemplateIds" | "linkedLeaseTemplateIds">,
+  rooms: readonly { id: string; label: string }[],
+  applicationTemplates: readonly { id: string; label: string }[],
+  leaseTemplates: readonly { id: string; label: string }[],
+): { id: MoveInFormRowFactId; text: string }[] {
+  const facts: { id: MoveInFormRowFactId; text: string }[] = [
+    { id: "questions", text: questionCountLabel(template.questions.length) },
+  ];
+  if (template.audience.kind !== "every-room") facts.push({ id: "audience", text: audienceSummary(template.audience, rooms) });
+  facts.push({ id: "sends", text: triggerSummary(template.trigger, template.moveOutDaysBefore) });
+  if (template.source === "upload") facts.push({ id: "source", text: "PDF" });
+  const linked: string[] = [];
+  if (template.linkedApplicationTemplateIds.length > 0) {
+    linked.push(linkedTemplatesSummary(template.linkedApplicationTemplateIds, applicationTemplates, "application"));
+  }
+  if (template.linkedLeaseTemplateIds.length > 0) {
+    linked.push(linkedTemplatesSummary(template.linkedLeaseTemplateIds, leaseTemplates, "lease"));
+  }
+  if (linked.length > 0) facts.push({ id: "linked", text: linked.join(" · ") });
+  return facts;
+}
+
 /** The row's right-hand figure: "3 of 4 residents" once the form has been sent, otherwise nothing at all. */
 export function templateFigure(template: Pick<MoveInFormTemplate, "id">, forms: readonly Pick<MoveInFormSummary, "formId" | "status">[]): string {
   const sent = forms.filter((form) => form.formId === template.id && form.status !== "cancelled");

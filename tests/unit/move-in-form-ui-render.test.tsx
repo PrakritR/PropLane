@@ -326,7 +326,8 @@ describe("property Move-in › Forms", () => {
     expect(screen.queryByText("Turned off")).toBeNull();
     expect(screen.queryByText("0 sent")).toBeNull();
     for (const row of rows) expect(row.className).not.toMatch(/opacity-/);
-    expect(screen.getAllByText("Built in PropLane")).toHaveLength(8);
+    // A form built in PropLane says nothing about its source; only an uploaded PDF does.
+    expect(screen.queryByText("Built in PropLane")).toBeNull();
   });
 
   it("each row names when the form is sent and what it is linked to", () => {
@@ -335,7 +336,8 @@ describe("property Move-in › Forms", () => {
     expect(within(rowOf("Move-in form")).getByText("After lease is signed")).toBeTruthy();
     expect(within(rowOf("Move-out form")).getByText("14 days before move-out")).toBeTruthy();
     expect(within(rowOf("Key receipt")).getByText("Sent by hand")).toBeTruthy();
-    for (const row of screen.getAllByRole("listitem")) expect(within(row).getByText("All applications · All leases")).toBeTruthy();
+    // The default link ("all applications, all leases") is dropped from the row.
+    expect(screen.queryByText("All applications · All leases")).toBeNull();
   });
 
   it("a form linked to a property template names it in the Linked to fact", () => {

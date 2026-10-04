@@ -18,16 +18,13 @@ import {
   type MoveInEditorSaveOptions,
 } from "@/components/portal/move-in-forms/move-in-form-editor-modal";
 import {
-  audienceSummary,
   copyTemplateToProperty,
   duplicateMoveInTemplate,
-  linkedTemplatesSummary,
   moveInFormPreviewHtml,
-  questionCountLabel,
+  moveInFormRowFacts,
+  type MoveInFormRowFactId,
   removeMoveInTemplate,
   templateFigure,
-  templateSourceLine,
-  triggerSummary,
   upsertMoveInTemplate,
 } from "@/components/portal/move-in-forms/move-in-form-model";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -36,7 +33,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import { roomIndicesInListingOrder } from "@/lib/listing-floor-order";
 import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
@@ -63,11 +60,26 @@ import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
 
+const ROW_FACT_ICON: Record<MoveInFormRowFactId, typeof ListChecks> = {
+  questions: ListChecks,
+  audience: DoorOpen,
+  sends: Send,
+  source: FileText,
+  linked: Link2,
+};
+const ROW_FACT_LABEL: Record<MoveInFormRowFactId, string> = {
+  questions: "Questions",
+  audience: "Audience",
+  sends: "Sent",
+  source: "Source",
+  linked: "Linked to",
+};
+
 type EditorState = { mode: "add" | "edit"; template: MoveInFormTemplate; startStep: number } | null;
 
 function templateRooms(sub: ManagerListingSubmissionV1): MoveInEditorRoom[] {
   if (isEntireHomeListing(sub)) return [];
-  return sortRoomIndicesByFloor(sub.rooms).map((index) => {
+  return roomIndicesInListingOrder(sub.rooms).map((index) => {
     const room = sub.rooms[index]!;
     return { id: room.id, label: room.name.trim() || `Room ${index + 1}` };
   });
@@ -307,23 +319,11 @@ export function PropertyMoveInFormsPanel({
                   <div role="listitem" className="transition-transform duration-(--motion-base) ease-(--motion-crossfade) hover:-translate-y-px motion-reduce:transition-none" data-attr="move-in-form-row">
                     <PortalPropertyRecordRow
                       title={name}
-                      address={templateSourceLine(template)}
-                      facts={
-                        <>
-                          <PortalRowFact icon={ListChecks} srLabel="Questions">
-                            {questionCountLabel(template.questions.length)}
-                          </PortalRowFact>
-                          <PortalRowFact icon={DoorOpen} srLabel="Audience">
-                            {audienceSummary(template.audience, rooms)}
-                          </PortalRowFact>
-                          <PortalRowFact icon={Send} srLabel="Sent">
-                            {triggerSummary(template.trigger, template.moveOutDaysBefore)}
-                          </PortalRowFact>
-                          <PortalRowFact icon={Link2} srLabel="Linked to">
-                            {`${linkedTemplatesSummary(template.linkedApplicationTemplateIds, applicationTemplates, "application")} · ${linkedTemplatesSummary(template.linkedLeaseTemplateIds, leaseTemplates, "lease")}`}
-                          </PortalRowFact>
-                        </>
-                      }
+                      facts={moveInFormRowFacts(template, rooms, applicationTemplates, leaseTemplates).map((fact) => (
+                        <PortalRowFact key={fact.id} icon={ROW_FACT_ICON[fact.id]} srLabel={ROW_FACT_LABEL[fact.id]}>
+                          {fact.text}
+                        </PortalRowFact>
+                      ))}
                       leading={
                         <div className="flex size-11 items-center justify-center bg-accent text-foreground/80">
                           {template.source === "upload" ? (
