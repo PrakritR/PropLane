@@ -537,3 +537,54 @@ describe("reinstating the fee gives the code use back", () => {
     expect(await usedCount(second)).toBe(1);
   });
 });
+
+/**
+ * `reinstateLeaseFee` is the mirror of the waive and carries the same guarantee: the charge coming
+ * back and the lease row dropping the waiver either both land or neither does. A lease that reads
+ * "fee owed" against a charge still `cancelled` shows the resident a fee with nothing to pay.
+ */
+describe("reinstating is all-or-nothing too", () => {
+  it("rolls the charge back to cancelled when the lease row cannot be cleared, and keeps the code spent", async () => {
+    const codeId = await seedCode({ code: "UNDOFAIL1", maxUses: 1 });
+    expect(await redeem("UNDOFAIL1")).toMatchObject({ ok: true });
+    expect(feeChargeStatus()).toBe("cancelled");
+
+    failLeaseWrites = true;
+    const result = await reinstateLeaseFee(makeDb(), { managerUserId: MANAGER, leaseId: LEASE_ID });
+    expect(result).toMatchObject({ ok: false, status: 500 });
+
+    expect(feeChargeStatus()).toBe("cancelled");
+    const stored = tables.portal_household_charge_records!.find((r) => r.id === FEE_CHARGE)!;
+    expect(stored.row_data).toMatchObject({ status: "cancelled" });
+    expect((stored.row_data as Record<string, unknown>).waivedAt).toBeTruthy();
+    const leaseData = tables.portal_lease_pipeline_records![0]!.row_data as { application: Record<string, unknown> };
+    expect(leaseData.application.managerLeaseFeeWaiver).toBeTruthy();
+    // Nothing was undone, so the code use is still spent and the lease still holds its redemption.
+    expect(await usedCount(codeId)).toBe(1);
+    const left = await pg.query(`select 1 from public.application_fee_waiver_redemptions where lease_id = $1`, [LEASE_ID]);
+    expect(left.rows).toHaveLength(1);
+
+    // A retry once the write succeeds completes the reinstate.
+    failLeaseWrites = false;
+    expect(await reinstateLeaseFee(makeDb(), { managerUserId: MANAGER, leaseId: LEASE_ID })).toMatchObject({
+      ok: true,
+      reinstatedChargeIds: [FEE_CHARGE],
+    });
+    expect(feeChargeStatus()).toBe("pending");
+    expect(await usedCount(codeId)).toBe(0);
+  });
+
+  it("never clears the lease row when the charge write fails — the money is written first", async () => {
+    const codeId = await seedCode({ code: "MONEY1ST1", maxUses: 1 });
+    expect(await redeem("MONEY1ST1")).toMatchObject({ ok: true });
+
+    chargeWriteMode = "fail";
+    const result = await reinstateLeaseFee(makeDb(), { managerUserId: MANAGER, leaseId: LEASE_ID });
+    expect(result).toMatchObject({ ok: false, status: 500 });
+
+    expect(feeChargeStatus()).toBe("cancelled");
+    const leaseData = tables.portal_lease_pipeline_records![0]!.row_data as { application: Record<string, unknown> };
+    expect(leaseData.application.managerLeaseFeeWaiver).toBeTruthy();
+    expect(await usedCount(codeId)).toBe(1);
+  });
+});

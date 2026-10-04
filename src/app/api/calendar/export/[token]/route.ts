@@ -27,23 +27,17 @@ const APPROVED_ROW_PAGE = 500;
 const APPROVED_ROW_MAX_PAGES = 40;
 
 /**
- * Narrows the approved-application read to this property in the DATABASE. The property/room match
- * used to happen in JavaScript behind a flat 500-row cap spent across the manager's whole
- * portfolio, so a large portfolio silently dropped a room's occupied ranges from the feed and the
- * channel offered those dates as open. A property id with a character the filter grammar treats as
- * punctuation falls back to the unnarrowed read, which is paged, so nothing is ever truncated.
+ * Where an approved row can name this property. These are exactly the four sources the JavaScript
+ * match below consults, so narrowing on them in the DATABASE drops nothing: the property columns,
+ * and the two `propertyId::roomId` room-choice values (an imported channel stay carries only the
+ * latter). Each is its own filter rather than one `or(...)` expression, so a property id is never
+ * interpolated into filter grammar and no id is ever too exotic to narrow on.
  */
-function approvedRowsPropertyFilter(propertyId: string): string | null {
-  if (!/^[A-Za-z0-9_:.\-]+$/.test(propertyId)) return null;
-  return [
-    `assigned_property_id.eq.${propertyId}`,
-    `property_id.eq.${propertyId}`,
-    `row_data->>assignedRoomChoice.like.${propertyId}::*`,
-    `row_data->application->>roomChoice1.like.${propertyId}::*`,
-  ].join(",");
-}
+const APPROVED_ROW_SOURCES = ["assigned", "property", "assignedChoice", "preferredChoice"] as const;
+type ApprovedRowSource = (typeof APPROVED_ROW_SOURCES)[number];
 
 type ApprovedRow = {
+  id: unknown;
   choice: unknown;
   preferred: unknown;
   lease_start: unknown;
@@ -56,27 +50,61 @@ type ApprovedRow = {
   property_id: unknown;
 };
 
+async function readApprovedRowPage(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  managerUserId: string,
+  propertyId: string,
+  source: ApprovedRowSource,
+  page: number,
+): Promise<ApprovedRow[]> {
+  const base = db
+    .from("manager_application_records")
+    .select(APPROVED_ROW_SELECT)
+    .eq("manager_user_id", managerUserId)
+    .eq("row_data->>bucket", "approved");
+  const choicePrefix = `${propertyId}::%`;
+  const scoped =
+    source === "assigned"
+      ? base.eq("assigned_property_id", propertyId)
+      : source === "property"
+        ? base.eq("property_id", propertyId)
+        : source === "assignedChoice"
+          ? base.like("row_data->>assignedRoomChoice", choicePrefix)
+          : base.like("row_data->application->>roomChoice1", choicePrefix);
+  const { data, error } = await scoped
+    .order("id", { ascending: true })
+    .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE - 1);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as ApprovedRow[];
+}
+
 async function readApprovedRowsForProperty(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   managerUserId: string,
   propertyId: string,
 ): Promise<ApprovedRow[]> {
-  const propertyFilter = approvedRowsPropertyFilter(propertyId);
   const rows: ApprovedRow[] = [];
-  for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
-    let query = db
-      .from("manager_application_records")
-      .select(APPROVED_ROW_SELECT)
-      .eq("manager_user_id", managerUserId)
-      .eq("row_data->>bucket", "approved");
-    if (propertyFilter) query = query.or(propertyFilter);
-    const { data, error } = await query
-      .order("id", { ascending: true })
-      .range(page * APPROVED_ROW_PAGE, page * APPROVED_ROW_PAGE + APPROVED_ROW_PAGE - 1);
-    if (error) throw new Error(error.message);
-    const batch = (data ?? []) as unknown as ApprovedRow[];
-    rows.push(...batch);
-    if (batch.length < APPROVED_ROW_PAGE) break;
+  const seen = new Set<string>();
+  for (const source of APPROVED_ROW_SOURCES) {
+    let exhausted = false;
+    for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
+      const batch = await readApprovedRowPage(db, managerUserId, propertyId, source, page);
+      for (const row of batch) {
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        rows.push(row);
+      }
+      if (batch.length < APPROVED_ROW_PAGE) {
+        exhausted = true;
+        break;
+      }
+    }
+    // A full final page means occupancy this feed never read. Publishing it anyway would advertise
+    // occupied dates as free, so refuse the feed rather than serve a truncated one.
+    if (!exhausted) throw new Error("Approved-application read for this room exceeded its page bound.");
   }
   return rows;
 }

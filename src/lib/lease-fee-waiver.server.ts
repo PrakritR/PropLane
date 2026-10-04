@@ -136,22 +136,37 @@ async function loadLeaseFeeCharges(
 const WAIVABLE_CHARGE_STATUS_FILTER = "status.is.null,status.in.(pending,failed)";
 
 /**
- * A charge exactly as it was before this call cancelled it. Snapshotted BEFORE the write, never
- * re-read from the record afterwards, so the rollback restores the pre-waiver values.
+ * The mirror precondition for a reinstate: only a charge still `cancelled` comes back. `status` is
+ * nullable, so a row carrying its status only in `row_data` still qualifies.
  */
-type CancelledChargeSnapshot = { id: string; status: string | null; rowData: HouseholdCharge; ownerId: string };
+const REINSTATABLE_CHARGE_STATUS_FILTER = "status.is.null,status.eq.cancelled";
 
-/** Put a charge this call cancelled back the way it was, so a half-applied waiver never survives. */
-async function restoreCancelledCharge(db: SupabaseClient, snapshot: CancelledChargeSnapshot): Promise<void> {
+/**
+ * A charge exactly as it was before this call wrote it. Snapshotted BEFORE the write, never
+ * re-read from the record afterwards, so the rollback restores the pre-write values.
+ */
+type ChargeSnapshot = { id: string; status: string | null; rowData: HouseholdCharge; ownerId: string };
+
+/**
+ * Put a charge this call wrote back the way it was, so a half-applied waive or reinstate does not
+ * survive. Best effort by nature — a rollback write can fail too — so a failure is logged loudly
+ * rather than swallowed, and the operation still reports failure to its caller.
+ */
+async function restoreChargeSnapshot(db: SupabaseClient, snapshot: ChargeSnapshot): Promise<void> {
   const { error } = await db
     .from(CHARGE_TABLE)
     .update({ status: snapshot.status, row_data: snapshot.rowData, updated_at: new Date().toISOString() })
     .eq("id", snapshot.id);
   if (error) {
-    console.error("[lease-fee-waiver] rollback of a cancelled lease fee failed", snapshot.id, error.message);
+    console.error("[lease-fee-waiver] rollback of a lease-fee charge write failed", snapshot.id, error.message);
     return;
   }
-  await restoreFuturePaymentRemindersForCharge(db, snapshot.ownerId, snapshot.id).catch(() => undefined);
+  const restoredStatus = snapshot.status ?? snapshot.rowData.status;
+  if (restoredStatus === "cancelled") {
+    await cancelFuturePaymentRemindersForCharge(db, snapshot.ownerId, snapshot.id).catch(() => undefined);
+  } else {
+    await restoreFuturePaymentRemindersForCharge(db, snapshot.ownerId, snapshot.id).catch(() => undefined);
+  }
   await syncLedgerChargeEntry(db, { ...snapshot.rowData, managerUserId: snapshot.ownerId }).catch(() => undefined);
 }
 
@@ -267,15 +282,15 @@ export async function waiveLeaseFee(
   //    code redemption gives the code use back on any failure, which only balances if nothing
   //    here was half-applied.
   const cancelledChargeIds: string[] = [];
-  const cancelled: CancelledChargeSnapshot[] = [];
+  const cancelled: ChargeSnapshot[] = [];
   const rollback = async () => {
-    for (const snapshot of cancelled) await restoreCancelledCharge(db, snapshot);
+    for (const snapshot of cancelled) await restoreChargeSnapshot(db, snapshot);
   };
   for (const c of found.charges) {
     const status = c.status ?? c.row_data.status;
     if (status === "cancelled") continue;
     const ownerId = c.manager_user_id ?? record.manager_user_id ?? input.managerUserId;
-    const before: CancelledChargeSnapshot = { id: c.id, status: c.status, rowData: { ...c.row_data }, ownerId };
+    const before: ChargeSnapshot = { id: c.id, status: c.status, rowData: { ...c.row_data }, ownerId };
     const next: HouseholdCharge = {
       ...c.row_data,
       status: "cancelled",
@@ -343,24 +358,24 @@ export async function reinstateLeaseFee(
 
   const application = asObject(rowData.application);
   const hadWaiver = readLeaseFeeWaiver(application) !== null;
-  if (hadWaiver) {
-    const { managerLeaseFeeWaiver: _removed, ...rest } = application;
-    void _removed;
-    const { error } = await db
-      .from(LEASE_TABLE)
-      .update({ row_data: { ...rowData, application: rest }, updated_at: now })
-      .eq("id", record.id);
-    if (error) return { ok: false, status: 500, error: error.message };
-  }
 
+  // The mirror of `waiveLeaseFee`: the money moves first and is rolled back if the lease row — what
+  // the lease document and the billing snapshot read — cannot be brought into agreement with it.
+  // "Owed on the lease but still cancelled on the charge" (or the reverse) must never be a state a
+  // caller is left in.
   const found = await loadLeaseFeeCharges(db, record, lease);
   if (!found.ok) return found;
   const reinstatedChargeIds: string[] = [];
+  const reinstated: ChargeSnapshot[] = [];
+  const rollback = async () => {
+    for (const snapshot of reinstated) await restoreChargeSnapshot(db, snapshot);
+  };
   for (const c of found.charges) {
     const status = c.status ?? c.row_data.status;
     // Only a charge a waiver cancelled comes back; a charge cancelled for another reason stays cancelled.
     if (status !== "cancelled" || !c.row_data.waivedAt) continue;
     const ownerId = c.manager_user_id ?? record.manager_user_id ?? input.managerUserId;
+    const before: ChargeSnapshot = { id: c.id, status: c.status, rowData: { ...c.row_data }, ownerId };
     const { waivedAt: _a, waivedByUserId: _b, waiverReason: _c, ...base } = c.row_data;
     void _a; void _b; void _c;
     const next: HouseholdCharge = {
@@ -368,14 +383,35 @@ export async function reinstateLeaseFee(
       status: "pending",
       balanceLabel: base.amountLabel,
     };
-    const { error } = await db
+    const { data: written, error } = await db
       .from(CHARGE_TABLE)
       .update({ status: "pending", row_data: next, updated_at: now })
-      .eq("id", c.id);
-    if (error) return { ok: false, status: 500, error: error.message };
+      .eq("id", c.id)
+      .or(REINSTATABLE_CHARGE_STATUS_FILTER)
+      .select("id");
+    if (error) {
+      await rollback();
+      return { ok: false, status: 500, error: error.message };
+    }
+    // Something else already took it out of `cancelled`; the end state this call wants holds.
+    if (((written ?? []) as unknown[]).length === 0) continue;
+    reinstated.push(before);
     await restoreFuturePaymentRemindersForCharge(db, ownerId, c.id).catch(() => undefined);
     await syncLedgerChargeEntry(db, { ...next, managerUserId: ownerId }).catch(() => undefined);
     reinstatedChargeIds.push(c.id);
+  }
+
+  if (hadWaiver) {
+    const { managerLeaseFeeWaiver: _removed, ...rest } = application;
+    void _removed;
+    const { error } = await db
+      .from(LEASE_TABLE)
+      .update({ row_data: { ...rowData, application: rest }, updated_at: now })
+      .eq("id", record.id);
+    if (error) {
+      await rollback();
+      return { ok: false, status: 500, error: error.message };
+    }
   }
 
   if (hadWaiver || reinstatedChargeIds.length > 0) {

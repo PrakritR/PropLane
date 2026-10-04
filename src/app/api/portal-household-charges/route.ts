@@ -35,6 +35,17 @@ import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owne
 
 export const runtime = "nodejs";
 
+/**
+ * The ACH `processing` -> `paid` shortcut exists so a developer does not have to wait three days
+ * for a Stripe webhook that never fires on localhost. Captain's decision (2026-10-03): it runs on
+ * a LOCAL dev server only — never on preview/staging/production, and never on any Vercel
+ * deployment at all, whatever `VERCEL_ENV` happens to say. On a deployment the webhook is the only
+ * thing that settles a debit, so a bounced one stays bounced.
+ */
+function localDevAchShortcutAllowed(): boolean {
+  return process.env.NODE_ENV === "development" && !process.env.VERCEL && !process.env.VERCEL_ENV;
+}
+
 function toUuid(id: unknown): string | null {
   if (!id || typeof id !== "string") return null;
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return id;
@@ -146,29 +157,26 @@ export async function GET() {
     }
 
     const rawCharges = chargeRows.map((r) => r.row_data as HouseholdCharge);
-    const advanced =
-      process.env.VERCEL_ENV !== "production"
-        ? advanceStaleProcessingHouseholdCharges(rawCharges)
-        : rawCharges;
+    const advanced = localDevAchShortcutAllowed()
+      ? advanceStaleProcessingHouseholdCharges(rawCharges)
+      : rawCharges;
     if (advanced !== rawCharges && user.role === "resident") {
       const now = new Date().toISOString();
       for (let i = 0; i < advanced.length; i += 1) {
         if (advanced[i] === rawCharges[i]) continue;
         const charge = advanced[i]!;
-        await db.from("portal_household_charge_records").upsert(
-          {
-            id: charge.id,
-            manager_user_id: charge.managerUserId,
-            resident_user_id: charge.residentUserId,
-            resident_email: charge.residentEmail.trim().toLowerCase(),
-            property_id: charge.propertyId,
-            kind: charge.kind,
-            status: charge.status,
-            row_data: charge,
-            updated_at: now,
-          },
-          { onConflict: "id" },
-        );
+        // Only a row STILL processing may be flipped: a webhook that wrote `failed` (or `paid`) in
+        // the meantime is the authority, and this read must never overwrite it.
+        const { data: written, error } = await db
+          .from("portal_household_charge_records")
+          .update({ status: charge.status, row_data: charge, updated_at: now })
+          .eq("id", charge.id)
+          .eq("status", "processing")
+          .select("id");
+        if (error || ((written ?? []) as unknown[]).length === 0) continue;
+        // Ledger is write-through: a charge that reads paid without a payment entry is a figure
+        // the reports cannot explain, even on a developer's machine.
+        await syncLedgerPaymentEntry(db, charge, charge.paidAt).catch(() => undefined);
       }
     }
     const charges = await enrichHouseholdChargesFromPropertyRecords(db, advanced);

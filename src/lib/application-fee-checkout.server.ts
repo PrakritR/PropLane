@@ -307,7 +307,7 @@ export type ApplicationFeeBasisSelectors = {
 const APPLICATION_FEE_BASIS_KEYS = ["roomId", "leaseTerm", "bundleId", "rentalType"] as const;
 
 /**
- * True only when the paid basis provably equals the submitted one. An absent
+ * True only when the paid basis provably equals the submitted one. An `undefined`
  * value on the PAID side (a session stamped before that selector was recorded)
  * is unknown, never a match — the amount check then has to carry the decision.
  */
@@ -417,6 +417,21 @@ export async function resolveRequiredApplicationFeeCents(
 }
 
 /**
+ * Stamped on every session this version of the checkout creates, so a reader can tell "the
+ * checkout recorded the complete basis" from "this session predates part of it" WITHOUT relying
+ * on an empty metadata value surviving the round trip through Stripe (an empty value is how
+ * Stripe unsets a key, so an absent key and a stamped empty string are indistinguishable).
+ */
+export const APPLICATION_FEE_BASIS_VERSION = "1";
+
+/**
+ * Selectors whose stamped value is legitimately empty — no room on a whole-house listing, no
+ * bundle on most applications, no lease type offered. A missing key for these can only mean
+ * "nothing selected", never "not recorded".
+ */
+const APPLICATION_FEE_OPTIONAL_BASIS_KEYS = new Set(["fee_room_id", "fee_lease_term", "fee_bundle_id"]);
+
+/**
  * The priced basis a paid Stripe session recorded. A selector the session never
  * stamped stays `undefined` (unknown), which `applicationFeeBasisMatches`
  * refuses to read as a match.
@@ -424,9 +439,11 @@ export async function resolveRequiredApplicationFeeCents(
 export function applicationFeeBasisFromSessionMetadata(
   metadata: Record<string, string> | null | undefined,
 ): ApplicationFeeBasisSelectors {
+  const complete = String(metadata?.fee_basis_v ?? "").trim() === APPLICATION_FEE_BASIS_VERSION;
   const read = (key: string): string | undefined => {
     const raw = metadata?.[key];
-    return raw === undefined ? undefined : raw.trim();
+    if (raw !== undefined) return raw.trim();
+    return complete || APPLICATION_FEE_OPTIONAL_BASIS_KEYS.has(key) ? "" : undefined;
   };
   return {
     roomId: read("fee_room_id"),
@@ -570,6 +587,7 @@ export async function createApplicationFeeCheckout(
     // applicant changed what they are applying for after paying".
     fee_bundle_id: (input.bundleId ?? "").trim().slice(0, 120),
     fee_rental_type: input.rentalType === "short_term" ? "short_term" : "standard",
+    fee_basis_v: APPLICATION_FEE_BASIS_VERSION,
   };
   if (input.residentName) metadata.resident_name = input.residentName.slice(0, 450);
 

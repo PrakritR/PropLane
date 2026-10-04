@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
  * now requires.
  */
 import {
+  APPLICATION_FEE_BASIS_VERSION,
   applicationFeeBasisFromSessionMetadata,
   applicationFeeBasisMatches,
   applicationFeePaymentSatisfiesTemplate,
@@ -239,13 +240,76 @@ describe("applicationFeeBasisMatches", () => {
 });
 
 describe("applicationFeeBasisFromSessionMetadata", () => {
-  it("reads every stamped selector and leaves an unstamped one undefined", () => {
+  it("reads every stamped selector, treating a missing legitimately-empty one as 'nothing selected'", () => {
     expect(
       applicationFeeBasisFromSessionMetadata({
         fee_room_id: " room-1 ",
         fee_lease_term: "12 months",
         fee_rental_type: "short_term",
       }),
-    ).toEqual({ roomId: "room-1", leaseTerm: "12 months", bundleId: undefined, rentalType: "short_term" });
+    ).toEqual({ roomId: "room-1", leaseTerm: "12 months", bundleId: "", rentalType: "short_term" });
+  });
+
+  it("leaves a selector that is never legitimately empty undefined when the session never stamped it", () => {
+    expect(applicationFeeBasisFromSessionMetadata({ fee_room_id: "room-1" }).rentalType).toBeUndefined();
+  });
+});
+
+/**
+ * An empty metadata value is how Stripe UNSETS a key, so a stamped `fee_bundle_id: ""` may come
+ * back as a missing key. "No bundle" must read the same either way, or the common no-bundle
+ * application would never match its own paid basis and an applicant who paid exactly what was
+ * asked could be refused.
+ */
+describe("applicationFeeBasisFromSessionMetadata — a dropped empty value still reads as 'nothing selected'", () => {
+  const submitted = { roomId: "", leaseTerm: "12 months", bundleId: "", rentalType: "standard" };
+
+  it("matches when Stripe dropped the empty room and bundle keys", () => {
+    const paid = applicationFeeBasisFromSessionMetadata({
+      fee_lease_term: "12 months",
+      fee_rental_type: "standard",
+      fee_basis_v: APPLICATION_FEE_BASIS_VERSION,
+    });
+    expect(paid).toEqual({ roomId: "", leaseTerm: "12 months", bundleId: "", rentalType: "standard" });
+    expect(applicationFeeBasisMatches(paid, submitted)).toBe(true);
+  });
+
+  it("matches the same basis whether the empty values survived or not", () => {
+    const survived = applicationFeeBasisFromSessionMetadata({
+      fee_room_id: "",
+      fee_lease_term: "12 months",
+      fee_bundle_id: "",
+      fee_rental_type: "standard",
+      fee_basis_v: APPLICATION_FEE_BASIS_VERSION,
+    });
+    const dropped = applicationFeeBasisFromSessionMetadata({
+      fee_lease_term: "12 months",
+      fee_rental_type: "standard",
+      fee_basis_v: APPLICATION_FEE_BASIS_VERSION,
+    });
+    expect(survived).toEqual(dropped);
+  });
+
+  it("the completeness marker makes every selector known, so the paid basis stands on its own", () => {
+    const paid = applicationFeeBasisFromSessionMetadata({ fee_basis_v: APPLICATION_FEE_BASIS_VERSION });
+    expect(paid).toEqual({ roomId: "", leaseTerm: "", bundleId: "", rentalType: "" });
+    expect(
+      applicationFeePaymentSatisfiesTemplate({
+        submittedApplicationTemplateId: null,
+        paidApplicationTemplateId: null,
+        paidFeeCents: 2500,
+        requiredFeeCents: 9900,
+        paidFeeBasis: paid,
+        submittedFeeBasis: { roomId: "", leaseTerm: "", bundleId: "", rentalType: "" },
+      }),
+    ).toBe(true);
+  });
+
+  it("without the marker a selector that is never legitimately empty stays unknown (a legacy session)", () => {
+    const paid = applicationFeeBasisFromSessionMetadata({ fee_room_id: "room-1", fee_lease_term: "12 months" });
+    expect(paid).toEqual({ roomId: "room-1", leaseTerm: "12 months", bundleId: "", rentalType: undefined });
+    expect(
+      applicationFeeBasisMatches(paid, { roomId: "room-1", leaseTerm: "12 months", bundleId: "", rentalType: "standard" }),
+    ).toBe(false);
   });
 });

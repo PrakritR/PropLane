@@ -60,6 +60,11 @@ function builder(rows: Row[]) {
       current = current.filter(orMatcher(expr));
       return api;
     },
+    like: (column: string, pattern: string) => {
+      const prefix = pattern.replace(/[%*]$/, "");
+      current = current.filter((row) => columnValue(row, column).startsWith(prefix));
+      return api;
+    },
     order: () => api,
     range: (from: number, to: number) => {
       current = current.slice(from, to + 1);
