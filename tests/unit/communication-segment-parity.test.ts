@@ -30,20 +30,21 @@ describe("Communication status and action parity", () => {
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
   });
 
-  it("vendor Communication matches manager's Active|Archived tab UI (captain, 2026-09-26) — resident stays Filter-only", () => {
+  it("vendor and resident Communication match manager's Active|Archived tab UI (captain, 2026-09-26 / 2026-10-03)", () => {
     const vendor = read("src/components/portal/vendor-communication.tsx");
     const manager = read("src/components/portal/pro-communication.tsx");
     const resident = read("src/components/portal/resident-communication.tsx");
     // Vendor now hides Archived from its own status filter, exactly like manager.
     expect(vendor).toContain("<CommunicationStatusFilterDraft value={status} onChange={setStatus} hideArchived");
-    expect(resident).not.toContain("hideArchived");
-    // Both vendor and manager own the tab as instant client state.
-    for (const source of [vendor, manager]) {
+    // Resident follows the same shape (captain 2026-10-03): the tab owns Archived.
+    expect(resident).toContain("<CommunicationStatusFilterDraft value={status} onChange={setStatus} hideArchived");
+    // Vendor, resident and manager own the tab as instant client state.
+    for (const source of [vendor, manager, resident]) {
       expect(source).toContain("useCommunicationListSegment");
       expect(source).toContain("selectCommunicationSegmentUrl");
     }
-    expect(resident).not.toContain("useCommunicationListSegment");
     // The tab itself intercepts a plain click instead of a full navigation.
     expect(vendor).toContain("interceptNavigation={Boolean(onSegmentChange)}");
+    expect(resident).toContain("interceptNavigation={Boolean(onSegmentChange)}");
   });
 });

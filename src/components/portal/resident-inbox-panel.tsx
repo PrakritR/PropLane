@@ -1,19 +1,18 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Mail, MailOpen, Phone, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
-import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
-import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
-import {
-  buildInboxThreadAssistantContext,
-  InboxThreadAssistantStrip,
-} from "@/components/portal/inbox-thread-assistant-strip";
+import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
+import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
+import { matchResidentManagerContact, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
 import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import {
   PortalInboxSelectionToolbar,
@@ -32,10 +31,8 @@ import { resolveCommunicationInboxThread } from "@/lib/communication-assistant-i
 import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
-import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
   hasInboxReplyChannelSelected,
-  resolveAssistantInboxReplyChannels,
   resolveCommunicationPersonThreadReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
@@ -211,43 +208,19 @@ export const ResidentInboxPanel = forwardRef<
   );
   const [replyDraft, setReplyDraftState] = useState("");
   const replyDraftRef = useRef("");
-  const [replyFocusSignal, setReplyFocusSignal] = useState(0);
-  const adoptedAiDraftRef = useRef<string | null>(null);
-  const [aiDraftInserted, setAiDraftInserted] = useState(false);
+  const [replyFocusSignal] = useState(0);
   const updateReplyDraft = useCallback((next: string) => {
     replyDraftRef.current = next;
     setReplyDraftState(next);
   }, []);
-  const insertAiDraft = useCallback(
-    (text: string, force = false) => {
-      const normalized = text.trim();
-      if (!normalized) return false;
-      const current = replyDraftRef.current;
-      if (!force && current.trim() && current !== adoptedAiDraftRef.current) {
-        showToast("Draft ready. Your existing reply was kept.");
-        return false;
-      }
-      adoptedAiDraftRef.current = normalized;
-      setAiDraftInserted(true);
-      updateReplyDraft(normalized);
-      setReplyFocusSignal((value) => value + 1);
-      return true;
-    },
-    [showToast, updateReplyDraft],
-  );
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
   const [replyViaSms, setReplyViaSms] = useState(false);
   const [replyViaProplane, setReplyViaProplane] = useState(false);
-  const [autoSend, setAutoSend] = useState(false);
+  // Schedule for later (the clock tool beside the channel menu), same as the manager's composer.
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
-  const [aiDraftText, setAiDraftText] = useState("");
-  const aiDraftAdopted = Boolean(
-    aiDraftText.trim() && replyDraft.trim() === aiDraftText.trim(),
-  );
-  const [aiDrafting, setAiDrafting] = useState(false);
-  const [aiDraftError, setAiDraftError] = useState<string | null>(null);
-  const [approvingAiDraft, setApprovingAiDraft] = useState(false);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
@@ -263,13 +236,8 @@ export const ResidentInboxPanel = forwardRef<
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    adoptedAiDraftRef.current = null;
-    setAiDraftInserted(false);
     updateReplyDraft("");
-    setAiDraftText("");
-    setAiDraftError(null);
-    setAiDrafting(false);
-    setApprovingAiDraft(false);
+    setScheduleLater(false);
     if (!embeddedInCommunication) {
       setReplyViaEmail(true);
       setReplyViaSms(false);
@@ -875,15 +843,11 @@ export const ResidentInboxPanel = forwardRef<
     ) => {
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
-      const assistantThread = isPropLaneAssistantInboxThread(thread);
       const replyToEmail = resolveResidentReplyRecipientEmail(thread.email, eligibleContacts);
-      const portalRecipient =
-        assistantThread || !replyToEmail.includes("@")
-          ? null
-          : { toEmails: [replyToEmail.trim().toLowerCase()] };
-      const proplaneAllowed = Boolean(
-        channels.proplane && (assistantThread || portalRecipient),
-      );
+      const portalRecipient = !replyToEmail.includes("@")
+        ? null
+        : { toEmails: [replyToEmail.trim().toLowerCase()] };
+      const proplaneAllowed = Boolean(channels.proplane && portalRecipient);
       if (!proplaneAllowed && !channels.email && !channels.sms) throw new InboxSendRefusal(null);
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
@@ -1229,22 +1193,29 @@ export const ResidentInboxPanel = forwardRef<
     [expandedId, emailThreads, local, session.userId],
   );
 
-  const activeIsAssistantThread = Boolean(
-    activeThread && isPropLaneAssistantInboxThread(activeThread),
-  );
   const activeProplaneAvailable = Boolean(activeThread);
   const showReplyChannelPicker = Boolean(activeThread);
 
+  // The manager this conversation is with: name, home and how to reach them.
+  // A resident can hold conversations with several managers, so this is
+  // resolved per thread, never once for the page.
+  const managerContacts = useResidentManagerContacts();
+  const activeManager = useMemo(
+    () => (activeThread ? resolveResidentThreadManager(activeThread, managerContacts) : null),
+    [activeThread, managerContacts],
+  );
+  const activeManagerContact = useMemo(
+    () => (activeThread ? matchResidentManagerContact(activeThread.email, managerContacts) : undefined),
+    [activeThread, managerContacts],
+  );
+
   /**
-   * C144 (WS4, PLAN-0925 Part 5): the real resident inbox had no archive
-   * concept in the embedded (production) thread view at all —
-   * `renderExtraActions` only ever rendered in the /demo-only standalone
-   * table shell, so `headerActions` was `undefined` whenever
-   * `embeddedInCommunication` was true. This mirrors the manager portal's
-   * own icon-only thread actions (`INBOX_THREAD_ICON_BTN`).
+   * The embedded thread's icon actions, the manager's row shape: reach the
+   * manager (text / email), mark unread, archive. An archived conversation
+   * offers restore and delete instead.
    */
   const embeddedThreadHeaderActions = useMemo(() => {
-    if (!activeThread || activeIsAssistantThread) return undefined;
+    if (!activeThread) return undefined;
     if (activeThread.folder === "trash") {
       return (
         <>
@@ -1271,31 +1242,58 @@ export const ResidentInboxPanel = forwardRef<
         </>
       );
     }
+    const managerPhone = activeManagerContact?.phone?.trim() || null;
+    const managerEmail = activeManagerContact?.email?.trim() || null;
     return (
-      <button
-        type="button"
-        className={INBOX_THREAD_ICON_BTN}
-        aria-label="Archive conversation"
-        title="Archive"
-        data-attr="inbox-thread-archive"
-        onClick={() => moveToTrash(activeThread.id)}
-      >
-        <Archive className="h-4 w-4" aria-hidden />
-      </button>
+      <>
+        {managerPhone ? (
+          <a
+            href={`sms:${managerPhone}`}
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Text your property manager"
+            title="Text your property manager"
+            data-attr="inbox-thread-text-manager"
+          >
+            <Phone className="h-4 w-4" aria-hidden />
+          </a>
+        ) : null}
+        {managerEmail ? (
+          <a
+            href={`mailto:${managerEmail}`}
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Email your property manager"
+            title="Email your property manager"
+            data-attr="inbox-thread-email-manager"
+          >
+            <Mail className="h-4 w-4" aria-hidden />
+          </a>
+        ) : null}
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Mark unread"
+          title="Mark unread"
+          data-attr="inbox-thread-mark-unread"
+          disabled={activeThread.folder !== "inbox" || activeThread.unread}
+          onClick={() => markUnread(activeThread.id)}
+        >
+          <MailOpen className="h-4 w-4" aria-hidden />
+        </button>
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
+          data-attr="inbox-thread-archive"
+          onClick={() => moveToTrash(activeThread.id)}
+        >
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
+      </>
     );
-  }, [activeThread, activeIsAssistantThread, restoreFromTrash, deleteForever, moveToTrash]);
+  }, [activeThread, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
 
   useEffect(() => {
-    if (activeIsAssistantThread) {
-      const next = resolveAssistantInboxReplyChannels({
-        emailAvailable: true,
-        smsAvailable: activeSmsAvailable,
-      });
-      setReplyViaProplane(next.viaProplane);
-      setReplyViaEmail(next.viaEmail);
-      setReplyViaSms(next.viaSms);
-      return;
-    }
     if (!embeddedInCommunication) return;
     const person = resolveCommunicationPersonThreadReplyChannels({
       emailAvailable: true,
@@ -1305,7 +1303,7 @@ export const ResidentInboxPanel = forwardRef<
     setReplyViaProplane(person.viaProplane);
     setReplyViaEmail(person.viaEmail);
     setReplyViaSms(person.viaSms);
-  }, [activeIsAssistantThread, activeSmsAvailable, activeThread, embeddedInCommunication, expandedId]);
+  }, [activeSmsAvailable, activeThread, embeddedInCommunication, expandedId]);
 
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());
 
@@ -1317,18 +1315,16 @@ export const ResidentInboxPanel = forwardRef<
   }, [activeThread?.id, activeThread?.folder, activeThread?.unread, markReadSilent]);
 
   useEffect(() => {
-    adoptedAiDraftRef.current = null;
-    setAiDraftInserted(false);
     updateReplyDraft("");
   }, [expandedId, updateReplyDraft]);
 
-  const activeIsSent = activeThread?.folder === "sent";
-  const activeThreadAvatarName = activeThread
-    ? activeIsAssistantThread
-      ? "PropLane Assistant"
-      : activeIsSent
-        ? activeThread.email || undefined
-        : activeThread.from || activeThread.email || undefined
+  // The avatar and title are the MANAGER's, whichever side sent the last turn.
+  const activeThreadAvatarName = activeManager?.name;
+  // "Property manager · Cascade Lofts · work@email" — the manager's header
+  // line (Resident · House, Room · email) turned around: who they are to the
+  // resident, the home it is about, and the address they write from.
+  const activeThreadSubtitle = activeManager
+    ? ["Property manager", activeManager.homeLabel, activeManager.email].filter(Boolean).join(" · ")
     : undefined;
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
@@ -1478,11 +1474,8 @@ export const ResidentInboxPanel = forwardRef<
     [replyAttachments.length, showToast],
   );
 
-  // One channel control per decision: the reply row's menu. The AI draft card
-  // above it used to carry the legacy segmented picker bound to the same state,
-  // so while a draft was in flight the resident saw two controls for one choice.
-  // The reply row is the manager's: ✦ AI (draft · ask), then the channel menu.
-  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
+  // One channel control per decision: the reply row's menu — In-app · Email ·
+  // Text, as the manager's thread has it.
   const replyChannelMenu = (
     <InboxComposerChannelMenu
       viaEmail={replyViaEmail}
@@ -1497,26 +1490,85 @@ export const ResidentInboxPanel = forwardRef<
     />
   );
 
-  const sendActiveReply = useCallback(async (textOverride?: string) => {
+  const sendActiveReply = useCallback(async () => {
     if (!activeThread) return;
-    const text = (textOverride ?? replyDraft).trim();
+    const text = replyDraft.trim();
     const attachmentUrls = replyAttachments
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
     const viaProplane = replyViaProplane && activeProplaneAvailable;
-    const viaEmail = activeIsAssistantThread
-      ? replyViaEmail
-      : replyViaEmail || !activeSmsAvailable;
+    const viaEmail = replyViaEmail || !activeSmsAvailable;
     const viaSms = replyViaSms && activeSmsAvailable;
     if (!hasInboxReplyChannelSelected({ viaEmail, viaSms, viaProplane })) {
-      showToast("Choose PropLane, Email, SMS, or a combination.");
+      showToast("Choose In-app, Email, Text, or a combination.");
       return;
     }
     if (replyAttachments.some((a) => a.uploading)) {
       showToast("Wait for attachments to finish uploading.");
       return;
     }
+
+    // The clock is on: this same press SCHEDULES the reply rather than sending
+    // it, so there is one send button and no second way to fire the message.
+    if (scheduleLater) {
+      if (attachmentUrls.length > 0) {
+        showToast("Scheduled replies do not support attachments yet. Remove them or send now.");
+        return;
+      }
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        showToast("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        showToast("Send time must be in the future.");
+        return;
+      }
+      const recipientEmail = resolveResidentReplyRecipientEmail(activeThread.email, eligibleContacts)
+        .trim()
+        .toLowerCase();
+      if (!recipientEmail.includes("@")) {
+        showToast("Choose your property manager.");
+        return;
+      }
+      setReplySending(true);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: "resident",
+            subject: activeThread.subject || `Message for ${activeManager?.name ?? recipientEmail}`,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail,
+            recipientName: activeManager?.name ?? recipientEmail,
+            deliverViaInbox: viaProplane,
+            deliverViaEmail: viaEmail,
+            deliverViaSms: viaSms,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          showToast(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        // Clear the reply only on success, so a refused schedule never loses
+        // what the resident typed.
+        updateReplyDraft("");
+        setScheduleLater(false);
+        showToast("Message scheduled.");
+        void reloadScheduledMessages();
+      } catch {
+        showToast("Could not schedule message.");
+      } finally {
+        setReplySending(false);
+      }
+      return;
+    }
+
     setReplySending(true);
     try {
       const outcome = await handleReply(
@@ -1536,11 +1588,7 @@ export const ResidentInboxPanel = forwardRef<
         showToast("Could not send reply.");
         return;
       }
-      adoptedAiDraftRef.current = null;
-      setAiDraftInserted(false);
       updateReplyDraft("");
-      setAiDraftText("");
-      setAiDraftError(null);
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
         return [];
@@ -1556,220 +1604,90 @@ export const ResidentInboxPanel = forwardRef<
       setReplySending(false);
     }
   }, [
-    activeIsAssistantThread,
+    activeManager,
     activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,
+    eligibleContacts,
     handleReply,
+    reloadScheduledMessages,
     replyAttachments,
     replyDraft,
     replyViaEmail,
     replyViaProplane,
     replyViaSms,
+    scheduleLater,
+    scheduleSendAt,
     showToast,
     updateReplyDraft,
   ]);
 
-  const requestResidentAiDraft = useCallback(async () => {
-    if (!activeThread || isDemoModeActive()) return;
-    setAiDrafting(true);
-    setAiDraftError(null);
-    try {
-      const res = await fetch("/api/portal/resident-inbox-draft-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ threadId: activeThread.id }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        skip?: boolean;
-        draft?: { text?: string };
-        error?: string;
-      };
-      if (data.ok && data.draft?.text) {
-        const text = data.draft.text.trim();
-        setAiDraftText(text);
-        insertAiDraft(text);
-      } else if (!data.ok && data.error) {
-        setAiDraftError(data.error);
-      } else if (data.ok && data.skip) {
-        setAiDraftError("Nothing to draft from this thread yet.");
-      }
-    } catch {
-      setAiDraftError("Could not draft reply.");
-    } finally {
-      setAiDrafting(false);
-    }
-  }, [activeThread, insertAiDraft]);
-
-  const approveResidentAiDraft = useCallback(async () => {
-    const pending = aiDraftText.trim();
-    const text = replyDraft.trim();
-    if (!pending || !text || text !== pending) return;
-    setApprovingAiDraft(true);
-    try {
-      await sendActiveReply(text);
-    } finally {
-      setApprovingAiDraft(false);
-    }
-  }, [aiDraftText, replyDraft, sendActiveReply]);
-
-  const discardResidentAiDraft = useCallback(() => {
-    if (adoptedAiDraftRef.current) {
-      adoptedAiDraftRef.current = null;
-      setAiDraftInserted(false);
-      updateReplyDraft("");
-    }
-    setAiDraftText("");
-    setAiDraftError(null);
-  }, [updateReplyDraft]);
-
-  const autoSentAiDraftRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    autoSentAiDraftRef.current = null;
-  }, [activeThread?.id]);
-
-  useEffect(() => {
-    if (!autoSend || !aiDraftText.trim() || !activeThread) return;
-    if (!aiDraftAdopted) return;
-    if (aiDrafting || approvingAiDraft || replySending) return;
-    const key = `${activeThread.id}:${aiDraftText.trim()}`;
-    if (autoSentAiDraftRef.current === key) return;
-    autoSentAiDraftRef.current = key;
-    void approveResidentAiDraft().then(() => {
-      /* sent or failed in sendActiveReply */
-    });
-  }, [
-    activeThread,
-    aiDraftAdopted,
-    aiDraftText,
-    aiDrafting,
-    approvingAiDraft,
-    approveResidentAiDraft,
-    autoSend,
-    replySending,
-  ]);
-
-  const showResidentAiDraftUi = Boolean(
-    activeThread && activeThread.folder !== "trash" && tabId !== "trash",
-  );
-
+  // The resident's reply row is the manager's minus every assistant tool: no ✦
+  // draft, no Ask PropLane, no Auto-send. Attachment, the clock, the channel
+  // menu and Send — that is all.
   const activeThreadComposer = useMemo(() => {
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
     return (
-      <>
-        {/* Draft with PropLane and Ask PropLane live in the reply row (its ✦ tool),
-            the same as the manager's thread. Only a draft in flight, a failed
-            draft, or a draft waiting for approval still shows above it. */}
-        {showResidentAiDraftUi ? (
-          <AiDraftReplyCard
-            drafting={aiDrafting}
-            draft={aiDraftText.trim() ? aiDraftText : undefined}
-            error={aiDraftError ?? undefined}
-            approving={approvingAiDraft || replySending}
-            onApprove={() => void approveResidentAiDraft()}
-            onDiscard={discardResidentAiDraft}
-            onGenerate={() => void requestResidentAiDraft()}
-            onAdopt={(text) => {
-              insertAiDraft(text, true);
-            }}
-            adopted={aiDraftAdopted}
-            autoSend={autoSend}
-            /*
-              Communication offers no auto-send control, matching the manager's
-              thread, which passes undefined for the same reason. The standalone
-              panel keeps it.
-            */
-            onAutoSendChange={embeddedInCommunication ? undefined : setAutoSend}
-            maxLength={
-              !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
-            }
-            hideGenerateButton
-          />
-        ) : null}
-        <InboxThreadAssistantStrip
-          contextHint={buildInboxThreadAssistantContext({
-            subject: activeThread.subject,
-            email: activeThread.email,
-            from: activeThread.from,
-            sentSemantics: activeIsSent,
-          })}
-          hideTrigger
-          openSignal={askAssistantSignal}
-        />
-        <InboxComposer
-          value={replyDraft}
-          onChange={(next) => {
-            updateReplyDraft(next);
-            if (!next.trim() && aiDraftInserted) {
-              discardResidentAiDraft();
-            }
-          }}
-          onSubmit={() => void sendActiveReply()}
-          sending={replySending}
-          disabled={
-            !hasInboxReplyChannelSelected({
-              viaEmail: activeIsAssistantThread
-                ? replyViaEmail
-                : replyViaEmail || !activeSmsAvailable,
-              viaSms: replyViaSms && activeSmsAvailable,
-              viaProplane: replyViaProplane && activeProplaneAvailable,
-            })
-          }
-          placeholder={
-            !embeddedInCommunication && replyViaSms && !replyViaEmail
-              ? "Text message"
-              : "Write a reply…"
-          }
-          maxLength={
-            !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
-          }
-          dataAttr="resident-inbox-reply"
-          focusSignal={replyFocusSignal}
-          trailingControls={
-            <>
-              <InboxComposerAiMenu
-                disabled={aiDrafting}
-                onDraft={showResidentAiDraftUi && !aiDraftText.trim() ? () => void requestResidentAiDraft() : undefined}
-                onAsk={() => setAskAssistantSignal((n) => n + 1)}
-              />
-              {showReplyChannelPicker ? replyChannelMenu : null}
-            </>
-          }
-          attachments={replyAttachments}
-          onAttachmentsPick={pickReplyAttachments}
-          onAttachmentRemove={(id) => {
-            setReplyAttachments((prev) => {
-              const target = prev.find((a) => a.id === id);
-              if (target) revokeInboxAttachmentPreview(target);
-              return prev.filter((a) => a.id !== id);
-            });
-          }}
-          maxAttachments={INBOX_MAX_ATTACHMENTS}
-          autoSend={autoSend}
-          onAutoSendChange={setAutoSend}
-        />
-      </>
+      <InboxComposer
+        value={replyDraft}
+        onChange={updateReplyDraft}
+        onSubmit={() => void sendActiveReply()}
+        sending={replySending}
+        disabled={
+          !hasInboxReplyChannelSelected({
+            viaEmail: replyViaEmail || !activeSmsAvailable,
+            viaSms: replyViaSms && activeSmsAvailable,
+            viaProplane: replyViaProplane && activeProplaneAvailable,
+          })
+        }
+        placeholder={
+          !embeddedInCommunication && replyViaSms && !replyViaEmail
+            ? "Text message"
+            : "Write a reply…"
+        }
+        maxLength={
+          !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
+        }
+        dataAttr="resident-inbox-reply"
+        focusSignal={replyFocusSignal}
+        hint={
+          scheduleLater
+            ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}.`
+            : undefined
+        }
+        trailingControls={
+          <>
+            <InboxComposerScheduleMenu
+              scheduleLater={scheduleLater}
+              onScheduleLaterChange={setScheduleLater}
+              sendAt={scheduleSendAt}
+              onSendAtChange={setScheduleSendAt}
+            />
+            {showReplyChannelPicker ? replyChannelMenu : null}
+          </>
+        }
+        attachments={replyAttachments}
+        onAttachmentsPick={pickReplyAttachments}
+        onAttachmentRemove={(id) => {
+          setReplyAttachments((prev) => {
+            const target = prev.find((a) => a.id === id);
+            if (target) revokeInboxAttachmentPreview(target);
+            return prev.filter((a) => a.id !== id);
+          });
+        }}
+        maxAttachments={INBOX_MAX_ATTACHMENTS}
+      />
     );
   }, [
-    activeIsAssistantThread,
-    activeIsSent,
     activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,
-    aiDraftError,
-    aiDraftInserted,
-    aiDraftText,
-    aiDrafting,
-    approvingAiDraft,
-    askAssistantSignal,
-    autoSend,
-    discardResidentAiDraft,
     embeddedInCommunication,
-    insertAiDraft,
-    approveResidentAiDraft,
     pickReplyAttachments,
     replyAttachments,
     replyChannelMenu,
@@ -1779,25 +1697,13 @@ export const ResidentInboxPanel = forwardRef<
     replyViaEmail,
     replyViaProplane,
     replyViaSms,
-    requestResidentAiDraft,
+    scheduleLater,
+    scheduleSendAt,
     sendActiveReply,
     showReplyChannelPicker,
-    showResidentAiDraftUi,
     tabId,
     updateReplyDraft,
   ]);
-
-  useEffect(() => {
-    if (!autoSend) return;
-    if (activeIsAssistantThread) {
-      if (!replyViaProplane) setReplyViaProplane(true);
-      return;
-    }
-    if (!replyViaEmail && !replyViaSms) {
-      setReplyViaEmail(true);
-      if (activeSmsAvailable) setReplyViaSms(true);
-    }
-  }, [activeIsAssistantThread, activeSmsAvailable, autoSend, replyViaEmail, replyViaProplane, replyViaSms]);
 
   const emptyCopy =
     tabId === "trash"
@@ -1886,19 +1792,10 @@ export const ResidentInboxPanel = forwardRef<
           {activeThread ? (
             <InboxThreadView
               scrollMode={pageScroll ? "page" : "pane"}
-              title={
-                activeIsSent
-                  ? activeThread.email || "Unknown recipient"
-                  : activeThread.from || activeThread.email || "Unknown sender"
-              }
+              title={activeManager?.name ?? "Property manager"}
               avatarName={activeThreadAvatarName}
-              subtitle={
-                activeIsAssistantThread
-                  ? undefined
-                  : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
-              }
+              subtitle={activeThreadSubtitle}
               messages={activeBubbles}
-              alignAssistantStart={activeIsAssistantThread}
               underHeader={residentScheduledCards}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
@@ -2002,19 +1899,10 @@ export const ResidentInboxPanel = forwardRef<
             activeThread ? (
               <InboxThreadView
                 scrollMode={pageScroll ? "page" : "pane"}
-                title={
-                  activeIsSent
-                    ? activeThread.email || "Unknown recipient"
-                    : activeThread.from || activeThread.email || "Unknown sender"
-                }
+                title={activeManager?.name ?? "Property manager"}
                 avatarName={activeThreadAvatarName}
-                subtitle={
-                activeIsAssistantThread
-                  ? undefined
-                  : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
-              }
+                subtitle={activeThreadSubtitle}
                 messages={activeBubbles}
-                alignAssistantStart={activeIsAssistantThread}
                 underHeader={residentScheduledCards}
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}

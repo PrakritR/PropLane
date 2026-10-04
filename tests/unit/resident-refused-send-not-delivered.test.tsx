@@ -191,11 +191,12 @@ afterEach(() => {
 });
 
 describe("resident reply that the server refuses", () => {
-  it("reports a successful PropLane-only reply instead of a failure toast", async () => {
-    residentRows = [{ ...THREAD, id: "resident-agent-res-1", from: "PropLane Assistant", email: "" }];
+  it("reports a successful in-app reply instead of a failure toast", async () => {
+    // A manager conversation. There is no assistant thread for a resident any
+    // more (captain 2026-10-03), so the default reply goes in-app and by email.
     stubFetch({ status: 200, body: { ok: true } });
     await openThreadAndReply("PropLane-only reply");
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane."));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane and email."));
     expect(showToast).not.toHaveBeenCalledWith("Could not send reply.");
     expect(upsertPersistedInboxRows).toHaveBeenCalled();
     expect(screen.getByPlaceholderText(/reply/i)).toHaveValue("");
