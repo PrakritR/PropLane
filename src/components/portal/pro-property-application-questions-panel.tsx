@@ -37,6 +37,7 @@ import {
   readPropertyApplicationTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
+  withoutShortTermCosignerLinks,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
@@ -462,6 +463,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
       ...template,
       ...created,
       listingSeedKey: undefined,
+      // A copy never takes the original's place as a stay's default.
+      defaultFor: undefined,
       draftQuestionConfig: template.draftQuestionConfig ? structuredClone(template.draftQuestionConfig) : undefined,
       publishedQuestionConfig: template.publishedQuestionConfig ? structuredClone(template.publishedQuestionConfig) : undefined,
       publishedQuestionConfigVersions: template.publishedQuestionConfigVersions
@@ -483,7 +486,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
   );
 
   const commitTemplates = async (next: PropertyApplicationTemplate[], message: string) => {
-    if (!(await persistSubmission(withPropertyApplicationTemplatesExplicit(syncedSub, next), { message }))) return;
+    // Co-signer is long term only: a short-term application never keeps a co-signer link.
+    const written = withoutShortTermCosignerLinks(next, leases);
+    if (!(await persistSubmission(withPropertyApplicationTemplatesExplicit(syncedSub, written), { message }))) return;
     onUpdated();
   };
 
@@ -530,7 +535,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
         {applicationGroups.map((group) => (
           <section key={group.id} className="mb-4" data-attr={`property-application-stay-section-${group.id}`} aria-label={group.label}>
             <StayHeader section={group.id} />
-            {group.rows.map(({ template, appliesTo, isDefault }) => {
+            {group.rows.map(({ template, appliesTo, stay, isDefault }) => {
+          const isCosignerRow = applicationFormVariantForTemplate(template) === "cosigner";
           const sourceName =
             template.publishedQuestionConfig?.importProvenance?.sourceName ??
             template.draftQuestionConfig?.importProvenance?.sourceName ??
@@ -554,27 +560,29 @@ export function ManagerPropertyApplicationQuestionsPanel({
                   label: "Open in new tab",
                   onSelect: () => openPropertyFormTemplateInNewTab("application", template.id),
                 },
-                ...(appliesTo !== "both" && !isDefault
+                ...(!isCosignerRow && !isDefault
                   ? [
                       {
                         id: "set-default",
-                        label: `Set as default for ${STAY_LABEL[appliesTo].toLowerCase()}`,
+                        label: `Set as default for ${STAY_LABEL[stay].toLowerCase()}`,
                         onSelect: () =>
                           void commitTemplates(
-                            withApplicationDefaultForStay(templates, template.id, appliesTo),
-                            `Default for ${STAY_LABEL[appliesTo].toLowerCase()} set.`,
+                            withApplicationDefaultForStay(templates, template.id, stay),
+                            `Default for ${STAY_LABEL[stay].toLowerCase()} set.`,
                           ),
                       },
                     ]
                   : []),
-                ...(["long_term", "short_term", "both"] as const)
-                  .filter((target) => target !== appliesTo && (target === "both" || listingOfferedStays(syncedSub)[target]))
-                  .map((target) => ({
-                    id: `applies-${target}`,
-                    label: target === "both" ? "Applies to both" : `Applies to ${STAY_LABEL[target].toLowerCase()} residents`,
-                    onSelect: () =>
-                      void commitTemplates(withApplicationAppliesTo(templates, template.id, target), "Application moved."),
-                  })),
+                ...(isCosignerRow
+                  ? []
+                  : (["long_term", "short_term", "both"] as const)
+                      .filter((target) => target !== appliesTo && (target === "both" || listingOfferedStays(syncedSub)[target]))
+                      .map((target) => ({
+                        id: `applies-${target}`,
+                        label: target === "both" ? "Applies to both" : `Applies to ${STAY_LABEL[target].toLowerCase()} residents`,
+                        onSelect: () =>
+                          void commitTemplates(withApplicationAppliesTo(templates, template.id, target), "Application moved."),
+                      }))),
                 { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
                 { id: "promo-codes", label: "Promo codes", onSelect: () => setPromoOpen(true) },
                 {
@@ -592,7 +600,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           );
           return (
             <PortalPropertyRecordRow
-              key={template.id}
+              key={`${stay}:${template.id}`}
               title={rowLabel}
               leading={<PortalRowIconTile icon={ClipboardList} />}
               leadingShape="square"

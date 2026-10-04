@@ -24,6 +24,7 @@ import {
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import {
+  applicationAllowsCosigner,
   applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   withPropertyApplicationTemplatesExplicit,
@@ -151,10 +152,14 @@ export function applicationWithDefaultLinks(
   if (isCosignerApplicationTemplate(application)) return application;
   const leaseId = defaultLeaseIdForApplication(application, catalog.leases);
   const cosigner = catalog.applications.find((row) => isCosignerApplicationTemplate(row));
+  // Co-signer is long term only: a short-term application gets no co-signer form.
+  const allowsCosigner = applicationAllowsCosigner(application, catalog.leases);
   return {
     ...application,
     ...leaseLinkFields(leaseId),
-    ...(cosigner ? { linkedCosignerApplicationTemplateId: cosigner.id } : {}),
+    ...(cosigner && allowsCosigner
+      ? { linkedCosignerApplicationTemplateId: cosigner.id }
+      : { linkedCosignerApplicationTemplateId: null }),
   };
 }
 
@@ -240,7 +245,7 @@ export function submissionWithDefaultLeasingSetup(sub: ManagerListingSubmissionV
   const applications = current.map((application) =>
     isCosignerApplicationTemplate(application)
       ? { ...application, linkedLeaseTemplateId: null }
-      : cosigner
+      : cosigner && applicationAllowsCosigner(application, readPropertyLeaseTemplates(next))
         ? { ...application, linkedCosignerApplicationTemplateId: cosigner.id }
         : application,
   );

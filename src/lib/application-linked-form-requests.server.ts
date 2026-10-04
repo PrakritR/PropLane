@@ -23,8 +23,10 @@ import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import {
   applicationFormVariantForTemplate,
+  cosignerLinkOwedByTemplate,
   readPropertyApplicationTemplates,
 } from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import { resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
@@ -176,7 +178,8 @@ export async function createLinkedFormRequestsForSubmit(
     const matches = evaluateLinkedFormRules({
       questions,
       application,
-      linkedCosignerApplicationTemplateId: variant === "cosigner" ? null : template?.linkedCosignerApplicationTemplateId,
+      // Co-signer is long term only: a short-term applicant never owes the derived co-signer form.
+      linkedCosignerApplicationTemplateId: cosignerLinkOwedByTemplate(template, readPropertyLeaseTemplates(listing)),
     }).filter((match) => !(match.rule.formRef.kind === "application" && match.rule.formRef.id === templateId));
     if (matches.length === 0) return [];
 

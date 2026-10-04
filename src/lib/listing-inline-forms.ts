@@ -245,6 +245,11 @@ export function createInlineApplication(
     ...(isCosignerApplicationTemplate(source) ? {} : leaseLinkFields(source.linkedLeaseTemplateId ?? null)),
     tourOrder: source.tourOrder,
     offered: source.offered,
+    // A copy applies to the same stays and keeps the original's co-signer form and fee; it never takes the
+    // original's place as a stay's default (`defaultFor` is not copied).
+    appliesTo: source.appliesTo,
+    feeCentsOverride: source.feeCentsOverride,
+    ...(isCosignerApplicationTemplate(source) ? {} : { linkedCosignerApplicationTemplateId: source.linkedCosignerApplicationTemplateId }),
   };
 }
 

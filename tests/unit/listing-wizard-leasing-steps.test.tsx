@@ -224,7 +224,7 @@ describe("Application step", () => {
     expect(items.at(-1)!.className).toContain("text-red");
   });
 
-  it("the form's first two rows are Applies to and Default for its section (no default on a Both form)", () => {
+  it("the form's first two rows are Applies to and Default for long term; a Both form gets a default toggle for each stay", () => {
     mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
@@ -232,11 +232,14 @@ describe("Application step", () => {
     const rows = Array.from(editor.querySelectorAll(":scope > div")).map((row) => row.textContent ?? "");
     expect(rows[0]).toContain("Applies to");
     expect(rows[0]).toContain("Long-term residents");
-    expect(rows[1]).toContain("Default for its section");
-    expect(editor.querySelector("[data-attr='listing-v2-application-default']")).not.toBeNull();
+    expect(rows[1]).toContain("Default for long term");
+    expect(editor.querySelector("[data-attr='listing-v2-application-default-long']")).not.toBeNull();
+    expect(editor.querySelector("[data-attr='listing-v2-application-default-short']")).toBeNull();
     fireEvent.click(editor.querySelector("[data-attr='listing-v2-application-applies-to-row']")!);
     tapOption("Both");
-    expect(q("[data-attr='listing-v2-application-default']")).toBeNull();
+    expect(q("[data-attr='listing-v2-application-default-long']")).not.toBeNull();
+    expect(q("[data-attr='listing-v2-application-default-short']")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Default for its section");
   });
 
   it("opening a card unfolds the editor in place: Needed, fee, lease, questions; Done closes it", () => {
@@ -406,10 +409,10 @@ describe("Application step", () => {
     expect(shortNames).toContain(created.label);
   });
 
-  it("groups applications under Long term / Short term / Both, and hides a stay the listing does not offer without deleting", () => {
+  it("groups applications under Long term and Short term only (no Both section), and hides a stay the listing does not offer without deleting", () => {
     const live = mountLive(bothStays());
     go("application");
-    expect(["long_term", "short_term", "both"].map((key) => q(`[data-attr='listing-v2-stay-section-${key}']`) !== null)).toEqual([true, true, true]);
+    expect(["long_term", "short_term", "both"].map((key) => q(`[data-attr='listing-v2-stay-section-${key}']`) !== null)).toEqual([true, true, false]);
     const stored = readPropertyApplicationTemplates(live.latest()).length;
     cleanup();
     const longOnly = mountLive(sub());
@@ -437,7 +440,7 @@ describe("Application step", () => {
     // Make the OTHER one the default.
     const other = shortCards.find((card) => !card.textContent?.includes("★ Default"))!;
     openCard(other);
-    fireEvent.click(other.querySelector("[data-attr='listing-v2-application-default']")!);
+    fireEvent.click(other.querySelector("[data-attr='listing-v2-application-default-short']")!);
     const after = readPropertyApplicationTemplates(live.latest());
     expect(after.filter((row) => row.defaultFor?.includes("short_term"))).toHaveLength(1);
     const defaultRow = after.find((row) => row.defaultFor?.includes("short_term"))!;
@@ -1024,7 +1027,7 @@ describe("Stays you offer and the Long term / Short term / Both sections", () =>
     expect(readPropertyLeaseTemplates(longOnly.latest()).length).toBe(readPropertyLeaseTemplates(live.latest()).length);
   });
 
-  it("Move-in forms sit under their lease type: All is Both", () => {
+  it("Move-in forms sit under their lease type: All is listed in each section", () => {
     const forms = [
       { ...structuredClone(MOVE_IN_FORM_STARTERS[0]!), id: "mi-all", name: "Everyone", trigger: "manual" as const },
       { ...structuredClone(MOVE_IN_FORM_STARTERS[1] ?? MOVE_IN_FORM_STARTERS[0]!), id: "mi-long", name: "Long only", leaseType: "long-term" as const, trigger: "manual" as const },
@@ -1034,9 +1037,10 @@ describe("Stays you offer and the Long term / Short term / Both sections", () =>
     go("movein");
     const names = (section: string) =>
       qa(`[data-attr='listing-v2-stay-section-${section}'] [data-attr='listing-v2-movein-card'] input`).map((input) => (input as HTMLInputElement).value);
-    expect(names("long_term")).toEqual(["Long only"]);
-    expect(names("short_term")).toEqual(["Short only"]);
-    expect(names("both")).toEqual(["Everyone"]);
+    // "All" lease types is the same form listed in each section; there is no Both section.
+    expect(names("long_term")).toEqual(["Everyone", "Long only"]);
+    expect(names("short_term")).toEqual(["Everyone", "Short only"]);
+    expect(q("[data-attr='listing-v2-stay-section-both']")).toBeNull();
   });
 });
 

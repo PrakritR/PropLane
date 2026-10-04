@@ -62,7 +62,7 @@ import {
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { propertyPricingRoomSummary } from "@/lib/property-pricing-summary";
 import {
-  persistManagerListingSubmission,
+  persistManagerListingSubmissionOnServer,
   type ManagerPricingSaveTarget,
 } from "@/lib/manager-property-save-target";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -646,9 +646,10 @@ export function PropertyRoomPricingWorkspace({
     patch(roomPricingPatch(draft, roomId, next));
   };
 
-  const save = () => {
+  // Server-confirmed: the editor closes, and says "Pricing saved", only once the record is stored.
+  const save = async () => {
     const normalized = normalizeManagerListingSubmissionV1(draft);
-    if (!persistManagerListingSubmission(saveTarget, managerUserId, normalized)) {
+    if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, normalized))) {
       showToast("Could not save pricing.");
       return false;
     }
@@ -762,7 +763,9 @@ export function PropertyRoomPricingWorkspace({
       saveState={workspaceSaveState({ dirty })}
       lastLabel="Save"
       onFinish={() => {
-        if (save()) onClose();
+        void save().then((ok) => {
+          if (ok) onClose();
+        });
       }}
       dataAttrPrefix="property-room-pricing"
       finishDataAttr="property-room-pricing-save"
