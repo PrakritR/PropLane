@@ -27,6 +27,29 @@ export type ResidentThreadManager = {
   phone?: string;
 };
 
+/** Placeholders that name no one. "Resident" / "You" are the resident themself, never the other party. */
+const GENERIC_PARTICIPANT_NAMES: ReadonlySet<string> = new Set([
+  "",
+  "property manager",
+  "manager",
+  "resident",
+  "you",
+  "unknown sender",
+  "unknown recipient",
+]);
+
+export function isGenericParticipantName(name: string | null | undefined): boolean {
+  return GENERIC_PARTICIPANT_NAMES.has(String(name ?? "").trim().toLowerCase());
+}
+
+function firstNamed(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const name = String(candidate ?? "").trim();
+    if (!isGenericParticipantName(name)) return name;
+  }
+  return "";
+}
+
 function norm(value: string | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -50,12 +73,16 @@ export function resolveResidentThreadManager(
   const counterparty = thread.counterparty;
   const matched = matchResidentManagerContact(thread.email, contacts);
   const sole = contacts.length === 1 ? contacts[0] : undefined;
+  // The row title is never a placeholder when a real name is resolvable: the manager's name, then
+  // their workspace, then what the thread stored. "Resident" on a stored row is the resident
+  // themself, so it is skipped like every generic label; only then the generic fallback.
+  const named = firstNamed(counterparty?.name, counterparty?.workspaceName, matched?.managerName, thread.from);
+  // A row stored as "Resident" / "You" (or with no name) has only an address to offer; a stored
+  // "Property manager" is already the generic label, so it is not swapped for a raw address.
+  const fromIsSelf = isGenericParticipantName(thread.from) && !/manager/i.test(thread.from ?? "");
   const name =
-    counterparty?.name?.trim() ||
-    matched?.managerName?.trim() ||
-    thread.from?.trim() ||
-    (thread.folder === "sent" ? thread.email?.trim() : "") ||
-    thread.email?.trim() ||
+    named ||
+    (fromIsSelf ? firstNamed(thread.folder === "sent" ? thread.email : "", thread.email) : "") ||
     "Property manager";
   const homeLabel =
     conversationHouseLabels(thread.houses)?.[0] ??

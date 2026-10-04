@@ -1908,9 +1908,9 @@ export const ResidentInboxPanel = forwardRef<
               </div>
               <div className={INBOX_LIST_SCROLL}>
                 {rowsForTab.map((thread) => {
-                  const sentSemantics = tabId === "sent";
-                  const recipientLabel = thread.email || "Unknown recipient";
-                  const displayName = sentSemantics ? recipientLabel : thread.from || thread.email || "Unknown sender";
+                  // Every row names the manager (or workspace) it is with, never the generic "Property manager" / "Resident" label.
+                  const rowManagerName = resolveResidentThreadManager(thread, managerContacts).name;
+                  const displayName = rowManagerName;
                   const msgs = inboxThreadMessages(thread);
                   const lastMsg = msgs[msgs.length - 1];
                   return (

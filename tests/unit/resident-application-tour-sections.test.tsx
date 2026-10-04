@@ -20,7 +20,7 @@ import {
   defaultResidentTourSection,
   residentTourSectionForView,
 } from "@/lib/resident-tour-list";
-import { TOUR_BLOCK_MESSAGES } from "@/lib/application-before-tour-policy";
+import { TOUR_BLOCK_LABELS, TOUR_BLOCK_MESSAGES } from "@/lib/application-before-tour-policy";
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -206,11 +206,15 @@ describe("Schedule tour gate in the picker (setting x application)", () => {
       await waitFor(() => expect(continueButton().disabled).toBe(true));
       await waitFor(() => expect(continueButton().title).toBe(TOUR_BLOCK_MESSAGES[reason]));
       expect(continueButton().getAttribute("aria-label")).toContain(TOUR_BLOCK_MESSAGES[reason]);
-      // The reason is the tooltip only: no visible subtext line is added to the dialog body.
+      // The picker shows one heading-style blocked line (no explanatory sentence), with Apply only
+      // when an application is what is missing.
+      expect(screen.getByText(TOUR_BLOCK_LABELS[reason])).toBeTruthy();
       expect(screen.queryByText(TOUR_BLOCK_MESSAGES[reason])).toBeNull();
+      expect(Boolean(screen.queryByRole("link", { name: "Apply" }))).toBe(reason === "apply_first");
     } else {
       await waitFor(() => expect(continueButton().disabled).toBe(false));
       expect(continueButton().title).toBe("");
+      expect(document.querySelector('[data-attr="tour-blocked-notice"]')).toBeNull();
     }
   });
 });

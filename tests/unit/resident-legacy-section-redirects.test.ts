@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { routeResolves } from "../helpers/route-resolves";
 
 /**
  * Ordering regression: the resident STAGE GUARD in render-portal-section.tsx
@@ -231,6 +232,29 @@ describe("resident Inspections moved into My home", () => {
     expect(await redirectTargetFor("inspections", ["move-in", reportId])).toBe(
       `/resident/move-in/inspections/move-in/${reportId}`,
     );
+  });
+
+  it.each([["reports"], ["pending"], ["upcoming"], ["in-progress"], ["done"], ["reports", "anything"]])(
+    "sends the retired /resident/inspections/%s list address to the merged list, never a 404",
+    async (...parts) => {
+      expect(await redirectTargetFor("inspections", parts)).toBe("/resident/move-in/inspections");
+    },
+  );
+
+  it.each([
+    [undefined],
+    [["reports"]],
+    [["pending"]],
+    [["done"]],
+    [["move-in"]],
+    [["move-out"]],
+    [["move-in", reportId]],
+  ])("every legacy /resident/inspections/* redirect lands on a route that resolves (%j)", async (parts) => {
+    const target = await redirectTargetFor("inspections", parts);
+    expect(routeResolves(target)).toBe(true);
+    const [, , section, ...tab] = target.split("/");
+    // ...and the page behind it renders instead of calling notFound().
+    await expect(renderPortalSection("resident", section!, tab)).resolves.toBeDefined();
   });
 
   it("resolves for a resident who has not signed yet (the new address then judges them)", async () => {

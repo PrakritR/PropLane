@@ -5,13 +5,15 @@
 // picker) until the server says this account has applied.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
   useProspectContactAutofill: () => ({ ready: true, userId: null, hasResidentRole: false, name: "", email: "", phone: "" }),
 }));
 
 import { buildProspectTourHref } from "@/lib/prospect-public-nav";
-import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
+import { TourApplicationFirstPanel, TourBlockedNotice } from "@/components/marketing/tour-application-first-panel";
 import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
 
 const anon = { ready: true, userId: null, hasResidentRole: false };
@@ -114,5 +116,28 @@ describe("TourApplicationFirstPanel", () => {
     const apply = screen.getByRole("link", { name: "Apply" });
     expect(apply.getAttribute("href")).toContain("prop-1");
     expect(screen.getByText(/asks for an approved application before a tour/i)).toBeTruthy();
+  });
+});
+
+describe("TourBlockedNotice (inline blocked state in the tour picker)", () => {
+  afterEach(cleanup);
+
+  it.each([
+    ["apply_first", "Application approval required to book a tour", true],
+    ["pending_approval", "Your application is under review", false],
+    ["denied", "Tours unavailable", false],
+  ] as const)("%s reads one heading line%s", (reason, label, hasApply) => {
+    const { container } = render(<TourBlockedNotice applyHref="/resident/applications/apply?propertyId=prop-1" reason={reason} />);
+    expect(screen.getByText(label)).toBeTruthy();
+    // A heading-style line, never a muted explanatory sentence under it.
+    expect(container.querySelectorAll("p")).toHaveLength(1);
+    const apply = screen.queryByRole("link", { name: "Apply" });
+    expect(Boolean(apply)).toBe(hasApply);
+    if (apply) expect(apply.getAttribute("href")).toContain("prop-1");
+  });
+
+  it("the resident tour picker renders it for the picked home", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/portal/resident-schedule-tour-modal.tsx"), "utf8");
+    expect(source).toContain("<TourBlockedNotice applyHref={residentPortalApplyReturnPath({ propertyId: pickedPropertyId })} reason={blockedReason} />");
   });
 });
