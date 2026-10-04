@@ -9,7 +9,7 @@ import {
 } from "@/lib/portal-detail-routes";
 import { SERVICE_STAGE_IDS, SERVICE_STAGE_LABEL, parseServiceStage } from "@/lib/service-lifecycle";
 import { managerTaskStage } from "@/lib/manager-task-stage";
-import { tasksForListTab } from "@/lib/manager-task-display";
+import { selectManagerTaskListRows, tasksForListTab } from "@/lib/manager-task-display";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
 const task = (over: Partial<ManagerTask>): ManagerTask => ({
@@ -95,5 +95,38 @@ describe("task record rail and header", () => {
     const source = readFileSync("src/components/portal/pro-task-list.tsx", "utf8");
     expect(source).not.toContain("Coming soon");
     expect(source).toContain("TaskAssignDialog");
+  });
+});
+
+describe("the Tasks list shows a task on its stage tab", () => {
+  const person = { type: "team" as const, id: "u", name: "Jordan Lee" };
+  const rows = (tabId: "open" | "assigned" | "scheduled" | "completed", tasks: ManagerTask[]) =>
+    selectManagerTaskListRows({
+      tabId,
+      tasks,
+      assignedServices: [],
+      matchesProperty: () => true,
+      listFilter: "all",
+      assigneeFilterId: "",
+      priorityFilter: "",
+      sortId: "newest",
+      propertyLabelForId: () => "",
+    }).map((row) => (row.kind === "task" ? row.task.id : row.id));
+
+  it("unassigned+undated -> Open, assigned -> Assigned, with a start -> Scheduled, completed -> Completed", () => {
+    const all = [
+      task({ id: "open" }),
+      task({ id: "assigned", assignee: person }),
+      task({ id: "scheduled", assignee: person, start: "2026-10-09T17:00:00Z", end: "2026-10-09T18:00:00Z" }),
+      task({ id: "completed", assignee: person, completed: true }),
+    ];
+    expect(rows("open", all)).toEqual(["open"]);
+    expect(rows("assigned", all)).toEqual(["assigned"]);
+    expect(rows("scheduled", all)).toEqual(["scheduled"]);
+    expect(rows("completed", all)).toEqual(["completed"]);
+  });
+
+  it("an account-level task (no house) is not dropped when the workspace holds it", () => {
+    expect(rows("open", [task({ id: "no-house", propertyId: undefined })])).toEqual(["no-house"]);
   });
 });
