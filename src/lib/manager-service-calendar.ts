@@ -15,7 +15,10 @@ function workOrderPropertyLabel(row: DemoManagerWorkOrderRow): string {
   return unit && unit !== "—" ? `${row.propertyName} · ${unit}` : row.propertyName;
 }
 
-export function managerWorkOrderToCalendarMeeting(row: DemoManagerWorkOrderRow): DemoMeeting | null {
+export function managerWorkOrderToCalendarMeeting(
+  row: DemoManagerWorkOrderRow,
+  selfUserId?: string,
+): DemoMeeting | null {
   if (!row.scheduledAtIso || row.bucket === "completed") return null;
   const start = new Date(row.scheduledAtIso);
   if (Number.isNaN(start.getTime())) return null;
@@ -38,6 +41,7 @@ export function managerWorkOrderToCalendarMeeting(row: DemoManagerWorkOrderRow):
     email: row.residentEmail?.trim() || undefined,
     kind: "service",
     assigneeLabel: selfAssigned ? "You" : row.vendorName?.trim() || undefined,
+    personUserId: selfAssigned ? selfUserId?.trim() || undefined : undefined,
     propertyTitle: workOrderPropertyLabel(row),
     propertyId: row.propertyId ?? row.assignedPropertyId,
     notes: row.description || undefined,
@@ -62,7 +66,7 @@ export function listManagerServiceCalendarMeetings(
       const rowPid = (row.propertyId ?? row.assignedPropertyId ?? "").trim();
       return propertyIds.some((id) => id === rowPid);
     })
-    .map(managerWorkOrderToCalendarMeeting)
+    .map((row) => managerWorkOrderToCalendarMeeting(row, managerUserId))
     .filter((m): m is DemoMeeting => m != null)
     .sort((a, b) => a.startIso.localeCompare(b.startIso));
 }

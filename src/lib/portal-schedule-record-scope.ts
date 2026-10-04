@@ -5,6 +5,7 @@ import {
   vendorFlexiblePreferencesStorageKey,
 } from "@/lib/demo-admin-scheduling";
 import {
+  LEGACY_TASK_AVAILABILITY_KINDS,
   MANAGER_KIND_AVAILABILITY_KINDS,
   MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
   managerKindAvailabilityStorageKey,
@@ -55,7 +56,10 @@ export function managerScheduleRecordIdOwnedByUser(
     return id.startsWith(`${MANAGER_PROPERTY_AVAIL_PREFIX}${uid}_prop_`);
   }
   if (recordType === MANAGER_KIND_AVAILABILITY_RECORD_TYPE) {
-    return MANAGER_KIND_AVAILABILITY_KINDS.some((kind) => id === managerKindAvailabilityStorageKey(uid, kind));
+    // The legacy inspections/moves keys stay writable so a Tasks save can fold them in.
+    return [...MANAGER_KIND_AVAILABILITY_KINDS, ...LEGACY_TASK_AVAILABILITY_KINDS].some(
+      (kind) => id === managerKindAvailabilityStorageKey(uid, kind),
+    );
   }
   if (recordType === "calendar_share_settings") {
     return id.startsWith(`${CALENDAR_SHARE_PREFIX}${uid}_prop_`);

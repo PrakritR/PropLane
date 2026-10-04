@@ -41,12 +41,13 @@ describe("clock labels", () => {
 });
 
 describe("calendarItemKind", () => {
-  it("colours by type: tours blue, services orange, tasks green, inspections slate", () => {
+  it("colours by type: tours blue, services orange, tasks green (inspections are tasks)", () => {
     expect(calendarItemKind({ kind: "tour" })).toBe("tour");
     expect(calendarItemKind({ kind: "partner" })).toBe("tour");
     expect(calendarItemKind({ kind: "service" })).toBe("service");
     expect(calendarItemKind({ kind: "task", title: "Renew umbrella insurance" })).toBe("task");
-    expect(calendarItemKind({ kind: "task", title: "Move-in inspection · Alder House" })).toBe("inspection");
+    expect(calendarItemKind({ kind: "task", title: "Move-in inspection · Alder House" })).toBe("task");
+    expect(calendarItemKind({ kind: "task", title: "Move-out · Maple Duplex" })).toBe("task");
   });
 
   it("draws Google busy time as its own neutral type", () => {
@@ -140,7 +141,7 @@ describe("bandsForTab (C2-CALA6)", () => {
   const runs: GridOpenRun[] = [
     run(18, 34, ["tours"]),
     run(34, 38, ["services"]),
-    run(38, 40, ["tours", "services", "tasks", "inspections", "moves"]),
+    run(38, 40, ["tours", "services", "tasks"]),
     run(10, 12, ["tours"], true),
   ];
 
@@ -157,7 +158,7 @@ describe("bandsForTab (C2-CALA6)", () => {
     expect(bandsForTab(runs, "services").map((b) => b.startMin)).toEqual([1020, 1140]);
   });
 
-  it("shows only Everything on the Tasks tab", () => {
+  it("shows only windows with Tasks on the Tasks tab", () => {
     const bands = bandsForTab(runs, "tasks");
     expect(bands).toHaveLength(1);
     expect(bands[0]).toMatchObject({ startMin: 1140, endMin: 1200, source: "typed" });
@@ -171,7 +172,7 @@ describe("bandsForTab (C2-CALA6)", () => {
 describe("band paint and names (C2-CALA6)", () => {
   it("draws Everything as the plain hatch with no stripe", () => {
     expect(bandPaint(AVAILABILITY_KINDS)).toEqual({ plain: true, stripes: [] });
-    expect(bandKindsLabel(AVAILABILITY_KINDS)).toBe("Everything");
+    expect(bandKindsLabel(AVAILABILITY_KINDS)).toBe("Tours, Services, Tasks");
     expect(bandStyle(bandPaint(AVAILABILITY_KINDS)).boxShadow).toBeUndefined();
   });
 
@@ -179,14 +180,14 @@ describe("band paint and names (C2-CALA6)", () => {
     const one = bandPaint(["tours"]);
     expect(one.plain).toBe(false);
     expect(one.stripes).toEqual([{ kind: "tours", color: "#2a78d6" }]);
-    const two = bandPaint(["services", "moves"]);
-    expect(two.stripes.map((s) => s.color)).toEqual(["#eb6834", "#8b5cf6"]);
-    expect(bandStyle(two).boxShadow).toBe("inset 3px 0 0 #eb6834, inset 6px 0 0 #8b5cf6");
+    const two = bandPaint(["services", "tasks"]);
+    expect(two.stripes.map((s) => s.color)).toEqual(["#eb6834", "#1baf7a"]);
+    expect(bandStyle(two).boxShadow).toBe("inset 3px 0 0 #eb6834, inset 6px 0 0 #1baf7a");
   });
 
   it("names the types on screen for the legend, once each", () => {
-    const bands = bandsForTab([run(18, 20, ["tours"]), run(20, 22, ["tours"]), run(22, 24, ["services", "moves"])], "all");
-    expect(legendKinds(bands)).toEqual(["Tours", "Services, Move-ins/outs"]);
+    const bands = bandsForTab([run(18, 20, ["tours"]), run(20, 22, ["tours"]), run(22, 24, ["services", "tasks"])], "all");
+    expect(legendKinds(bands)).toEqual(["Tours", "Services, Tasks"]);
   });
 });
 

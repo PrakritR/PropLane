@@ -63,9 +63,15 @@ function eventMatchesScheduledTourProperty(
   return ids.some((id) => samePropertyId(id, eventPropertyId));
 }
 
+/**
+ * A peer as the calendar route returns it. Availability is always shared with
+ * everyone who passes the access checks (no opt-in), so there is no sharing flag:
+ * `slots` is the peer's tour availability for the house and `kindSlots` their
+ * services and tasks availability (inspection and move-in/out hours merged into tasks).
+ */
 export type CoManagerCalendarPeerDto = PropertyCalendarPeer & {
-  sharesAvailability: boolean;
   slots: string[];
+  kindSlots?: { services: string[]; tasks: string[] };
 };
 
 function safePropertyToken(propertyId: string): string {
@@ -266,7 +272,7 @@ export function coManagerOverlaysFromPeers(
   viewerUserId: string,
 ): CoManagerAvailabilityOverlay[] {
   return peers
-    .filter((peer) => !peer.isSelf && peer.userId !== viewerUserId && peer.sharesAvailability && peer.slots.length > 0)
+    .filter((peer) => !peer.isSelf && peer.userId !== viewerUserId && peer.slots.length > 0)
     .map((peer) => ({
       userId: peer.userId,
       label: peer.label,

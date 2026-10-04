@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  legacyTaskAvailabilityStorageKeys,
   managerKindAvailabilityStorageKey,
   type ManagerKindAvailabilityKind,
 } from "@/lib/manager-availability-kinds";
@@ -30,20 +31,25 @@ function textField(row: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** A manager's painted services/tasks availability slot keys — `[]` when nothing is painted yet. */
+/**
+ * A manager's painted services/tasks availability slot keys — `[]` when nothing is painted yet.
+ * Tasks also reads the retired inspections and move-in/out records (merged on read).
+ */
 async function loadAvailabilitySlotKeys(
   db: SupabaseClient,
   managerUserId: string,
   kind: ManagerSuggestKind,
 ): Promise<string[]> {
-  const { data } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", managerKindAvailabilityStorageKey(managerUserId, kind))
-    .maybeSingle();
-  const rowData = data?.row_data;
-  const payload = asObject(rowData)?.payload;
-  return Array.isArray(payload) ? payload.filter((item): item is string => typeof item === "string") : [];
+  const ids = [managerKindAvailabilityStorageKey(managerUserId, kind)];
+  if (kind === "tasks") ids.push(...legacyTaskAvailabilityStorageKeys(managerUserId));
+  const { data } = await db.from("portal_schedule_records").select("row_data").in("id", ids);
+  const merged = new Set<string>();
+  for (const row of data ?? []) {
+    const payload = asObject(row?.row_data)?.payload;
+    if (!Array.isArray(payload)) continue;
+    for (const item of payload) if (typeof item === "string") merged.add(item);
+  }
+  return [...merged];
 }
 
 /** This manager's scheduled tasks (both start and end set) as busy windows. */

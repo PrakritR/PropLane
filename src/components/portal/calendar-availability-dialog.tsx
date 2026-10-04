@@ -46,7 +46,7 @@ const TO_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   return { value: String(slot), label: slot >= 48 ? "12 am" : formatAvailabilitySlotLabel(slot) };
 });
 
-/** Ticking the exclusive entry (Everything / All houses) clears the specific picks, and the reverse. */
+/** Ticking the exclusive entry (All houses) clears the specific picks, and the reverse. */
 function applyExclusive(prev: readonly string[], next: readonly string[], exclusive: string): string[] {
   const added = next.find((value) => !prev.includes(value));
   if (added !== undefined) return toggleExclusiveChoice(prev, added, true, exclusive);
@@ -144,7 +144,7 @@ function AvailabilityWeekPreview({
               ? `${formatAvailabilitySlotLabel(draft.startSlot)} – ${draft.endSlotExclusive >= 48 ? "12 am" : formatAvailabilitySlotLabel(draft.endSlotExclusive)}`
               : "End must be after start",
           },
-          { label: "Houses", value: houses },
+          ...(kinds.includes("tours") ? [{ label: "Tours at", value: houses }] : []),
         ]}
       />
     </div>
@@ -186,7 +186,7 @@ export function CalendarAvailabilityDialog({
     <PortalDialog
       open={open}
       onClose={onClose}
-      title={editing ? "Edit availability" : "Add availability"}
+      title="Your availability"
       dataAttr="calendar-availability-dialog"
       preview={<AvailabilityWeekPreview draft={draft} propertyLabels={propertyLabels} />}
       previewLabel="AVAILABILITY PREVIEW"
@@ -208,7 +208,11 @@ export function CalendarAvailabilityDialog({
           options={AVAILABILITY_KIND_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))}
           selected={draft.kinds}
           onChange={(next) =>
-            patch({ kinds: applyExclusive(draft.kinds, next, "everything") as AvailabilityKindChoice[] })
+            patch({
+              kinds: AVAILABILITY_KIND_CHOICES.map((choice) => choice.value).filter((value) =>
+                next.includes(value),
+              ) as AvailabilityKindChoice[],
+            })
           }
           dataAttr="calendar-availability-kinds"
         />
@@ -290,16 +294,18 @@ export function CalendarAvailabilityDialog({
             dataAttr="calendar-availability-to"
           />
         </div>
-        <CheckboxMultiSelect
-          label="Properties"
-          options={[
-            { value: ALL_HOUSES, label: "All houses" },
-            ...propertyOptions.map((p) => ({ value: p.id, label: p.label })),
-          ]}
-          selected={draft.propertyIds}
-          onChange={(next) => patch({ propertyIds: applyExclusive(draft.propertyIds, next, ALL_HOUSES) })}
-          dataAttr="calendar-availability-properties"
-        />
+        {draft.kinds.includes("tours") ? (
+          <CheckboxMultiSelect
+            label="Tours at"
+            options={[
+              { value: ALL_HOUSES, label: "All houses" },
+              ...propertyOptions.map((p) => ({ value: p.id, label: p.label })),
+            ]}
+            selected={draft.propertyIds}
+            onChange={(next) => patch({ propertyIds: applyExclusive(draft.propertyIds, next, ALL_HOUSES) })}
+            dataAttr="calendar-availability-properties"
+          />
+        ) : null}
         {problem ? (
           <p className="text-xs font-semibold text-danger" data-attr="calendar-availability-problem">
             {problem}

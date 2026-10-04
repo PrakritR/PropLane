@@ -266,13 +266,13 @@ describe("CalendarBandLegend (C2-CALA6)", () => {
     const bands = bandsForTab(
       [
         { startSlot: 18, endSlotExclusive: 20, kinds: ["tours"] },
-        { startSlot: 20, endSlotExclusive: 22, kinds: ["services", "moves"] },
+        { startSlot: 20, endSlotExclusive: 22, kinds: ["services", "tasks"] },
       ],
       "all",
     );
     render(<CalendarBandLegend bands={bands} tab="all" />);
     const legend = screen.getByText("Open for").parentElement!;
-    expect(legend.textContent).toBe("Open forToursServices, Move-ins/outs");
+    expect(legend.textContent).toBe("Open forToursServices, Tasks");
   });
 
   it("says what the plain hatch means when nothing is painted", () => {

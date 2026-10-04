@@ -1,6 +1,6 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, ClipboardList, CreditCard, FileUp } from "lucide-react";
+import { CalendarDays, ClipboardList, CreditCard, FileUp, Moon, Star } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
@@ -12,6 +12,7 @@ import { PropertyFormTemplatePreviewModal } from "@/components/portal/property-f
 import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-form-template-open-tab";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
+import { STAY_LABEL, listingOfferedStays, type StaySectionKey } from "@/lib/listing-stays";
 import { applicationFeeFactForTerms } from "@/lib/form-resolved-fee";
 import { applicationIdForStayTerm, offeredStayTypeTerms } from "@/lib/property-form-stay-type-routing";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
@@ -32,7 +33,10 @@ import {
 } from "@/lib/manager-property-save-target";
 import {
   applicationFormVariantForTemplate,
+  groupApplicationTemplatesByStay,
   readPropertyApplicationTemplates,
+  withApplicationAppliesTo,
+  withApplicationDefaultForStay,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
@@ -68,6 +72,18 @@ export function deriveFormNameFromFileName(fileName: string): string {
   const lastSeparator = Math.max(withoutExt.lastIndexOf("_"), withoutExt.lastIndexOf("-"));
   const candidate = lastSeparator >= 0 ? withoutExt.slice(lastSeparator + 1).trim() : withoutExt;
   return candidate || "Uploaded form";
+}
+
+/** A section header: a small glyph, the label and a rule line (same look as the listing step's StayHeader). */
+function StayHeader({ section }: { section: StaySectionKey }) {
+  return (
+    <div className="mb-2.5 mt-1 flex items-center gap-2 text-[13px] font-bold text-foreground/80" data-attr={`property-application-stay-header-${section}`}>
+      {section === "long_term" ? <CalendarDays className="h-4 w-4 shrink-0 text-muted" aria-hidden /> : null}
+      {section === "short_term" ? <Moon className="h-4 w-4 shrink-0 text-muted" aria-hidden /> : null}
+      <span>{STAY_LABEL[section]}</span>
+      <span aria-hidden className="h-px min-w-4 flex-1 bg-border" />
+    </div>
+  );
 }
 
 type QuestionsSaveTarget =
@@ -460,6 +476,17 @@ export function ManagerPropertyApplicationQuestionsPanel({
     onUpdated();
   };
 
+  const leases = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
+  const applicationGroups = useMemo(
+    () => groupApplicationTemplatesByStay(templates, leases, visibleTemplates),
+    [leases, templates, visibleTemplates],
+  );
+
+  const commitTemplates = async (next: PropertyApplicationTemplate[], message: string) => {
+    if (!(await persistSubmission(withPropertyApplicationTemplatesExplicit(syncedSub, next), { message }))) return;
+    onUpdated();
+  };
+
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
@@ -500,12 +527,10 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const catalogBody = (
     <>
       <>
-        {visibleTemplates.map((template) => {
-          const isDefault = Boolean(
-            formSetup.loaded &&
-              formSetup.leasingPipeline.defaultApplicationTemplateId &&
-              formSetup.leasingPipeline.defaultApplicationTemplateId === template.id,
-          );
+        {applicationGroups.map((group) => (
+          <section key={group.id} className="mb-4" data-attr={`property-application-stay-section-${group.id}`} aria-label={group.label}>
+            <StayHeader section={group.id} />
+            {group.rows.map(({ template, appliesTo, isDefault }) => {
           const sourceName =
             template.publishedQuestionConfig?.importProvenance?.sourceName ??
             template.draftQuestionConfig?.importProvenance?.sourceName ??
@@ -529,6 +554,27 @@ export function ManagerPropertyApplicationQuestionsPanel({
                   label: "Open in new tab",
                   onSelect: () => openPropertyFormTemplateInNewTab("application", template.id),
                 },
+                ...(appliesTo !== "both" && !isDefault
+                  ? [
+                      {
+                        id: "set-default",
+                        label: `Set as default for ${STAY_LABEL[appliesTo].toLowerCase()}`,
+                        onSelect: () =>
+                          void commitTemplates(
+                            withApplicationDefaultForStay(templates, template.id, appliesTo),
+                            `Default for ${STAY_LABEL[appliesTo].toLowerCase()} set.`,
+                          ),
+                      },
+                    ]
+                  : []),
+                ...(["long_term", "short_term", "both"] as const)
+                  .filter((target) => target !== appliesTo && (target === "both" || listingOfferedStays(syncedSub)[target]))
+                  .map((target) => ({
+                    id: `applies-${target}`,
+                    label: target === "both" ? "Applies to both" : `Applies to ${STAY_LABEL[target].toLowerCase()} residents`,
+                    onSelect: () =>
+                      void commitTemplates(withApplicationAppliesTo(templates, template.id, target), "Application moved."),
+                  })),
                 { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
                 { id: "promo-codes", label: "Promo codes", onSelect: () => setPromoOpen(true) },
                 {
@@ -553,7 +599,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
               facts={
                 <>
                   {isDefault ? (
-                    <PortalRowFact icon={Check} srLabel="Default">
+                    <PortalRowFact icon={Star}>
                       Default
                     </PortalRowFact>
                   ) : null}
@@ -576,6 +622,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
             />
           );
         })}
+          </section>
+        ))}
       </>
 
       <LeasingQuickAddRow
