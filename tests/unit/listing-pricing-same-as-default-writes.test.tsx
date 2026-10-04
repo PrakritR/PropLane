@@ -99,7 +99,7 @@ describe("the helpers", () => {
 });
 
 describe("a listing saved while the tick blanked a room heals on open", () => {
-  it("Review lists room count without a pricing step", () => {
+  it("Review lists room count; Pricing is a leasing step (captain, Oct 3)", () => {
     const broken = seeded([{ monthlyRent: 0, utilitiesEstimate: "", securityDeposit: undefined }, {}, {}]);
     expect(listingReadiness(broken).find((c) => c.id === "rooms")!.label).toBe("3 rooms");
 
@@ -107,6 +107,7 @@ describe("a listing saved while the tick blanked a room heals on open", () => {
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
     fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /review/i.test(b.textContent ?? ""))!);
     expect(screen.getByText("3 rooms")).toBeTruthy();
-    expect(document.querySelector("[data-attr='listing-v2-rail-pricing']")).toBeNull();
+    // Pricing came back as a leasing step after Application, Lease and Move-in.
+    expect(Array.from(nav.querySelectorAll("button")).some((b) => /^pricing/i.test((b.textContent ?? "").trim()))).toBe(true);
   });
 });

@@ -5,6 +5,10 @@
 // "Edit in full" pencil that opens the property's own editor; Review lists them too; and
 // the property record's sidebar puts Move-in under Leasing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+
+// What a property that never saved its forms shows: the default forms plus the starters.
+const UNSAVED_FORM_COUNT = readMoveInFormTemplates({}).length;
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -193,8 +197,10 @@ describe("Move-in step", () => {
     mount({ propertyId: "prop-1" });
     go("movein");
     const rows = document.querySelectorAll("[data-attr='listing-v2-movein-row']");
-    expect(rows.length).toBe(5); // the five starters a property that never saved its forms shows
-    expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sends when lease is signed/);
+    // A property that never saved its forms shows every built-in starter.
+    expect(rows.length).toBe(UNSAVED_FORM_COUNT);
+    // Each row carries its Sends setting; the lease-signed default reads "... lease is signed".
+    expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sends [^·]*lease is signed/i);
     expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sent by hand/);
     fireEvent.click(document.querySelector("[data-attr='listing-v2-movein-edit']")!);
     await waitFor(() => expect(screen.getByTestId("move-in-editor").textContent).toMatch(/^edit\|/));
@@ -228,7 +234,7 @@ describe("right-hand preview", () => {
     const summary = document.querySelector("[data-attr='listing-v2-detail-summary']")!.textContent!;
     expect(summary).toMatch(/Applications/);
     expect(summary).toMatch(/Leases/);
-    expect(summary).toMatch(/Move-in forms.*5 forms/);
+    expect(summary).toMatch(new RegExp(`Move-in forms.*${UNSAVED_FORM_COUNT} forms`));
     expect(summary).toMatch(/From \$1,100\/mo/);
     expect(screen.getAllByText("Listing preview").length).toBeGreaterThan(0);
   });
