@@ -94,7 +94,7 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
  * stronger assertion for audit F7.
  */
 function applicationRow(id: string): HTMLElement {
-  const rows = [...document.querySelectorAll<HTMLElement>('[data-slot="data-list-mobile-row"]')];
+  const rows = [...document.querySelectorAll<HTMLElement>('.portal-property-row')];
   const matches = rows.filter((el) => (el.textContent ?? "").includes(id));
   if (matches.length === 0) throw new Error(`row ${id} not rendered`);
   if (matches.length > 1) throw new Error(`row ${id} matched ${matches.length} rows — ids must be unique`);
@@ -210,8 +210,8 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
 
     const first = applicationRow("PROPLANE-AAAA0001").textContent ?? "";
     const second = applicationRow("PROPLANE-BBBB0002").textContent ?? "";
-    expect(first).toContain("Started 8/1/2026, 7:48:40 PM");
-    expect(second).toContain("Submitted 8/3/2026, 5:24:39 PM");
+    expect(first).toContain("Started Aug 1");
+    expect(second).toContain("Submitted Aug 3");
     // Same property and room — the rows still have to read differently.
     expect(first).not.toBe(second);
   });

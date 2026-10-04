@@ -5,6 +5,7 @@ import { tourFormatLabel } from "@/lib/tour-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  ManagerPortalFilterRow,
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -34,9 +35,15 @@ import {
 } from "@/lib/portal-detail-routes";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import {
+  RESIDENT_TOUR_SECTION_LABELS,
+  RESIDENT_TOUR_SECTION_ORDER,
+  countResidentToursBySection,
+  defaultResidentTourSection,
   residentTourBucketForView,
+  residentTourSectionForView,
   residentTourStatusLabel,
   sortResidentTourViews,
+  type ResidentTourSection,
 } from "@/lib/resident-tour-list";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 import { notifyResidentToursChanged } from "@/lib/resident-tour-sync-client";
@@ -386,9 +393,17 @@ export function ResidentTourPanel({
    * still exists for the detail route's own back-link/redirect bookkeeping
    * below, just not for filtering what the list shows.
    */
+  const sectionCounts = useMemo(() => countResidentToursBySection(tours), [tours]);
+  const [chosenSection, setChosenSection] = useState<ResidentTourSection | null>(null);
+  const section = chosenSection ?? defaultResidentTourSection(sectionCounts);
+  const toursForSection = useMemo(
+    () => tours.filter((tour) => residentTourSectionForView(tour) === section),
+    [tours, section],
+  );
+
   const tourGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentTourView>[] => {
     const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
-    return tours.map((tour) => {
+    return toursForSection.map((tour) => {
       const address = [
         tour.roomLabel
           ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
@@ -416,7 +431,7 @@ export function ResidentTourPanel({
         },
       };
     });
-  }, [basePath, tours, navigate]);
+  }, [basePath, toursForSection, navigate]);
 
   const renderTourAddRow = () => (
     <PortalListAddRow
@@ -453,7 +468,7 @@ export function ResidentTourPanel({
             Try again
           </Button>
         </div>
-      ) : tours.length === 0 ? (
+      ) : toursForSection.length === 0 ? (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
         </div>
@@ -550,9 +565,30 @@ export function ResidentTourPanel({
           else void loadTours();
         }}
       />
-      <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
-        {/* C120: one list — no Pending/Confirmed/Declined tabs. Each row reads its
-            own status as text (residentTourStatusLabel) instead of picking a tab. */}
+      <ManagerPortalPageShell
+        title="Tour"
+        hideTitleOnMobileNav
+        compactFilterRow
+        filterRow={
+          loading || loadFailed ? undefined : (
+            <ManagerPortalFilterRow>
+              <LocalDestinationNav
+                appearance="command"
+                items={RESIDENT_TOUR_SECTION_ORDER.map((id) => ({
+                  id,
+                  label: RESIDENT_TOUR_SECTION_LABELS[id],
+                  count: sectionCounts[id],
+                  dataAttr: `resident-tour-section-${id}`,
+                }))}
+                activeId={section}
+                onChange={(id) => setChosenSection(id as ResidentTourSection)}
+                ariaLabel="Tour status"
+              />
+            </ManagerPortalFilterRow>
+          )
+        }
+      >
+        {/* Scheduled | Approved | Past tabs with counts; each row still reads its own status as text. */}
         {renderTourList()}
       </ManagerPortalPageShell>
     </>

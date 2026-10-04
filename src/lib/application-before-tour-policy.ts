@@ -42,3 +42,33 @@ export function applicationBeforeTourRequired(
 ): boolean {
   return workspace === "required";
 }
+
+/**
+ * What the resident's own application for THIS home says, as far as a tour is concerned.
+ * `submitted` = sent and awaiting the manager; a draft, a withdrawn application and the
+ * booking-residency plumbing row are `none`.
+ */
+export type TourApplicationStatus = "none" | "submitted" | "approved" | "denied";
+
+/** Why a tour request is refused; null = it may proceed. */
+export type TourBlockReason = "apply_first" | "pending_approval" | "denied";
+
+export const TOUR_BLOCK_MESSAGES: Record<TourBlockReason, string> = {
+  apply_first: "This home asks for an approved application before a tour. Apply first, then book your tour once it is approved.",
+  pending_approval: "Your application for this home is still being reviewed. You can book a tour once it is approved.",
+  denied: "Your application for this home was denied, so a tour cannot be booked here.",
+};
+
+/**
+ * The one gate matrix (captain, Oct 3 2026), shared by the server refusal, the check route and the
+ * pages:
+ *   - a DENIED application never schedules a tour for that home, whatever the setting;
+ *   - setting off -> scheduling is open (any other status);
+ *   - setting on  -> only an APPROVED application schedules (none / submitted do not).
+ */
+export function tourBlockReason(required: boolean, status: TourApplicationStatus): TourBlockReason | null {
+  if (status === "denied") return "denied";
+  if (!required) return null;
+  if (status === "approved") return null;
+  return status === "submitted" ? "pending_approval" : "apply_first";
+}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// C122: `ResidentApplicationsPanel` used to render three separate
+// C122 (superseded for the list by C1-R1's Sent | Approved | Denied sections): `ResidentApplicationsPanel` used to render three separate
 // Pending/Approved/Rejected tabs, each filtering the list to its own bucket.
 // This asserts the list view is now ONE list covering every bucket at once
 // (no `resident-applications-bucket-*` tab destinations left in the DOM), with
@@ -95,27 +95,60 @@ function rowFor(id: string, bucket: DemoApplicantRow["bucket"], name: string): D
   };
 }
 
-describe("ResidentApplicationsPanel — one merged list (C122)", () => {
-  it("shows pending, approved, and rejected applications together with no bucket tabs", async () => {
-    ROWS = [
-      rowFor("PROPLANE-PEND1", "pending", "Alder Row"),
-      rowFor("PROPLANE-APPR1", "approved", "Maple Duplex"),
-      rowFor("PROPLANE-REJ1", "rejected", "Birch Studio"),
-    ];
+describe("ResidentApplicationsPanel — Sent | Approved | Denied sections (C1-R1)", () => {
+  const rows = () => [
+    rowFor("PROPLANE-PEND1", "pending", "Alder Row"),
+    rowFor("PROPLANE-APPR1", "approved", "Maple Duplex"),
+    rowFor("PROPLANE-REJ1", "rejected", "Birch Studio"),
+  ];
 
+  it("opens on Sent, with counts on all three tabs and the other sections' rows hidden", async () => {
+    ROWS = rows();
     await act(async () => {
       render(<ResidentApplicationsPanel />);
     });
-
+    const tab = (id: string) => document.querySelector(`[data-attr="resident-applications-section-${id}"]`) as HTMLElement;
+    expect(tab("sent").textContent).toContain("Sent");
+    expect(tab("sent").textContent).toContain("1");
+    expect(tab("approved").textContent).toContain("Approved");
+    expect(tab("denied").textContent).toContain("Denied");
+    // The old Long term | Short term tabs are gone.
+    expect(screen.queryByText("Long-term", { selector: "button *, button" })).toBeNull();
     expect(screen.getAllByText(/Alder Row/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Maple Duplex/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Birch Studio/).length).toBeGreaterThan(0);
-    // No tab-bar destinations left to pick a bucket from.
-    expect(document.querySelector('[data-attr="resident-applications-bucket-pending"]')).toBeNull();
-    expect(document.querySelector('[data-attr="resident-applications-bucket-approved"]')).toBeNull();
-    expect(document.querySelector('[data-attr="resident-applications-bucket-rejected"]')).toBeNull();
+    expect(screen.queryAllByText(/Maple Duplex/).length).toBe(0);
+    expect(screen.queryAllByText(/Birch Studio/).length).toBe(0);
   });
 
+  it("switching tabs shows that section's applications, status as plain text", async () => {
+    ROWS = rows();
+    await act(async () => {
+      render(<ResidentApplicationsPanel />);
+    });
+    await act(async () => {
+      (document.querySelector('[data-attr="resident-applications-section-approved"]') as HTMLElement).click();
+    });
+    expect(screen.getAllByText(/Maple Duplex/).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/Alder Row/).length).toBe(0);
+    await act(async () => {
+      (document.querySelector('[data-attr="resident-applications-section-denied"]') as HTMLElement).click();
+    });
+    expect(screen.getAllByText(/Birch Studio/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Denied", { selector: "span.font-semibold" })).toBeTruthy();
+  });
+
+  it("a draft is listed under Sent as Incomplete", async () => {
+    ROWS = [
+      { ...rowFor("PROPLANE-DRAFT1", "pending", "Alder Row"), stage: "In progress", detail: "Started" },
+      rowFor("PROPLANE-APPR1", "approved", "Maple Duplex"),
+    ];
+    await act(async () => {
+      render(<ResidentApplicationsPanel />);
+    });
+    expect(screen.getByText("Incomplete")).toBeTruthy();
+  });
+});
+
+describe("ResidentApplicationsPanel — record page (C122)", () => {
   it("surfaces the application fee as a fact on the record page's Overview", async () => {
     mocks.feeCharge = { amountLabel: "$50.00", status: "paid" };
     ROWS = [rowFor("PROPLANE-FEE1", "pending", "Alder Row")];

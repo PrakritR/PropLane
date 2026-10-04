@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 /**
  * "Application before a tour": may the CALLER request a tour of this property yet? Answers only
- * `{ required, hasApplication }` for the caller's own session; the property owner, the setting and
+ * `{ required, applicationStatus, allowed, reason }` for the caller's own session; the property owner, the setting and
  * the application are all read on the server (the query string names a property and nothing else).
  * The booking route enforces the same rule on its own — this only lets the page say so first.
  */
@@ -34,7 +34,10 @@ export async function GET(req: Request) {
     const decision = await resolveApplicationBeforeTour(createSupabaseServiceRoleClient(), { propertyId, verifiedEmail });
     return NextResponse.json({
       required: decision.required,
-      hasApplication: decision.required ? decision.hasApplication : false,
+      hasApplication: decision.hasApplication,
+      applicationStatus: decision.applicationStatus,
+      allowed: decision.blocked === null,
+      reason: decision.blocked,
       signedIn: verifiedEmail !== null,
     });
   } catch (e) {
