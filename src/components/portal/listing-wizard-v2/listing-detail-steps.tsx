@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
+import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
@@ -389,6 +390,8 @@ function useApplicationBeforeTour(showToast: (message: string) => void) {
     })
       .then((res) => {
         if (!res.ok) throw new Error("save failed");
+        // Other readers share a 30 s cache of the settings; drop it so they see this save.
+        invalidateSharedGets("/api/portal/manager-application-settings");
       })
       .catch(() => {
         setValue(previous);
