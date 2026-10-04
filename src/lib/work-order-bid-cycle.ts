@@ -229,3 +229,60 @@ export function vendorReplyChoices(bid: WorkOrderBid | undefined): Array<{ value
   else values = ["give_estimate", "book_estimate_visit", "submit_bid", "cant_do_it"];
   return values.map((value) => ({ value, label: labels[value] }));
 }
+
+/** The Services list's three tabs, from the same stage the service record's stage bar shows. */
+export type ServiceListBucket = "open" | "scheduled" | "done";
+
+/**
+ * Open = Pending + Bids requested; Scheduled = Bid approved + Scheduled (an assigned service that
+ * has a booked visit); Done = Completed + Paid. Derived from `deriveServiceStages`, so the tab, its
+ * count and the record's stage bar can never disagree.
+ */
+export function serviceListBucket(
+  row: DemoManagerWorkOrderRow,
+  data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
+): ServiceListBucket {
+  const { currentId } = deriveServiceStages(row, data);
+  if (currentId === "completed" || currentId === "paid") return "done";
+  if (currentId === "approved" || currentId === "scheduled") return "scheduled";
+  return "open";
+}
+
+function shortVisit(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function shortDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * The one stage fact a Services row carries (plain text with a glyph, never a pill):
+ * "3 bids" · "Visit Mon 4:00 PM" · "Scheduled Oct 8" · "Completed" · "Paid".
+ */
+export function serviceListStageFact(
+  row: DemoManagerWorkOrderRow,
+  data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
+): string {
+  const { currentId } = deriveServiceStages(row, data);
+  if (currentId === "paid") return "Paid";
+  if (currentId === "completed") return "Completed";
+  if (currentId === "scheduled" || currentId === "approved") {
+    const when = row.scheduledAtIso ? shortDay(row.scheduledAtIso) : "";
+    return when ? `Scheduled ${when}` : currentId === "approved" ? "Bid approved" : "Scheduled";
+  }
+  const requests = deriveVendorRequestRows(data.bids, data.offers).filter((r) => r.state !== "declined");
+  const submitted = requests.filter((r) => r.state === "bid").length;
+  if (submitted > 0) return `${submitted} ${submitted === 1 ? "bid" : "bids"}`;
+  const visit = requests
+    .filter((r) => r.state === "visit_booked" && r.visitAt)
+    .map((r) => r.visitAt as string)
+    .sort()[0];
+  if (visit) return `Visit ${shortVisit(visit)}`;
+  if (requests.length > 0) return `Bids requested · ${requests.length}`;
+  return "Pending";
+}

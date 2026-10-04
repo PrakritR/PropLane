@@ -81,7 +81,7 @@ import {
   type ManagerTourBucketId,
   type PropertyDetailTabId,
 } from "@/lib/portal-detail-routes";
-import { PropertyServicesOffersPanel } from "@/components/portal/property-services-offers-panel";
+import { PropertyServicesTab } from "@/components/portal/property-services-tab";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -1462,7 +1462,9 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {activeDetailTab === "requests" && bucket === 2 && stablePropertyId && houseSaveTarget && managerUserId ? (
-        <PropertyServicesOffersPanel
+        <PropertyServicesTab
+          propertyId={stablePropertyId}
+          basePath={propertiesBase}
           sub={managerSubmission}
           saveTarget={houseSaveTarget}
           managerUserId={managerUserId}

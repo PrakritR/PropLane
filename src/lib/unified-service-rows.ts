@@ -121,6 +121,8 @@ type MaintenanceInput = {
   scheduledAtIso?: string | null;
   createdAtIso?: string | null;
   proposedVisit?: ProposedVisitInput;
+  /** The caller's own state for this row (derived from the bid cycle); wins over the bucket mapping. */
+  state?: ServiceRowState;
 };
 
 /**
@@ -168,7 +170,7 @@ export function buildUnifiedServiceRows(input: {
       kind: "maintenance",
       title: wo.title?.trim() || "Maintenance",
       statusLabel: wo.status?.trim() || titleCase(wo.bucket) || "Open",
-      state: maintenanceState(wo.bucket),
+      state: wo.state ?? maintenanceState(wo.bucket),
       residentName: wo.residentName?.trim() ?? "",
       residentEmail: wo.residentEmail?.trim() ?? "",
       propertyId: wo.propertyId?.trim() ?? "",

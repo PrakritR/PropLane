@@ -14,7 +14,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Building2, CalendarDays, Wrench, type LucideIcon } from "lucide-react";
+import { Building2, CalendarDays, Layers, Wrench, type LucideIcon } from "lucide-react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { managerServiceCardParts, managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
@@ -26,6 +26,7 @@ export function ManagerServiceCardRow({
   omitProperty = false,
   figure,
   menu,
+  stageFact,
   checked = false,
   onSelectedChange,
   onOpen,
@@ -42,6 +43,8 @@ export function ManagerServiceCardRow({
   figure?: string;
   /** The row's own ⋯ menu. */
   menu?: ReactNode;
+  /** Where the service stands in the bid cycle ("3 bids", "Visit Mon 4:00 PM", "Scheduled Oct 8"), as a plain glyph fact. */
+  stageFact?: string;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
@@ -49,6 +52,9 @@ export function ManagerServiceCardRow({
   rowId?: string;
 }) {
   const parts = managerServiceCardParts(row, { omitProperty });
+  // "Scheduled Oct 8" already says what the dated fact would; never show the same thing twice.
+  const stageWord = stageFact?.split(/\s+/)[0]?.toLowerCase() ?? "";
+  const showDate = Boolean(parts.dateFact) && !(stageWord && parts.dateFact!.text.toLowerCase().startsWith(stageWord));
   return (
     // The list draws its own ⋯ (service menu), so the shared row-actions
     // context must not add a second one beside it.
@@ -58,10 +64,11 @@ export function ManagerServiceCardRow({
         tileIcon={parts.hasPerson ? undefined : Building2}
         address={parts.placeLine || undefined}
         facts={
-          parts.dateFact ? (
-            <PortalRowFact icon={CalendarDays}>
-              {parts.dateFact.text}
-            </PortalRowFact>
+          stageFact || showDate ? (
+            <>
+              {stageFact ? <PortalRowFact icon={Layers}>{stageFact}</PortalRowFact> : null}
+              {showDate ? <PortalRowFact icon={CalendarDays}>{parts.dateFact!.text}</PortalRowFact> : null}
+            </>
           ) : undefined
         }
         amount={figure}

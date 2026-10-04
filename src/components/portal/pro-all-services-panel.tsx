@@ -20,12 +20,16 @@ import {
   type ServiceRowState,
 } from "@/lib/unified-service-rows";
 
-/** The four states the merged list filters by, in the order a manager works through them. */
-const SERVICE_STATE_TABS: { id: ServiceRowState | "vendors"; label: string }[] = [
+/**
+ * The three tabs the merged list filters by, in the order a manager works through them. There is no
+ * Vendors tab: who is doing a service is a fact on the service, and a vendor's own work lives on the
+ * vendor record. Open = Pending + Bids requested, Scheduled = Bid approved + Scheduled, Done =
+ * Completed + Paid (`serviceListBucket`).
+ */
+export const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
   { id: "open", label: "Open" },
   { id: "scheduled", label: "Scheduled" },
   { id: "done", label: "Done" },
-  { id: "vendors", label: "Vendors" },
 ];
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListResidentField } from "@/components/portal/portal-list-group-filter-fields";
@@ -111,11 +115,12 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
+import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import {
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { ManagerServicesVendorsTab } from "@/components/portal/manager-services-vendors-tab";
+import { serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
 
 type FilterType = "requests" | "work-orders";
 
@@ -167,6 +172,8 @@ export function ManagerAllServicesPanel({
   serviceRequestId: serviceRequestIdProp,
   workOrderId: workOrderIdProp,
   serviceDetailTab,
+  lockedPropertyId,
+  headerExtra,
 }: {
   tabId: FilterType;
   basePath: string;
@@ -176,6 +183,13 @@ export function ManagerAllServicesPanel({
   workOrderId?: string;
   /** The service record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
   serviceDetailTab?: ServiceDetailTabId;
+  /**
+   * Embed the SAME list inside a property record: scoped to that property, no page shell, and no
+   * property filter (the property is the record). One implementation, two places.
+   */
+  lockedPropertyId?: string;
+  /** Extra header icon(s) beside Filter - the property record puts its service settings here. */
+  headerExtra?: ReactNode;
 }) {
   const tabId = useShallowTabId<FilterType>(serverTabId, SERVICES_TAB_IDS);
   const router = useRouter();
@@ -187,7 +201,7 @@ export function ManagerAllServicesPanel({
   const [applicationTick, setApplicationTick] = useState(0);
   /** Approve / Deny / Edit / Delete, published by the detail and docked below it. */
   const [detailFooterActions, setDetailFooterActions] = useState<ReactNode | null>(null);
-  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>(() => (lockedPropertyId ? [lockedPropertyId] : []));
   /** Resident emails (lower-cased); one at a time, like the property scope. */
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState("");
@@ -205,7 +219,7 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
-  const [serviceState, setServiceState] = useState<ServiceRowState | "vendors">("open");
+  const [serviceState, setServiceState] = useState<ServiceRowState>("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
   const [bulkDeleteRequest, setBulkDeleteRequest] = useState<ServiceRequest | null>(null);
@@ -282,6 +296,17 @@ export function ManagerAllServicesPanel({
       cancelled = true;
     };
   }, [authReady, userId, dataTick]);
+  const [allOffers, setAllOffers] = useState<WorkOrderVendorOffer[]>([]);
+  useEffect(() => {
+    if (!authReady || !userId) return;
+    let cancelled = false;
+    void fetchWorkOrderVendorOffers().then((offers) => {
+      if (!cancelled) setAllOffers(offers);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, userId, dataTick]);
   const bidCountByWorkOrderId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const bid of allBids) counts.set(bid.workOrderId, (counts.get(bid.workOrderId) ?? 0) + 1);
@@ -317,7 +342,7 @@ export function ManagerAllServicesPanel({
 
   const filteredWorkOrders = useMemo(() => {
     let rows = workOrders;
-    if (propertyFilters.length > 0) rows = rows.filter((r) => propertyFilters.some((id) => r.propertyId === id || r.assignedPropertyId === id));
+    if (propertyFilters.length > 0) rows = rows.filter((r) => propertyFilters.some((id) => samePropertyId(r.propertyId, id) || samePropertyId(r.assignedPropertyId, id)));
     if (residentFilters.length > 0) {
       rows = rows.filter((r) => residentFilters.includes((r.residentEmail ?? "").trim().toLowerCase()));
     }
@@ -419,12 +444,12 @@ export function ManagerAllServicesPanel({
   }, [workOrders]);
 
   const resetServicesFilters = () => {
-    setPropertyFilters([]);
+    setPropertyFilters(lockedPropertyId ? [lockedPropertyId] : []);
     setResidentFilters([]);
     setAssigneeFilter("");
   };
 
-  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : []]);
+  const servicesFilterActiveCount = portalFilterActiveCount([lockedPropertyId ? [] : propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : []]);
   const residentFilterLabel =
     residentFilters.length === 0
       ? ""
@@ -443,13 +468,15 @@ export function ManagerAllServicesPanel({
         dataAttr="services-filter-sheet-open"
       >
         <FilterFieldsAccordion>
-          <ApplicationFilterSortFields
-            propertyOptions={filterPropertyOptions}
-            propertyFilters={propertyFilters}
-            onPropertyFiltersChange={setPropertyFilters}
-            dataAttr="services-filter-property"
-            selectionMode="single"
-          />
+          {lockedPropertyId ? null : (
+            <ApplicationFilterSortFields
+              propertyOptions={filterPropertyOptions}
+              propertyFilters={propertyFilters}
+              onPropertyFiltersChange={setPropertyFilters}
+              dataAttr="services-filter-property"
+              selectionMode="single"
+            />
+          )}
           <PortalListResidentField
             residentOptions={filterResidentOptions}
             residentFilters={residentFilters}
@@ -467,7 +494,7 @@ export function ManagerAllServicesPanel({
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
-    if (propertyFilters.length > 0) {
+    if (propertyFilters.length > 0 && !lockedPropertyId) {
       chips.push({
         id: "property",
         label: `Property: ${propertyFilterLabel}`,
@@ -489,7 +516,7 @@ export function ManagerAllServicesPanel({
       });
     }
     return chips;
-  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions]);
+  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions, lockedPropertyId]);
 
   const renderRequestDetail = (req: ServiceRequest, opts?: { actionsOnly?: boolean }) => {
     return (
@@ -521,23 +548,21 @@ export function ManagerAllServicesPanel({
     () =>
       buildUnifiedServiceRows({
         addOns: filteredRequests,
-        maintenance: filteredWorkOrders,
+        // The tab a service sits in comes from the same stage the record's stage bar shows.
+        maintenance: filteredWorkOrders.map((workOrder) => ({
+          ...workOrder,
+          state: serviceListBucket(workOrder, {
+            bids: allBids.filter((bid) => bid.workOrderId === workOrder.id),
+            offers: allOffers.filter((offer) => offer.workOrderId === workOrder.id),
+          }),
+        })),
         propertyLabelForRequest: (propertyId) =>
           propertyOptions.find((option) => option.id === propertyId)?.label,
       }),
-    [filteredRequests, filteredWorkOrders, propertyOptions],
+    [filteredRequests, filteredWorkOrders, propertyOptions, allBids, allOffers],
   );
   const unifiedCounts = useMemo(() => countServiceRowsByState(unifiedRows), [unifiedRows]);
-  const vendorTabCount = useMemo(() => {
-    const ids = new Set<string>();
-    for (const row of filteredWorkOrders) {
-      if (row.vendorId) ids.add(row.vendorId);
-    }
-    return ids.size;
-  }, [filteredWorkOrders]);
-
   const tabUnifiedRows = useMemo(() => {
-    if (serviceState === "vendors") return [];
     let rows = unifiedRows;
     if (serviceState === "done") {
       rows = rows.filter((row) => row.state === "done" || row.state === "declined");
@@ -852,6 +877,14 @@ export function ManagerAllServicesPanel({
         row={row}
         omitProperty={omitPropertyInSubtitle}
         figure={costFigure}
+        stageFact={
+          maintenanceRow
+            ? serviceListStageFact(maintenanceRow, {
+                bids: allBids.filter((bid) => bid.workOrderId === maintenanceRow.id),
+                offers: allOffers.filter((offer) => offer.workOrderId === maintenanceRow.id),
+              })
+            : undefined
+        }
         menu={
           menuItems.length > 0 ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
@@ -1033,7 +1066,7 @@ export function ManagerAllServicesPanel({
           tone: "muted",
           clear: { label: "Clear search", onClick: () => setSearchQuery(""), dataAttr: "services-empty-clear-search" },
         }
-      : propertyFilters.length > 0
+      : propertyFilters.length > 0 && !lockedPropertyId
         ? {
             title: portalEmptyNoMatchTitle("services"),
             section: "services",
@@ -1041,43 +1074,29 @@ export function ManagerAllServicesPanel({
             clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "services-empty-clear-filters" },
           }
         : {
-            title:
-              serviceState === "vendors"
-                ? "No vendors on services yet"
-                : portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
-            section: serviceState === "vendors" ? "vendors" : "services",
+            title: portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
+            section: "services",
           };
 
-  const servicesListIsEmpty =
-    serviceState === "vendors" ? vendorTabCount === 0 : tabUnifiedRows.length === 0 || servicesSearchExcludesAll;
+  const servicesListIsEmpty = tabUnifiedRows.length === 0 || servicesSearchExcludesAll;
 
   const servicesListDestinations = (
     <LocalDestinationNav
       items={SERVICE_STATE_TABS.map((tab) => ({
         id: tab.id,
         label: tab.label,
-        count:
-          tab.id === "vendors"
-            ? vendorTabCount
-            : tab.id === "done"
-              ? unifiedCounts.done + unifiedCounts.declined
-              : unifiedCounts[tab.id as ServiceRowState],
+        count: tab.id === "done" ? unifiedCounts.done + unifiedCounts.declined : unifiedCounts[tab.id],
         dataAttr: `manager-services-state-${tab.id}`,
       }))}
       activeId={serviceState}
-      onChange={(id) => setServiceState(id as ServiceRowState | "vendors")}
+      onChange={(id) => setServiceState(id as ServiceRowState)}
       ariaLabel="Service status"
       appearance="command"
     />
   );
 
-  return (
-    <ManagerPortalPageShell
-      title="Services"
-      hideTitleOnMobileNav
-      titleInlineFilter={null}
-      compactFilterRow
-    >
+  const servicesBody = (
+    <>
       <div className="svc30 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-svc-page={serviceState}>
       <PortalListControlStack
         className="plp-header-card !border-0 !shadow-none !rounded-none bg-transparent"
@@ -1088,11 +1107,11 @@ export function ManagerAllServicesPanel({
         search={{
           value: searchQuery,
           onChange: setSearchQuery,
-          placeholder: serviceState === "vendors" ? "Search vendors" : "Search services",
+          placeholder: "Search services",
           dataAttr: "services-list-search",
-          ariaLabel: serviceState === "vendors" ? "Search vendors" : "Search services",
+          ariaLabel: "Search services",
         }}
-        actions={servicesFilterSheet}
+        actions={<>{servicesFilterSheet}{headerExtra}</>}
         primary={
           <PortalPrimaryIconAction
             label="Add service"
@@ -1108,15 +1127,7 @@ export function ManagerAllServicesPanel({
         </>
       ) : null}>
           <div data-attr="services-flat-list">
-            {serviceState === "vendors" ? (
-              <ManagerServicesVendorsTab
-                workOrders={filteredWorkOrders}
-                basePath={basePath}
-                onOpenVendor={(vendorId) => navigate(vendorDetailHref(basePath, vendorId))}
-              />
-            ) : (
-              visibleUnifiedRows.map((row) => renderServiceRow(row, false))
-            )}
+            {visibleUnifiedRows.map((row) => renderServiceRow(row, Boolean(lockedPropertyId)))}
           </div>
       </PortalRecordListSurface>
       </div>
@@ -1190,6 +1201,13 @@ export function ManagerAllServicesPanel({
         onConfirm={confirmBulkDeleteRequest}
         dataAttr="services-bulk-delete-request-confirm"
       />
+    </>
+  );
+
+  if (lockedPropertyId) return servicesBody;
+  return (
+    <ManagerPortalPageShell title="Services" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
+      {servicesBody}
     </ManagerPortalPageShell>
   );
 }

@@ -11,6 +11,8 @@ import { ManagerVendorDetail } from "@/components/portal/pro-vendor-detail";
 import { PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { seedDemoWorkOrderBids } from "@/lib/work-order-bids-storage";
+import type { WorkOrderBid } from "@/lib/work-order-bids";
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
@@ -27,6 +29,17 @@ vi.mock("@/components/portal/record-communication-section", () => ({
   RecordCommunicationSection: (props: { recordRef: { kind: string; id: string }; contactIds?: string[]; fill?: boolean }) => (
     <div data-attr="mock-record-communication" data-fill={String(Boolean(props.fill))} data-kind={props.recordRef.kind} data-id={props.recordRef.id} data-contact={(props.contactIds ?? []).join(",")} />
   ),
+}));
+
+const serviceFixtures = vi.hoisted(() => ({
+  workOrders: [] as Array<Record<string, unknown>>,
+  bids: [] as Array<Record<string, unknown>>,
+  offers: [] as Array<Record<string, unknown>>,
+}));
+vi.mock("@/lib/manager-work-orders-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  readManagerWorkOrderRows: () => serviceFixtures.workOrders,
+  syncManagerWorkOrdersFromServer: async () => serviceFixtures.workOrders,
 }));
 
 const summaryState = vi.hoisted(() => ({
@@ -59,6 +72,10 @@ beforeEach(() => {
   fetched.length = 0;
   outgoing = { invoices: [], payouts: [] };
   reviews = [];
+  serviceFixtures.workOrders = [];
+  serviceFixtures.bids = [];
+  serviceFixtures.offers = [];
+  seedDemoWorkOrderBids([]);
   summaryState.value = { jobs: [], totalJobCount: 0, ratingCount: 0, ratingAverage: null, completedJobCount: 0, completedInvoiceTotalCents: null, completedInvoiceAverageCents: null };
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     fetched.push(String(url));
@@ -67,7 +84,11 @@ beforeEach(() => {
       ? { ...outgoing, totals: { owedCents: 0, paidThisYearCents: 0 } }
       : u.startsWith("/api/portal/vendor-reviews")
         ? { reviews, aggregate: { average: null, count: reviews.length } }
-        : {};
+        : u.startsWith("/api/portal/work-order-bids")
+          ? { bids: serviceFixtures.bids }
+          : u.startsWith("/api/portal/work-order-vendor-offers")
+            ? { offers: serviceFixtures.offers }
+            : {};
     return { ok: true, status: 200, json: async () => body } as Response;
   }));
 });
@@ -135,23 +156,56 @@ describe("Reviews tab", () => {
 });
 
 describe("Services tab", () => {
-  it("shows Open / Done with counts and the standard empty card when empty", async () => {
+  const wo = (over: Record<string, unknown>) => ({
+    id: "wo-x", propertyName: "Alder House", unit: "2B", title: "Burst pipe", priority: "Medium", status: "Open", bucket: "open",
+    description: "", scheduled: "—", cost: "—", ...over,
+  });
+  const bidRow = (over: Record<string, unknown>) => ({
+    id: "bid-x", workOrderId: "wo-x", vendorUserId: "login-1", vendorDirectoryId: "v-1", quoteMode: "upfront", consultationVisitAt: null,
+    amountCents: null, materialsCents: 0, proposedTime: null, note: null, status: "submitted",
+    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", ...over,
+  });
+
+  it("shows Requested / Active / Done with counts and the standard empty card when empty", async () => {
     renderDetail("services");
     await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
-    expect(tabCount("Open")).toMatch(/Open\s*0/);
+    expect(tabCount("Requested")).toMatch(/Requested\s*0/);
+    expect(tabCount("Active")).toMatch(/Active\s*0/);
     expect(tabCount("Done")).toMatch(/Done\s*0/);
-    expect(screen.getByText("No open services with Pacific Plumbing")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
+    expect(screen.getByText("No requested services with Pacific Plumbing")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Add service" }).length).toBeGreaterThan(0);
   });
 
-  it("renders each service through the shared Services card row", async () => {
-    summaryState.value = { ...summaryState.value, jobs: [
-      { id: "wo-1", title: "Burst pipe", propertyName: "Alder House", unit: "2B", status: "open", acceptedQuoteCents: null, finalInvoiceCents: 12500, paidCents: null, residentRating: null },
-    ] };
-    renderDetail("services");
-    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-service-row"]').length).toBe(1));
-    expect(screen.getAllByText("$125.00").length).toBeGreaterThan(0);
-    expect(read("src/components/portal/pro-vendor-detail.tsx")).toContain("ManagerServiceCardRow");
+  it("buckets this vendor's services by the bid cycle and draws each through the shared Services row with their own figure", async () => {
+    serviceFixtures.workOrders = [
+      wo({ id: "wo-req", title: "Burst pipe" }),
+      wo({ id: "wo-est", title: "Slow drain" }),
+      wo({ id: "wo-bid", title: "Water heater" }),
+      wo({ id: "wo-act", title: "Re-pipe", bucket: "scheduled", status: "Scheduled", vendorId: "v-1", vendorName: "Pacific Plumbing", scheduledAtIso: "2026-10-08T16:00:00.000Z", vendorCostCents: 30000 }),
+      wo({ id: "wo-done", title: "Faucet", bucket: "completed", status: "Completed", vendorId: "v-1", vendorName: "Pacific Plumbing", automationStatus: "paid", vendorCostCents: 12500 }),
+      wo({ id: "wo-lost", title: "Lost to another vendor", vendorId: "v-9", vendorName: "Other" }),
+    ];
+    serviceFixtures.offers = [{ id: "o1", workOrderId: "wo-req", vendorDirectoryId: "v-1", vendorUserId: null, status: "sent", createdAt: "2026-10-01T00:00:00.000Z" }];
+    // Bids are read from the local demo store when the test pathname is "/", the same as the offers route.
+    seedDemoWorkOrderBids([
+      bidRow({ id: "b-est", workOrderId: "wo-est", estimateCents: 18000 }),
+      bidRow({ id: "b-bid", workOrderId: "wo-bid", amountCents: 20000, materialsCents: 2500, bidSubmittedAt: "2026-10-02T00:00:00.000Z", proposedTime: "2026-10-08T16:00:00.000Z" }),
+      bidRow({ id: "b-lost", workOrderId: "wo-lost", amountCents: 9000, bidSubmittedAt: "2026-10-02T00:00:00.000Z" }),
+    ] as unknown as WorkOrderBid[]);
+    renderDetail("services", vendor({ vendorUserId: "login-1" }));
+    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-service-row"]').length).toBe(3));
+    expect(tabCount("Requested")).toMatch(/Requested\s*3/);
+    expect(tabCount("Active")).toMatch(/Active\s*1/);
+    expect(tabCount("Done")).toMatch(/Done\s*1/);
+    // This vendor's own number: bid total over estimate; no row for the service someone else won.
+    expect(screen.getAllByText("$225").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$180").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Lost to another vendor")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: /^Active/ })[0]!);
+    await waitFor(() => expect(screen.getByText("Re-pipe")).toBeTruthy());
+    expect(screen.getAllByText("$300").length).toBeGreaterThan(0);
+    expect(read("src/components/portal/vendor-record-services-tab.tsx")).not.toMatch(/<Badge\b/);
   });
 });
 

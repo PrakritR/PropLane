@@ -20,7 +20,7 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { VendorRecordServicesTab } from "@/components/portal/vendor-record-services-tab";
 import { portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -504,8 +504,6 @@ export function ManagerVendorDetail({
 }) {
   const tab = tabProp ?? "overview";
   const [requestService, setRequestService] = useState(false);
-  const [serviceTab, setServiceTab] = useState("open");
-  const [serviceSearch, setServiceSearch] = useState("");
   const [reviewJob, setReviewJob] = useState<VendorReviewDialogRow | null>(null);
   const [reviewAdd, setReviewAdd] = useState(false);
   const [reviewRevision, setReviewRevision] = useState(0);
@@ -838,49 +836,16 @@ export function ManagerVendorDetail({
         />
       ) : null}
 
-      {tab === "jobs" || tab === "services" ? (() => {
-        const shownJobs = jobs.filter((job) =>
-          (serviceTab === "done" ? job.status === "completed" || job.status === "paid" : job.status !== "completed" && job.status !== "paid") &&
-          matchesPortalListSearch(serviceSearch, job.title, job.propertyName, job.unit));
-        return (
-          <div data-attr="vendor-services-list">
-            <PortalListControlStack variant="command" stickyDestinations={false}
-              destinationRow={
-                <LocalDestinationNav
-                  appearance="command"
-                  items={[
-                    { id: "open", label: "Open", count: openJobs.length, dataAttr: "vendor-services-tab-open" },
-                    { id: "done", label: "Done", count: jobs.length - openJobs.length, dataAttr: "vendor-services-tab-done" },
-                  ]}
-                  activeId={serviceTab}
-                  onChange={setServiceTab}
-                  ariaLabel="Service status"
-                />
-              }
-              search={{ value: serviceSearch, onChange: setServiceSearch, placeholder: "Search services" }} primary={<PortalPrimaryIconAction label="Add service" icon={Plus} onClick={() => setRequestService(true)} />} />
-            <PortalRecordListSurface
-              loading={summaryState === "loading"}
-              loadError={summaryState === "error" ? "Could not load services." : undefined}
-              onRetry={() => void refreshSummary(true)}
-              isEmpty={shownJobs.length === 0}
-              emptyCard={serviceSearch.trim()
-                ? { title: portalEmptyNoMatchTitle("services", serviceSearch), section: "services", tone: "muted", clear: { label: "Clear search", onClick: () => setServiceSearch("") } }
-                : { title: serviceTab === "done" ? `No finished services with ${row.name} yet` : `No open services with ${row.name}`, section: "services", actions: serviceTab === "open" ? [{ label: "Add service", onClick: () => setRequestService(true), dataAttr: "vendor-services-empty-add" }] : [] }}
-            >
-              {shownJobs.map((job) => (
-                <ManagerServiceCardRow
-                  key={job.id}
-                  row={{ title: job.title, residentName: "", residentEmail: "", propertyLabel: job.propertyName === "—" ? "" : job.propertyName, unitLabel: job.unit ?? "", scheduledIso: "", createdIso: "" }}
-                  figure={job.finalInvoiceCents != null ? jobMoney(job.finalInvoiceCents) : undefined}
-                  onOpen={() => onNavigate(managerVendorSummaryJobHref(basePath, job))}
-                  dataAttr="vendor-service-row"
-                  rowId={job.id}
-                />
-              ))}
-            </PortalRecordListSurface>
-          </div>
-        );
-      })() : null}
+      {tab === "jobs" || tab === "services" ? (
+        <VendorRecordServicesTab
+          vendorId={row.id}
+          vendorName={row.name}
+          vendorUserId={row.vendorUserId}
+          basePath={basePath}
+          onNavigate={onNavigate}
+          onCreateService={() => setRequestService(true)}
+        />
+      ) : null}
       {tab === "invoices" ? (
         <ManagerOutgoingInvoicesPanel vendorId={row.id} vendorUserId={row.vendorUserId ?? undefined} vendorName={row.name} basePath={basePath} />
       ) : null}

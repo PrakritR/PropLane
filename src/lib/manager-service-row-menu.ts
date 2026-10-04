@@ -18,10 +18,11 @@ export function managerServiceRowMenuItems(
 
   if (!row.bucket || row.bucket !== "completed") {
     if (next?.key === "publish") {
-      items.push({ id: "publish", label: "Publish to vendors" });
+      items.push({ id: "publish", label: "Request bids" });
+      items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
     }
     if (next?.key === "compare-quotes") {
-      items.push({ id: "compare-quotes", label: "Compare quotes" });
+      items.push({ id: "compare-quotes", label: "Compare bids" });
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
     }
     if (next?.key === "assign") {
@@ -44,7 +45,7 @@ export function managerServiceRowMenuItems(
   items.push({ id: "message", label: "Message" });
 
   if (row.bucket !== "completed") {
-    items.push({ id: "cancel", label: "Cancel service", danger: true });
+    items.push({ id: "cancel", label: "Delete", danger: true });
   }
 
   return items;

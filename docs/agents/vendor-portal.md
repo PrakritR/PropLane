@@ -254,6 +254,15 @@ every other `submitted` row on the service `declined`, patches the work order's 
 mirror (the manager's browser picks it up on its next `syncManagerWorkOrdersFromServer`), and notifies
 the winner and, best-effort, each declined vendor.
 
+**The three service lists follow the cycle.** The manager Services page has Open (Pending + Bids
+requested) · Scheduled (Bid approved + Scheduled) · Done (Completed + Paid), each tab and count from
+`serviceListBucket`, the same stage the record's stage bar shows; there is no Vendors tab. A property
+record's Operations > Services tab is that same list (`ManagerAllServicesPanel` with
+`lockedPropertyId`, in `PropertyServicesTab`), with the property's service catalog behind its settings
+icon. A vendor record's Services tab is Requested · Active · Done (`buildVendorServiceItems`), the same
+shared row with that vendor's own estimate or bid as the figure; its + requests the vendor for an open
+service or creates a service assigned to them.
+
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
 manager by `manager_user_id = auth.uid()` (denormalized onto the bid row at
