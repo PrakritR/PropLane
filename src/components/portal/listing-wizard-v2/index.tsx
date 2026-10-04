@@ -390,6 +390,29 @@ export function ListingWizardV2({
     onOpenPricing?.(id);
   }, [editListingId, onOpenPricing, persist, runLifecycle, showToast]);
 
+  /**
+   * "Edit in full" on Application / Lease / Move-in / Pricing: save the wizard's work (a
+   * brand-new draft becomes a real record) and hand back the record id.
+   */
+  const ensureSaved = useCallback(async (): Promise<string | null> => {
+    const ok = await runLifecycle(() => persist(submissionRef.current, stepRef.current));
+    if (!ok) return null;
+    return editListingId?.trim() || savedIdRef.current;
+  }, [editListingId, persist, runLifecycle]);
+
+  const openSettingsPage = useCallback(
+    async (href: string) => {
+      const ok = await runLifecycle(() => persist(submissionRef.current, stepRef.current));
+      if (!ok) {
+        showToast?.("Could not save. Nothing was kept.");
+        return;
+      }
+      onClose();
+      window.location.assign(href);
+    },
+    [onClose, persist, runLifecycle, showToast],
+  );
+
   const handleClose = useCallback(
     async (stepIndex: number) => {
       // PRP-486: a close reached while a save/publish is already in flight
@@ -447,6 +470,10 @@ export function ListingWizardV2({
         initialStep={initialStep}
         actionError={actionError}
         contact={contact}
+        managerUserId={userId}
+        showToast={showToast}
+        ensureSaved={ensureSaved}
+        onOpenSettings={openSettingsPage}
         workspacePricingDefaults={workspacePricingDefaults}
         onOpenPricing={onOpenPricing ? openPricing : undefined}
         onPublish={() =>

@@ -145,7 +145,6 @@ describe("rooms as cards", () => {
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
     expect(document.querySelector('[data-attr="listing-v2-room-editor"]')!.textContent).not.toMatch(/\$\d/);
     expect(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')).toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-pricing"]')).toBeNull();
   });
 });
 

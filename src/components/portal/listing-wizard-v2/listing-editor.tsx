@@ -150,6 +150,16 @@ import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults"
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
+  ListingDetailSummaryPanel,
+  StepApplication,
+  StepLease,
+  StepMoveIn,
+  StepPricing,
+  listingDetailSummaries,
+  type ListingDetailDoors,
+  type ListingDetailStepId,
+} from "@/components/portal/listing-wizard-v2/listing-detail-steps";
+import {
   applyHouseDefaultsToRooms,
   copyRoomDescriptionFrom,
   houseDefaultsForSubmission,
@@ -191,14 +201,19 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 /**
- * Five steps — rent and fees live on the property Payments tab, not here
- * (studio redesign 0929 / property-pricing workstream).
+ * Nine steps. Application, Lease, Move-in and Pricing sit between Shared spaces and
+ * Review (captain, Oct 3): a few flat rows each, over the property's own forms, with
+ * "Edit in full" opening the same editor the property page opens. None is required.
  */
 export const LISTING_V2_STEPS = [
   { id: "basics", label: "Basics" },
   { id: "rooms", label: "Rooms" },
   { id: "bathrooms", label: "Bathrooms" },
   { id: "spaces", label: "Shared spaces" },
+  { id: "application", label: "Application" },
+  { id: "lease", label: "Lease" },
+  { id: "movein", label: "Move-in" },
+  { id: "pricing", label: "Pricing" },
   { id: "review", label: "Review" },
 ] as const;
 
@@ -264,6 +279,10 @@ export type ListingRailChrome = {
     rooms: string;
     bathrooms: string;
     spaces: string;
+    application: string;
+    lease: string;
+    movein: string;
+    pricing: string;
     review: string;
     open: number;
   };
@@ -280,6 +299,11 @@ export function listingRailChrome(submission: ManagerListingSubmissionV1): Listi
     rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
     bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
     spaces: 0,
+    // None of the leasing steps is required to publish, so none raises a red dot.
+    application: 0,
+    lease: 0,
+    movein: 0,
+    pricing: 0,
     review: 0,
   } as Record<string, number>;
   const open = checks.filter((c) => c.state !== "done").length;
@@ -305,6 +329,7 @@ export function listingRailChrome(submission: ManagerListingSubmissionV1): Listi
           : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
       bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
       spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
+      ...listingDetailSummaries(submission),
       review: open === 0 ? "Ready to publish" : `${open} to finish`,
       open,
     },
@@ -2957,6 +2982,14 @@ function ReachYouCard({ contact }: { contact: ListingContactDoors }) {
   );
 }
 
+/** Review lists the four leasing steps like the others, with an Edit door each. None is required. */
+const REVIEW_LEASING_ROWS: ReadonlyArray<{ id: ListingDetailStepId; label: string }> = [
+  { id: "application", label: "Application" },
+  { id: "lease", label: "Lease" },
+  { id: "movein", label: "Move-in" },
+  { id: "pricing", label: "Pricing" },
+];
+
 function StepReview({
   sub,
   patch,
@@ -2970,6 +3003,7 @@ function StepReview({
   contact?: ListingContactDoors;
 }) {
   const checks = listingReadiness(sub);
+  const detailSummaries = listingDetailSummaries(sub);
   const done = checks.filter((c) => c.state === "done").length;
   const pct = Math.round((done / checks.length) * 100);
   const open = checks.filter((c) => c.state !== "done");
@@ -3019,6 +3053,30 @@ function StepReview({
               </li>
             );
           })}
+        </ul>
+      </div>
+      <div className="mt-6 max-w-[620px]" data-attr="listing-v2-review-leasing">
+        <b className="text-[13px] font-bold text-foreground">Leasing</b>
+        <ul className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
+          {REVIEW_LEASING_ROWS.map((row, index) => (
+            <li
+              key={row.id}
+              className={`flex min-h-[52px] items-center gap-2.5 px-3.5 py-2 text-[13px] ${index === 0 ? "" : "border-t border-border"}`}
+              data-attr={`listing-v2-review-leasing-${row.id}`}
+            >
+              <span className="min-w-0 flex-1 truncate font-semibold text-foreground">{row.label}</span>
+              <span className="shrink-0 text-muted">{detailSummaries[row.id]}</span>
+              <button
+                type="button"
+                onClick={() => onJump(row.id)}
+                data-attr={`listing-v2-review-edit-${row.id}`}
+                aria-label={`Edit ${row.label}`}
+                className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+              >
+                Edit
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
       <div className="mt-6 max-w-[620px]">
@@ -3090,8 +3148,21 @@ export function ListingEditorV2({
   contact,
   workspacePricingDefaults,
   onOpenPricing,
+  managerUserId = null,
+  showToast,
+  ensureSaved,
+  onOpenSettings,
 }: {
   submission: ManagerListingSubmissionV1;
+  /**
+   * What the Application, Lease, Move-in and Pricing steps need to open the property's own
+   * editors ("Edit in full"). `ensureSaved` saves the wizard and resolves the record id, so a
+   * brand-new draft is saved on demand; `onOpenSettings` saves, leaves and opens Settings.
+   */
+  managerUserId?: string | null;
+  showToast?: (message: string) => void;
+  ensureSaved?: () => Promise<string | null>;
+  onOpenSettings?: (href: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
   /**
    * Rent is not a wizard field: it is set on the property's Pricing tab. When the
@@ -3160,6 +3231,25 @@ export function ListingEditorV2({
     return new Set([LISTING_V2_STEPS[0]!.id, start]);
   });
   const [previewRoomId, setPreviewRoomId] = useState<string | null>(null);
+  /** The id a first save minted, for a draft that had none when the editor opened. */
+  const [savedRecordId, setSavedRecordId] = useState<string | null>(null);
+  const appUi = useOptionalAppUi();
+  const recordId = propertyId?.trim() || savedRecordId;
+  const detailDoors: ListingDetailDoors = {
+    recordId,
+    mode: isEdit ? "listing" : "draft",
+    managerUserId,
+    ensureSaved: ensureSaved
+      ? async () => {
+          const id = await ensureSaved();
+          if (id) setSavedRecordId(id);
+          return id;
+        }
+      : undefined,
+    showToast: showToast ?? ((message: string) => appUi?.showToast(message)),
+    onOpenSettings,
+    workspacePricingDefaults,
+  };
   const patch: Patch = (next) => onChange({ ...submission, ...next });
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
@@ -3289,6 +3379,14 @@ export function ListingEditorV2({
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
+      case "application":
+        return <StepApplication sub={submission} onChange={onChange} doors={detailDoors} />;
+      case "lease":
+        return <StepLease sub={submission} onChange={onChange} doors={detailDoors} />;
+      case "movein":
+        return <StepMoveIn sub={submission} onChange={onChange} doors={detailDoors} />;
+      case "pricing":
+        return <StepPricing sub={submission} onChange={onChange} doors={detailDoors} />;
       default:
         return (
           <StepReview
@@ -3300,7 +3398,7 @@ export function ListingEditorV2({
         );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, defaults, isEdit, basicsLead, contact]);
+  }, [stepId, submission, defaults, isEdit, basicsLead, contact, recordId, managerUserId, ensureSaved, onOpenSettings, workspacePricingDefaults]);
 
   /**
    * The right-hand panel for this step.
@@ -3309,7 +3407,16 @@ export function ListingEditorV2({
    * the step itself is wrong, not a reason for an empty column.
    */
   const sidePanel = useMemo(() => {
-    return <ListingPreviewPanel sub={submission} highlightRoomId={stepId === "rooms" ? previewRoomId : null} />;
+    const preview = <ListingPreviewPanel sub={submission} highlightRoomId={stepId === "rooms" ? previewRoomId : null} />;
+    if (stepId === "application" || stepId === "lease" || stepId === "movein" || stepId === "pricing") {
+      return (
+        <>
+          <ListingDetailSummaryPanel sub={submission} current={stepId} />
+          {preview}
+        </>
+      );
+    }
+    return preview;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, submission, previewRoomId]);
 
