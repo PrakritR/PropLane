@@ -150,7 +150,6 @@ function jurisdictionStubFromSubmission(sub: ManagerListingSubmissionV1): Manage
     securityDeposit: source.securityDeposit,
     moveInFee: source.moveInFee,
     customFees: source.customFees,
-    monthToMonthSurcharge: source.monthToMonthSurcharge,
     rooms: source.rooms.map((room) => ({
       ...room,
       // Identity out, money in.

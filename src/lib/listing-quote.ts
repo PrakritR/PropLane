@@ -353,9 +353,6 @@ export function buildListingQuote(
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge) {
-    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
-  }
   if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {
     monthlyRent += parseMoneyAmount(arrangementRow.customStartSurcharge);
   }

@@ -79,7 +79,6 @@ export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
     "parkingMonthly",
     "hoaMonthly",
     "otherMonthlyFees",
-    "monthToMonthSurcharge",
     "customLeaseSurcharge",
     "residentPaymentMethods",
     "serviceFeeWaiverCode",

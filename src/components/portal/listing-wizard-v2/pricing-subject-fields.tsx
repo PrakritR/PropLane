@@ -88,9 +88,8 @@ export function PricingSubjectFields({
       count={1}
       row={standardFees.row}
       onPatch={standardFees.onPatch}
-      // Each surcharge sits on the option it belongs to: Month-to-month on its own tab, Custom start on the
-      // Long-term tab (custom dates are an option of the long-term lease). Short-term has neither.
-      showMonthToMonth={isMonthToMonth && visibility.monthToMonthSurcharge}
+      // Custom start sits on the Long-term tab (custom dates are an option of the long-term lease).
+      // Short-term and Month-to-month carry no surcharge.
       showCustomStart={isBaseLong && visibility.customStartSurcharge}
       scope={isStay ? "short" : "long"}
       storage={standardFees.storage}
@@ -99,7 +98,7 @@ export function PricingSubjectFields({
     />
   );
   if (isMonthToMonth) {
-    // Month-to-month follows the Long-term rent, utilities and deposit; its tab holds its own surcharge and fees.
+    // Month-to-month follows the Long-term rent, utilities and deposit; its tab holds only its own fees.
     return <>{standard}</>;
   }
   if (isStay) {

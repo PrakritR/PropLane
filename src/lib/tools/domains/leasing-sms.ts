@@ -223,7 +223,7 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
         {
           term: "Month-to-Month",
           offered: availableTerms.includes("Month-to-Month"),
-          monthlySurcharge: submission?.monthToMonthSurcharge?.trim() || null,
+          monthlySurcharge: null,
         },
       ],
       customCalendarSurcharge: {

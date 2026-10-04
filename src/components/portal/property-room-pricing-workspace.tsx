@@ -125,11 +125,10 @@ function patchStandardFeesForTerm(
 ): ManagerRoomSubmission {
   // The two start surcharges always live on the long-term private row; a stay type's own
   // Lease / Application / Move-in fees live on its term entry (the long-term row on the base step).
-  const { monthToMonthSurcharge, customStartSurcharge, shortTermLeaseFee, shortTermApplicationFee, ...fees } = patch;
+  const { customStartSurcharge, shortTermLeaseFee, shortTermApplicationFee, ...fees } = patch;
   void shortTermLeaseFee;
   void shortTermApplicationFee;
-  const surcharges: { monthToMonthSurcharge?: string; customStartSurcharge?: string } = {};
-  if (monthToMonthSurcharge !== undefined) surcharges.monthToMonthSurcharge = monthToMonthSurcharge;
+  const surcharges: { customStartSurcharge?: string } = {};
   if (customStartSurcharge !== undefined) surcharges.customStartSurcharge = customStartSurcharge;
   let next = room;
   if (Object.keys(surcharges).length > 0) next = mergeLongTermPrivateArrangementRow(next, surcharges);
@@ -145,7 +144,6 @@ function feeRowForStep(room: ManagerRoomSubmission, term: string, isBaseLong: bo
   return {
     count: 1,
     ...displayFeeRow(standardFeesForTerm(room, term, isBaseLong)),
-    monthToMonthSurcharge: longRow.monthToMonthSurcharge,
     customStartSurcharge: longRow.customStartSurcharge,
   };
 }
@@ -215,7 +213,6 @@ export function RoomPricingFields({
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
   const feeScope = roomFeeTermScope(quoteTerm);
   const feeVisibility = roomPricingFeeVisibility(draft, room);
-  const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
   const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const copySources = pricingCopySourceRooms(draft, room.id, activeTerm);
@@ -327,7 +324,6 @@ export function RoomPricingFields({
               term={quoteTerm}
               prorate={isBaseLong && feeVisibility.partialMonths}
               showResidentsCapacity
-              showMonthToMonthSurcharge={allowM2m && isBaseLong}
               showCustomStartSurcharge={allowCustomStart && isBaseLong}
             />
           )
@@ -537,14 +533,12 @@ export function BundlePricingFields({
         leaseFee: formatPlacementMoneyField(stepFees.leaseFee ?? ""),
         applicationFee: formatPlacementMoneyField(stepFees.applicationFee ?? ""),
         moveInFee: isStay ? bundle.shortTermMoveInFee : bundle.moveInFee,
-        monthToMonthSurcharge: bundle.monthToMonthSurcharge,
         customStartSurcharge: bundle.customStartSurcharge,
       },
       onPatch: (feePatch) => {
-        const { leaseFee, applicationFee, moveInFee, monthToMonthSurcharge, customStartSurcharge } = feePatch;
+        const { leaseFee, applicationFee, moveInFee, customStartSurcharge } = feePatch;
         const next: Partial<ManagerBundleRow> = {};
         if (moveInFee !== undefined) next[isStay ? "shortTermMoveInFee" : "moveInFee"] = moveInFee;
-        if (monthToMonthSurcharge !== undefined) next.monthToMonthSurcharge = monthToMonthSurcharge;
         if (customStartSurcharge !== undefined) next.customStartSurcharge = customStartSurcharge;
         if (leaseFee !== undefined || applicationFee !== undefined) {
           next.termPricing = mergeTermStandardFees(bundle, quoteTerm, { leaseFee, applicationFee }).termPricing;
@@ -640,7 +634,6 @@ export function PropertyRoomPricingWorkspace({
         : feeVisibilityForTerms(listingPricingLeaseTabs(draft)),
     [draft, subject],
   );
-  const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
   /*
    * The left rail lists every leasing option the property offers (Long-term, Short-term, a custom lease by name,

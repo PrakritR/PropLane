@@ -12,7 +12,6 @@ export type ArrangementFeePatch = Partial<
     | "leaseFee"
     | "applicationFee"
     | "moveInFee"
-    | "monthToMonthSurcharge"
     | "customStartSurcharge"
     | "shortTermLeaseFee"
     | "shortTermApplicationFee"
@@ -38,7 +37,6 @@ export function ArrangementStandardFeeRows({
   count,
   row,
   onPatch,
-  showMonthToMonth,
   showCustomStart,
   readOnly = false,
   scope = "long",
@@ -49,7 +47,6 @@ export function ArrangementStandardFeeRows({
   count: number;
   row: RoomOccupancyPrice;
   onPatch: (patch: ArrangementFeePatch) => void;
-  showMonthToMonth: boolean;
   showCustomStart: boolean;
   readOnly?: boolean;
   /** Which step this block sits on (labels, and the stored fields when `storage="stayFields"`). */
@@ -121,16 +118,6 @@ export function ArrangementStandardFeeRows({
           onChange={(v) => onPatch({ moveInFee: v })}
         />
       </FactRow>
-      {showMonthToMonth ? (
-        <FactRow label="Month-to-month surcharge">
-          <MoneyInput
-            label={`${arrangementLabel(count)} month-to-month surcharge`}
-            value={row.monthToMonthSurcharge ?? ""}
-            inherited={readOnly}
-            onChange={(v) => onPatch({ monthToMonthSurcharge: v })}
-          />
-        </FactRow>
-      ) : null}
       {showCustomStart ? (
         <FactRow label="Custom start surcharge">
           <MoneyInput

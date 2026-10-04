@@ -42,8 +42,6 @@ import {
 } from "@/lib/rental-application/lease-terms";
 import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
 
-export const MONTH_TO_MONTH_LEASE_TERM = "Month-to-Month";
-
 /** The two term scopes a fee can be set under. A stay (Short term / Airbnb) is "short"; everything else is "long". */
 export type RoomFeeTermScope = "long" | "short";
 
@@ -53,7 +51,6 @@ export type RoomFeeRow = Partial<
     | "leaseFee"
     | "applicationFee"
     | "moveInFee"
-    | "monthToMonthSurcharge"
     | "customStartSurcharge"
     | "shortTermLeaseFee"
     | "shortTermApplicationFee"
@@ -114,8 +111,6 @@ export function termFeeRaw(row: RoomFeeRow | null | undefined, fee: TermScopedFe
  * ------------------------------------------------------------------ */
 
 export type RoomPricingFeeVisibility = {
-  /** "Month-to-month surcharge" - only when Month-to-month is offered. */
-  monthToMonthSurcharge: boolean;
   /** "Custom start surcharge" - only when Custom is offered. */
   customStartSurcharge: boolean;
   /** "Partial months" - a lease can start mid-month only on Custom. */
@@ -126,7 +121,6 @@ export type RoomPricingFeeVisibility = {
 export function feeVisibilityForTerms(offered: readonly string[]): RoomPricingFeeVisibility {
   const customStartSurcharge = offered.includes(CUSTOM_LEASE_TERM);
   return {
-    monthToMonthSurcharge: offered.includes(MONTH_TO_MONTH_LEASE_TERM),
     customStartSurcharge,
     partialMonths: customStartSurcharge,
   };
@@ -162,7 +156,6 @@ export type ResolvedRoomTermFees = {
   applicationFee: number;
   leaseFee: number;
   moveInFee: number;
-  monthToMonthSurcharge: number;
   customStartSurcharge: number;
 };
 
@@ -224,7 +217,6 @@ export function resolveRoomTermFees(input: {
     applicationFee: fees.applicationFee,
     leaseFee: fees.leaseFee,
     moveInFee: parseMoneyAmount(resolvedMoveInFeeRaw(input.sub, opts)),
-    monthToMonthSurcharge: scope === "long" ? money(row?.monthToMonthSurcharge) : 0,
     customStartSurcharge: scope === "long" ? money(row?.customStartSurcharge) : 0,
   };
 }
@@ -262,7 +254,7 @@ function cleanMoneyText(n: number): string {
 
 function syncPresetRow(
   sub: ManagerListingSubmissionV1,
-  presetId: "mtm_surcharge" | "custom_lease_surcharge",
+  presetId: "custom_lease_surcharge",
   amount: string,
 ): ManagerCustomFeeRow[] | undefined {
   const rows = sub.customFees;
@@ -318,13 +310,6 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   let removedChanged = false;
 
   if (scope === "long" && row) {
-    const mtm = money(row.monthToMonthSurcharge);
-    if (mtm > 0) {
-      const text = cleanMoneyText(mtm);
-      removedChanged = removed.delete("monthToMonthSurcharge") || removedChanged;
-      next = { ...next, monthToMonthSurcharge: text, customFees: syncPresetRow(next, "mtm_surcharge", text) };
-      changed = true;
-    }
     const custom = money(row.customStartSurcharge);
     if (custom > 0) {
       const text = cleanMoneyText(custom);

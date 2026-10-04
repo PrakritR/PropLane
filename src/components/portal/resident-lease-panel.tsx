@@ -329,16 +329,7 @@ export function ResidentLeasePanel({
     const leaseTerm = pipelineRow?.application?.leaseTerm ?? leaseCtx.application?.leaseTerm ?? "";
     const isShortTerm = leaseTerm.toLowerCase().includes("short") || leaseTerm.toLowerCase().includes("daily");
     if (!isShortTerm) return null;
-    return shortToLongTermUpgradeBreakdown(propertyId, false);
-  }, [pipelineRow, leaseCtx.application]);
-
-  const upgradeBreakdownMtm = useMemo(() => {
-    const propertyId = pipelineRow?.propertyId ?? pipelineRow?.application?.propertyId ?? leaseCtx.application?.propertyId;
-    if (!propertyId) return null;
-    const leaseTerm = pipelineRow?.application?.leaseTerm ?? leaseCtx.application?.leaseTerm ?? "";
-    const isShortTerm = leaseTerm.toLowerCase().includes("short") || leaseTerm.toLowerCase().includes("daily");
-    if (!isShortTerm) return null;
-    return shortToLongTermUpgradeBreakdown(propertyId, true);
+    return shortToLongTermUpgradeBreakdown(propertyId);
   }, [pipelineRow, leaseCtx.application]);
 
   /**
@@ -575,12 +566,6 @@ export function ResidentLeasePanel({
               <span className="text-muted">Security deposit balance</span>
               <span className="font-semibold text-foreground">{upgradeBreakdown.securityDeposit.label}</span>
             </div>
-            {upgradeBreakdownMtm?.monthToMonthSurcharge.label ? (
-              <div className="flex justify-between gap-3 border-b border-blue-100 py-2">
-                <span className="text-muted">Month-to-month option</span>
-                <span className="font-medium text-amber-700">+{upgradeBreakdownMtm.monthToMonthSurcharge.label}</span>
-              </div>
-            ) : null}
             <div className="flex justify-between gap-3 pt-2">
               <span className="font-semibold text-foreground">Total due to upgrade</span>
               <span className="font-bold text-foreground">${upgradeBreakdown.totalDue.toFixed(2)}</span>

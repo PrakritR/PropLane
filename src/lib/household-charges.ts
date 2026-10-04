@@ -5122,12 +5122,10 @@ export function updateHouseholdChargeAmount(
  */
 export function shortToLongTermUpgradeBreakdown(
   propertyId: string,
-  isMonthToMonth: boolean,
 ): {
   applicationFee: { amount: number; waived: boolean; label: string };
   moveInFee: { amount: number; delta: number; label: string };
   securityDeposit: { amount: number; delta: number; label: string };
-  monthToMonthSurcharge: { amount: number; label: string };
   totalDue: number;
 } | null {
   const prop = getPropertyById(propertyId);
@@ -5139,19 +5137,16 @@ export function shortToLongTermUpgradeBreakdown(
   const longTermMoveIn = parseMoneyAmount(sub.moveInFee);
   const shortTermDeposit = parseMoneyAmount(sub.shortTermDeposit ?? "");
   const shortTermMoveIn = parseMoneyAmount(sub.shortTermMoveInFee ?? "");
-  const mtmSurcharge = parseMoneyAmount(sub.monthToMonthSurcharge ?? "");
 
   const depositDelta = Math.max(0, longTermDeposit - shortTermDeposit);
   const moveInDelta = Math.max(0, longTermMoveIn - shortTermMoveIn);
-  const mtm = isMonthToMonth ? mtmSurcharge : 0;
 
-  const totalDue = depositDelta + moveInDelta + mtm;
+  const totalDue = depositDelta + moveInDelta;
 
   return {
     applicationFee: { amount: appFeeAmount, waived: true, label: appFeeAmount > 0 ? `$${appFeeAmount.toFixed(2)} (waived — already paid)` : "Waived" },
     moveInFee: { amount: longTermMoveIn, delta: moveInDelta, label: moveInDelta > 0 ? `$${moveInDelta.toFixed(2)} balance` : "Fully paid" },
     securityDeposit: { amount: longTermDeposit, delta: depositDelta, label: depositDelta > 0 ? `$${depositDelta.toFixed(2)} balance` : "Fully paid" },
-    monthToMonthSurcharge: { amount: mtm, label: mtm > 0 ? `$${mtm.toFixed(2)}/mo added to rent` : "" },
     totalDue,
   };
 }
@@ -5163,7 +5158,6 @@ export function shortToLongTermUpgradeBreakdown(
 export function recordShortToLongTermConversionCharges(
   row: DemoApplicantRow,
   managerUserId: string | null,
-  isMonthToMonth: boolean,
 ): boolean {
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
@@ -5181,7 +5175,7 @@ export function recordShortToLongTermConversionCharges(
   const effectiveManagerUserId = managerUserId ?? row.managerUserId ?? prop?.managerUserId ?? null;
   const residentName = row.name?.trim() || row.application?.fullLegalName?.trim() || "Resident";
 
-  const breakdown = shortToLongTermUpgradeBreakdown(propertyId, isMonthToMonth);
+  const breakdown = shortToLongTermUpgradeBreakdown(propertyId);
   if (!breakdown) return false;
 
   const rows = readAll();
