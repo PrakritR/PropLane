@@ -40,7 +40,7 @@ const FEE_CHARGE = "hc_app_app_signer_lease_fee";
 const MIGRATIONS = [
   "20260726190000_application_fee_waiver_codes.sql",
   "20260909210000_scope_application_fee_waiver_codes_to_property.sql",
-  "20261003200000_waive_codes_applies_to_and_property_limits.sql",
+  "20261003210000_waive_codes_applies_to_and_property_limits.sql",
 ];
 const PG_TABLES = new Set(["manager_application_fee_waiver_codes", "application_fee_waiver_redemptions"]);
 
