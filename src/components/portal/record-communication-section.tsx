@@ -626,6 +626,9 @@ export function RecordCommunicationSection({
           fillParent
           panes="split"
           fullScreenable
+          // The record page's column has no definite height, so flex-1 would
+          // shrink the pane to its content; keep the measured viewport height.
+          className="flex-none!"
           thread={
             <InboxThreadView
               title={counterpartyName}
