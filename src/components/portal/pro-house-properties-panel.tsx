@@ -274,6 +274,9 @@ function deferCatalogMutation(fn: () => void) {
  * when they looked. All is the default now: every house, with its state shown on the
  * row and a switch to flip it. The three narrower tabs stay as filters.
  */
+/** How long a property route waits on the portfolio sync before it says it could not load. */
+export const PORTFOLIO_SYNC_SETTLE_MS = 20_000;
+
 const MANAGER_STAGES = [
   { key: "all", label: "All", buckets: [2, 3, 5] as AdminPropertyBucketIndex[] },
   { key: "listed", label: "Listed", buckets: [2] as AdminPropertyBucketIndex[] },
@@ -1786,7 +1789,13 @@ function ManagerHousePropertiesPanelBody({
     // A lease signed elsewhere re-ranks its row (open rooms feed the attention score).
     window.addEventListener(LEASE_PIPELINE_EVENT, on);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
+    // A sync that never settles (a hung request) must not leave a deep link on its loading skeleton
+    // forever: after the bound it reads as "could not load" with Try again, and a late success still wins.
+    const settleTimer = window.setTimeout(() => {
+      setPortfolioLoad((state) => (state === "pending" ? "failed" : state));
+    }, PORTFOLIO_SYNC_SETTLE_MS);
     return () => {
+      window.clearTimeout(settleTimer);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
       window.removeEventListener(LEASE_PIPELINE_EVENT, on);
