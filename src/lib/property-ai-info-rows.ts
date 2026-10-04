@@ -50,3 +50,12 @@ export const AI_INFO_TAB_DEFS: { id: AiInfoTabId; label: string; groups: AiInfoT
   { id: "area", label: "Area", groups: ["area"] },
   { id: "custom", label: "Custom", groups: ["custom"] },
 ];
+
+/** Category order for the one flat list, and the Category dropdown of a custom entry. */
+export const AI_INFO_GROUP_OPTIONS: { id: AiInfoTabId; label: string }[] = [
+  { id: "home", label: "Home" },
+  { id: "leasing", label: "Leasing" },
+  { id: "rules", label: "Rules" },
+  { id: "area", label: "Area" },
+  { id: "custom", label: "Other" },
+];

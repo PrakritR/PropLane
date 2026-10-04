@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Home, KeyRound, MapPin, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -21,7 +21,7 @@ import {
 } from "@/lib/manager-property-save-target";
 import {
   AI_INFO_BUILTIN_ROWS,
-  AI_INFO_TAB_DEFS,
+  AI_INFO_GROUP_OPTIONS,
   type AiInfoBuiltinKey,
   type AiInfoTabId,
 } from "@/lib/property-ai-info-rows";
@@ -32,6 +32,14 @@ function readBuiltinText(sub: ManagerListingSubmissionV1, key: SectionKey): stri
   if (key === "about") return sub.marketingNotes ?? "";
   return sub.aiCommunicationInfo?.[key] ?? "";
 }
+
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  home: Home,
+  leasing: KeyRound,
+  rules: ShieldCheck,
+  area: MapPin,
+  custom: Sparkles,
+};
 
 function makeCustomId(): string {
   return `ai-custom-${Date.now().toString(36)}`;
@@ -56,7 +64,6 @@ export function ManagerPropertyAiInfoPanel({
     return resolveManagerListingSubmissionForPropertyId(managerUserId, propertyId);
   }, [managerUserId, propertyId, revision]);
 
-  const [activeTab, setActiveTab] = useState<AiInfoTabId>("home");
   const [search, setSearch] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorTarget, setEditorTarget] = useState<AiInfoEditorTarget | null>(null);
@@ -67,15 +74,7 @@ export function ManagerPropertyAiInfoPanel({
 
   const customItems = resolved?.sub.aiCommunicationCustom ?? [];
 
-  const customVisible = customItems.some((c) => c.group === "custom" || !AI_INFO_TAB_DEFS.some((t) => t.id === c.group));
-  const tabs = useMemo(() => {
-    const built = AI_INFO_TAB_DEFS.filter((t) => t.id !== "custom" || customVisible);
-    return built.map((tab) => {
-      const builtCount = AI_INFO_BUILTIN_ROWS.filter((r) => r.group === tab.id).length;
-      const customCount = customItems.filter((c) => (c.group === tab.id || (tab.id === "custom" && c.group === "custom"))).length;
-      return { id: tab.id, label: tab.label, count: builtCount + customCount };
-    });
-  }, [customItems, customVisible]);
+  const totalCount = AI_INFO_BUILTIN_ROWS.length + customItems.length;
 
   const openBuiltin = useCallback((key: AiInfoBuiltinKey) => {
     if (!resolved) return;
@@ -111,13 +110,13 @@ export function ManagerPropertyAiInfoPanel({
       title: "",
       sampleQuestion: "What can you tell me about this?",
       isNew: true,
-      group: activeTab === "custom" ? "custom" : activeTab,
+      group: "home",
     });
     setEditorTitle("");
-    setEditorGroup(activeTab);
+    setEditorGroup("home");
     setEditorValue("");
     setEditorOpen(true);
-  }, [activeTab]);
+  }, []);
 
   const persistSubmission = useCallback(
     async (next: ManagerListingSubmissionV1) => {
@@ -178,7 +177,6 @@ export function ManagerPropertyAiInfoPanel({
     const next = { ...resolved.sub, aiCommunicationCustom: nextList };
     if (await persistSubmission(next)) {
       setEditorOpen(false);
-      if (editorTarget.isNew) setActiveTab(editorGroup);
       showToast(existing ? "Saved" : `${title} added`);
     }
   }, [editorGroup, editorTarget, editorTitle, editorValue, persistSubmission, resolved, showToast]);
@@ -256,17 +254,46 @@ export function ManagerPropertyAiInfoPanel({
   if (!resolved) return null;
 
   const q = search.trim().toLowerCase();
-  const builtRows = AI_INFO_BUILTIN_ROWS.filter((row) => {
-    if (row.group !== activeTab) return false;
-    if (!q) return true;
-    return row.title.toLowerCase().includes(q);
-  });
-  const customRows = customItems.filter((item) => {
-    const group = item.group === "custom" ? "custom" : item.group;
-    if (group !== activeTab) return false;
-    if (!q) return true;
-    return item.title.toLowerCase().includes(q);
-  });
+  const groupRank = (group: string) => {
+    const i = AI_INFO_GROUP_OPTIONS.findIndex((o) => o.id === group);
+    return i < 0 ? AI_INFO_GROUP_OPTIONS.length - 1 : i;
+  };
+  const groupLabel = (group: string) =>
+    AI_INFO_GROUP_OPTIONS[groupRank(group)]?.label ?? "Other";
+  type Entry = {
+    id: string;
+    title: string;
+    group: string;
+    len: number;
+    custom: AiCommunicationCustomItem | null;
+    builtinKey: AiInfoBuiltinKey | null;
+  };
+  const entries: Entry[] = [
+    ...AI_INFO_BUILTIN_ROWS.map(
+      (row): Entry => ({
+        id: row.key,
+        title: row.title,
+        group: row.group,
+        len: readBuiltinText(resolved.sub, row.key).trim().length,
+        custom: null,
+        builtinKey: row.key,
+      }),
+    ),
+    ...customItems.map(
+      (item): Entry => ({
+        id: `custom-${item.id}`,
+        title: item.title,
+        group: item.group,
+        len: item.text.trim().length,
+        custom: item,
+        builtinKey: null,
+      }),
+    ),
+  ]
+    .map((entry, index) => ({ entry, index }))
+    .sort((x, y) => groupRank(x.entry.group) - groupRank(y.entry.group) || x.index - y.index)
+    .map(({ entry }) => entry)
+    .filter((entry) => !q || `${entry.title} ${groupLabel(entry.group)}`.toLowerCase().includes(q));
 
   return (
     <div data-attr="property-ai-info">
@@ -276,17 +303,13 @@ export function ManagerPropertyAiInfoPanel({
         destinationRow={
           <LocalDestinationNav
             appearance="command"
-            activeId={activeTab}
-            onChange={(id) => setActiveTab(id as AiInfoTabId)}
-            ariaLabel="Assistant knowledge sections"
-            items={tabs.map((t) => ({
-              id: t.id,
-              label: t.label,
-              count: t.count,
-              dataAttr: `property-ai-info-tab-${t.id}`,
-            }))}
+            items={[{ id: "knows", label: "What the assistant knows", count: totalCount }]}
+            activeId="knows"
+            onChange={() => {}}
+            ariaLabel="What the assistant knows"
           />
         }
+        activeDestinationId="knows"
         search={{
           value: search,
           onChange: setSearch,
@@ -295,69 +318,50 @@ export function ManagerPropertyAiInfoPanel({
         }}
         primary={
           <PortalPrimaryIconAction
-            label={`Add to ${tabs.find((t) => t.id === activeTab)?.label ?? "section"}`}
+            label="Add to what the assistant knows"
             data-attr="property-ai-info-add"
             onClick={openNewCustom}
           />
         }
       />
       <PortalRecordListSurface
-        isEmpty={builtRows.length === 0 && customRows.length === 0}
+        isEmpty={entries.length === 0}
         emptyCard={{ title: q ? "No matches" : "Nothing here yet", section: "ai-info", tone: q ? "muted" : "default" }}
       >
-        {builtRows.map((row) => {
-          const text = readBuiltinText(resolved.sub, row.key);
-          const len = text.trim().length;
+        {entries.map((entry) => {
+          const open = () => (entry.custom ? openCustom(entry.custom) : openBuiltin(entry.builtinKey!));
           return (
             <PortalPropertyRecordRow
-              key={row.key}
-              title={row.title}
+              key={entry.id}
+              title={entry.title}
               leading={<PortalRowIconTile icon={Sparkles} />}
               leadingShape="square"
               facts={
-                len ? (
-                  <PortalRowFact icon={Check}>
-                    {len} of {PROMOTION_HOUSE_NOTES_MAX_CHARS} characters
+                <>
+                  <PortalRowFact icon={GROUP_ICONS[entry.group] ?? Sparkles} srLabel="Category">
+                    {groupLabel(entry.group)}
                   </PortalRowFact>
-                ) : (
-                  <PortalRowFact icon={AlertCircle}>Not filled in yet</PortalRowFact>
-                )
+                  {entry.len ? (
+                    <PortalRowFact icon={Check}>{entry.len} chars</PortalRowFact>
+                  ) : (
+                    <PortalRowFact icon={AlertCircle}>Not filled in yet</PortalRowFact>
+                  )}
+                </>
               }
-              onOpen={() => openBuiltin(row.key)}
-              dataAttr={`property-ai-info-row-${row.key}`}
+              onOpen={open}
+              dataAttr={entry.custom ? `property-ai-info-row-custom-${entry.custom.id}` : `property-ai-info-row-${entry.builtinKey}`}
               actions={
-                <RowActionsMenu label={row.title} items={[
-                  { id: "edit", label: "Edit", onSelect: () => openBuiltin(row.key) },
-                  len ? { id: "clear", label: "Clear", onSelect: () => void clearEditorForKey(row.key) } : null,
-                ]} />
-              }
-            />
-          );
-        })}
-        {customRows.map((item) => {
-          const len = item.text.trim().length;
-          return (
-            <PortalPropertyRecordRow
-              key={item.id}
-              title={item.title}
-              leading={<PortalRowIconTile icon={Sparkles} />}
-              leadingShape="square"
-              facts={
-                len ? (
-                  <PortalRowFact icon={Check}>
-                    {len} of {PROMOTION_HOUSE_NOTES_MAX_CHARS} characters
-                  </PortalRowFact>
-                ) : (
-                  <PortalRowFact icon={AlertCircle}>Not filled in yet</PortalRowFact>
-                )
-              }
-              onOpen={() => openCustom(item)}
-              dataAttr={`property-ai-info-row-custom-${item.id}`}
-              actions={
-                <RowActionsMenu label={item.title} items={[
-                  { id: "edit", label: "Edit", onSelect: () => openCustom(item) },
-                  { id: "delete", label: "Delete", danger: true, onSelect: () => void deleteCustomRow(item.id) },
-                ]} />
+                <RowActionsMenu
+                  label={entry.title}
+                  items={[
+                    { id: "edit", label: "Edit", onSelect: open },
+                    entry.custom
+                      ? { id: "delete", label: "Delete", danger: true, onSelect: () => void deleteCustomRow(entry.custom!.id) }
+                      : entry.len
+                        ? { id: "clear", label: "Clear", onSelect: () => void clearEditorForKey(entry.builtinKey!) }
+                        : null,
+                  ]}
+                />
               }
             />
           );
@@ -372,6 +376,8 @@ export function ManagerPropertyAiInfoPanel({
         customTitle={editorTitle}
         onCustomTitleChange={setEditorTitle}
         showCustomTitle={editorTarget?.kind === "custom"}
+        group={editorGroup}
+        onGroupChange={(next) => setEditorGroup(next as AiInfoTabId)}
         onClose={() => setEditorOpen(false)}
         onSave={() => void saveEditor()}
         onClear={editorTarget?.kind === "builtin" && editorValue.trim() ? () => void clearEditor() : undefined}
