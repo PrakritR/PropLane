@@ -317,12 +317,12 @@ export function ManagerAddOutgoingPaymentModal({
 
   /** The payee type that drives the category suggestion. */
   const savedType = chosenSaved?.payeeType ?? null;
-  const suggestedCategory = useMemo(() => {
+  const suggestedCategory = (() => {
     if (payKind === "teammate") return payeeCategoryCode("teammate", null);
     if (payKind === "vendor") return "maintenance";
     const type = creatingPayee ? (newPayee.type || null) : savedType;
     return payeeCategoryCode("other", type);
-  }, [payKind, creatingPayee, newPayee.type, savedType]);
+  })();
 
   useEffect(() => {
     if (!open || categoryTouched) return;
