@@ -299,4 +299,64 @@ describe("RecordCommunicationSection", () => {
     expect(screen.getByPlaceholderText("Write a reply…")).toBeInTheDocument();
     expect(screen.getByText(/Vendor · .*vendor@example\.com/)).toBeInTheDocument();
   });
+
+  describe("who the pane is with (service record)", () => {
+    const SERVICE_REF = { kind: "service" as const, id: "seed-sr-storage-AXIS-DEMOLIAMF", label: "Storage locker" };
+    // The manager's own outbound charge notice to the resident: `from` is the MANAGER, `email` the resident.
+    const SENT_NOTICE: FixtureThread = {
+      id: "thr-notice-1",
+      folder: "sent",
+      rootOutbound: true,
+      from: "Test Manager",
+      email: "liam@example.com",
+      subject: "Rent due",
+      preview: "Rent is due.",
+      body: "Rent is due on the 1st.",
+      time: "Sep 1, 9:00 AM",
+      unread: false,
+    };
+
+    it("titles the pane with the resident, never the manager who wrote the sent thread", async () => {
+      threadRows = [SENT_NOTICE];
+      render(
+        <RecordCommunicationSection
+          fill
+          role="manager"
+          recordRef={SERVICE_REF}
+          contactIds={["liam@example.com"]}
+          contactName="Liam Foster"
+        />,
+      );
+      await screen.findByText("Rent is due on the 1st.");
+      const title = document.querySelector('[data-attr="record-communication-section"]')?.querySelector("h2, h3, [data-attr*='thread-title']");
+      const header = (title?.textContent ?? document.body.textContent ?? "");
+      expect(header).toContain("Liam Foster");
+    });
+
+    it("leaves out a thread addressed to the viewer themselves", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) =>
+          String(url).includes("/api/profile")
+            ? { ok: true, json: async () => ({ fullName: "Test Manager", email: "manager@example.com" }) }
+            : { ok: false, json: async () => ({}) },
+        ) as unknown as typeof fetch,
+      );
+      threadRows = [
+        { ...SENT_NOTICE, id: "thr-self", email: "manager@example.com", body: "Self copy of a charge notice.", preview: "Self copy." },
+        { ...SENT_NOTICE, id: "thr-liam", body: "Hello Liam." },
+      ];
+      render(
+        <RecordCommunicationSection
+          role="manager"
+          recordRef={SERVICE_REF}
+          // A misresolved contact (the viewer's own address) must not drag the self-thread in.
+          contactIds={["manager@example.com", "liam@example.com"]}
+          contactName="Liam Foster"
+        />,
+      );
+      await screen.findByText("Hello Liam.");
+      await waitFor(() => expect(screen.queryByText("Self copy of a charge notice.")).toBeNull());
+    });
+  });
 });

@@ -78,7 +78,10 @@ import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cy
 import { deriveServiceStages, deriveVendorRequestRows, serviceIsVendorPayable, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
 import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { fetchServiceInvoices, outgoingPayHref, type ServiceInvoiceSummary } from "@/lib/manager-service-invoice-nav";
-import { ServiceWorkOrderThreadEvents } from "@/components/portal/service-work-order-thread-events";
+import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
+import { ServiceCommunicationPane } from "@/components/portal/service-communication-pane";
+import { ServiceIncomingPaymentsList } from "@/components/portal/service-incoming-payments-list";
+import { buildServiceIncomingRows } from "@/lib/service-incoming-payments";
 import { ServiceInvoiceDocument } from "@/components/portal/service-invoice-document";
 import { vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
 import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
@@ -1233,18 +1236,19 @@ export function ManagerWorkOrdersPanel({
     };
     return (
       <div data-attr="work-order-vendor-bids">
-        <div className="flex flex-wrap items-center gap-3 px-3 pb-2 sm:px-4">
-          {assignedVendor?.phone ? (
-            <a href={`tel:${assignedVendor.phone}`} className="text-xs font-medium text-primary hover:underline">
-              Call
-            </a>
-          ) : null}
-          {assignedVendorEmail ? (
-            <a href={`mailto:${assignedVendorEmail}`} className="text-xs font-medium text-primary hover:underline">
-              Email
-            </a>
-          ) : null}
-        </div>
+        {assignedVendor ? (
+          <div className="px-3 pb-4 sm:px-4" data-attr="work-order-assigned-vendor">
+            <RecordFactCard title="Vendor">
+              <RecordFactRow label="Name" value={assignedVendor.name} />
+              {assignedVendor.phone ? (
+                <RecordFactRow label="Phone" value={<a href={`tel:${assignedVendor.phone}`} className="text-primary hover:underline">{assignedVendor.phone}</a>} />
+              ) : null}
+              {assignedVendorEmail ? (
+                <RecordFactRow label="Email" value={<a href={`mailto:${assignedVendorEmail}`} className="text-primary hover:underline">{assignedVendorEmail}</a>} />
+              ) : null}
+            </RecordFactCard>
+          </div>
+        ) : null}
         <div className="px-3 sm:px-4">{row.bucket === "open" && dispatch ? (
           dispatch.status === "proposed" ? (
             <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-3">
@@ -1309,47 +1313,41 @@ export function ManagerWorkOrdersPanel({
     );
   };
 
-  /** Schedule — current visit state; the visit itself is set from the header "Schedule" action. */
-  const renderScheduleBody = (row: DemoManagerWorkOrderRow) => (
-    <div className="px-3 pb-4 sm:px-4" data-attr="work-order-schedule-facts">
-      <WorkOrderFact
-        label="Visit"
-        value={
-          row.scheduled && row.scheduled !== "—"
-            ? row.scheduled
-            : row.proposedVisit
-              ? formatScheduledLabel(row.proposedVisit.iso)
-              : "Not scheduled"
-        }
-      />
-      {visitSourcePill(row) ? <div className="py-1.5">{visitSourcePill(row)}</div> : null}
-      {row.bucket !== "open" && row.scheduled && row.scheduled !== "—" ? (
-        <p className="mt-1.5 text-xs text-muted">
-          Visit scheduled for <span className="font-medium text-foreground">{row.scheduled}</span>
-        </p>
-      ) : null}
-    </div>
-  );
+  /** Schedule - the visit as a fact card; the visit itself is set from the header "Schedule" action. */
+  const renderScheduleBody = (row: DemoManagerWorkOrderRow) => {
+    const visitLabel =
+      row.scheduled && row.scheduled !== "—"
+        ? row.scheduled
+        : row.proposedVisit
+          ? formatScheduledLabel(row.proposedVisit.iso)
+          : "Not scheduled";
+    return (
+      <div className="px-3 pb-6 sm:px-4" data-attr="work-order-schedule-facts">
+        <RecordFactCard title="Visit">
+          <RecordFactRow label="When" value={visitLabel} />
+          {visitSourcePill(row) ? <RecordFactRow label="Source" value={visitSourcePill(row)} /> : null}
+        </RecordFactCard>
+      </div>
+    );
+  };
 
-  /** Invoice — cost, payment status, and the linked charge (all money through one formatter). */
+  /** Incoming payments - the resident's real charges for this service as the shared Payments rows, plus the cost field. */
   const renderInvoiceBody = (row: DemoManagerWorkOrderRow) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
     const invoiceLabor = row.vendorCostCents ?? 0;
     const invoiceMaterials = row.materialsCostCents ?? 0;
     const invoiceTotal = invoiceLabor + invoiceMaterials;
+    const incomingRows = buildServiceIncomingRows({ charges: linkedCharge ? [linkedCharge] : [], workOrderId: row.id });
     return (
-      <div className="px-3 pb-4 sm:px-4" data-attr="work-order-invoice">
+      <div data-attr="work-order-invoice">
         {row.automationStatus === "vendor_marked_done" && invoiceTotal > 0 ? (
-          <ServiceInvoiceDocument
-            className="mb-4"
-            laborCents={invoiceLabor}
-            materialsCents={invoiceMaterials}
-            note={row.vendorMarkedDoneNote}
-          />
+          <div className="px-3 pb-4 sm:px-4">
+            <ServiceInvoiceDocument laborCents={invoiceLabor} materialsCents={invoiceMaterials} note={row.vendorMarkedDoneNote} />
+          </div>
         ) : null}
-        <WorkOrderFact label="Cost" value={displayWorkOrderCost(row.cost)} />
-        <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
+        <ServiceIncomingPaymentsList rows={incomingRows} />
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-2 px-3 pb-6 sm:px-4">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
             Cost
             <Input
@@ -1392,9 +1390,7 @@ export function ManagerWorkOrdersPanel({
                 <option value="paid">Paid</option>
               </Select>
             </label>
-          ) : (
-            <p className="self-end pb-1.5 text-[11px] text-muted">Linked to a resident charge.</p>
-          )}
+          ) : null}
         </div>
       </div>
     );
@@ -1687,18 +1683,24 @@ export function ManagerWorkOrdersPanel({
       ) : activeTab === "outgoing-payments" ? (
         renderOutgoingBody(routeWorkOrder)
       ) : activeTab === "communication" ? (
-        <>
-          <ServiceWorkOrderThreadEvents row={routeWorkOrder} bids={routeBids} />
-          {renderRecordSection("communication", {
-            role: "manager",
-            kind: "service",
-            kindLabel: "service",
-            recordId: routeWorkOrder.id,
-            recordLabel: routeWorkOrder.title,
-            propertyId: routeWorkOrder.propertyId,
-            contactIds: routeWorkOrder.residentEmail ? [routeWorkOrder.residentEmail] : undefined,
-          })}
-        </>
+        (() => {
+          const commVendor = !routeWorkOrder.selfAssigned && routeWorkOrder.vendorId
+            ? activeVendors.find((v) => v.id === routeWorkOrder.vendorId)
+            : undefined;
+          return (
+            <ServiceCommunicationPane
+              recordId={routeWorkOrder.id}
+              recordLabel={routeWorkOrder.title}
+              propertyId={routeWorkOrder.propertyId}
+              resident={
+                routeWorkOrder.residentEmail || routeWorkOrder.residentName
+                  ? { name: routeWorkOrder.residentName?.trim() || routeWorkOrder.residentEmail || "Resident", email: routeWorkOrder.residentEmail }
+                  : null
+              }
+              vendor={commVendor ? { name: commVendor.name, email: commVendor.email, phone: commVendor.phone } : null}
+            />
+          );
+        })()
       ) : (
         <>
           {renderRecordSection("overview", {
@@ -1723,9 +1725,21 @@ export function ManagerWorkOrdersPanel({
                   ]
                 : []),
             ],
-            overviewNeeds: !routeWorkOrder.vendorName?.trim()
-              ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
-              : [],
+            overviewNeeds: [
+              ...(!routeWorkOrder.vendorName?.trim() && !routeWorkOrder.selfAssigned
+                ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet", onClick: () => setAssignSheetRow(routeWorkOrder) }]
+                : []),
+              ...(routeWorkOrder.automationStatus === "vendor_marked_done"
+                ? [
+                    {
+                      id: "approve-invoice",
+                      title: "Approve invoice",
+                      detail: formatServiceMoney((routeWorkOrder.vendorCostCents ?? 0) + (routeWorkOrder.materialsCostCents ?? 0)) || "Awaiting line items",
+                      onClick: () => (pendingServiceInvoiceId ? void approveInvoiceForRow(routeWorkOrder) : approvePay(routeWorkOrder)),
+                    },
+                  ]
+                : []),
+            ],
             overviewCards: [
               {
                 id: "request",
@@ -1759,41 +1773,6 @@ export function ManagerWorkOrdersPanel({
             ],
           })}
           {renderPhotosStrip(routeWorkOrder)}
-          <div className="space-y-3 px-3 pb-8 sm:px-4">
-            {resolveWorkOrderAssignee(routeWorkOrder) ? (
-              <p className="text-xs text-muted">
-                Assigned to{" "}
-                <span className="font-medium text-foreground">
-                  {resolveWorkOrderAssignee(routeWorkOrder)?.name}
-                </span>
-              </p>
-            ) : null}
-            {routeWorkOrder.automationStatus === "vendor_marked_done" ? (
-              <div
-                className="rounded-xl border border-border bg-accent/20 px-3 py-3"
-                data-svc-invoice
-              >
-                <p className="text-sm font-semibold text-foreground">Invoice to approve</p>
-                <p className="mt-1 text-xs text-muted">
-                  {formatServiceMoney(
-                    (routeWorkOrder.vendorCostCents ?? 0) + (routeWorkOrder.materialsCostCents ?? 0),
-                  ) || "Awaiting line items"}
-                </p>
-                {pendingServiceInvoiceId ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className="mt-3 w-full rounded-full sm:w-auto"
-                    data-attr="service-approve-invoice"
-                    disabled={approveInvoiceBusy}
-                    onClick={() => void approveInvoiceForRow(routeWorkOrder)}
-                  >
-                    {approveInvoiceBusy ? "Approving…" : "Approve invoice"}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
         </>
       );
     return (

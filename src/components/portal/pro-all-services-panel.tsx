@@ -53,6 +53,11 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
+import { ServiceCommunicationPane } from "@/components/portal/service-communication-pane";
+import { ServiceIncomingPaymentsList } from "@/components/portal/service-incoming-payments-list";
+import { buildServiceIncomingRows } from "@/lib/service-incoming-payments";
+import { readChargesForManagerResident } from "@/lib/household-charges";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -875,40 +880,41 @@ export function ManagerAllServicesPanel({
     const backHref = serviceRequestListHref(basePath, reqBucket);
     const ownContent =
       activeTab === "vendor-schedule" ? (
-        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="service-request-vendor-schedule">
+        <div className="space-y-4 px-3 pb-6 sm:px-4" data-attr="service-request-vendor-schedule">
           {detailRequest.assignee ? (
-            <p className="text-sm text-foreground">
-              Assigned to <span className="font-medium">{detailRequest.assignee.name}</span>
-            </p>
+            <RecordFactCard title="Assigned">
+              <RecordFactRow label={detailRequest.assignee.type === "vendor" ? "Vendor" : "Team"} value={detailRequest.assignee.name} />
+            </RecordFactCard>
           ) : (
             <PortalListEmptyCard title="No vendor for this service" workspaceAware={false} dataAttr="service-request-vendor-empty" />
           )}
           {detailRequest.proposedVisit ? (
-            <p className="text-sm text-foreground">
-              Proposed {new Date(detailRequest.proposedVisit.iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-            </p>
+            <RecordFactCard title="Visit">
+              <RecordFactRow
+                label="Proposed"
+                value={new Date(detailRequest.proposedVisit.iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              />
+            </RecordFactCard>
           ) : (
             <PortalListEmptyCard title="Not scheduled yet" workspaceAware={false} dataAttr="service-request-schedule-empty" />
           )}
         </div>
       ) : activeTab === "incoming-payments" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-invoice">
-          <p className="text-sm text-foreground">
-            Charges: <span className="font-medium">{managerServiceRequestPricingSummary(detailRequest)}</span>
-          </p>
-        </div>
+        <ServiceIncomingPaymentsList
+          rows={buildServiceIncomingRows({
+            charges: readChargesForManagerResident(detailRequest.residentEmail, detailRequest.managerUserId ?? null),
+            request: detailRequest,
+          })}
+        />
       ) : activeTab === "outgoing-payments" ? (
         <PortalListEmptyCard title="Nothing to pay on this service" workspaceAware={false} dataAttr="service-request-outgoing-empty" />
       ) : activeTab === "communication" ? (
-        renderRecordSection("communication", {
-          role: "manager",
-          kind: "service",
-          kindLabel: "service",
-          recordId: detailRequest.id,
-          recordLabel: detailRequest.offerName,
-          propertyId: detailRequest.propertyId,
-          contactIds: detailRequest.residentEmail ? [detailRequest.residentEmail] : undefined,
-        })
+        <ServiceCommunicationPane
+          recordId={detailRequest.id}
+          recordLabel={detailRequest.offerName}
+          propertyId={detailRequest.propertyId}
+          resident={{ name: detailRequest.residentName, email: detailRequest.residentEmail }}
+        />
       ) : (
         renderRecordSection("overview", {
           role: "manager",

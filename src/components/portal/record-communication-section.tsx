@@ -82,6 +82,7 @@ import {
   type InboxComposerAttachment,
 } from "@/lib/inbox-attachments";
 import type { RecordRef } from "@/lib/portals/record-kinds";
+import { isSelfThread, resolveCounterpartyName } from "@/lib/record-communication-counterparty";
 
 export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
 
@@ -92,6 +93,8 @@ export type RecordCommunicationSectionProps = {
   propertyId?: string;
   /** The person(s) this record's thread is naturally with (e.g. the resident on a lease, the vendor on a job). First entry is who the composer addresses. */
   contactIds?: string[];
+  /** Who the pane is WITH, by name (the resident on a service, the vendor on a job). Titles the pane; the thread's own sender never does. */
+  contactName?: string;
   /** Phone for Send via SMS when the contact is not yet a portal user. */
   contactPhone?: string;
   /** Focus the reply composer immediately — the record's "Message" header/phone action lands here with the cursor already in the field. */
@@ -179,6 +182,7 @@ export function RecordCommunicationSection({
   recordRef,
   propertyId,
   contactIds,
+  contactName,
   contactPhone,
   autoOpenCompose,
   onEnsureRecord,
@@ -268,6 +272,8 @@ export function RecordCommunicationSection({
   const mergedThreads = useMemo(
     () =>
       threads.filter((t) => {
+        // The viewer's own self-thread (addressed to themselves) is never the contact's conversation.
+        if (isSelfThread(t, senderIdentity?.email)) return false;
         if (threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef })) {
           return true;
         }
@@ -281,7 +287,7 @@ export function RecordCommunicationSection({
         if (contactPhoneKey && !t.identityFlag && t.conversationKey === contactPhoneKey) return true;
         return false;
       }),
-    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey],
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email],
   );
 
   // Replying still targets exactly one thread: prefer the one stamped with
@@ -516,7 +522,12 @@ export function RecordCommunicationSection({
     }
   }, [archiving, primaryThread, scope]);
 
-  const counterpartyName = primaryThread?.from?.trim() || activeRef.label || recipientEmail || "Contact";
+  const counterpartyName = resolveCounterpartyName({
+    contactName,
+    thread: primaryThread,
+    recordLabel: activeRef.label,
+    recipientEmail,
+  });
 
   const kindLabel = KIND_LABEL[activeRef.kind];
   const archiveButton = primaryThread ? (

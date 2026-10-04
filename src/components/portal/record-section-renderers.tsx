@@ -82,6 +82,11 @@ export type RecordSectionRendererProps = {
   /** Narrow the record's Communication to this property / these contacts when the panel knows them. */
   propertyId?: string;
   contactIds?: string[];
+  /** Who the Communication pane is with, by name. */
+  contactName?: string;
+  contactPhone?: string;
+  /** Fill the record page (the full-page pane the vendor record uses). */
+  fill?: boolean;
   /** Open the record's compose immediately — the "Message" header/phone action lands here with compose already up. */
   autoOpenCompose?: boolean;
   /** The Overview renderer's four `StatTile`s — always exactly the kind's own KPIs, never fewer or more. */
@@ -170,7 +175,7 @@ function ActivitySection({ activity }: RecordSectionRendererProps) {
  * A panel whose kind is not a `RecordKind` gets the titled empty card so the
  * rail never renders a blank section.
  */
-function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds, autoOpenCompose }: RecordSectionRendererProps) {
+function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds, contactName, contactPhone, fill, autoOpenCompose }: RecordSectionRendererProps) {
   if (!isRecordKind(kind)) {
     return (
       <PortalListEmptyCard
@@ -186,6 +191,9 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       recordRef={{ kind, id: recordId, label: recordLabel ?? kindLabel }}
       propertyId={propertyId}
       contactIds={contactIds}
+      contactName={contactName}
+      contactPhone={contactPhone}
+      fill={fill}
       autoOpenCompose={autoOpenCompose}
     />
   );
