@@ -14,6 +14,8 @@ export type ManagerApplyLinkParams = {
   /** Prospect phone for SMS apply-link prefill. */
   phone?: string;
   rentalType?: "standard" | "short_term";
+  /** The published application form the resident should get (see `send-forms.ts`). */
+  applicationFormId?: string;
 };
 
 export function buildManagerApplyUrl(origin: string, params: ManagerApplyLinkParams): string {
@@ -25,6 +27,7 @@ export function buildManagerApplyUrl(origin: string, params: ManagerApplyLinkPar
     bundleId: params.bundleId?.trim() || undefined,
     phone: params.phone?.trim() || undefined,
     rentalType: params.rentalType,
+    applicationFormId: params.applicationFormId,
   });
   return `${base}${path}`;
 }

@@ -39,6 +39,7 @@ import {
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue, propertyAllowsShortTermRental } from "@/lib/rental-application/data";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { applicationFormChoicesForProperty, applicationFormIdForLink, defaultApplicationFormId } from "@/lib/send-forms";
 import { normalizeManagerSmsConversationsPayload } from "@/lib/manager-sms-messages";
 import {
   portalMessageChannelsFromSelection,
@@ -120,6 +121,7 @@ export function ShareLeadLinkModal({
   properties,
   preselectedPropertyId,
   preselectedPropertyIds,
+  initialRecipient,
 }: {
   open: boolean;
   onClose: () => void;
@@ -134,12 +136,16 @@ export function ShareLeadLinkModal({
    * precedence over `preselectedPropertyId` when both are supplied.
    */
   preselectedPropertyIds?: string[];
+  /** A resident the manager is sending to from their record: name, email and phone start filled in. */
+  initialRecipient?: { name?: string; email?: string; phone?: string };
 }) {
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
   const multiEnabled = properties.length > 1;
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [roomChoice, setRoomChoice] = useState("");
+  /** The published application form this link hands out; "" = the property's default form. */
+  const [applicationFormId, setApplicationFormId] = useState("");
   const [applyRentalTypes, setApplyRentalTypes] = useState<string[]>(["standard"]);
   const [prospectName, setProspectName] = useState("");
   const [prospectEmail, setProspectEmail] = useState("");
@@ -179,15 +185,18 @@ export function ShareLeadLinkModal({
       setPropertyIds(initialId ? [initialId] : []);
     }
     setRoomChoice("");
+    setApplicationFormId("");
     setApplyRentalTypes(["standard"]);
-    setProspectName("");
-    setProspectEmail("");
-    setProspectPhone("");
+    setProspectName(initialRecipient?.name?.trim() ?? "");
+    setProspectEmail(initialRecipient?.email?.trim() ?? "");
+    setProspectPhone(initialRecipient?.phone?.trim() ?? "");
     setSendVia(["email"]);
     setNote("");
     setIntro(null);
     setStep(0);
     setSendBusy(false);
+    // Reset only when the modal opens; the recipient is read at that moment (see `wasOpenRef`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, preselectedPropertyId, preselectedPropertyIds, properties]);
 
   useEffect(() => {
@@ -263,6 +272,21 @@ export function ShareLeadLinkModal({
     return getRoomOptionsForProperty(singlePropertyId, { includeUnavailable: true }).filter((o) => o.value);
   }, [kind, singlePropertyId]);
 
+  /** The property's published application forms; a picker shows only when there is a real choice. */
+  const applicationFormChoices = useMemo(() => {
+    if (kind !== "apply" || !singlePropertyId) return [];
+    const submission = getPropertyById(singlePropertyId)?.listingSubmission;
+    return applicationFormChoicesForProperty(submission && submission.v === 1 ? submission : null);
+  }, [kind, singlePropertyId]);
+  const selectedApplicationFormId = applicationFormChoices.some((choice) => choice.id === applicationFormId)
+    ? applicationFormId
+    : defaultApplicationFormId(applicationFormChoices);
+  /** Carried on the link only when it is not the default form. */
+  const linkApplicationFormId = useMemo(() => {
+    const submission = singlePropertyId ? getPropertyById(singlePropertyId)?.listingSubmission : null;
+    return applicationFormIdForLink(submission && submission.v === 1 ? submission : null, selectedApplicationFormId);
+  }, [singlePropertyId, selectedApplicationFormId]);
+
   const shortTermApplyAvailable = useMemo(() => {
     if (kind !== "apply" || propertyIds.length === 0) return false;
     return propertyIds.every((id) => propertyAllowsShortTermRental(id));
@@ -324,6 +348,7 @@ export function ShareLeadLinkModal({
       listingRoomId: listingRoomId || undefined,
       roomName: roomName || undefined,
       rentalType: applyLinkRentalType(effectiveApplyRentalTypes),
+      applicationFormId: linkApplicationFormId,
     });
   }, [
     kind,
@@ -336,6 +361,7 @@ export function ShareLeadLinkModal({
     roomChoice,
     roomOptions,
     effectiveApplyRentalTypes,
+    linkApplicationFormId,
     prospectEmail,
     prospectName,
     prospectPhone,
@@ -491,6 +517,7 @@ export function ShareLeadLinkModal({
           note: note.trim() || undefined,
           listingIntro: kind === "listing" ? listingIntro : undefined,
           rentalType: kind === "apply" ? applyLinkRentalType(effectiveApplyRentalTypes) : undefined,
+          applicationFormId: kind === "apply" && !isMultiApply ? selectedApplicationFormId || undefined : undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
@@ -644,6 +671,7 @@ export function ShareLeadLinkModal({
                     onChange={(next) => {
                       setPropertyIds(next ? [next] : []);
                       setRoomChoice("");
+                      setApplicationFormId("");
                     }}
                     options={properties.map((p) => ({ value: p.id, label: normalizeSharePropertyLabel(p.label) }))}
                     placeholder="Select property…"
@@ -659,6 +687,17 @@ export function ShareLeadLinkModal({
                       onChange={(next) => setApplyRentalTypes([next])}
                       options={APPLY_RENTAL_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                       dataAttr="share-lead-application-type"
+                    />
+                  </div>
+                ) : null}
+                {applicationFormChoices.length > 1 ? (
+                  <div className="mt-3">
+                    <WizardSelect
+                      label="Application form"
+                      value={selectedApplicationFormId}
+                      onChange={setApplicationFormId}
+                      options={applicationFormChoices.map((choice) => ({ value: choice.id, label: choice.label }))}
+                      dataAttr="share-lead-application-form"
                     />
                   </div>
                 ) : null}
@@ -740,6 +779,9 @@ export function ShareLeadLinkModal({
             dataAttr="share-lead-review-home"
             facts={[
               { label: "Property", value: propertyTitle || "Not set", missing: propertyIds.length === 0 },
+              ...(applicationFormChoices.length > 1
+                ? [{ label: "Application form", value: applicationFormChoices.find((choice) => choice.id === selectedApplicationFormId)?.label ?? "Default" }]
+                : []),
               { label: linkLabel, value: linkUrl ? "Ready" : "Not set", missing: !linkUrl },
             ]}
           />

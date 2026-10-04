@@ -86,7 +86,9 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { requestResidentWelcomeEmail } from "@/lib/application-review";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { jointRoommateApplications, linkJointRoomLeases } from "@/lib/lease-joint-room.client";
-import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
+import { leaseFeeForSend, leaseFormChoicesForApplication } from "@/lib/send-forms";
+import { reinstateLeaseFeeForLease, waiveLeaseFeeForLease } from "@/lib/lease-fee-waiver.client";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { sharedRoomCardFor } from "@/lib/shared-room-card";
@@ -231,23 +233,24 @@ function LeaseSendSheetBody({
   const jointMates = useMemo(() => (app ? jointRoommateApplications(app, apps) : []), [app, apps]);
   const jointCard = useMemo(() => (app && jointMates.length > 0 ? sharedRoomCardFor(app, apps, null) : null), [app, apps, jointMates]);
 
-  /* The property's lease formats: a lease type picker appears only when there is a real choice. */
+  /* The property's lease forms: the lease the application maps to is first (the default); a picker
+     appears only when there is a real choice. */
   const leaseChoices = useMemo(() => {
     void tick;
     if (!lease?.propertyId) return [];
     const property = getPropertyById(lease.propertyId);
     if (!property?.listingSubmission || property.listingSubmission.v !== 1) return [];
     try {
-      return listLeaseTemplateGenerateChoices(
+      return leaseFormChoicesForApplication(
         normalizeManagerListingSubmissionV1(property.listingSubmission),
-        leaseApplicationSnapshotForRow(lease) ?? {},
+        { ...(leaseApplicationSnapshotForRow(lease) ?? {}), applicationTemplateId: app?.application?.applicationTemplateId ?? leaseApplicationSnapshotForRow(lease)?.applicationTemplateId },
         lease.leaseKind === "joint_bundle" ? "joint_bundle" : "individual",
-      );
+      ).choices;
     } catch {
       return [];
     }
-  }, [lease, tick]);
-  const selectedChoiceId = leaseChoices.find((c) => c.template.id === lease?.leaseGenerationTemplateId)?.id ?? leaseChoices[0]?.id ?? "";
+  }, [lease, app, tick]);
+  const selectedChoiceId = leaseChoices.find((c) => c.id === lease?.leaseGenerationTemplateId)?.id ?? leaseChoices[0]?.id ?? "";
 
   /* The four terms, seeded from the application once. */
   useEffect(() => {
@@ -353,7 +356,7 @@ function LeaseSendSheetBody({
       setWorking("Preparing the lease…");
       setError(null);
       try {
-        const made = generateLeaseHtmlForRow(lease.id, managerUserId, { templateId: choice.template.id, persist: false });
+        const made = generateLeaseHtmlForRow(lease.id, managerUserId, { templateId: choice.id, persist: false });
         if (!made.ok) {
           setError(made.error);
           return;
@@ -441,6 +444,47 @@ function LeaseSendSheetBody({
       return [];
     }
   }, [app, managerUserId, tick, savedTerms]);
+
+  /* The lease fee and the one-resident waiver (the existing per-lease waiver route does the audited work). */
+  const feeInfo = useMemo(() => {
+    void tick;
+    const fresh = app ? readManagerApplicationRows().find((r) => r.id === app.id) ?? app : null;
+    if (!fresh) return { fee: 0, waived: false };
+    try {
+      return leaseFeeForSend(fresh, managerUserId);
+    } catch {
+      return { fee: 0, waived: false };
+    }
+  }, [app, managerUserId, tick, savedTerms]);
+  const [waiveBusy, setWaiveBusy] = useState(false);
+  const toggleLeaseFeeWaiver = async (next: boolean) => {
+    if (!lease || waiveBusy) return;
+    setWaiveBusy(true);
+    setError(null);
+    try {
+      // The waiver route loads the lease from the server, so the draft has to be there first.
+      const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
+      if (row) {
+        const saved = await persistLeaseRowToServerAwait(row);
+        if (!saved.ok) {
+          setError(saved.error);
+          return;
+        }
+      }
+      const result = next ? await waiveLeaseFeeForLease(lease.id, "Waived when sending the lease") : await reinstateLeaseFeeForLease(lease.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => undefined);
+      // The document and the schedule read the waiver: rebuild the PropLane lease so neither shows the fee.
+      if (source === "lease" && !docIsPdf) await generateDocument(lease.id);
+      setConfirmed(false);
+      bump();
+    } finally {
+      setWaiveBusy(false);
+    }
+  };
 
   /* ───────────── the PDF beside the terms ───────────── */
   const pdfRows = useMemo(
@@ -721,7 +765,7 @@ function LeaseSendSheetBody({
                 <div className="min-w-0 space-y-4">
                   {source === "lease" && !docIsPdf && leaseChoices.length > 1 ? (
                     <FieldSingleSelect
-                      label="Lease type"
+                      label="Lease form"
                       value={selectedChoiceId}
                       onChange={(next) => void chooseLeaseType(next)}
                       options={leaseChoices.map((c) => ({ value: c.id, label: c.label }))}
@@ -819,6 +863,24 @@ function LeaseSendSheetBody({
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : null}
+
+                  {feeInfo.fee > 0 || feeInfo.waived ? (
+                    <div
+                      className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border px-4 py-1.5 text-sm"
+                      data-attr="lease-send-fee"
+                    >
+                      <span className="min-w-0 font-semibold text-foreground">
+                        Waive the lease fee{feeInfo.fee > 0 ? ` · ${money(feeInfo.fee)}` : ""}
+                      </span>
+                      <PortalSettingsToggle
+                        checked={feeInfo.waived}
+                        onChange={(next) => void toggleLeaseFeeWaiver(next)}
+                        label="Waive the lease fee"
+                        disabled={busy || waiveBusy || Boolean(working)}
+                        dataAttr="lease-send-waive-fee"
+                      />
                     </div>
                   ) : null}
 

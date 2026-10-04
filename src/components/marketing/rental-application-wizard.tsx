@@ -111,6 +111,8 @@ import {
 } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing";
+import { applicationPinForLinkedForm } from "@/lib/send-forms";
+import { APPLY_FORM_PARAM } from "@/lib/rental-application/apply-from-listing";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, hasLeaseChoiceError, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
@@ -402,6 +404,8 @@ function RentalApplicationWizardInner({
   linkedRentalType,
 }: RentalApplicationWizardProps) {
   const searchParams = useSearchParams();
+  // "Send application" can name the form the resident gets; that pick outranks the lease type's form.
+  const linkedFormIdRef = useRef(searchParams.get(APPLY_FORM_PARAM)?.trim() || "");
   const feeCheckoutReturn = searchParams.get("fee_checkout");
   // A Stripe reload has identity only. Keep all draft writes paused until the
   // server confirms promotion; failures retain these params for a safe retry.
@@ -586,7 +590,8 @@ function RentalApplicationWizardInner({
     if (!submission || submission.v !== 1) return;
     // "Which lease are you applying for?" picks the form: the application mapped to the chosen lease
     // type wins; otherwise the stay kind's default published form.
-    const leasePin = applicationPinForStayTerm(submission, form.leaseTerm);
+    const linkedPin = applicationPinForLinkedForm(submission, linkedFormIdRef.current);
+    const leasePin = linkedPin ?? applicationPinForStayTerm(submission, form.leaseTerm);
     const resolved = leasePin
       ? { templateId: leasePin.templateId, templateVersion: leasePin.templateVersion }
       : applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), null);
@@ -1561,7 +1566,8 @@ function RentalApplicationWizardInner({
         const leasePin = sub && sub.v === 1 && String(p.leaseTerm ?? "").trim()
           ? applicationPinForStayTerm(sub, String(p.leaseTerm))
           : null;
-        if (leasePin && leasePin.templateId !== merged.applicationTemplateId) {
+        const formChosenByLink = Boolean(linkedFormIdRef.current) && merged.applicationTemplateId === linkedFormIdRef.current;
+        if (!formChosenByLink && leasePin && leasePin.templateId !== merged.applicationTemplateId) {
           merged.applicationTemplateId = leasePin.templateId;
           merged.applicationTemplateVersion = leasePin.templateVersion;
           merged.customFieldAnswers = [];

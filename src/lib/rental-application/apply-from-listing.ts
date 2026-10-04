@@ -19,7 +19,12 @@ export type RentalApplyFromListingParams = {
   rentalType?: "standard" | "short_term";
   /** Organizer application id for a joining roommate (`groupLeaderAppId` query param). */
   groupLeaderAppId?: string;
+  /** A specific published application form the manager chose to send (`form` query param). */
+  applicationFormId?: string;
 };
+
+/** Query param that carries the application form a manager chose when sending the link. */
+export const APPLY_FORM_PARAM = "form";
 
 export function buildRentalApplyHref(p: RentalApplyFromListingParams): string {
   const q = new URLSearchParams();
@@ -32,5 +37,6 @@ export function buildRentalApplyHref(p: RentalApplyFromListingParams): string {
   if (p.phone?.trim()) q.set("phone", p.phone.trim());
   if (p.rentalType === "short_term") q.set("rentalType", "short_term");
   if (p.groupLeaderAppId?.trim()) q.set("groupLeaderAppId", p.groupLeaderAppId.trim());
+  if (p.applicationFormId?.trim()) q.set(APPLY_FORM_PARAM, p.applicationFormId.trim());
   return `/rent/apply?${q.toString()}`;
 }
