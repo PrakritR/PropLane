@@ -8,7 +8,9 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { BarChart3, Table2 } from "lucide-react";
-import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
+import { FilterChipsField } from "@/components/portal/filter-field-lists";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
   CASHFLOW_CHART_RANGE_MONTHS,
@@ -147,24 +149,54 @@ function shortUsd(amount: number): string {
 }
 
 type NormalizedPoint = { key: string; label: string; revenue: number; expense: number; profit: number };
+/** A month with its running totals from the first month of the selected period. */
+type RunningPoint = NormalizedPoint & { cumRev: number; cumExp: number; cumNet: number; netMonth: number };
 
 const CHART_H = 300;
 const PAD = { l: 56, r: 12, t: 12, b: 30 };
 const DEFAULT_WIDTH = 900;
 
-/** One bar with 4px rounded tops, anchored to the baseline (grows down for a negative value). */
-function barPath(x: number, w: number, y0: number, y1: number): string {
-  const h = Math.abs(y0 - y1);
-  if (h < 0.5) return "";
-  const r = Math.min(4, h, w / 2);
-  const d = y1 <= y0 ? 1 : -1;
-  return `M${x},${y0} L${x},${y1 + d * r} Q${x},${y1} ${x + r},${y1} L${x + w - r},${y1} Q${x + w},${y1} ${x + w},${y1 + d * r} L${x + w},${y0} Z`;
+const PERIOD_OPTIONS: { value: string; label: string }[] = [
+  { value: "6", label: "6 months" },
+  { value: "12", label: "12 months" },
+  { value: "ytd", label: "Year to date" },
+];
+const SHOW_OPTIONS: { value: CashflowSeries; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "rev", label: "Revenue" },
+  { value: "exp", label: "Expenses" },
+  { value: "net", label: "Profit" },
+];
+
+/** The Filter popover body: Period and Show, applied when the popover closes like every list filter. */
+function CashflowFilterFields({ range, onRangeChange, series, onSeriesChange, defaultRange }: {
+  range: string; onRangeChange: (next: string) => void;
+  series: CashflowSeries; onSeriesChange: (next: CashflowSeries) => void;
+  defaultRange: string;
+}) {
+  const [draftRange, setDraftRange] = usePortalFilterDraft<string>(range, onRangeChange, defaultRange);
+  const [draftSeries, setDraftSeries] = usePortalFilterDraft<CashflowSeries>(series, onSeriesChange, "all");
+  return <>
+    <FilterChipsField label="Period" value={draftRange} options={PERIOD_OPTIONS} onChange={setDraftRange} dataAttr="cashflow-filter-period" />
+    <FilterChipsField<CashflowSeries> label="Show" value={draftSeries} options={SHOW_OPTIONS} onChange={setDraftSeries} dataAttr="cashflow-filter-show" />
+  </>;
 }
 
+function linePath(list: RunningPoint[], x: (i: number) => number, y: (v: number) => number, pick: (p: RunningPoint) => number): string {
+  return list.map((p, i) => `${i ? "L" : "M"}${x(i)},${y(pick(p))}`).join(" ");
+}
+
+const SERIES_PICK: Record<SeriesKey, (p: RunningPoint) => number> = {
+  rev: p => p.cumRev,
+  exp: p => p.cumExp,
+  net: p => p.cumNet,
+};
+
 /**
- * Cash flow: revenue and expense bars with net profit as a line, all on ONE dollar axis.
- * KPI tiles total the selected range (or the hovered month); a tile or the series
- * switch isolates one series and the axis refits to what is shown.
+ * Cash flow as a running total: revenue and expenses climb (or stay flat) from the first month of
+ * the selected period, net profit is the gap between them, all on ONE dollar axis. KPI tiles total
+ * the period (or the hovered month); a tile or the Filter popover isolates one series and the axis
+ * refits to what is shown.
  */
 export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", className = "", defaultRangeMonths = 6, hideSummary = false, onMonthSelect }: {
   points: MonthlyCashflowPoint[] | MonthlyProfitPoint[];
@@ -174,7 +206,8 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
   hideSummary?: boolean;
   onMonthSelect?: (month: string) => void;
 }) {
-  const [range, setRangeState] = useState<string>(String(defaultRangeMonths));
+  const defaultRange = String(defaultRangeMonths);
+  const [range, setRangeState] = useState<string>(defaultRange);
   const [series, setSeries] = useState<CashflowSeries>("all");
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -183,13 +216,28 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
 
   const all = useMemo<NormalizedPoint[]>(() => rawPoints.map(p => "revenue" in p ? p : { ...p, revenue: 0, expense: 0 }), [rawPoints]);
   const latestYear = all.at(-1)?.key.slice(0, 4);
-  // The ONE month set: bars, axis, tooltip and KPI totals all read `points`.
+  // The ONE month set: lines, axis, tooltip and KPI totals all read `points`.
   const startIdx = range === "ytd"
     ? Math.max(0, all.findIndex(p => p.key.startsWith(latestYear ?? "")))
     : Math.max(0, all.length - Number(range));
   const points = useMemo(() => all.slice(startIdx), [all, startIdx]);
   const priorPoints = points.length > 0 && startIdx - points.length >= 0 ? all.slice(startIdx - points.length, startIdx) : null;
   const hovered = hover !== null && hover < points.length ? hover : null;
+
+  // Running totals from the start of the selected period. Net = running revenue − running expenses
+  // (a profit-only series, which carries no revenue or expense, falls back to its running profit).
+  const running = useMemo<RunningPoint[]>(() => {
+    const hasSplit = points.some(p => p.revenue !== 0 || p.expense !== 0);
+    let cumRev = 0;
+    let cumExp = 0;
+    let cumProfit = 0;
+    return points.map(p => {
+      cumRev += p.revenue;
+      cumExp += p.expense;
+      cumProfit += p.profit;
+      return { ...p, cumRev, cumExp, cumNet: hasSplit ? cumRev - cumExp : cumProfit, netMonth: hasSplit ? p.revenue - p.expense : p.profit };
+    });
+  }, [points]);
 
   useEffect(() => {
     const el = svgRef.current;
@@ -210,9 +258,12 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
   };
 
   const show = { rev: series === "all" || series === "rev", exp: series === "all" || series === "exp", net: series === "all" || series === "net" };
+  const visibleKeys = (["rev", "exp", "net"] as const).filter(k => show[k]);
   const sum = (list: NormalizedPoint[]) => list.reduce((t, p) => ({ rev: t.rev + p.revenue, exp: t.exp + p.expense, net: t.net + p.profit }), { rev: 0, exp: 0, net: 0 });
   const totals = sum(hovered !== null ? [points[hovered]] : points);
-  const priorTotals = priorPoints ? sum(priorPoints) : null;
+  // "vs prior period" only when there was an earlier, equal-length period with any activity.
+  const priorHasActivity = priorPoints?.some(p => p.revenue !== 0 || p.expense !== 0) ?? false;
+  const priorTotals = priorPoints && priorHasActivity ? sum(priorPoints) : null;
   const rangeText = range === "ytd" ? "Year to date" : `Last ${range} months`;
   const margin = totals.rev ? totals.net / totals.rev * 100 : null;
   const hoveredLabel = hovered !== null ? monthLong(points[hovered].key, points[hovered].label) : null;
@@ -223,13 +274,9 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
     { id: "margin", label: "Margin", value: margin === null ? "—" : `${margin.toFixed(1)}%`, delta: rangeText },
   ];
 
-  // One dollar axis shared by every visible series; refits to what is shown.
+  // One dollar axis shared by every visible series; refits to what is shown (net may dip below $0).
   const values = [0];
-  for (const p of points) {
-    if (show.rev) values.push(p.revenue);
-    if (show.exp) values.push(p.expense);
-    if (show.net) values.push(p.profit);
-  }
+  for (const p of running) for (const k of visibleKeys) values.push(SERIES_PICK[k](p));
   let hi = Math.max(...values);
   let lo = Math.min(...values);
   if (hi <= 0) hi = 1;
@@ -241,9 +288,9 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
   const colW = points.length ? (width - PAD.l - PAD.r) / points.length : 0;
   const cx = (i: number) => PAD.l + colW * i + colW / 2;
   const ticks = [hi, (hi + Math.max(lo, 0)) / 2, 0, ...(lo < 0 ? [lo] : [])];
-  const both = show.rev && show.exp;
-  const barW = Math.min(18, colW * (both ? 0.28 : 0.4));
   const labelStep = colW < 30 ? 2 : 1;
+  const last = running.length - 1;
+  const areaKeys = visibleKeys.filter((k): k is "rev" | "exp" => k !== "net");
 
   const indexFromPointer = (clientX: number): number | null => {
     const svg = svgRef.current;
@@ -254,39 +301,34 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
     return i < 0 || i >= points.length ? null : i;
   };
 
+  const TIP_W = 208;
   const tipLeft = hovered === null ? 0 : (() => {
     const left = cx(hovered) + colW / 2 + 8;
-    return left > width - 170 ? cx(hovered) - colW / 2 - 170 : left;
+    return left > width - TIP_W - 8 ? cx(hovered) - colW / 2 - TIP_W : left;
   })();
-  const monthAria = (p: NormalizedPoint) => `${monthLong(p.key, p.label)}: Revenue ${formatUsd(p.revenue)}, Expenses ${formatUsd(p.expense)}, Net profit ${formatUsd(p.profit)}`;
+  const monthAria = (p: RunningPoint) => `${monthLong(p.key, p.label)}: Running revenue ${formatUsd(p.cumRev)}, running expenses ${formatUsd(p.cumExp)}, running net profit ${formatUsd(p.cumNet)}`;
+  const filterActive = portalFilterActiveCount([series !== "all", range !== defaultRange]);
+  const tipRows = hovered === null ? [] : ([
+    ["rev", "Revenue", running[hovered].cumRev, running[hovered].revenue],
+    ["exp", "Expenses", running[hovered].cumExp, running[hovered].expense],
+    ["net", "Net profit", running[hovered].cumNet, running[hovered].netMonth],
+  ] as const).filter(([k]) => show[k]);
 
   return <section className={cn("rounded-xl border border-border bg-card p-4", className)} data-attr="monthly-profit-chart">
-    <header className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <div className="flex flex-wrap items-center gap-3">
-        <PortalSegmentedControl<CashflowSeries>
-          ariaLabel="Chart series"
-          size="sm"
-          value={series}
-          onChange={setSeries}
-          options={[
-            { id: "all", label: "All" },
-            { id: "rev", label: "Revenue" },
-            { id: "exp", label: "Expenses" },
-            { id: "net", label: "Net profit" },
-          ]}
-        />
-        <PortalSegmentedControl<string>
-          ariaLabel="Chart time range"
-          size="sm"
-          value={range}
-          onChange={setRange}
-          options={[
-            { id: "6", label: "6M" },
-            { id: "12", label: "12M" },
-            { id: "ytd", label: "YTD" },
-          ]}
-        />
+    <header className="flex items-center justify-between gap-3">
+      <h2 className="min-w-0 truncate text-base font-semibold">{title}<span className="ml-2 text-sm font-medium text-muted" data-attr="cashflow-period">{rangeText}</span></h2>
+      <div className="flex shrink-0 items-center gap-1">
+        <PortalFilterSortSheet
+          activeCount={filterActive}
+          compactPanel
+          dropdownAlign="end"
+          filterFieldCount={2}
+          mobileFlushBody
+          onReset={() => { setRange(defaultRange); setSeries("all"); }}
+          dataAttr="cashflow-filter-open"
+        >
+          <CashflowFilterFields range={range} onRangeChange={setRange} series={series} onSeriesChange={setSeries} defaultRange={defaultRange} />
+        </PortalFilterSortSheet>
         <PortalIconAction icon={table ? BarChart3 : Table2} label={table ? "Show chart" : "Show table"} data-attr="cashflow-table-toggle" onClick={() => setTable(!table)} />
       </div>
     </header>
@@ -310,7 +352,7 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
         height={CHART_H}
         viewBox={`0 0 ${width} ${CHART_H}`}
         role="group"
-        aria-label="Monthly revenue, expenses and net profit"
+        aria-label="Running total of revenue, expenses and net profit"
         className="block select-none"
         onMouseMove={e => { const i = indexFromPointer(e.clientX); if (i !== hovered) setHover(i); }}
         onMouseLeave={() => setHover(null)}
@@ -319,17 +361,14 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
           <line x1={PAD.l} x2={width - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--color-border)" strokeWidth={1} strokeDasharray={t === 0 ? undefined : "2 4"} />
           <text x={PAD.l - 8} y={y(t) + 4} textAnchor="end" fontSize={11} fill="var(--color-muted)">{shortUsd(t)}</text>
         </g>)}
-        {points.map((p, i) => <g key={p.key}>
-          {hovered === i ? <rect x={cx(i) - colW / 2 + 2} y={PAD.t} width={Math.max(0, colW - 4)} height={plotH} rx={8} fill="var(--color-muted)" fillOpacity={0.1} /> : null}
-          {show.rev ? <path d={barPath(both ? cx(i) - barW - 1 : cx(i) - barW / 2, barW, y(0), y(p.revenue))} fill={SERIES_COLOR.rev} data-series="rev" /> : null}
-          {show.exp ? <path d={barPath(both ? cx(i) + 1 : cx(i) - barW / 2, barW, y(0), y(p.expense))} fill={SERIES_COLOR.exp} data-series="exp" /> : null}
-          {(points.length - 1 - i) % labelStep === 0 ? <text x={cx(i)} y={CHART_H - 10} textAnchor="middle" fontSize={11.5} fill="var(--color-muted)">{p.label}</text> : null}
-        </g>)}
-        {show.net ? <g>
-          <path d={points.map((p, i) => `${i ? "L" : "M"}${cx(i)},${y(p.profit)}`).join(" ")} fill="none" stroke={SERIES_COLOR.net} strokeWidth={2} data-series="net" />
-          {points.map((p, i) => <circle key={p.key} cx={cx(i)} cy={y(p.profit)} r={4} fill={SERIES_COLOR.net} stroke="var(--color-card)" strokeWidth={2} data-series="net-dot" />)}
-        </g> : null}
-        {points.map((p, i) => <rect
+        {running.map((p, i) => (points.length - 1 - i) % labelStep === 0 ? <text key={p.key} x={cx(i)} y={CHART_H - 10} textAnchor="middle" fontSize={11.5} fill="var(--color-muted)" aria-hidden="true">{p.label}</text> : null)}
+        {hovered !== null ? <line x1={cx(hovered)} x2={cx(hovered)} y1={PAD.t} y2={PAD.t + plotH} stroke="var(--color-muted)" strokeWidth={1} strokeDasharray="3 3" data-attr="cashflow-guide" /> : null}
+        {areaKeys.map(k => <path key={`area-${k}`} d={`${linePath(running, cx, y, SERIES_PICK[k])} L${cx(last)},${y(0)} L${cx(0)},${y(0)} Z`} fill={SERIES_COLOR[k]} fillOpacity={0.1} stroke="none" data-series={`${k}-area`} />)}
+        {areaKeys.map(k => <path key={`line-${k}`} d={linePath(running, cx, y, SERIES_PICK[k])} fill="none" stroke={SERIES_COLOR[k]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" data-series={k} />)}
+        {show.net ? <path d={linePath(running, cx, y, SERIES_PICK.net)} fill="none" stroke={SERIES_COLOR.net} strokeWidth={2.5} strokeDasharray="6 5" strokeLinejoin="round" data-series="net" /> : null}
+        {visibleKeys.map(k => <circle key={`end-${k}`} cx={cx(last)} cy={y(SERIES_PICK[k](running[last]))} r={4.5} fill={SERIES_COLOR[k]} stroke="var(--color-card)" strokeWidth={2} data-series={`${k}-dot`} />)}
+        {hovered !== null && hovered !== last ? visibleKeys.map(k => <circle key={`hover-${k}`} cx={cx(hovered)} cy={y(SERIES_PICK[k](running[hovered]))} r={4.5} fill={SERIES_COLOR[k]} stroke="var(--color-card)" strokeWidth={2} data-series={`${k}-hover-dot`} />) : null}
+        {running.map((p, i) => <rect
           key={`hit-${p.key}`}
           x={cx(i) - colW / 2}
           y={PAD.t}
@@ -346,10 +385,13 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
           onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(p.key); } }}
         />)}
       </svg>
-      {hovered !== null ? <div className="pointer-events-none absolute top-5 z-10 w-40 rounded-lg border border-border bg-card p-2 text-xs shadow-[var(--shadow-sm)]" style={{ left: tipLeft }} data-attr="cashflow-tooltip">
-        <div className="mb-1 font-semibold text-foreground">{hoveredLabel}</div>
-        {([["rev", "Revenue", points[hovered].revenue], ["exp", "Expenses", points[hovered].expense], ["net", "Net profit", points[hovered].profit]] as const).filter(([k]) => show[k]).map(([k, label, value]) => <div key={k} className="flex items-center gap-1.5">
-          <span className="size-2 rounded-sm" style={{ background: SERIES_COLOR[k] }} aria-hidden /><span className="flex-1 text-muted">{label}</span><span className="tabular-nums text-foreground">{formatUsd(value)}</span>
+      {hovered !== null ? <div className="pointer-events-none absolute top-5 z-10 rounded-lg border border-border bg-card p-2 text-xs shadow-[var(--shadow-sm)]" style={{ left: tipLeft, width: TIP_W }} data-attr="cashflow-tooltip">
+        <div className="mb-1 font-semibold text-foreground">{hoveredLabel} · running total</div>
+        {tipRows.map(([k, label, total, month]) => <div key={k} className="mb-1 last:mb-0">
+          <div className="flex items-center gap-1.5">
+            <span className="size-2 rounded-sm" style={{ background: SERIES_COLOR[k] }} aria-hidden /><span className="flex-1 text-muted">{label}</span><span className="tabular-nums text-foreground">{formatUsd(total)}</span>
+          </div>
+          <div className="pl-3.5 tabular-nums text-muted" data-attr={`cashflow-tooltip-month-${k}`}>{signedUsd(month)} this month</div>
         </div>)}
       </div> : null}
     </div>}
