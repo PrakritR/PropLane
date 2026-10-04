@@ -53,6 +53,7 @@ import {
 } from "@/lib/manager-listing-draft-autosave";
 import { track } from "@/lib/analytics/track-client";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
+import { submissionWithDefaultLeasingSetup } from "@/lib/leasing-quick-add";
 import { applyWorkspaceDefaultsOnPublish } from "@/lib/property-pricing-publish";
 import {
   normalizeWorkspacePricingDefaults,
@@ -89,7 +90,12 @@ export function submissionFromAddProperty(result: AddPropertyResult): ManagerLis
   // The sheet asks bedrooms only; Basics owns the bathroom count. One bathroom
   // card from the start means the Rooms step never opens on "Add a bathroom first".
   const withBaths = applyListingBathroomSlots(withRooms.ok ? withRooms.sub : seeded);
-  return normalizeManagerListingSubmissionV1(withBaths.ok ? withBaths.sub : withRooms.ok ? withRooms.sub : seeded);
+  // A new property starts with the leasing setup the product recommends: Long-term application -> Long-term
+  // lease, Short-term application -> Short-term lease, the Co-signer application -> no lease, and a Move-in
+  // checklist for every lease type. Move-in forms still send only after the manager saves the property.
+  return submissionWithDefaultLeasingSetup(
+    normalizeManagerListingSubmissionV1(withBaths.ok ? withBaths.sub : withRooms.ok ? withRooms.sub : seeded),
+  );
 }
 
 export function ListingWizardV2({
@@ -169,7 +175,10 @@ export function ListingWizardV2({
   // preamble. `createDefaultListingSubmission` already carries one room, so the
   // Rooms step has something to show the moment the manager reaches it.
   const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() => {
-    const loaded = normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission());
+    // A brand-new listing (no draft, no saved record) starts with the recommended leasing setup.
+    const loaded = normalizeManagerListingSubmissionV1(
+      initialSubmission ?? submissionWithDefaultLeasingSetup(createDefaultListingSubmission()),
+    );
     // A listing saved while the Pricing step blanked a room ticked "Same as
     // default room" holds $0 rent on that room although the card drew $1,050.
     // Fill such followers from the Default room once, on open; the pre-sync

@@ -1251,7 +1251,7 @@ export function FloatingLabelField({
         <label
           htmlFor={id}
           className={cn(
-            "block text-[10px] font-bold uppercase tracking-[0.08em] transition-all",
+            "block text-[11.5px] font-bold transition-all",
             error ? "text-rose-600" : "text-muted",
             floated ? "mb-0.5 h-auto opacity-100" : "h-0 opacity-0",
           )}

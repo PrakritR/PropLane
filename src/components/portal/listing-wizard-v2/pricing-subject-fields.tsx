@@ -21,6 +21,7 @@ import { FeeRows, ProrateRows, type DayRate } from "@/components/portal/listing-
 import { FactRow, MoneyInput } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { templateFeeDefaults } from "@/lib/form-template-fees";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import { MONTH_TO_MONTH_PRICING_TERM } from "@/lib/pricing-lease-options";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -74,6 +75,7 @@ export function PricingSubjectFields({
   const quoteTerm = listingPricingTabToLeaseTerm(term) ?? LONG_TERM_LEASE_TERM;
   const isStay = isStayLeaseTerm(quoteTerm);
   const isBaseLong = quoteTerm === LONG_TERM_LEASE_TERM;
+  const isMonthToMonth = quoteTerm === MONTH_TO_MONTH_PRICING_TERM;
   const { standardFees, feeScope, prorate } = adapter;
   const money = (label: string, field: PricingMoneyField) => (
     <FactRow label={label}>
@@ -86,14 +88,20 @@ export function PricingSubjectFields({
       count={1}
       row={standardFees.row}
       onPatch={standardFees.onPatch}
-      showMonthToMonth={!isStay && visibility.monthToMonthSurcharge}
-      showCustomStart={!isStay && visibility.customStartSurcharge}
+      // Each surcharge sits on the option it belongs to: Month-to-month on its own tab, Custom start on the
+      // Long-term tab (custom dates are an option of the long-term lease). Short-term has neither.
+      showMonthToMonth={isMonthToMonth && visibility.monthToMonthSurcharge}
+      showCustomStart={isBaseLong && visibility.customStartSurcharge}
       scope={isStay ? "short" : "long"}
       storage={standardFees.storage}
       inheritedRow={standardFees.inheritedRow}
       templateDefaults={templateFeeDefaults(draft, quoteTerm)}
     />
   );
+  if (isMonthToMonth) {
+    // Month-to-month follows the Long-term rent, utilities and deposit; its tab holds its own surcharge and fees.
+    return <>{standard}</>;
+  }
   if (isStay) {
     return (
       <>

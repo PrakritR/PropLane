@@ -4,8 +4,8 @@
  *
  *  - Long-term (always: the base the others follow),
  *  - Short-term, when the property offers stays,
- *  - each custom lease by name, when that lease routes a lease type of its own (a term other than Long-term,
- *    Short-term and Month-to-month),
+ *  - a custom lease by name, when it is the lease that routes a lease type priced under a term of its own
+ *    (Airbnb stays): the tab carries the lease's name,
  *  - Month-to-month, only when a lease allows it ("Allow month-to-month").
  *
  * Custom dates are an option of the Long-term lease (the Custom start surcharge row), never a tab of their own.
@@ -14,13 +14,7 @@
  */
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
-import {
-  AIRBNB_LEASE_TERM,
-  CUSTOM_LEASE_TERM,
-  LONG_TERM_LEASE_TERM,
-  SHORT_TERM_LEASE_TERM,
-  isLegacyFixedLeaseTerm,
-} from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export const MONTH_TO_MONTH_PRICING_TERM = "Month-to-Month";
 
@@ -58,23 +52,15 @@ export function pricingLeaseOptions(
     Boolean(sub.shortTermRentalsAllowed) ||
     leases.some((lease) => lease.listingSeedKey === "short-term" || (lease.kind === "short-term" && !lease.listingSeedKey));
   if (offersShort) options.push({ id: SHORT_TERM_LEASE_TERM, label: "Short-term", term: SHORT_TERM_LEASE_TERM });
-  if (terms.includes(AIRBNB_LEASE_TERM) || sub.airbnbRentalsAllowed) {
+  // Airbnb stays are priced under their own term. A custom lease (not a PropLane default) that routes them is
+  // that option, and the tab carries the lease's own name; otherwise the tab is "Airbnb".
+  const customAirbnb = leases.find(
+    (lease) => !(lease.listingSeedKey && SEEDED_LEASES.has(lease.listingSeedKey)) && (lease.applicationLeaseTerms ?? []).includes(AIRBNB_LEASE_TERM),
+  );
+  if (customAirbnb) {
+    options.push({ id: `lease:${customAirbnb.id}`, label: customAirbnb.label?.trim() || "Airbnb", term: AIRBNB_LEASE_TERM });
+  } else if (terms.includes(AIRBNB_LEASE_TERM) || sub.airbnbRentalsAllowed) {
     options.push({ id: AIRBNB_LEASE_TERM, label: "Airbnb", term: AIRBNB_LEASE_TERM });
-  }
-
-  // A custom lease is its own option only when it routes a lease type of its own.
-  for (const lease of leases) {
-    if (lease.listingSeedKey && SEEDED_LEASES.has(lease.listingSeedKey)) continue;
-    const own = (lease.applicationLeaseTerms ?? []).find(
-      (term) =>
-        term !== LONG_TERM_LEASE_TERM &&
-        term !== SHORT_TERM_LEASE_TERM &&
-        term !== AIRBNB_LEASE_TERM &&
-        term !== CUSTOM_LEASE_TERM &&
-        term !== MONTH_TO_MONTH_PRICING_TERM &&
-        !isLegacyFixedLeaseTerm(term),
-    );
-    if (own) options.push({ id: `lease:${lease.id}`, label: lease.label?.trim() || "Lease", term: own });
   }
 
   const allowsMonthToMonth =

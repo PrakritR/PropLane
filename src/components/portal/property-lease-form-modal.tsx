@@ -8,6 +8,7 @@ import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
 import {
   FloatingLabelField,
+  MoneyInput,
   PanelSection,
   StepColumn,
   StepHeading,
@@ -20,7 +21,13 @@ import {
   PropertyFormWizardRow,
   type PropertyFormStartFrom,
 } from "@/components/portal/property-form-wizard-kit";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
+import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { applicationsOfLease, setApplicationsOfLease } from "@/lib/listing-inline-forms";
+import { mappableApplicationTemplates } from "@/lib/application-lease-mapping";
+import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 import { isAddendumLeaseTemplate } from "@/lib/application-lease-mapping";
 import { readPropertyApplicationTemplates, type PropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { deriveFormNameFromFileName } from "@/components/portal/pro-property-application-questions-panel";
@@ -45,6 +52,7 @@ import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
 import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   createPropertyLeaseTemplate,
+  readPropertyLeaseTemplates,
   makePropertyLeaseTemplateId,
   normalizeLeaseTemplateKind,
   propertyLeaseTypeLabel,
@@ -67,7 +75,6 @@ import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/
 import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-sections";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
-import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
 import {
   allowedTermsAfterLeaseOptions,
   deriveLeaseKindFromStayTerms,
@@ -219,6 +226,10 @@ export function PropertyLeaseFormModal({
   const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
   const [linkedApplicationTemplateId, setLinkedApplicationTemplateId] = useState<string | null>(null);
   const [offered, setOffered] = useState(true);
+  // This lease's own Lease fee (typed dollars; "" = none) and the applications that lead to it.
+  const [leaseFeeText, setLeaseFeeText] = useState("");
+  const [applicationIds, setApplicationIds] = useState<string[]>([]);
+  const initialApplicationIdsRef = useRef<string[]>([]);
   // F-editor d/F015: another of this property's lease templates whose form is
   // the co-signer/guarantor addendum — see `PropertyLeaseTemplate.linkedGuarantorLeaseTemplateId`.
   const [linkedGuarantorTemplateId, setLinkedGuarantorTemplateId] = useState<string | null>(null);
@@ -363,6 +374,13 @@ export function PropertyLeaseFormModal({
       setApplicationLeaseTerms([...(template.applicationLeaseTerms ?? [])]);
       setLinkedApplicationTemplateId(template.linkedApplicationTemplateId ?? null);
       setOffered(template.offered !== false);
+      setLeaseFeeText(typeof template.leaseFeeCents === "number" ? centsToMoneyText(template.leaseFeeCents) : "");
+      const tied = applicationsOfLease(
+        { applications: readPropertyApplicationTemplates(sub), leases: readPropertyLeaseTemplates(sub) },
+        template.id,
+      ).map((application) => application.id);
+      initialApplicationIdsRef.current = tied;
+      setApplicationIds(tied);
       setDocumentMode(documentModeFromLease(templateSource, templateKind));
       setDraft(templateDraftFields);
       setHtmlOverride(template.leaseTemplateHtmlOverride?.trim() ?? "");
@@ -392,6 +410,9 @@ export function PropertyLeaseFormModal({
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
     setLinkedApplicationTemplateId(null);
     setOffered(true);
+    setLeaseFeeText("");
+    initialApplicationIdsRef.current = [];
+    setApplicationIds([]);
     setKind("long-term");
     setDocumentMode("proplane_long_term");
     const applied = applyPropertyLeaseDocumentMode("proplane_long_term");
@@ -678,12 +699,25 @@ export function PropertyLeaseFormModal({
     const savingLeaseId = mode === "add" ? (addModeLeaseTemplateId ?? makePropertyLeaseTemplateId()) : template?.id ?? "";
     const nextApplicationLink = linkedApplicationTemplateId;
     // The property's applications ride along; so do the listing's allowed terms when an option changed.
+    const leaseFeeCents = moneyTextToCents(leaseFeeText);
     const saveExtra: {
       applications: PropertyApplicationTemplate[];
       allowedLeaseTerms?: string[];
       touchedLeaseOptions?: LeaseOptionKey[];
     } = {
       applications: routingApplicationTemplates,
+    };
+    // Which applications lead to this lease: an application leads to ONE lease, so a newly picked one moves here.
+    const applicationsChanged =
+      applicationIds.length !== initialApplicationIdsRef.current.length ||
+      applicationIds.some((id) => !initialApplicationIdsRef.current.includes(id));
+    const withApplicationLinks = (finalTemplates: PropertyLeaseTemplate[], leaseId: string) => {
+      if (!applicationsChanged) return;
+      saveExtra.applications = setApplicationsOfLease(
+        { applications: routingApplicationTemplates, leases: finalTemplates },
+        leaseId,
+        applicationIds,
+      );
     };
     const touchedOptions: LeaseOptionKey[] =
       mode === "add"
@@ -723,6 +757,7 @@ export function PropertyLeaseFormModal({
           linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
           linkedApplicationTemplateId: nextApplicationLink,
           offered,
+          leaseFeeCents,
         };
         // "Allow custom dates" / "Allow month-to-month" on a new long-term lease: the same routed terms.
         const createdWithOptions = touchedOptions.reduce(
@@ -730,6 +765,7 @@ export function PropertyLeaseFormModal({
           [...routingLeaseTemplates, created] as PropertyLeaseTemplate[],
         );
         const next = withAllowedTerms(createdWithOptions);
+        withApplicationLinks(next, created.id);
         if (!(await Promise.resolve(onSave(next, saveExtra)))) return;
         if (leaseFields.leaseTemplateImportReview) {
           track("lease_import_reviewed", { template_id: created.id, import_kind: "property_template", artifact_mode: "converted" });
@@ -757,9 +793,11 @@ export function PropertyLeaseFormModal({
           linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
           linkedApplicationTemplateId: nextApplicationLink,
           offered,
+          leaseFeeCents,
           ...leaseFields,
         }),
       );
+      withApplicationLinks(next, template.id);
       if (!(await Promise.resolve(onSave(next, saveExtra)))) return;
       if (leaseFields.leaseTemplateImportReview) {
         track("lease_import_reviewed", { template_id: template.id, import_kind: "property_template", artifact_mode: "converted" });
@@ -1150,16 +1188,37 @@ export function PropertyLeaseFormModal({
               setLabel(next);
             }}
           />
-          {mode === "edit" && template?.id ? (
-            <PropertyFormFeeForCurrentForm
-              sub={sub}
-              mode="lease"
-              currentId={template.id}
-              leaseTemplates={routingLeaseTemplates}
-              applicationTemplates={routingApplicationTemplates}
-              propertyId={propertyId}
-            />
-          ) : null}
+          <PropertyFormWizardCard dataAttr="property-lease-fee-card">
+            {mappableApplicationTemplates(readPropertyApplicationTemplates(sub)).length > 0 ? (
+              <PropertyFormWizardRow label="Applications">
+                <CheckboxMultiSelect
+                  hideLabel
+                  label="Applications for this lease"
+                  variant="cell"
+                  className="min-w-[150px] max-w-[240px]"
+                  options={mappableApplicationTemplates(readPropertyApplicationTemplates(sub)).map((application) => ({
+                    value: application.id,
+                    label: normalizePropertyApplicationTemplateLabel(application.label) || "Application",
+                  }))}
+                  selected={applicationIds}
+                  emptyLabel="No applications"
+                  dataAttr="property-lease-applications"
+                  onChange={(ids) => setApplicationIds(ids)}
+                />
+              </PropertyFormWizardRow>
+            ) : null}
+            <PropertyFormWizardRow label="Lease fee">
+              <MoneyInput
+                label="Lease fee"
+                value={leaseFeeText}
+                dataAttr="property-lease-fee-input"
+                onChange={(raw) => setLeaseFeeText(sanitizeMoneyInput(raw))}
+              />
+            </PropertyFormWizardRow>
+            <PropertyFormWizardRow label="Promo codes">
+              <FormPromoCodesAction kind="lease" propertyId={propertyId} propertyLabel={null} dataAttr="property-lease-promo-codes" />
+            </PropertyFormWizardRow>
+          </PropertyFormWizardCard>
         </StepColumn>
       ) : null}
       {stepId === "document" ? (
