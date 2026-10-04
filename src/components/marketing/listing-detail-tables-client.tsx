@@ -1049,10 +1049,10 @@ export function LeaseBasicsTableInteractive({
   const shortTerm = rows.filter((r) => r.section === "short-term");
   const groups: { key: "long-term" | "short-term"; label: string; rows: LeaseBasicRow[] }[] = [];
   if (showTermSections) {
-    groups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    groups.push({ key: "long-term", label: "Long-term", rows: longTerm });
     groups.push({ key: "short-term", label: "Short-term", rows: shortTerm });
   } else {
-    if (longTerm.length) groups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    if (longTerm.length) groups.push({ key: "long-term", label: "Long-term", rows: longTerm });
     if (shortTerm.length) groups.push({ key: "short-term", label: "Short-term", rows: shortTerm });
   }
   const showHeadings = groups.length > 1 || showTermSections;
