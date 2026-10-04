@@ -24,6 +24,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => () => Promise.resolve(true),
   useAppUi: () => ({ showToast: vi.fn() }),
+  useOptionalAppUi: () => null,
 }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
