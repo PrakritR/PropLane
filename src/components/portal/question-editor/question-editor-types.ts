@@ -4,7 +4,12 @@
  * itself knows nothing about either storage format.
  */
 
+import type { LinkedFormRule, LinkedFormRef } from "@/lib/application-linked-forms";
+
 export type QuestionEditorType = { id: string; label: string };
+
+/** One form a question can link: its words and its own fee, as a plain fact ("Charges $50" / "No fee"). */
+export type LinkedFormOption = { ref: LinkedFormRef; label: string; feeText: string };
 
 /** What the manager may change on one question. Absent = allowed. */
 export type QuestionEditorCan = {
@@ -30,6 +35,10 @@ export type QuestionEditorQuestion = {
   showIf?: { fieldKey: string; equals: string };
   /** Siblings this question can depend on (key + words). Absent or empty hides the control. */
   showIfCandidates?: { key: string; label: string }[];
+  /** Forms included for particular answers. */
+  linkedForms?: LinkedFormRule[];
+  /** Set on a built-in the system reads by key: changing its type detaches it, after a confirm. */
+  systemRead?: { feature: string };
   /** A problem with this question (empty words, duplicate key), shown in its open form. */
   error?: string | null;
   can?: QuestionEditorCan;
@@ -47,7 +56,7 @@ export type QuestionEditorSection = {
   questions: QuestionEditorQuestion[];
 };
 
-export type QuestionEditorPatch = Partial<Pick<QuestionEditorQuestion, "label" | "type" | "required" | "options" | "showIf">>;
+export type QuestionEditorPatch = Partial<Pick<QuestionEditorQuestion, "label" | "type" | "required" | "options" | "showIf" | "linkedForms">>;
 
 export type QuestionEditorChange =
   | { kind: "toggle-section"; sectionId: string; enabled: boolean }

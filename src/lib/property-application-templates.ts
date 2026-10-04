@@ -2,7 +2,6 @@ import { migrateApplicationTemplateDocumentQuestions } from "@/lib/application-t
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
-  REQUIRED_IDENTITY_STANDARD_KEYS,
   type ApplicationConfigSlice,
 } from "@/lib/rental-application/application-field-catalog";
 import type { RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
@@ -250,15 +249,6 @@ export function applicationTemplateQuestionPublishGate(
     draft.importProvenance.reviewedDraftFingerprint !== applicationDraftReviewFingerprint(draft)
   )) {
     return { ok: false, reason: "Compare and confirm the imported PDF before publishing." };
-  }
-  const disabled = new Set(draft.disabledStandardApplicationKeys);
-  if (REQUIRED_IDENTITY_STANDARD_KEYS.some((key) => disabled.has(key))) {
-    return { ok: false, reason: "Full legal name, phone, and email are required." };
-  }
-  if (draft.customApplicationFields.some((field) =>
-    field.standardKey && REQUIRED_IDENTITY_STANDARD_KEYS.includes(field.standardKey) && field.required !== true,
-  )) {
-    return { ok: false, reason: "Full legal name, phone, and email must remain required." };
   }
   return { ok: true };
 }

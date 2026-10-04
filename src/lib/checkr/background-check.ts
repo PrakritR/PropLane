@@ -47,13 +47,13 @@ function normalizeDob(value: string | undefined): string | null {
 }
 
 function applicantInputFromApplication(app: RentalWizardFormState): CheckrApplicantInput {
-  const parts = app.fullLegalName.trim().split(/\s+/).filter(Boolean);
+  const parts = (app.fullLegalName ?? "").trim().split(/\s+/).filter(Boolean);
   const firstName = parts[0] ?? "Applicant";
   const lastName = parts.length > 1 ? parts[parts.length - 1]! : "Unknown";
   return {
     firstName,
     lastName,
-    email: app.email.trim().toLowerCase(),
+    email: (app.email ?? "").trim().toLowerCase(),
     dob: normalizeDob(app.dateOfBirth),
     ssn: digitsOnly(app.ssn),
     phone: digitsOnly(app.phone) || undefined,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPropertyApplicationTemplate, applicationDraftReviewFingerprint, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } from "@/lib/property-application-templates";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { listingCustomApplicationFields } from "@/lib/rental-application/custom-fields";
-import { REQUIRED_IDENTITY_STANDARD_KEYS, applicationConfigForVariant, isWizardFormFieldRequired, removeListingApplicationField, resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
+import { REQUIRED_IDENTITY_STANDARD_KEYS, applicationConfigForVariant, isWizardFormFieldEnabled, isWizardFormFieldRequired, removeListingApplicationField, resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
 import { CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS, normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import { applicationImportMappingToDraft, mapApplicationPdfImport } from "@/lib/rental-application/application-pdf-import";
 
@@ -231,25 +231,28 @@ describe("application PDF import mapping", () => {
 });
 
 describe("applicant identity policy", () => {
-  it("cannot disable legal name, phone, or email through a saved config", () => {
+  it("name, phone and email can be switched off and removed like any other question", () => {
     const config = applicationConfigForVariant({ disabledStandardApplicationKeys: [...REQUIRED_IDENTITY_STANDARD_KEYS] }, "standard");
-    expect(config.disabledStandardApplicationKeys).toEqual([]);
+    expect(config.disabledStandardApplicationKeys).toEqual(REQUIRED_IDENTITY_STANDARD_KEYS);
+    const resolved = resolveListingApplicationFields(config, normalizeCustomApplicationFields);
+    expect(REQUIRED_IDENTITY_STANDARD_KEYS.some((key) => resolved.some((field) => field.standardKey === key))).toBe(false);
+    expect(["fullLegalName", "phone", "email"].some((key) => isWizardFormFieldEnabled(config, key))).toBe(false);
 
-    const name = resolveListingApplicationFields(config, normalizeCustomApplicationFields).find((field) => field.label === "Full legal name")!;
-    const removed = removeListingApplicationField(config, name);
-    expect(removed.disabledStandardApplicationKeys).toEqual([]);
+    const fresh = applicationConfigForVariant({}, "standard");
+    const name = resolveListingApplicationFields(fresh, normalizeCustomApplicationFields).find((field) => field.label === "Full legal name")!;
+    expect(removeListingApplicationField(fresh, name).disabledStandardApplicationKeys).toContain(name.standardKey);
   });
 
-  it("rejects optional identity overrides and still requires identities in a forged published snapshot", () => {
-    const forged = {
-      disabledStandardApplicationKeys: [...REQUIRED_IDENTITY_STANDARD_KEYS],
+  it("optional identity overrides are the manager's choice and publish", () => {
+    const stored = {
+      disabledStandardApplicationKeys: [],
       customApplicationFields: REQUIRED_IDENTITY_STANDARD_KEYS.map((standardKey) => ({ id: standardKey, key: standardKey, standardKey, label: standardKey, type: "text" as const, required: false, options: [], section: "personal" as const })),
       applicationConfigMode: "custom" as const,
     };
-    const template = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice(forged) };
-    expect(() => publishApplicationTemplateQuestionDraft(template)).toThrow(/required/);
-    const resolved = resolveListingApplicationFields(forged, normalizeCustomApplicationFields);
-    expect(REQUIRED_IDENTITY_STANDARD_KEYS.every((key) => resolved.find((field) => field.standardKey === key)?.required)).toBe(true);
-    expect(["fullLegalName", "phone", "email"].every((key) => isWizardFormFieldRequired(forged, key))).toBe(true);
+    const template = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice(stored) };
+    expect(() => publishApplicationTemplateQuestionDraft(template)).not.toThrow();
+    const resolved = resolveListingApplicationFields(stored, normalizeCustomApplicationFields);
+    expect(REQUIRED_IDENTITY_STANDARD_KEYS.every((key) => resolved.find((field) => field.standardKey === key)?.required === false)).toBe(true);
+    expect(["fullLegalName", "phone", "email"].some((key) => isWizardFormFieldRequired(stored, key))).toBe(false);
   });
 });

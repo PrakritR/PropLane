@@ -164,10 +164,9 @@ export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLI
 const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
 
 /**
- * Built-ins that screening, charges and leases read BY KEY, so their answer TYPE is fixed (see
- * {@link TYPE_LOCKED_STANDARD_KEYS}). Name, phone and email (always required) plus date of birth, SSN,
- * ID and income. Reading a key does not make a question undeletable: a manager may remove any of these
- * but the ones in {@link NEVER_DISABLED_STANDARD_KEYS}; screening reports a missing answer instead.
+ * Built-ins that screening, charges and leases read BY KEY (see {@link SYSTEM_READ_ANSWER_STANDARD_KEYS}):
+ * name, phone and email plus date of birth, SSN, ID and income. Nothing here is locked; a manager may
+ * remove or reword any of them, and the system then simply finds no answer under that key.
  */
 export const SYSTEM_READ_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
@@ -178,29 +177,6 @@ export const SYSTEM_READ_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION
 ).map((field) => field.standardKey);
 
 const SYSTEM_READ_STANDARD_KEY_SET = new Set(SYSTEM_READ_STANDARD_KEYS);
-
-/**
- * The ONLY built-ins a manager cannot remove (the application cannot function without them), each grep-verified:
- *   fullLegalName, email   lib/generated-lease.ts (tenant), lib/checkr/background-check.ts (screening hand-off),
- *                          api/portal/resident-approval (the resident account is created from them)
- *   phone                  forced on in `asStringArray`, `resolveListingApplicationFields`, the publish gate and the
- *                          PDF import mapping; resident-approval reads it for notices
- *   propertyId, roomChoice1, leaseTerm
- *                          validate.ts only asks for them while enabled, and api/stripe/application-fee-checkout,
- *                          api/public/application-fee-preview and lib/household-charges.ts price the application from
- *                          the room and the term, so an application without them has nothing to be priced or placed
- * Everything else (the household questions, dates, DOB, SSN, ID, income ...) can be deleted; the application then
- * simply does not ask it (an individual applicant, no co-signer, no ID number).
- */
-export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
-  (field) =>
-    REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
-    (field.section === "personal" && field.label === "Full legal name") ||
-    (field.section === "property" &&
-      (field.label === "Property" || field.label === "Room choices (1st – 3rd)" || field.label === "Lease term")),
-).map((field) => field.standardKey);
-
-export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
 
 /**
  * Built-ins whose answer choices the applicant wizard reads by their STORED VALUE (the wizard compares
@@ -227,11 +203,13 @@ export function builtInAnswerLabel(field: Pick<ResolvedApplicationField, "standa
 }
 
 /**
- * Built-ins whose stored answer is read BY KEY by code outside the form, so their ANSWER TYPE cannot be
- * changed from the editor (text, required flag and position still can, except where the wizard fixes
- * them). Every other built-in may change type: the editor then retires the built-in and asks a custom
- * question of the new type in its place, for NEW applications only (submitted ones keep their data).
- * Verified readers, one per key:
+ * Built-ins whose stored answer is read BY KEY by code outside the form. Nothing about them is locked:
+ * the manager can change their TYPE like any other question. Because the system reads the answer as the
+ * type it was written in, a type change first asks for confirmation and then DETACHES the question: the
+ * built-in is retired and a custom question of the new type (a new custom key) takes its place, so the
+ * readers below find no answer under the standard key and skip it. Only NEW applications change; a
+ * submitted application keeps the answers it already stored. Every other built-in converts the same way
+ * without a confirm. Verified readers, one per key:
  *   fullLegalName   lib/checkr/background-check.ts (splits first/last for the screening hand-off),
  *                   lib/generated-lease.ts (tenant name), api/portal/resident-approval (account creation)
  *   email, phone    api/portal/resident-approval (resident account + notices), lib/generated-lease.ts
@@ -245,8 +223,10 @@ export function builtInAnswerLabel(field: Pick<ResolvedApplicationField, "standa
  *   idPhotoFront/Back  api/portal/application-photos, components/portal/application-verification-photos.tsx
  *   applyingAsGroup, hasCosigner  lib/application-group-document.server.ts, lib/rental-application/validate.ts
  *   consentCredit   api/manager-applications (screening runs only on consent), application-screening-panel
+ * Every reader takes the stored application's own typed fields, which default to an empty string, so a
+ * detached or removed question reads as empty and is skipped.
  */
-export const TYPE_LOCKED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+export const SYSTEM_READ_ANSWER_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
     SYSTEM_READ_STANDARD_KEY_SET.has(field.standardKey) ||
     field.section === "household" ||
@@ -255,7 +235,21 @@ export const TYPE_LOCKED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION
     (field.section === "consent" && field.label === "Credit & background check consent"),
 ).map((field) => field.standardKey);
 
-export const TYPE_LOCKED_STANDARD_KEY_SET = new Set(TYPE_LOCKED_STANDARD_KEYS);
+export const SYSTEM_READ_ANSWER_STANDARD_KEY_SET = new Set(SYSTEM_READ_ANSWER_STANDARD_KEYS);
+
+/** The feature that reads a built-in's answer by key, as a lowercase noun phrase (null = nothing reads it). */
+export function systemReadFeatureForStandardKey(standardKey: string | undefined): string | null {
+  if (!standardKey || !SYSTEM_READ_ANSWER_STANDARD_KEY_SET.has(standardKey)) return null;
+  const def = CATALOG_BY_KEY.get(standardKey);
+  if (!def) return null;
+  if (def.section === "household") return "group and co-signer handling";
+  if (def.section === "property") return "fee pricing and lease placement";
+  if (def.section === "consent") return "screening";
+  if (def.section === "employment") return "the income check";
+  if (def.label.endsWith("front photo") || def.label.endsWith("back photo")) return "ID verification";
+  if (REQUIRED_IDENTITY_STANDARD_KEY_SET.has(standardKey)) return "leases, screening and resident accounts";
+  return "screening";
+}
 
 const CATALOG_BY_KEY = new Map(
   STANDARD_APPLICATION_FIELD_CATALOG.map((def) => [def.standardKey, def] as const),
@@ -344,30 +338,15 @@ type VariantConfigSource = {
 };
 
 function asStringArray(value: unknown): string[] {
-  // Only the identity trio (name/phone/email) is force-kept here — a
-  // pre-existing defense-in-depth against a forged disabled-keys list, not
-  // where C195's SSN/ID/income lock lives. That lock is enforced once, at
-  // the manager-facing mutation (`removeListingApplicationField`'s
-  // editor-remove action); filtering the wider NEVER_DISABLED set here too
-  // also reverses PropLane's own short-term curated default, which
-  // legitimately disables SSN/ID/income by design.
-  return Array.isArray(value)
-    ? value.filter(
-        (k): k is string =>
-          typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k),
-      )
-    : [];
+  return Array.isArray(value) ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0) : [];
 }
 
 function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
   return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((field) => {
     const def = field.standardKey ? CATALOG_BY_KEY.get(field.standardKey) : undefined;
-    const normalized = def && def.options.length > 0
+    return def && def.options.length > 0
       ? { ...field, options: builtInAnswerOptions(def.standardKey, field.options, def.options) }
       : field;
-    return field.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey)
-      ? { ...normalized, required: true }
-      : normalized;
   }) : [];
 }
 
@@ -552,10 +531,11 @@ function mergeStandardWithOverride(
   if (!override) return base;
   return {
     ...base,
+    ...(override.linkedForms !== undefined ? { linkedForms: override.linkedForms } : {}),
     id: override.id || base.id,
     label: override.label.trim() || base.label,
     type: override.type ?? base.type,
-    required: REQUIRED_IDENTITY_STANDARD_KEY_SET.has(def.standardKey) ? true : override.required ?? base.required,
+    required: override.required ?? base.required,
     options: def.options.length > 0
       ? builtInAnswerOptions(def.standardKey, override.options, def.options)
       : override.type === "select" && override.options.length > 0 ? [...override.options] : base.options,
@@ -596,7 +576,7 @@ export function resolveListingApplicationFields(
 ): ResolvedApplicationField[] {
   const disabled = new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
       : [],
   );
   const saved = normalizeSaved(sub?.customApplicationFields);
@@ -735,7 +715,9 @@ function overrideMatchesDefault(
     override.label.trim() === def.label &&
     override.type === def.type &&
     override.required === def.required &&
-    (override.type !== "select" || override.options.join("|") === def.options.join("|"))
+    (override.type !== "select" || override.options.join("|") === def.options.join("|")) &&
+    // A stored linkedForms (even an empty list) is the manager's own word and must survive.
+    override.linkedForms === undefined
   );
 }
 
@@ -754,7 +736,6 @@ export function patchListingApplicationField(
   applicationConfigMode: "standard" | "custom";
 } {
   const nextField: ResolvedApplicationField = { ...field, ...patch };
-  if (nextField.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(nextField.standardKey)) nextField.required = true;
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -790,20 +771,6 @@ export function removeListingApplicationField(
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
 } {
-  // Identity (name/phone/email) establishes the applicant record; SSN, ID,
-  // and income are read directly by screening and billing — C195 locks a
-  // manager out of removing any of them via the editor, on every variant
-  // that reaches this function (long-term and co-signer editors both do;
-  // the short-term form's own curated default is set directly in
-  // `applicationConfigForVariant` and never goes through this function, so
-  // it is unaffected and keeps hiding SSN/income exactly as before).
-  if (field.standardKey && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey)) {
-    return {
-      disabledStandardApplicationKeys: [...(sub.disabledStandardApplicationKeys ?? [])],
-      customApplicationFields: [...(sub.customApplicationFields ?? [])],
-      applicationConfigMode: sub.applicationConfigMode ?? "standard",
-    };
-  }
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -864,7 +831,7 @@ function disabledStandardKeysSet(
 ): Set<string> {
   return new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
       : [],
   );
 }

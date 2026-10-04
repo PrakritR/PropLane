@@ -41,6 +41,7 @@ import {
 import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
+import { normalizeLinkedFormRules, type LinkedFormRule } from "@/lib/application-linked-forms";
 import { normalizeMoveInFormTemplates, readMoveInFormSettings } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSettings, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
@@ -1606,6 +1607,12 @@ export type ManagerCustomApplicationField = {
    */
   showIf?: { fieldKey: string; equals: string };
   /**
+   * Forms to include for particular answers ("when the answer is X, include that form"). Stored on a
+   * custom question's own row and, for a built-in, on its override row. Absent = never configured
+   * (a template's co-signer link is then read as a rule on "Co-signer planned"); `[]` = configured empty.
+   */
+  linkedForms?: LinkedFormRule[];
+  /**
    * Who answers this question. Absent/`"resident"` (the default, and every
    * question that existed before this field) is answered by the applicant or
    * resident, exactly as today. `"manager"` means the manager (not the
@@ -1708,6 +1715,7 @@ export function normalizeCustomApplicationFields(
         : undefined;
     const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     const flagged = o.flagged === true ? true : undefined;
+    const linkedForms = Array.isArray(o.linkedForms) ? normalizeLinkedFormRules(o.linkedForms) : undefined;
     out.push({
       id,
       key,
@@ -1719,6 +1727,7 @@ export function normalizeCustomApplicationFields(
       standardKey,
       description,
       showIf,
+      linkedForms,
       filledBy,
       flagged,
     });

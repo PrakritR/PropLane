@@ -11,11 +11,10 @@ import {
   applicationEditorTypes,
   applicationSectionsForEditor,
   applyApplicationEditorChange,
-  lockedApplicationSectionIds,
   type ApplicationEditorState,
 } from "./application-question-sections";
 import { QuestionSectionsEditor } from "./question-sections-editor";
-import type { QuestionEditorChange } from "./question-editor-types";
+import type { LinkedFormOption, QuestionEditorChange } from "./question-editor-types";
 
 export function ApplicationQuestionsEditor({
   variant,
@@ -28,6 +27,7 @@ export function ApplicationQuestionsEditor({
   restoreLabel,
   onSectionOpen,
   onQuestionOpen,
+  linkedFormOptions,
   dataAttrPrefix = "application-questions-editor",
 }: {
   variant: ApplicationFormVariant;
@@ -40,6 +40,8 @@ export function ApplicationQuestionsEditor({
   restoreLabel?: string;
   onSectionOpen?: (sectionId: RentalApplicationSectionId) => void;
   onQuestionOpen?: (sectionId: RentalApplicationSectionId, questionId: string) => void;
+  /** Forms a question can link: this listing's applications and move-in forms. Absent hides the Linked forms block. */
+  linkedFormOptions?: readonly LinkedFormOption[];
   dataAttrPrefix?: string;
 }) {
   const ctx = useMemo(() => ({ variant, fields, disabledFields }), [variant, fields, disabledFields]);
@@ -56,7 +58,7 @@ export function ApplicationQuestionsEditor({
       sections={sections}
       onChange={handle}
       allowedTypes={useMemo(() => applicationEditorTypes(variant), [variant])}
-      lockedSectionIds={useMemo(() => lockedApplicationSectionIds(ctx), [ctx])}
+      linkedFormOptions={linkedFormOptions}
       canAddSection={state.disabledSectionIds.length > 0}
       onRestoreDefaults={onRestoreDefaults}
       restoreLabel={restoreLabel}
