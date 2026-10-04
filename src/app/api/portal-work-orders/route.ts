@@ -35,6 +35,7 @@ import {
   workOrderGoogleCalendarSyncChanged,
 } from "@/lib/google-calendar/sync.server";
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
+import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
 
 export const runtime = "nodejs";
 
@@ -84,12 +85,17 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
     if (row) byId.set(record.id as string, row);
   }
 
+  // Everything above is a job this vendor HOLDS (`vendor_user_id` names them), so it is served
+  // whole. Everything below is reachable on an open OFFER alone — including a stranger matched
+  // by the local marketplace — so the site is projected away before the row leaves the server.
+  // `work-order-vendor-privacy.ts` states the contract; the vendor panel's own redaction is
+  // presentation on top of this, never instead of it.
   const missingIds = [...offeredIds].filter((id) => !byId.has(id));
   if (missingIds.length > 0) {
     const { data: offeredRows } = await db.from("portal_work_order_records").select("id, row_data").in("id", missingIds);
     for (const record of offeredRows ?? []) {
       const row = record.row_data as DemoManagerWorkOrderRow | null;
-      if (row) byId.set(record.id as string, row);
+      if (row) byId.set(record.id as string, projectWorkOrderForOfferedVendor(row));
     }
   }
 

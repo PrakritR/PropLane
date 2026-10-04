@@ -99,11 +99,16 @@ export async function loadMarketplaceVendorUserIds(
   db: SupabaseClient,
   input: { propertyZip: string; publishRadiusMi: number; category: WorkOrderCategory },
 ): Promise<string[]> {
+  // Ordered, because the page is capped: without an order Postgres may return any 500 rows,
+  // so which vendors can ever be reached was arbitrary and unstable between two calls on the
+  // same service. Oldest-onboarded first makes the window deterministic.
   const { data, error } = await db
     .from("vendor_business_profiles")
     .select(PROFILE_COLUMNS)
     .eq("directory_listed", true)
     .not("onboarding_completed_at", "is", null)
+    .order("onboarding_completed_at", { ascending: true })
+    .order("user_id", { ascending: true })
     .limit(500);
   if (error) throw new Error(error.message);
   return filterMarketplaceVendorUserIds((data ?? []) as DirectoryProfileRow[], input);

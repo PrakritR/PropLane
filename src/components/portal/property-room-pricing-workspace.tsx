@@ -620,9 +620,9 @@ export function PropertyRoomPricingWorkspace({
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
   /*
-   * Month-to-month surcharge, Custom start surcharge and Partial months follow what is
-   * OFFERED: the room's own Leases offered when it restricts them, else the listing's.
-   * (A lease can start mid-month only on Custom, so Partial months rides with it.)
+   * Custom start surcharge and Partial months follow what is OFFERED: the room's own Leases
+   * offered when it restricts them, else the listing's. (A lease can start mid-month only on
+   * Custom, so Partial months rides with it.) Month-to-month has no surcharge any more.
    */
   const feeVisibility = useMemo(
     () =>

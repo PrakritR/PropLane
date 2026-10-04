@@ -25,6 +25,7 @@ import { reconcileListingApplicationFormOnWrite } from "@/lib/listing-applicatio
 import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
+import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   buildAllModulesGrant,
   coManagerModuleAllowed,
@@ -63,6 +64,27 @@ function incomingListingSubmission(rowData: unknown, propertyData: unknown): unk
     return record.submission ?? record.listingSubmission;
   };
   return submissionFrom(rowData) ?? submissionFrom(propertyData);
+}
+
+/**
+ * A property must offer at least one lease type. A submission that explicitly carries an EMPTY
+ * `allowedLeaseTerms` is refused: `resolveAllowedLeaseTerms` then answers [], and the
+ * applicant-side fallback reads that as EVERY lease term — the opposite of what the editor
+ * showed. A submission that names no choice at all is a legacy row and keeps its existing
+ * default, so this only ever refuses a write that actively clears the field.
+ */
+function emptyLeaseTermsWrite(submission: unknown): boolean {
+  if (!submission || typeof submission !== "object" || Array.isArray(submission)) return false;
+  const sub = submission as Record<string, unknown>;
+  if (!Array.isArray(sub.allowedLeaseTerms)) return false;
+  return (
+    resolveAllowedLeaseTerms(
+      sub as Pick<
+        ManagerListingSubmissionV1,
+        "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+      >,
+    ).length === 0
+  );
 }
 
 async function sessionUser() {
@@ -373,6 +395,17 @@ export async function POST(req: Request) {
         body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null),
       ),
     ).doors;
+
+    const incomingSubmission = incomingListingSubmission(
+      body.rowData !== undefined ? body.rowData : null,
+      body.propertyData !== undefined ? body.propertyData : null,
+    );
+    if (emptyLeaseTermsWrite(incomingSubmission)) {
+      return NextResponse.json(
+        { error: "Choose at least one lease term this property offers." },
+        { status: 400 },
+      );
+    }
 
     const quota = await assertManagerPropertyListingQuota(db, {
       ownerUserId: managerUserIdForWrite,

@@ -62,9 +62,15 @@ export function filterBookingsBySearch(
   return entries.filter((entry) => bookingEntryMatchesSearch(entry, needle));
 }
 
+/**
+ * A stay as "check-in – check-out". `lastNight` is the INCLUSIVE last night a
+ * `PropertyBookingEntry.end` carries (`lastNightBeforeCheckout`); the check-out day is derived
+ * here so no caller has to remember to add it. Five of the eight call sites did and three did
+ * not, so one stay read "Oct 5 – Oct 6" on its own page and "Oct 5" on the day page.
+ */
 export function formatBookingStayRange(
   start: string,
-  end: string,
+  lastNight: string,
   openEnded?: boolean,
 ): string {
   const fmt = (iso: string) => {
@@ -77,8 +83,7 @@ export function formatBookingStayRange(
     });
   };
   if (openEnded) return `${fmt(start)} – Open-ended`;
-  if (start === end) return fmt(start);
-  return `${fmt(start)} – ${fmt(end)}`;
+  return `${fmt(start)} – ${fmt(addDaysToDateKey(lastNight, 1))}`;
 }
 
 /**
@@ -308,11 +313,12 @@ export function bookingStatusTone(
 /**
  * A booking row's date fact, as the studio draws it: "Sep 28 → Oct 6", the year
  * only when a date falls outside the current year, and "From Oct 15" for an
- * open-ended stay. `end` is the checkout day (exclusive end + 1 already applied).
+ * open-ended stay. Like {@link formatBookingStayRange}, `lastNight` is the INCLUSIVE last
+ * night and the check-out day is derived here.
  */
 export function formatBookingStayRangeShort(
   start: string,
-  end: string,
+  lastNight: string,
   openEnded?: boolean,
   now: Date = new Date(),
 ): string {
@@ -327,8 +333,7 @@ export function formatBookingStayRangeShort(
     });
   };
   if (openEnded) return `From ${fmt(start)}`;
-  if (start === end) return fmt(start);
-  return `${fmt(start)} → ${fmt(end)}`;
+  return `${fmt(start)} → ${fmt(addDaysToDateKey(lastNight, 1))}`;
 }
 
 /**

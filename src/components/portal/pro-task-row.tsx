@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { CalendarDays, CheckCircle2, ListChecks, UserRound } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { compactTaskRoomLabel } from "@/lib/manager-task-display";
+import { compactTaskRoomLabel, managerTaskDueInstant } from "@/lib/manager-task-display";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
@@ -22,19 +22,23 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type TaskDueState = "overdue" | "today" | "soon" | "later" | "none" | "done";
 
-/** Where a task's deadline sits relative to now. Wall dates are read in local time. */
-export function taskDueState(task: Pick<ManagerTask, "dueDate" | "start" | "completed">, nowMs: number): TaskDueState {
+/**
+ * Where a task's deadline sits relative to now, off `managerTaskDueInstant` — the SAME instant
+ * the record page's `isManagerTaskLate` reads, so a row and the record it opens can never
+ * disagree about whether a task is overdue.
+ */
+export function taskDueState(
+  task: Pick<ManagerTask, "dueDate" | "start" | "end" | "urgency" | "completed">,
+  nowMs: number,
+): TaskDueState {
   if (task.completed) return "done";
-  const raw = task.dueDate || task.start;
-  if (!raw) return "none";
-  const wall = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  const due = wall ? new Date(Number(wall[1]), Number(wall[2]) - 1, Number(wall[3])).getTime() : new Date(raw).getTime();
-  if (!Number.isFinite(due)) return "none";
+  const due = managerTaskDueInstant(task);
+  if (due == null) return "none";
+  if (due <= nowMs) return "overdue";
   const now = new Date(nowMs);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const endOfToday = startOfToday + DAY_MS;
-  if (due < startOfToday) return "overdue";
-  if (due < endOfToday) return "today";
+  if (due <= endOfToday) return "today";
   if (due < startOfToday + 7 * DAY_MS) return "soon";
   return "later";
 }
@@ -58,7 +62,7 @@ export function taskDueFact(task: Pick<ManagerTask, "dueDate" | "start" | "end">
  * "Due <range>", or "No due date". A finished task has no due fact.
  */
 export function taskDueLabel(
-  task: Pick<ManagerTask, "dueDate" | "start" | "end" | "completed">,
+  task: Pick<ManagerTask, "dueDate" | "start" | "end" | "urgency" | "completed">,
   formatRange: (start: string, end: string) => string,
   nowMs: number = Date.now(),
 ): string {
@@ -97,7 +101,10 @@ export function TaskListCardRow({
   const room = compactTaskRoomLabel(task.roomLabel);
   const place = [propertyLabel, room].filter(Boolean).join(" · ") || "No property";
   const completed = showDoneDate || task.completed;
-  const completedOn = completed ? formatPortalRowDate(task.updatedAt) : "";
+  // `completedAt` is stamped when the task is ticked off and cleared when it is reopened.
+  // `updatedAt` is the fallback for tasks completed before that field existed — on those an
+  // unrelated later edit still moves the date, which is why it is no longer the primary.
+  const completedOn = completed ? formatPortalRowDate(task.completedAt || task.updatedAt) : "";
   const overdueOn = !completed && taskDueState(task, nowMs) === "overdue";
   const overdueDate = !overdueOn
     ? ""

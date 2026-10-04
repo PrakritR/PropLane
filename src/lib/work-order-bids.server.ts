@@ -224,6 +224,9 @@ async function ensureVendorDirectoryIdForManager(db: Db, vendorUserId: string, m
   return id;
 }
 
+/** Sanity ceiling on a single estimate or bid figure ($1,000,000). */
+const MAX_ESTIMATE_CENTS = 100_000_000;
+
 export async function submitWorkOrderBid(
   db: Db,
   actor: WorkOrderActor,
@@ -238,10 +241,12 @@ export async function submitWorkOrderBid(
   const note = String(body.note ?? "").trim().slice(0, 2000);
 
   if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
-  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+  // An accepted bid's amount is the immutable payout anchor, so a typo'd figure can never be
+  // corrected afterwards — both legs carry the same ceiling the estimate path already enforces.
+  if (!Number.isFinite(amountCents) || amountCents <= 0 || amountCents > MAX_ESTIMATE_CENTS) {
     return { ok: false, status: 400, error: "Enter a valid labor cost." };
   }
-  if (!Number.isFinite(materialsCents) || materialsCents < 0) {
+  if (!Number.isFinite(materialsCents) || materialsCents < 0 || materialsCents > MAX_ESTIMATE_CENTS) {
     return { ok: false, status: 400, error: "Enter a valid equipment/materials cost." };
   }
   const proposedDate = new Date(proposedTime);
@@ -414,6 +419,12 @@ export async function scheduleWorkOrderConsultation(
     if (Number.isNaN(parsed.getTime())) {
       return { ok: false, status: 400, error: "Enter a valid consultation date/time." };
     }
+    // A visit is booked before it happens. Backdating one was the whole trick behind billing a
+    // visit-fee invoice for a visit nobody made: `completeEstimateVisit` only refuses a visit
+    // still in the FUTURE, so a vendor could book yesterday and complete it the same second.
+    if (parsed.getTime() <= Date.now()) {
+      return { ok: false, status: 400, error: "Pick a visit time in the future." };
+    }
     consultationVisitAt = parsed.toISOString();
   } else {
     const { data: otherConsultations } = await db
@@ -492,9 +503,6 @@ export async function scheduleWorkOrderConsultation(
   track("work_order_consultation_scheduled", actor.userId, { work_order_id: workOrderId });
   return { ok: true, consultationVisitAt };
 }
-
-/** Sanity ceiling on a single estimate or bid figure ($1,000,000). */
-const MAX_ESTIMATE_CENTS = 100_000_000;
 
 /**
  * Vendor gives a rough ESTIMATE ("about $180") before seeing the job. It is stored apart from the
@@ -614,13 +622,19 @@ export async function completeEstimateVisit(
 
   if (!bid.estimate_visit_done_at) {
     const now = new Date().toISOString();
-    const { error } = await db
+    // The read above is stale by the time we write. A manager approving or removing the bid in
+    // between must win: zero rows matched means the visit was never stamped, so the fee invoice
+    // below must not be filed off the stale read.
+    const { data: stamped, error } = await db
       .from("work_order_bids")
       .update({ estimate_visit_done_at: now, updated_at: now })
       .eq("id", bid.id)
       .eq("status", "submitted")
-      .is("estimate_visit_done_at", null);
+      .is("estimate_visit_done_at", null)
+      .select("id")
+      .maybeSingle();
     if (error) return { ok: false, status: 500, error: error.message };
+    if (!stamped) return { ok: false, status: 409, error: "This request changed before the visit saved." };
   }
 
   const feeCents = Number(bid.estimate_visit_fee_cents) || 0;
@@ -686,10 +700,14 @@ export async function removeVendorRequest(
     vendorDirectoryId = (bid.vendor_directory_id as string | null) ?? null;
     if (bid.status === "submitted") {
       const feeOwed = Boolean(bid.estimate_visit_done_at) && Number(bid.estimate_visit_fee_cents) > 0;
-      const { error } = feeOwed
-        ? await db.from("work_order_bids").update({ status: "declined", updated_at: now }).eq("id", bidId).eq("status", "submitted")
-        : await db.from("work_order_bids").delete().eq("id", bidId).eq("status", "submitted");
+      // Conditional on `submitted` so an approval landing between the read and here wins — and
+      // zero rows matched means exactly that, not success. Reporting "vendor removed" while the
+      // bid stayed accepted, then withdrawing the offers, left the service in neither state.
+      const { data: changed, error } = feeOwed
+        ? await db.from("work_order_bids").update({ status: "declined", updated_at: now }).eq("id", bidId).eq("status", "submitted").select("id").maybeSingle()
+        : await db.from("work_order_bids").delete().eq("id", bidId).eq("status", "submitted").select("id").maybeSingle();
       if (error) return { ok: false, status: 500, error: error.message };
+      if (!changed) return { ok: false, status: 409, error: "This bid was just approved — it can no longer be removed." };
     }
   }
 
@@ -774,6 +792,21 @@ export async function acceptWorkOrderBid(
   }
   const approvedAmountCents = record.amount_cents as number;
 
+  // One approved bid per service. Two `accepted` rows break every payout-anchor read
+  // (`payoutVendorForWorkOrder`, `approveAndPayWorkOrder` resolve it with `.maybeSingle()`,
+  // which errors on two rows and falls back to a caller-supplied amount), and the "other bids"
+  // sweep below only sees `submitted` rows, so an existing accepted bid is invisible to it.
+  // Backed by `work_order_bids_one_accepted_idx`.
+  const { data: alreadyAccepted } = await db
+    .from("work_order_bids")
+    .select("id")
+    .eq("work_order_id", record.work_order_id)
+    .eq("status", "accepted")
+    .limit(1);
+  if (alreadyAccepted && alreadyAccepted.length > 0) {
+    return { ok: false, status: 409, error: "A bid is already approved on this service." };
+  }
+
   const now = new Date().toISOString();
   // The `record.status !== "submitted"` check above is an in-memory read of a
   // row fetched earlier, so on its own it does not stop two near-simultaneous
@@ -804,10 +837,18 @@ export async function acceptWorkOrderBid(
     const createdDirectoryId = await ensureVendorDirectoryIdForManager(db, record.vendor_user_id, record.manager_user_id);
     if (createdDirectoryId) {
       record.vendor_directory_id = createdDirectoryId;
-      await db.from("work_order_bids").update({ vendor_directory_id: createdDirectoryId }).eq("id", bidId);
+      const { error: stampError } = await db
+        .from("work_order_bids")
+        .update({ vendor_directory_id: createdDirectoryId })
+        .eq("id", bidId);
+      if (stampError) return { ok: false, status: 500, error: stampError.message };
     }
   }
 
+  // Read the rivals, but do not resolve them yet: the HIRE below must land first. Declining
+  // every rival and withdrawing the offers before the assignment meant a failed assignment left
+  // the bid accepted, every rival permanently declined, and the service still Open with no
+  // `vendor_user_id` — a payout with no vendor and a job the winner never sees.
   const { data: otherBids } = await db
     .from("work_order_bids")
     .select("*")
@@ -815,12 +856,6 @@ export async function acceptWorkOrderBid(
     .neq("id", bidId)
     .eq("status", "submitted");
   const declined = (otherBids ?? []) as BidRecord[];
-  if (declined.length > 0) {
-    await db
-      .from("work_order_bids")
-      .update({ status: "declined", updated_at: now })
-      .in("id", declined.map((b) => b.id));
-  }
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
@@ -828,34 +863,12 @@ export async function acceptWorkOrderBid(
     .eq("id", record.work_order_id)
     .maybeSingle();
 
-  // Once a vendor is assigned, no other offered vendor should keep seeing this work
-  // order in their portal (same "loses read access on reassignment" behavior as the
-  // single-vendor Phase 2 flow). Offers still open are marked `filled` and those
-  // vendors told once; vendors who actually bid get the richer declined-bid email
-  // below, so they are excluded here rather than messaged twice.
-  if (workOrder) {
-    await fillSiblingOffers(db, {
-      workOrderId: record.work_order_id,
-      managerUserId: String(workOrder.manager_user_id),
-      acceptedVendorDirectoryId: record.vendor_directory_id,
-      acceptedVendorUserId: record.vendor_user_id,
-      excludeVendorUserIds: declined.map((b) => b.vendor_user_id),
-      row: (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow,
-      sender: { userId: actor.userId, email: actor.email, name: actor.fullName },
-    }).catch(() => undefined);
-  }
-  await db
-    .from("work_order_vendor_offers")
-    .update({ status: "withdrawn", updated_at: now })
-    .eq("work_order_id", record.work_order_id)
-    .eq("status", "sent");
-
   const vendors = await vendorNamesById(db, [record.vendor_directory_id ?? "", ...declined.map((b) => b.vendor_directory_id ?? "")]);
   const winningVendor = record.vendor_directory_id ? vendors.get(record.vendor_directory_id) : undefined;
+  const rowData = (workOrder?.row_data ?? {}) as DemoManagerWorkOrderRow;
   let vendorName = winningVendor?.name || "";
 
   if (workOrder) {
-    const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
     const totalCents = approvedAmountCents + record.materials_cents;
     const nextRowData: DemoManagerWorkOrderRow = {
       ...rowData,
@@ -881,15 +894,50 @@ export async function acceptWorkOrderBid(
           }
         : {}),
     };
-    await db
+    // The write that actually HIRES the vendor.
+    const { error: assignError } = await db
       .from("portal_work_order_records")
       .update({ vendor_user_id: record.vendor_user_id, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", record.work_order_id);
+    if (assignError) return { ok: false, status: 500, error: assignError.message };
+    vendorName = winningVendor?.name || rowData.vendorName || "";
+  }
 
+  if (declined.length > 0) {
+    const { error: declineError } = await db
+      .from("work_order_bids")
+      .update({ status: "declined", updated_at: now })
+      .in("id", declined.map((b) => b.id));
+    if (declineError) return { ok: false, status: 500, error: declineError.message };
+  }
+
+  // Once a vendor is assigned, no other offered vendor should keep seeing this work
+  // order in their portal (same "loses read access on reassignment" behavior as the
+  // single-vendor Phase 2 flow). Offers still open are marked `filled` and those
+  // vendors told once; vendors who actually bid get the richer declined-bid email
+  // below, so they are excluded here rather than messaged twice.
+  if (workOrder) {
+    await fillSiblingOffers(db, {
+      workOrderId: record.work_order_id,
+      managerUserId: String(workOrder.manager_user_id),
+      acceptedVendorDirectoryId: record.vendor_directory_id,
+      acceptedVendorUserId: record.vendor_user_id,
+      excludeVendorUserIds: declined.map((b) => b.vendor_user_id),
+      row: rowData,
+      sender: { userId: actor.userId, email: actor.email, name: actor.fullName },
+    }).catch(() => undefined);
+  }
+  const { error: withdrawError } = await db
+    .from("work_order_vendor_offers")
+    .update({ status: "withdrawn", updated_at: now })
+    .eq("work_order_id", record.work_order_id)
+    .eq("status", "sent");
+  if (withdrawError) return { ok: false, status: 500, error: withdrawError.message };
+
+  if (workOrder) {
     const propertyLabel = rowData.propertyName || "";
     const unit = rowData.unit || "";
     const workOrderTitle = rowData.title || "";
-    vendorName = winningVendor?.name || rowData.vendorName || "";
 
     for (const other of declined) {
       const otherVendor = other.vendor_directory_id ? vendors.get(other.vendor_directory_id) : undefined;

@@ -11,7 +11,6 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
-  addDaysToDateKey,
   bookingEntryKey,
   bookingsForListTab,
   formatBookingStayRange,
@@ -120,7 +119,7 @@ export function ManagerBookingsListPanel({
                 amount={bookingRateLabel(entry)}
                 facts={
                   <>
-                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
+                    <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                   </>
                 }

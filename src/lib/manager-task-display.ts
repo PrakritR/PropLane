@@ -100,7 +100,25 @@ export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">)
   return Boolean(task.start?.trim() && task.end?.trim());
 }
 
-/** Effective due instant for lateness — end of a slot, due date, or lone start. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A bare `YYYY-MM-DD` is a WALL date: the deadline is the end of that day where the manager is,
+ * not UTC midnight. `Date.parse` reads it as UTC, which marked a task due "Oct 5" late from
+ * 5pm Pacific on Oct 4 while the list row still read "Due today".
+ */
+function dueInstantFromDateish(raw: string): number | null {
+  const wall = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (wall) return new Date(Number(wall[1]), Number(wall[2]) - 1, Number(wall[3])).getTime() + DAY_MS;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Effective due instant for lateness — end of a slot, due date, or lone start. The ONE answer:
+ * the task list row, the record page and the reminders all read it, so "Overdue" can never mean
+ * two different things on two surfaces.
+ */
 export function managerTaskDueInstant(
   task: Pick<ManagerTask, "start" | "end" | "dueDate" | "urgency">,
 ): number | null {
@@ -109,14 +127,8 @@ export function managerTaskDueInstant(
     const endMs = Date.parse(task.end);
     return Number.isFinite(endMs) ? endMs : null;
   }
-  if (task.dueDate?.trim()) {
-    const dueMs = Date.parse(task.dueDate);
-    return Number.isFinite(dueMs) ? dueMs : null;
-  }
-  if (task.start?.trim() && !managerTaskIsScheduled(task)) {
-    const startMs = Date.parse(task.start);
-    return Number.isFinite(startMs) ? startMs : null;
-  }
+  if (task.dueDate?.trim()) return dueInstantFromDateish(task.dueDate);
+  if (task.start?.trim() && !managerTaskIsScheduled(task)) return dueInstantFromDateish(task.start);
   return null;
 }
 

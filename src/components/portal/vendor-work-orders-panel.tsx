@@ -824,7 +824,10 @@ export function VendorWorkOrdersPanel({
               }
             />
           </div>
-          {row.photoDataUrls?.length ? (
+          {/* The server already withholds these from an un-hired vendor unless the manager
+              ticked "Share photos" (`projectWorkOrderForOfferedVendor`); the same gate here
+              keeps a locally-held row from drawing what a served one would not carry. */}
+          {(hasSite || row.offerSharePhotos === true) && row.photoDataUrls?.length ? (
             <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

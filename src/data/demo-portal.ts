@@ -340,8 +340,15 @@ export type DemoManagerWorkOrderRow = {
     radiusMi: number;
     budgetCents?: number | null;
     matchedCount?: number;
+    sharePhotos?: boolean;
     publishedAt: string;
   };
+  /**
+   * The manager's "Share photos" answer on the open bid request. It governs what an
+   * OFFERED-but-not-hired vendor is served (`projectWorkOrderForOfferedVendor`): absent or
+   * false withholds the resident's intake photos. A hired vendor always sees them.
+   */
+  offerSharePhotos?: boolean;
   /** Vendor tapped "Mark done" (work-orders/mark-done route) and is awaiting manager
    * approve + pay, or the manager has since approved + paid (bookkeeping status only —
    * no real money movement; see work-orders/approve-pay route). */

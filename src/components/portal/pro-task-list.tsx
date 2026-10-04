@@ -461,14 +461,11 @@ export function ManagerTaskList({
       if (!userId || selectedTaskIds.length === 0 || bulkBusy) return;
       setBulkBusy(true);
       try {
+        const savedById = new Map<string, Awaited<ReturnType<typeof updateManagerTask>>>();
         for (const taskId of selectedTaskIds) {
-          await updateManagerTask(userId, taskId, { completed });
+          savedById.set(taskId, await updateManagerTask(userId, taskId, { completed }));
         }
-        setTasks((prev) =>
-          prev.map((row) =>
-            selectedTaskIds.includes(row.id) ? { ...row, completed } : row,
-          ),
-        );
+        setTasks((prev) => prev.map((row) => savedById.get(row.id) ?? row));
         showToast(
           completed
             ? selectedTaskIds.length === 1
@@ -662,12 +659,17 @@ export function ManagerTaskList({
     const headerActions = sections.headerActions.map((action) =>
       action.id === "complete" && routeTask.completed ? { ...action, label: "Reopen" } : action,
     );
-    const setCompleted = (completed: boolean) => {
+    const setCompleted = async (completed: boolean) => {
       if (!userId) return;
-      void updateManagerTask(userId, routeTask.id, { completed }).then(() => {
-        setTasks((prev) => prev.map((row) => (row.id === routeTask.id ? { ...row, completed } : row)));
+      try {
+        const saved = await updateManagerTask(userId, routeTask.id, { completed });
+        setTasks((prev) => prev.map((row) => (row.id === routeTask.id ? saved : row)));
         showToast(completed ? "Task completed." : "Task reopened.");
-      });
+      } catch (e) {
+        // Without this the write's rejection was unhandled and the row kept its old state, so
+        // the manager believed a task was completed when the request had 4xx'd or gone offline.
+        showToast(e instanceof Error ? e.message : "Could not save the task.");
+      }
     };
     const assignTask = async (assignee: WorkAssignee | null) => {
       if (!userId) return;
@@ -681,7 +683,7 @@ export function ManagerTaskList({
     };
     const onTaskHeaderAction = (actionId: string) => {
       if (actionId === "complete") {
-        setCompleted(!routeTask.completed);
+        void setCompleted(!routeTask.completed);
         return;
       }
       if (actionId === "edit" || actionId === "schedule") {
@@ -694,11 +696,16 @@ export function ManagerTaskList({
       }
       if (actionId === "delete") {
         if (!userId) return;
-        void deleteManagerTask(userId, routeTask.id).then(() => {
-          setTasks((prev) => prev.filter((row) => row.id !== routeTask.id));
-          showToast("Task deleted.");
-          navigate(managerTaskListHref(basePath, tabId));
-        });
+        void (async () => {
+          try {
+            await deleteManagerTask(userId, routeTask.id);
+            setTasks((prev) => prev.filter((row) => row.id !== routeTask.id));
+            showToast("Task deleted.");
+            navigate(managerTaskListHref(basePath, tabId));
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : "Could not delete the task.");
+          }
+        })();
       }
     };
     return (

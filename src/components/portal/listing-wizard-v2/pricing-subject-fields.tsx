@@ -4,17 +4,17 @@
  * The ONE field list a priced thing shows for one lease type section.
  *
  * A single-occupant room, a bundle and the whole house all draw this component, so the three can
- * never drift apart (captain, Oct 3: "application fee, lease fee, move-in fee, month-to-month
- * surcharge, custom start surcharge etc. - have the same for bundles as well as individual
- * rooms"). Each caller only supplies an adapter that says where its values are stored:
+ * never drift apart (captain, Oct 3: "application fee, lease fee, move-in fee, custom start
+ * surcharge etc. - have the same for bundles as well as individual rooms"). Each caller only
+ * supplies an adapter that says where its values are stored:
  *
  *  - Long-term: Rent, Utilities, Deposit, the other fees, Partial months, Lease fee, Application fee,
- *    Move-in fee, Month-to-month surcharge, Custom start surcharge.
+ *    Move-in fee, Custom start surcharge.
  *  - Short-term: Nightly rate, Deposit, the other fees, Lease fee, Application fee, Move-in fee.
  *
- * Three rows follow what the listing OFFERS (the same lease checkboxes `allowedLeaseTerms` carries):
- * Partial months and Custom start surcharge show only when custom dates are allowed, Month-to-month
- * surcharge only when month-to-month is. Nothing else here is conditional.
+ * Two rows follow what the listing OFFERS (the same lease checkboxes `allowedLeaseTerms` carries):
+ * Partial months and Custom start surcharge show only when custom dates are allowed. Nothing else
+ * here is conditional, and month-to-month carries no surcharge.
  */
 import { ArrangementStandardFeeRows, type ArrangementFeePatch } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
 import { FeeRows, ProrateRows, type DayRate } from "@/components/portal/listing-wizard-v2/listing-pricing-step";

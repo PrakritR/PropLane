@@ -10,6 +10,7 @@ import {
   type ServiceStage,
 } from "@/lib/service-lifecycle";
 import { vendorReplyChoices, type StageBarItem, type VendorReplyChoice } from "@/lib/work-order-bid-cycle";
+import { serviceShortDay, serviceShortWhen } from "@/lib/service-time-labels";
 
 /**
  * The vendor portal's Services tabs are the one service vocabulary (service-lifecycle.ts):
@@ -100,27 +101,10 @@ export function vendorServiceStageItems(stage: ServiceStage): StageBarItem[] {
 
 /* ----------------------------------- row facts ----------------------------------- */
 
-const PACIFIC = "America/Los_Angeles";
-
 /** "Wed, Oct 8 · 9am" (minutes only when there are some), in Pacific time like every PropLane stamp. */
-export function vendorShortWhen(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const day = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: PACIFIC });
-  const parts = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: PACIFIC }).formatToParts(d);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  const minute = get("minute");
-  const time = `${get("hour")}${minute && minute !== "00" ? `:${minute}` : ""}${get("dayPeriod").toLowerCase()}`;
-  return `${day} · ${time}`;
-}
+export const vendorShortWhen = serviceShortWhen;
 
-function vendorShortDay(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: PACIFIC });
-}
+const vendorShortDay = serviceShortDay;
 
 function money(cents: number | null | undefined): string {
   const value = (cents ?? 0) / 100;

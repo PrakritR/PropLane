@@ -70,3 +70,33 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
   const area = workOrderGeneralArea(row);
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
+
+/**
+ * The shape an OFFERED-but-not-hired vendor is allowed to receive, applied on the server
+ * before the row ever leaves the API (`/api/portal-work-orders`). The helpers above decide
+ * what the vendor portal DRAWS; this decides what it is given, which is the access control.
+ *
+ * Nothing identifying the site survives: the street address, the unit, entry notes and
+ * permission, the resident's name and email, and the resident's intake photos unless the
+ * manager ticked "Share photos" on the bid request. `propertyName` is replaced with the
+ * general area so every downstream label keeps reading the area and nothing else.
+ */
+export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
+  const area = workOrderGeneralArea(row);
+  const {
+    propertyAddress: _propertyAddress,
+    entryNotes: _entryNotes,
+    entryPermission: _entryPermission,
+    residentName: _residentName,
+    residentEmail: _residentEmail,
+    residentConfirmation: _residentConfirmation,
+    photoDataUrls,
+    ...rest
+  } = row;
+  return {
+    ...rest,
+    propertyName: area,
+    unit: "—",
+    ...(row.offerSharePhotos === true && photoDataUrls?.length ? { photoDataUrls } : {}),
+  };
+}

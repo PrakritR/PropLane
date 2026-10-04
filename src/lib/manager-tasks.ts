@@ -103,6 +103,12 @@ export type ManagerTask = {
   durationMinutes?: number;
   completed: boolean;
   /**
+   * When the task was ticked off (ISO), cleared when it is reopened. The Completed tab's
+   * "Completed <date>" reads this; `updatedAt` only stands in for rows finished before the
+   * field existed, because any later edit moves `updatedAt`.
+   */
+  completedAt?: string;
+  /**
    * Who is doing this. Tasks may be assigned to a team member or a vendor.
    */
   assignee?: WorkAssignee;
@@ -309,6 +315,8 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     dueDate,
     durationMinutes,
     completed: row.completed === true,
+    completedAt:
+      row.completed === true && typeof row.completedAt === "string" ? row.completedAt.trim() || undefined : undefined,
     // Unusable assignees normalize to undefined rather than a name nobody can act on.
     assignee: normalizeAssignee(row.assignee) ?? undefined,
     taskType: normalizeTaskType(row.taskType),
@@ -614,9 +622,15 @@ export async function updateManagerTask(
   const assignee =
     patch.assignee !== undefined ? normalizeAssignee(patch.assignee) ?? undefined : current.assignee;
   if (patch.assignee !== undefined && !assignee) throw new Error("Assignee is required.");
+  const completedChanged = patch.completed !== undefined && patch.completed !== current.completed;
   const next: ManagerTask = {
     ...current,
     ...patch,
+    completedAt: completedChanged
+      ? patch.completed
+        ? new Date().toISOString()
+        : undefined
+      : current.completedAt,
     title: patch.title?.trim() || current.title,
     notes: patch.notes !== undefined ? patch.notes.trim() || undefined : current.notes,
     propertyId: patch.propertyId !== undefined ? patch.propertyId?.trim() || undefined : current.propertyId,

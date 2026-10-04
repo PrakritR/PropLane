@@ -163,7 +163,8 @@ export type PayeeWrite = {
 
 export type PayeeValidation = { ok: true; value: PayeeWrite } | { ok: false; error: string };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Shared so every id that reaches a `uuid` column is shape-checked before Postgres sees it. */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function oneOf<T extends string>(list: readonly T[], value: unknown): value is T {

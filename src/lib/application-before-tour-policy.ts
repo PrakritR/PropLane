@@ -69,9 +69,10 @@ export const TOUR_BLOCK_LABELS: Record<TourBlockReason, string> = {
 /**
  * The one gate matrix (captain, Oct 3 2026), shared by the server refusal, the check route and the
  * pages:
- *   - a DENIED application never schedules a tour for that home, whatever the setting;
- *   - setting off -> scheduling is open (any other status);
- *   - setting on  -> only an APPROVED application schedules (none / submitted do not).
+ *   - setting off -> scheduling is open, whatever the application says (a denial included:
+ *     a home that does not gate tours on an application does not gate them on a denial either);
+ *   - setting on  -> only an APPROVED application schedules (none / submitted / denied do not),
+ *     and a denial says so in its own words rather than "apply first".
  */
 export function tourBlockReason(required: boolean, status: TourApplicationStatus): TourBlockReason | null {
   if (required && status === "denied") return "denied";

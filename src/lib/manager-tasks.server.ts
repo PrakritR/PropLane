@@ -344,8 +344,17 @@ export async function patchManagerTaskRow(
       ? normalizeAssignee(patch.assignee) ?? undefined
       : current.assignee;
   if (patch.assignee !== undefined && !assignee) throw new Error("Assignee is required.");
+  const completedNext =
+    patch.completed === true ? true : patch.completed === false ? false : current.completed;
   const next: ManagerTask = {
     ...current,
+    // Stamped the moment it is ticked off and cleared when it is reopened, so the Completed
+    // tab's date survives a later retitle / reassign (`updatedAt` would not).
+    completedAt: completedNext
+      ? current.completed
+        ? current.completedAt
+        : new Date().toISOString()
+      : undefined,
     title: typeof patch.title === "string" ? patch.title.trim() || current.title : current.title,
     notes: typeof patch.notes === "string" ? patch.notes.trim() || undefined : current.notes,
     propertyId:
@@ -360,7 +369,7 @@ export async function patchManagerTaskRow(
     end,
     dueDate: start && end ? undefined : dueDate,
     durationMinutes,
-    completed: patch.completed === true ? true : patch.completed === false ? false : current.completed,
+    completed: completedNext,
     assignee,
     taskType:
       patch.taskType !== undefined
@@ -414,6 +423,7 @@ export async function patchManagerTaskRow(
         ...next,
         id: crypto.randomUUID(),
         completed: false,
+        completedAt: undefined,
         comments: undefined,
         checklist: next.checklist?.map((item) => ({ ...item, done: false })),
         reminderSentAt: undefined,

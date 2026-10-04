@@ -1,6 +1,6 @@
 "use client";
 
-import { addDaysToDateKey, bookingEntryKey, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { bookingEntryKey, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { invalidatePersistedInboxCache, MANAGER_INBOX_STORAGE_KEY, syncPersistedInboxFromServer } from "@/lib/portal-inbox-storage";
 
@@ -23,7 +23,7 @@ export function canNotifyBookingGuest(entry: Pick<PropertyBookingEntry, "residen
 /** Every fact the guest needs: who, where, which dates. Editable nowhere — it is a system send. */
 export function bookingCancelNoticeBody(entry: PropertyBookingEntry): { subject: string; text: string } {
   const guest = (entry.residentName || entry.summary || "").trim();
-  const dates = formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded);
+  const dates = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
   const place = [entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · ");
   return {
     subject: `Your booking at ${entry.propertyLabel} was cancelled`,

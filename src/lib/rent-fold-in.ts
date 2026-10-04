@@ -10,14 +10,14 @@
  *  - Everywhere but Seattle: a monthly custom fee folds into rent only when the manager
  *    ticked `includeInRent` on it; every other monthly fee (parking, HOA, other monthly, the
  *    custom-lease surcharge) bills as its own recurring charge. Unchanged behaviour.
- *  - Seattle (`listingFoldsAllMonthlyFeesIntoRent`): EVERY monthly fee folds into rent —
- *    including the month-to-month surcharge, which previously never billed at all — and
+ *  - Seattle (`listingFoldsAllMonthlyFeesIntoRent`): EVERY monthly fee folds into rent and
  *    nothing monthly bills separately. The lease prints the composition.
  *
- * The two surcharge presets stay conditional in both regimes: the month-to-month surcharge
- * applies only to a month-to-month tenancy and the custom-lease surcharge only to a lease on
- * custom calendar dates. Those predicates live in `custom-lease-billing.ts`; they are reused
- * here rather than re-derived so a fee can never fold on a tenancy it would not have billed.
+ * The custom-lease surcharge stays conditional in both regimes: it applies only to a lease on
+ * custom calendar dates. That predicate lives in `custom-lease-billing.ts` and is reused here
+ * rather than re-derived, so a fee can never fold on a tenancy it would not have billed.
+ * Month-to-month carries no surcharge at all any more — a stored `mtm_surcharge` row is a
+ * retired preset and is dropped before it reaches either regime.
  */
 
 import {

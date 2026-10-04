@@ -3,7 +3,8 @@
  *
  * When the property's workspace says Required, a prospect may not file a tour request for that
  * property until their application for it is APPROVED (submitted is not enough), and a DENIED
- * application never schedules a tour for that home, whatever the setting (`tourBlockReason`). Everything here is re-derived on the
+ * application is refused in its own words (`tourBlockReason`). With the setting off, scheduling
+ * is open whatever the application says. Everything here is re-derived on the
  * server: the owner and the setting come from the property record and the manager's saved
  * settings, the applicant from the verified account email, the application from
  * `manager_application_records` (scoped on the `resident_email` column, the resident's own rows).

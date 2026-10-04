@@ -95,7 +95,7 @@ export async function GET(req: Request) {
         radiusMi: Number.isFinite(previewRadius) ? previewRadius : 5,
       });
       if (!reach.ok) return NextResponse.json({ error: reach.error }, { status: reach.status });
-      return NextResponse.json({ count: reach.count });
+      return NextResponse.json({ count: reach.count, contactable: reach.contactable });
     }
 
     let query = db.from("work_order_vendor_offers").select("*").order("created_at", { ascending: true });

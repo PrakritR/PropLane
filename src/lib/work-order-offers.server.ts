@@ -137,11 +137,16 @@ export type SendWorkOrderVendorOffersBody = {
   };
 };
 
+/**
+ * How many directory vendors match this service's trade and radius, and how many of them one
+ * send can actually reach. The two are different numbers — a send is capped at
+ * `MAX_VENDORS_PER_SEND` — so both are returned rather than letting one stand for the other.
+ */
 export async function previewMarketplaceReach(
   db: Db,
   actor: WorkOrderActor,
   input: { workOrderId: string; trade: string; radiusMi: number },
-): Promise<{ ok: true; count: number } | WorkOrderActionFailure> {
+): Promise<{ ok: true; count: number; contactable: number } | WorkOrderActionFailure> {
   if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
     return { ok: false, status: 403, error: "Forbidden." };
   }
@@ -155,15 +160,15 @@ export async function previewMarketplaceReach(
   }
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   const category = workOrderCategoryForMarketplace(rowData, input.trade);
-  if (!category) return { ok: true, count: 0 };
+  if (!category) return { ok: true, count: 0, contactable: 0 };
   const propertyZip = await resolveWorkOrderPropertyZip(db, rowData);
-  if (!propertyZip) return { ok: true, count: 0 };
+  if (!propertyZip) return { ok: true, count: 0, contactable: 0 };
   const userIds = await loadMarketplaceVendorUserIds(db, {
     propertyZip,
     publishRadiusMi: input.radiusMi,
     category,
   });
-  return { ok: true, count: userIds.length };
+  return { ok: true, count: userIds.length, contactable: Math.min(userIds.length, MAX_VENDORS_PER_SEND) };
 }
 
 export async function sendWorkOrderVendorOffers(
@@ -189,12 +194,28 @@ export async function sendWorkOrderVendorOffers(
   }
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
 
+  // Re-opening bidding on a service that already has an approved bid would let a second bid be
+  // approved on top of it, and two `accepted` rows break every payout-anchor read (they resolve
+  // with `.maybeSingle()`, which errors on two rows and falls back to a caller-supplied amount).
+  const { data: acceptedBid } = await db
+    .from("work_order_bids")
+    .select("id")
+    .eq("work_order_id", workOrderId)
+    .eq("status", "accepted")
+    .limit(1);
+  if (acceptedBid && acceptedBid.length > 0) {
+    return { ok: false, status: 409, error: "A bid is already approved on this service — remove the vendor first." };
+  }
+
   const marketplace = body.marketplace;
   // Opt IN, never out. The broadcast fans an offer out to strangers matched by
   // trade and radius, so a caller that says nothing about the marketplace -
   // the assistant tool, any older client - sends only to the vendors the
   // manager actually named.
   const marketplaceEnabled = marketplace?.enabled === true;
+  // Opt IN here too: a caller that says nothing about photos shares none with a vendor who has
+  // only been offered the job. The manager's "Share photos" tick is what opens them.
+  const sharePhotos = marketplace?.sharePhotos === true;
   const tradeLabel = (marketplace?.trade ?? rowData.category ?? "Maintenance").toString().trim();
   const radiusMi = Math.min(50, Math.max(1, Math.round(Number(marketplace?.radiusMi ?? 5))));
   let matchedCount = 0;
@@ -277,12 +298,14 @@ export async function sendWorkOrderVendorOffers(
       biddingOpen: true,
       biddingOpenedAt: rowData.biddingOpenedAt ?? new Date().toISOString(),
       offerExpiresAt: expiresAt ? expiresAt.toISOString() : undefined,
+      offerSharePhotos: sharePhotos,
       marketplacePublish: marketplaceEnabled
         ? {
             trade: tradeLabel,
             radiusMi,
             budgetCents,
             matchedCount,
+            sharePhotos,
             publishedAt: new Date().toISOString(),
           }
         : rowData.marketplacePublish,
@@ -455,6 +478,16 @@ export async function reofferWorkOrderToNextVendor(
     .update({ vendor_user_id: null, row_data: unassignedRow, updated_at: now.toISOString() })
     .eq("id", input.workOrderId);
   if (error) throw error;
+
+  // Releasing the vendor releases their accepted bid with them. Left standing it would stay the
+  // payout anchor for a job they no longer hold, and the re-offer's own eventual approval would
+  // make a SECOND accepted row on the same service.
+  const { error: releaseError } = await db
+    .from("work_order_bids")
+    .update({ status: "declined", updated_at: now.toISOString() })
+    .eq("work_order_id", input.workOrderId)
+    .eq("status", "accepted");
+  if (releaseError) throw new Error(releaseError.message);
 
   const actor: WorkOrderActor = {
     userId: input.managerUserId,

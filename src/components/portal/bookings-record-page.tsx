@@ -16,7 +16,7 @@ import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-m
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { addDaysToDateKey, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
@@ -52,7 +52,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
   const backHref = managerBookingListHref(basePath, "upcoming");
-  const range = formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded);
+  const range = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
   const nights = bookingNights(entry);
   const conflicts = channel ? bookingConflictsFor(entries.filter((candidate) => candidate !== entry), entry) : [];
   const today = dateKey(new Date());
@@ -78,7 +78,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         <RecordFactRow label="Name" value={name} />
         <RecordFactRow label="Email" value={guestEmail || "—"} />
         <RecordFactRow label="Phone" value={entry.residentPhone || "—"} />
-        <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, addDaysToDateKey(past.latest.end, 1))}` : ""}`} />
+        <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, past.latest.end)}` : ""}`} />
       </RecordFactCard>
     );
   } else if (tab === "payments") {

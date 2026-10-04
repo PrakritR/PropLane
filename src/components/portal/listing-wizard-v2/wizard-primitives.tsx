@@ -1790,6 +1790,10 @@ export function LeaseTermsField({
         emptyLabel="Choose…"
         onChange={(picked) => {
           const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
+          // A property must offer at least one lease type. Storing none inverted the field:
+          // `resolveAllowedLeaseTerms` then returns [] and the applicant-side fallback reads
+          // that as EVERY term, so unticking all four accepted more than any single tick did.
+          if (ids.length === 0) return;
           onPatch(leaseTermsPatchForTypes(sub, ids));
         }}
       />

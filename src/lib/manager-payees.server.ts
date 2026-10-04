@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { TEAM_ROLE_LABELS, type TeamRoleId } from "@/lib/co-manager-team-roles";
 import {
   payeeFromRow,
+  UUID_RE,
   validatePayeeInput,
   type ManagerPayee,
   type ManagerTeammate,
@@ -38,6 +39,9 @@ export async function listPayees(db: Db, managerUserId: string): Promise<Manager
 export async function findOwnedPayee(db: Db, managerUserId: string, payeeId: string): Promise<ManagerPayee | null> {
   const id = payeeId.trim();
   if (!id) return null;
+  // A malformed id is "not found", not a 500: `.eq("id", "abc")` against a uuid column makes
+  // Postgres refuse the cast, and the route's catch then echoed its message to the client.
+  if (!UUID_RE.test(id)) return null;
   const { data, error } = await db
     .from("manager_payees")
     .select("*")
@@ -79,7 +83,13 @@ export async function listTeammates(db: Db, managerUserId: string): Promise<Mana
   if (ids.length === 0) return [];
 
   const profileById = new Map<string, { name: string | null; email: string | null }>();
-  const { data: profiles } = await db.from("profiles").select("id, full_name, email").in("id", ids);
+  const { data: profiles, error: profileError } = await db
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", ids);
+  // Its two sibling reads above throw; a silent failure here named every teammate "Teammate"
+  // in the Add payment picker, so the manager would pick a payee by a placeholder.
+  if (profileError) throw new Error(profileError.message);
   for (const profile of profiles ?? []) {
     const p = profile as Record<string, unknown>;
     profileById.set(String(p.id), { name: textOrNull(p.full_name), email: textOrNull(p.email) });

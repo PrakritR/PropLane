@@ -29,6 +29,11 @@ import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import { formatServiceMoney, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 import {
+  serviceShortDay as shortDay,
+  serviceShortWhen,
+  serviceWeekdayDay as weekdayDay,
+} from "@/lib/service-time-labels";
+import {
   deriveAddOnStages,
   deriveServiceStages,
   deriveVendorRequestRows,
@@ -152,33 +157,8 @@ export function completedPaymentFact(input: { vendorPayable: boolean; paid: bool
 
 /* ------------------------------------ row facts ------------------------------------ */
 
-function shortDay(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function weekdayDay(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-function clock(iso: string): string {
-  const d = new Date(iso);
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
-}
-
 /** `Wed, Oct 8 · 9am` - a visit or start time as one short fact; empty when the time is unusable. */
-export function formatServiceWhen(iso: string | null | undefined): string {
-  if (!iso || Number.isNaN(new Date(iso).getTime())) return "";
-  return `${weekdayDay(iso)} · ${clock(iso)}`;
-}
+export const formatServiceWhen = serviceShortWhen;
 
 /**
  * What one requested vendor's row says, as plain text (never a pill):
