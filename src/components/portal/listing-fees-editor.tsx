@@ -110,6 +110,8 @@ function legacyFieldKeyForFee(fee: ListingFeeRow): string {
       return "hoaMonthly";
     case "other_monthly":
       return "otherMonthlyFees";
+    case "mtm_surcharge":
+      return "monthToMonthSurcharge";
     case "custom_lease_surcharge":
       return "customLeaseSurcharge";
     default:

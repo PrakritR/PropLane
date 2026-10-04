@@ -15,7 +15,7 @@ and the stored terms; do not re-declare it.
 | Long-term | `Long-term` (retired `3/6/9/12-Month` read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
 | Short-term | `Short-Term Stay` (`Airbnb` reads as this) | check-in + check-out | one stay total from the nightly rate |
 | Custom | `Custom` | the applicant's own start + end | prorated first and last month, monthly between |
-| Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, **no surcharge** |
+| Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, plus the optional **month-to-month surcharge** (never in Seattle) |
 
 - Manager: the "Lease terms" multi-select picks which are offered (stored in `allowedLeaseTerms`,
   unchanged; existing properties keep what they effectively offered). It appears in the live property
@@ -28,10 +28,16 @@ and the stored terms; do not re-declare it.
 - Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and
   `buildLeaseHtml`; the client never sends a price. A type the property did not enable is rejected at submit by
   `validateSubmittedApplication` (the wizard's own validator, `leaseTermIsOfferedType` is the pure test).
-- **There is no month-to-month surcharge.** It was removed (captain, Oct 4 2026): not in the fee catalog, the
-  quote, the ledger, the rent fold-in, the lease document or the public listing. Rows already saved with
-  `preset:mtm_surcharge` or a `monthToMonthSurcharge` value are ignored (`resolveListingFees` drops the row), and
-  charges already generated are not rewritten. The custom-start surcharge still applies to a custom-dated lease.
+- **The month-to-month surcharge is an optional long-term charge** (captain, Oct 4 2026, restored after a brief
+  removal). It is a row of the Long term pricing section ("Month-to-month surcharge", blank or 0 = none; there is no
+  Month-to-month section, only Long term and Short term), stored on the room / bundle / whole-house arrangement row
+  and resolved through the one resolver (`resolveRoomTermFees` / `submissionWithRoomTermFees` in `room-term-fees.ts`),
+  so the quote (`startKind: "m2m"`), the lease document, the ledger and the public listing agree. It is charged ONLY
+  on a `Month-to-Month` lease (`shouldBillMonthToMonthSurcharge`), as its own monthly charge, and is NEVER offered on
+  a Seattle listing: `listingOffersMonthToMonthSurcharge` (listing-fees.ts) is the one predicate (hidden row, amount
+  0 in `listingPresetFeeAmountIfEnabled`, no fold into Seattle rent, no lease-document line, no quote add-on).
+  A rollover tenancy (`rolloverToMonthToMonth`) is billed as the lease it continues and prints no surcharge. The
+  custom-start surcharge still applies to a custom-dated lease.
 - Coverage: `tests/unit/lease-types-four.test.ts`.
 
 ## Resident lease visibility and signing (Sep 2026 hotfix)
@@ -1462,7 +1468,7 @@ consumes `stay` too. When `stay.basis === "daily"`:
   daily basis) and the `daily_rate` / `dailyUtilitiesRate` branch. The amount is passed in as
   the ledger's billable monthly utilities, never parsed back out of the display label.
   Coverage: `stay-pricing-repro.test.ts` case 15;
-- there is no month-to-month surcharge to fold (retired Oct 2026, see "The four lease types").
+- the month-to-month surcharge never folds into Seattle rent: it does not exist there (see "The four lease types").
 
 **When a billing snapshot exists, the prorated block PRINTS the ledger's own
 numbers.** `proratedBlock` still computes days-remaining × rate for the table's
@@ -2031,7 +2037,7 @@ exact amount before confirming (`describeMoveOutChange`).
 configured late fee when supplied and omits the late-fee paragraph when it is disabled or
 unset — the jurisdiction `defaultLateFeeUsd` fallback (Seattle `$75`) is gone with the other
 commercial defaults.
-A month-to-month surcharge no longer exists (see "The four lease types").
+The optional month-to-month surcharge prints only on a Month-to-Month lease and never in Seattle (see "The four lease types").
 
 ### Citations added in the template config
 

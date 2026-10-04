@@ -27,6 +27,7 @@ import {
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
 import { listingOffersCustomLeaseSurcharge } from "@/lib/listing-fees";
+import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import {
   roomDailyRentPrice,
   roomAdvertisedPriceLabel,
@@ -219,8 +220,14 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
         shortLeaseSurchargeMonthly: room.shortLeaseSurchargeMonthly,
         shortLeaseMaxMonths: room.shortLeaseMaxMonths,
       })),
-      // Month-to-month carries no surcharge, so no lease term has one.
-      termSurcharges: [],
+      // Month-to-month carries an optional surcharge, never on a Seattle listing (the agent must not quote one).
+      termSurcharges: [
+        {
+          term: "Month-to-Month",
+          offered: availableTerms.includes("Month-to-Month"),
+          monthlySurcharge: submission && !listingFoldsAllMonthlyFeesIntoRent(submission) ? submission.monthToMonthSurcharge?.trim() || null : null,
+        },
+      ],
       customCalendarSurcharge: {
         eligible: submission ? listingOffersCustomLeaseSurcharge(submission) : false,
         monthlySurcharge: submission?.customLeaseSurcharge?.trim() || null,

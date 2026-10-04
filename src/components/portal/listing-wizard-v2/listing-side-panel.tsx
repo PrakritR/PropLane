@@ -305,6 +305,7 @@ export function PricingReceiptPanel({
   lockLeaseTerm = false,
   plainReceipt = false,
   allowCustomStart = false,
+  allowMonthToMonthStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -318,6 +319,8 @@ export function PricingReceiptPanel({
   /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
   plainReceipt?: boolean;
   allowCustomStart?: boolean;
+  /** The lease can be priced as month-to-month (a long-term lease with the optional Month-to-month surcharge). */
+  allowMonthToMonthStart?: boolean;
 }) {
   const rooms = sub.rooms ?? [];
   const room = roomId ? rooms.find((r) => r.id === roomId) ?? null : null;
@@ -422,6 +425,7 @@ export function PricingReceiptPanel({
       : arrangementSummaryLine(room);
 
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [{ value: "std", label: "Standard start" }];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const residentOptions = Array.from({ length: arrangementCount }, (_, i) => ({
@@ -598,6 +602,7 @@ export function BundleWholePricingReceiptPanel({
   leaseTerm,
   leaseTerms,
   allowCustomStart = false,
+  allowMonthToMonthStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
   kind: "bundle" | "whole";
@@ -605,6 +610,8 @@ export function BundleWholePricingReceiptPanel({
   leaseTerm: string;
   leaseTerms: string[];
   allowCustomStart?: boolean;
+  /** The lease can be priced as month-to-month (a long-term lease with the optional Month-to-month surcharge). */
+  allowMonthToMonthStart?: boolean;
 }) {
   const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
   const bundle =
@@ -650,6 +657,7 @@ export function BundleWholePricingReceiptPanel({
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [
     { value: "std", label: "Standard start" },
   ];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const allArr = leaseTerms

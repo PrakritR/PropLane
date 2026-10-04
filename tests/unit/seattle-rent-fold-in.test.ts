@@ -53,11 +53,11 @@ const ADDRESS: Record<City, { address: string; city: string; state: string; zip:
   san_francisco: { address: "500 Valencia St", city: "San Francisco", state: "CA", zip: "94110" },
 };
 
-// The month-to-month surcharge was retired (captain, Oct 4 2026). A listing saved while it existed still carries
-// this row, and it must never fold into rent, bill, or print.
-const RETIRED_MTM_FEE_ID = "preset:mtm_surcharge";
+// The month-to-month surcharge is an optional long-term charge (captain, Oct 4 2026) that is NEVER offered on a
+// Seattle listing: a stored row there must never fold into rent, bill, or print. Elsewhere it bills as its own line.
+const MONTH_TO_MONTH_SURCHARGE_FEE_ID = "preset:mtm_surcharge";
 const FEES: ListingFeeRow[] = [
-  { id: "fee-mtm", presetId: "mtm_surcharge" as never, label: "Month-to-month surcharge", amount: "25", frequency: "monthly" },
+  { id: "fee-mtm", presetId: "mtm_surcharge", label: "Month-to-month surcharge", amount: "25", frequency: "monthly" },
   { id: "fee-custom-lease", presetId: "custom_lease_surcharge", label: "Custom lease", amount: "100", frequency: "monthly" },
   { id: "fee-parking", presetId: "parking_monthly", label: "Parking", amount: "60", frequency: "monthly" },
   { id: "fee-storage", presetId: "custom", label: "Storage locker", amount: "15", frequency: "monthly" },
@@ -201,7 +201,7 @@ describe("which fees fold (Seattle) — the surcharges stay conditional on the t
   it("never folds on a short-term stay, which is priced by the night already", () => {
     const sub = listing("seattle");
     const lines = monthlyRentFoldInLines(sub, null, { ...MONTH_TO_MONTH, rentalType: "short_term" });
-    expect(lines.some((l) => l.id === RETIRED_MTM_FEE_ID)).toBe(false);
+    expect(lines.some((l) => l.id === MONTH_TO_MONTH_SURCHARGE_FEE_ID)).toBe(false);
   });
 
   it("an includeInRent fee is counted once, not twice", () => {
@@ -218,8 +218,8 @@ describe("which fees fold (everywhere else) — unchanged", () => {
     expect(monthlyRentFoldInLines(listing("tacoma"), null, ctx)).toEqual([]);
     expect(monthlyRentFoldInLines(listing("tacoma", { includeStorageInRent: true }), null, ctx).map((l) => l.id)).toEqual(["fee-storage"]);
     const separate = monthlyFeesBilledSeparately(listing("tacoma", { includeStorageInRent: true }), null, ctx);
-    // Month-to-month adds no surcharge line outside Seattle either.
-    expect(separate.map((l) => l.id)).toEqual(["fee-parking"]);
+    // Captain (Oct 3): outside Seattle the month-to-month surcharge bills as its own monthly line.
+    expect(separate.map((l) => l.id).sort()).toEqual([MONTH_TO_MONTH_SURCHARGE_FEE_ID, "fee-parking"].sort());
     // The custom-lease surcharge still arrives as its own recurring line outside Seattle.
     const custom = monthlyFeesBilledSeparately(listing("tacoma"), null, { ...CUSTOM_DATES, rentalType: "standard" });
     expect(custom.map((l) => l.id).sort()).toEqual([CUSTOM_LEASE_SURCHARGE_FEE_ID, "fee-parking", "fee-storage"].sort());
@@ -274,12 +274,13 @@ describe("ledger: a Seattle resident is billed ONE rent line and no monthly fee 
 });
 
 describe("ledger: negative control — a non-Seattle listing bills exactly as before", () => {
-  it("Tacoma month-to-month: rent is the base rent; parking and the custom fee bill as their own lines, and no surcharge", () => {
+  it("Tacoma month-to-month: rent is the base rent; parking, the custom fee and the mtm surcharge bill as their own lines", () => {
     const r = approve("tacoma", MONTH_TO_MONTH, "tac-mtm");
     expect(amount(r.firstRent?.amountLabel)).toBe(BASE_RENT);
     expect(r.profile?.monthlyRent).toBe(BASE_RENT);
-    expect((r.profile?.monthlyFees ?? []).map((f) => f.id).sort()).toEqual(["fee-parking", "fee-storage"]);
-    expect(new Set(r.feeCharges.map((c) => c.customFeeId))).toEqual(new Set(["fee-parking", "fee-storage"]));
+    expect((r.profile?.monthlyFees ?? []).map((f) => f.id).sort()).toEqual([MONTH_TO_MONTH_SURCHARGE_FEE_ID, "fee-parking", "fee-storage"].sort());
+    expect((r.profile?.monthlyFees ?? []).find((f) => f.id === MONTH_TO_MONTH_SURCHARGE_FEE_ID)?.amount).toBe(25);
+    expect(new Set(r.feeCharges.map((c) => c.customFeeId))).toEqual(new Set([MONTH_TO_MONTH_SURCHARGE_FEE_ID, "fee-parking", "fee-storage"]));
   });
 
   it("San Francisco custom dates: the custom-lease surcharge still bills as its own recurring line", () => {

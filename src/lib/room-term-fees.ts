@@ -35,12 +35,15 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
+
+export const MONTH_TO_MONTH_LEASE_TERM = "Month-to-Month";
 
 /** The two term scopes a fee can be set under. A stay (Short term / Airbnb) is "short"; everything else is "long". */
 export type RoomFeeTermScope = "long" | "short";
@@ -51,6 +54,7 @@ export type RoomFeeRow = Partial<
     | "leaseFee"
     | "applicationFee"
     | "moveInFee"
+    | "monthToMonthSurcharge"
     | "customStartSurcharge"
     | "shortTermLeaseFee"
     | "shortTermApplicationFee"
@@ -111,6 +115,8 @@ export function termFeeRaw(row: RoomFeeRow | null | undefined, fee: TermScopedFe
  * ------------------------------------------------------------------ */
 
 export type RoomPricingFeeVisibility = {
+  /** "Month-to-month surcharge" - only when Month-to-month is offered. */
+  monthToMonthSurcharge: boolean;
   /** "Custom start surcharge" - only when Custom is offered. */
   customStartSurcharge: boolean;
   /** "Partial months" - a lease can start mid-month only on Custom. */
@@ -118,9 +124,14 @@ export type RoomPricingFeeVisibility = {
 };
 
 /** Visibility from an explicit list of offered lease terms. */
-export function feeVisibilityForTerms(offered: readonly string[]): RoomPricingFeeVisibility {
+export function feeVisibilityForTerms(
+  offered: readonly string[],
+  address?: Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">> | null,
+): RoomPricingFeeVisibility {
   const customStartSurcharge = offered.includes(CUSTOM_LEASE_TERM);
   return {
+    // Hidden on a Seattle listing: the surcharge does not exist there.
+    monthToMonthSurcharge: offered.includes(MONTH_TO_MONTH_LEASE_TERM) && !listingFoldsAllMonthlyFeesIntoRent(address),
     customStartSurcharge,
     partialMonths: customStartSurcharge,
   };
@@ -141,10 +152,11 @@ export function roomPricingFeeVisibility(
   sub: Pick<
     ManagerListingSubmissionV1,
     "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
-  >,
+  > &
+    Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">>,
   room: Pick<ManagerRoomSubmission, "offeredLeaseTerms"> | null | undefined,
 ): RoomPricingFeeVisibility {
-  return feeVisibilityForTerms(roomOfferedTermsForPricing(sub, room));
+  return feeVisibilityForTerms(roomOfferedTermsForPricing(sub, room), sub);
 }
 
 /* ------------------------------------------------------------------ *
@@ -156,6 +168,7 @@ export type ResolvedRoomTermFees = {
   applicationFee: number;
   leaseFee: number;
   moveInFee: number;
+  monthToMonthSurcharge: number;
   customStartSurcharge: number;
 };
 
@@ -217,6 +230,9 @@ export function resolveRoomTermFees(input: {
     applicationFee: fees.applicationFee,
     leaseFee: fees.leaseFee,
     moveInFee: parseMoneyAmount(resolvedMoveInFeeRaw(input.sub, opts)),
+    // Optional long-term charge; never on a Seattle listing, where this resolves to nothing.
+    monthToMonthSurcharge:
+      scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub) ? money(row?.monthToMonthSurcharge) : 0,
     customStartSurcharge: scope === "long" ? money(row?.customStartSurcharge) : 0,
   };
 }
@@ -254,7 +270,7 @@ function cleanMoneyText(n: number): string {
 
 function syncPresetRow(
   sub: ManagerListingSubmissionV1,
-  presetId: "custom_lease_surcharge",
+  presetId: "mtm_surcharge" | "custom_lease_surcharge",
   amount: string,
 ): ManagerCustomFeeRow[] | undefined {
   const rows = sub.customFees;
@@ -310,6 +326,13 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   let removedChanged = false;
 
   if (scope === "long" && row) {
+    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub) ? 0 : money(row.monthToMonthSurcharge);
+    if (mtm > 0) {
+      const text = cleanMoneyText(mtm);
+      removedChanged = removed.delete("monthToMonthSurcharge") || removedChanged;
+      next = { ...next, monthToMonthSurcharge: text, customFees: syncPresetRow(next, "mtm_surcharge", text) };
+      changed = true;
+    }
     const custom = money(row.customStartSurcharge);
     if (custom > 0) {
       const text = cleanMoneyText(custom);

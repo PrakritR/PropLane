@@ -164,6 +164,22 @@ export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLI
 const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
 
 /**
+ * The identity floor (captain, Oct 4 2026): an application always asks for the applicant's full legal name and
+ * email. Both can be reworded, but they cannot be removed, turned off, made optional or given another type
+ * (text / email). Leases (tenant name), screening and the resident account are created from them. Phone is NOT on
+ * the floor: it stays fully optional and removable, and every other question is the manager's to change.
+ */
+export const IDENTITY_FLOOR_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) => field.section === "personal" && (field.label === "Full legal name" || field.label === "Email"),
+).map((field) => field.standardKey);
+
+const IDENTITY_FLOOR_STANDARD_KEY_SET = new Set(IDENTITY_FLOOR_STANDARD_KEYS);
+
+export function isIdentityFloorStandardKey(standardKey: string | null | undefined): boolean {
+  return Boolean(standardKey && IDENTITY_FLOOR_STANDARD_KEY_SET.has(standardKey));
+}
+
+/**
  * Built-ins that screening, charges and leases read BY KEY (see {@link SYSTEM_READ_ANSWER_STANDARD_KEYS}):
  * name, phone and email plus date of birth, SSN, ID and income. Nothing here is locked; a manager may
  * remove or reword any of them, and the system then simply finds no answer under that key.
@@ -338,15 +354,22 @@ type VariantConfigSource = {
 };
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0) : [];
+  // The identity floor (name, email) is force-kept: a forged or stale disabled-keys list cannot turn it off.
+  return Array.isArray(value)
+    ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !IDENTITY_FLOOR_STANDARD_KEY_SET.has(k))
+    : [];
 }
 
 function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
   return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((field) => {
     const def = field.standardKey ? CATALOG_BY_KEY.get(field.standardKey) : undefined;
-    return def && def.options.length > 0
+    const normalized = def && def.options.length > 0
       ? { ...field, options: builtInAnswerOptions(def.standardKey, field.options, def.options) }
       : field;
+    // Name and email are always required and keep their fixed type, whatever a stored override says.
+    return def && IDENTITY_FLOOR_STANDARD_KEY_SET.has(def.standardKey)
+      ? { ...normalized, required: true, type: def.type }
+      : normalized;
   }) : [];
 }
 
@@ -534,8 +557,8 @@ function mergeStandardWithOverride(
     ...(override.linkedForms !== undefined ? { linkedForms: override.linkedForms } : {}),
     id: override.id || base.id,
     label: override.label.trim() || base.label,
-    type: override.type ?? base.type,
-    required: override.required ?? base.required,
+    type: IDENTITY_FLOOR_STANDARD_KEY_SET.has(def.standardKey) ? base.type : (override.type ?? base.type),
+    required: IDENTITY_FLOOR_STANDARD_KEY_SET.has(def.standardKey) ? true : (override.required ?? base.required),
     options: def.options.length > 0
       ? builtInAnswerOptions(def.standardKey, override.options, def.options)
       : override.type === "select" && override.options.length > 0 ? [...override.options] : base.options,
@@ -576,7 +599,7 @@ export function resolveListingApplicationFields(
 ): ResolvedApplicationField[] {
   const disabled = new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !IDENTITY_FLOOR_STANDARD_KEY_SET.has(k))
       : [],
   );
   const saved = normalizeSaved(sub?.customApplicationFields);
@@ -736,6 +759,10 @@ export function patchListingApplicationField(
   applicationConfigMode: "standard" | "custom";
 } {
   const nextField: ResolvedApplicationField = { ...field, ...patch };
+  if (isIdentityFloorStandardKey(nextField.standardKey)) {
+    nextField.required = true;
+    nextField.type = field.type;
+  }
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -771,6 +798,14 @@ export function removeListingApplicationField(
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
 } {
+  // The identity floor (full legal name, email) cannot be removed from any application.
+  if (isIdentityFloorStandardKey(field.standardKey)) {
+    return {
+      disabledStandardApplicationKeys: [...(sub.disabledStandardApplicationKeys ?? [])],
+      customApplicationFields: [...(sub.customApplicationFields ?? [])],
+      applicationConfigMode: sub.applicationConfigMode ?? "standard",
+    };
+  }
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -831,7 +866,7 @@ function disabledStandardKeysSet(
 ): Set<string> {
   return new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !IDENTITY_FLOOR_STANDARD_KEY_SET.has(k))
       : [],
   );
 }

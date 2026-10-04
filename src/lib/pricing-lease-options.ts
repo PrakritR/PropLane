@@ -72,17 +72,23 @@ export function pricingLeaseOptions(
 }
 
 /**
- * The sections the wizard's Pricing step draws, one per stay the listing offers ("Stays you offer" on Basics):
- * Long term and Short term each hold their OWN rent, deposit, move-in fee, application fee and added fees, and
- * nothing is shared between them. There is no Both section on Pricing. A stay the listing does not offer
- * draws nothing (its stored prices are kept); Airbnb is a kind of short-term stay, Month-to-month and a custom
- * lease a kind of long-term one, so they follow their stay.
+ * The sections the wizard's Pricing step draws: only TWO exist, Long term and Short term, one per stay the listing
+ * offers ("Stays you offer" on Basics), each holding its OWN rent, deposit, move-in fee, application fee and added
+ * fees, nothing shared between them. There is no Both section on Pricing. A stay the listing does not offer draws
+ * nothing (its stored prices are kept). Month-to-month and a custom lease are long-term and Airbnb is short-term:
+ * none is a section of its own, their prices show inside their stay (the Month-to-month surcharge is a Long term row).
  */
 export function pricingSectionOptions(sub: Parameters<typeof pricingLeaseOptions>[0]): PricingLeaseOption[] {
   const offered = listingOfferedStays(sub);
-  return pricingLeaseOptions(sub).filter((option) => {
-    if (option.term === SHORT_TERM_LEASE_TERM || option.term === AIRBNB_LEASE_TERM) return offered.short_term;
-    if (option.term === LONG_TERM_LEASE_TERM) return offered.long_term;
-    return offered.long_term;
-  });
+  const all = pricingLeaseOptions(sub);
+  const out: PricingLeaseOption[] = [];
+  if (offered.long_term) {
+    const long = all.find((option) => option.term === LONG_TERM_LEASE_TERM);
+    if (long) out.push(long);
+  }
+  if (offered.short_term) {
+    const short = all.find((option) => option.term === SHORT_TERM_LEASE_TERM) ?? all.find((option) => option.term === AIRBNB_LEASE_TERM);
+    out.push(short ?? { id: SHORT_TERM_LEASE_TERM, label: "Short-term", term: SHORT_TERM_LEASE_TERM });
+  }
+  return out;
 }

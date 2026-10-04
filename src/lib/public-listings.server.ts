@@ -168,6 +168,7 @@ const PUBLIC_SUBMISSION_KEYS = [
   "hoaMonthly",
   "otherMonthlyFees",
   "customFees",
+  "monthToMonthSurcharge",
   "customLeaseSurcharge",
   "allowedLeaseTerms",
   "leaseTermsBody",
@@ -180,6 +181,7 @@ const PUBLIC_SUBMISSION_KEYS = [
   "shortTermParkingMonthly",
   "shortTermHoaMonthly",
   "shortTermOtherMonthlyFees",
+  "shortTermMonthToMonthSurcharge",
   // How the applicant may pay the application fee, and what it asks them.
   "axisPaymentsEnabled",
   "applicationConfigMode",

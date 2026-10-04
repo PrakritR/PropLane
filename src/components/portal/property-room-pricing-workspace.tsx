@@ -1,6 +1,6 @@
 "use client";
 
-import { pricingLeaseOptions } from "@/lib/pricing-lease-options";
+import { pricingSectionOptions } from "@/lib/pricing-lease-options";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
@@ -59,7 +59,6 @@ import {
   pricingCopySourceRooms,
   setRoomPricingCopyFrom,
 } from "@/lib/property-pricing-room-copy";
-import { roomPricingSourceLabel } from "@/lib/property-pricing-summary";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { propertyPricingRoomSummary } from "@/lib/property-pricing-summary";
 import {
@@ -125,10 +124,11 @@ function patchStandardFeesForTerm(
 ): ManagerRoomSubmission {
   // The two start surcharges always live on the long-term private row; a stay type's own
   // Lease / Application / Move-in fees live on its term entry (the long-term row on the base step).
-  const { customStartSurcharge, shortTermLeaseFee, shortTermApplicationFee, ...fees } = patch;
+  const { monthToMonthSurcharge, customStartSurcharge, shortTermLeaseFee, shortTermApplicationFee, ...fees } = patch;
   void shortTermLeaseFee;
   void shortTermApplicationFee;
-  const surcharges: { customStartSurcharge?: string } = {};
+  const surcharges: { monthToMonthSurcharge?: string; customStartSurcharge?: string } = {};
+  if (monthToMonthSurcharge !== undefined) surcharges.monthToMonthSurcharge = monthToMonthSurcharge;
   if (customStartSurcharge !== undefined) surcharges.customStartSurcharge = customStartSurcharge;
   let next = room;
   if (Object.keys(surcharges).length > 0) next = mergeLongTermPrivateArrangementRow(next, surcharges);
@@ -144,6 +144,7 @@ function feeRowForStep(room: ManagerRoomSubmission, term: string, isBaseLong: bo
   return {
     count: 1,
     ...displayFeeRow(standardFeesForTerm(room, term, isBaseLong)),
+    monthToMonthSurcharge: longRow.monthToMonthSurcharge,
     customStartSurcharge: longRow.customStartSurcharge,
   };
 }
@@ -213,13 +214,13 @@ export function RoomPricingFields({
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
   const feeScope = roomFeeTermScope(quoteTerm);
   const feeVisibility = roomPricingFeeVisibility(draft, room);
+  const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
   const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const copySources = pricingCopySourceRooms(draft, room.id, activeTerm);
   const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
   const isStay = isStayLeaseTerm(quoteTerm);
   const isBaseLong = quoteTerm === LONG_TERM_LEASE_TERM;
-  const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
   const roomName = room.name?.trim() || "Room";
   const utilitiesAmount = moneyNumber(room.utilitiesEstimate ?? "");
   const adapter: PricingSubjectAdapter = {
@@ -277,14 +278,10 @@ export function RoomPricingFields({
   };
   return (
     <>
-      {priceSource ? (
-        <p className="text-[12px] font-semibold text-muted" data-rp-src>
-          {priceSource}
-        </p>
-      ) : null}
       {copySources.length > 0 ? (
         <FactRow label="Pricing">
           <FieldSingleSelect
+            hideLabel
             label="Pricing"
             options={[
               { value: "", label: "Set for this room" },
@@ -324,18 +321,14 @@ export function RoomPricingFields({
               term={quoteTerm}
               prorate={isBaseLong && feeVisibility.partialMonths}
               showResidentsCapacity
+              showMonthToMonthSurcharge={allowM2m && isBaseLong}
               showCustomStartSurcharge={allowCustomStart && isBaseLong}
             />
           )
         ) : (
           <PricingSubjectFields draft={draft} patch={patch} term={activeTerm} visibility={feeVisibility} adapter={adapter} />
         )
-      ) : (
-        <p className="text-[13px] font-semibold text-muted">
-          Mirroring {copySources.find((r) => r.id === copyValue)?.name?.trim() || "another room"} — change
-          Pricing to edit this room on its own.
-        </p>
-      )}
+      ) : null}
     </>
   );
 }
@@ -357,14 +350,8 @@ export function WholeHousePricingFields({
   /** "Offer the whole house" on a by-the-room listing. A caller that draws its own Offered switch passes false. */
   offerToggle?: boolean;
 }) {
-  const visibility = feeVisibilityForTerms(listingPricingLeaseTabs(draft));
+  const visibility = feeVisibilityForTerms(listingPricingLeaseTabs(draft), draft);
   const fees = draft.entireHomeArrangementFees ?? {};
-  const priceSource =
-    draft.entireHomePriceSource === "default"
-      ? "Workspace default"
-      : draft.entireHomePriceSource === "own"
-        ? "This property"
-        : null;
   const patchWholeFees = (next: Partial<typeof fees>) => {
     patch({
       entireHomeArrangementFees: { ...fees, ...next },
@@ -434,11 +421,6 @@ export function WholeHousePricingFields({
           dataAttr="property-whole-house-offer"
         />
       ) : null}
-      {priceSource ? (
-        <p className="text-[12px] font-semibold text-muted" data-rp-src>
-          {priceSource}
-        </p>
-      ) : null}
       <PricingSubjectFields draft={draft} patch={patch} term={activeStepId} visibility={visibility} adapter={adapter} />
     </>
   );
@@ -472,7 +454,7 @@ export function BundlePricingFields({
 }) {
   const activeTerm = activeStepId;
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
-  const visibility = feeVisibilityForTerms(listingPricingLeaseTabs(draft));
+  const visibility = feeVisibilityForTerms(listingPricingLeaseTabs(draft), draft);
   const patchBundle = (next: Partial<ManagerBundleRow>) => {
     patch({ bundles: draft.bundles.map((b) => (b.id === bundle.id ? { ...b, ...next } : b)) });
   };
@@ -533,12 +515,14 @@ export function BundlePricingFields({
         leaseFee: formatPlacementMoneyField(stepFees.leaseFee ?? ""),
         applicationFee: formatPlacementMoneyField(stepFees.applicationFee ?? ""),
         moveInFee: isStay ? bundle.shortTermMoveInFee : bundle.moveInFee,
+        monthToMonthSurcharge: bundle.monthToMonthSurcharge,
         customStartSurcharge: bundle.customStartSurcharge,
       },
       onPatch: (feePatch) => {
-        const { leaseFee, applicationFee, moveInFee, customStartSurcharge } = feePatch;
+        const { leaseFee, applicationFee, moveInFee, monthToMonthSurcharge, customStartSurcharge } = feePatch;
         const next: Partial<ManagerBundleRow> = {};
         if (moveInFee !== undefined) next[isStay ? "shortTermMoveInFee" : "moveInFee"] = moveInFee;
+        if (monthToMonthSurcharge !== undefined) next.monthToMonthSurcharge = monthToMonthSurcharge;
         if (customStartSurcharge !== undefined) next.customStartSurcharge = customStartSurcharge;
         if (leaseFee !== undefined || applicationFee !== undefined) {
           next.termPricing = mergeTermStandardFees(bundle, quoteTerm, { leaseFee, applicationFee }).termPricing;
@@ -559,6 +543,7 @@ export function BundlePricingFields({
       {copySources.length > 0 ? (
         <FactRow label="Pricing">
           <FieldSingleSelect
+            hideLabel
             label="Pricing"
             options={[
               { value: "", label: "Set for this bundle" },
@@ -578,11 +563,7 @@ export function BundlePricingFields({
       ) : null}
       {!copyValue ? (
         <PricingSubjectFields draft={draft} patch={patch} term={activeTerm} visibility={visibility} adapter={adapter} />
-      ) : (
-        <p className="text-[13px] font-semibold text-muted">
-          Mirroring another bundle — change Pricing to edit on its own.
-        </p>
-      )}
+      ) : null}
     </>
   );
 }
@@ -631,16 +612,17 @@ export function PropertyRoomPricingWorkspace({
             draft,
             draft.rooms.find((r) => r.id === subject.roomId),
           )
-        : feeVisibilityForTerms(listingPricingLeaseTabs(draft)),
+        : feeVisibilityForTerms(listingPricingLeaseTabs(draft), draft),
     [draft, subject],
   );
+  const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
   /*
    * The left rail lists every leasing option the property offers (Long-term, Short-term, a custom lease by name,
    * Month-to-month only when a lease allows it); a tab shows ONLY that option's fields, and "What a resident
    * pays" quotes it. They are tabs of one screen, not steps: Save is always there.
    */
-  const options = useMemo(() => pricingLeaseOptions(draft), [draft]);
+  const options = useMemo(() => pricingSectionOptions(draft), [draft]);
   const steps: AddWorkspaceStep[] = useMemo(() => options.map((option) => ({ id: option.id, label: option.label })), [options]);
   const currentIndex = Math.max(0, options.findIndex((option) => option.id === optionId));
   const activeOption = options[currentIndex] ?? options[0]!;
@@ -799,6 +781,7 @@ export function PropertyRoomPricingWorkspace({
             lockLeaseTerm
             plainReceipt
             allowCustomStart={allowCustomStart}
+            allowMonthToMonthStart={allowM2m}
           />
         ) : subject.kind === "whole" ? (
           <BundleWholePricingReceiptPanel
@@ -807,6 +790,7 @@ export function PropertyRoomPricingWorkspace({
             leaseTerm={quoteTerm}
             leaseTerms={leaseTerms}
             allowCustomStart={allowCustomStart}
+            allowMonthToMonthStart={allowM2m}
           />
         ) : subject.kind === "bundle" ? (
           <BundleWholePricingReceiptPanel
@@ -816,6 +800,7 @@ export function PropertyRoomPricingWorkspace({
             leaseTerm={quoteTerm}
             leaseTerms={leaseTerms}
             allowCustomStart={allowCustomStart}
+            allowMonthToMonthStart={allowM2m}
           />
         ) : undefined
       }

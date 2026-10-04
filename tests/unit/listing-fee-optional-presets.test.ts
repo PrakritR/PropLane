@@ -24,6 +24,7 @@ const OPTIONAL_NOW: ListingFeePresetId[] = [
   "parking_monthly",
   "hoa_monthly",
   "other_monthly",
+  "mtm_surcharge",
   "custom_lease_surcharge",
 ];
 
@@ -52,8 +53,6 @@ describe("a fee a landlord does not charge is simply left blank", () => {
       expect(LISTING_FEE_PRESETS.some((p) => p.presetId === presetId)).toBe(true);
     }
     expect(CORE_LISTING_FEE_PRESET_IDS).toContain("parking_monthly");
-    // Month-to-month has no surcharge preset any more (captain, Oct 4 2026).
-    expect(LISTING_FEE_PRESETS.some((p) => (p.presetId as string) === "mtm_surcharge")).toBe(false);
   });
 
   it("a whole blank fee sheet saves, except for the deposit", () => {

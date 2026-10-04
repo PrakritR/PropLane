@@ -20,6 +20,7 @@ import {
   syncLegacyApplicationFieldsFromTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
+  withoutApplicationDefaultForStay,
   type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
@@ -162,6 +163,15 @@ describe("the default application of a stay", () => {
     expect(moved.filter((row) => row.defaultFor?.includes("long_term")).map((row) => row.id)).toEqual([a.id]);
   });
 
+  it("turning a default off clears only that application's default for that stay", () => {
+    const set = withApplicationDefaultForStay(withApplicationDefaultForStay([a, b, s], a.id, "long_term"), s.id, "short_term");
+    const cleared = withoutApplicationDefaultForStay(set, a.id, "long_term");
+    expect(cleared.find((row) => row.id === a.id)!.defaultFor).toBeUndefined();
+    expect(cleared.find((row) => row.id === s.id)!.defaultFor).toEqual(["short_term"]);
+    // Clearing a default the row does not hold changes nothing.
+    expect(withoutApplicationDefaultForStay(set, b.id, "long_term").map((row) => row.defaultFor)).toEqual(set.map((row) => row.defaultFor));
+  });
+
   it("moving an application to another section drops a default it can no longer hold", () => {
     const withDefault = withApplicationDefaultForStay([a, b, s], a.id, "long_term");
     const moved = withApplicationAppliesTo(withDefault, a.id, "short_term");
@@ -260,6 +270,17 @@ describe("Pricing draws one independent section per stay offered, never a Both",
 
   it("Long term and Short term when both are offered", () => {
     expect(pricingSectionOptions(withStays(true, true)).map((option) => option.label)).toEqual(["Long-term", "Short-term"]);
+  });
+
+  it("only ever two sections: month-to-month, custom and Airbnb fold into their stay, never a section of their own", () => {
+    const rich = {
+      ...withStays(true, true),
+      allowedLeaseTerms: ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay", "Airbnb Stay"],
+      airbnbRentalsAllowed: true,
+    };
+    expect(pricingSectionOptions(rich as never).map((option) => option.label)).toEqual(["Long-term", "Short-term"]);
+    const longOnly = { ...withStays(true, false), allowedLeaseTerms: ["Long-term", "Month-to-Month", "Custom"] };
+    expect(pricingSectionOptions(longOnly as never).map((option) => option.label)).toEqual(["Long-term"]);
   });
 
   it("only the stays the listing offers, even when a short-term lease is stored", () => {

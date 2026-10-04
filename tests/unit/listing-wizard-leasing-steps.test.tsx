@@ -215,16 +215,28 @@ describe("Application step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("the menu is Edit first, the default / applies-to moves, Duplicate, and a red Delete last", async () => {
+  it("the menu is Edit, Duplicate and a red Delete last; Applies to and the default live inside the form", async () => {
     mountLive(bothStays());
     go("application");
     const items = await openMenu(q("[data-attr='listing-v2-application-menu']")!);
     const labels = items.map((item) => item.textContent);
-    expect(labels[0]).toBe("Edit");
-    expect(labels.slice(-2)).toEqual(["Duplicate", "Delete"]);
-    expect(labels).toContain("Applies to short term residents");
-    expect(labels).toContain("Applies to both");
+    expect(labels).toEqual(["Edit", "Duplicate", "Delete"]);
     expect(items.at(-1)!.className).toContain("text-red");
+  });
+
+  it("the form's first two rows are Applies to and Default for its section (no default on a Both form)", () => {
+    mountLive(bothStays());
+    go("application");
+    openCard(cards("application")[0]!);
+    const editor = q("[data-attr='listing-v2-application-editor']")!;
+    const rows = Array.from(editor.querySelectorAll(":scope > div")).map((row) => row.textContent ?? "");
+    expect(rows[0]).toContain("Applies to");
+    expect(rows[0]).toContain("Long-term residents");
+    expect(rows[1]).toContain("Default for its section");
+    expect(editor.querySelector("[data-attr='listing-v2-application-default']")).not.toBeNull();
+    fireEvent.click(editor.querySelector("[data-attr='listing-v2-application-applies-to-row']")!);
+    tapOption("Both");
+    expect(q("[data-attr='listing-v2-application-default']")).toBeNull();
   });
 
   it("opening a card unfolds the editor in place: Needed, fee, lease, questions; Done closes it", () => {
@@ -408,13 +420,14 @@ describe("Application step", () => {
     expect(readPropertyApplicationTemplates(longOnly.latest()).length === stored || readPropertyApplicationTemplates(longOnly.latest()).length === 0).toBe(true);
   });
 
-  it("the menu moves an application between sections and sets the default, shown as a plain ★ fact", async () => {
+  it("the form's Applies to moves an application between sections and its default toggle sets the default, shown as a plain ★ fact", () => {
     const live = mountLive(bothStays());
     go("application");
     const longCards = () => qa("[data-attr='listing-v2-stay-section-long_term'] [data-attr='listing-v2-application-card']");
     // Move the co-signer-free first application to Short term, so Short term holds two.
-    const items = await openMenu(longCards()[0]!.querySelector("[data-attr='listing-v2-application-menu']") as HTMLElement);
-    fireEvent.click(items.find((item) => item.textContent === "Applies to short term residents")!);
+    openCard(longCards()[0]!);
+    fireEvent.click(q("[data-attr='listing-v2-application-applies-to-row']")!);
+    tapOption("Short-term residents");
     const stored = readPropertyApplicationTemplates(live.latest());
     expect(stored[0]!.appliesTo).toBe("short_term");
     const shortCards = qa("[data-attr='listing-v2-stay-section-short_term'] [data-attr='listing-v2-application-card']");
@@ -423,8 +436,8 @@ describe("Application step", () => {
     expect(starred).toHaveLength(1);
     // Make the OTHER one the default.
     const other = shortCards.find((card) => !card.textContent?.includes("★ Default"))!;
-    const menu = await openMenu(other.querySelector("[data-attr='listing-v2-application-menu']") as HTMLElement);
-    fireEvent.click(menu.find((item) => item.textContent === "Set as default for short term")!);
+    openCard(other);
+    fireEvent.click(other.querySelector("[data-attr='listing-v2-application-default']")!);
     const after = readPropertyApplicationTemplates(live.latest());
     expect(after.filter((row) => row.defaultFor?.includes("short_term"))).toHaveLength(1);
     const defaultRow = after.find((row) => row.defaultFor?.includes("short_term"))!;
@@ -818,11 +831,12 @@ describe("Pricing step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a property that offers only long term has one section (Short term is not drawn); Month-to-month appears only when a lease allows it", () => {
+  it("a property that offers only long term has one section (Short term is not drawn); Month-to-month is a Long term row, never a section", () => {
     mountLive();
     go("pricing");
     openCard(cards("pricing")[0]!);
     expect(tabLabels()).toEqual(["Long term"]);
+    expect(q("[data-attr='listing-v2-pricing-format-month-to-month']")).toBeNull();
     cleanup();
     const withM2m = {
       ...sub(),
@@ -832,7 +846,9 @@ describe("Pricing step", () => {
     mountLive(withM2m as never);
     go("pricing");
     openCard(cards("pricing")[0]!);
-    expect(tabLabels()).toEqual(["Long term", "Month-to-month"]);
+    // Only two sections ever exist: month-to-month is a Long term row, not a section of its own.
+    expect(tabLabels()).toEqual(["Long term"]);
+    expect(screen.queryAllByText("Month-to-month surcharge").length).toBeGreaterThan(0);
   });
 
   it("a room's Application fee and Lease fee default from the application and the lease, per tab", () => {
