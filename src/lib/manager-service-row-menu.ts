@@ -21,8 +21,8 @@ export function managerServiceRowMenuItems(
       items.push({ id: "request-bids", label: "Request bids" });
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
     }
-    if (next?.key === "compare-bids") {
-      items.push({ id: "compare-bids", label: "Compare bids" });
+    if (next?.key === "compare-bids" || next?.key === "approve-bid") {
+      items.push({ id: next.key, label: next.label });
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
     }
     if (!next && !row.vendorId && !row.assignee && !row.selfAssigned) {

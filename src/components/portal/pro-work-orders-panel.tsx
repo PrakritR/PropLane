@@ -101,6 +101,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   formatServiceMoney,
   managerServiceNextStep,
+  managerServiceNeed,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 
@@ -1397,6 +1398,7 @@ export function ManagerWorkOrdersPanel({
     const routeStage = workOrderServiceStage(routeWorkOrder, { bids: routeBids, offers: routeOffers });
     const submittedBids = countSubmittedBids(routeBids);
     const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: submittedBids, canPay: routeStage === "completed" });
+    const serviceNeed = managerServiceNeed(routeWorkOrder, { bidCount: submittedBids, canPay: routeStage === "completed" });
     const vendorsHref = workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendors");
     const runServicePrimary = (key: string) => {
       if (key === "request-bids") {
@@ -1405,6 +1407,11 @@ export function ManagerWorkOrdersPanel({
       }
       if (key === "compare-bids") {
         setVendorsIntent({ tab: "bids", compare: true, nonce: (vendorsIntent?.nonce ?? 0) + 1 });
+        if (activeTab !== "vendors") navigate(vendorsHref);
+        return;
+      }
+      if (key === "approve-bid") {
+        setVendorsIntent({ tab: "bids", nonce: (vendorsIntent?.nonce ?? 0) + 1 });
         if (activeTab !== "vendors") navigate(vendorsHref);
         return;
       }
@@ -1431,6 +1438,7 @@ export function ManagerWorkOrdersPanel({
     const servicePrimaryIcon = (key: string) => {
       if (key === "request-bids") return Send;
       if (key === "compare-bids") return Scale;
+      if (key === "approve-bid") return CheckCircle2;
       if (key === "schedule") return Calendar;
       if (key === "pay" || key === "approve-pay") return HandCoins;
       return CheckCircle2;
@@ -1600,15 +1608,12 @@ export function ManagerWorkOrdersPanel({
                 : []),
             ],
             overviewNeeds: [
-              ...(!routeWorkOrder.vendorName?.trim() && !routeWorkOrder.selfAssigned
-                ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendors")) }]
-                : []),
-              ...(routeWorkOrder.automationStatus === "vendor_marked_done"
+              ...(serviceNeed
                 ? [
                     {
-                      id: "approve-invoice",
-                      title: "Approve invoice",
-                      onClick: () => (pendingServiceInvoiceId ? void approveInvoiceForRow(routeWorkOrder) : approvePay(routeWorkOrder)),
+                      id: serviceNeed.id,
+                      title: serviceNeed.title,
+                      onClick: serviceNeed.key ? () => runServicePrimary(serviceNeed.key!) : undefined,
                     },
                   ]
                 : []),

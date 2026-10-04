@@ -3,6 +3,7 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
   managerServiceListStageLabel,
   managerServiceNextStep,
+  managerServiceNeed,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 import { workOrderStageSteps } from "@/lib/service-lifecycle";
@@ -82,12 +83,31 @@ describe("managerServiceWorkflow", () => {
   it("the one next step follows the lifecycle: Request bids, Compare bids, Schedule, Complete, Pay", () => {
     expect(managerServiceNextStep(baseRow())?.label).toBe("Request bids");
     expect(managerServiceNextStep(baseRow({ biddingOpen: true }))).toBeNull();
+    expect(managerServiceNextStep(baseRow({ biddingOpen: true }), { bidCount: 1 })?.label).toBe("Approve bid");
     expect(managerServiceNextStep(baseRow({ biddingOpen: true }), { bidCount: 2 })?.label).toBe("Compare bids");
     const hired = { vendorId: "v1", vendorName: "Dana Plumbing" };
     expect(managerServiceNextStep(baseRow(hired))?.label).toBe("Schedule");
     expect(managerServiceNextStep(baseRow({ ...hired, bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00.000Z" }))?.label).toBe("Complete");
     expect(managerServiceNextStep(baseRow({ ...hired, bucket: "completed", scheduledAtIso: "2026-10-08T16:00:00.000Z" }), { canPay: true })?.label).toBe("Pay");
     expect(managerServiceNextStep(baseRow({ ...hired, bucket: "completed", status: "Cancelled" }), { canPay: true })).toBeNull();
+  });
+
+  it("the Needs you row follows the same next step as the header primary", () => {
+    const hired = { vendorId: "v1", vendorName: "Dana Plumbing" };
+    const need = (row: ReturnType<typeof baseRow>, opts = {}) => managerServiceNeed(row, opts);
+    expect(need(baseRow())).toEqual({ id: "request-bids", title: "Request bids", key: "request-bids" });
+    expect(need(baseRow({ biddingOpen: true }))).toEqual({ id: "waiting-on-vendors", title: "Waiting on vendors", key: null });
+    expect(need(baseRow({ biddingOpen: true }), { bidCount: 1 })?.title).toBe("Approve a bid");
+    expect(need(baseRow({ biddingOpen: true }), { bidCount: 3 })?.title).toBe("Approve a bid");
+    expect(need(baseRow(hired))?.title).toBe("Schedule");
+    expect(need(baseRow({ ...hired, bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00.000Z" }))?.title).toBe("Complete");
+    expect(
+      need(baseRow({ ...hired, bucket: "completed", scheduledAtIso: "2026-10-08T16:00:00.000Z", automationStatus: "vendor_marked_done" }))?.title,
+    ).toBe("Approve invoice");
+    expect(need(baseRow({ ...hired, bucket: "completed", scheduledAtIso: "2026-10-08T16:00:00.000Z" }), { canPay: true })?.title).toBe("Pay");
+    expect(need(baseRow({ status: "Cancelled" }))).toBeNull();
+    // "Assign a vendor" is never the need: a bid in means Approve a bid.
+    expect(need(baseRow({ biddingOpen: true }), { bidCount: 1 })?.title).not.toBe("Assign a vendor");
   });
 
   it("vendor lead hides street until hired", () => {

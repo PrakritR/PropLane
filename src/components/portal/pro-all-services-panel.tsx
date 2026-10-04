@@ -865,7 +865,7 @@ export function ManagerAllServicesPanel({
         setScheduleVisitRow(maintenanceRow);
         return;
       }
-      if (id === "request-bids" || id === "compare-bids" || id === "assign") {
+      if (id === "request-bids" || id === "compare-bids" || id === "approve-bid" || id === "assign") {
         navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendors"));
         return;
       }

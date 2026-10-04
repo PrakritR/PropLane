@@ -84,7 +84,7 @@ export function managerServiceListStageLabel(
 
 /**
  * The one next step of a service, from the lifecycle (`service-lifecycle.ts`): Request bids (nobody
- * asked yet) -> Compare bids (a submitted bid is waiting) -> Schedule -> Complete -> Pay. `bidCount`
+ * asked yet) -> Approve bid (one submitted bid) or Compare bids (two or more) -> Schedule -> Complete -> Pay. `bidCount`
  * counts SUBMITTED bids only; a service still waiting on vendors has no next step of its own.
  */
 export function managerServiceNextStep(
@@ -96,7 +96,9 @@ export function managerServiceNextStep(
   const bidCount = opts.bidCount ?? 0;
   if (!assignee) {
     if (row.bucket === "scheduled" && !row.automationStatus) return { key: "complete", label: "Complete" };
-    if (bidCount > 0) return { key: "compare-bids", label: "Compare bids" };
+    // One bid is approved or not; two or more are compared side by side first.
+    if (bidCount === 1) return { key: "approve-bid", label: "Approve bid" };
+    if (bidCount > 1) return { key: "compare-bids", label: "Compare bids" };
     if (row.biddingOpen) return null;
     return { key: "request-bids", label: "Request bids" };
   }
@@ -122,4 +124,34 @@ export function managerServiceListFigure(
 ): string {
   const cents = workOrderCostCents(row, acceptedBid);
   return cents != null ? formatServiceMoney(cents) : "";
+}
+
+/**
+ * The "Needs you" row on a service's Overview. It follows the SAME next step as the header's primary
+ * action, worded as the thing to do: Request bids, Approve a bid, Schedule, Complete, Approve invoice,
+ * Pay. A service still waiting on vendors says so and has no action (`key: null`).
+ */
+export type ManagerServiceNeed = { id: string; title: string; key: string | null };
+
+export function managerServiceNeed(
+  row: DemoManagerWorkOrderRow,
+  opts: { bidCount?: number; canPay?: boolean } = {},
+): ManagerServiceNeed | null {
+  const next = managerServiceNextStep(row, opts);
+  if (!next) {
+    const waiting =
+      (row.status ?? "").trim().toLowerCase() !== "cancelled" && !resolveWorkOrderAssignee(row) && Boolean(row.biddingOpen);
+    return waiting ? { id: "waiting-on-vendors", title: "Waiting on vendors", key: null } : null;
+  }
+  switch (next.key) {
+    case "request-bids":
+      return { id: "request-bids", title: "Request bids", key: next.key };
+    case "approve-bid":
+    case "compare-bids":
+      return { id: "approve-bid", title: "Approve a bid", key: next.key };
+    case "approve-pay":
+      return { id: "approve-invoice", title: "Approve invoice", key: next.key };
+    default:
+      return { id: next.key, title: next.label, key: next.key };
+  }
 }
