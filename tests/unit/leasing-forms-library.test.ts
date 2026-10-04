@@ -93,10 +93,11 @@ describe("the Forms page rows", () => {
     expect(facts.startSource).toBe("PropLane standard");
     expect(facts.questionCount).toBeGreaterThan(5);
     expect(facts.leaseTypes).toEqual(["Long-term"]);
-    expect(facts.tourOrder).toBe("Before the tour");
+    // The tour order is the workspace setting alone: a form states none, whatever it stored.
+    expect(facts.tourOrder).toBeNull();
     expect(facts.propertyCount).toBe(2);
-    expect(libraryFormFacts("application", library.applications[1]!, 0).tourOrder).toBe("After the tour");
-    expect(libraryFormFacts("application", draftApplication("None"), 0).tourOrder).toBe("Use the workspace setting");
+    expect(libraryFormFacts("application", library.applications[1]!, 0).tourOrder).toBeNull();
+    expect(libraryFormFacts("application", draftApplication("None"), 0).tourOrder).toBeNull();
     const lease = libraryFormFacts("lease", library.leases[0]!, 1);
     expect(lease.tourOrder).toBeNull();
     expect(lease.startSource).toBe("PropLane standard");
@@ -180,16 +181,14 @@ describe("a property's picks drive which forms its listing uses", () => {
     expect(readPropertyApplicationTemplates(alone.sub)[0]!.linkedLeaseTemplateId ?? null).toBeNull();
   });
 
-  it("the picked forms' tour order is what gates a tour at that property", () => {
+  it("a picked form's stored tour order no longer gates a tour: only the workspace setting does", () => {
     const library = libraryWith();
     const beforeTour = applyPropertyFormPicks(createDefaultListingSubmission(), "application", new Set([library.applications[0]!.id]), library);
-    // A copy is a draft until the server publishes it, so it does not gate anything yet.
-    expect(applicationBeforeTourRequired("not_needed", readPropertyApplicationTemplates(beforeTour.sub))).toBe(false);
     const live = readPropertyApplicationTemplates(publishAll(beforeTour.sub));
-    expect(applicationBeforeTourRequired("not_needed", live)).toBe(true);
+    expect(applicationBeforeTourRequired("not_needed", live)).toBe(false);
     const afterTour = applyPropertyFormPicks(createDefaultListingSubmission(), "application", new Set([library.applications[1]!.id]), library);
     const liveAfter = readPropertyApplicationTemplates(publishAll(afterTour.sub));
-    expect(applicationBeforeTourRequired("required", liveAfter)).toBe(false);
+    expect(applicationBeforeTourRequired("required", liveAfter)).toBe(true);
   });
 
   it("counts the properties using a form", () => {

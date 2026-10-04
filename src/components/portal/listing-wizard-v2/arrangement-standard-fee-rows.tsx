@@ -3,6 +3,7 @@
 import { FactRow, MoneyInput } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import type { RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
 import { arrangementLabel } from "@/lib/room-arrangement-pricing";
+import { formatPlacementMoneyField } from "@/lib/listing-placement-standard-fees";
 import { termFeePatch, termFeeText, type RoomFeeTermScope } from "@/lib/room-term-fees";
 
 export type ArrangementFeePatch = Partial<
@@ -43,6 +44,7 @@ export function ArrangementStandardFeeRows({
   scope = "long",
   storage = "stayFields",
   inheritedRow,
+  templateDefaults,
 }: {
   count: number;
   row: RoomOccupancyPrice;
@@ -55,23 +57,37 @@ export function ArrangementStandardFeeRows({
   storage?: "term" | "stayFields";
   /** `storage="term"`: the fees an empty box inherits (the step this one follows). */
   inheritedRow?: Partial<Record<FeeKind, string>>;
+  /**
+   * The Application fee / Lease fee this step's templates set (the application's and the lease's own fee). An
+   * empty box follows it, shown greyed; typing one is this room's override, and Reset clears it again.
+   */
+  templateDefaults?: Partial<Record<FeeKind, string>>;
 }) {
   const per = count > 1 ? " per resident" : "";
   const fieldScope: RoomFeeTermScope = storage === "term" ? "long" : scope;
   const box = (kind: FeeKind) => {
     const text = termFeeText(row, kind, fieldScope);
+    const templateDefault = formatPlacementMoneyField(templateDefaults?.[kind] ?? "");
+    if (text.value === "" && templateDefault) return { value: "", placeholder: templateDefault, own: false };
     if (text.own && text.value === "" && inheritedRow) {
       const inherited = String(inheritedRow[kind] ?? "").trim();
       if (inherited) return { value: "", placeholder: inherited, own: false };
     }
     return text;
   };
+  const hasOverride = (field: { value: string; own: boolean }) => field.own && field.value !== "";
   const lease = box("leaseFee");
   const application = box("applicationFee");
   const stepName = scope === "short" ? "short term" : "long-term";
   return (
     <>
-      <FactRow label={`Lease fee${per}`}>
+      <FactRow
+        label={`Lease fee${per}`}
+        own={!readOnly && hasOverride(lease)}
+        onReset={() => onPatch(termFeePatch("leaseFee", fieldScope, ""))}
+        resetLabel={`Reset ${arrangementLabel(count)} ${stepName} lease fee to the lease's fee`}
+        resetTitle="Back to the lease's fee"
+      >
         <MoneyInput
           label={`${arrangementLabel(count)} ${stepName} lease fee`}
           value={lease.value}
@@ -81,7 +97,13 @@ export function ArrangementStandardFeeRows({
           onChange={(v) => onPatch(termFeePatch("leaseFee", fieldScope, v))}
         />
       </FactRow>
-      <FactRow label={`Application fee${per}`}>
+      <FactRow
+        label={`Application fee${per}`}
+        own={!readOnly && hasOverride(application)}
+        onReset={() => onPatch(termFeePatch("applicationFee", fieldScope, ""))}
+        resetLabel={`Reset ${arrangementLabel(count)} ${stepName} application fee to the application's fee`}
+        resetTitle="Back to the application's fee"
+      >
         <MoneyInput
           label={`${arrangementLabel(count)} ${stepName} application fee`}
           value={application.value}

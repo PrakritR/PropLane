@@ -106,7 +106,7 @@ describe("RentalApplicationWizard templatePreview", () => {
       />,
     );
     // Step 1 opens with the lease question, so a lease type is chosen before the household answers.
-    fireEvent.click(screen.getByRole("button", { name: "Select lease length" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select a lease term" }));
     const option = await screen.findByRole("option", { name: "Long-term" });
     fireEvent.pointerDown(option, { pointerId: 1, clientX: 0, clientY: 0 });
     fireEvent.pointerUp(option, { pointerId: 1, clientX: 0, clientY: 0 });

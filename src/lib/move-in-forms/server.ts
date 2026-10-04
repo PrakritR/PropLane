@@ -20,13 +20,14 @@ import { isCompletePhoneNumber } from "@/lib/phone-number-field";
 import { isCustomFieldHiddenByCondition } from "@/lib/rental-application/custom-fields";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
+import { normalizeLeaseTemplateKind } from "@/lib/property-lease-templates";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION, MAX_UPLOAD_REQUEST_BYTES } from "./limits";
 import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "./move-in-form-events.server";
 import {
   MOVE_IN_FORM_ID_PATTERN, moveInFormDefaultKindOfId, moveInFormDueFor, readMoveInFormSettings, readMoveInFormTemplates,
-  templateAppliesToRoom, templateLinkMatches,
+  moveInLeaseKindOf, templateAppliesToRoom, templateLeaseTypeAdmits, templateLinkMatches,
 } from "./templates";
 import type {
   MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormRecord, MoveInFormStatus, MoveInFormSummary, MoveInFormTemplate,
@@ -257,7 +258,8 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
   + "app_lease_start:row_data->application->>leaseStart,"
   + "app_lease_end:row_data->application->>leaseEnd,"
-  + "app_template_id:row_data->application->>applicationTemplateId";
+  + "app_template_id:row_data->application->>applicationTemplateId,"
+  + "app_rental_type:row_data->application->>rentalType";
 
 type Residency = {
   id: string;
@@ -266,6 +268,8 @@ type Residency = {
   inPlay: boolean;
   /** The application template the applicant filled in (`propertyApplicationTemplates` id), when it recorded one. */
   applicationTemplateId: string;
+  /** `standard` / `short_term` as the application recorded it ("" when it did not). */
+  rentalType: string;
   leaseEnd: string;
   name: string;
   propertyLabel: string;
@@ -290,6 +294,7 @@ function residencyFromRecord(record: Record<string, unknown>): Residency {
     approved: text("app_bucket") === "approved" && !text("app_withdrawn_at"),
     inPlay: (text("app_bucket") === "approved" || text("app_bucket") === "pending") && !text("app_withdrawn_at"),
     applicationTemplateId: text("app_template_id").trim(),
+    rentalType: text("app_rental_type").trim(),
     leaseEnd: isoDate(text("app_lease_end")),
     name: text("app_name") || "Resident",
     propertyLabel: text("app_property") || "Property",
@@ -317,11 +322,13 @@ type PropertyFacts = {
   templates: MoveInFormTemplate[];
   settings: ReturnType<typeof readMoveInFormSettings>;
   rooms: { id: string; name: string }[];
+  /** `propertyLeaseTemplates` id -> its kind, for a form's Lease type. */
+  leaseKinds: Map<string, string>;
 };
 
 async function readProperty(db: SupabaseClient, propertyId: string): Promise<PropertyFacts | null> {
   const { data, error } = await db.from("manager_property_records")
-    .select("id,manager_user_id,templates:property_data->listingSubmission->moveInFormTemplates,settings:property_data->listingSubmission->moveInFormSettings,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms")
+    .select("id,manager_user_id,templates:property_data->listingSubmission->moveInFormTemplates,settings:property_data->listingSubmission->moveInFormSettings,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms,lease_kinds:property_data->listingSubmission->propertyLeaseTemplates")
     .eq("id", propertyId).maybeSingle();
   if (error) throw new MoveInFormError("Could not load the property.", 500);
   if (!data?.manager_user_id) return null;
@@ -342,9 +349,15 @@ async function readProperty(db: SupabaseClient, propertyId: string): Promise<Pro
     const room = entry as Record<string, unknown>;
     return typeof room.id === "string" && room.id ? [{ id: room.id, name: typeof room.name === "string" ? room.name : "" }] : [];
   });
+  const leaseKinds = new Map<string, string>();
+  for (const entry of Array.isArray(record.lease_kinds) ? (record.lease_kinds as unknown[]) : []) {
+    const lease = entry as { id?: unknown; kind?: unknown } | null;
+    if (lease && typeof lease.id === "string" && lease.id) leaseKinds.set(lease.id, normalizeLeaseTemplateKind(typeof lease.kind === "string" ? lease.kind : null));
+  }
   return {
     id: String(data.id),
     ownerId: String(data.manager_user_id),
+    leaseKinds,
     // Never-saved defaults are suggestions, not the manager's choice: a property that has not saved its
     // move-in forms sends nothing on its own (outward messages need the manager's own save). The same
     // holds per form: a default form the saved list does not actually hold (older data) is read as
@@ -502,8 +515,16 @@ async function residencyLeaseTemplateId(db: SupabaseClient, property: PropertyFa
 /** Whether a form's linked application and lease templates admit this residency (empty list = all). */
 async function templateLinksAdmit(db: SupabaseClient, property: PropertyFacts, residency: Residency, template: MoveInFormTemplate): Promise<boolean> {
   if (!templateLinkMatches(template.linkedApplicationTemplateIds, residency.applicationTemplateId)) return false;
-  if (template.linkedLeaseTemplateIds.length === 0) return true;
-  return templateLinkMatches(template.linkedLeaseTemplateIds, await residencyLeaseTemplateId(db, property, residency));
+  const restrictedType = (template.leaseType ?? "all") !== "all";
+  if (template.linkedLeaseTemplateIds.length === 0 && !restrictedType) return true;
+  const leaseId = await residencyLeaseTemplateId(db, property, residency);
+  if (!templateLinkMatches(template.linkedLeaseTemplateIds, leaseId)) return false;
+  // Lease type: Long-term / Short-term forms go only to a signed lease of that type. The lease's own kind
+  // decides; with no lease template known, the application's rental type does. An unknown is never guessed in.
+  return templateLeaseTypeAdmits(
+    template,
+    moveInLeaseKindOf({ leaseTemplateKind: leaseId ? property.leaseKinds.get(leaseId) : null, rentalType: residency.rentalType }),
+  );
 }
 
 /* --------------------------------------------------------------- dispatch */

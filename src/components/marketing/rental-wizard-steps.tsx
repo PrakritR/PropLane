@@ -40,6 +40,16 @@ import {
 import { addMonthsToDateString, longTermLengthFor } from "@/lib/rental-application/long-term-length";
 import { LONG_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
+  APPLICANT_TERM_PLACEHOLDER,
+  applicantChoiceFromStored,
+  applicantTermOptions,
+  propertyAllowsMonthToMonth,
+  storedTermAfterStartChange,
+  storedTermForApplicant,
+  type ApplicantTerm,
+} from "@/lib/rental-application/applicant-lease-term";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import {
   applicantListingQuote,
   formatQuoteMoney,
   paymentAtSigningPriceLabel,
@@ -488,10 +498,46 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // what they already chose without a word, the same reason an already-picked
     // room stays in the ranked choices below.
     const chosenLeaseTerm = form.leaseTerm.trim();
-    const leaseTermOptions =
+    const offeredStored =
       chosenLeaseTerm && !offeredLeaseTerms.includes(chosenLeaseTerm)
         ? sortLeaseTermsCanonical([...offeredLeaseTerms, chosenLeaseTerm])
         : offeredLeaseTerms;
+    const applicantTermChoices = applicantTermOptions(offeredStored);
+    const applicantChoice = applicantChoiceFromStored(form.leaseTerm);
+    /** Writes the STORED term the applicant's pick translates to, with everything that follows from it. */
+    const applyStoredLeaseTerm = (v: string) => {
+      // The single dropdown carries short-term as one option; rentalType is
+      // derived from the choice so the two can never contradict each other.
+      const rentalType = v === SHORT_TERM_LEASE_TERM ? "short_term" : "standard";
+      const nextBundleOptions = form.propertyId.trim()
+        ? getBundleOptionsForProperty(form.propertyId, { rentalType })
+        : [];
+      const keepBundle =
+        Boolean(form.bundleId.trim()) &&
+        nextBundleOptions.some((o) => o.value === form.bundleId);
+      const slotPatch = form.roomChoice1.trim()
+        ? firstChoiceSelectionPatch(form.roomChoice1, {
+            propertyId: form.propertyId,
+            leaseTerm: v,
+          })
+        : {};
+      patch(
+        v === "Month-to-Month"
+          ? {
+              leaseTerm: v,
+              leaseEnd: "",
+              rentalType,
+              ...(keepBundle ? {} : { bundleId: "" }),
+              ...slotPatch,
+            }
+          : {
+              leaseTerm: v,
+              rentalType,
+              ...(keepBundle ? {} : { bundleId: "" }),
+              ...slotPatch,
+            },
+      );
+    };
     /**
      * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
      * AVAILABLE. This list used to pass `includeUnavailable: true`, so an
@@ -623,52 +669,59 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="leaseTerm" enabled={showWizardField}>
         <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={termQuestion?.id}>
           <Label htmlFor="leaseTerm" required={termQuestion?.required}>{termQuestion?.label ?? "Lease term"}</Label>
+          {/*
+            The applicant picks Long-term or Short-term, filtered to what the property offers. Month-to-month
+            and custom dates are options of the long-term lease, so they are a "Length" under Long-term and the
+            date pickers on the dates step, not terms of their own. The stored `leaseTerm` is translated at this
+            edge (`applicant-lease-term.ts`) and stays one of the existing stored terms.
+          */}
           <Select
             id="leaseTerm"
-            value={form.leaseTerm}
+            value={applicantChoice.term}
             onChange={(e) => {
-              const v = e.target.value;
-              // The single dropdown carries short-term as one option; rentalType is
-              // derived from the choice so the two can never contradict each other.
-              const rentalType = v === SHORT_TERM_LEASE_TERM ? "short_term" : "standard";
-              const nextBundleOptions = form.propertyId.trim()
-                ? getBundleOptionsForProperty(form.propertyId, { rentalType })
-                : [];
-              const keepBundle =
-                Boolean(form.bundleId.trim()) &&
-                nextBundleOptions.some((o) => o.value === form.bundleId);
-              const slotPatch = form.roomChoice1.trim()
-                ? firstChoiceSelectionPatch(form.roomChoice1, {
-                    propertyId: form.propertyId,
-                    leaseTerm: v,
-                  })
-                : {};
-              patch(
-                v === "Month-to-Month"
-                  ? {
-                      leaseTerm: v,
-                      leaseEnd: "",
-                      rentalType,
-                      ...(keepBundle ? {} : { bundleId: "" }),
-                      ...slotPatch,
-                    }
-                  : {
-                      leaseTerm: v,
-                      rentalType,
-                      ...(keepBundle ? {} : { bundleId: "" }),
-                      ...slotPatch,
-                    },
+              const picked = e.target.value as ApplicantTerm | "";
+              if (!picked) {
+                applyStoredLeaseTerm("");
+                return;
+              }
+              applyStoredLeaseTerm(
+                storedTermForApplicant({ offered: offeredStored, term: picked, length: "fixed", leaseStart: form.leaseStart }),
               );
             }}
             className={errors.leaseTerm ? "border-red-400 ring-2 ring-red-100" : ""}
           >
-            <option value="">Select lease length</option>
-            {leaseTermOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            <option value="">{APPLICANT_TERM_PLACEHOLDER}</option>
+            {applicantTermChoices.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </Select>
+          {applicantChoice.term === "long" && propertyAllowsMonthToMonth(offeredStored) ? (
+            <div className="space-y-2" data-wizard-field="leaseLength">
+              <Label htmlFor="leaseLength">Length</Label>
+              <FieldSingleSelect
+                label="Length"
+                hideLabel
+                value={applicantChoice.length}
+                dataAttr="rental-wizard-lease-length"
+                options={[
+                  { value: "fixed", label: "Fixed term" },
+                  { value: "month_to_month", label: "Month-to-month" },
+                ]}
+                onChange={(next) =>
+                  applyStoredLeaseTerm(
+                    storedTermForApplicant({
+                      offered: offeredStored,
+                      term: "long",
+                      length: next === "month_to_month" ? "month_to_month" : "fixed",
+                      leaseStart: form.leaseStart,
+                    }),
+                  )
+                }
+              />
+            </div>
+          ) : null}
           <FieldError msg={errors.leaseTerm} />
           {form.rentalType === "short_term" ? (
             <div className="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
@@ -751,7 +804,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room preferences"}</Label>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">1st choice</span>
+              <span className="mb-1.5 block text-xs font-semibold text-muted">1st choice</span>
               <div data-wizard-field="roomChoice1">
                 <Select
                   value={form.roomChoice1}
@@ -775,7 +828,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               </div>
             </div>
             <div>
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">2nd choice</span>
+              <span className="mb-1.5 block text-xs font-semibold text-muted">2nd choice</span>
               <Select
                 value={form.roomChoice2}
                 disabled={!form.propertyId}
@@ -791,7 +844,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <FieldError msg={errors.roomChoice2} />
             </div>
             <div>
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">3rd choice</span>
+              <span className="mb-1.5 block text-xs font-semibold text-muted">3rd choice</span>
               <Select
                 value={form.roomChoice3}
                 disabled={!form.propertyId}
@@ -1140,7 +1193,16 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               min="2020-01-01"
               max="2035-12-31"
               value={form.leaseStart}
-              onChange={(next) => patch({ leaseStart: next })}
+              onChange={(next) => {
+                // Only a Custom lease may start mid-month: on a property that offers both Long-term and Custom,
+                // the stored term follows the start date the applicant picks.
+                const stored = storedTermAfterStartChange({
+                  offered: form.propertyId.trim() ? listingOfferedLeaseTerms(form.propertyId) : [],
+                  currentStored: form.leaseTerm,
+                  leaseStart: next,
+                });
+                patch(stored !== form.leaseTerm ? { leaseStart: next, leaseTerm: stored } : { leaseStart: next });
+              }}
               className={errors.leaseStart ? "border-red-400 ring-2 ring-red-100" : ""}
             />
             <FieldError msg={errors.leaseStart} />
@@ -2269,6 +2331,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               rentalType={applicationRentalTypeFor(form.rentalType)}
               leaseTerm={form.leaseTerm || undefined}
               roomChoice1={form.roomChoice1 || undefined}
+              bundleId={form.bundleId || undefined}
               applicationTemplateId={form.applicationTemplateId}
               returnPath={applyReturnPath ?? "/rent/apply"}
             />

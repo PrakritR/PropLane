@@ -19,6 +19,8 @@ type Body = {
   leaseTerm?: string;
   /** The applicant's first room choice - a selector, never an amount. */
   roomChoice1?: string;
+  /** The bundle applied for - a selector, never an amount. */
+  bundleId?: string;
   /** P003: the application template the applicant is actually applying with — a selector into the listing's own stored templates, never an amount. */
   applicationTemplateId?: string;
   /** Optional — when present, also reports whether the code currently looks redeemable. */
@@ -76,6 +78,7 @@ export async function POST(req: Request) {
         rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
         leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
         roomChoice1: typeof body.roomChoice1 === "string" ? body.roomChoice1.slice(0, 200) : undefined,
+        bundleId: typeof body.bundleId === "string" ? body.bundleId.slice(0, 200) : undefined,
         applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
       },
       { allowZeroFee: true },

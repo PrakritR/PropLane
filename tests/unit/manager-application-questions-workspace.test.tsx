@@ -14,7 +14,10 @@ import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { applicationConfigForVariant, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
-import { applicationDraftReviewFingerprint, createPropertyApplicationTemplate } from "@/lib/property-application-templates";
+import React from "react";
+import { applicationDraftReviewFingerprint, createPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { submissionWithDefaultLeasingSetup } from "@/lib/leasing-quick-add";
 
 const persistOnServer = vi.fn<(...args: unknown[]) => Promise<boolean>>();
 vi.mock("next/navigation", () => ({
@@ -666,8 +669,12 @@ describe("server reviewed application publishing", () => {
   });
 });
 
-describe("P003 / C2-R30-4: the application's own fee override has no editor control (room pricing owns it)", () => {
-  function renderEditor(template: ReturnType<typeof createPropertyApplicationTemplate>, persist: ReturnType<typeof vi.fn>) {
+describe("the application's first step: its own fee, promo codes, PropLane defaults; no tour order, no Used for", () => {
+  function renderTemplateEditor(
+    template: ReturnType<typeof createPropertyApplicationTemplate>,
+    persist: ReturnType<typeof vi.fn>,
+    extra: Partial<React.ComponentProps<typeof ManagerApplicationQuestionsEditorModal>> = {},
+  ) {
     // F-editor c: the footer Save also tries to publish, which PATCHes the
     // import endpoint — stub it so that attempt resolves.
     vi.stubGlobal(
@@ -688,39 +695,111 @@ describe("P003 / C2-R30-4: the application's own fee override has no editor cont
         onClose={() => {}}
         onSaved={() => {}}
         showToast={() => {}}
+        {...extra}
       />,
     );
   }
 
-  it("the editor offers no application fee or promo code controls", async () => {
+  it("has no Tour order row and no Used for section", async () => {
     const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
-    renderEditor(template, vi.fn().mockResolvedValue(true));
+    renderTemplateEditor(template, vi.fn().mockResolvedValue(true));
     await waitWorkspace("Long-term application");
-    jumpRail("sections");
-    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    expect(screen.queryByRole("switch", { name: "Charge an application fee" })).toBeNull();
-    expect(screen.queryByLabelText("Application cost")).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Promo code that waives the fee" })).toBeNull();
+    expect(screen.queryByText("Tour order")).toBeNull();
+    expect(document.querySelector('[data-attr="application-tour-order"]')).toBeNull();
+    expect(screen.queryByText(/Used for/i)).toBeNull();
+    expect(screen.queryByText("Use the workspace setting")).toBeNull();
   });
 
-  it("saving carries a stored fee and promo override through untouched instead of resetting what applicants are charged", async () => {
-    const template = {
-      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" }),
-      feeCentsOverride: 3500,
-      waiverCodeOverride: "LONGSTAY",
-    };
-    const persist = vi.fn().mockResolvedValue(true);
-    renderEditor(template, persist);
+  it("the application name label is sentence case, not capitals", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    renderTemplateEditor(template, vi.fn().mockResolvedValue(true));
     await waitWorkspace("Long-term application");
+    const label = document.querySelector('label[for="application-template-name"]') as HTMLElement;
+    expect(label.textContent).toBe("Application name");
+    expect(label.className).not.toContain("uppercase");
+  });
+
+  it("offers an editable Application fee and a Promo codes action, not a read-only box linking out to Pricing", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    renderTemplateEditor(template, vi.fn().mockResolvedValue(true));
+    await waitWorkspace("Long-term application");
+    expect(screen.getByLabelText("Application fee")).toBeTruthy();
+    expect(document.querySelector('[data-attr="application-promo-codes"]')).not.toBeNull();
+    expect(screen.queryByRole("link", { name: /pricing/i })).toBeNull();
+  });
+
+  it("the typed fee persists to the template (in cents), and a stored promo override is carried through", async () => {
+    const template = { ...createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" }), feeCentsOverride: 3500, waiverCodeOverride: "LONGSTAY" };
+    const persist = vi.fn().mockResolvedValue(true);
+    renderTemplateEditor(template, persist);
+    await waitWorkspace("Long-term application");
+    const fee = screen.getByLabelText("Application fee") as HTMLInputElement;
+    expect(fee.value).toBe("35");
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "52.5" } });
     jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.id === template.id);
+    expect(saved?.feeCentsOverride).toBe(5250);
+    expect(saved?.waiverCodeOverride).toBe("LONGSTAY");
+    // The per-form tour order migrates to the workspace setting on save.
+    expect(saved?.tourOrder).toBe("workspace");
+  });
 
-    const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
-    const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
-    expect(savedTemplate?.feeCentsOverride).toBe(3500);
-    expect(savedTemplate?.waiverCodeOverride).toBe("LONGSTAY");
+  it("a blank fee clears the template's own fee (rooms and the listing fall back as before)", async () => {
+    const template = { ...createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" }), feeCentsOverride: 3500 };
+    const persist = vi.fn().mockResolvedValue(true);
+    renderTemplateEditor(template, persist);
+    await waitWorkspace("Long-term application");
+    const fee = screen.getByLabelText("Application fee") as HTMLInputElement;
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "" } });
+    jumpRail("sections");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.id === template.id);
+    expect(saved?.feeCentsOverride ?? null).toBeNull();
+  });
+
+  it("a new application starts from the defaults: Standard, PropLane standard, the Long-term lease and the Co-signer application", async () => {
+    const persist = vi.fn().mockResolvedValue(true);
+    const seeded = submissionWithDefaultLeasingSetup(createDefaultListingSubmission());
+    const apps = readPropertyApplicationTemplates(seeded);
+    const leases = readPropertyLeaseTemplates(seeded);
+    const cosigner = apps.find((a) => a.listingSeedKey === "cosigner")!;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } })));
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Add application"
+        sub={seeded}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="add"
+        applicationTemplate={null}
+        templates={apps}
+        signingOrder="application_then_lease"
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Add application");
+    expect((document.querySelector('[data-attr="application-form-type"]') as HTMLElement).textContent).toContain("Standard");
+    expect((document.querySelector('[data-attr="property-application-start-from"]') as HTMLElement).textContent).toContain("PropLane standard");
+    expect((document.querySelector('[data-attr="application-lease-link"]') as HTMLElement).textContent).toContain("Long-term lease");
+    expect((document.querySelector('[data-attr="application-cosigner-form-link"]') as HTMLElement).textContent).toContain("Co-signer application");
+    fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Quick apply" } });
+    jumpRail("sections");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Quick apply");
+    expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "primary")!.id);
+    expect(saved?.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
   });
 });

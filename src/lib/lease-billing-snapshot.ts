@@ -294,6 +294,7 @@ export function buildLeaseBillingSnapshot(
   const sub = submissionWithApplicationRoomFees(listingSub, { ...roomLookup, bundleId: applicant.application?.bundleId }, {
     leaseTerm: applicant.application?.leaseTerm,
     rentalType: applicant.application?.rentalType,
+    applicationTemplateId: applicant.application?.applicationTemplateId,
   }) ?? undefined;
   const pricing = resolveStayPricing({
     room: selectedRoom, submission: sub,

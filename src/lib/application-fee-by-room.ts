@@ -30,7 +30,11 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { placementApplicationFeeCents, placementFeeOptionsFor } from "@/lib/listing-placement-standard-fees";
+import {
+  placementApplicationFeeCents,
+  placementFeeLevel,
+  placementFeeOptionsFor,
+} from "@/lib/listing-placement-standard-fees";
 import { roomFeeTermScope, type RoomFeeTermScope } from "@/lib/room-term-fees";
 
 export type ApplicationFeeSelection = {
@@ -39,11 +43,20 @@ export type ApplicationFeeSelection = {
   /** The applicant's lease type. */
   leaseTerm?: string | null;
   rentalType?: "standard" | "short_term" | null;
+  /** The bundle the applicant applied for - a selector into the listing's stored bundles. Takes the place of a room. */
+  bundleId?: string | null;
+  /** The application the applicant filled in - a selector into the stored templates, never an amount. */
+  applicationTemplateId?: string | null;
 };
 
 export type ApplicationFeeBasis = {
-  /** Cents the chosen room sets for the chosen lease type; null = it sets none. */
+  /**
+   * Cents the placement sets for the chosen lease type: the room's (or bundle's, or whole house's) own
+   * fee, else the application template's fee; null = neither sets one. `level` says which.
+   */
   roomTermCents: number | null;
+  /** Which level of the chain `roomTermCents` came from. */
+  level: "room" | "template" | null;
   /** Cents the listing-level Application fee sets; null = it sets none. */
   listingCents: number | null;
   /** The room (or "whole") the room-level fee was read from; null when no room resolved. */
@@ -64,12 +77,16 @@ export function resolveApplicationFeeBasis(
 ): ApplicationFeeBasis {
   const rentalType = selection.rentalType === "short_term" ? "short_term" : "standard";
   const scope = roomFeeTermScope(selection.leaseTerm, rentalType);
-  if (!sub) return { roomTermCents: null, listingCents: null, roomId: null, scope };
+  if (!sub) return { roomTermCents: null, level: null, listingCents: null, roomId: null, scope };
 
   let roomId: string | null = null;
   let room: ManagerRoomSubmission | null = null;
-  const wholeHouse = isEntireHomeListing(sub);
-  if (wholeHouse) {
+  const bundleId = selection.bundleId?.trim();
+  const bundle = bundleId ? (sub.bundles ?? []).find((row) => row.id === bundleId) ?? null : null;
+  const wholeHouse = !bundle && isEntireHomeListing(sub);
+  if (bundle) {
+    roomId = `bundle:${bundle.id}`;
+  } else if (wholeHouse) {
     roomId = "whole";
   } else {
     room =
@@ -82,22 +99,23 @@ export function resolveApplicationFeeBasis(
   }
 
   // A listing with no resolvable room has no placement to read a fee from.
-  const roomTermCents =
-    wholeHouse || room
-      ? placementApplicationFeeCents(
-          sub,
-          placementFeeOptionsFor(sub, {
-            room,
-            wholeHouse,
-            leaseTerm: selection.leaseTerm,
-            rentalType,
-          }),
-        )
+  const options =
+    bundle || wholeHouse || room
+      ? placementFeeOptionsFor(sub, {
+          room,
+          wholeHouse,
+          bundle,
+          leaseTerm: selection.leaseTerm,
+          rentalType,
+          applicationTemplateId: selection.applicationTemplateId,
+        })
       : null;
+  const roomTermCents = options ? placementApplicationFeeCents(sub, options) : null;
+  const level = options ? placementFeeLevel(sub, options, "applicationFee") : null;
   const listingCents = centsFromRaw(
     listingApplicationFeeRaw(sub, rentalType, selection.leaseTerm),
   );
-  return { roomTermCents, listingCents, roomId, scope };
+  return { roomTermCents, level, listingCents, roomId, scope };
 }
 
 function dollarsLabel(cents: number): string {

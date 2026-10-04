@@ -98,10 +98,23 @@ describe("rooms, bundles and the whole house draw the same fields", () => {
       "Lease fee",
       "Application fee",
       "Move-in fee",
-      "Month-to-month surcharge",
       "Custom start surcharge",
     ]) {
       expect(room, label).toContain(label);
+    }
+    // The Month-to-month surcharge belongs to the Month-to-month option's own tab.
+    expect(room).not.toContain("Month-to-month surcharge");
+  });
+
+  it("Month-to-month: every one lists the same rows -- its surcharge and the fees; rent follows Long-term", () => {
+    const [room, bundle, whole] = SUBJECTS.map((subject) => labelsFor(subject, ALL, "Month-to-Month"));
+    expect(bundle).toEqual(room);
+    expect(whole).toEqual(room);
+    for (const label of ["Month-to-month surcharge", "Lease fee", "Application fee", "Move-in fee"]) {
+      expect(room, label).toContain(label);
+    }
+    for (const label of ["Rent /mo", "Custom start surcharge", "Partial months"]) {
+      expect(room, label).not.toContain(label);
     }
   });
 
@@ -128,10 +141,16 @@ describe("Partial months and the surcharges follow what the listing allows", () 
       // the always-on fees are still there
       for (const label of ["Lease fee", "Application fee", "Move-in fee"]) expect(plain, label).toContain(label);
 
-      const monthToMonth = labelsFor(subject, [LONG_TERM_LEASE_TERM, "Month-to-Month"], LONG_TERM_LEASE_TERM);
+      // Month-to-month: its surcharge sits on its own tab, not on the Long-term one.
+      const monthToMonthLong = labelsFor(subject, [LONG_TERM_LEASE_TERM, "Month-to-Month"], LONG_TERM_LEASE_TERM);
+      expect(monthToMonthLong).not.toContain("Month-to-month surcharge");
+      expect(monthToMonthLong).not.toContain("Partial months");
+      expect(monthToMonthLong).not.toContain("Custom start surcharge");
+      const monthToMonth = labelsFor(subject, [LONG_TERM_LEASE_TERM, "Month-to-Month"], "Month-to-Month");
       expect(monthToMonth).toContain("Month-to-month surcharge");
-      expect(monthToMonth).not.toContain("Partial months");
       expect(monthToMonth).not.toContain("Custom start surcharge");
+      // Not allowed: no surcharge even on that tab.
+      expect(labelsFor(subject, [LONG_TERM_LEASE_TERM], "Month-to-Month")).not.toContain("Month-to-month surcharge");
 
       const custom = labelsFor(subject, [LONG_TERM_LEASE_TERM, "Custom"], LONG_TERM_LEASE_TERM);
       expect(custom).toContain("Partial months");
@@ -155,8 +174,11 @@ describe("a bundle's fees land in the structures that already exist", () => {
     typeInto("Private room long-term lease fee", "300");
     typeInto("Private room long-term application fee", "45");
     typeInto("Private room move-in fee", "150");
-    typeInto("Private room month-to-month surcharge", "75");
     typeInto("Private room custom start surcharge", "60");
+    // The Month-to-month surcharge is typed on the Month-to-month option's tab.
+    cleanup();
+    render(<Draw subject="bundle" sub={latest} term="Month-to-Month" onChange={(next) => (latest = next)} />);
+    typeInto("Private room month-to-month surcharge", "75");
     const bundle = latest.bundles[0]!;
     expect(bundle.termPricing?.[LONG_TERM_LEASE_TERM]).toMatchObject({ leaseFee: "300", applicationFee: "45" });
     expect(bundle.moveInFee).toBe("150");

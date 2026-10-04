@@ -26,8 +26,9 @@ export function Label({
   return (
     <label htmlFor={htmlFor} className="block text-sm font-semibold text-foreground">
       {children}
-      {required ? <span className="text-primary"> *</span> : null}
-      {optional ? <span className="font-normal text-muted/70"> (optional)</span> : null}
+      {/* A required field carries no marker (product rule); an optional one says so. */}
+      {required ? <span className="sr-only"> (required)</span> : null}
+      {optional ? <span className="ml-2 text-xs font-normal text-muted">Optional</span> : null}
     </label>
   );
 }

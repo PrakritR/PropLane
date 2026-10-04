@@ -8,7 +8,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { PortalSettingsGroup, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import type { ApplicationFeeWaiverCode, WaiverCodeAppliesTo } from "@/lib/application-fee-waiver";
+import { waiverCodeAppliesToFee, type ApplicationFeeWaiverCode, type WaiverCodeAppliesTo } from "@/lib/application-fee-waiver";
 
 /**
  * Settings -> Leasing -> Waive codes. One list of the workspace's codes, whichever fee they waive.
@@ -127,8 +127,11 @@ function CodeFields({
 export function WaiveCodesSettingsSection({
   propertyOptions,
   defaultAppliesTo = "application",
+  show,
 }: {
   propertyOptions: PropertyOption[];
+  /** Only list the codes that waive this fee (a form card's Promo codes dialog). Absent = every code. */
+  show?: "application" | "lease";
   /** What a new code applies to until the manager changes it: the Applications tab says application, the Lease tab lease. */
   defaultAppliesTo?: WaiverCodeAppliesTo;
 }) {
@@ -164,8 +167,9 @@ export function WaiveCodesSettingsSection({
     if (!demo) void load();
   }, [demo, load]);
 
-  const active = useMemo(() => codes.filter((c) => c.status === "active"), [codes]);
-  const disabledCodes = useMemo(() => codes.filter((c) => c.status !== "active"), [codes]);
+  const shown = useMemo(() => (show ? codes.filter((c) => waiverCodeAppliesToFee(c.appliesTo, show)) : codes), [codes, show]);
+  const active = useMemo(() => shown.filter((c) => c.status === "active"), [shown]);
+  const disabledCodes = useMemo(() => shown.filter((c) => c.status !== "active"), [shown]);
 
   if (demo) return null;
 

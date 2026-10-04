@@ -473,6 +473,7 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
     moveOutDaysBefore: (MOVE_OUT_DAYS_OPTIONS as readonly number[]).includes(days) ? (days as MoveInFormMoveOutDays) : 14,
     linkedApplicationTemplateIds: normalizeIdList(raw.linkedApplicationTemplateIds),
     linkedLeaseTemplateIds: normalizeIdList(raw.linkedLeaseTemplateIds),
+    ...(raw.leaseType === "long-term" || raw.leaseType === "short-term" ? { leaseType: raw.leaseType } : {}),
     ...(starterKey ? { starterKey } : {}),
     createdAt: text(raw.createdAt, 40) || now,
     updatedAt: text(raw.updatedAt, 40) || now,
@@ -593,6 +594,56 @@ export function templateLinkMatches(linked: readonly string[], residencyTemplate
   if (linked.length === 0) return true;
   const id = (residencyTemplateId ?? "").trim();
   return Boolean(id) && linked.includes(id);
+}
+
+/* ───────────────────────── lease type ("Sends to") ───────────────────────── */
+
+export type MoveInLeaseKind = "long-term" | "short-term" | "custom";
+
+/**
+ * The lease type a signed lease is, for matching a form's Lease type. Its template's kind decides
+ * (a custom builder lease is "custom": neither Long-term nor Short-term); with no lease template known the
+ * application's own rental type is the fact (`short_term` stay -> Short-term, a standard application -> Long-term).
+ * Null = unknown, which is never guessed into a form restricted to Long-term or Short-term.
+ */
+export function moveInLeaseKindOf(input: {
+  leaseTemplateKind?: string | null;
+  rentalType?: string | null;
+}): MoveInLeaseKind | null {
+  const kind = (input.leaseTemplateKind ?? "").trim();
+  if (kind === "long-term" || kind === "short-term") return kind;
+  if (kind) return "custom";
+  const rentalType = (input.rentalType ?? "").trim();
+  if (rentalType === "short_term" || rentalType === "airbnb") return "short-term";
+  if (rentalType === "standard") return "long-term";
+  return null;
+}
+
+/** Does a form's Lease type admit a lease of `leaseKind`? Absent / "all" admits everything, even an unknown kind. */
+export function templateLeaseTypeAdmits(
+  template: Pick<MoveInFormTemplate, "leaseType">,
+  leaseKind: MoveInLeaseKind | null,
+): boolean {
+  const wanted = template.leaseType ?? "all";
+  return wanted === "all" || wanted === leaseKind;
+}
+
+/** The one value the form's Lease type dropdown shows: All, Long-term, Short-term, a specific lease, or several. */
+export function moveInFormLeaseTypeValue(template: Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds">): string {
+  if (template.linkedLeaseTemplateIds.length === 1) return `lease:${template.linkedLeaseTemplateIds[0]}`;
+  if (template.linkedLeaseTemplateIds.length > 1) return "multiple";
+  return template.leaseType ?? "all";
+}
+
+/** What a pick in that dropdown writes. "multiple" (several specific leases, set before) changes nothing. */
+export function moveInFormLeaseTypePatch(
+  value: string,
+  current: Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds">,
+): Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds"> {
+  if (value === "multiple") return { leaseType: current.leaseType, linkedLeaseTemplateIds: current.linkedLeaseTemplateIds };
+  if (value.startsWith("lease:")) return { leaseType: "all", linkedLeaseTemplateIds: [value.slice("lease:".length)] };
+  if (value === "long-term" || value === "short-term") return { leaseType: value, linkedLeaseTemplateIds: [] };
+  return { leaseType: "all", linkedLeaseTemplateIds: [] };
 }
 
 /** Whether a residency in `roomId` is in the template's audience. Whole-house forms go to every lease. */

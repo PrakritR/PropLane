@@ -261,6 +261,24 @@ row on an entire-home listing, the offered lease type / rental type) and hands i
 to the resolver; `room-term-fees.ts` only overlays the resolved values onto the
 listing for the lease and the ledger.
 
+**Fee ownership (captain, 2026-10-03): the Application fee is set on the
+APPLICATION, the Lease fee on the LEASE.** The chain, per fee, in the one
+resolver: the placement's own value (a room / bundle / whole-house **override**)
+-> the **template** fee for that lease type (`PropertyApplicationTemplate.feeCentsOverride`,
+`PropertyLeaseTemplate.leaseFeeCents`, picked by `form-template-fees.ts`: the
+applicant's own `applicationTemplateId`, else the form routed to the lease type; a
+lease follows its application's mapping first) -> the older fallbacks (listing-level
+fee, account setting, legacy default). A stored template `0` is a real "free". A
+stay type with no value of its own takes its template before it inherits the
+long-term row. The Pricing boxes show the template fee as the room's greyed default;
+typing is that room's override (never another room's), and Reset clears it. A bundle
+placement (`bundleId` is a selector on the preview and checkout) reads the bundle's
+own `termPricing[term]` entry before the template. Nothing here accepts an amount from
+the client, and `placementFeeLevel` records which level supplied the figure
+(`room_term` / `template` / `listing` / `account` on the checkout metadata).
+Coverage: `tests/unit/form-template-fee-chain.test.ts` (preview == checkout ==
+booked charge, with and without an override; lease fee per lease type; bundles).
+
 `effectiveApplicationFeeCents` walks the chain: **the stay type's own fee for the
 room + lease type (the resolver) -> the application template's own fee -> the
 listing-level fee -> the Application system setting

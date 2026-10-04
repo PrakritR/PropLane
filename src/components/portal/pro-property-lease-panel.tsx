@@ -34,11 +34,12 @@ import {
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import {
-  addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
-  buildLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
+import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
+import { missingLeaseDefaults, submissionWithLeaseDefault } from "@/lib/leasing-quick-add";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
@@ -59,17 +60,12 @@ import { withPropertyApplicationTemplatesExplicit, type PropertyApplicationTempl
 import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
-/** Rows the Lease tab draws: one per offered lease type (placeholder when it has no lease) plus every lease outside those types. */
-export function leaseListRowCount(
-  templates: ReadonlyArray<{ listingSeedKey?: string }>,
-  offeredSeedKeys: ReadonlyArray<string>,
-): number {
-  let rows = 0;
-  for (const key of offeredSeedKeys) {
-    rows += Math.max(1, templates.filter((t) => t.listingSeedKey === key).length);
-  }
-  rows += templates.filter((t) => !t.listingSeedKey || !offeredSeedKeys.includes(t.listingSeedKey)).length;
-  return rows;
+/**
+ * Rows the Lease tab draws: one per lease the property has. A PropLane default it does not carry is not a
+ * placeholder row; it is a "Quick add" action under the list, so the header count is exactly the rows shown.
+ */
+export function leaseListRowCount(templates: ReadonlyArray<{ listingSeedKey?: string }>): number {
+  return templates.length;
 }
 
 type LeaseSaveTarget =
@@ -139,6 +135,7 @@ export function ManagerPropertyLeasePanel({
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+  const [promoOpen, setPromoOpen] = useState(false);
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [leaseSearch, setLeaseSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -165,11 +162,8 @@ export function ManagerPropertyLeasePanel({
   // One row per lease type the listing offers (a type with no lease yet still
   // draws its "No lease yet" row), plus any lease outside those types — the
   // header count is exactly the rows the list shows.
-  const offeredSeeds = useMemo(() => buildLeaseTemplateSeeds(syncedSub), [syncedSub]);
-  const leaseRowCount = useMemo(
-    () => leaseListRowCount(templates, offeredSeeds.map((seed) => seed.seedKey)),
-    [templates, offeredSeeds],
-  );
+  const leaseRowCount = useMemo(() => leaseListRowCount(templates), [templates]);
+  const missingDefaults = useMemo(() => missingLeaseDefaults(syncedSub), [syncedSub]);
   const propertyFormsSectionNav = useMemo(() => {
     if (embedInModal || !pathname) return undefined;
     const match = pathname.match(/^(.*)\/(application|lease)$/);
@@ -328,7 +322,7 @@ export function ManagerPropertyLeasePanel({
               continue;
             }
             const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
-            const nextSub = addLeaseTemplateFromSeed(base, seedKey);
+            const nextSub = submissionWithLeaseDefault(base, seedKey);
             if (nextSub === base) {
               skipped += 1;
               continue;
@@ -366,7 +360,7 @@ export function ManagerPropertyLeasePanel({
           showToast("Could not add lease.");
           return;
         }
-        const nextSub = addLeaseTemplateFromSeed(syncedSub, seedKey);
+        const nextSub = submissionWithLeaseDefault(syncedSub, seedKey);
         if (nextSub === syncedSub) {
           showToast("That lease is already on this property.");
           return;
@@ -568,6 +562,7 @@ export function ManagerPropertyLeasePanel({
               }
             : null,
           { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
+          { id: "promo-codes", label: "Promo codes", onSelect: () => setPromoOpen(true) },
           {
             id: "delete",
             label: "Delete",
@@ -624,43 +619,6 @@ export function ManagerPropertyLeasePanel({
     );
   };
 
-  const emptyLeaseTypeRow = (
-    key: PropertyLeaseListingSeedKey,
-    label: string,
-    onAdd: (thenUpload: boolean) => void,
-    dataAttr: string,
-  ) => (
-    <PortalPropertyRecordRow
-      key={key}
-      title={label}
-      leading={<PortalRowIconTile icon={FileText} />}
-      leadingShape="square"
-      facts={
-        <PortalRowFact icon={AlertTriangle}>No lease yet</PortalRowFact>
-      }
-      actions={
-        <RowActionsMenu
-          label={label}
-          items={[
-            {
-              id: "add-standard",
-              label: "Add PropLane standard",
-              dataAttr: `property-lease-add-standard-${dataAttr}`,
-              onSelect: () => onAdd(false),
-            },
-            {
-              id: "upload-pdf",
-              label: "Upload a PDF",
-              dataAttr: `property-lease-upload-pdf-${dataAttr}`,
-              onSelect: () => onAdd(true),
-            },
-          ]}
-        />
-      }
-      dataAttr={`property-lease-empty-type-${dataAttr}`}
-    />
-  );
-
   const seedTypeLabel = (seedKey: PropertyLeaseListingSeedKey | undefined): string | null => {
     if (seedKey === "primary") return "Long-term";
     if (seedKey === "short-term") return "Short-term";
@@ -671,30 +629,14 @@ export function ManagerPropertyLeasePanel({
   const catalogBody = (
     <>
       <>
-        {offeredSeeds.flatMap((seed) => {
-          const rowsForSeed = visibleTemplates.filter((t) => t.listingSeedKey === seed.seedKey);
-          if (rowsForSeed.length > 0) {
-            return rowsForSeed.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(seed.seedKey)));
-          }
-          return [
-            emptyLeaseTypeRow(
-              seed.seedKey,
-              seed.label,
-              (thenUpload) => addSeedTemplate(seed.seedKey, thenUpload),
-              seed.seedKey,
-            ),
-          ];
-        })}
-        {visibleTemplates
-          .filter((t) => !offeredSeeds.some((seed) => seed.seedKey === t.listingSeedKey))
-          .map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
+        {visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </>
-      {/* origin/main's separate "Add a lease type" suggestions block (availableSeeds
-          + PropertyLeaseTemplateSuggestions) is superseded here: P004/P006/P009's
-          row-grouping above already renders an inline add-row (emptyLeaseTypeRow)
-          for every offered seed type with no template yet — the same set
-          availableLeaseTemplateSeeds would suggest, just inline instead of in a
-          separate block below. Kept only the still-needed embedded-modal case. */}
+      <LeasingQuickAddRow
+        entries={missingDefaults}
+        noun="lease"
+        dataAttr="property-lease-quick-add"
+        onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
+      />
       {/* The page's command bar carries the one "+" (its form also takes a
           PDF upload); only the embedded modal, which has no command bar,
           needs a footer add row. */}
@@ -883,6 +825,14 @@ export function ManagerPropertyLeasePanel({
       </PropertyFormTemplatePreviewModal>
 
       {formModals}
+
+      <FormPromoCodesDialog
+        open={promoOpen}
+        onClose={() => setPromoOpen(false)}
+        kind="lease"
+        propertyId={settingsPropertyId ?? propertyId ?? null}
+        propertyLabel={settingsPropertyLabel ?? propertyLabel}
+      />
     </>
   );
 }

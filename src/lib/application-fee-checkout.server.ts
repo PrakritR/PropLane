@@ -163,6 +163,11 @@ export async function resolveApplicationFeeProperty(
      */
     roomChoice1?: string;
     /**
+     * The bundle the applicant is applying for - a SELECTOR into the listing's stored bundles, never an
+     * amount. A bundle placement reads the bundle's own application fee instead of a room's.
+     */
+    bundleId?: string;
+    /**
      * P003: a SELECTOR (like `leaseTerm` above), never an amount — picks which
      * of the listing's stored `propertyApplicationTemplates` rows the
      * applicant actually applied with, so a template-level fee override can be
@@ -233,14 +238,18 @@ export async function resolveApplicationFeeProperty(
   const feeLeaseTerm = offeredLeaseTerm(listing, input.leaseTerm);
   const basis = resolveApplicationFeeBasis(listing, {
     roomChoice1: input.roomChoice1,
+    bundleId: input.bundleId,
+    applicationTemplateId: matchedTemplate?.id,
     leaseTerm: feeLeaseTerm,
     rentalType: offeredRentalType(listing, input.rentalType),
   });
+  // The resolver's placement level already folds in the template's fee under the room's own override
+  // (room override -> template fee); the template value below is the same figure for an unplaced listing.
   const templateCents = matchedTemplate?.feeCentsOverride ?? null;
   const feeSource: ApplicationFeeSource =
-    basis.roomTermCents !== null
+    basis.level === "room"
       ? "room_term"
-      : templateCents !== null
+      : basis.level === "template" || templateCents !== null
         ? "template"
         : basis.listingCents !== null
           ? "listing"
@@ -320,6 +329,7 @@ export async function resolveRequiredApplicationFeeCents(
     managerUserId: string;
     applicationTemplateId?: string | null;
     roomChoice1?: string | null;
+    bundleId?: string | null;
     leaseTerm?: string | null;
     rentalType?: "standard" | "short_term";
   },
@@ -331,6 +341,7 @@ export async function resolveRequiredApplicationFeeCents(
       managerUserId: input.managerUserId,
       applicationTemplateId: input.applicationTemplateId ?? undefined,
       roomChoice1: input.roomChoice1 ?? undefined,
+      bundleId: input.bundleId ?? undefined,
       leaseTerm: input.leaseTerm ?? undefined,
       rentalType: input.rentalType,
     },
@@ -401,6 +412,8 @@ export type ApplicationFeeCheckoutInput = {
   leaseTerm?: string;
   /** The applicant's first room choice - a selector into the listing's stored rooms, never an amount. */
   roomChoice1?: string;
+  /** The bundle applied for - a selector into the listing's stored bundles, never an amount. */
+  bundleId?: string;
   /** P003: selects the stored application template's own fee override, when it set one. */
   applicationTemplateId?: string;
   /**

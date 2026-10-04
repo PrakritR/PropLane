@@ -38,12 +38,13 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
-  addApplicationTemplateFromSeed,
   availableApplicationTemplateSeeds,
   submissionAfterRemovingApplicationTemplate,
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
-import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
+import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
+import { submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
@@ -144,6 +145,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+  const [promoOpen, setPromoOpen] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -303,7 +305,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           const base = hit.sub.propertyApplicationTemplatesExplicit
             ? hit.sub
             : syncPropertyApplicationTemplatesFromListing(hit.sub);
-          const next = addApplicationTemplateFromSeed(base, seedKey as never);
+          const next = submissionWithApplicationDefault(base, seedKey as never);
           if (next === base) {
             skipped += 1;
             continue;
@@ -335,7 +337,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         return;
       }
       const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
-      const next = addApplicationTemplateFromSeed(base, seedKey as never);
+      const next = submissionWithApplicationDefault(base, seedKey as never);
       if (next === base) {
         showToast("That application is already on this property.");
         return;
@@ -528,6 +530,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
                   onSelect: () => openPropertyFormTemplateInNewTab("application", template.id),
                 },
                 { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
+                { id: "promo-codes", label: "Promo codes", onSelect: () => setPromoOpen(true) },
                 {
                   id: "delete",
                   label: "Delete",
@@ -575,20 +578,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
         })}
       </>
 
-      {availableSeeds.length > 0 ? (
-        <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
-          <PropertyTemplatePresetList
-            title="Add an application"
-            dataAttr="property-application-template-suggestions"
-            addDataAttrPrefix="property-application-seed-add"
-            presets={availableSeeds.map((seed) => ({
-              key: seed.seedKey,
-              label: seed.label,
-            }))}
-            onAdd={addSeedTemplate}
-          />
-        </div>
-      ) : null}
+      <LeasingQuickAddRow
+        entries={availableSeeds.map((seed) => ({ key: seed.seedKey, label: seed.label }))}
+        noun="application"
+        dataAttr="property-application-quick-add"
+        onAdd={(key) => void addSeedTemplate(key)}
+      />
 
       {/* The page's command bar carries the one "+" (its popup also takes a
           PDF upload); only the embedded modal, which has no command bar,
@@ -727,6 +722,14 @@ export function ManagerPropertyApplicationQuestionsPanel({
       </PropertyFormTemplatePreviewModal>
 
       {editorModals}
+
+      <FormPromoCodesDialog
+        open={promoOpen}
+        onClose={() => setPromoOpen(false)}
+        kind="application"
+        propertyId={settingsPropertyId ?? saveTarget?.saveId ?? null}
+        propertyLabel={settingsPropertyLabel}
+      />
     </>
   );
 }

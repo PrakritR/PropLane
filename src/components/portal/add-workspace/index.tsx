@@ -89,6 +89,7 @@ export function AddWorkspace({
   numberedSteps = false,
   hideFooterStepCount = false,
   reviewEditLinks = true,
+  tabRail = false,
 }: {
   title: string;
   subtitle?: string;
@@ -162,6 +163,12 @@ export function AddWorkspace({
    * Edit on every section card (Add resident) passes false so the link is not offered twice.
    */
   reviewEditLinks?: boolean;
+  /**
+   * The rail rows are TABS of one screen, not steps to walk through (the property Pricing popup lists the
+   * leasing options this way): the primary button is always the finish action, Back and the progress bar
+   * are not drawn, and the rail shows no step numbers.
+   */
+  tabRail?: boolean;
 }) {
   const confirm = useConfirm();
   // A rail with one item has nowhere to go: a one-step dialog draws the body (and any live panel) alone.
@@ -207,7 +214,7 @@ export function AddWorkspace({
     : current > 0
       ? current - 1
       : null;
-  const isLast = nextPath == null;
+  const isLast = tabRail || nextPath == null;
 
   const close = useCallback(() => {
     if (busy) return;
@@ -338,7 +345,7 @@ export function AddWorkspace({
               <button
                 type="button"
                 disabled={prevPath == null || busy}
-                hidden={prevPath == null}
+                hidden={tabRail || prevPath == null}
                 onClick={() => {
                   if (prevPath != null) onJump(prevPath);
                 }}
@@ -378,8 +385,8 @@ export function AddWorkspace({
           </>
         }
       >
-        {/* A one-step popup has nothing to progress through: no bar. */}
-        {singleStep ? null : <div className="mb-5 flex gap-1" aria-label="Step progress">
+        {/* No bar for a one-step popup, nor for a tab rail (options, not steps). */}
+        {singleStep || tabRail ? null : <div className="mb-5 flex gap-1" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
         </div>}
         {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">

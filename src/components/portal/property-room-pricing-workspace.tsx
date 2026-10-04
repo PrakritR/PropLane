@@ -1,5 +1,6 @@
 "use client";
 
+import { pricingLeaseOptions } from "@/lib/pricing-lease-options";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
@@ -605,8 +606,8 @@ export function PropertyRoomPricingWorkspace({
   workspacePricingDefaults: _workspacePricingDefaults,
 }: Props) {
   const [draft, setDraft] = useState(() => normalizeManagerListingSubmissionV1(sub));
-  /** Which section the manager is working in; "What a resident pays" quotes that lease type. */
-  const [previewTerm, setPreviewTerm] = useState<string>(LONG_TERM_LEASE_TERM);
+  /** Which leasing option's tab is open (first by default); "What a resident pays" quotes that option. */
+  const [optionId, setOptionId] = useState<string | null>(null);
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(
     subject.kind === "room" ? subject.roomId : null,
   );
@@ -614,7 +615,7 @@ export function PropertyRoomPricingWorkspace({
   useEffect(() => {
     if (open) {
       setDraft(normalizeManagerListingSubmissionV1(sub));
-      setPreviewTerm(LONG_TERM_LEASE_TERM);
+      setOptionId(null);
       setQuoteRoomId(subject.kind === "room" ? subject.roomId : null);
     }
   }, [open, sub, subject]);
@@ -642,39 +643,21 @@ export function PropertyRoomPricingWorkspace({
   const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
   /*
-   * One screen. Long-term and Short-term are two SECTIONS of it (the listing editor's Pricing step
-   * draws them the same way), not two wizard steps: there is nothing to walk through, only a Save.
+   * The left rail lists every leasing option the property offers (Long-term, Short-term, a custom lease by name,
+   * Month-to-month only when a lease allows it); a tab shows ONLY that option's fields, and "What a resident
+   * pays" quotes it. They are tabs of one screen, not steps: Save is always there.
    */
-  const showShortTerm = leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed;
-  const sectionTerms = useMemo<string[]>(
-    () => (showShortTerm ? [LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM] : [LONG_TERM_LEASE_TERM]),
-    [showShortTerm],
-  );
-  const steps: AddWorkspaceStep[] = useMemo(() => {
-    let summary = "";
-    if (subject.kind === "bundle") {
-      summary = draft.bundles.find((b) => b.id === subject.bundleId)?.price?.trim() || "";
-    } else if (subject.kind === "whole") {
-      summary =
-        draft.entireHomeMonthlyRent && draft.entireHomeMonthlyRent > 0 ? `$${draft.entireHomeMonthlyRent}/mo` : "";
-    } else {
-      const room = draft.rooms.find((r) => r.id === subject.roomId);
-      summary = room ? propertyPricingRoomSummary(room, draft, draft.roomPricingMeta?.[room.id]) : "";
-    }
-    return [{ id: "pricing", label: "Pricing", summary }];
-  }, [draft, subject]);
+  const options = useMemo(() => pricingLeaseOptions(draft), [draft]);
+  const steps: AddWorkspaceStep[] = useMemo(() => options.map((option) => ({ id: option.id, label: option.label })), [options]);
+  const currentIndex = Math.max(0, options.findIndex((option) => option.id === optionId));
+  const activeOption = options[currentIndex] ?? options[0]!;
+  const activeTerm = activeOption.term;
+  const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
 
-  const activePreviewTerm = sectionTerms.includes(previewTerm) ? previewTerm : LONG_TERM_LEASE_TERM;
-  const quoteTerm = listingPricingTabToLeaseTerm(activePreviewTerm) ?? LONG_TERM_LEASE_TERM;
-
-  /** A titled section; focusing inside it points the "What a resident pays" preview at its lease type. */
-  const termSection = (term: string, index: number, body: ReactNode) => (
-    <div
-      key={term}
-      onFocusCapture={() => setPreviewTerm(term)}
-      data-attr={`property-pricing-section-${term === SHORT_TERM_LEASE_TERM ? "short" : "long"}`}
-    >
-      <SectionGroup title={term === SHORT_TERM_LEASE_TERM ? "Short-term" : "Long-term"} first={index === 0}>
+  /** The open option's fields, titled by the option. */
+  const optionSection = (body: ReactNode, first: boolean) => (
+    <div key={activeOption.id} data-attr={`property-pricing-section-${activeOption.id.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}>
+      <SectionGroup title={activeOption.label} first={first}>
         {body}
       </SectionGroup>
     </div>
@@ -706,19 +689,16 @@ export function PropertyRoomPricingWorkspace({
           if (!room) return null;
           return (
             <StepColumn>
-              {sectionTerms.map((term, index) =>
-                termSection(
-                  term,
-                  index,
-                  <RoomPricingFields
-                    draft={draft}
-                    room={room}
-                    activeTerm={term}
-                    patch={patch}
-                    setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
-                    updateRoom={updateRoom}
-                  />,
-                ),
+              {optionSection(
+                <RoomPricingFields
+                  draft={draft}
+                  room={room}
+                  activeTerm={activeTerm}
+                  patch={patch}
+                  setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
+                  updateRoom={updateRoom}
+                />,
+                true,
               )}
             </StepColumn>
           );
@@ -728,12 +708,9 @@ export function PropertyRoomPricingWorkspace({
   const wholeBody =
     subject.kind === "whole" ? (
       <StepColumn>
-        {sectionTerms.map((term, index) =>
-          termSection(
-            term,
-            index,
-            <WholeHousePricingFields draft={draft} activeStepId={term} patch={patch} offerToggle={index === 0} />,
-          ),
+        {optionSection(
+          <WholeHousePricingFields draft={draft} activeStepId={activeTerm} patch={patch} offerToggle={currentIndex === 0} />,
+          true,
         )}
       </StepColumn>
     ) : null;
@@ -776,18 +753,15 @@ export function PropertyRoomPricingWorkspace({
                   />
                 </FactRow>
               </SectionGroup>
-              {sectionTerms.map((term, index) =>
-                termSection(
-                  term,
-                  index + 1,
-                  <BundlePricingFields
-                    draft={draft}
-                    bundle={bundle}
-                    activeStepId={term}
-                    patch={patch}
-                    setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
-                  />,
-                ),
+              {optionSection(
+                <BundlePricingFields
+                  draft={draft}
+                  bundle={bundle}
+                  activeStepId={activeTerm}
+                  patch={patch}
+                  setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
+                />,
+                false,
               )}
             </StepColumn>
           );
@@ -803,8 +777,10 @@ export function PropertyRoomPricingWorkspace({
       title={subjectTitle(subject, draft)}
       subtitle={propertyLabel}
       steps={steps}
-      current={0}
-      onJump={() => {}}
+      current={currentIndex}
+      onJump={(index) => setOptionId(options[index]?.id ?? null)}
+      tabRail
+      finishCount={0}
       hideFooterStepCount
       onClose={onClose}
       dirty={dirty}

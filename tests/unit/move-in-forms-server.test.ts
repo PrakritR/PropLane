@@ -860,6 +860,66 @@ describe("dispatch: intake, links and move-out", () => {
     });
   });
 
+  describe("lease type: only the forms matching the signed lease's type go out", () => {
+    const lease = (patch: Row = {}): Row => ({ "row_data->>axisId": "AXIS-A", generated: "leaseLong", first: null, voided: null, ...patch });
+    beforeEach(() => {
+      properties[0]!.lease_kinds = [
+        { id: "leaseLong", kind: "long-term" },
+        { id: "leaseShort", kind: "short-term" },
+        { id: "leaseCustom", kind: "custom" },
+      ];
+      properties[0]!.templates = [
+        form("all-leases"),
+        form("long-only", { leaseType: "long-term" }),
+        form("short-only", { leaseType: "short-term" }),
+        form("custom-only", { linkedLeaseTemplateIds: ["leaseCustom"] }),
+      ];
+    });
+    const sentIds = () => forms.map((row) => row.form_id).sort();
+
+    it("a Long-term lease gets All and Long-term forms only", async () => {
+      leases = [lease({ generated: "leaseLong" })];
+      expect(await send("lease-signed")).toEqual({ sent: 2, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases", "long-only"]);
+    });
+
+    it("a Short-term lease gets All and Short-term forms only", async () => {
+      leases = [lease({ generated: "leaseShort" })];
+      expect(await send("lease-signed")).toEqual({ sent: 2, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases", "short-only"]);
+    });
+
+    it("a specific custom lease gets All and the form linked to it, never a Long-term or Short-term form", async () => {
+      leases = [lease({ generated: "leaseCustom" })];
+      expect(await send("lease-signed")).toEqual({ sent: 2, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases", "custom-only"]);
+    });
+
+    it("with no lease template known the application's rental type decides", async () => {
+      leases = [];
+      applications[0]!.app_rental_type = "short_term";
+      expect(await send("lease-signed")).toEqual({ sent: 2, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases", "short-only"]);
+      forms = [];
+      applications[0]!.app_rental_type = "standard";
+      expect(await send("lease-signed")).toEqual({ sent: 2, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases", "long-only"]);
+    });
+
+    it("an unknown lease type is never guessed into a restricted form; All still goes out", async () => {
+      leases = [];
+      applications[0]!.app_rental_type = undefined;
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
+      expect(sentIds()).toEqual(["all-leases"]);
+    });
+
+    it("a form with no lease type defaults to All", async () => {
+      leases = [lease({ generated: "leaseShort" })];
+      properties[0]!.templates = [form("plain")];
+      expect(await send("lease-signed")).toEqual({ sent: 1, failed: 0 });
+    });
+  });
+
   describe("sending to current residents respects the links", () => {
     it("skips residents on another application template and sends to the linked one", async () => {
       properties[0]!.templates = [form("only-a", { linkedApplicationTemplateIds: ["tplA"] })];

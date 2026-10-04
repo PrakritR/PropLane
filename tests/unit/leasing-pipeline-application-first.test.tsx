@@ -132,7 +132,9 @@ describe("the application opens with the lease question", () => {
   it("a link from a listing arrives preselected: the property is shown locked and the carried lease type is selected", () => {
     const { container, getAllByText } = renderStep(1, { leaseTerm: "Month-to-Month" });
     expect(getAllByText("Pipeline House").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Month-to-Month");
+    // The carried Month-to-Month term reads as Long-term with the Month-to-month length.
+    expect(container.textContent).toContain("Long-term");
+    expect(container.textContent).toContain("Month-to-month");
     expect(container.textContent).not.toContain("Loading property");
   });
 
@@ -227,7 +229,7 @@ describe("approving an application picks the lease from its lease type", () => {
   });
 });
 
-describe("application before a tour: a form can override the workspace setting", () => {
+describe("application before a tour: only the workspace setting decides", () => {
   const live = { publishedQuestionConfig: { version: 1 } } as unknown as PropertyApplicationTemplate;
   const formWith = (tourOrder?: string) =>
     ({ ...live, formVariant: "standard", tourOrder }) as unknown as PropertyApplicationTemplate;
@@ -239,24 +241,20 @@ describe("application before a tour: a form can override the workspace setting",
     expect(normalizeApplicationTourOrder(undefined)).toBe("workspace");
   });
 
-  it("a form's own answer beats the workspace setting; 'workspace' follows it", () => {
-    expect(formRequiresApplicationBeforeTour({ tourOrder: "before_tour" }, "not_needed")).toBe(true);
-    expect(formRequiresApplicationBeforeTour({ tourOrder: "after_tour" }, "required")).toBe(false);
+  it("a form's stored tour order (written before the rule) is ignored: the workspace setting alone answers", () => {
+    expect(formRequiresApplicationBeforeTour({ tourOrder: "before_tour" }, "not_needed")).toBe(false);
+    expect(formRequiresApplicationBeforeTour({ tourOrder: "after_tour" }, "required")).toBe(true);
     expect(formRequiresApplicationBeforeTour({ tourOrder: "workspace" }, "required")).toBe(true);
     expect(formRequiresApplicationBeforeTour({}, "not_needed")).toBe(false);
   });
 
-  it("a property with no live form follows the workspace; with forms, any 'before' gates the tour", () => {
+  it("the property follows the workspace whatever its forms store", () => {
     expect(applicationBeforeTourRequired("required", [])).toBe(true);
     expect(applicationBeforeTourRequired("not_needed", [])).toBe(false);
-    expect(applicationBeforeTourRequired("not_needed", [formWith("before_tour")])).toBe(true);
-    expect(applicationBeforeTourRequired("required", [formWith("after_tour")])).toBe(false);
+    expect(applicationBeforeTourRequired("not_needed", [formWith("before_tour")])).toBe(false);
+    expect(applicationBeforeTourRequired("required", [formWith("after_tour")])).toBe(true);
     expect(applicationBeforeTourRequired("required", [formWith("after_tour"), formWith(undefined)])).toBe(true);
-    // A draft-only form and a co-signer form never decide the tour.
-    expect(applicationBeforeTourRequired("not_needed", [{ tourOrder: "before_tour" } as PropertyApplicationTemplate])).toBe(false);
-    expect(
-      applicationBeforeTourRequired("not_needed", [{ ...formWith("before_tour"), formVariant: "cosigner" } as PropertyApplicationTemplate]),
-    ).toBe(false);
+    expect(applicationBeforeTourRequired("not_needed", [{ ...formWith("before_tour"), formVariant: "cosigner" } as PropertyApplicationTemplate])).toBe(false);
   });
 
   describe("server gate", () => {
@@ -294,8 +292,9 @@ describe("application before a tour: a form can override the workspace setting",
       applicationRows = [];
     });
 
-    it("workspace off, form says before the tour: the tour is gated until a submitted application exists", async () => {
-      propertyData = withForms(formWith("before_tour"));
+    it("workspace required: the tour is gated until a submitted application exists", async () => {
+      pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
+      propertyData = withForms(formWith("workspace"));
       expect(await ask()).toMatchObject({ required: true, hasApplication: false });
       expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "p@example.com" })).toMatch(/application before a tour/i);
       applicationRows = [{ row_data: { stage: "Submitted", propertyId: "prop-1" } }];
@@ -303,10 +302,12 @@ describe("application before a tour: a form can override the workspace setting",
       expect(await applicationBeforeTourRefusal(fakeDb(), { propertyId: "prop-1", verifiedEmail: "p@example.com" })).toBeNull();
     });
 
-    it("workspace on, form says after the tour: no gate", async () => {
+    it("a form's stored tour order is ignored by the server gate, both ways", async () => {
+      propertyData = withForms(formWith("before_tour"));
+      expect(await ask()).toEqual({ required: false });
       pipelineRow = { leasingPipeline: { applicationBeforeTour: "required" } };
       propertyData = withForms(formWith("after_tour"));
-      expect(await ask()).toEqual({ required: false });
+      expect(await ask()).toMatchObject({ required: true, hasApplication: false });
     });
 
     it("a form on 'use the workspace setting' follows it both ways", async () => {

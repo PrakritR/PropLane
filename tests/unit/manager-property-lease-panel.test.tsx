@@ -67,8 +67,9 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(document.querySelectorAll('[data-slot="portal-row-icon-tile"]').length).toBeGreaterThan(0);
   });
 
-  it("counts exactly the rows it shows and gives a lease-less type a ⋯ menu, not a round +", async () => {
+  it("counts exactly the rows it shows; a lease-less property shows no placeholder rows, only a Quick add under the list", async () => {
     const sub = createDefaultListingSubmission();
+    const onUpdated = vi.fn();
     render(
       <AppUiProvider>
         <ManagerPropertyLeasePanel
@@ -76,30 +77,24 @@ describe("ManagerPropertyLeasePanel", () => {
           saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
           managerUserId="mgr-1"
           settingsPropertyId="mgr-house-1"
-          onUpdated={() => {}}
+          onUpdated={onUpdated}
           showToast={() => {}}
         />
       </AppUiProvider>,
     );
-    const emptyRows = document.querySelectorAll('[data-attr^="property-lease-empty-type-"]');
-    expect(emptyRows.length).toBeGreaterThan(0);
-    // The header count equals the rows on screen (it used to read "Leases 0" over two placeholder rows).
+    expect(document.querySelectorAll('[data-attr^="property-lease-empty-type-"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-attr^="property-lease-row-"]')).toHaveLength(0);
+    // The header count is exactly the rows shown: none.
     const link = screen.getByRole("link", { name: /^Leases/ });
-    expect(link.textContent).toContain(String(emptyRows.length));
-    expect(link.textContent).not.toMatch(/Leases\s*0/);
-    // No per-row round +; the standard ⋯ menu carries the two ways to add.
-    expect(document.querySelector('[data-attr^="property-lease-add-type-"]')).toBeNull();
-    const first = emptyRows[0]!;
-    expect(first.closest(".portal-property-row")).toBeTruthy();
-    fireEvent.keyDown(within(first.closest(".portal-property-row") as HTMLElement).getByRole("button", { name: /^Actions for/ }), { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: "Add PropLane standard" })).toBeTruthy();
-    expect(await screen.findByRole("menuitem", { name: "Upload a PDF" })).toBeTruthy();
+    expect(link.textContent).toMatch(/Leases\s*0/);
+    const row = document.querySelector('[data-attr="property-lease-quick-add"]')!;
+    expect(row.textContent).toContain("Quick add");
+    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease", "Short-term lease"]);
   });
 
-  it("leaseListRowCount: one row per offered type (placeholder included) plus leases outside those types", () => {
-    expect(leaseListRowCount([], ["primary", "short-term"])).toBe(2);
-    expect(leaseListRowCount([{ listingSeedKey: "primary" }], ["primary", "short-term"])).toBe(2);
-    expect(leaseListRowCount([{ listingSeedKey: "primary" }, { listingSeedKey: "primary" }], ["primary", "short-term"])).toBe(3);
-    expect(leaseListRowCount([{ listingSeedKey: "primary" }, {}], ["primary"])).toBe(2);
+  it("leaseListRowCount: exactly the leases the property has", () => {
+    expect(leaseListRowCount([])).toBe(0);
+    expect(leaseListRowCount([{ listingSeedKey: "primary" }])).toBe(1);
+    expect(leaseListRowCount([{ listingSeedKey: "primary" }, { listingSeedKey: "primary" }, {}])).toBe(3);
   });
 });

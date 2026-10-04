@@ -19,6 +19,8 @@ type Body = {
   leaseTerm?: string;
   /** The applicant's first room choice - a selector into the listing's stored rooms. The fee is the room's fee for the lease type; an amount is never read from the body. */
   roomChoice1?: string;
+  /** The bundle applied for - a selector into the listing's stored bundles; the fee is the bundle's, never read from the body. */
+  bundleId?: string;
   /** P003: the application template the applicant is actually applying with — a selector into the listing's own stored templates, never an amount. */
   applicationTemplateId?: string;
   /** Checkout return path (defaults to public apply). Must start with `/`. */
@@ -79,6 +81,7 @@ export async function POST(req: Request) {
       rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
       leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
       roomChoice1: typeof body.roomChoice1 === "string" ? body.roomChoice1.slice(0, 200) : undefined,
+      bundleId: typeof body.bundleId === "string" ? body.bundleId.slice(0, 200) : undefined,
       applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
       mode,
       // Embedded returns the applicant to the same apply step after paying; the

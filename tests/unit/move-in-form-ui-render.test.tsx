@@ -389,8 +389,10 @@ describe("property Move-in › Forms", () => {
     const { onChooserOpenChange } = base;
     render(<PropertyMoveInFormsPanel {...base} sub={blank} chooserOpen onChooserOpenChange={onChooserOpenChange} />);
     fireEvent.click(await screen.findByText("Start from a template"));
+    // The chooser's item (the Quick add row under the list names the same starter).
+    const chooserItem = (await screen.findAllByText("Intake form")).find((node) => !node.closest("[data-attr='property-move-in-quick-add']"))!;
     await act(async () => {
-      await user.click(await screen.findByText("Intake form"));
+      await user.click(chooserItem);
     });
     expect((await screen.findAllByText("Legal name")).length).toBeGreaterThan(0);
   });
@@ -702,6 +704,8 @@ describe("builder popup", () => {
     it("the link rows only render when the property has such templates", async () => {
       await openBuilder(defaultMoveInForm("move-in"), "edit", 2);
       expect(screen.queryByText("Linked application")).toBeNull();
+      // Lease type is always there (All by default); only the application link needs applications.
+      expect(screen.getByText("Lease type")).toBeTruthy();
       expect(screen.queryByText("Linked lease")).toBeNull();
       cleanup();
       await openBuilder(defaultMoveInForm("move-in"), "edit", 2, undefined, {
@@ -709,7 +713,19 @@ describe("builder popup", () => {
         leaseTemplates: [{ id: "lease1", label: "Standard lease" }],
       });
       expect(screen.getByText("Linked application")).toBeTruthy();
-      expect(screen.getByText("Linked lease")).toBeTruthy();
+      expect(screen.getByText("Lease type")).toBeTruthy();
+    });
+
+    it("Lease type offers All, Long-term, Short-term and each custom lease by name, defaulting to All", async () => {
+      await openBuilder(defaultMoveInForm("move-in"), "edit", 2, undefined, {
+        applicationTemplates,
+        leaseTemplates: [{ id: "lease1", label: "Pet addendum lease", custom: true }, { id: "lease2", label: "Long-term lease", custom: false }],
+      });
+      const trigger = attr("move-in-form-lease-type")!;
+      expect(trigger.textContent).toContain("All leases");
+      fireEvent.click(trigger);
+      const labels = screen.getAllByRole("option").map((option) => option.textContent?.replace("✓", ""));
+      expect(labels).toEqual(["All leases", "Long-term", "Short-term", "Pet addendum lease"]);
     });
 
     it("Before move-out shows 'Days before the lease ends' and hides 'Already-signed residents'", async () => {

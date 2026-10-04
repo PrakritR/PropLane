@@ -25,6 +25,28 @@ import type {
 
 export type MoveInAnswerMap = Record<string, MoveInFormAnswer>;
 
+/** One lease of the property a form's Lease type can name. `custom` leases (not the Long-term / Short-term defaults) get their own option. */
+export type MoveInLeaseTypeLease = { id: string; label: string; custom?: boolean };
+
+/**
+ * The "Lease type" choices of a move-in form: All, Long-term, Short-term, then each custom lease by name
+ * (a lease already named by the form but gone from the property reads "Removed lease", so it can be cleared).
+ */
+export function moveInLeaseTypeOptions(
+  leases: readonly MoveInLeaseTypeLease[],
+  linkedIds: readonly string[] = [],
+): { value: string; label: string }[] {
+  const listed = leases.filter((lease) => lease.custom !== false || linkedIds.includes(lease.id));
+  return [
+    { value: "all", label: "All leases" },
+    { value: "long-term", label: "Long-term" },
+    { value: "short-term", label: "Short-term" },
+    ...listed.map((lease) => ({ value: `lease:${lease.id}`, label: lease.label })),
+    ...linkedIds.filter((id) => !leases.some((lease) => lease.id === id)).map((id) => ({ value: `lease:${id}`, label: "Removed lease" })),
+    ...(linkedIds.length > 1 ? [{ value: "multiple", label: "Several leases" }] : []),
+  ];
+}
+
 /** A copy of `record` without `key` (keeps the destructure-and-discard idiom out of call sites). */
 export function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
   const next = { ...record };

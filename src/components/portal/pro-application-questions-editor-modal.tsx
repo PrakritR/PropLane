@@ -91,15 +91,12 @@ import {
   updatePropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   type ApplicationTemplateQuestionConfig,
-  type ApplicationTourOrder,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-import {
-  APPLICATION_TOUR_ORDER_OPTIONS,
-  normalizeApplicationTourOrder,
-} from "@/lib/application-before-tour-policy";
-import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
-import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
+import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
+import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
@@ -296,8 +293,8 @@ export function ManagerApplicationQuestionsEditorModal({
   // default". Local, dirty-tracked state saved through the normal
   // commitSave/Save flow (unlike the account-level `formSetup.patch`, which
   // saves immediately) — a fee override is part of the template record.
-  const [feeOverrideEnabled, setFeeOverrideEnabled] = useState(false);
-  const [feeOverrideCents, setFeeOverrideCents] = useState<number>(0);
+  // The application's own fee, as typed dollars ("" = this application sets none and its rooms follow the older fallbacks).
+  const [feeText, setFeeText] = useState("");
   const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
   const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
@@ -361,9 +358,6 @@ export function ManagerApplicationQuestionsEditorModal({
   // that did not touch a row never rewrites its stored link.
   const [linkedLeaseId, setLinkedLeaseId] = useState<string | null>(null);
   const [linkedCosignerId, setLinkedCosignerId] = useState<string | null>(null);
-  // Before the tour / After the tour / Use the workspace setting: saved on the form itself and
-  // enforced server-side (`application-before-tour.server.ts`).
-  const [tourOrder, setTourOrder] = useState<ApplicationTourOrder>("workspace");
   const initialLinksRef = useRef<{ lease: string | null; cosigner: string | null }>({ lease: null, cosigner: null });
   const [copyFromApplicationId, setCopyFromApplicationId] = useState<string | null>(null);
   const [questionsMobileSectionId, setQuestionsMobileSectionId] = useState<RentalApplicationSectionId>("personal");
@@ -402,10 +396,11 @@ export function ManagerApplicationQuestionsEditorModal({
     );
     setTemplateLabel(applicationTemplate?.label ?? "");
     setTemplateLabelError(null);
-    setFeeOverrideEnabled(
-      applicationTemplate?.feeCentsOverride !== null && applicationTemplate?.feeCentsOverride !== undefined,
+    setFeeText(
+      applicationTemplate?.feeCentsOverride !== null && applicationTemplate?.feeCentsOverride !== undefined
+        ? centsToMoneyText(applicationTemplate.feeCentsOverride)
+        : "",
     );
-    setFeeOverrideCents(applicationTemplate?.feeCentsOverride ?? 0);
     setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
     setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
     const importName =
@@ -418,9 +413,17 @@ export function ManagerApplicationQuestionsEditorModal({
       : null;
     const initialCosigner = applicationTemplate?.linkedCosignerApplicationTemplateId ?? null;
     initialLinksRef.current = { lease: initialLease, cosigner: initialCosigner };
-    setLinkedLeaseId(initialLease);
-    setLinkedCosignerId(initialCosigner);
-    setTourOrder(normalizeApplicationTourOrder(applicationTemplate?.tourOrder));
+    // A NEW application starts from the PropLane defaults: the default lease of its type (Standard ->
+    // Long-term lease) and PropLane's Co-signer application. The saved links above stay what Save compares to,
+    // so a new application always writes them.
+    const startLease = applicationTemplate
+      ? initialLease
+      : defaultLeaseIdForApplication({ kind: "long-term", listingSeedKey: undefined, formVariant: "standard" }, leaseCatalog);
+    const startCosigner = applicationTemplate
+      ? initialCosigner
+      : (templates ?? []).find((template) => isCosignerApplicationTemplate(template))?.id ?? null;
+    setLinkedLeaseId(startLease);
+    setLinkedCosignerId(startCosigner);
     setQuestionsMobileSectionId("personal");
     setExpandedSectionIds(collapsedApplicationSections());
     setExpandedQuestionIds(new Set());
@@ -801,11 +804,9 @@ export function ManagerApplicationQuestionsEditorModal({
       ),
     };
 
-    // P003 / C2-R30-4: the editor no longer offers a fee or promo code (room
-    // pricing owns it), but checkout still honours a template's stored
-    // override — so a save carries it through untouched rather than silently
-    // resetting what applicants are charged.
-    const feeCentsOverride = applicationTemplate?.feeCentsOverride ?? null;
+    // The application's own Application fee (captain, Oct 3 2026): typed here, stored on the template, and
+    // read by the ONE fee resolver under a room's own override. Blank = this application sets none.
+    const feeCentsOverride = moneyTextToCents(feeText);
     const waiverCodeOverride = applicationTemplate?.waiverCodeOverride ?? null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
@@ -824,7 +825,7 @@ export function ManagerApplicationQuestionsEditorModal({
             id: addModeTemplateId ?? makePropertyApplicationTemplateId(),
             feeCentsOverride,
             waiverCodeOverride,
-            tourOrder,
+            tourOrder: "workspace" as const,
             draftQuestionConfig: {
               ...applicationTemplateQuestionConfigFromSlice(
                 applicationConfigForVariant(sanitizedSub, "standard"),
@@ -845,7 +846,8 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
           feeCentsOverride,
           waiverCodeOverride,
-          tourOrder,
+          // The tour gate is the workspace setting alone; a stored per-form order migrates to it on save.
+          tourOrder: "workspace" as const,
           draftQuestionConfig: {
             ...applicationTemplateQuestionConfigFromSlice(
               applicationConfigForVariant(sanitizedSub, templateVariant),
@@ -1670,24 +1672,6 @@ export function ManagerApplicationQuestionsEditorModal({
                     />
                   </PropertyFormWizardRow>
                 ) : null}
-                {linkRowsAvailable ? (
-                  <PropertyFormWizardRow label="Tour order">
-                    <FieldSingleSelect
-                      hideLabel
-                      label="Tour order"
-                      labelClassName={WIZARD_LABEL_CLASS}
-                      variant="cell"
-                      className="min-w-[200px] max-w-[280px]"
-                      value={tourOrder}
-                      dataAttr="application-tour-order"
-                      options={APPLICATION_TOUR_ORDER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                      onChange={(next) => {
-                        setTourOrder(normalizeApplicationTourOrder(next));
-                        setDirty(true);
-                      }}
-                    />
-                  </PropertyFormWizardRow>
-                ) : null}
                 {showLeaseRow ? (
                   <PropertyFormWizardRow label="Lease">
                     <FieldSingleSelect
@@ -1827,34 +1811,28 @@ export function ManagerApplicationQuestionsEditorModal({
                 }}
               />
             </div>
-            {templateEditorMode === "edit" && applicationPreviewPropertyId && !isBulkSave ? (
-              <PropertyFormUsedForMapping
-                sub={sub}
-                pipelineOrder={formSetup.leasingPipeline.pipelineOrder}
-                mode="application"
-                currentApplicationId={applicationTemplate?.id}
-                leaseTemplates={routingLeaseTemplates}
-                applicationTemplates={routingApplicationTemplates}
-                onLeaseTemplatesChange={(next) => {
-                  setRoutingLeaseTemplates(next);
-                  setDirty(true);
-                }}
-                onApplicationTemplatesChange={(next) => {
-                  setRoutingApplicationTemplates(next);
-                  setDirty(true);
-                }}
-                onError={(message) => setSaveError(message)}
-              />
-            ) : null}
-            {templateEditorMode === "edit" && applicationTemplate?.id && applicationPreviewPropertyId && !isBulkSave ? (
-              <PropertyFormFeeForCurrentForm
-                sub={sub}
-                mode="application"
-                currentId={applicationTemplate.id}
-                leaseTemplates={routingLeaseTemplates}
-                applicationTemplates={routingApplicationTemplates}
-                propertyId={applicationPreviewPropertyId}
-              />
+            {isTemplateEditor && !isBulkSave ? (
+              <PropertyFormWizardCard dataAttr="property-application-fee-card">
+                <PropertyFormWizardRow label="Application fee">
+                  <MoneyInput
+                    label="Application fee"
+                    value={feeText}
+                    dataAttr="application-fee-input"
+                    onChange={(raw) => {
+                      setFeeText(sanitizeMoneyInput(raw));
+                      setDirty(true);
+                    }}
+                  />
+                </PropertyFormWizardRow>
+                <PropertyFormWizardRow label="Promo codes">
+                  <FormPromoCodesAction
+                    kind="application"
+                    propertyId={applicationPreviewPropertyId}
+                    propertyLabel={null}
+                    dataAttr="application-promo-codes"
+                  />
+                </PropertyFormWizardRow>
+              </PropertyFormWizardCard>
             ) : null}
             {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&
             (originalPdfPath || (importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256) ? (

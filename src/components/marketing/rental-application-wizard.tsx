@@ -848,6 +848,7 @@ function RentalApplicationWizardInner({
         rentalType: applicationRentalTypeFor(form.rentalType),
         leaseTerm: form.leaseTerm || undefined,
         roomChoice1: form.roomChoice1 || undefined,
+        bundleId: form.bundleId || undefined,
         applicationTemplateId: form.applicationTemplateId,
         residentEmail: email,
       }).then((result) => {
@@ -878,7 +879,7 @@ function RentalApplicationWizardInner({
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [form.propertyId, form.email, form.rentalType, form.leaseTerm, form.roomChoice1, feeStepUserId, extrasTick]);
+  }, [form.propertyId, form.email, form.rentalType, form.leaseTerm, form.roomChoice1, form.bundleId, feeStepUserId, extrasTick]);
 
   useEffect(() => {
     if (templatePreview || isDemoModeActive()) return;

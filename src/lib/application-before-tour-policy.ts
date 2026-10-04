@@ -2,15 +2,15 @@
  * "Application before a tour" -- the pure policy, shared by the server gate
  * (`application-before-tour.server.ts`), the public listing projection and the Forms editor.
  *
- * Two inputs decide it: the workspace setting (`leasingPipeline.applicationBeforeTour`) and each
- * application form's own `tourOrder`. A form says "before the tour", "after the tour" or "use the
- * workspace setting". A prospect asking for a tour has not picked a lease type yet, so the tour is
- * gated when ANY of the property's live application forms resolves to "before the tour"; with no
- * live form the workspace setting alone decides. No client value is read here.
+ * ONE input decides it: the workspace setting (`leasingPipeline.applicationBeforeTour`, Settings ->
+ * Workspace -> Applications & leases). Captain, Oct 3 2026: "Tour order is just a workspace setting" --
+ * an application form no longer has a tour order of its own. A `tourOrder` still stored on a template
+ * (written before this rule) is IGNORED here; nothing reads it for a decision. No client value is read.
  */
 import type { ApplicationBeforeTour } from "@/lib/leasing-pipeline-preferences";
 import type { ApplicationTourOrder, PropertyApplicationTemplate } from "@/lib/property-application-templates";
 
+/** @deprecated A form has no tour order of its own any more; kept only for the Forms library's stored facts. */
 export const APPLICATION_TOUR_ORDER_OPTIONS: readonly { value: ApplicationTourOrder; label: string }[] = [
   { value: "workspace", label: "Use the workspace setting" },
   { value: "before_tour", label: "Before the tour" },
@@ -24,27 +24,21 @@ export function normalizeApplicationTourOrder(raw: unknown): ApplicationTourOrde
 
 type FormLike = Pick<PropertyApplicationTemplate, "tourOrder" | "formVariant" | "listingSeedKey" | "publishedQuestionConfig">;
 
-function isCosignerForm(form: Pick<FormLike, "formVariant" | "listingSeedKey">): boolean {
-  return form.formVariant === "cosigner" || form.listingSeedKey === "cosigner" || form.listingSeedKey === "cosigner-short-term";
-}
-
-/** What one form says once the workspace setting is applied: true = apply before booking a tour. */
+/** What a form says once the workspace setting is applied: true = apply before booking a tour. Its stored `tourOrder` is ignored. */
 export function formRequiresApplicationBeforeTour(
-  form: Pick<FormLike, "tourOrder">,
+  _form: Pick<FormLike, "tourOrder">,
   workspace: ApplicationBeforeTour,
 ): boolean {
-  const order = normalizeApplicationTourOrder(form.tourOrder);
-  if (order === "before_tour") return true;
-  if (order === "after_tour") return false;
   return workspace === "required";
 }
 
-/** Is an application required before a tour of a property that offers `forms`? */
+/**
+ * Is an application required before this property's tour? Only the workspace setting decides; the forms are
+ * accepted so every caller keeps its signature, and none of their fields (a stored `tourOrder` included) counts.
+ */
 export function applicationBeforeTourRequired(
   workspace: ApplicationBeforeTour,
-  forms: ReadonlyArray<FormLike> | null | undefined,
+  _forms?: ReadonlyArray<FormLike> | null,
 ): boolean {
-  const live = (forms ?? []).filter((form) => !isCosignerForm(form) && Boolean(form.publishedQuestionConfig));
-  if (live.length === 0) return workspace === "required";
-  return live.some((form) => formRequiresApplicationBeforeTour(form, workspace));
+  return workspace === "required";
 }

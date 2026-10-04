@@ -47,6 +47,7 @@ export function ApplicationFeeInlinePayment({
   rentalType,
   leaseTerm,
   roomChoice1,
+  bundleId,
   applicationTemplateId,
   returnPath,
   onItemization,
@@ -60,6 +61,8 @@ export function ApplicationFeeInlinePayment({
   leaseTerm?: string;
   /** The applicant's first room choice; the server prices the application fee off that room's row for the lease type. */
   roomChoice1?: string;
+  /** The bundle applied for - a selector into the listing's stored bundles; the server prices the bundle's own fee. */
+  bundleId?: string;
   /** P003: the application template the applicant is applying with, when resolved — a selector, picks a stored fee override server-side. */
   applicationTemplateId?: string;
   /** App path Stripe returns to after payment (must start with "/"). */
@@ -111,6 +114,7 @@ export function ApplicationFeeInlinePayment({
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           leaseTerm: leaseTerm?.trim() || undefined,
           roomChoice1: roomChoice1?.trim() || undefined,
+          bundleId: bundleId?.trim() || undefined,
           applicationTemplateId: applicationTemplateId?.trim() || undefined,
           mode: "embedded",
           returnPath,
