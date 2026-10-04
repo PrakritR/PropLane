@@ -31,6 +31,7 @@ import {
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
+import { ResidentServiceCardRow } from "@/components/portal/pro-service-card-row";
 import {
   ResidentPortalGroupedDataList,
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
@@ -1006,9 +1007,9 @@ export function ResidentServicesPanel({
     setAddServiceOpen(true);
   };
 
-  const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+  const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentServiceListRowData>[] => {
     const showPropertyInMeta = groupMode !== "house";
-    return filteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+    return filteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ResidentServiceListRowData>[] => {
       const rowKey = unifiedServiceRowKey(unified);
       const propertyLabel = unified.propertyLabel?.trim() || unified.propertyId || "Property";
       if (unified.kind === "add-on") {
@@ -1021,7 +1022,7 @@ export function ResidentServicesPanel({
             propertyLabel,
             dataListRow: {
               id: rowKey,
-              data: req,
+              data: { unified, req },
               primary: req.offerName,
               meta: [
                 showPropertyInMeta ? propertyLabel : null,
@@ -1050,7 +1051,7 @@ export function ResidentServicesPanel({
           propertyLabel,
           dataListRow: {
             id: rowKey,
-            data: row,
+            data: { unified, row },
             primary: row.title,
             meta: [
               row.reference,
@@ -1188,6 +1189,16 @@ export function ResidentServicesPanel({
         onToggleSelected={toggleSelected}
         dataAttr="resident-services-grouped-list"
         columns={[{ id: "service", header: "Service", cell: () => "—" }]}
+        renderRow={(listRow) => (
+          <ResidentServiceCardRow
+            key={listRow.id}
+            row={listRow.data.unified}
+            request={"req" in listRow.data ? listRow.data.req : undefined}
+            checked={listRow.selected ?? false}
+            onSelectedChange={listRow.onSelectedChange}
+            onOpen={() => listRow.onClick?.()}
+          />
+        )}
         emptyState={
           filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
             <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet</p>

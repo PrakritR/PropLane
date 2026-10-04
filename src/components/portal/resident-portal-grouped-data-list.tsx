@@ -28,6 +28,7 @@ export function ResidentPortalGroupedDataList<T>({
   emptyState,
   variant = "resident",
   dataAttr = "resident-portal-grouped-list",
+  renderRow,
 }: {
   items: ResidentPortalGroupableRow<T>[];
   groupMode: PortalListGroupMode;
@@ -38,6 +39,12 @@ export function ResidentPortalGroupedDataList<T>({
   emptyState?: ReactNode;
   variant?: "default" | "resident";
   dataAttr?: string;
+  /**
+   * Draw each row with a shared record card (`PortalApplicantRecordRow`) instead
+   * of a `DataList` line. The grouped data source — clustering, selection,
+   * `onClick` — is unchanged; only the row's look is the caller's.
+   */
+  renderRow?: (row: DataListRow<T>) => ReactNode;
 }) {
   const rows = items.map((item) => ({
     id: item.id,
@@ -53,7 +60,14 @@ export function ResidentPortalGroupedDataList<T>({
     },
   }));
 
-  const renderDataList = (listRows: DataListRow<T>[]) => (
+  const renderDataList = (listRows: DataListRow<T>[]) =>
+    renderRow ? (
+      listRows.length === 0 ? (
+        emptyState ?? null
+      ) : (
+        <>{listRows.map((listRow) => renderRow(listRow))}</>
+      )
+    ) : (
     <DataList
       variant={variant}
       hideColumnHeaders
@@ -62,9 +76,11 @@ export function ResidentPortalGroupedDataList<T>({
       columns={columns}
       emptyState={emptyState}
     />
-  );
+    );
 
-  if (groupMode !== "house") {
+  // Card rows are a flat list, like Payments: each card's place line already
+  // names the house, so no group box wraps them.
+  if (groupMode !== "house" || renderRow) {
     return (
       <div data-attr={dataAttr}>
         {renderDataList(rows.map((row) => row.dataListRow))}

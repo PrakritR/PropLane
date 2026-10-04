@@ -26,7 +26,10 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { formatPortalRowDate } from "@/lib/portal-display-dates";
+import { workOrderCostCents, formatServiceMoney } from "@/lib/manager-service-workflow";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -76,6 +79,20 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 function vendorPlaceLine(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string {
   if (vendorCanSeeFullWorkOrderSite(row, bid)) return propertyLabel(row);
   return workOrderGeneralArea(row);
+}
+
+/** The job's scheduled date as the row's one dated fact. */
+function vendorScheduledText(row: DemoManagerWorkOrderRow, fallback: string): string {
+  const date = formatPortalRowDate(row.scheduledAtIso);
+  if (date) return `Scheduled ${date}`;
+  const label = row.scheduled?.trim();
+  return label && label !== "—" ? label : fallback;
+}
+
+/** The vendor's job amount: the accepted quote or recorded cost, nothing while it is only a quote. */
+function vendorJobFigure(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string | undefined {
+  const cents = workOrderCostCents(row, bid?.status === "accepted" ? bid : null);
+  return formatServiceMoney(cents) || undefined;
 }
 
 /** "$250" for whole dollars, "$130.65" otherwise — thousands separated, like the studio. */
@@ -1324,15 +1341,12 @@ export function VendorWorkOrdersPanel({
           const budgetCents = row.marketplacePublish?.budgetCents ?? 0;
           return (
             <div key={row.id} id={`portal-work-order-${row.id}`}>
-              <PortalServiceRecordRow
+              <VendorServiceCardRow
                 title={row.title}
-                subtitle={vendorPlaceLine(row, bid)}
-                facts={
-                  <>
-                    <PortalRowFact icon={Clock}>{row.scheduled || "Anytime"}</PortalRowFact>
-                    {bid ? <PortalRowFact icon={Check}>Quoted</PortalRowFact> : <PortalRowFact icon={Sparkles}>New</PortalRowFact>}
-                  </>
-                }
+                placeLine={vendorPlaceLine(row, bid)}
+                dateText={vendorScheduledText(row, "Anytime")}
+                icon={Clock}
+                extraFacts={bid ? <PortalRowFact icon={Check}>Quoted</PortalRowFact> : <PortalRowFact icon={Sparkles}>New</PortalRowFact>}
                 figure={budgetCents > 0 ? `${formatBudget(budgetCents)} budget` : undefined}
                 checked={selectedIds.has(row.id)}
                 onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
@@ -1347,19 +1361,19 @@ export function VendorWorkOrdersPanel({
           const phaseLabel = vendorWorkOrderPhaseLabel(row, bid);
           return (
             <div key={row.id} id={`portal-work-order-${row.id}`}>
-              <PortalServiceRecordRow
+              <VendorServiceCardRow
                 title={row.title}
-                subtitle={vendorPlaceLine(row, bid)}
-                facts={
-                  <>
-                    <PortalRowFact icon={Clock}>{row.scheduled || "Not yet scheduled"}</PortalRowFact>
-                    {phaseLabel ? (
-                      <PortalRowFact icon={phaseLabel === "Paid" || phaseLabel === "Awaiting approval" ? Check : CircleDot}>
-                        {phaseLabel}
-                      </PortalRowFact>
-                    ) : null}
-                  </>
+                placeLine={vendorPlaceLine(row, bid)}
+                dateText={vendorScheduledText(row, "Not yet scheduled")}
+                icon={Clock}
+                extraFacts={
+                  phaseLabel ? (
+                    <PortalRowFact icon={phaseLabel === "Paid" || phaseLabel === "Awaiting approval" ? Check : CircleDot}>
+                      {phaseLabel}
+                    </PortalRowFact>
+                  ) : null
                 }
+                figure={vendorJobFigure(row, bid)}
                 checked={selectedIds.has(row.id)}
                 // Only a scheduled job can be marked done in bulk, so only those
                 // rows offer a checkbox. A checkbox that selects a row nothing

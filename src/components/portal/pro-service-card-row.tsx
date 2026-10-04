@@ -14,11 +14,12 @@
  */
 
 import type { ReactNode } from "react";
-import { Building2, CalendarDays } from "lucide-react";
+import { Building2, CalendarDays, Wrench, type LucideIcon } from "lucide-react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { managerServiceCardParts } from "@/lib/manager-service-list-row";
+import { managerServiceCardParts, managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
 import type { UnifiedServiceRow } from "@/lib/unified-service-rows";
+import type { ServiceRequest } from "@/lib/service-requests-storage";
 
 export function ManagerServiceCardRow({
   row,
@@ -73,5 +74,101 @@ export function ManagerServiceCardRow({
         rowId={rowId}
       />
     </RecordActionContext.Provider>
+  );
+}
+
+/**
+ * The resident's own service row — the same Payments card. The person is the
+ * resident themself, so the tile is the service glyph and the title is the
+ * service; the place line is "property · room", the fact is when it was
+ * requested or scheduled, and an add-on's price is the figure. Selection and
+ * the ⋯ come from the surrounding list, as on Payments.
+ */
+export function ResidentServiceCardRow({
+  row,
+  request,
+  checked = false,
+  onSelectedChange,
+  onOpen,
+  dataAttr = "resident-service-row",
+}: {
+  row: Pick<UnifiedServiceRow, "title" | "propertyLabel" | "unitLabel" | "scheduledIso" | "createdIso">;
+  /** Present for an add-on request, which has a price; a maintenance request has none. */
+  request?: Pick<ServiceRequest, "price" | "priceLimit">;
+  checked?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
+  onOpen: () => void;
+  dataAttr?: string;
+}) {
+  const parts = managerServiceCardParts({ ...row, residentName: "", residentEmail: "" });
+  const figure = request
+    ? managerServiceRequestCardFigure({ price: request.price?.trim() || request.priceLimit })
+    : undefined;
+  return (
+    <PortalApplicantRecordRow
+      name={parts.name}
+      tileIcon={Wrench}
+      address={parts.placeLine || undefined}
+      facts={
+        parts.dateFact ? (
+          <PortalRowFact icon={CalendarDays}>{parts.dateFact.text}</PortalRowFact>
+        ) : undefined
+      }
+      amount={figure}
+      checked={checked}
+      onSelectedChange={onSelectedChange}
+      onOpen={onOpen}
+      dataAttr={dataAttr}
+    />
+  );
+}
+
+/**
+ * The vendor's job row — the same Payments card. The tile carries the initials
+ * of the site (or the general area when the vendor cannot see the address yet),
+ * the title is the service, the place line is the site, the fact is when the
+ * job is scheduled, and the job amount is the figure. `extraFacts` keeps the
+ * vendor's own quote/phase facts beside the date.
+ */
+export function VendorServiceCardRow({
+  title,
+  placeLine,
+  dateText,
+  extraFacts,
+  figure,
+  icon = CalendarDays,
+  checked = false,
+  onSelectedChange,
+  onOpen,
+  dataAttr = "vendor-service-row",
+}: {
+  title: string;
+  placeLine: string;
+  dateText: string;
+  extraFacts?: ReactNode;
+  figure?: string;
+  icon?: LucideIcon;
+  checked?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
+  onOpen: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <PortalApplicantRecordRow
+      name={title}
+      tileLabel={placeLine || title}
+      address={placeLine || undefined}
+      facts={
+        <>
+          <PortalRowFact icon={icon}>{dateText}</PortalRowFact>
+          {extraFacts}
+        </>
+      }
+      amount={figure}
+      checked={checked}
+      onSelectedChange={onSelectedChange}
+      onOpen={onOpen}
+      dataAttr={dataAttr}
+    />
   );
 }

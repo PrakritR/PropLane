@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { ManagerServiceCardRow, ResidentServiceCardRow, VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { managerServiceCardParts, managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
 
@@ -105,12 +105,67 @@ describe("ManagerServiceCardRow", () => {
   });
 });
 
+describe("ResidentServiceCardRow", () => {
+  it("titles the row by the service with the service glyph tile, place line, date fact and price", () => {
+    render(
+      <ResidentServiceCardRow
+        row={{ title: "Storage locker", propertyLabel: "Emerald Court", unitLabel: "Room 2", scheduledIso: "", createdIso: "2026-10-03T18:00:00Z" }}
+        request={{ price: "$25", priceLimit: "" }}
+        onSelectedChange={() => {}}
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText("Storage locker")).toBeTruthy();
+    expect(screen.getByText("Emerald Court · Room 2")).toBeTruthy();
+    expect(screen.getByText(/^Requested /)).toBeTruthy();
+    expect(screen.getAllByText("$25").length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+    expect(document.querySelector(".portal-property-row")?.className).toContain("rounded-xl");
+  });
+
+  it("draws no figure for a maintenance request", () => {
+    render(
+      <ResidentServiceCardRow
+        row={{ title: "Leaking tap", propertyLabel: "Emerald Court", unitLabel: "", scheduledIso: "2026-10-09T17:00:00Z", createdIso: "" }}
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText(/^Scheduled /)).toBeTruthy();
+    expect(screen.queryByText(/\$/)).toBeNull();
+  });
+});
+
+describe("VendorServiceCardRow", () => {
+  it("shows site initials in the tile, the service as title, place line, scheduled date and job amount", () => {
+    render(
+      <VendorServiceCardRow
+        title="Replace faucet"
+        placeLine="Emerald Court · Unit 3"
+        dateText="Scheduled Oct 9"
+        figure="$180"
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText("EC")).toBeTruthy();
+    expect(screen.getByText("Replace faucet")).toBeTruthy();
+    expect(screen.getByText("Emerald Court · Unit 3")).toBeTruthy();
+    expect(screen.getByText("Scheduled Oct 9")).toBeTruthy();
+    expect(screen.getAllByText("$180").length).toBeGreaterThan(0);
+  });
+});
+
 describe("Services and Tasks lists share the Payments row", () => {
   const read = (file: string) => readFileSync(join(process.cwd(), file), "utf8");
   it("the card rows are built on PortalApplicantRecordRow, not a second row", () => {
     expect(read("src/components/portal/pro-service-card-row.tsx")).toContain("PortalApplicantRecordRow");
     expect(read("src/components/portal/pro-task-row.tsx")).toContain("PortalApplicantRecordRow");
     expect(read("src/components/portal/pro-payments-ledger-panel.tsx")).toContain("PortalApplicantRecordRow");
+  });
+  it("the resident and vendor Services lists render the shared card too", () => {
+    expect(read("src/components/portal/resident-services-panel.tsx")).toContain("ResidentServiceCardRow");
+    expect(read("src/components/portal/resident-portal-grouped-data-list.tsx")).toContain("renderRow");
+    expect(read("src/components/portal/vendor-work-orders-panel.tsx")).toContain("VendorServiceCardRow");
+    expect(read("src/components/portal/vendor-work-orders-panel.tsx")).not.toContain("PortalServiceRecordRow");
   });
   it("the manager Services lists no longer draw the joined wrench-tile row", () => {
     expect(read("src/components/portal/pro-all-services-panel.tsx")).not.toContain("PortalServiceRecordRow");

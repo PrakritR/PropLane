@@ -38,6 +38,7 @@ const LIST_ROW_SOURCES = [
   "src/components/portal/vendor-finances-panel.tsx",
   "src/components/portal/portal-payouts-panel.tsx",
   "src/components/portal/vendor-work-orders-panel.tsx",
+  "src/components/portal/resident-services-panel.tsx",
 ];
 
 const PILL_PATTERNS: Array<{ label: string; re: RegExp }> = [
