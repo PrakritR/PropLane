@@ -8,6 +8,7 @@ import {
   normalizeVendorReviewBody,
   normalizeVendorReviewStars,
   redactVendorReviewForViewer,
+  vendorHasGivenEstimate,
   VENDOR_REVIEW_SELECT,
 } from "@/lib/vendor-reviews";
 
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
     if (auth.role !== "manager" && auth.role !== "admin") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
-    const body = (await req.json()) as { workOrderId?: string; stars?: number; body?: string };
+    const body = (await req.json()) as { workOrderId?: string; vendorUserId?: string; stars?: number; body?: string };
     const workOrderId = body.workOrderId?.trim();
     if (!workOrderId) return NextResponse.json({ error: "workOrderId required." }, { status: 400 });
 
@@ -117,11 +118,30 @@ export async function POST(req: Request) {
     if (!allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
     const rowData = (workOrder.row_data ?? {}) as Record<string, unknown>;
+    const workOrderVendorUserId = (workOrder.vendor_user_id as string | null) ?? null;
+    // Estimate state is re-derived from the database (a bid by THIS service's vendor, or the
+    // vendor's own price on the row) — only looked up when the service is not already completed.
+    let estimateGiven = false;
+    if (rowData.bucket !== "completed" && workOrderVendorUserId) {
+      const { count, error: bidError } = await auth.db
+        .from("work_order_bids")
+        .select("id", { count: "exact", head: true })
+        .eq("work_order_id", workOrderId)
+        .eq("vendor_user_id", workOrderVendorUserId);
+      if (bidError) return NextResponse.json({ error: bidError.message }, { status: 500 });
+      estimateGiven = vendorHasGivenEstimate({
+        bidCount: count,
+        vendorCostCents: rowData.vendorCostCents,
+        vendorPriceSetAt: rowData.vendorPriceSetAt,
+      });
+    }
     const eligibility = evaluateVendorReviewEligibility({
       workOrderBucket: (rowData.bucket as string | undefined) ?? null,
       workOrderManagerUserId: ownerManagerUserId,
-      workOrderVendorUserId: (workOrder.vendor_user_id as string | null) ?? null,
+      workOrderVendorUserId,
       actorManagerUserId: ownerManagerUserId,
+      estimateGiven,
+      expectedVendorUserId: body.vendorUserId?.trim() || null,
     });
     if (!eligibility.ok) {
       return NextResponse.json({ error: eligibility.error }, { status: eligibility.status });
