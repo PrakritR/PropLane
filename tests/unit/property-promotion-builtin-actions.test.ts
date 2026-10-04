@@ -20,4 +20,19 @@ describe("property promotion builtins (C2-TAB3)", () => {
     expect(modal).toContain("PromotionFlyerPreview");
     expect(modal).toContain("PromotionPostPreview");
   });
+
+  it("the Door card row is the one entry point: it opens the print sheet", () => {
+    const panel = readFileSync(
+      resolve(process.cwd(), "src/components/portal/pro-property-promotion-panel.tsx"),
+      "utf8",
+    );
+    expect(panel).toContain('def.kind === "print" ? downloadBuiltin(def.key) : openBuiltinEditor(def.key)');
+    expect(panel).toContain("/print/door-card/");
+    const house = readFileSync(
+      resolve(process.cwd(), "src/components/portal/property-house-details-list-panel.tsx"),
+      "utf8",
+    );
+    expect(house).not.toContain('"Door card"');
+    expect(house).not.toContain('"door"');
+  });
 });

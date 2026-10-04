@@ -1064,7 +1064,8 @@ export function ManagerPropertyPromotionPanel({
                   def={def}
                   enabled={enabled}
                   facts={<PropertyPromotionBuiltinFacts kind={def.kind} detail={detail} />}
-                  onOpen={() => openBuiltinEditor(def.key)}
+                  // The Door card has nothing to edit: its row opens the print sheet, the one entry point now that House details no longer lists it.
+                  onOpen={() => (def.kind === "print" ? downloadBuiltin(def.key) : openBuiltinEditor(def.key))}
                   onToggle={() => toggleBuiltin(def.key)}
                   onDownload={() => downloadBuiltin(def.key)}
                   onShare={() => void shareBuiltin(def.key)}
