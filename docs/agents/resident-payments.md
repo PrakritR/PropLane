@@ -605,8 +605,28 @@ and unchanged).
   PATCH `{ action: "revoke" }`; a stale mirror cannot un-cancel a waived charge. UI: Payments -> the lease fee
   row -> "Waive lease fee" / "Restore lease fee".
 
+- **Waive codes cover the lease fee too** (`applies_to` on `manager_application_fee_waiver_codes`:
+  `application` (default, so every older code is unchanged) | `lease` | `both`; `property_ids` limits a code to
+  several properties, else the legacy `property_id`, else every property - `waiver_code_covers_property` is the one
+  SQL rule, `waiverCodeCoversProperty` its TypeScript mirror). On the pay-before-signing step the resident enters a
+  code (`POST /api/resident/lease-fee-waiver-code`, body = lease id + typed code only). `redeemLeaseFeeWaiverCode`
+  checks the caller is on the lease, finds the code under the LEASE'S manager for this fee and property, refuses once
+  the fee is paid (409), spends the use in `redeem_lease_fee_waiver_code` (cap, expiry, status, property and
+  one-code-per-lease re-checked in the database under a lock), then waives through `waiveLeaseFee` - the same charge,
+  ledger and audit path as the manager's waiver (`lease_fee_waived_by_code`, actor = the resident). If the waiver then
+  cannot be applied the use is given back (`release_lease_fee_waiver_redemption`). A fee already waived spends nothing.
+  The single Application promo field only manages application-only codes with no property list; it never revokes or
+  takes over a lease/both/limited code. Manager UI: Settings -> Applications and Lease -> Waive codes
+  (`settings-waive-codes-section.tsx`; create, edit in place, disable; routes under
+  `/api/manager/application-fee-waivers`). A form's fee is never typed on the form: the application and lease form
+  popups show the resolver's answer read-only with a link to Pricing (`form-resolved-fee.ts`).
+
 Coverage: `tests/unit/lease-fee-at-signing.test.ts`, `tests/unit/lease-fee-at-signing-server.test.ts`,
-`tests/unit/resident-at-signing-pay.test.tsx`, `tests/unit/room-term-fees-ledger.test.ts`.
+`tests/unit/resident-at-signing-pay.test.tsx`, `tests/unit/room-term-fees-ledger.test.ts`; waive codes:
+`tests/unit/waive-codes-applies-to-sql.test.ts` (real Postgres: matrix, property limits, atomic cap),
+`tests/unit/lease-fee-waive-code-redemption.test.ts`, `tests/unit/waive-codes-lib.test.ts`,
+`tests/unit/lease-fee-waiver-code-route.test.ts`, `tests/unit/resident-at-signing-waive-code.test.tsx`,
+`tests/unit/settings-waive-codes-section.test.tsx`, `tests/unit/form-resolved-fee.test.tsx`.
 
 **A migrated month covers the generator.** A migrated rent charge
 (`migrationSourceId` set, `kind: "rent"`, and a `rentMonth`) is all-in —

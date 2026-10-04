@@ -6,6 +6,7 @@ import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { readLeaseFeeWaiver, type LeaseFeeWaiver } from "@/lib/lease-at-signing";
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { lookupWaiverCodeForFee, normalizeWaiverCode } from "@/lib/application-fee-waiver";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { restoreFuturePaymentRemindersForCharge, cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
@@ -30,6 +31,7 @@ import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 const LEASE_TABLE = "portal_lease_pipeline_records";
 const CHARGE_TABLE = "portal_household_charge_records";
 const WAIVER_ACTION = "lease_fee_waived";
+const CODE_WAIVER_ACTION = "lease_fee_waived_by_code";
 const REINSTATE_ACTION = "lease_fee_reinstated";
 const MAX_REASON_LENGTH = 300;
 
@@ -115,16 +117,39 @@ async function loadLeaseFeeCharges(
   return { ok: true, charges };
 }
 
+/** A waiver that came from a code the resident typed, rather than a manager's direct grant. */
+export type LeaseFeeWaiverVia = {
+  codeId: string;
+  code: string;
+  redemptionId: string;
+  residentUserId: string;
+  residentEmail: string;
+};
+
 async function writeAudit(
   db: SupabaseClient,
-  input: { managerUserId: string; action: string; leaseId: string; reason: string; chargeIds: string[] },
+  input: {
+    managerUserId: string;
+    action: string;
+    leaseId: string;
+    reason: string;
+    chargeIds: string[];
+    via?: LeaseFeeWaiverVia;
+  },
 ): Promise<void> {
   const { error } = await db.from("audit_log").insert({
-    actor_user_id: input.managerUserId,
+    // A code waiver is the resident's act (granted by the manager's code); a direct waiver is the manager's.
+    actor_user_id: input.via?.residentUserId || input.managerUserId,
     landlord_id: input.managerUserId,
     action: input.action,
     tool_name: input.action,
-    input_summary: { leaseId: input.leaseId, reason: input.reason },
+    input_summary: {
+      leaseId: input.leaseId,
+      reason: input.reason,
+      ...(input.via
+        ? { codeId: input.via.codeId, code: input.via.code, redemptionId: input.via.redemptionId, residentEmail: input.via.residentEmail }
+        : {}),
+    },
     result_summary: { chargeIds: input.chargeIds },
     dedupe_key: null,
     created_at: new Date().toISOString(),
@@ -137,7 +162,7 @@ async function writeAudit(
 /** Waive the lease fee for one lease. Idempotent: waiving twice changes nothing. */
 export async function waiveLeaseFee(
   db: SupabaseClient,
-  input: { managerUserId: string; leaseId: string; reason?: string | null },
+  input: { managerUserId: string; leaseId: string; reason?: string | null; via?: LeaseFeeWaiverVia },
 ): Promise<WaiveResult> {
   const loaded = await loadManagedLease(db, input.managerUserId, input.leaseId);
   if (!loaded.ok) return loaded;
@@ -203,10 +228,11 @@ export async function waiveLeaseFee(
 
   await writeAudit(db, {
     managerUserId: input.managerUserId,
-    action: WAIVER_ACTION,
+    action: input.via ? CODE_WAIVER_ACTION : WAIVER_ACTION,
     leaseId: record.id,
     reason: waiver.reason,
     chargeIds: cancelledChargeIds,
+    via: input.via,
   });
   return { ok: true, waiver, applicationIds: applicationIdsOf(lease), cancelledChargeIds };
 }
@@ -292,4 +318,171 @@ export async function listLeaseFeeWaivers(db: SupabaseClient, managerUserId: str
     });
   }
   return out;
+}
+
+
+/* ------------------------- a resident redeeming a waive code on the lease fee ------------------------- */
+
+export type RedeemLeaseCodeFailureReason =
+  | "NOT_FOUND"
+  | "REVOKED"
+  | "EXPIRED"
+  | "EXHAUSTED"
+  | "UNAVAILABLE"
+  | "ALREADY_USED"
+  | "ALREADY_PAID"
+  | "NO_FEE"
+  | "LEASE_NOT_FOUND"
+  | "LEASE_VOIDED";
+
+export type RedeemLeaseCodeResult =
+  | {
+      ok: true;
+      /** The fee was already waived (by this code, or by the manager): nothing was spent and nothing changed. */
+      alreadyWaived: boolean;
+      applicationIds: string[];
+      cancelledChargeIds: string[];
+    }
+  | { ok: false; status: number; reason: RedeemLeaseCodeFailureReason; error: string };
+
+const LEASE_CODE_MESSAGES = {
+  LEASE_NOT_FOUND: "We couldn't find that lease.",
+  LEASE_VOIDED: "This lease was voided.",
+  ALREADY_PAID: "The lease fee was already paid, so a code can no longer waive it.",
+  NO_FEE: "This lease has no fee to waive.",
+  ALREADY_USED: "A code was already used on this lease.",
+} as const;
+
+function emailsOfLease(record: LeaseRecord, row: ReturnType<typeof normalizeLeasePipelineRow>): Set<string> {
+  return new Set(
+    [record.resident_email ?? "", row.residentEmail, ...(row.jointLeaseMembers ?? []).map((m) => m.residentEmail ?? "")]
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * A resident enters a waive code on the pay-before-signing step. A valid LEASE (or BOTH) code cancels the
+ * lease fee exactly like the manager's per-lease waiver - same charge, same ledger re-sync, same audit
+ * trail - through `waiveLeaseFee`, so there is one waiver implementation:
+ *
+ *  - the caller must be a party to the lease (its resident, or a joint-lease member); anyone else gets
+ *    "lease not found", never a hint it exists;
+ *  - the code belongs to the lease's OWN manager and must apply on the lease's property and to the lease
+ *    fee (`applies_to` lease or both);
+ *  - refused once the fee is paid, collecting or refunded (that is a refund, not a waiver);
+ *  - the use is spent by the atomic `redeem_lease_fee_waiver_code` function (cap, expiry, status, property
+ *    and one-code-per-lease are all re-checked in the database under a lock), and given back by
+ *    `release_lease_fee_waiver_redemption` if the waiver then cannot be applied, so a failure never
+ *    costs a use;
+ *  - a fee that is already waived spends nothing.
+ */
+export async function redeemLeaseFeeWaiverCode(
+  db: SupabaseClient,
+  input: { residentUserId: string; residentEmail: string; leaseId: string; code: string },
+): Promise<RedeemLeaseCodeResult> {
+  const fail = (status: number, reason: RedeemLeaseCodeFailureReason, error: string): RedeemLeaseCodeResult => ({
+    ok: false,
+    status,
+    reason,
+    error,
+  });
+  const leaseId = input.leaseId.trim();
+  const residentEmail = input.residentEmail.trim().toLowerCase();
+  const residentUserId = input.residentUserId.trim();
+  const normalizedCode = normalizeWaiverCode(input.code);
+  if (!leaseId || !residentUserId || !residentEmail.includes("@")) {
+    return fail(404, "LEASE_NOT_FOUND", LEASE_CODE_MESSAGES.LEASE_NOT_FOUND);
+  }
+  if (!normalizedCode) return fail(400, "NOT_FOUND", "Enter a code.");
+
+  const { data, error } = await db
+    .from(LEASE_TABLE)
+    .select("id, manager_user_id, property_id, resident_email, resident_user_id, row_data")
+    .eq("id", leaseId)
+    .maybeSingle();
+  if (error) {
+    console.error("[lease-fee-waiver] code redeem lease read failed", error.message);
+    return fail(503, "UNAVAILABLE", "We couldn't check that code just now. Please try again in a moment.");
+  }
+  const record = (data ?? null) as (LeaseRecord & { resident_user_id?: string | null }) | null;
+  if (!record) return fail(404, "LEASE_NOT_FOUND", LEASE_CODE_MESSAGES.LEASE_NOT_FOUND);
+  const rowData = asObject(record.row_data);
+  const lease = normalizeLeasePipelineRow(rowData);
+  const isParty =
+    (record.resident_user_id ?? "").trim() === residentUserId || emailsOfLease(record, lease).has(residentEmail);
+  // A lease the caller is not on is indistinguishable from one that does not exist.
+  if (!isParty) return fail(404, "LEASE_NOT_FOUND", LEASE_CODE_MESSAGES.LEASE_NOT_FOUND);
+
+  const managerUserId = (record.manager_user_id ?? "").trim();
+  const propertyId = (record.property_id ?? lease.propertyId ?? "").trim();
+  if (!managerUserId || !propertyId) return fail(409, "NO_FEE", LEASE_CODE_MESSAGES.NO_FEE);
+  if (lease.status === "Voided" || lease.voidedAt) return fail(409, "LEASE_VOIDED", LEASE_CODE_MESSAGES.LEASE_VOIDED);
+
+  const found = await loadLeaseFeeCharges(db, record, lease);
+  if (!found.ok) return fail(503, "UNAVAILABLE", "We couldn't check that code just now. Please try again in a moment.");
+  const statusOf = (c: ChargeRecord) => c.status ?? c.row_data.status;
+  if (found.charges.some((c) => ["paid", "processing", "partially_paid", "refunded"].includes(String(statusOf(c))))) {
+    return fail(409, "ALREADY_PAID", LEASE_CODE_MESSAGES.ALREADY_PAID);
+  }
+  const owed = found.charges.filter((c) => statusOf(c) !== "cancelled");
+  if (owed.length === 0) {
+    // Already waived (a manager's grant or an earlier code): the resident is done, nothing is spent.
+    const waived = found.charges.some((c) => Boolean(c.row_data.waivedAt)) || readLeaseFeeWaiver(asObject(rowData.application)) !== null;
+    if (waived) return { ok: true, alreadyWaived: true, applicationIds: applicationIdsOf(lease), cancelledChargeIds: [] };
+    return fail(409, "NO_FEE", LEASE_CODE_MESSAGES.NO_FEE);
+  }
+
+  const lookup = await lookupWaiverCodeForFee(db, { managerUserId, code: normalizedCode, propertyId, fee: "lease" });
+  if (!lookup.ok) return fail(lookup.reason === "UNAVAILABLE" ? 503 : 400, lookup.reason, lookup.error);
+
+  const { data: redeemed, error: redeemError } = await db.rpc("redeem_lease_fee_waiver_code", {
+    p_code_id: lookup.codeId,
+    p_manager_user_id: managerUserId,
+    p_property_id: propertyId,
+    p_resident_email: residentEmail,
+    p_lease_id: record.id,
+  });
+  if (redeemError) {
+    console.error("[lease-fee-waiver] redeem RPC failed:", redeemError.message);
+    return fail(503, "UNAVAILABLE", "We couldn't check that code just now. Please try again in a moment.");
+  }
+  const rows = (redeemed as { id: string; redemption_id: string }[] | null) ?? [];
+  const spent = rows[0];
+  if (!spent?.id || !spent.redemption_id) {
+    // Nothing was spent. Say why: a code already used on this lease, else whatever the lookup now says
+    // (the cap went to someone else between the read and the spend).
+    const { data: prior } = await db
+      .from("application_fee_waiver_redemptions")
+      .select("id")
+      .eq("lease_id", record.id)
+      .limit(1);
+    if (((prior ?? []) as unknown[]).length > 0) return fail(409, "ALREADY_USED", LEASE_CODE_MESSAGES.ALREADY_USED);
+    const again = await lookupWaiverCodeForFee(db, { managerUserId, code: normalizedCode, propertyId, fee: "lease" });
+    if (!again.ok) return fail(again.reason === "UNAVAILABLE" ? 503 : 400, again.reason, again.error);
+    return fail(400, "EXHAUSTED", "That code has already been used the maximum number of times.");
+  }
+
+  const waived = await waiveLeaseFee(db, {
+    managerUserId,
+    leaseId: record.id,
+    reason: `Waive code ${normalizedCode}`,
+    via: {
+      codeId: spent.id,
+      code: normalizedCode,
+      redemptionId: spent.redemption_id,
+      residentUserId,
+      residentEmail,
+    },
+  });
+  if (!waived.ok) {
+    // The use was spent but the fee could not be waived (paid in the meantime, a write failed): give it back.
+    const { error: releaseError } = await db.rpc("release_lease_fee_waiver_redemption", {
+      p_redemption_id: spent.redemption_id,
+    });
+    if (releaseError) console.error("[lease-fee-waiver] release after failed waiver failed:", releaseError.message);
+    const reason: RedeemLeaseCodeFailureReason = waived.status === 409 ? "ALREADY_PAID" : "UNAVAILABLE";
+    return fail(waived.status === 409 ? 409 : 503, reason, waived.status === 409 ? waived.error : "We couldn't apply that code just now. Please try again in a moment.");
+  }
+  return { ok: true, alreadyWaived: false, applicationIds: waived.applicationIds, cancelledChargeIds: waived.cancelledChargeIds };
 }

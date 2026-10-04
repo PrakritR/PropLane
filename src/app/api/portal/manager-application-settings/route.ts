@@ -178,6 +178,7 @@ export async function GET(req: Request) {
       ? codes.find(
           (c) =>
             c.status === "active" &&
+            (c.appliesTo ?? "application") === "application" &&
             (c.propertyId === propertyId || (c.propertyId == null && c.label === listingWaiverLabel(propertyId))),
         )?.code ?? null
       : pickPrimaryApplicationFeeWaiverCode(codes)?.code ?? null;
