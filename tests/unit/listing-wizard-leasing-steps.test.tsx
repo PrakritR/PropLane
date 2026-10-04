@@ -5,7 +5,7 @@
 // "Edit in full" pencil that opens the property's own editor; Review lists them too; and
 // the property record's sidebar puts Move-in under Leasing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { MOVE_IN_FORM_STARTERS, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 
 // What a property that never saved its forms shows: the default forms plus the starters.
 const UNSAVED_FORM_COUNT = readMoveInFormTemplates({}).length;
@@ -193,12 +193,24 @@ describe("Lease step", () => {
 });
 
 describe("Move-in step", () => {
-  it("lists the move-in forms with their Sends setting and opens the form editor", async () => {
+  it("a property that has not added a form shows none (forms are never added for the manager)", () => {
     mount({ propertyId: "prop-1" });
     go("movein");
+    expect(UNSAVED_FORM_COUNT).toBe(0);
+    expect(document.querySelectorAll("[data-attr='listing-v2-movein-row']").length).toBe(0);
+    expect(document.body.textContent).toMatch(/No move-in forms yet/);
+  });
+
+  it("lists the move-in forms the manager added with their Sends setting and opens the form editor", async () => {
+    const added = [
+      MOVE_IN_FORM_STARTERS.find((t) => t.trigger === "lease-signed")!,
+      MOVE_IN_FORM_STARTERS.find((t) => t.trigger === "manual")!,
+    ];
+    expect(new Set(added.map((t) => t.trigger))).toEqual(new Set(["lease-signed", "manual"]));
+    mount({ propertyId: "prop-1", submission: { ...sub(), moveInFormTemplates: added } });
+    go("movein");
     const rows = document.querySelectorAll("[data-attr='listing-v2-movein-row']");
-    // A property that never saved its forms shows every built-in starter.
-    expect(rows.length).toBe(UNSAVED_FORM_COUNT);
+    expect(rows.length).toBe(2);
     // Each row carries its Sends setting; the lease-signed default reads "... lease is signed".
     expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sends [^·]*lease is signed/i);
     expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sent by hand/);

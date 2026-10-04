@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   MANAGER_RESIDENT_PURGE_TARGETS,
@@ -13,7 +14,7 @@ type Row = Record<string, unknown>;
  * manager scope the SQL function enforces, and can be made to fail so the
  * all-or-nothing claim is testable.
  */
-function database(seed: Record<string, Row[]>, options: { rpcFails?: string } = {}) {
+function database(seed: Record<string, Row[]>, options: { rpcFails?: string; objects?: Record<string, string[]> } = {}) {
   const rows: Record<string, Row[]> = structuredClone(seed);
   const managerColumns: Record<string, string> = {
     resident_autopay_runs: "manager_id",
@@ -26,10 +27,12 @@ function database(seed: Record<string, Row[]>, options: { rpcFails?: string } = 
     p_anonymize: { table: string; ids: string[] }[];
   }[] = [];
   const removedStoragePaths: string[] = [];
+  const removedByBucket: Record<string, string[]> = {};
 
   const db = {
     rpcCalls,
     removedStoragePaths,
+    removedByBucket,
     async rpc(
       name: string,
       args: {
@@ -107,9 +110,23 @@ function database(seed: Record<string, Row[]>, options: { rpcFails?: string } = 
       return query;
     },
     storage: {
-      from: () => ({
-        list: async () => ({ data: [], error: null }),
-        remove: async (paths: string[]) => { removedStoragePaths.push(...paths); return { error: null }; },
+      from: (bucket: string) => ({
+        // Objects seeded per bucket, listed one folder level at a time like Storage does.
+        list: async (prefix: string) => {
+          const names = new Map<string, boolean>();
+          for (const path of options.objects?.[bucket] ?? []) {
+            if (!path.startsWith(`${prefix}/`)) continue;
+            const rest = path.slice(prefix.length + 1);
+            const [head, ...tail] = rest.split("/");
+            names.set(head!, tail.length === 0);
+          }
+          return { data: [...names].map(([name, isFile]) => ({ name, id: isFile ? "obj" : null })), error: null };
+        },
+        remove: async (paths: string[]) => {
+          removedStoragePaths.push(...paths);
+          removedByBucket[bucket] = [...(removedByBucket[bucket] ?? []), ...paths];
+          return { error: null };
+        },
       }),
     },
   };
@@ -279,6 +296,59 @@ describe("purgeManagerResidentData", () => {
     });
     expect(result.total).toBe(0);
     expect(db.rpcCalls).toHaveLength(0);
+  });
+});
+
+describe("move-in forms are erased with the resident", () => {
+  const withForms = (): Record<string, Row[]> => ({
+    ...seattleHomes(),
+    resident_move_in_forms: [
+      { id: "mif-email", manager_user_id: "mgr-a", resident_email: "Heesu@Example.com", resident_user_id: null, application_id: "app-zzz" },
+      { id: "mif-user", manager_user_id: "mgr-a", resident_email: "other@example.com", resident_user_id: "resident-1", application_id: "app-zzz" },
+      { id: "mif-app", manager_user_id: "mgr-a", resident_email: "other@example.com", resident_user_id: null, application_id: "app-a" },
+      { id: "mif-other-resident", manager_user_id: "mgr-a", resident_email: "precious@example.com", resident_user_id: null, application_id: "app-other" },
+      { id: "mif-other-manager", manager_user_id: "mgr-b", resident_email: "heesu@example.com", resident_user_id: null, application_id: "app-b" },
+    ],
+  });
+  const objects = {
+    "move-in-form-files": [
+      "mif-email/room_photos/p1.jpg", "mif-email/sig/s1.png", "mif-user/room_photos/p2.jpg", "mif-app/sig/s3.png",
+      "mif-other-resident/sig/keep.png", "mif-other-manager/sig/keep.png",
+    ],
+  };
+
+  it("is a delete target scoped on the manager, matched by email, login and application", async () => {
+    const { db } = database(withForms());
+    const preview = await previewManagerResidentPurge(db as never, identity);
+    const target = preview.targets.find((entry) => entry.table === "resident_move_in_forms");
+    expect([...(target?.ids ?? [])].sort()).toEqual(["mif-app", "mif-email", "mif-user"]);
+    expect(MANAGER_RESIDENT_PURGE_TARGETS.find((entry) => entry.table === "resident_move_in_forms")).toMatchObject({ managerColumn: "manager_user_id" });
+    expect(preview.storage.moveInFormIds.sort()).toEqual(["mif-app", "mif-email", "mif-user"]);
+  });
+
+  it("deletes the rows and reclaims each form's photos and signatures, and only theirs", async () => {
+    const { db, rows } = database(withForms(), { objects });
+    await purgeManagerResidentData(db as never, identity);
+    expect(rows.resident_move_in_forms.map((row) => row.id).sort()).toEqual(["mif-other-manager", "mif-other-resident"]);
+    expect((db.removedByBucket["move-in-form-files"] ?? []).sort()).toEqual([
+      "mif-app/sig/s3.png", "mif-email/room_photos/p1.jpg", "mif-email/sig/s1.png", "mif-user/room_photos/p2.jpg",
+    ]);
+  });
+
+  it("removes no photo when the delete fails", async () => {
+    const { db, rows } = database(withForms(), { objects, rpcFails: "deadlock detected" });
+    await expect(purgeManagerResidentData(db as never, identity)).rejects.toThrow("Nothing was deleted");
+    expect(rows.resident_move_in_forms).toHaveLength(5);
+    expect(db.removedByBucket["move-in-form-files"]).toBeUndefined();
+  });
+
+  it("the SQL function allow-lists the table on the manager column", () => {
+    const sql = readFileSync("supabase/migrations/20261003220000_purge_v2_move_in_forms.sql", "utf8");
+    expect(sql).toContain("'resident_move_in_forms', 'manager_user_id'");
+    // Everything the previous body deleted is still deletable, deposits included.
+    const previous = readFileSync("supabase/migrations/20261003150000_purge_manager_resident_rows_v2_erase_deposits.sql", "utf8");
+    for (const [, table] of previous.matchAll(/^\s+'([a-z_]+)', '(?:manager_user_id|manager_id|owner_user_id)'/gm)) expect(sql).toContain(`'${table}'`);
+    expect(sql).toContain("'security_deposit_ledger'");
   });
 });
 

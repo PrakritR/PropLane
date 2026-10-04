@@ -121,7 +121,8 @@ export type MoveInFormAnswer =
 export type MoveInFormRecord = {
   id: string;
   applicationId: string;
-  managerUserId: string;
+  /** Manager-side only; the resident API omits it. */
+  managerUserId?: string;
   propertyId: string;
   propertyLabel: string;
   roomLabel: string;

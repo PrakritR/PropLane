@@ -19,6 +19,7 @@ let leaseRows: Row[];
 let applicationRows: Row[];
 let failTable: string | null;
 let selects: { table: string; ids?: number }[];
+let leaseQueries: { ranges: { op: string; key: string; v: string }[]; columns: string; from: number; to: number }[];
 /** The unique `audit_log.dedupe_key` column, which is what makes the day claim a claim. */
 let auditKeys: Map<string, Row>;
 
@@ -47,10 +48,12 @@ function builder(table: string) {
   let columns = "*";
   let from = 0;
   let to = Infinity;
+  const ranges: { op: string; key: string; v: string }[] = [];
   const rows = () => (table === "portal_lease_pipeline_records" ? leaseRows : table === "manager_application_records" ? applicationRows : []);
   const run = () => {
     if (failTable === table) return { data: null, error: { message: `${table} down` } };
     const matched = rows().filter((row) => filters.every((f) => f(row))).slice(from, to + 1);
+    if (table === "portal_lease_pipeline_records") leaseQueries.push({ ranges: [...ranges], columns, from, to });
     return { data: matched.map((row) => project(row, columns)), error: null };
   };
   const q: Record<string, unknown> = {
@@ -60,6 +63,9 @@ function builder(table: string) {
     // `.not(col, "is", null)` = has a value; `.is(col, null)` = has none.
     not: (key: string, op: string, v: unknown) => { filters.push((row) => op === "is" ? cell(row, key) !== v : true); return q; },
     is: (key: string, v: unknown) => { filters.push((row) => cell(row, key) === v); return q; },
+    // Text comparison, like Postgres on a ->> value: a row with no value never matches.
+    gte: (key: string, v: string) => { ranges.push({ op: "gte", key, v }); filters.push((row) => { const c = cell(row, key); return typeof c === "string" && c >= v; }); return q; },
+    lt: (key: string, v: string) => { ranges.push({ op: "lt", key, v }); filters.push((row) => { const c = cell(row, key); return typeof c === "string" && c < v; }); return q; },
     in: (key: string, v: unknown[]) => { selects.push({ table, ids: v.length }); filters.push((row) => v.includes(cell(row, key))); return q; },
     // audit_log: the insert is the claim, so a repeated dedupe_key is a 23505 like the real unique index.
     insert: (row: Row) => {
@@ -86,9 +92,12 @@ function builder(table: string) {
 }
 const db = { from: builder } as never;
 
-const lease = (axisId: string, extra: Row = {}): Row => ({
+/** A signed lease row: its own manager and property columns, and the stay dates its `application` snapshot carries. */
+const lease = (axisId: string, extra: Row = {}, leaseEnd = "2026-10-20"): Row => ({
   id: `lease-${axisId}`,
-  row_data: { axisId, fullySignedAt: "2026-09-01T00:00:00Z", voidedAt: null, jointLeaseMembers: null, ...extra },
+  manager_user_id: "m1",
+  property_id: "p1",
+  row_data: { axisId, fullySignedAt: "2026-09-01T00:00:00Z", voidedAt: null, jointLeaseMembers: null, application: { leaseEnd }, ...extra },
 });
 const application = (id: string, leaseEnd: string | null): Row => ({ id, row_data: { application: { leaseEnd } } });
 
@@ -102,6 +111,7 @@ beforeEach(() => {
   applicationRows = [];
   failTable = null;
   selects = [];
+  leaseQueries = [];
   auditKeys = new Map();
 });
 
@@ -198,6 +208,7 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
   });
 
   it("follows the Pacific clock through the change to standard time (08:00 PST is 16:00Z)", async () => {
+    leaseRows = [lease("A", {}, "2026-12-20")];
     applicationRows = [application("A", "2026-12-20")];
     expect(await sweepMoveOutForms(db, new Date("2026-12-10T15:00:00Z"))).toBe(0);
     expect(await sweepMoveOutForms(db, new Date("2026-12-10T16:00:00Z"))).toBe(1);
@@ -208,6 +219,43 @@ describe("sweepMoveOutForms only runs in the 8 o'clock Pacific hour", () => {
     const from = vi.fn(() => { throw new Error("must not query"); });
     await expect(sweepMoveOutForms({ from } as never, new Date("2026-10-10T20:00:00Z"))).resolves.toBe(0);
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+describe("runMoveOutDispatch: the lease list is narrowed in the database", () => {
+  it("asks only for leases whose end falls from today through 30 days ahead, in pages of 500", async () => {
+    await runMoveOutDispatch(db, EIGHT_AM);
+    expect(leaseQueries).toEqual([{
+      ranges: [
+        { op: "gte", key: "row_data->application->>leaseEnd", v: "2026-10-10" },
+        { op: "lt", key: "row_data->application->>leaseEnd", v: "2026-11-10" },
+      ],
+      columns: "manager_user_id,property_id,axis_id:row_data->>axisId,members:row_data->jointLeaseMembers",
+      from: 0,
+      to: 499,
+    }]);
+  });
+
+  it("never looks up the applications of leases outside the window", async () => {
+    leaseRows = [lease("far", {}, "2027-06-01"), lease("ended", {}, "2026-09-01"), lease("tomorrow", {}, "2026-10-11T00:00:00.000Z"), lease("last-day", {}, "2026-11-09T23:00:00Z")];
+    applicationRows = [application("far", "2026-10-20"), application("ended", "2026-10-20"), application("tomorrow", "2026-10-11"), application("last-day", "2026-11-09")];
+    await runMoveOutDispatch(db, EIGHT_AM);
+    expect(dispatch.mock.calls.map(([id]) => id).sort()).toEqual(["last-day", "tomorrow"]);
+    expect(selects.filter((entry) => entry.table === "manager_application_records").map((entry) => entry.ids)).toEqual([2]);
+  });
+
+  it("hands each dispatch the manager and property of the lease ROW it was named on", async () => {
+    leaseRows = [{ ...lease("A", { jointLeaseMembers: [{ applicationId: "B" }] }), manager_user_id: "m9", property_id: "p9" }];
+    applicationRows = [application("A", "2026-10-20"), application("B", "2026-10-20")];
+    await runMoveOutDispatch(db, EIGHT_AM);
+    for (const [, , options] of dispatch.mock.calls) expect(options.expect).toEqual({ managerUserId: "m9", propertyId: "p9" });
+  });
+
+  it("skips a lease row that names no manager, so a forged application id has nothing to ride on", async () => {
+    leaseRows = [{ ...lease("A"), manager_user_id: null }];
+    applicationRows = [application("A", "2026-10-20")];
+    expect(await runMoveOutDispatch(db, EIGHT_AM)).toEqual({ sent: 0, failed: 0, failedApplicationIds: [] });
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });
 

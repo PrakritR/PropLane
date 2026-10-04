@@ -119,6 +119,7 @@ export async function sweepMoveInFormReminders(db: SupabaseClient, now: Date = n
 
 /** How far ahead of a lease end any form can be set to go out (the longest "Before move-out" choice). */
 const MOVE_OUT_LOOKAHEAD_DAYS = 30;
+const MOVE_OUT_PAGE_SIZE = 500;
 
 function daysBetween(fromKey: string, toKey: string): number {
   const from = Date.parse(`${fromKey}T00:00:00Z`);
@@ -210,30 +211,47 @@ export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Dat
   // Loaded here, not at the top: the reminder sweep above stays light (and testable) without the send machinery.
   const { dispatchMoveInFormsForResidency } = await import("@/lib/move-in-forms/server");
   const todayKey = pacificTodayKey(now);
-  const leases: { axis_id: string | null; members: unknown }[] = [];
-  for (let offset = 0; ; offset += 500) {
+  // Only leases that end inside the longest "N days before" window can send anything, so the
+  // database narrows to those (the end is compared as text: a date or an ISO timestamp both sort
+  // correctly) instead of the sweep loading every signed lease on the platform.
+  const windowStart = todayKey;
+  const windowEndExclusive = addDaysToIsoDate(todayKey, MOVE_OUT_LOOKAHEAD_DAYS + 1);
+  type LeaseRow = { manager_user_id: string | null; property_id: string | null; axis_id: string | null; members: unknown };
+  const leases: LeaseRow[] = [];
+  for (let offset = 0; ; offset += MOVE_OUT_PAGE_SIZE) {
     const { data, error } = await db.from("portal_lease_pipeline_records")
-      .select("axis_id:row_data->>axisId,signed:row_data->>fullySignedAt,voided:row_data->>voidedAt,members:row_data->jointLeaseMembers")
+      .select("manager_user_id,property_id,axis_id:row_data->>axisId,members:row_data->jointLeaseMembers")
       .not("row_data->>fullySignedAt", "is", null)
       .is("row_data->>voidedAt", null)
+      .gte("row_data->application->>leaseEnd", windowStart)
+      .lt("row_data->application->>leaseEnd", windowEndExclusive)
       .order("id")
-      .range(offset, offset + 499);
+      .range(offset, offset + MOVE_OUT_PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
-    leases.push(...((data ?? []) as unknown as { axis_id: string | null; members: unknown }[]));
-    if ((data ?? []).length < 500) break;
+    leases.push(...((data ?? []) as unknown as LeaseRow[]));
+    if ((data ?? []).length < MOVE_OUT_PAGE_SIZE) break;
   }
-  const primary = new Set<string>();
-  const secondary = new Set<string>();
+  // The application ids come from client-writable lease JSON, so each is paired with the manager
+  // and property the lease ROW itself carries; the dispatch refuses a residency that is not theirs.
+  type Target = { id: string; secondary: boolean; managerUserId: string; propertyId: string | null };
+  const targets = new Map<string, Target>();
+  const add = (id: unknown, secondary: boolean, lease: LeaseRow) => {
+    if (typeof id !== "string" || !id || !lease.manager_user_id) return;
+    const key = `${lease.manager_user_id}|${lease.property_id ?? ""}|${id}`;
+    const existing = targets.get(key);
+    // A member of one lease who signs another as primary is primary.
+    if (existing && (!existing.secondary || secondary)) return;
+    targets.set(key, { id, secondary, managerUserId: lease.manager_user_id, propertyId: lease.property_id });
+  };
   for (const lease of leases) {
-    if (lease.axis_id) primary.add(lease.axis_id);
+    add(lease.axis_id, false, lease);
     if (Array.isArray(lease.members)) {
-      for (const member of lease.members as { applicationId?: unknown }[]) {
-        if (typeof member?.applicationId === "string" && member.applicationId) secondary.add(member.applicationId);
-      }
+      for (const member of lease.members as { applicationId?: unknown }[]) add(member?.applicationId, true, lease);
     }
   }
-  for (const id of primary) secondary.delete(id);
-  const ids = [...primary, ...secondary];
+  const byApplication = new Map<string, Target[]>();
+  for (const target of targets.values()) byApplication.set(target.id, [...(byApplication.get(target.id) ?? []), target]);
+  const ids = [...byApplication.keys()];
   let sent = 0;
   let failed = 0;
   const failedApplicationIds: string[] = [];
@@ -247,12 +265,15 @@ export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Dat
       if (!endKey) continue;
       const daysLeft = daysBetween(todayKey, endKey);
       if (daysLeft < 0 || daysLeft > MOVE_OUT_LOOKAHEAD_DAYS) continue;
-      const result = await dispatchMoveInFormsForResidency(String(record.id), "before-move-out", {
-        db, daysUntilLeaseEnd: daysLeft, secondaryMember: secondary.has(String(record.id)),
-      });
-      sent += result.sent;
-      failed += result.failed;
-      if (result.failed > 0) failedApplicationIds.push(String(record.id));
+      for (const target of byApplication.get(String(record.id)) ?? []) {
+        const result = await dispatchMoveInFormsForResidency(String(record.id), "before-move-out", {
+          db, daysUntilLeaseEnd: daysLeft, secondaryMember: target.secondary,
+          expect: { managerUserId: target.managerUserId, propertyId: target.propertyId },
+        });
+        sent += result.sent;
+        failed += result.failed;
+        if (result.failed > 0) failedApplicationIds.push(String(record.id));
+      }
     }
   }
   return { sent, failed, failedApplicationIds };

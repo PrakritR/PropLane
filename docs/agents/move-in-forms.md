@@ -84,6 +84,13 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   "quiet": they do not clear the list cache or fire `MOVE_IN_FORMS_CHANGED`. The photo cap is the
   shared `limits.ts` constant.
 - **Only the property owner uploads the original PDF** (403 for a co-manager, who can still build the form).
+- **Original PDFs are served inline: a deliberate exception.** Every other file answers as an attachment, but the
+  uploaded original is read in place (the resident reads, then signs, the real document), so `originalPdf` in the route
+  answers `inline`. The safeguards that make this acceptable: `Content-Security-Policy: sandbox` (no script, forms,
+  or same-origin access if the file is ever opened as a page), `X-Content-Type-Options: nosniff`, `Content-Type:
+  application/pdf` fixed (never taken from the upload), `Cache-Control: private, no-store`, a sanitized filename, and
+  an upload that must be a PDF within the 8 MB cap, read back and fingerprinted by the server. Do not add a second
+  inline response.
 - **Dispatch is best-effort and idempotent.** It never throws into a lease or
   application save, and running it twice sends nothing new.
 - **No on/off switch.** A form is a plain row, like an application template. Whether it
@@ -98,6 +105,31 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   through `BuilderQuestionCard`, the same row the application editor uses.
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
+- **Delete resident erases the forms too.** `resident_move_in_forms` is a target of
+  `purge-manager-resident.ts` (matched by login, email and application id, scoped on `manager_user_id`) and is in the
+  `purge_manager_resident_rows_v2` allowlist (`20261003220000_purge_v2_move_in_forms.sql`, rebuilt from the
+  `20261003150000` body, deposits still included). After the transaction commits, each deleted form's folder in
+  `move-in-form-files` is removed. Account deletion (`purge-portal-account-data.ts`) does the same for a resident's
+  copies and a manager's, and a manager's `lease-templates/<ownerId>/` walk takes the original PDFs under
+  `move-in-forms/`. The same migration forces the bucket private (`on conflict (id) do update`).
+- **The lease-signed seam never trusts the ids in the lease JSON.** A lease's `axisId` and
+  `jointLeaseMembers[].applicationId` are client-writable, so `dispatchMoveInFormsForSignedLease(lease, { managerUserId,
+  propertyId })` takes the manager and property from the lease ROW's own columns and skips any residency whose
+  `manager_user_id`, property owner or `property_id` differs. The daily move-out sweep applies the same pairing
+  (`options.expect`). No manager on the lease row means nothing is sent.
+- **Plan gate.** Move-in is a Pro and Business module. The page paywalls it (`subscriptionGated`), and so does the API:
+  `/api/move-in-forms` answers every manager call from a Free manager with 402 (`assertMoveInPlanForActor`, the same
+  `getManagerPortalNavSubscriptionTier` + `managerSectionAllowedForTier("move-in")` rule as the sidebar), and automatic
+  dispatch sends nothing for a Free owner. Residents are never gated: they answer a form already sent to them.
+  Inspections has no server-side tier gate of its own; this one does not copy it.
+- **Request size.** The route counts bytes as they stream in (`read-body.ts`), never trusting `content-length`: JSON
+  bodies stop at 800 KB, resident image uploads at 4.5 MB (Vercel's body cap), an original PDF at 11 MB. The browser
+  shrinks a photo over 4 MB to JPEG before upload (`fit-image.ts`) or refuses it with a plain message.
+- **A resident's API record has no `managerUserId`** (`toRecord` omits it for the resident viewer).
+- **The Intake notice needs a confirmed login.** The Intake form is created when an application is submitted, possibly
+  as a guest whose address is only typed. The in-portal form is always created, but the "form waiting" notice is sent
+  only when a login with a confirmed email owns that address, and goes to that login. Every other trigger follows a
+  manager's decision about a known resident and notifies as before.
 - **Move-in page (sidebar).** `/portal/move-in` has **one tab per form the manager has added**, not per kind.
   The tabs come from the stored forms of every property in the active workspace
   (`manager-forms.ts`: `storedMoveInFormNames`, same store the send popup reads) merged with the form names on the loaded copies

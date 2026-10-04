@@ -3,8 +3,10 @@ import { z, ZodError } from "zod";
 import { resolveAgentContext } from "@/lib/tools/context";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { moveInFormPdf } from "@/lib/move-in-forms/pdf";
+import { MAX_JSON_BODY_BYTES, MAX_PDF_UPLOAD_REQUEST_BYTES, MAX_UPLOAD_REQUEST_BYTES } from "@/lib/move-in-forms/limits";
+import { BodyTooLargeError, readBodyText, readFormDataLimited } from "@/lib/move-in-forms/read-body";
 import {
-  cancelMoveInForm, deleteMoveInFormFile, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
+  assertMoveInPlanForActor, cancelMoveInForm, deleteMoveInFormFile, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
   moveInFormTemplatePdf, remindMoveInForm, saveMoveInFormDraft, sendMoveInForm, sendMoveInFormToCurrentResidents,
   submitMoveInForm, uploadMoveInFormFile, uploadMoveInFormTemplatePdf, type MoveInFormActor,
 } from "@/lib/move-in-forms/server";
@@ -34,15 +36,23 @@ function originHost(value: string | null): string | null {
 }
 
 async function body(req: NextRequest) {
-  const text = await req.text();
-  if (text.length > 800_000) throw new MoveInFormError("The request is too large.", 413);
+  let text: string;
+  try { text = await readBodyText(req, MAX_JSON_BODY_BYTES); }
+  catch (error) {
+    if (error instanceof BodyTooLargeError) throw new MoveInFormError("The request is too large.", 413);
+    throw new MoveInFormError("Provide a valid request.");
+  }
   try { return text ? JSON.parse(text) as unknown : {}; }
   catch { throw new MoveInFormError("Provide a valid request."); }
 }
 
-async function formData(req: NextRequest) {
-  try { return await req.formData(); }
-  catch { throw new MoveInFormError("Provide a valid upload."); }
+/** Multipart upload, counted as it streams in: `maxBytes` is the ceiling for this route's kind of file. */
+async function formData(req: NextRequest, maxBytes: number) {
+  try { return await readFormDataLimited(req, maxBytes); }
+  catch (error) {
+    if (error instanceof BodyTooLargeError) throw new MoveInFormError("The upload is too large.", 413);
+    throw new MoveInFormError("Provide a valid upload.");
+  }
 }
 
 const safeName = (name: string) => name.replace(/[^\w.() -]/g, "_").slice(0, 100) || "form.pdf";
@@ -57,9 +67,11 @@ async function handle(req: NextRequest, context: RouteContext) {
     if (req.method !== "GET") {
       const host = originHost(req.headers.get("origin"));
       if (!host || host !== req.headers.get("host")) throw new MoveInFormError("Open the form in your portal and try again.", 403);
-      if (Number(req.headers.get("content-length") ?? 0) > 11 * 1024 * 1024) throw new MoveInFormError("The upload is too large.", 413);
+      // Early refusal only; the readers below count the bytes themselves.
+      if (Number(req.headers.get("content-length") ?? 0) > MAX_PDF_UPLOAD_REQUEST_BYTES) throw new MoveInFormError("The upload is too large.", 413);
     }
     const actor = await actorFor(req);
+    await assertMoveInPlanForActor(actor);
     const path = (await context.params).path ?? [];
     if (path.length > 4) throw new MoveInFormError("Not found.", 404);
     const search = req.nextUrl.searchParams;
@@ -79,7 +91,7 @@ async function handle(req: NextRequest, context: RouteContext) {
           return originalPdf(await moveInFormTemplatePdf(actor, z.string().min(1).max(120).parse(search.get("propertyId")), z.string().min(1).max(120).parse(search.get("formId"))));
         }
         if (first === "template-pdf" && req.method === "POST") {
-          const form = await formData(req);
+          const form = await formData(req, MAX_PDF_UPLOAD_REQUEST_BYTES);
           const file = form.get("file");
           if (!(file instanceof File)) throw new MoveInFormError("Property, form, and PDF are required.");
           return json(await uploadMoveInFormTemplatePdf(actor, {
@@ -123,7 +135,7 @@ async function handle(req: NextRequest, context: RouteContext) {
     if (id && req.method === "PATCH" && !verb) return json(await saveMoveInFormDraft(actor, id, await body(req)));
     if (id && req.method === "POST" && verb === "submit") return json(await submitMoveInForm(actor, id, await body(req)));
     if (id && req.method === "POST" && verb === "files") {
-      const form = await formData(req);
+      const form = await formData(req, MAX_UPLOAD_REQUEST_BYTES);
       const file = form.get("file");
       if (!(file instanceof File)) throw new MoveInFormError("Choose a file.");
       return json(await uploadMoveInFormFile(actor, id, z.string().min(1).max(80).parse(form.get("questionKey")), file), 201);

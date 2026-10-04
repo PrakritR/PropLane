@@ -30,6 +30,9 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
+/** Same bucket as `MOVE_IN_FORM_FILES_BUCKET` (move-in-forms/server.ts), spelled here to keep the purge free of that module. */
+const MOVE_IN_FORM_FILES_BUCKET = "move-in-form-files";
+
 /**
  * The buckets the confirm dialog names. User-facing copy says "service", never
  * "work order": maintenance rows and add-on requests are two tables under one
@@ -192,6 +195,14 @@ export const MANAGER_RESIDENT_PURGE_TARGETS: readonly ManagerResidentPurgeTarget
     match: { ids: ["resident_user_id"], emails: ["resident_email"], applicationIds: ["application_id"] },
   },
   {
+    // Move-in form copies sent to the resident (answers, signature hash). Their photos and
+    // signatures live in the private `move-in-form-files` bucket under `<formId>/`.
+    table: "resident_move_in_forms",
+    category: "documents",
+    managerColumn: "manager_user_id",
+    match: { ids: ["resident_user_id"], emails: ["resident_email"], applicationIds: ["application_id"] },
+  },
+  {
     table: "portal_lease_pipeline_records",
     category: "leases",
     managerColumn: "manager_user_id",
@@ -265,7 +276,7 @@ export type ManagerResidentPurgePreview = {
   paidKept: { count: number; cents: number };
   applicationIds: string[];
   /** Private objects reclaimed after the delete commits. */
-  storage: { documents: { bucket: string; paths: string[] }[]; inspectionIds: string[] };
+  storage: { documents: { bucket: string; paths: string[] }[]; inspectionIds: string[]; moveInFormIds: string[] };
 };
 
 export type ManagerResidentPurgeResult = {
@@ -537,7 +548,7 @@ export async function previewManagerResidentPurge(
     anonymize: [],
     paidKept: { count: 0, cents: 0 },
     applicationIds: [],
-    storage: { documents: [], inspectionIds: [] },
+    storage: { documents: [], inspectionIds: [], moveInFormIds: [] },
   };
   if (!managerUserId) return empty;
   if (!normalizeEmail(identity.email) && !(identity.residentUserId ?? "").trim() && !(identity.applicationId ?? "").trim()) {
@@ -553,6 +564,7 @@ export async function previewManagerResidentPurge(
   const paidKept = { count: 0, cents: 0 };
   const documentPaths: string[] = [];
   const inspectionIds: string[] = [];
+  const moveInFormIds: string[] = [];
   let total = 0;
 
   for (const target of MANAGER_RESIDENT_PURGE_TARGETS) {
@@ -582,6 +594,7 @@ export async function previewManagerResidentPurge(
     counts[target.category] += rows.length;
     total += rows.length;
     if (target.table === "resident_inspections") inspectionIds.push(...rows.map((row) => row.id));
+    if (target.table === "resident_move_in_forms") moveInFormIds.push(...rows.map((row) => row.id));
     if (target.storage) {
       for (const row of rows) if (row.storagePath) documentPaths.push(row.storagePath);
     }
@@ -607,6 +620,7 @@ export async function previewManagerResidentPurge(
     storage: {
       documents: documentPaths.length > 0 ? [{ bucket: MANAGER_DOCUMENTS_BUCKET, paths: documentPaths }] : [],
       inspectionIds,
+      moveInFormIds,
     },
   };
 }
@@ -633,6 +647,13 @@ async function reclaimStorage(
       await purgeAccountStorageFolder(db, "inspection-evidence", `${managerUserId}/${inspectionId}`);
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : "inspection-evidence cleanup failed");
+    }
+  }
+  for (const formId of preview.storage.moveInFormIds) {
+    try {
+      await purgeAccountStorageFolder(db, MOVE_IN_FORM_FILES_BUCKET, formId);
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : "move-in-form-files cleanup failed");
     }
   }
   for (const applicationId of preview.applicationIds) {

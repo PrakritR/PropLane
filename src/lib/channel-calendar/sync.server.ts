@@ -42,24 +42,86 @@ function icalEventsToImportedRanges(
   }));
 }
 
-async function fetchChannelIcs(importUrl: string, provider: ChannelCalendarProvider): Promise<string> {
+/** A real channel export is a few hundred KB at most; anything past this is not a calendar. */
+export const IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const IMPORT_MAX_REDIRECTS = 3;
+
+/** Read a response body as text, stopping (and cancelling the stream) the moment it passes the cap. */
+async function readCappedText(res: Response, maxBytes: number): Promise<string> {
+  const tooBig = () => new Error("The calendar file is too large to import.");
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => undefined);
+    throw tooBig();
+  }
+  if (!res.body) {
+    const text = await res.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) throw tooBig();
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooBig();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+/**
+ * Fetches a channel's iCal export. The stored URL passed `isValidChannelImportUrl`, but the provider
+ * may answer with a redirect, and `redirect: "follow"` would carry the server to any host it names.
+ * Redirects are followed by hand (at most three), and every `Location` must itself be a valid
+ * HTTPS import URL for the same provider. The body is read as a stream and abandoned at 2 MB.
+ */
+export async function fetchChannelIcs(importUrl: string, provider: ChannelCalendarProvider): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMPORT_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(importUrl, {
-      signal: controller.signal,
-      headers: { Accept: "text/calendar, text/plain, */*" },
-      redirect: "follow",
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      throw new Error(`${channelCalendarProviderLabel(provider)} calendar returned ${res.status}.`);
+    let target = importUrl;
+    for (let hop = 0; ; hop++) {
+      const res = await fetch(target, {
+        signal: controller.signal,
+        headers: { Accept: "text/calendar, text/plain, */*" },
+        redirect: "manual",
+        cache: "no-store",
+      });
+      if (res.status >= 300 && res.status < 400) {
+        await res.body?.cancel().catch(() => undefined);
+        const location = res.headers.get("location");
+        if (!location || hop >= IMPORT_MAX_REDIRECTS) {
+          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected too many times.`);
+        }
+        let next: string;
+        try {
+          next = new URL(location, target).toString();
+        } catch {
+          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected to an invalid address.`);
+        }
+        if (!isValidChannelImportUrl(provider, next)) {
+          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected to an address outside its own calendar links.`);
+        }
+        target = next;
+        continue;
+      }
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new Error(`${channelCalendarProviderLabel(provider)} calendar returned ${res.status}.`);
+      }
+      const text = await readCappedText(res, IMPORT_MAX_BYTES);
+      if (!text.includes("BEGIN:VCALENDAR")) {
+        throw new Error("Response was not a valid calendar file.");
+      }
+      return text;
     }
-    const text = await res.text();
-    if (!text.includes("BEGIN:VCALENDAR")) {
-      throw new Error("Response was not a valid calendar file.");
-    }
-    return text;
   } finally {
     clearTimeout(timer);
   }

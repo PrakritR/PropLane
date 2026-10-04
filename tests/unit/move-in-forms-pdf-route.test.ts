@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 vi.mock("server-only", () => ({}));
 const state = vi.hoisted(() => ({
   manager: true as boolean, resident: true as boolean, calls: [] as string[],
-  record: null as unknown,
+  record: null as unknown, freePlan: false as boolean,
 }));
 vi.mock("@/lib/tools/context", () => ({ resolveAgentContext: vi.fn(async () => (state.manager ? { userId: "m", db: {} } : null)) }));
 vi.mock("@/lib/tools/resident-context", () => ({ resolveResidentAgentContext: vi.fn(async () => (state.resident ? { userId: "r", email: "r@x.test", db: {} } : null)) }));
@@ -14,6 +14,9 @@ vi.mock("@/lib/move-in-forms/server", () => {
   return {
     MoveInFormError,
     MOVE_IN_FORM_FILES_BUCKET: "move-in-form-files",
+    assertMoveInPlanForActor: vi.fn(async (actor: { role: string }) => {
+      if (state.freePlan && actor.role === "manager") throw new MoveInFormError("Move-in forms require the Pro or Business plan.", 402);
+    }),
     getMoveInFormForExport: vi.fn(async () => state.record),
     listMoveInForms: note("list", { forms: [], unread: 0 }), moveInFormDetail: note("detail", { form: {} }),
     moveInFormFileUrl: note("file", "https://signed.example/x"), moveInFormRecordPdf: note("recordPdf", { bytes: new Uint8Array([37]), fileName: "a.pdf" }),
@@ -37,7 +40,7 @@ const call = (handler: typeof GET, path: string[], portal: string, init: { metho
   return handler(req, { params: Promise.resolve({ path }) });
 };
 
-beforeEach(() => { state.manager = true; state.resident = true; state.calls = []; state.record = null; vi.clearAllMocks(); });
+beforeEach(() => { state.manager = true; state.resident = true; state.calls = []; state.record = null; state.freePlan = false; vi.clearAllMocks(); });
 
 describe("move-in forms route", () => {
   it("sets private no-store headers and requires a signed-in portal", async () => {
@@ -47,6 +50,24 @@ describe("move-in forms route", () => {
     state.manager = false;
     expect((await call(GET, [], "manager")).status).toBe(401);
     expect((await call(GET, [], "bogus")).status).toBe(400);
+  });
+
+  it("answers a Free manager with 402 before doing any work, and never gates the resident", async () => {
+    state.freePlan = true;
+    expect((await call(GET, [], "manager")).status).toBe(402);
+    expect((await call(POST, ["send"], "manager", { method: "POST", body: {} })).status).toBe(402);
+    expect(state.calls).toEqual([]);
+    expect((await call(GET, ["mine"], "resident")).status).toBe(200);
+  });
+
+  it("counts a JSON body as it streams in and refuses one over 800 KB, whatever content-length says", async () => {
+    const headers = new Headers({ host: "app.test", origin: "https://app.test", "content-type": "application/json" });
+    const big = new TextEncoder().encode(JSON.stringify({ filler: "x".repeat(900_000) }));
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(big); controller.close(); } });
+    const req = new NextRequest("https://app.test/api/move-in-forms/send?portal=manager", { method: "POST", headers, body: stream, duplex: "half" } as never);
+    const res = await POST(req, { params: Promise.resolve({ path: ["send"] }) });
+    expect(res.status).toBe(413);
+    expect(state.calls).toEqual([]);
   });
 
   it("refuses a cross-origin or originless write before doing any work", async () => {

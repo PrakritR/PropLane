@@ -239,7 +239,10 @@ export async function POST(req: Request) {
     // them executed.
     await autoFileLeaseDocument(db, next as unknown as AutoFileLeaseRow).catch(() => undefined);
     // Off-platform signing is full execution too: the move-in forms go out now (best-effort).
-    dispatchMoveInFormsForSignedLeaseAfterResponse(next as LeasePipelineRow);
+    dispatchMoveInFormsForSignedLeaseAfterResponse(next as LeasePipelineRow, {
+      managerUserId: record.manager_user_id ?? null,
+      propertyId: record.property_id ?? null,
+    });
     if (managerUserId) {
       void syncLeaseLifecycleTasks(db, managerUserId, stored, next as LeasePipelineRow).catch(() => undefined);
     }

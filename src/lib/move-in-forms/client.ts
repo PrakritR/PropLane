@@ -8,6 +8,7 @@
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadBlobFile } from "@/lib/portal-document-download";
+import { fitImageForUpload } from "./fit-image";
 import type { MoveInFormAnswer, MoveInFormRecord, MoveInFormSummary, MoveInFormTemplate } from "./types";
 
 export type MoveInFormPortal = "manager" | "resident";
@@ -104,9 +105,11 @@ export const getMyMoveInForm = (id: string) =>
 export const saveMyMoveInFormDraft = (id: string, answers: MoveInFormAnswer[]) =>
   moveInFormRequest<{ form: MoveInFormRecord }>("resident", `/mine/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ answers }) }, { quiet: true });
 export async function uploadMyMoveInFormFile(id: string, questionKey: string, file: Blob, fileName: string) {
+  // A body over the host's 4.5 MB cap never arrives: shrink a big photo first, or say plainly it cannot go.
+  const fitted = await fitImageForUpload(file);
   const data = new FormData();
   data.set("questionKey", questionKey);
-  data.set("file", file, fileName);
+  data.set("file", fitted.blob, fitted.resized ? fileName.replace(/\.[^./\\]+$/, "") + ".jpg" : fileName);
   return moveInFormRequest<{ storagePath: string }>("resident", `/mine/${encodeURIComponent(id)}/files`, { method: "POST", body: data }, { quiet: true });
 }
 /** Removes a photo or signature the resident uploaded and then took out of their answers. */

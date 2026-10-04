@@ -1614,7 +1614,10 @@ export async function POST(req: Request) {
       // Move-in forms go out the moment the lease is fully signed. Best-effort and idempotent;
       // it never changes the outcome of this save.
       if (nowSigned && !plan.previouslySigned) {
-        dispatchMoveInFormsForSignedLeaseAfterResponse(plan.record.row_data as LeasePipelineRow);
+        dispatchMoveInFormsForSignedLeaseAfterResponse(plan.record.row_data as LeasePipelineRow, {
+          managerUserId: plan.record.manager_user_id ?? null,
+          propertyId: plan.record.property_id ?? null,
+        });
       }
 
       if (managerUserId) {

@@ -23,8 +23,9 @@ function addDaysYmd(ymd: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+/** A bare CR would end the content line and let a name inject its own properties, so CRs never get through. */
 function escapeIcsText(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  return value.replace(/\r/g, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
 /** Build an iCalendar feed for Airbnb "Import calendar". DTEND is exclusive. */
