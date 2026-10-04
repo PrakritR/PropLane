@@ -144,14 +144,17 @@ import {
 } from "@/lib/move-in-forms/templates";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
+  applicationAllowsCosigner,
   applicationAppliesTo,
+  applicationCoversStay,
   applicationFormVariantForTemplate,
   effectiveDefaultApplicationForStay,
   isApplicationTemplateOffered,
   readPropertyApplicationTemplates,
+  staysOfAppliesTo,
   withApplicationAppliesTo,
-  withApplicationDefaultForStay,
-  withoutApplicationDefaultForStay,
+  withApplicationDefaultToggled,
+  withoutShortTermCosignerLinks,
   type ApplicationAppliesTo,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
@@ -467,7 +470,7 @@ function useOneOpen() {
 
 const BODY_PAD = "border-t border-border px-3.5 py-3";
 
-/* ─────────────────── Long term / Short term / Both sections ─────────────────── */
+/* ─────────────────── Long term / Short term sections (no Both section) ─────────────────── */
 
 /** A section header: a small glyph, the label and a rule line. Never a pill. */
 function StayHeader({ section, label }: { section: StaySectionKey | "other"; label?: string }) {
@@ -482,20 +485,21 @@ function StayHeader({ section, label }: { section: StaySectionKey | "other"; lab
 }
 
 /**
- * Draws a step's rows under Long term / Short term / Both. A stay the listing does not offer is not drawn
- * (Both always is), and nothing is deleted: its rows come back when the stay is switched on again.
+ * Draws a step's rows under exactly two sections, Long term and Short term. A row that applies to both stays is
+ * drawn in EACH section as the same item. A stay the listing does not offer is not drawn, and nothing is
+ * deleted: its rows come back when the stay is switched on again.
  */
 function StaySectionList<T>({
   sub,
   rows,
-  sectionOf,
+  sectionsOf,
   render,
   empty,
 }: {
   sub: ManagerListingSubmissionV1;
   rows: readonly T[];
-  sectionOf: (row: T) => StaySectionKey;
-  render: (row: T) => ReactNode;
+  sectionsOf: (row: T) => readonly StaySectionKey[];
+  render: (row: T, section: StaySectionKey) => ReactNode;
   /** What a visible Long term / Short term section with no rows says. Absent = the section is not drawn. */
   empty?: (section: "long_term" | "short_term") => ReactNode;
 }) {
@@ -503,12 +507,12 @@ function StaySectionList<T>({
   return (
     <div data-attr="listing-v2-stay-sections">
       {sections.map((section) => {
-        const inSection = rows.filter((row) => sectionOf(row) === section);
-        if (inSection.length === 0 && (section === "both" || !empty)) return null;
+        const inSection = rows.filter((row) => sectionsOf(row).includes(section));
+        if (inSection.length === 0 && !empty) return null;
         return (
           <section key={section} className="mb-4" data-attr={`listing-v2-stay-section-${section}`} aria-label={STAY_LABEL[section]}>
             <StayHeader section={section} />
-            {inSection.length === 0 && section !== "both" ? empty?.(section) : inSection.map(render)}
+            {inSection.length === 0 ? empty?.(section) : inSection.map((row) => render(row, section))}
           </section>
         );
       })}
@@ -522,21 +526,21 @@ export function leaseStaySection(lease: Pick<PropertyLeaseTemplate, "kind">): St
 }
 
 /**
- * Which section a move-in form sits in: its lease type. "All" lease types is Both; a form tied to specific
- * leases sits with their stay when they all share one.
+ * Which sections a move-in form sits in: its lease type. "All" lease types is listed in BOTH sections (the
+ * same form); a form tied to specific leases sits with their stay when they all share one, in both otherwise.
  */
-export function moveInStaySection(
+export function moveInStaySections(
   template: Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds">,
   leases: readonly Pick<PropertyLeaseTemplate, "id" | "kind">[],
-): StaySectionKey {
-  if (template.leaseType === "long-term") return "long_term";
-  if (template.leaseType === "short-term") return "short_term";
+): StaySectionKey[] {
+  if (template.leaseType === "long-term") return ["long_term"];
+  if (template.leaseType === "short-term") return ["short_term"];
   const linked = (template.linkedLeaseTemplateIds ?? [])
     .map((id) => leases.find((lease) => lease.id === id))
     .filter((lease): lease is Pick<PropertyLeaseTemplate, "id" | "kind"> => Boolean(lease))
     .map((lease) => leaseStaySection(lease));
-  if (linked.length > 0 && linked.every((section) => section === linked[0])) return linked[0]!;
-  return "both";
+  if (linked.length > 0 && linked.every((section) => section === linked[0])) return [linked[0]!];
+  return ["long_term", "short_term"];
 }
 
 /* ─────────────────────────── Application ─────────────────────────── */
@@ -689,12 +693,24 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
 
-  const commitTemplates = (next: PropertyApplicationTemplate[]) => onChange(withApplicationTemplates(synced, next));
+  // Co-signer is long term only: whatever is written, a short-term application never keeps a co-signer link.
+  const commitTemplates = (next: PropertyApplicationTemplate[]) =>
+    onChange(withApplicationTemplates(synced, withoutShortTermCosignerLinks(next, leases)));
   const replace = (next: PropertyApplicationTemplate) =>
     commitTemplates(templates.map((row) => (row.id === next.id ? next : row)));
 
-  const toggleCard = (id: string) => {
-    if (open === id) {
+  // An application that applies to both stays is drawn in each section; only the copy that was clicked opens.
+  const [openIn, setOpenIn] = useState<StaySectionKey | null>(null);
+  const visibleSections = visibleStaySections(sub);
+  const homeSection = (stays: readonly StaySectionKey[]) => stays.find((stay) => visibleSections.includes(stay)) ?? stays[0]!;
+  const isOpenIn = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) =>
+    open === id && (openIn ?? homeSection(stays)) === section;
+  const openNew = (id: string) => {
+    setOpenIn(null);
+    setOpen(id);
+  };
+  const toggleCard = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) => {
+    if (isOpenIn(id, section, stays)) {
       publisher.flush();
       names.forget(id);
       setStartFrom((current) => {
@@ -702,8 +718,12 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         delete next[id];
         return next;
       });
+      setOpen(null);
+      setOpenIn(null);
+      return;
     }
-    toggle(id);
+    setOpenIn(section);
+    setOpen(id);
   };
 
   // "Applies to" is asked FIRST: the + opens this question, and the application is made only once it is answered.
@@ -719,7 +739,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     // and the Co-signer application.
     const created = applicationForAppliesTo(createInlineApplication(synced, templates, "proplane"), appliesTo, catalog);
     commitTemplates([...templates, created]);
-    setOpen(created.id);
+    openNew(created.id);
     setStartFrom((current) => ({ ...current, [created.id]: "proplane" }));
     publisher.schedule();
   };
@@ -756,7 +776,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
       updatedAt: new Date().toISOString(),
     };
     onChange(withApplicationTemplates(now.synced, [...now.templates, created]));
-    setOpen(created.id);
+    openNew(created.id);
     publisher.schedule();
   };
 
@@ -766,7 +786,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     const next = [...templates];
     next.splice(index + 1, 0, copy);
     commitTemplates(next);
-    setOpen(copy.id);
+    openNew(copy.id);
     publisher.schedule();
   };
 
@@ -833,15 +853,19 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
       <StaySectionList
         sub={sub}
         rows={templates}
-        sectionOf={(template) => applicationAppliesTo(template, leases)}
-        render={(template) => {
+        sectionsOf={(template) => staysOfAppliesTo(applicationAppliesTo(template, leases))}
+        render={(template, section) => {
         const i = templates.findIndex((row) => row.id === template.id);
         const appliesTo = applicationAppliesTo(template, leases);
-        const sectionCount = templates.filter((row) => applicationAppliesTo(row, leases) === appliesTo).length;
+        const stays = staysOfAppliesTo(appliesTo);
+        const isCosigner = isCosignerApplicationTemplate(template);
+        const sectionCount = templates.filter(
+          (row) => !isCosignerApplicationTemplate(row) && applicationCoversStay(row, section, leases),
+        ).length;
         const isDefault =
-          appliesTo !== "both" &&
+          !isCosigner &&
           sectionCount >= 2 &&
-          effectiveDefaultApplicationForStay(templates, appliesTo, leases)?.id === template.id;
+          effectiveDefaultApplicationForStay(templates, section, leases)?.id === template.id;
         const stored = normalizePropertyApplicationTemplateLabel(template.label) || "Application";
         const name = names.shown(template.id, stored);
         const label = stored;
@@ -855,14 +879,13 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         const cosignerOptions = templates
           .filter((row) => isCosignerApplicationTemplate(row))
           .map((row) => ({ value: row.id, label: normalizePropertyApplicationTemplateLabel(row.label) || "Co-signer application" }));
-        const isCosigner = isCosignerApplicationTemplate(template);
-        const isOpen = open === template.id;
+        const isOpen = isOpenIn(template.id, section, stays);
         const leaseId = leaseOfApplication(catalog, template.id);
         const leaseName = leaseId ? leases.find((lease) => lease.id === leaseId)?.label?.trim() : null;
         const questionCount = orderedEditorApplicationFields(questionSliceForTemplate(synced, template)).length;
         return (
           <RecordCard
-            key={template.id}
+            key={`${section}:${template.id}`}
             propertyEditor
             name={name}
             nameLabel={`Name for application ${i + 1}`}
@@ -884,18 +907,19 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
               <CardMenu
                 label={label}
                 dataAttr="listing-v2-application"
-                onEdit={() => toggleCard(template.id)}
+                onEdit={() => toggleCard(template.id, section, stays)}
                 onDuplicate={() => duplicate(template)}
                 onDelete={() => remove(template)}
               />
             }
             open={isOpen}
-            onToggle={() => toggleCard(template.id)}
+            onToggle={() => toggleCard(template.id, section, stays)}
             toggleLabel={label}
             dataAttr="listing-v2-application-card"
           >
             <div data-attr="listing-v2-application-editor">
               <NameProblem message={names.problem(template.id, taken)} />
+              {isCosigner ? null : (
               <FactRow first label="Applies to">
                 <RowSelectCell
                   ariaLabel={`Who ${label} applies to`}
@@ -905,23 +929,20 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   onChange={(next) => commitTemplates(withApplicationAppliesTo(templates, template.id, next as ApplicationAppliesTo))}
                 />
               </FactRow>
-              {appliesTo === "both" ? null : (
-                <FactRow label="Default for its section">
-                  <PortalSettingsToggle
-                    checked={effectiveDefaultApplicationForStay(templates, appliesTo, leases)?.id === template.id}
-                    label={`${label}: default for its section`}
-                    dataAttr="listing-v2-application-default"
-                    onChange={(on) =>
-                      commitTemplates(
-                        on
-                          ? withApplicationDefaultForStay(templates, template.id, appliesTo)
-                          : withoutApplicationDefaultForStay(templates, template.id, appliesTo),
-                      )
-                    }
-                  />
-                </FactRow>
               )}
-              <FactRow label="Needed">
+              {isCosigner
+                ? null
+                : stays.map((stay) => (
+                    <FactRow key={stay} label={`Default for ${STAY_LABEL[stay].toLowerCase()}`}>
+                      <PortalSettingsToggle
+                        checked={effectiveDefaultApplicationForStay(templates, stay, leases)?.id === template.id}
+                        label={`${label}: default for ${STAY_LABEL[stay].toLowerCase()}`}
+                        dataAttr={`listing-v2-application-default-${stay === "long_term" ? "long" : "short"}`}
+                        onChange={() => commitTemplates(withApplicationDefaultToggled(templates, template.id, stay, leases))}
+                      />
+                    </FactRow>
+                  ))}
+              <FactRow first={isCosigner} label="Needed">
                 <PortalSettingsToggle
                   checked={isApplicationTemplateOffered(template)}
                   label={`${label}: needed`}
@@ -967,7 +988,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   />
                 </FactRow>
               )}
-              {isCosigner || cosignerOptions.length === 0 ? null : (
+              {!applicationAllowsCosigner(template, leases) || cosignerOptions.length === 0 ? null : (
                 <FactRow label="Co-signer form">
                   <RowSelectCell
                     ariaLabel={`Co-signer form for ${label}`}
@@ -1253,7 +1274,7 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
       <StaySectionList
         sub={sub}
         rows={templates}
-        sectionOf={leaseStaySection}
+        sectionsOf={(lease) => [leaseStaySection(lease)]}
         render={(template) => {
         const i = templates.findIndex((row) => row.id === template.id);
         const stored = template.label?.trim() || "Lease";
@@ -1524,7 +1545,26 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     [sub],
   );
   const moveInLeases = useMemo(() => leaseTemplatesOf(sub), [sub]);
-  const { open, setOpen, toggle } = useOneOpen();
+  const { open, setOpen } = useOneOpen();
+  // A form that applies to both stays is drawn in each section; only the copy that was clicked opens.
+  const [openIn, setOpenIn] = useState<StaySectionKey | null>(null);
+  const visibleSections = visibleStaySections(sub);
+  const homeSection = (stays: readonly StaySectionKey[]) => stays.find((stay) => visibleSections.includes(stay)) ?? stays[0]!;
+  const isOpenIn = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) =>
+    open === id && (openIn ?? homeSection(stays)) === section;
+  const toggleCard = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) => {
+    if (isOpenIn(id, section, stays)) {
+      setOpen(null);
+      setOpenIn(null);
+      return;
+    }
+    setOpenIn(section);
+    setOpen(id);
+  };
+  const openNew = (id: string) => {
+    setOpenIn(null);
+    setOpen(id);
+  };
   const [freshId, setFreshId] = useState<string | null>(null);
   const latest = useLatest({ sub, templates });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1553,7 +1593,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
       trigger: "manual",
     };
     write([...templates, created], created.id);
-    setOpen(created.id);
+    openNew(created.id);
     setFreshId(created.id);
   };
 
@@ -1565,7 +1605,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     };
     created.name = uniqueFormLabel(templates.map((item) => item.name), created.name || "New form");
     write([...templates, created], created.id);
-    setOpen(created.id);
+    openNew(created.id);
   };
 
   /**
@@ -1598,7 +1638,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     try {
       const { pdf } = await uploadMoveInFormPdf(propertyId, created.id, file);
       write([...latest.current.templates, { ...created, pdf }], created.id);
-      setOpen(created.id);
+      openNew(created.id);
     } catch (error) {
       doors.showToast(error instanceof Error ? error.message : "Could not upload that PDF. Try again.");
     } finally {
@@ -1610,7 +1650,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate("built").id);
     if (!copy) return;
     write(list, copy.id);
-    setOpen(copy.id);
+    openNew(copy.id);
   };
 
   return (
@@ -1655,14 +1695,15 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
       <StaySectionList
         sub={sub}
         rows={templates}
-        sectionOf={(template) => moveInStaySection(template, moveInLeases)}
-        render={(template) => {
+        sectionsOf={(template) => moveInStaySections(template, moveInLeases)}
+        render={(template, section) => {
+        const stays = moveInStaySections(template, moveInLeases);
         const i = templates.findIndex((row) => row.id === template.id);
         const label = template.name.trim() || "Untitled form";
-        const isOpen = open === template.id;
+        const isOpen = isOpenIn(template.id, section, stays);
         return (
           <RecordCard
-            key={template.id}
+            key={`${section}:${template.id}`}
             propertyEditor
             name={template.name}
             nameLabel={`Name for move-in form ${i + 1}`}
@@ -1681,7 +1722,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
               <CardMenu
                 label={label}
                 dataAttr="listing-v2-movein"
-                onEdit={() => toggle(template.id)}
+                onEdit={() => toggleCard(template.id, section, stays)}
                 onDuplicate={() => duplicate(template)}
                 onDelete={() => {
                   write(removeMoveInTemplate(templates, template.id), null);
@@ -1690,7 +1731,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
               />
             }
             open={isOpen}
-            onToggle={() => toggle(template.id)}
+            onToggle={() => toggleCard(template.id, section, stays)}
             toggleLabel={label}
             dataAttr="listing-v2-movein-card"
           >

@@ -3,7 +3,8 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationConfigForApplicant } from "./application-template-config";
 import type { ApplicationConfigSlice } from "./application-field-catalog";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { applicationFormVariantForTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { applicationFormVariantForTemplate, cosignerLinkOwedByTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 
 export type CosignerTemplateResolution = {
   config: ApplicationConfigSlice;
@@ -47,9 +48,9 @@ export async function resolveCosignerTemplateForApplication(
     const primaryTemplate = readPropertyApplicationTemplates(submission).find(
       (candidate) => candidate.id === primaryApplicationTemplateId,
     );
-    if (primaryTemplate?.linkedCosignerApplicationTemplateId) {
-      effectiveTemplateId = primaryTemplate.linkedCosignerApplicationTemplateId;
-    }
+    // Co-signer is long term only: a short-term application's stale link never picks the co-signer's form.
+    const owed = cosignerLinkOwedByTemplate(primaryTemplate, readPropertyLeaseTemplates(submission));
+    if (owed) effectiveTemplateId = owed;
   }
   const pinnedTemplate =
     opts?.anyPublishedVariant && effectiveTemplateId && submission

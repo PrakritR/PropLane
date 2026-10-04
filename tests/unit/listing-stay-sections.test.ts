@@ -12,7 +12,10 @@ import {
 } from "@/lib/manager-listing-submission";
 import { listingOfferedStays, staysPatch, visibleStaySections } from "@/lib/listing-stays";
 import {
+  applicationAllowsCosigner,
   applicationAppliesTo,
+  applicationCoversStay,
+  cosignerLinkOwedByTemplate,
   createPropertyApplicationTemplate,
   effectiveDefaultApplicationForStay,
   explicitDefaultApplicationForStay,
@@ -20,13 +23,16 @@ import {
   syncLegacyApplicationFieldsFromTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
+  withApplicationDefaultToggled,
+  withApplicationDefaultsForStays,
   withoutApplicationDefaultForStay,
+  withoutShortTermCosignerLinks,
   type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-import { createPropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import { createPropertyLeaseTemplate, readPropertyLeaseTemplates, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing";
-import { applicationForAppliesTo, defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { applicationForAppliesTo, defaultLeaseIdForApplication, submissionWithDefaultLeasingSetup } from "@/lib/leasing-quick-add";
 import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { pricingSectionOptions } from "@/lib/pricing-lease-options";
 
@@ -48,7 +54,7 @@ describe("Basics: Stays you offer writes the existing lease-term fields", () => 
 
   it("a listing that never stated a choice offers Long term alone", () => {
     expect(listingOfferedStays(base())).toEqual({ long_term: true, short_term: false });
-    expect(visibleStaySections(base())).toEqual(["long_term", "both"]);
+    expect(visibleStaySections(base())).toEqual(["long_term"]);
   });
 
   it("turning Short term on writes allowedLeaseTerms and shortTermRentalsAllowed (and keeps Long-term)", () => {
@@ -57,7 +63,7 @@ describe("Basics: Stays you offer writes the existing lease-term fields", () => 
     expect(patch.shortTermRentalsAllowed).toBe(true);
     expect(patch.allowedLeaseTerms).toEqual(["Long-term", "Short-Term Stay"]);
     expect(resolveAllowedLeaseTerms({ ...sub, ...patch })).toEqual(["Long-term", "Short-Term Stay"]);
-    expect(visibleStaySections({ ...sub, ...patch })).toEqual(["long_term", "short_term", "both"]);
+    expect(visibleStaySections({ ...sub, ...patch })).toEqual(["long_term", "short_term"]);
   });
 
   it("Short term alone drops the long-term kinds; Long term alone drops Short term", () => {
@@ -121,9 +127,10 @@ describe("appliesTo is derived for rows saved before it existed", () => {
     expect(applicationAppliesTo(form("B", "long-term"), leases)).toBe("long_term");
   });
 
-  it("a co-signer application is for both", () => {
-    expect(applicationAppliesTo(form("Co-signer application", "long-term", { formVariant: "cosigner" }), leases)).toBe("both");
-    expect(applicationAppliesTo(form("Co-signer", "short-term", { listingSeedKey: "cosigner-short-term" }), leases)).toBe("both");
+  it("a co-signer application is for long term only, whatever else is stored", () => {
+    expect(applicationAppliesTo(form("Co-signer application", "long-term", { formVariant: "cosigner" }), leases)).toBe("long_term");
+    expect(applicationAppliesTo(form("Co-signer", "short-term", { listingSeedKey: "cosigner-short-term" }), leases)).toBe("long_term");
+    expect(applicationAppliesTo(form("Co-signer", "long-term", { formVariant: "cosigner", appliesTo: "both" }), leases)).toBe("long_term");
   });
 
   it("an explicit appliesTo wins over everything derived", () => {
@@ -242,19 +249,22 @@ describe("a new application asks Applies to first and its links default from it"
     expect(made.appliesTo).toBe("short_term");
     expect(made.formVariant).toBe("short_term");
     expect(made.linkedLeaseTemplateId).toBe(shortLease.id);
-    expect(made.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
+    // Co-signer is long term only: a short-term application gets no co-signer form.
+    expect(made.linkedCosignerApplicationTemplateId ?? null).toBeNull();
   });
 
   it("Long term: the standard form and the long-term lease", () => {
     const made = applicationForAppliesTo(fresh(), "long_term", catalog);
     expect(made.formVariant).toBe("standard");
     expect(made.linkedLeaseTemplateId).toBe(longLease.id);
+    expect(made.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
   });
 
   it("Both: the standard form with no lease of its own", () => {
     const made = applicationForAppliesTo(fresh(), "both", catalog);
     expect(made.appliesTo).toBe("both");
     expect(made.linkedLeaseTemplateId ?? null).toBeNull();
+    expect(made.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
     expect(defaultLeaseIdForApplication({ ...fresh(), appliesTo: "both" }, catalog.leases)).toBeNull();
   });
 
@@ -287,5 +297,117 @@ describe("Pricing draws one independent section per stay offered, never a Both",
     const seeded = { ...withStays(true, false), propertyLeaseTemplates: [lease("Short-term lease", "short-term", ["Short-Term Stay"], "short-term")] };
     expect(pricingSectionOptions(seeded).map((option) => option.label)).toEqual(["Long-term"]);
     expect(pricingSectionOptions(withStays(false, true)).map((option) => option.label)).toEqual(["Short-term"]);
+  });
+});
+
+describe("a both-form is the same item in each section, with a default per section", () => {
+  const longLease = lease("Long-term lease", "long-term", ["Long-term"], "primary");
+  const shortLease = lease("Short-term lease", "short-term", ["Short-Term Stay"], "short-term");
+  const longForm = form("Long A", "long-term", { linkedLeaseTemplateId: longLease.id });
+  const shortForm = form("Short S", "short-term", { formVariant: "short_term", linkedLeaseTemplateId: shortLease.id });
+  const both = form("Either", "long-term", { appliesTo: "both" });
+  const build = (templates: PropertyApplicationTemplate[]) =>
+    normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      propertyLeaseTemplates: [longLease, shortLease],
+      propertyApplicationTemplates: templates,
+    });
+
+  it("applies to both stays, and an explicit default for either stay can name it", () => {
+    expect(applicationCoversStay(both, "long_term")).toBe(true);
+    expect(applicationCoversStay(both, "short_term")).toBe(true);
+    expect(applicationCoversStay(longForm, "short_term", [longLease, shortLease])).toBe(false);
+    const chosen = withApplicationDefaultsForStays([longForm, shortForm, both], both.id, ["long_term", "short_term"]);
+    expect(explicitDefaultApplicationForStay(chosen, "long_term")?.id).toBe(both.id);
+    expect(explicitDefaultApplicationForStay(chosen, "short_term")?.id).toBe(both.id);
+    // Turning one stay off leaves the other.
+    const oneOff = withApplicationDefaultsForStays(chosen, both.id, ["short_term"]);
+    expect(oneOff.find((row) => row.id === both.id)!.defaultFor).toEqual(["short_term"]);
+  });
+
+  it("routes an applicant for either stay to the both-form once it is that stay's default", () => {
+    const chosen = withApplicationDefaultsForStays([longForm, shortForm, both], both.id, ["long_term", "short_term"]);
+    const sub = build(chosen);
+    expect(applicationPinForStayTerm(sub, "Long-term")?.templateId).toBe(both.id);
+    expect(applicationPinForStayTerm(sub, "Short-Term Stay")?.templateId).toBe(both.id);
+  });
+
+  it("the switch pins a form that is only the derived default, and a second tap un-pins it", () => {
+    const templates = [longForm, form("Long B", "long-term")];
+    expect(effectiveDefaultApplicationForStay(templates, "long_term", [longLease])?.id).toBe(longForm.id);
+    expect(explicitDefaultApplicationForStay(templates, "long_term", [longLease])).toBeNull();
+    const pinned = withApplicationDefaultToggled(templates, longForm.id, "long_term", [longLease]);
+    expect(explicitDefaultApplicationForStay(pinned, "long_term", [longLease])?.id).toBe(longForm.id);
+    const cleared = withApplicationDefaultToggled(pinned, longForm.id, "long_term", [longLease]);
+    expect(explicitDefaultApplicationForStay(cleared, "long_term", [longLease])).toBeNull();
+  });
+});
+
+describe("co-signer is long term only", () => {
+  const longLease = lease("Long-term lease", "long-term", ["Long-term"], "primary");
+  const shortLease = lease("Short-term lease", "short-term", ["Short-Term Stay"], "short-term");
+  const cosigner = form("Co-signer application", "long-term", { formVariant: "cosigner" });
+
+  it("only a long-term or both application may carry a co-signer form", () => {
+    expect(applicationAllowsCosigner(form("L", "long-term"), [longLease])).toBe(true);
+    expect(applicationAllowsCosigner(form("B", "long-term", { appliesTo: "both" }), [longLease])).toBe(true);
+    expect(applicationAllowsCosigner(form("S", "short-term", { formVariant: "short_term" }), [shortLease])).toBe(false);
+    expect(applicationAllowsCosigner(form("S2", "long-term", { appliesTo: "short_term" }), [longLease])).toBe(false);
+    expect(applicationAllowsCosigner(form("Mapped", "long-term", { linkedLeaseTemplateId: shortLease.id }), [shortLease])).toBe(false);
+    expect(applicationAllowsCosigner(cosigner, [longLease])).toBe(false);
+  });
+
+  it("saving a short-term application clears its co-signer link; a long-term one keeps it", () => {
+    const longForm = form("L", "long-term", { linkedCosignerApplicationTemplateId: cosigner.id });
+    const shortForm = form("S", "short-term", { formVariant: "short_term", linkedCosignerApplicationTemplateId: cosigner.id });
+    const next = withoutShortTermCosignerLinks([longForm, shortForm, cosigner], [longLease, shortLease]);
+    expect(next.find((row) => row.id === longForm.id)!.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
+    expect(next.find((row) => row.id === shortForm.id)!.linkedCosignerApplicationTemplateId).toBeNull();
+  });
+
+  it("moving an application to short term clears the link", () => {
+    const longForm = form("L", "long-term", { linkedCosignerApplicationTemplateId: cosigner.id });
+    const moved = withApplicationAppliesTo([longForm], longForm.id, "short_term");
+    expect(moved[0]!.linkedCosignerApplicationTemplateId).toBeNull();
+    const both = withApplicationAppliesTo([longForm], longForm.id, "both");
+    expect(both[0]!.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
+  });
+
+  it("a stored short-term application reads back with no co-signer link", () => {
+    const read = readPropertyApplicationTemplates({
+      propertyApplicationTemplates: [
+        form("S", "short-term", { formVariant: "short_term", linkedCosignerApplicationTemplateId: cosigner.id }),
+        form("S2", "long-term", { appliesTo: "short_term", linkedCosignerApplicationTemplateId: cosigner.id }),
+        form("L", "long-term", { linkedCosignerApplicationTemplateId: cosigner.id }),
+      ],
+    });
+    expect(read.map((row) => row.linkedCosignerApplicationTemplateId ?? null)).toEqual([null, null, cosigner.id]);
+  });
+
+  it("the property default leasing setup gives only the long-term application a co-signer form", () => {
+    const seeded = submissionWithDefaultLeasingSetup({
+      ...createDefaultListingSubmission(),
+      shortTermRentalsAllowed: true,
+      allowedLeaseTerms: ["Long-term", "Short-Term Stay"],
+    });
+    const apps = readPropertyApplicationTemplates(seeded);
+    const cosignerForm = apps.find((row) => row.listingSeedKey === "cosigner")!;
+    const byKey = (key: string) => apps.find((row) => row.listingSeedKey === key)!;
+    expect(byKey("primary").linkedCosignerApplicationTemplateId).toBe(cosignerForm.id);
+    expect(byKey("short-term").linkedCosignerApplicationTemplateId ?? null).toBeNull();
+  });
+
+  it("the derived co-signer rule is not read for a short-term applicant", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      propertyLeaseTemplates: [longLease, shortLease],
+    };
+    const shortForm = form("S", "short-term", { formVariant: "short_term", linkedCosignerApplicationTemplateId: cosigner.id });
+    const longForm = form("L", "long-term", { linkedCosignerApplicationTemplateId: cosigner.id });
+    const leases = readPropertyLeaseTemplates(sub);
+    expect(cosignerLinkOwedByTemplate(shortForm, leases)).toBeNull();
+    expect(cosignerLinkOwedByTemplate(longForm, leases)).toBe(cosigner.id);
+    expect(cosignerLinkOwedByTemplate(cosigner, leases)).toBeNull();
+    expect(cosignerLinkOwedByTemplate(undefined, leases)).toBeNull();
   });
 });

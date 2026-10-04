@@ -6,9 +6,10 @@
  * Month-to-month and Custom are kinds of long-term let, so they count as "Long term" here and are kept
  * untouched while Long term stays on. Airbnb is a kind of short-term stay.
  *
- * Application, Lease and Move-in rows are grouped under Long term / Short term / Both (`StaySectionKey`); a
- * section only shows when the listing offers the stay (Both shows when either is offered). Hiding a section
- * never deletes anything. Pure.
+ * Application, Lease and Move-in rows are grouped under exactly two sections, Long term and Short term
+ * (`StaySectionKey`); there is no "Both" section. A row that applies to both stays is listed in EACH section as
+ * the same item. A section only shows when the listing offers the stay. Hiding a section never deletes
+ * anything. Pure.
  */
 import {
   leaseTermsPatchForTypes,
@@ -18,12 +19,12 @@ import {
 import { leaseTypeIdsFromStored, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 
 export type StayKey = "long_term" | "short_term";
-export type StaySectionKey = StayKey | "both";
+/** A section of a leasing step: only the two stays, never "Both". */
+export type StaySectionKey = StayKey;
 
 export const STAY_LABEL: Record<StaySectionKey, string> = {
   long_term: "Long term",
   short_term: "Short term",
-  both: "Both",
 };
 
 type StaySource = Pick<
@@ -42,13 +43,12 @@ export function listingOfferedStays(sub: StaySource | null | undefined): Record<
   return { long_term: long || !short, short_term: short };
 }
 
-/** The sections a step draws, in order: each offered stay, then Both. */
+/** The sections a step draws, in order: each offered stay. */
 export function visibleStaySections(sub: StaySource | null | undefined): StaySectionKey[] {
   const offered = listingOfferedStays(sub);
   const out: StaySectionKey[] = [];
   if (offered.long_term) out.push("long_term");
   if (offered.short_term) out.push("short_term");
-  out.push("both");
   return out;
 }
 

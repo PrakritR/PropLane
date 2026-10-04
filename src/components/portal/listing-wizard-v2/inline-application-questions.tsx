@@ -19,6 +19,7 @@ import {
   applicationFormVariantForTemplate,
   draftQuestionConfigForTemplate,
   type PropertyApplicationTemplate,
+  applicationAllowsCosigner,
 } from "@/lib/property-application-templates";
 import { editorVisibleDisabledApplicationFields } from "@/lib/rental-application/application-field-catalog";
 
@@ -34,8 +35,8 @@ export function InlineApplicationQuestions({
   const variant = applicationFormVariantForTemplate(template);
   const slice = useMemo(() => questionSliceForTemplate(sub, template), [sub, template]);
   const fields = useMemo(
-    () => editorFieldsWithLinkedForms(orderedEditorApplicationFields(slice), variant === "cosigner" ? null : template.linkedCosignerApplicationTemplateId),
-    [slice, variant, template.linkedCosignerApplicationTemplateId],
+    () => editorFieldsWithLinkedForms(orderedEditorApplicationFields(slice), applicationAllowsCosigner(template) ? template.linkedCosignerApplicationTemplateId : null),
+    [slice, variant, template.linkedCosignerApplicationTemplateId, template.appliesTo],
   );
   const linkedFormOptions = useMemo(() => linkedFormOptionsFromListing(sub, { excludeApplicationId: template.id }), [sub, template.id]);
   const disabledFields = useMemo(() => editorVisibleDisabledApplicationFields(variant, slice), [slice, variant]);

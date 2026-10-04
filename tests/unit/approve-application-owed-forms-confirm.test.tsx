@@ -27,8 +27,19 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 
-afterEach(() => {
+// The confirm is a Radix dialog. Its focus scope schedules a 0 ms timer on unmount that dispatches an event on the
+// (by then removed) container. Under a loaded full run that timer could fire after the test environment was
+// torn down: an unhandled "dispatchEvent" TypeError that made the whole run exit 1. Fake timers (still advancing
+// with the clock, so waitFor and findBy keep working) let the test unmount first and run every pending timer
+// while the document still exists.
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+afterEach(async () => {
   cleanup();
+  await vi.runAllTimersAsync();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
