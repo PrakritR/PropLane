@@ -103,7 +103,7 @@ describe("every service record section opens with the standard band", () => {
     const band = document.querySelector('[data-attr="service-vendor-cycle"]')!;
     expect(band.firstElementChild!.contains(screen.getByPlaceholderText("Search vendors"))).toBe(true);
     const plus = band.querySelector('[data-attr="service-request-more-vendors"]') as HTMLElement;
-    expect(plus.getAttribute("aria-label")).toBe("Request bids");
+    expect(plus.getAttribute("aria-label")).toBe("Add vendors");
     // One band: no separate stage / progress lines, no old Assign dropdown card.
     expect(band.querySelector('[data-attr="service-progress-line"]')).toBeNull();
     expect(band.querySelector('[data-attr="service-stage-stepper"]')).toBeNull();

@@ -150,7 +150,7 @@ export function VendorRecordServicesTab({
           />
         }
         plus={{
-          label: "Request a bid",
+          label: "Add bid request",
           dataAttr: "vendor-services-add",
           onClick: () => {
             setPick(requestable.length > 0 ? requestable[0]!.id : NEW_SERVICE);

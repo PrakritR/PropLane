@@ -147,7 +147,7 @@ describe("add-on request: Vendors renders the cycle UI", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="service-vendor-cycle"]')).not.toBeNull());
     const tabs = [...document.querySelectorAll('[data-attr^="service-vendor-cycle-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, "").trim());
     expect(tabs).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
-    expect(screen.getByRole("button", { name: "Assign" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add assignee" })).toBeTruthy();
     // Vendors cannot take add-on services: no round + to request vendors.
     expect(document.querySelector('[data-attr="service-request-more-vendors"]')).toBeNull();
     expect(document.body.textContent).not.toContain("No vendor for this service");

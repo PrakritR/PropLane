@@ -171,7 +171,7 @@ describe("Services tab", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
     for (const label of ["Open", "Assigned", "Scheduled", "Completed"]) expect(tabCount(label)).toMatch(new RegExp(`${label}\\s*0`));
     expect(screen.getByText("No open services with Pacific Plumbing")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Request a bid" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Add bid request" }).length).toBeGreaterThan(0);
   });
 
   it("buckets this vendor's services by the bid cycle and draws each through the shared Services row with their own figure", async () => {

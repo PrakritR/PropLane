@@ -962,7 +962,7 @@ export function VendorWorkOrdersPanel({
               />
             </>
           }
-          plus={{ label: VENDOR_SERVICE_ACTION_LABEL.submitBid, onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-add" }}
+          plus={{ label: "Add bid", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-add" }}
         />
       </div>
       {bidsSyncFailed || payoutsSyncFailed ? (

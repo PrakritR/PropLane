@@ -190,7 +190,7 @@ export function ServiceVendorCycleSection({
           />
         </>
       }
-      plus={{ label: "Request bids", onClick: onRequestBids, dataAttr: "service-request-more-vendors" }}
+      plus={{ label: "Add vendors", onClick: onRequestBids, dataAttr: "service-request-more-vendors" }}
       isEmpty={comparing ? false : shown.length === 0}
       emptyTitle={search.trim() || vendorFilter ? "No vendors match" : requests.length === 0 ? emptyTitle : EMPTY_TITLE[tab]}
       middle={lead}
@@ -279,7 +279,7 @@ export function AddOnCycleSection({
       activeId={tab}
       onChange={(id) => setTab(id as ServiceStage)}
       search={{ value: search, onChange: setSearch, placeholder: "Search team" }}
-      plus={{ label: "Assign", onClick: onOpenAssign, dataAttr: "service-assign-open" }}
+      plus={{ label: "Add assignee", onClick: onOpenAssign, dataAttr: "service-assign-open" }}
       isEmpty={shown.length === 0}
       emptyTitle={search.trim() ? "No team members match" : assignee ? `Nobody in ${SERVICE_STAGE_LABEL[tab].toLowerCase()}` : "Nobody assigned yet"}
     >
