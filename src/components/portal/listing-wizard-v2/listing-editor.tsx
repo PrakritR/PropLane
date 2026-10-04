@@ -3310,7 +3310,6 @@ export function ListingEditorV2({
    */
   const sidePanel = useMemo(() => {
     return <ListingPreviewPanel sub={submission} highlightRoomId={stepId === "rooms" ? previewRoomId : null} />;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, submission, previewRoomId]);
 
   return (

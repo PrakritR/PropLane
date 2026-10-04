@@ -32,7 +32,6 @@ function useCommandTabIndicator(activeKey: string, itemCount: number, enabled: b
 
   useLayoutEffect(() => {
     sync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, itemCount]);
 
   useLayoutEffect(() => {

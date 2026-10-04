@@ -2,6 +2,26 @@ import Link from "next/link";
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
+const DEFAULT_HOLD_MESSAGE = "Your dates stay held for 15 minutes. Retry payment to confirm.";
+
+/**
+ * Module scope on purpose: reading the clock is not allowed during a component's render
+ * (`react-hooks/purity`), so the held-minutes line is resolved outside the component body.
+ */
+async function resolveHoldMessage(bookingId: string): Promise<string> {
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", bookingId).maybeSingle();
+    const stay = data?.row_data as { stayDetails?: { holdExpiresAt?: string } } | null;
+    const expires = stay?.stayDetails?.holdExpiresAt;
+    if (!expires) return DEFAULT_HOLD_MESSAGE;
+    const mins = Math.max(1, Math.round((Date.parse(expires) - Date.now()) / 60_000));
+    return `Your dates stay held for about ${mins} more minute${mins === 1 ? "" : "s"}. Retry payment to confirm.`;
+  } catch {
+    return DEFAULT_HOLD_MESSAGE;
+  }
+}
+
 export default async function ShortStayConfirmationPage({
   searchParams,
 }: {
@@ -13,23 +33,7 @@ export default async function ShortStayConfirmationPage({
   const propertyId = params.propertyId?.trim() ?? "";
   const bookingId = params.bookingId?.trim() ?? "";
 
-  let holdMessage: string | null = null;
-  if (canceled && bookingId) {
-    try {
-      const db = createSupabaseServiceRoleClient();
-      const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", bookingId).maybeSingle();
-      const stay = data?.row_data as { stayDetails?: { holdExpiresAt?: string } } | null;
-      const expires = stay?.stayDetails?.holdExpiresAt;
-      if (expires) {
-        const mins = Math.max(1, Math.round((Date.parse(expires) - Date.now()) / 60_000));
-        holdMessage = `Your dates stay held for about ${mins} more minute${mins === 1 ? "" : "s"}. Retry payment to confirm.`;
-      } else {
-        holdMessage = "Your dates stay held for 15 minutes. Retry payment to confirm.";
-      }
-    } catch {
-      holdMessage = "Your dates stay held for 15 minutes. Retry payment to confirm.";
-    }
-  }
+  const holdMessage: string | null = canceled && bookingId ? await resolveHoldMessage(bookingId) : null;
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 px-4 py-10" data-st9-done>

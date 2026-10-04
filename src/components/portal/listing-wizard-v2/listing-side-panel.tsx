@@ -320,21 +320,25 @@ export function PricingReceiptPanel({
   const room = roomId ? rooms.find((r) => r.id === roomId) ?? null : null;
   const capacity = normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
   const offered = offeredResidentCountsFor(room);
-  const [arrangementPick, setArrangementPick] = useState(offered[0] ?? 1);
+  const firstOffered = offered.length > 0 ? offered[0] : 1;
+  const [arrangementPick, setArrangementPick] = useState(firstOffered);
   const [residentIndex, setResidentIndex] = useState(0);
   const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
-  const arrangementCount = offered.includes(arrangementPick) ? arrangementPick : (offered[0] ?? 1);
+  const arrangementCount = offered.includes(arrangementPick) ? arrangementPick : firstOffered;
+  const hasRoom = Boolean(room);
 
   const quote = useMemo(
     () =>
       buildListingQuote(sub, {
         roomId,
         leaseTerm,
-        arrangementCount: plainReceipt && room ? arrangementCount : undefined,
+        arrangementCount: plainReceipt && hasRoom ? arrangementCount : undefined,
         residentSlot: plainReceipt && residentIndex > 0 ? residentIndex + 1 : undefined,
         startKind: plainReceipt ? startKind : "std",
       }),
-    [sub, roomId, leaseTerm, plainReceipt, room, arrangementCount, residentIndex, startKind],
+    // `hasRoom` stands in for `room` itself: the quote only needs to know a room is picked, and
+    // `room` is derived from `sub` + `roomId`, which are already dependencies.
+    [sub, roomId, leaseTerm, plainReceipt, hasRoom, arrangementCount, residentIndex, startKind],
   );
   const wholePlace = isEntireHomeListing(sub);
   const ownRoomSigning = roomHasOwnPaymentAtSigning(sub, roomId, leaseTerm);
