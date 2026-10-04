@@ -835,6 +835,48 @@ export function ChoiceCard({
   );
 }
 
+/** The same card as `ChoiceCard`, for a pick of several: a square check instead of a radio dot. */
+export function CheckCard({
+  checked,
+  title,
+  onToggle,
+  dataAttr,
+}: {
+  checked: boolean;
+  title: string;
+  onToggle: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      onClick={onToggle}
+      aria-checked={checked}
+      data-attr={dataAttr}
+      className={cn(
+        "mb-2.5 flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors",
+        checked ? "border-primary bg-primary/5 ring-[3px] ring-primary/10" : "border-border bg-card hover:bg-accent/30",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] border-2 text-white",
+          checked ? "border-primary bg-primary" : "border-border bg-card",
+        )}
+      >
+        {checked ? (
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2.5 6.5l2.2 2.2L9.5 3.6" />
+          </svg>
+        ) : null}
+      </span>
+      <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
+    </button>
+  );
+}
+
 /**
  * A choice as a tile: an icon, a name, a line of why.
  *

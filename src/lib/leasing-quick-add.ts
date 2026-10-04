@@ -27,6 +27,7 @@ import {
   applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   withPropertyApplicationTemplatesExplicit,
+  type ApplicationAppliesTo,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
@@ -116,10 +117,19 @@ function withDefaultLeaseLinks(sub: ManagerListingSubmissionV1): ManagerListingS
  * then falls back to the property's default lease, exactly as an unmapped application always did).
  */
 export function defaultLeaseIdForApplication(
-  application: Pick<PropertyApplicationTemplate, "kind" | "listingSeedKey" | "formVariant">,
+  application: Pick<PropertyApplicationTemplate, "kind" | "listingSeedKey" | "formVariant"> &
+    Partial<Pick<PropertyApplicationTemplate, "appliesTo">>,
   leases: readonly PropertyLeaseTemplate[],
 ): string | null {
-  const variant = applicationFormVariantForTemplate(application);
+  // "Applies to" is asked first on a new application and the lease follows it: a Both application is for
+  // either stay, so it links to no lease of its own (the applicant's pick routes the lease).
+  if (application.appliesTo === "both") return null;
+  const variant =
+    application.appliesTo === "short_term"
+      ? "short_term"
+      : application.appliesTo === "long_term"
+        ? "standard"
+        : applicationFormVariantForTemplate(application);
   if (variant === "cosigner") return null;
   const seeds: PropertyLeaseListingSeedKey[] = variant === "short_term" ? ["short-term", "airbnb"] : ["primary"];
   for (const seed of seeds) {
@@ -146,6 +156,26 @@ export function applicationWithDefaultLinks(
     ...leaseLinkFields(leaseId),
     ...(cosigner ? { linkedCosignerApplicationTemplateId: cosigner.id } : {}),
   };
+}
+
+/**
+ * A NEW application, once the manager has said who it is for ("Applies to", asked first): the section it
+ * lands in, the form variant and kind that go with the stay, and the lease and co-signer links that default
+ * from that answer. Long term and Both are the standard form; Short term is the short-term form.
+ */
+export function applicationForAppliesTo(
+  application: PropertyApplicationTemplate,
+  appliesTo: ApplicationAppliesTo,
+  catalog: { applications: readonly PropertyApplicationTemplate[]; leases: readonly PropertyLeaseTemplate[] },
+): PropertyApplicationTemplate {
+  const short = appliesTo === "short_term";
+  const staged: PropertyApplicationTemplate = {
+    ...application,
+    appliesTo,
+    kind: short ? "short-term" : "long-term",
+    formVariant: short ? "short_term" : "standard",
+  };
+  return applicationWithDefaultLinks(staged, catalog);
 }
 
 /** Re-adds one PropLane default application, linked to the default lease of its type when that lease exists. */

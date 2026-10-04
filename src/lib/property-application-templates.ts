@@ -11,8 +11,12 @@ import {
   normalizeLeaseTemplateKind,
   propertyLeaseTypeLabel,
   type PropertyLeaseListingSeedKey,
+  type PropertyLeaseTemplate,
   type PropertyLeaseTemplateKind,
 } from "@/lib/property-lease-templates";
+
+/** Who an application is for: long-term residents, short-term residents, or either. */
+export type ApplicationAppliesTo = "long_term" | "short_term" | "both";
 
 export type PropertyApplicationTemplate = {
   id: string;
@@ -92,6 +96,17 @@ export type PropertyApplicationTemplate = {
    * Lives in the property's listing submission JSON beside the template; no schema change.
    */
   offered?: boolean;
+  /**
+   * Which stay this application is for (the Application step groups rows under Long term / Short term /
+   * Both). Stored on the listing submission JSON; absent on every row saved before it existed, which is
+   * then DERIVED on read (`applicationAppliesTo`).
+   */
+  appliesTo?: ApplicationAppliesTo;
+  /**
+   * The stays this application is the DEFAULT for: the form an applicant for that stay gets unless a sent
+   * form says otherwise. Only an explicit entry changes routing; a stay with none behaves as it always did.
+   */
+  defaultFor?: ("long_term" | "short_term")[];
 };
 
 /** An application is needed unless the manager switched it off. */
@@ -399,12 +414,20 @@ function isPropertyApplicationTemplate(raw: unknown): raw is PropertyApplication
   return Boolean(row.id && row.kind && row.label);
 }
 
+const APPLIES_TO_VALUES: readonly ApplicationAppliesTo[] = ["long_term", "short_term", "both"];
+
 function normalizeApplicationTemplate(
   row: PropertyApplicationTemplate & { kind: string },
 ): PropertyApplicationTemplate {
   const kind = normalizeLeaseTemplateKind(row.kind);
+  const appliesTo = APPLIES_TO_VALUES.includes(row.appliesTo as ApplicationAppliesTo) ? row.appliesTo : undefined;
+  const defaultFor = Array.isArray(row.defaultFor)
+    ? row.defaultFor.filter((stay, i, all) => (stay === "long_term" || stay === "short_term") && all.indexOf(stay) === i)
+    : undefined;
   return {
     ...row,
+    appliesTo,
+    defaultFor: defaultFor && defaultFor.length > 0 ? defaultFor : undefined,
     kind,
     formVariant: applicationFormVariantForTemplate({ ...row, kind }),
     usedForLeaseTemplateIds: Array.isArray(row.usedForLeaseTemplateIds)
@@ -434,7 +457,10 @@ export function syncLegacyApplicationFieldsFromTemplates(
   return {
     ...sub,
     propertyApplicationTemplates: templates,
-    shortTermRentalsAllowed: hasShortTerm ? true : sub.shortTermRentalsAllowed,
+    // A short-term application implies short-term stays only until the manager has said otherwise: once
+    // Basics ("Stays you offer") stored an explicit choice, a hidden short-term form never switches the
+    // stay back on.
+    shortTermRentalsAllowed: hasShortTerm && sub.shortTermRentalsAllowed === undefined ? true : sub.shortTermRentalsAllowed,
   };
 }
 
@@ -475,4 +501,90 @@ export function withPropertyApplicationTemplatesExplicit(
     ...syncLegacyApplicationFieldsFromTemplates(sub, templates),
     propertyApplicationTemplatesExplicit: true,
   };
+}
+
+/* ───────────────────────── who an application is for ───────────────────────── */
+
+type StayLease = Pick<PropertyLeaseTemplate, "id" | "kind">;
+
+/**
+ * Who an application is for. An explicit `appliesTo` wins. A row saved before it existed is derived: a
+ * co-signer form is for both; otherwise the kind of the lease it links to (short-term -> short term,
+ * anything else -> long term); with no lease link, its own form variant / kind. Pure.
+ */
+export function applicationAppliesTo(
+  template: Pick<PropertyApplicationTemplate, "appliesTo" | "kind" | "listingSeedKey" | "formVariant" | "linkedLeaseTemplateId">,
+  leases: readonly StayLease[] = [],
+): ApplicationAppliesTo {
+  if (template.appliesTo && APPLIES_TO_VALUES.includes(template.appliesTo)) return template.appliesTo;
+  const variant = applicationFormVariantForTemplate(template);
+  if (variant === "cosigner") return "both";
+  const linkedId = template.linkedLeaseTemplateId?.trim();
+  const linked = linkedId ? leases.find((lease) => lease.id === linkedId) : undefined;
+  if (linked) return normalizeLeaseTemplateKind(linked.kind) === "short-term" ? "short_term" : "long_term";
+  return variant === "short_term" ? "short_term" : "long_term";
+}
+
+/**
+ * The application an applicant for `stay` gets, when the manager SET one: the offered application of that
+ * stay whose `defaultFor` names it. Null when none is explicit, which is what routing reads so a listing
+ * that never chose a default behaves exactly as before.
+ */
+export function explicitDefaultApplicationForStay(
+  templates: readonly PropertyApplicationTemplate[],
+  stay: "long_term" | "short_term",
+  leases: readonly StayLease[] = [],
+): PropertyApplicationTemplate | null {
+  return (
+    templates.find(
+      (row) =>
+        (row.defaultFor ?? []).includes(stay) &&
+        isApplicationTemplateOffered(row) &&
+        applicationAppliesTo(row, leases) === stay,
+    ) ?? null
+  );
+}
+
+/**
+ * The default of a stay for DISPLAY (the ★): the explicit one, else the first published (then first offered)
+ * application of that stay. Null when the stay has no application.
+ */
+export function effectiveDefaultApplicationForStay(
+  templates: readonly PropertyApplicationTemplate[],
+  stay: "long_term" | "short_term",
+  leases: readonly StayLease[] = [],
+): PropertyApplicationTemplate | null {
+  const explicit = explicitDefaultApplicationForStay(templates, stay, leases);
+  if (explicit) return explicit;
+  const inStay = templates.filter((row) => isApplicationTemplateOffered(row) && applicationAppliesTo(row, leases) === stay);
+  return inStay.find((row) => Boolean(row.publishedQuestionConfig)) ?? inStay[0] ?? null;
+}
+
+/** Makes one application the default of a stay (and the only one), keeping every other row's other defaults. */
+export function withApplicationDefaultForStay(
+  templates: readonly PropertyApplicationTemplate[],
+  id: string,
+  stay: "long_term" | "short_term",
+): PropertyApplicationTemplate[] {
+  return templates.map((row) => {
+    const rest = (row.defaultFor ?? []).filter((s) => s !== stay);
+    const next = row.id === id ? [...rest, stay] : rest;
+    return { ...row, defaultFor: next.length > 0 ? next : undefined };
+  });
+}
+
+/**
+ * Moves one application to another section. A default it held for a stay it no longer applies to is
+ * dropped; a Both application is never a default.
+ */
+export function withApplicationAppliesTo(
+  templates: readonly PropertyApplicationTemplate[],
+  id: string,
+  appliesTo: ApplicationAppliesTo,
+): PropertyApplicationTemplate[] {
+  return templates.map((row) => {
+    if (row.id !== id) return row;
+    const kept = (row.defaultFor ?? []).filter((stay) => stay === appliesTo);
+    return { ...row, appliesTo, defaultFor: kept.length > 0 ? kept : undefined, updatedAt: nowIso() };
+  });
 }
