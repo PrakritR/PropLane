@@ -477,3 +477,24 @@ The offline receipt sheet posts `recordOfflinePayment` to
 The server re-reads the amount, checks ownership/workspace and current status,
 compares status and `updated_at` before writing, and awaits payment ledger sync.
 An identical persisted receipt can retry ledger repair after a failure.
+
+# Payees (who a payment goes to)
+
+**"Add payment" is the one door for money going out** (`pro-add-outgoing-payment-modal.tsx`; Outgoing page and Payments page both open it). Steps: Pay to · Payment · Review.
+
+- **A vendor with a PropLane login** pays through the invoice flow (`/api/manager/vendor-invoices`, untouched): an approved invoice hands off to the host's "Pay $x from <source>" step (or `outgoing/to-pay?payInvoice=<id>`), "New bill" files a bill. One step; no payee row.
+- **A teammate** is an expense with the teammate as payee (reimbursement, management fee). PropLane moves no money to teammates.
+- **Someone else** (mortgage lender, utility, insurer, tax office, HOA, owner) is a saved payee. A new payee is saved when the manager continues past Pay to.
+
+**Schema** — `supabase/migrations/20261004010000_manager_payees.sql`: `manager_payees` (one owner column, `manager_user_id`, like `manager_expense_entries`) and `manager_expense_entries.payee_id` (`on delete set null`, so deleting a payee never deletes the books). Pure vocabulary, validation, the type -> category map and masking live in `src/lib/manager-payees.ts`.
+
+**Invariants**
+
+- **Never store a bank account or routing number.** `account_reference` is the lender / utility account or loan number as printed on the bill; lists and Review show only `••` + last four.
+- **Client roles can SELECT their own rows only.** Every write goes through `/api/manager/payees` (service-role client pinned to the session manager inside `manager-payees.server.ts`); the table is also in the test-workspace restrictive deny. A payee id from a request is a claim, never ownership: `/api/expenses` POST calls `findOwnedPayee` and answers 404 for a foreign, archived or missing id.
+- **A teammate payee must be on the manager's team**, re-derived from accepted `account_link_invites` in either direction on every create; the payee's name comes from the team, never the request.
+- The category follows the payee type until the manager changes it (`payeeCategoryCode`: mortgage -> mortgage, utility -> utilities, insurance -> insurance, tax -> property_tax, teammate -> management; HOA, owner and other -> other_expense since the chart has no HOA account).
+- An expense has no status: a payee payment is recorded as already made and lists under **Paid** (`buildPayeePaymentRows` on the Outgoing page; `payeeTypeLabel` / `payeeReferenceLabel` on the Payments page rows). A "To pay" payee bill needs a bills/AP status first (see `manager_bills`).
+- New table is classified in `account-purge-manifest.ts` (`manager_payees`: deleted with the manager, `teammate_user_id` detached).
+
+Coverage: `tests/unit/manager-payees.test.ts`, `manager-payees-route.test.ts`, `add-payment-modal.test.tsx`.

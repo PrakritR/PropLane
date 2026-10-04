@@ -27,7 +27,6 @@ import { fetchPayeeBook } from "@/lib/manager-payees-client";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
-import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FILTER_FIELD_LABEL_CLASS } from "@/components/portal/filter-field-lists";

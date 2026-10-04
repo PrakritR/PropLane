@@ -281,7 +281,7 @@ export function ManagerAddOutgoingPaymentModal({
   const creatingPayee = payKind === "other" && payeeChoice === NEW_PAYEE;
 
   /** The payee as it will read on the Review step. */
-  const payeeCard = useMemo(() => {
+  const payeeCard = (() => {
     if (payKind === "teammate") {
       return { name: teammate?.name ?? "", type: "Teammate", account: "", method: "", phone: teammate?.email ?? "", address: "", notes: "", accountNoun: "Account" };
     }
@@ -313,15 +313,16 @@ export function ManagerAddOutgoingPaymentModal({
       };
     }
     return { name: "", type: "", account: "", method: "", phone: "", address: "", notes: "", accountNoun: "Account" };
-  }, [payKind, teammate, vendor, creatingPayee, newPayee, chosenSaved]);
+  })();
 
   /** The payee type that drives the category suggestion. */
+  const savedType = chosenSaved?.payeeType ?? null;
   const suggestedCategory = useMemo(() => {
     if (payKind === "teammate") return payeeCategoryCode("teammate", null);
     if (payKind === "vendor") return "maintenance";
-    const type = creatingPayee ? (newPayee.type || null) : chosenSaved?.payeeType ?? null;
+    const type = creatingPayee ? (newPayee.type || null) : savedType;
     return payeeCategoryCode("other", type);
-  }, [payKind, creatingPayee, newPayee.type, chosenSaved]);
+  }, [payKind, creatingPayee, newPayee.type, savedType]);
 
   useEffect(() => {
     if (!open || categoryTouched) return;
