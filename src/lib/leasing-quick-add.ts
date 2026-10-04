@@ -14,7 +14,7 @@
  *
  * Pure: takes the listing submission, returns the next one.
  */
-import { leaseLinkFields, isCosignerApplicationTemplate } from "@/lib/application-lease-mapping";
+import { isAddendumLeaseTemplate, isCosignerApplicationTemplate, leaseLinkFields } from "@/lib/application-lease-mapping";
 import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -24,8 +24,10 @@ import {
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import {
+  applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   withPropertyApplicationTemplatesExplicit,
+  type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
   addLeaseTemplateFromSeed,
@@ -33,7 +35,11 @@ import {
   buildLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
-import { readPropertyLeaseTemplates, type PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
+import {
+  readPropertyLeaseTemplates,
+  type PropertyLeaseListingSeedKey,
+  type PropertyLeaseTemplate,
+} from "@/lib/property-lease-templates";
 
 export type QuickAddKind = "application" | "lease" | "movein";
 
@@ -104,6 +110,44 @@ function withDefaultLeaseLinks(sub: ManagerListingSubmissionV1): ManagerListingS
   return changed ? withPropertyApplicationTemplatesExplicit(sub, next) : sub;
 }
 
+/**
+ * The lease a NEW application starts linked to: Long-term (Standard) -> the Long-term lease, Short-term ->
+ * the Short-term lease, Co-signer -> none. Null when the property has no lease of that type (the application
+ * then falls back to the property's default lease, exactly as an unmapped application always did).
+ */
+export function defaultLeaseIdForApplication(
+  application: Pick<PropertyApplicationTemplate, "kind" | "listingSeedKey" | "formVariant">,
+  leases: readonly PropertyLeaseTemplate[],
+): string | null {
+  const variant = applicationFormVariantForTemplate(application);
+  if (variant === "cosigner") return null;
+  const seeds: PropertyLeaseListingSeedKey[] = variant === "short_term" ? ["short-term", "airbnb"] : ["primary"];
+  for (const seed of seeds) {
+    const hit = leases.find((lease) => lease.listingSeedKey === seed);
+    if (hit) return hit.id;
+  }
+  const kind = variant === "short_term" ? "short-term" : "long-term";
+  return leases.find((lease) => lease.kind === kind && !isAddendumLeaseTemplate(lease))?.id ?? null;
+}
+
+/**
+ * A new application with the PropLane defaults a fresh one starts from: Form type Standard, the default
+ * lease of its type, and PropLane's Co-signer application as its co-signer form.
+ */
+export function applicationWithDefaultLinks(
+  application: PropertyApplicationTemplate,
+  catalog: { applications: readonly PropertyApplicationTemplate[]; leases: readonly PropertyLeaseTemplate[] },
+): PropertyApplicationTemplate {
+  if (isCosignerApplicationTemplate(application)) return application;
+  const leaseId = defaultLeaseIdForApplication(application, catalog.leases);
+  const cosigner = catalog.applications.find((row) => isCosignerApplicationTemplate(row));
+  return {
+    ...application,
+    ...leaseLinkFields(leaseId),
+    ...(cosigner ? { linkedCosignerApplicationTemplateId: cosigner.id } : {}),
+  };
+}
+
 /** Re-adds one PropLane default application, linked to the default lease of its type when that lease exists. */
 export function submissionWithApplicationDefault(
   sub: ManagerListingSubmissionV1,
@@ -161,8 +205,14 @@ export function submissionWithDefaultLeasingSetup(sub: ManagerListingSubmissionV
   for (const seed of buildLeaseTemplateSeeds(next)) next = addLeaseTemplateFromSeed(next, seed.seedKey);
   next = withDefaultLeaseLinks(next);
   // The co-signer form rides with the main application; "no lease" is stated, not left to the property default.
-  const applications = readPropertyApplicationTemplates(next).map((application) =>
-    isCosignerApplicationTemplate(application) ? { ...application, linkedLeaseTemplateId: null } : application,
+  const current = readPropertyApplicationTemplates(next);
+  const cosigner = current.find((application) => isCosignerApplicationTemplate(application));
+  const applications = current.map((application) =>
+    isCosignerApplicationTemplate(application)
+      ? { ...application, linkedLeaseTemplateId: null }
+      : cosigner
+        ? { ...application, linkedCosignerApplicationTemplateId: cosigner.id }
+        : application,
   );
   next = withPropertyApplicationTemplatesExplicit(next, applications);
   // "All" lease types is the absence of a lease-type restriction (`MoveInFormTemplate.leaseType`).

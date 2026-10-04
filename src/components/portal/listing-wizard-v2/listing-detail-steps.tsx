@@ -29,7 +29,7 @@
  *
  * Nothing here is required to publish.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
 import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -73,6 +73,8 @@ import {
   dueOptionsForTrigger,
   duplicateMoveInTemplate,
   MOVE_IN_TRIGGER_OPTIONS,
+  moveInLeaseTypeOptions,
+  type MoveInLeaseTypeLease,
   removeMoveInTemplate,
   triggerSummary,
 } from "@/components/portal/move-in-forms/move-in-form-model";
@@ -104,10 +106,23 @@ import {
   setApplicationsOfLease,
   submissionWithStandardLease,
   uniqueFormLabel,
-  withApplicationFee,
   withApplicationTemplates,
 } from "@/lib/listing-inline-forms";
 import { orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { pricingLeaseOptions, type PricingLeaseOption } from "@/lib/pricing-lease-options";
+import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { centsToMoneyText, moneyTextToCents, templateFeeCents } from "@/lib/form-template-fees";
+import {
+  applicationWithDefaultLinks,
+  missingApplicationDefaults,
+  missingLeaseDefaults,
+  missingMoveInStarters,
+  submissionWithApplicationDefault,
+  submissionWithLeaseDefault,
+  submissionWithMoveInStarter,
+} from "@/lib/leasing-quick-add";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { normalizeLeasingPipelinePreferences, type ApplicationBeforeTour } from "@/lib/leasing-pipeline-preferences";
 import {
@@ -117,7 +132,13 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import {
+  MOVE_IN_FORM_STARTERS,
+  moveInFormLeaseTypePatch,
+  moveInFormLeaseTypeValue,
+  newMoveInFormTemplate,
+  readMoveInFormTemplates,
+} from "@/lib/move-in-forms/templates";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
   applicationFormVariantForTemplate,
@@ -144,11 +165,7 @@ import {
   updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
-import {
-  addLeaseTemplateFromSeed,
-  availableLeaseTemplateSeeds,
-  syncPropertyLeaseTemplatesFromListing,
-} from "@/lib/property-lease-template-sync";
+import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import { leaseSourceFromDraft } from "@/lib/property-lease-source";
 import { propertyPricingBundleTitle, propertyPricingRoomAmount } from "@/lib/property-pricing-summary";
 import { SHORT_TERM_LEASE_TERM, LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -554,7 +571,8 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   };
 
   const add = () => {
-    const created = createInlineApplication(synced, templates, "proplane");
+    // A new application starts from the PropLane defaults: Standard, its type's lease, the Co-signer application.
+    const created = applicationWithDefaultLinks(createInlineApplication(synced, templates, "proplane"), catalog);
     commitTemplates([...templates, created]);
     setOpen(created.id);
     setStartFrom((current) => ({ ...current, [created.id]: "proplane" }));
@@ -649,7 +667,14 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         const label = stored;
         const taken = templates.filter((row) => row.id !== template.id).map((row) => row.label);
         const scope = applicationFeeScopeForTemplate(template);
+        // The fee is the APPLICATION's own (template level). A blank box shows what its rooms resolve to now.
+        const ownFeeCents = templateFeeCents(template, "applicationFee");
         const fee = readApplicationFeeInput(synced, scope);
+        const feeText = ownFeeCents === null ? "" : centsToMoneyText(ownFeeCents);
+        const feeFallback = fee.value ? `$${fee.value}` : fee.placeholder;
+        const cosignerOptions = templates
+          .filter((row) => isCosignerApplicationTemplate(row))
+          .map((row) => ({ value: row.id, label: normalizePropertyApplicationTemplateLabel(row.label) || "Co-signer application" }));
         const isCosigner = isCosignerApplicationTemplate(template);
         const isOpen = open === template.id;
         const leaseId = leaseOfApplication(catalog, template.id);
@@ -666,7 +691,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
             facts={
               <Facts
                 items={[
-                  fee.value ? `$${fee.value}` : fee.placeholder || "No fee",
+                  feeFallback || "No fee",
                   leaseName,
                   plural(questionCount, "question"),
                   isPdfApplication(template) && "PDF",
@@ -698,28 +723,6 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   onChange={(on) => commitTemplates(patchApplicationTemplate(templates, template.id, { offered: on }))}
                 />
               </FactRow>
-              <FactRow label="Application fee">
-                <MoneyInput
-                  label={`${label} application fee`}
-                  value={fee.value}
-                  placeholder={fee.placeholder}
-                  dataAttr="listing-v2-application-fee"
-                  onChange={(raw) => onChange(withApplicationTemplates(withApplicationFee(synced, scope, raw), templates))}
-                />
-              </FactRow>
-              {isCosigner ? null : (
-                <FactRow label="Lease">
-                  <RowSelectCell
-                    ariaLabel={`Lease for ${label}`}
-                    value={leaseId ?? NO_LEASE}
-                    options={[{ value: NO_LEASE, label: "Property default" }, ...leaseOptions]}
-                    dataAttr="listing-v2-application-lease"
-                    onChange={(next) =>
-                      commitTemplates(linkApplicationToLease(catalog, template.id, next === NO_LEASE ? null : next))
-                    }
-                  />
-                </FactRow>
-              )}
               {startFrom[template.id] !== undefined ? (
                 <FactRow label="Start from">
                   <RowSelectCell
@@ -745,6 +748,54 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   />
                 </FactRow>
               ) : null}
+              {isCosigner ? null : (
+                <FactRow label="Lease">
+                  <RowSelectCell
+                    ariaLabel={`Lease for ${label}`}
+                    value={leaseId ?? NO_LEASE}
+                    options={[{ value: NO_LEASE, label: "Property default" }, ...leaseOptions]}
+                    dataAttr="listing-v2-application-lease"
+                    onChange={(next) =>
+                      commitTemplates(linkApplicationToLease(catalog, template.id, next === NO_LEASE ? null : next))
+                    }
+                  />
+                </FactRow>
+              )}
+              {isCosigner || cosignerOptions.length === 0 ? null : (
+                <FactRow label="Co-signer form">
+                  <RowSelectCell
+                    ariaLabel={`Co-signer form for ${label}`}
+                    value={template.linkedCosignerApplicationTemplateId ?? NO_LEASE}
+                    options={[{ value: NO_LEASE, label: "Property default" }, ...cosignerOptions]}
+                    dataAttr="listing-v2-application-cosigner"
+                    onChange={(next) =>
+                      commitTemplates(
+                        patchApplicationTemplate(templates, template.id, { linkedCosignerApplicationTemplateId: next === NO_LEASE ? null : next }),
+                      )
+                    }
+                  />
+                </FactRow>
+              )}
+              <FactRow label="Application fee">
+                <MoneyInput
+                  label={`${label} application fee`}
+                  value={feeText}
+                  placeholder={feeFallback}
+                  inherited={ownFeeCents === null}
+                  dataAttr="listing-v2-application-fee"
+                  onChange={(raw) =>
+                    commitTemplates(patchApplicationTemplate(templates, template.id, { feeCentsOverride: moneyTextToCents(sanitizeMoneyInput(raw)) }))
+                  }
+                />
+              </FactRow>
+              <FactRow label="Promo codes">
+                <FormPromoCodesAction
+                  kind="application"
+                  propertyId={doors.recordId}
+                  propertyLabel={synced.buildingName || synced.address}
+                  dataAttr="listing-v2-application-promo-codes"
+                />
+              </FactRow>
               <div className={BODY_PAD}>
                 <InlineApplicationQuestions
                   sub={synced}
@@ -760,6 +811,12 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         );
       })}
       {templates.length === 0 ? <EmptyStepCard title="No applications yet" section="applications" dataAttr="listing-v2-application-empty" /> : null}
+      <LeasingQuickAddRow
+        entries={missingApplicationDefaults(synced)}
+        noun="application"
+        dataAttr="listing-v2-application-quick-add"
+        onAdd={(key) => onChange(submissionWithApplicationDefault(synced, key as never))}
+      />
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card" data-attr="listing-v2-application-before-tour">
         <FactRow first label="Application before a tour">
@@ -864,8 +921,6 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
       })),
     [applications],
   );
-  // The lease types this property offers that have no lease yet: shown as cards that are off, and switched on to add them.
-  const missingSeeds = useMemo(() => availableLeaseTemplateSeeds(synced), [synced]);
   const confirm = useConfirm();
   const { open, setOpen, toggle } = useOneOpen();
   const names = useCardNames();
@@ -890,16 +945,6 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
     if (!added.leaseId) return;
     setOpen(added.leaseId);
     if (thenUpload) pickPdf(added.leaseId);
-  };
-
-  /** A lease type with no lease yet: add the PropLane standard for it, or add it and ask for a PDF. */
-  const addFromSeed = (seedKey: Parameters<typeof addLeaseTemplateFromSeed>[1], thenUpload: boolean) => {
-    const added = addLeaseTemplateFromSeed(synced, seedKey);
-    onChange(added);
-    const created = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(added)).find((row) => row.listingSeedKey === seedKey);
-    if (!created) return;
-    setOpen(created.id);
-    if (thenUpload) pickPdf(created.id);
   };
 
   const duplicate = (template: PropertyLeaseTemplate) => {
@@ -974,7 +1019,7 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
   return (
     <StepColumn>
       <CountHeading
-        count={templates.length + missingSeeds.length}
+        count={templates.length}
         noun="lease"
         addLabel="Add lease"
         choices={[
@@ -1096,6 +1141,23 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
                   />
                 </FactRow>
               ) : null}
+              <FactRow label="Lease fee">
+                <MoneyInput
+                  label={`${stored} lease fee`}
+                  value={templateFeeCents(template, "leaseFee") === null ? "" : centsToMoneyText(templateFeeCents(template, "leaseFee")!)}
+                  inherited={templateFeeCents(template, "leaseFee") === null}
+                  dataAttr="listing-v2-lease-fee"
+                  onChange={(raw) => patchLease(template.id, { leaseFeeCents: moneyTextToCents(sanitizeMoneyInput(raw)) })}
+                />
+              </FactRow>
+              <FactRow label="Promo codes">
+                <FormPromoCodesAction
+                  kind="lease"
+                  propertyId={doors.recordId}
+                  propertyLabel={synced.buildingName || synced.address}
+                  dataAttr="listing-v2-lease-promo-codes"
+                />
+              </FactRow>
               {showOptions
                 ? LEASE_OPTIONS.map((option) => (
                     <FactRow key={option.key} label={option.label}>
@@ -1125,40 +1187,13 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
           </RecordCard>
         );
       })}
-      {missingSeeds.map((seed) => (
-        <RecordCard
-          key={seed.seedKey}
-          propertyEditor
-          title={seed.label}
-          facts={<Facts items={["Not added yet"]} />}
-          headerEnd={
-            <div className="pr9-acts flex shrink-0 items-center gap-0.5">
-              <PortalRowMenu
-                label={seed.label}
-                dataAttr="listing-v2-lease-default-menu"
-                triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]"
-                iconClassName="h-5 w-5"
-                items={[
-                  {
-                    id: "add-standard",
-                    label: "Add PropLane standard",
-                    dataAttr: "listing-v2-lease-default-add",
-                    onSelect: () => addFromSeed(seed.seedKey, false),
-                  },
-                  {
-                    id: "upload-pdf",
-                    label: "Upload a PDF",
-                    dataAttr: "listing-v2-lease-default-upload",
-                    onSelect: () => addFromSeed(seed.seedKey, true),
-                  },
-                ]}
-              />
-            </div>
-          }
-          dataAttr="listing-v2-lease-default-card"
-        />
-      ))}
-      {templates.length === 0 && missingSeeds.length === 0 ? <EmptyStepCard title="No leases yet" section="leases" dataAttr="listing-v2-lease-empty" /> : null}
+      {templates.length === 0 ? <EmptyStepCard title="No leases yet" section="leases" dataAttr="listing-v2-lease-empty" /> : null}
+      <LeasingQuickAddRow
+        entries={missingLeaseDefaults(synced)}
+        noun="lease"
+        dataAttr="listing-v2-lease-quick-add"
+        onAdd={(key) => onChange(submissionWithLeaseDefault(synced, key as never))}
+      />
     </StepColumn>
   );
 }
@@ -1175,10 +1210,12 @@ function MoveInInlineBody({
   template,
   onTemplate,
   fresh,
+  leases,
 }: {
   template: MoveInFormTemplate;
   onTemplate: (next: MoveInFormTemplate) => void;
   fresh: boolean;
+  leases: readonly MoveInLeaseTypeLease[];
 }) {
   const [questions, setQuestions] = useState(template.questions);
   const starterOptions = [
@@ -1200,6 +1237,15 @@ function MoveInInlineBody({
               due: dueForTriggerChange(value as MoveInFormTemplate["trigger"], template.due),
             })
           }
+        />
+      </FactRow>
+      <FactRow label="Lease type">
+        <RowSelectCell
+          ariaLabel={`${template.name || "Form"} lease type`}
+          value={moveInFormLeaseTypeValue(template)}
+          options={moveInLeaseTypeOptions(leases, template.linkedLeaseTemplateIds)}
+          dataAttr="listing-v2-movein-lease-type"
+          onChange={(value) => onTemplate({ ...template, ...moveInFormLeaseTypePatch(value, template) })}
         />
       </FactRow>
       <FactRow label="Due">
@@ -1255,6 +1301,15 @@ function MoveInInlineBody({
 
 export function StepMoveIn({ sub, onChange, doors }: StepProps) {
   const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
+  const leaseChoices = useMemo<MoveInLeaseTypeLease[]>(
+    () =>
+      leaseTemplatesOf(sub).map((lease) => ({
+        id: lease.id,
+        label: lease.label?.trim() || "Lease",
+        custom: lease.listingSeedKey !== "primary" && lease.listingSeedKey !== "short-term" && lease.listingSeedKey !== "airbnb",
+      })),
+    [sub],
+  );
   const { open, setOpen, toggle } = useOneOpen();
   const [freshId, setFreshId] = useState<string | null>(null);
   const latest = useLatest({ sub, templates });
@@ -1421,29 +1476,68 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
             dataAttr="listing-v2-movein-card"
           >
             <div data-attr="listing-v2-movein-editor">
-              <MoveInInlineBody key={template.id} template={template} onTemplate={replace} fresh={freshId === template.id} />
+              <MoveInInlineBody key={template.id} template={template} onTemplate={replace} fresh={freshId === template.id} leases={leaseChoices} />
             </div>
           </RecordCard>
         );
       })}
       {templates.length === 0 ? <EmptyStepCard title="No move-in forms yet" section="move-in" dataAttr="listing-v2-movein-empty" /> : null}
+      <LeasingQuickAddRow
+        entries={missingMoveInStarters(sub)}
+        noun="move-in form"
+        dataAttr="listing-v2-movein-quick-add"
+        onAdd={(key) => {
+          const added = submissionWithMoveInStarter(latest.current.sub, key as MoveInFormStarterKey);
+          write(readMoveInFormTemplates(added), null);
+        }}
+      />
     </StepColumn>
   );
 }
 
 /* ─────────────────────────── Pricing ─────────────────────────── */
 
-const PRICING_FORMATS = [
-  { term: LONG_TERM_LEASE_TERM, title: "Long-term" },
-  { term: SHORT_TERM_LEASE_TERM, title: "Short-term" },
-] as const;
-
-/** A format's heading inside an open pricing card. */
-function FormatHeading({ title }: { title: string }) {
+/**
+ * The leasing options an opened Pricing card is priced under, as a compact segmented row of tabs (Long-term,
+ * Short-term, a custom lease by name, Month-to-month when a lease allows it -- `pricing-lease-options.ts`).
+ * Only the selected option's fields are drawn. The first option is selected until another is picked.
+ */
+function PricingOptionTabs({
+  sub,
+  render,
+}: {
+  sub: ManagerListingSubmissionV1;
+  render: (option: PricingLeaseOption) => ReactNode;
+}) {
+  const options = useMemo(() => pricingLeaseOptions(sub), [sub]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const active = options.find((option) => option.id === picked) ?? options[0]!;
+  const slug = (option: PricingLeaseOption) =>
+    option.term === LONG_TERM_LEASE_TERM ? "long" : option.term === SHORT_TERM_LEASE_TERM ? "short" : option.id.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   return (
-    <h3 className="border-t border-border bg-foreground/[0.025] px-3.5 py-2.5 text-[12px] font-extrabold uppercase tracking-[0.1em] text-muted first:border-t-0">
-      {title}
-    </h3>
+    <div data-attr="listing-v2-pricing-options">
+      <div role="tablist" aria-label="Leasing options" className="flex flex-wrap gap-1 border-t border-border px-3.5 py-2">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={option.id === active.id}
+            data-attr={`listing-v2-pricing-option-${slug(option)}`}
+            onClick={() => setPicked(option.id)}
+            className={cn(
+              "min-h-[34px] rounded-lg px-3 text-[13px] font-semibold",
+              option.id === active.id ? "bg-foreground/[0.08] text-foreground" : "text-muted hover:bg-foreground/[0.04]",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <section role="tabpanel" aria-label={active.label} data-attr={`listing-v2-pricing-format-${slug(active)}`}>
+        {render(active)}
+      </section>
+    </div>
   );
 }
 
@@ -1506,12 +1600,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
           toggleLabel="Whole place"
           dataAttr="listing-v2-pricing-card"
         >
-          {PRICING_FORMATS.map((format) => (
-            <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
-              <FormatHeading title={format.title} />
-              <WholeHousePricingFields draft={sub} activeStepId={format.term} patch={patch} />
-            </section>
-          ))}
+          <PricingOptionTabs sub={sub} render={(option) => <WholeHousePricingFields draft={sub} activeStepId={option.term} patch={patch} />} />
         </RecordCard>
       ) : rooms.length === 0 ? (
         <EmptyStepCard title="No rooms to price yet" section="payments" dataAttr="listing-v2-pricing-empty" />
@@ -1543,19 +1632,19 @@ export function StepPricing({ sub, onChange }: StepProps) {
               toggleLabel={roomLabel(room, index)}
               dataAttr="listing-v2-pricing-card"
             >
-              {PRICING_FORMATS.map((format) => (
-                <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
-                  <FormatHeading title={format.title} />
+              <PricingOptionTabs
+                sub={sub}
+                render={(option) => (
                   <RoomPricingFields
                     draft={sub}
                     room={room}
-                    activeTerm={format.term}
+                    activeTerm={option.term}
                     patch={patch}
                     setDraft={onChange}
                     updateRoom={updateRoom}
                   />
-                </section>
-              ))}
+                )}
+              />
             </RecordCard>
           );
         })
@@ -1598,12 +1687,10 @@ export function StepPricing({ sub, onChange }: StepProps) {
                 onChange={(on) => patch({ entireHomeOffered: on, entireHomePriceSource: "own" })}
               />
             </FactRow>
-            {PRICING_FORMATS.map((format) => (
-              <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
-                <FormatHeading title={format.title} />
-                <WholeHousePricingFields draft={sub} activeStepId={format.term} patch={patch} offerToggle={false} />
-              </section>
-            ))}
+            <PricingOptionTabs
+              sub={sub}
+              render={(option) => <WholeHousePricingFields draft={sub} activeStepId={option.term} patch={patch} offerToggle={false} />}
+            />
           </RecordCard>
           {bundles.map((bundle) => {
             // Titled by its rooms, the same as the Pricing tab's Room bundles.
@@ -1651,12 +1738,12 @@ export function StepPricing({ sub, onChange }: StepProps) {
                     onChange={(ids) => writeBundle(bundle.id, { includedRoomIds: ids, roomsLine: "" })}
                   />
                 </FactRow>
-                {PRICING_FORMATS.map((format) => (
-                  <section key={format.term}>
-                    <FormatHeading title={format.title} />
-                    <BundlePricingFields draft={sub} bundle={bundle} activeStepId={format.term} patch={patch} setDraft={onChange} />
-                  </section>
-                ))}
+                <PricingOptionTabs
+                  sub={sub}
+                  render={(option) => (
+                    <BundlePricingFields draft={sub} bundle={bundle} activeStepId={option.term} patch={patch} setDraft={onChange} />
+                  )}
+                />
               </RecordCard>
             );
           })}

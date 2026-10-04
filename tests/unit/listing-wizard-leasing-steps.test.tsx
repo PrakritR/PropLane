@@ -248,27 +248,54 @@ describe("Application step", () => {
     expect(readPropertyApplicationTemplates(live.latest())[0]!.offered).toBe(true);
   });
 
-  it("the fee box writes the Pricing step's field, so Pricing and the resolver show what Application typed", () => {
+  it("the fee box is the APPLICATION's own fee: it writes the template, and the rooms follow it until overridden", () => {
     const live = mountLive();
     go("application");
     openCard(cards("application")[0]!);
     const fee = q("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
     fireEvent.focus(fee);
     fireEvent.change(fee, { target: { value: "75" } });
-    const room = live.latest().rooms[0]!;
-    // the resolver (the quote, the application fee charged, the lease) reads the room's own fee
-    expect(resolvePlacementStandardFees(live.latest(), placementFeeOptionsFor(live.latest(), { room, leaseTerm: "Long-term" })).applicationFee).toBe(75);
-    // the same field the Pricing step's box edits
-    expect(termFeeText(longTermPrivateArrangementRow(room), "applicationFee", "long").value).toBe("75");
-    // and the Application card reads it back, in its facts too
+    const stored = live.latest();
+    expect(readPropertyApplicationTemplates(stored)[0]!.feeCentsOverride).toBe(7500);
+    const room = stored.rooms[0]!;
+    // The room carries nothing of its own; the resolver (quote, charge, lease) reads the template's fee.
+    expect(termFeeText(longTermPrivateArrangementRow(room), "applicationFee", "long").value).toBe("");
+    expect(resolvePlacementStandardFees(stored, placementFeeOptionsFor(stored, { room, leaseTerm: "Long-term" })).applicationFee).toBe(75);
     expect((q("[data-attr='listing-v2-application-fee']") as HTMLInputElement).value).toBe("75");
     expect(cards("application")[0]!.querySelector(".pr9-facts")!.textContent).toContain("$75");
+    // Pricing shows it as the room's greyed default: an empty box whose placeholder is the application's fee.
     go("pricing");
     openCard(cards("pricing")[0]!);
-    expect((qa("[data-attr='arrangement-application-fee-long']")[0] as HTMLInputElement).value).toBe("75");
+    const roomBox = qa("[data-attr='arrangement-application-fee-long']")[0] as HTMLInputElement;
+    expect(roomBox.value).toBe("");
+    expect(roomBox.placeholder).toBe("75");
   });
 
-  it("editing the Short term application's fee writes the Short term fee only", () => {
+  it("a room's own application fee is an override for that room only, and Reset returns it to the application's fee", () => {
+    const live = mountLive();
+    go("application");
+    openCard(cards("application")[0]!);
+    const fee = q("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "75" } });
+    go("pricing");
+    openCard(cards("pricing")[0]!);
+    const roomBox = qa("[data-attr='arrangement-application-fee-long']")[0] as HTMLInputElement;
+    fireEvent.focus(roomBox);
+    fireEvent.change(roomBox, { target: { value: "90" } });
+    const stored = live.latest();
+    expect(readPropertyApplicationTemplates(stored)[0]!.feeCentsOverride).toBe(7500);
+    expect(longTermPrivateArrangementRow(stored.rooms[0]!).applicationFee).toBe("90");
+    expect(resolvePlacementStandardFees(stored, placementFeeOptionsFor(stored, { room: stored.rooms[0], leaseTerm: "Long-term" })).applicationFee).toBe(90);
+    // Reset is the clear way back to the default.
+    const reset = qa("[data-attr='listing-v2-cell-reset']").find((node) => /application fee/i.test(node.getAttribute("aria-label") ?? ""))!;
+    fireEvent.click(reset);
+    const cleared = live.latest();
+    expect(longTermPrivateArrangementRow(cleared.rooms[0]!).applicationFee ?? "").toBe("");
+    expect(resolvePlacementStandardFees(cleared, placementFeeOptionsFor(cleared, { room: cleared.rooms[0], leaseTerm: "Long-term" })).applicationFee).toBe(75);
+  });
+
+  it("editing the Short term application's fee writes that application's fee only", () => {
     const live = mountLive();
     go("application");
     const shortCard = cards("application").find((card) => /Short-term application/.test(cardName(card)))!;
@@ -276,10 +303,23 @@ describe("Application step", () => {
     const fee = q("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
     fireEvent.focus(fee);
     fireEvent.change(fee, { target: { value: "30" } });
-    const room = live.latest().rooms[0]!;
-    expect(resolvePlacementStandardFees(live.latest(), placementFeeOptionsFor(live.latest(), { room, rentalType: "short_term" })).applicationFee).toBe(30);
-    expect(room.termPricing?.["Short-Term Stay"]?.applicationFee).toBe("30");
+    const stored = live.latest();
+    const room = stored.rooms[0]!;
+    expect(readPropertyApplicationTemplates(stored).find((row) => row.listingSeedKey === "short-term")!.feeCentsOverride).toBe(3000);
+    expect(readPropertyApplicationTemplates(stored).find((row) => row.listingSeedKey === "primary")!.feeCentsOverride ?? null).toBeNull();
+    expect(resolvePlacementStandardFees(stored, placementFeeOptionsFor(stored, { room, rentalType: "short_term" })).applicationFee).toBe(30);
+    expect(room.termPricing?.["Short-Term Stay"]?.applicationFee).toBeUndefined();
     expect(longTermPrivateArrangementRow(room).applicationFee ?? "").toBe("");
+  });
+
+  it("a new application starts from the PropLane defaults, and every application card carries Application fee and Promo codes in the modal's order", () => {
+    mountLive();
+    go("application");
+    openCard(cards("application")[0]!);
+    const editor = q("[data-attr='listing-v2-application-editor']")!;
+    const order = ["needed", "lease", "cosigner", "fee", "promo-codes"].map((attr) => editor.querySelector(`[data-attr='listing-v2-application-${attr}']`));
+    expect(order.every(Boolean) || order.filter(Boolean).length >= 4).toBe(true);
+    expect(editor.textContent).not.toMatch(/Tour order|Used for/);
   });
 
   it("renaming and editing a question inline land on the template's draft config", () => {
@@ -370,8 +410,8 @@ describe("Lease step", () => {
   it("is the Rooms pattern: a count heading with the round +, a card per lease with a menu and its facts", () => {
     mountLive(subWithLeases());
     go("lease");
-    // The heading counts every lease card shown: two leases and the short-term type with none yet.
-    expect(headingText()).toBe("3 leases");
+    // The heading counts the leases the property has; a default it lacks is a Quick add action, not a card.
+    expect(headingText()).toBe("2 leases");
     expect(q(".pr9-top [data-attr='listing-v2-add-lease-icon']")).not.toBeNull();
     const list = cards("lease");
     expect(list).toHaveLength(2);
@@ -441,28 +481,58 @@ describe("Lease step", () => {
     expect(choices.map((item) => item.textContent)).toEqual(["Add PropLane standard", "Upload a PDF"]);
     fireEvent.click(choices[0]!);
     expect(readPropertyLeaseTemplates(live.latest()).length).toBe(3);
-    expect(headingText()).toBe("4 leases");
+    expect(headingText()).toBe("3 leases");
     expect(q("[data-attr='listing-v2-lease-start-from']")).not.toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a lease type with no lease yet is a Rooms-style card: counted, 'Not added yet', a menu, no switch on its face", async () => {
+  it("a PropLane default the property lacks is a Quick add action under the list, never a placeholder card", () => {
     const live = mountLive();
     go("lease");
-    const defaults = qa("[data-attr='listing-v2-lease-default-card']");
-    expect(defaults.length).toBeGreaterThan(0);
-    // The heading counts the cards shown, not only the leases that exist.
-    expect(headingText()).toBe(`${defaults.length} leases`);
-    for (const card of defaults) {
-      expect(card.className).toContain("pr9-card");
-      expect(card.querySelector(".pr9-facts")!.textContent).toBe("Not added yet");
-      expect(card.querySelector("[data-attr='listing-v2-lease-default-menu']")).not.toBeNull();
-      expect(card.querySelector("[role='switch'], input[type='checkbox'], [data-attr='listing-v2-lease-default-offered']")).toBeNull();
-    }
-    const items = await openMenu(defaults[0]!.querySelector("[data-attr='listing-v2-lease-default-menu']")!);
-    expect(items.map((item) => item.textContent)).toEqual(["Add PropLane standard", "Upload a PDF"]);
-    fireEvent.click(items[0]!);
-    expect(readPropertyLeaseTemplates(live.latest()).length).toBe(1);
+    expect(qa("[data-attr='listing-v2-lease-default-card']")).toHaveLength(0);
+    expect(qa("[data-attr='listing-v2-lease-card']")).toHaveLength(0);
+    expect(headingText()).toBe("0 leases");
+    const row = q("[data-attr='listing-v2-lease-quick-add']")!;
+    expect(row.textContent).toContain("Quick add");
+    const actions = Array.from(row.querySelectorAll("button")).map((button) => button.textContent);
+    expect(actions).toEqual(["Long-term lease", "Short-term lease"]);
+    fireEvent.click(row.querySelector("[data-attr='listing-v2-lease-quick-add-primary']")!);
+    expect(readPropertyLeaseTemplates(live.latest()).map((lease) => lease.label)).toEqual(["Long-term lease"]);
+    // The re-added default is a card now and leaves the Quick add row.
+    expect(headingText()).toBe("1 lease");
+    expect(Array.from(q("[data-attr='listing-v2-lease-quick-add']")!.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Short-term lease"]);
+  });
+
+  it("every lease card, a PropLane default included, has Edit, Duplicate and a red Delete last; deleting a default brings back its Quick add", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const withThree = subWithLeases();
+    const live = mountLive({
+      ...withThree,
+      propertyLeaseTemplates: [...withThree.propertyLeaseTemplates!, lease("l3", "Parking addendum", { kind: "custom" })],
+    } as never);
+    go("lease");
+    const defaultCard = cards("lease")[0]!;
+    const items = await openMenu(defaultCard.querySelector("[data-attr='listing-v2-lease-menu']")!);
+    expect(items.map((item) => item.textContent)).toEqual(["Edit", "Duplicate", "Delete"]);
+    fireEvent.click(items.at(-1)!);
+    await waitFor(() => expect(readPropertyLeaseTemplates(live.latest()).some((lease) => lease.id === "l1")).toBe(false));
+    expect(q("[data-attr='listing-v2-lease-quick-add-primary']")).not.toBeNull();
+  });
+
+  it("an open lease sets its own Lease fee (on the lease, not the room) and offers Promo codes", () => {
+    const live = mountLive(subWithLeases());
+    go("lease");
+    openCard(cards("lease")[0]!);
+    const fee = q("[data-attr='listing-v2-lease-fee']") as HTMLInputElement;
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "250" } });
+    expect(readPropertyLeaseTemplates(live.latest()).find((row) => row.id === "l1")!.leaseFeeCents).toBe(25000);
+    // The room carries no value of its own: it follows the lease.
+    expect(longTermPrivateArrangementRow(live.latest().rooms[0]!).leaseFee ?? "").toBe("");
+    expect(resolvePlacementStandardFees(live.latest(), placementFeeOptionsFor(live.latest(), { room: live.latest().rooms[0], leaseTerm: "Long-term" })).leaseFee).toBe(250);
+    expect(q("[data-attr='listing-v2-lease-promo-codes']")).not.toBeNull();
+    fireEvent.change(q("[data-attr='listing-v2-lease-fee']")!, { target: { value: "" } });
+    expect(readPropertyLeaseTemplates(live.latest()).find((row) => row.id === "l1")!.leaseFeeCents).toBeNull();
   });
 
   it("a lease's Offered switch lives inside the opened card, never on its face; its menu is Edit, Duplicate, Delete", async () => {
@@ -630,20 +700,22 @@ describe("Pricing step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("an open room shows two sections, Long-term and Short-term, with every field; editing writes the workspace's fields", () => {
-    const live = mountLive();
+  const tabLabels = (scope: ParentNode = document) =>
+    Array.from(scope.querySelectorAll("[data-attr='listing-v2-pricing-options'] [role='tab']")).map((tab) => tab.textContent);
+  const shortStays = () => ({ ...sub(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] });
+
+  it("an open room's tabs list exactly the options the property offers; a tab shows only that option's fields", () => {
+    const live = mountLive(shortStays() as never);
     go("pricing");
     openCard(cards("pricing")[0]!);
+    expect(tabLabels()).toEqual(["Long-term", "Short-term"]);
+    // The first option is selected, and only its fields are drawn.
     const long = q("[data-attr='listing-v2-pricing-format-long']")!;
-    const short = q("[data-attr='listing-v2-pricing-format-short']")!;
-    expect(long.textContent).toContain("Long-term");
-    expect(short.textContent).toContain("Short-term");
+    expect(q("[data-attr='listing-v2-pricing-format-short']")).toBeNull();
     for (const label of ["Rent /mo", "Utilities /mo", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {
       expect(long.textContent, label).toContain(label);
     }
-    for (const label of ["Nightly rate", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {
-      expect(short.textContent, label).toContain(label);
-    }
+    expect(long.textContent).not.toContain("Nightly rate");
     const rent = long.querySelector("input[aria-label='Rent']") as HTMLInputElement;
     fireEvent.focus(rent);
     fireEvent.change(rent, { target: { value: "1250" } });
@@ -651,6 +723,14 @@ describe("Pricing step", () => {
     expect(next.rooms[0]!.monthlyRent).toBe(1250);
     // the same patch the pricing workspace applies: marked as priced on its own
     expect(next.roomPricingMeta?.["room-a"]?.priceSource).toBe("own");
+    // Switching tabs swaps the fields.
+    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
+    const short = q("[data-attr='listing-v2-pricing-format-short']")!;
+    expect(q("[data-attr='listing-v2-pricing-format-long']")).toBeNull();
+    for (const label of ["Nightly rate", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {
+      expect(short.textContent, label).toContain(label);
+    }
+    expect(short.textContent).not.toContain("Rent /mo");
     const nightly = short.querySelector("input[aria-label='Nightly rate']") as HTMLInputElement;
     fireEvent.focus(nightly);
     fireEvent.change(nightly, { target: { value: "45" } });
@@ -658,8 +738,49 @@ describe("Pricing step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a whole place has one 'Whole place' card with the same two sections", () => {
-    const base = sub();
+  it("a property that offers only long-term has one tab; Month-to-month appears only when a lease allows it", () => {
+    mountLive();
+    go("pricing");
+    openCard(cards("pricing")[0]!);
+    expect(tabLabels()).toEqual(["Long-term"]);
+    cleanup();
+    const withM2m = {
+      ...sub(),
+      allowedLeaseTerms: ["Long-term", "Month-to-Month"],
+      propertyLeaseTemplates: [lease("l1", "Long-term lease", { listingSeedKey: "primary", applicationLeaseTerms: ["Long-term", "Month-to-Month"] })],
+    };
+    mountLive(withM2m as never);
+    go("pricing");
+    openCard(cards("pricing")[0]!);
+    expect(tabLabels()).toEqual(["Long-term", "Month-to-month"]);
+  });
+
+  it("a room's Application fee and Lease fee default from the application and the lease, per tab", () => {
+    const base = shortStays();
+    const tuned = {
+      ...base,
+      propertyApplicationTemplates: [
+        { id: "a-long", kind: "long-term", formVariant: "standard", listingSeedKey: "primary", label: "Long-term application", feeCentsOverride: 4500, linkedLeaseTemplateId: "l1", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
+        { id: "a-short", kind: "short-term", formVariant: "short_term", listingSeedKey: "short-term", label: "Short-term application", feeCentsOverride: 2500, linkedLeaseTemplateId: "l2", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
+      ],
+      propertyApplicationTemplatesExplicit: true,
+      propertyLeaseTemplates: [
+        lease("l1", "Long-term lease", { listingSeedKey: "primary", applicationLeaseTerms: ["Long-term"], leaseFeeCents: 20000 }),
+        lease("l2", "Short-term lease", { kind: "short-term", listingSeedKey: "short-term", applicationLeaseTerms: ["Short-Term Stay"], leaseFeeCents: 9000 }),
+      ],
+    };
+    mountLive(tuned as never);
+    go("pricing");
+    openCard(cards("pricing")[0]!);
+    const box = (attr: string) => q(`[data-attr='${attr}']`) as HTMLInputElement;
+    expect([box("arrangement-application-fee-long").placeholder, box("arrangement-lease-fee-long").placeholder]).toEqual(["45", "200"]);
+    expect([box("arrangement-application-fee-long").value, box("arrangement-lease-fee-long").value]).toEqual(["", ""]);
+    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
+    expect([box("arrangement-application-fee-short").placeholder, box("arrangement-lease-fee-short").placeholder]).toEqual(["25", "90"]);
+  });
+
+  it("a whole place has one 'Whole place' card with the same option tabs", () => {
+    const base = shortStays();
     mountLive({ ...base, listingPlaceCategoryId: "entire_home", entireHomeMonthlyRent: 3200 } as unknown as typeof base);
     go("pricing");
     const list = cards("pricing");
@@ -667,7 +788,9 @@ describe("Pricing step", () => {
     expect(list[0]!.textContent).toContain("Whole place");
     expect(list[0]!.textContent).toMatch(/\$3,200/);
     openCard(list[0]!);
+    expect(tabLabels()).toEqual(["Long-term", "Short-term"]);
     expect(q("[data-attr='listing-v2-pricing-format-long']")).not.toBeNull();
+    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
     expect(q("[data-attr='listing-v2-pricing-format-short']")).not.toBeNull();
     expect(q("[data-attr='listing-v2-bundles']")).toBeNull();
   });
@@ -687,8 +810,8 @@ describe("Pricing step", () => {
     const card = cards("bundle")[0]!;
     expect(card.className).toContain("pr9-card");
     expect(q("[data-attr='listing-v2-bundle-rooms']")).not.toBeNull();
-    expect(card.textContent).toContain("Long-term");
-    expect(card.textContent).toContain("Short-term");
+    // addBundle opens the new card, so its option tabs are already drawn.
+    expect(tabLabels(card)).toEqual(["Long-term"]);
     // Whole house still comes before the custom bundles.
     expect(qa("[data-attr='listing-v2-bundles'] .pr9-card")[0]!.getAttribute("data-attr")).toBe("listing-v2-whole-house-card");
   });

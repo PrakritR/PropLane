@@ -140,6 +140,32 @@ export function centsToMoneyText(cents: number): string {
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
 }
 
+/**
+ * What a room / bundle / the whole house takes for its Application fee and Lease fee when it has no value of its
+ * own on a lease type: the fee its template sets, as the greyed default the Pricing boxes show. Empty = the
+ * templates set none (the boxes then show whatever the older fallbacks give, as before).
+ */
+export function templateFeeDefaults(
+  sub: TemplateSource | null | undefined,
+  leaseTerm: string,
+): { applicationFee?: string; leaseFee?: string } {
+  const term = leaseTerm.trim();
+  const isStay = term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
+  const selector = { leaseTerm: term, isStay };
+  return {
+    applicationFee: templateFeeRaw(sub, "applicationFee", selector),
+    leaseFee: templateFeeRaw(sub, "leaseFee", selector),
+  };
+}
+
+/** A typed money string -> cents; blank / non-numeric = null (the template sets no fee), a typed 0 = 0 (free). */
+export function moneyTextToCents(raw: string | null | undefined): number | null {
+  const text = String(raw ?? "").trim();
+  if (!/\d/.test(text)) return null;
+  const dollars = Number(text.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(dollars) ? Math.round(dollars * 100) : null;
+}
+
 /** A stored template fee in cents, or null when the template sets none (absent, null or non-finite). */
 export function templateFeeCents(template: { feeCentsOverride?: number | null; leaseFeeCents?: number | null } | null | undefined, kind: TemplateFeeKind): number | null {
   if (!template) return null;

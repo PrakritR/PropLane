@@ -52,7 +52,9 @@ import {
 import { newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
-import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import type { MoveInFormStarterKey, MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { missingMoveInStarters, submissionWithMoveInStarter } from "@/lib/leasing-quick-add";
 import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
 
 const ROW_FACT_ICON: Record<MoveInFormRowFactId, typeof ListChecks> = {
@@ -139,7 +141,13 @@ export function PropertyMoveInFormsPanel({
     [sub],
   );
   const leaseTemplates = useMemo(
-    () => readPropertyLeaseTemplates(sub).map((item) => ({ id: item.id, label: item.label.trim() || "Lease" })),
+    () =>
+      readPropertyLeaseTemplates(sub).map((item) => ({
+        id: item.id,
+        label: item.label.trim() || "Lease",
+        // Long-term / Short-term are their own Lease type options; any other lease is named.
+        custom: item.listingSeedKey !== "primary" && item.listingSeedKey !== "short-term" && item.listingSeedKey !== "airbnb",
+      })),
     [sub],
   );
   const copySources = useCopySources(managerUserId, propertyId);
@@ -326,6 +334,18 @@ export function PropertyMoveInFormsPanel({
           </div>
         )}
       </PortalRecordListSurface>
+
+      {canEdit ? (
+        <LeasingQuickAddRow
+          entries={missingMoveInStarters(sub)}
+          noun="move-in form"
+          dataAttr="property-move-in-quick-add"
+          onAdd={(key) => {
+            const added = readMoveInFormTemplates(submissionWithMoveInStarter(sub, key as MoveInFormStarterKey));
+            void persist(added, "Form added. It is sent only when you send it.");
+          }}
+        />
+      ) : null}
 
       <MoveInFormChooser open={chooserOpen} onClose={() => onChooserOpenChange(false)} copySources={copySources} onPick={onPick} canUploadPdf={canUploadPdf} />
 

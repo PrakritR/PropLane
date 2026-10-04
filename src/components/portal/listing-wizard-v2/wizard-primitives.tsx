@@ -1756,6 +1756,7 @@ export function FactRow({
   own,
   onReset,
   resetLabel,
+  resetTitle,
   sub = false,
   first = false,
   required = false,
@@ -1765,6 +1766,8 @@ export function FactRow({
   own?: boolean;
   onReset?: () => void;
   resetLabel?: string;
+  /** The Reset control's tooltip; defaults to the Default-card wording of the room cards. */
+  resetTitle?: string;
   sub?: boolean;
   first?: boolean;
   required?: boolean;
@@ -1788,7 +1791,7 @@ export function FactRow({
             onClick={onReset}
             data-attr="listing-v2-cell-reset"
             aria-label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
-            title="Back to the Default card"
+            title={resetTitle ?? "Back to the Default card"}
             className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
           >
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />

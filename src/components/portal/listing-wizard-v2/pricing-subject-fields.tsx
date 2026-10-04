@@ -19,6 +19,7 @@
 import { ArrangementStandardFeeRows, type ArrangementFeePatch } from "@/components/portal/listing-wizard-v2/arrangement-standard-fee-rows";
 import { FeeRows, ProrateRows, type DayRate } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { FactRow, MoneyInput } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { templateFeeDefaults } from "@/lib/form-template-fees";
 import { listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -90,6 +91,7 @@ export function PricingSubjectFields({
       scope={isStay ? "short" : "long"}
       storage={standardFees.storage}
       inheritedRow={standardFees.inheritedRow}
+      templateDefaults={templateFeeDefaults(draft, quoteTerm)}
     />
   );
   if (isStay) {

@@ -25,6 +25,7 @@ import {
   MOVE_IN_TRIGGER_OPTIONS,
   MOVE_OUT_DAYS_CHOICES,
   moveInFormProblemsByStep,
+  moveInLeaseTypeOptions,
   questionCountLabel,
   type MoveInAnswerMap,
 } from "@/components/portal/move-in-forms/move-in-form-model";
@@ -34,7 +35,12 @@ import { useConfirm } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
-import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
+import {
+  MOVE_IN_FORM_STARTERS,
+  moveInFormLeaseTypePatch,
+  moveInFormLeaseTypeValue,
+  newMoveInFormTemplate,
+} from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAudience,
   MoveInFormMoveOutDays,
@@ -48,7 +54,7 @@ const MAX_PDF_BYTES = 8 * 1024 * 1024;
 
 export type MoveInEditorRoom = { id: string; label: string };
 /** An application or lease template of this property a form can be linked to. */
-export type MoveInEditorLinkOption = { id: string; label: string };
+export type MoveInEditorLinkOption = { id: string; label: string; custom?: boolean };
 export type MoveInEditorSaveOptions = { sendToCurrent: boolean };
 
 /**
@@ -151,8 +157,8 @@ export function MoveInFormEditorModal({
     () => moveInLinkOptions(applicationTemplates, draft.linkedApplicationTemplateIds, "application"),
     [applicationTemplates, draft.linkedApplicationTemplateIds],
   );
-  const leaseOptions = useMemo(
-    () => moveInLinkOptions(leaseTemplates, draft.linkedLeaseTemplateIds, "lease"),
+  const leaseTypeOptions = useMemo(
+    () => moveInLeaseTypeOptions(leaseTemplates, draft.linkedLeaseTemplateIds),
     [leaseTemplates, draft.linkedLeaseTemplateIds],
   );
 
@@ -349,19 +355,19 @@ export function MoveInFormEditorModal({
           />
         </PropertyFormWizardRow>
       ) : null}
-      {leaseOptions.length > 0 ? (
-        <PropertyFormWizardRow label="Linked lease">
-          <WizardMultiSelect
-            hideLabel
-            label="Linked lease"
-            options={leaseOptions}
-            selected={draft.linkedLeaseTemplateIds}
-            onChange={(linkedLeaseTemplateIds) => patch({ linkedLeaseTemplateIds })}
-            emptyLabel="All leases"
-            dataAttr="move-in-form-linked-leases"
-          />
-        </PropertyFormWizardRow>
-      ) : null}
+      <PropertyFormWizardRow label="Lease type">
+        <FieldSingleSelect
+          hideLabel
+          label="Lease type"
+          labelClassName={WIZARD_LABEL_CLASS}
+          variant="cell"
+          className="min-w-[200px] max-w-[280px]"
+          value={moveInFormLeaseTypeValue(draft)}
+          onChange={(value) => patch(moveInFormLeaseTypePatch(value, draft))}
+          options={leaseTypeOptions}
+          dataAttr="move-in-form-lease-type"
+        />
+      </PropertyFormWizardRow>
       <PropertyFormWizardRow label="Who">
         <FieldSingleSelect
           hideLabel
