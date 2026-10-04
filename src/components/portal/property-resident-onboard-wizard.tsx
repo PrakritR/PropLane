@@ -2,16 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
-import {
-  Modal,
-  MODAL_FIELD_LABEL_CLASS,
-  ModalFooter,
-  PORTAL_MODAL_FORM_FIELD_CLASS,
-  PORTAL_MODAL_FORM_GRID_CLASS,
-} from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { WizardField, PreviewPanel, type CreatesItem } from "@/components/portal/add-workspace/parts";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import { DateField } from "@/components/ui/date-field";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Input } from "@/components/ui/input";
+import { normalizeParsedDateForInput } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
+import { AIRBNB_LEASE_TERM, LEASE_TERM_CHOICES, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import {
   collectLinkedPropertyIdsForModule,
@@ -32,17 +30,21 @@ import {
   readDataUrlFromFile,
 } from "@/lib/resident-document-import.client";
 
-const FIELD_DEFS: Array<{ key: string; label: string; type?: "text" | "email" | "tel" }> = [
-  { key: "tenantName", label: "Resident name *" },
-  { key: "tenantEmail", label: "Email *", type: "email" },
-  { key: "tenantPhone", label: "Phone", type: "tel" },
-  { key: "leaseStart", label: "Lease start" },
-  { key: "leaseEnd", label: "Lease end" },
-  { key: "leaseTerm", label: "Lease term" },
-  { key: "monthlyRent", label: "Monthly rent" },
-  { key: "securityDeposit", label: "Security deposit" },
-  { key: "monthlyUtilities", label: "Monthly utilities" },
-];
+const LEASE_TERM_PICK_OPTIONS = [...LEASE_TERM_CHOICES, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM];
+
+/** A label row for a picker: sentence case, "Optional" when it is not required. */
+function PickerLabel({ label, optional }: { label: string; optional?: boolean }) {
+  return (
+    <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
+      {label}
+      {optional ? (
+        <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">
+          Optional
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 export function PropertyResidentPdfUploadCard({
   title,
@@ -175,15 +177,44 @@ export function PropertyResidentOnboardWizard({
       .map((room) => ({ value: room.id, label: room.name.trim() }));
   }, [selectedProperty]);
 
-  const residentSummary = useMemo(() => {
+  const matchedResident = useMemo(() => {
     const email = fields.tenantEmail?.trim().toLowerCase();
     if (!email) return null;
-    const appMatch = applicationParse?.residentMatch ?? leaseParse?.residentMatch;
-    if (appMatch?.kind === "existing") {
-      return `Matched existing resident: ${appMatch.residentName} (${appMatch.residentEmail})`;
-    }
-    return "New resident — account setup can be emailed after import.";
+    const match = applicationParse?.residentMatch ?? leaseParse?.residentMatch;
+    return match?.kind === "existing" ? match.residentName : null;
   }, [applicationParse, fields.tenantEmail, leaseParse?.residentMatch]);
+
+  const setField = (key: string, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
+  const propertyName = propertyOptions.find((row) => row.value === selectedPropertyId)?.label || propertyLabel;
+  const roomName = roomOptions.find((room) => room.value === selectedRoomId)?.label ?? "";
+  const money = (key: string, label: string, placeholder: string) => (
+    <WizardField label={label}>
+      <span className="relative block">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted">$</span>
+        <Input
+          inputMode="decimal"
+          className="pl-6"
+          value={fields[key] ?? ""}
+          onChange={(e) => setField(key, e.target.value)}
+          placeholder={placeholder}
+          data-attr={`property-onboard-${key}`}
+        />
+      </span>
+    </WizardField>
+  );
+  const leaseTermValue = fields.leaseTerm?.trim() ?? "";
+  const leaseTermOptions = (
+    leaseTermValue && !LEASE_TERM_PICK_OPTIONS.includes(leaseTermValue)
+      ? [leaseTermValue, ...LEASE_TERM_PICK_OPTIONS]
+      : LEASE_TERM_PICK_OPTIONS
+  ).map((term) => ({ value: term, label: term }));
+  const hasApplicationPdf = Boolean(applicationFile);
+  const hasLeasePdf = Boolean(leaseFile);
+  const creates: CreatesItem[] = [
+    { tone: hasApplicationPdf ? "yes" : "no", text: "Application on file" },
+    { tone: hasLeasePdf ? "yes" : "no", text: leaseFullyExecuted && hasLeasePdf ? "Signed lease on file" : "Lease on file" },
+    { tone: sendAccountSetup ? "yes" : "no", text: "Portal setup email" },
+  ];
 
   async function parseKind(file: File, kind: "application" | "lease") {
     const url = await readDataUrlFromFile(file);
@@ -352,14 +383,38 @@ export function PropertyResidentOnboardWizard({
   }
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       onClose={() => {
         if (!busy) onClose();
       }}
       title="Add resident"
-      description="Upload an application PDF and/or lease PDF, confirm the details below, then import this resident to the property."
       dataAttr="property-resident-onboard-wizard"
+      contextPanel={null}
+      preview={
+        <PreviewPanel
+          title="Resident"
+          name={fields.tenantName?.trim() || "New resident"}
+          sub={fields.tenantEmail?.trim() || undefined}
+          facts={[
+            ...(propertyName || roomName
+              ? [{ label: "Home", value: [propertyName, roomName].filter(Boolean).join(" · ") }]
+              : []),
+            ...(leaseTermValue ? [{ label: "Term", value: leaseTermValue }] : []),
+            ...(fields.monthlyRent?.trim() ? [{ label: "Rent", value: `$${fields.monthlyRent.trim().replace(/^\$/, "")}` }] : []),
+            ...(matchedResident ? [{ label: "Matched", value: matchedResident }] : []),
+          ]}
+          creates={creates}
+          createsHeading="On import"
+        />
+      }
+      primaryAction={{
+        label: "Import resident",
+        onClick: () => handleImport(),
+        disabled: busy || (!applicationFile && !leaseFile),
+        loading: busy,
+        dataAttr: "property-onboard-import",
+      }}
     >
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
@@ -378,68 +433,110 @@ export function PropertyResidentOnboardWizard({
             onPick={() => leaseUploadRef.current?.click()}
           />
         </div>
-        {residentSummary ? (
-          <p className="rounded-xl bg-accent/20 px-3 py-2 text-sm text-muted">{residentSummary}</p>
-        ) : null}
-        <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-            {FIELD_DEFS.map((def) => (
-              <label key={def.key} className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className={MODAL_FIELD_LABEL_CLASS}>{def.label}</span>
-                <Input
-                  type={def.type ?? "text"}
-                  value={fields[def.key] ?? ""}
-                  onChange={(e) => setFields((prev) => ({ ...prev, [def.key]: e.target.value }))}
-                />
-              </label>
-            ))}
-            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <PortalFormSingleSelect
-                label="Property"
-                labelClassName={MODAL_FIELD_LABEL_CLASS}
-                value={selectedPropertyId}
-                onChange={(next) => {
-                  setSelectedPropertyId(next);
-                  setSelectedRoomId("");
-                }}
-                options={propertyOptions}
-                placeholder="Select property…"
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-attr="property-onboard-fields">
+          <WizardField label="Resident name" required>
+            <Input
+              value={fields.tenantName ?? ""}
+              onChange={(e) => setField("tenantName", e.target.value)}
+              data-attr="property-onboard-tenantName"
+            />
+          </WizardField>
+          <WizardField label="Email" required>
+            <Input
+              type="email"
+              value={fields.tenantEmail ?? ""}
+              onChange={(e) => setField("tenantEmail", e.target.value)}
+              data-attr="property-onboard-tenantEmail"
+            />
+          </WizardField>
+          <WizardField label="Phone">
+            <Input
+              type="tel"
+              value={fields.tenantPhone ?? ""}
+              onChange={(e) => setField("tenantPhone", e.target.value)}
+              data-attr="property-onboard-tenantPhone"
+            />
+          </WizardField>
+          <div data-wizard-picker="">
+            <PickerLabel label="Property" />
+            <FieldSingleSelect
+              label="Property"
+              hideLabel
+              value={selectedPropertyId}
+              onChange={(next) => {
+                setSelectedPropertyId(next);
+                setSelectedRoomId("");
+              }}
+              options={propertyOptions}
+              placeholder="Select property…"
+              dataAttr="property-onboard-property"
+            />
+          </div>
+          {roomOptions.length > 0 ? (
+            <div data-wizard-picker="">
+              <PickerLabel label="Room" optional />
+              <FieldSingleSelect
+                label="Room"
+                hideLabel
+                value={selectedRoomId}
+                onChange={setSelectedRoomId}
+                options={roomOptions}
+                placeholder="Select room…"
+                dataAttr="property-onboard-room"
               />
             </div>
-            {roomOptions.length > 0 ? (
-              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className={MODAL_FIELD_LABEL_CLASS}>Room</span>
-                <Select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)}>
-                  <option value="">Select room…</option>
-                  {roomOptions.map((room) => (
-                    <option key={room.value} value={room.value}>
-                      {room.label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            ) : null}
-          </div>
-          {leaseFile ? (
-            <label className="flex items-start gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={leaseFullyExecuted}
-                onChange={(e) => setLeaseFullyExecuted(e.target.checked)}
-              />
-              <span>Lease is fully signed off-platform (file as executed in Signed).</span>
-            </label>
           ) : null}
-          <label className="flex items-start gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={sendAccountSetup}
-              onChange={(e) => setSendAccountSetup(e.target.checked)}
+          <div data-wizard-picker="">
+            <PickerLabel label="Lease term" optional />
+            <FieldSingleSelect
+              label="Lease term"
+              hideLabel
+              value={leaseTermValue}
+              onChange={(next) => setField("leaseTerm", next)}
+              options={leaseTermOptions}
+              placeholder="Select term…"
+              dataAttr="property-onboard-leaseTerm"
             />
-            <span>Email portal account setup instructions after import.</span>
-          </label>
+          </div>
+          <WizardField label="Lease start">
+            <DateField
+              value={normalizeParsedDateForInput(fields.leaseStart)}
+              onChange={(iso) => setField("leaseStart", iso)}
+              data-attr="property-onboard-leaseStart"
+            />
+          </WizardField>
+          <WizardField label="Lease end">
+            <DateField
+              value={normalizeParsedDateForInput(fields.leaseEnd)}
+              onChange={(iso) => setField("leaseEnd", iso)}
+              data-attr="property-onboard-leaseEnd"
+            />
+          </WizardField>
+          {money("monthlyRent", "Monthly rent", "875.00")}
+          {money("securityDeposit", "Security deposit", "875.00")}
+          {money("monthlyUtilities", "Monthly utilities", "120.00")}
         </div>
+        <PortalSettingsGroup>
+          {leaseFile ? (
+            <PortalSettingsRow label="Lease signed off-platform">
+              <PortalSettingsToggle
+                checked={leaseFullyExecuted}
+                onChange={setLeaseFullyExecuted}
+                label="Lease signed off-platform"
+                dataAttr="property-onboard-lease-executed"
+              />
+            </PortalSettingsRow>
+          ) : null}
+          <PortalSettingsRow label="Email portal account setup">
+            <PortalSettingsToggle
+              checked={sendAccountSetup}
+              onChange={setSendAccountSetup}
+              label="Email portal account setup"
+              dataAttr="property-onboard-send-setup"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </div>
 
       <input
         ref={applicationUploadRef}
@@ -464,17 +561,6 @@ export function PropertyResidentOnboardWizard({
         }}
       />
 
-      <ModalFooter>
-        <Button
-          type="button"
-          variant="primary"
-          disabled={busy || (!applicationFile && !leaseFile)}
-          onClick={() => void handleImport()}
-          data-attr="property-onboard-import"
-        >
-          {busy ? "Importing…" : "Import resident"}
-        </Button>
-      </ModalFooter>
-    </Modal>
+    </PortalDialog>
   );
 }
