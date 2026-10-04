@@ -74,6 +74,8 @@ export function MoveInFormChooser({
       // A pick-one chooser has no form values to snapshot: no empty left column, no "Preview: No changes".
       contextPanel={null}
       preview={null}
+      // Three tiles and an optional copy picker: a content-sized dialog, not the full popup frame.
+      fullScreenMobile={false}
       dataAttr="move-in-form-chooser"
     >
       {view === "main" ? (
@@ -109,6 +111,7 @@ export function MoveInFormChooser({
             <div className="space-y-3 border-t border-border/70 pt-4">
               <FieldSingleSelect
                 label="Copy from another property"
+                labelClassName="mb-2 block text-sm font-semibold text-foreground"
                 value={sourceId}
                 onChange={setSourceId}
                 placeholder="Choose a property"
@@ -121,6 +124,7 @@ export function MoveInFormChooser({
               {source ? (
                 <FieldSingleSelect
                   label="Form"
+                  labelClassName="mb-2 block text-sm font-semibold text-foreground"
                   value=""
                   onChange={(id) => {
                     const template = source.templates.find((item) => item.id === id);
