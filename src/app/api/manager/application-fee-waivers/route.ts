@@ -42,9 +42,17 @@ export async function POST(req: Request) {
   const ctx = await requireManagerRouteUser();
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as CreateBody;
-  if (Array.isArray(body.propertyIds) && body.propertyIds.length > 0) {
-    const owned = await assertPropertiesOwnedByManager(ctx.db, ctx.userId, body.propertyIds.map(String));
-    if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
+  // The manager is the signed-in session's, never the body's; a property limit may only name properties that
+  // manager owns. The list that is checked is the list that is stored (the same normalized array).
+  let propertyIds: string[] | null = null;
+  if (Array.isArray(body.propertyIds)) {
+    propertyIds = body.propertyIds.map(String);
+    if (propertyIds.length > 0) {
+      const owned = await assertPropertiesOwnedByManager(ctx.db, ctx.userId, propertyIds);
+      if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
+    }
+  } else if (body.propertyIds != null) {
+    return NextResponse.json({ error: "propertyIds must be a list." }, { status: 400 });
   }
   const result = await createApplicationFeeWaiverCode(ctx.db, ctx.userId, {
     code: body.code,
@@ -52,7 +60,7 @@ export async function POST(req: Request) {
     maxUses: body.maxUses ?? null,
     expiresAt: body.expiresAt ?? null,
     appliesTo: (body.appliesTo ?? null) as CreateWaiverCodeInput["appliesTo"],
-    propertyIds: body.propertyIds ?? null,
+    propertyIds,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ code: result.code });

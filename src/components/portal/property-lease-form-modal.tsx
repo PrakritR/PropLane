@@ -22,7 +22,7 @@ import {
   type PropertyFormStartFrom,
 } from "@/components/portal/property-form-wizard-kit";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { applicationsOfLease, setApplicationsOfLease } from "@/lib/listing-inline-forms";
@@ -1208,9 +1208,7 @@ export function PropertyLeaseFormModal({
                 onChange={(raw) => setLeaseFeeText(sanitizeMoneyInput(raw))}
               />
             </PropertyFormWizardRow>
-            <PropertyFormWizardRow label="Promo codes">
-              <FormPromoCodesAction kind="lease" propertyId={propertyId} propertyLabel={null} dataAttr="property-lease-promo-codes" />
-            </PropertyFormWizardRow>
+            <FormPromoCodesRow variant="wizard" kind="lease" propertyId={propertyId} propertyLabel={null} dataAttr="property-lease-promo-codes" />
           </PropertyFormWizardCard>
         </StepColumn>
       ) : null}

@@ -93,7 +93,7 @@ import {
   type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
@@ -1824,14 +1824,13 @@ export function ManagerApplicationQuestionsEditorModal({
                     }}
                   />
                 </PropertyFormWizardRow>
-                <PropertyFormWizardRow label="Promo codes">
-                  <FormPromoCodesAction
-                    kind="application"
-                    propertyId={applicationPreviewPropertyId}
-                    propertyLabel={null}
-                    dataAttr="application-promo-codes"
-                  />
-                </PropertyFormWizardRow>
+                <FormPromoCodesRow
+                  variant="wizard"
+                  kind="application"
+                  propertyId={applicationPreviewPropertyId}
+                  propertyLabel={null}
+                  dataAttr="application-promo-codes"
+                />
               </PropertyFormWizardCard>
             ) : null}
             {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave &&

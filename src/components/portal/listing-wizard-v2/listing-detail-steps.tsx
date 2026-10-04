@@ -112,7 +112,7 @@ import { orderedEditorApplicationFields } from "@/lib/application-editor-fields"
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { pricingLeaseOptions, type PricingLeaseOption } from "@/lib/pricing-lease-options";
 import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
-import { FormPromoCodesAction } from "@/components/portal/form-promo-codes";
+import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents, templateFeeCents } from "@/lib/form-template-fees";
 import {
   applicationWithDefaultLinks,
@@ -788,14 +788,14 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   }
                 />
               </FactRow>
-              <FactRow label="Promo codes">
-                <FormPromoCodesAction
-                  kind="application"
-                  propertyId={doors.recordId}
-                  propertyLabel={synced.buildingName || synced.address}
-                  dataAttr="listing-v2-application-promo-codes"
-                />
-              </FactRow>
+              <FormPromoCodesRow
+                variant="fact"
+                kind="application"
+                propertyId={doors.recordId}
+                propertyLabel={synced.buildingName || synced.address}
+                ensureSaved={doors.ensureSaved}
+                dataAttr="listing-v2-application-promo-codes"
+              />
               <div className={BODY_PAD}>
                 <InlineApplicationQuestions
                   sub={synced}
@@ -1150,14 +1150,14 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
                   onChange={(raw) => patchLease(template.id, { leaseFeeCents: moneyTextToCents(sanitizeMoneyInput(raw)) })}
                 />
               </FactRow>
-              <FactRow label="Promo codes">
-                <FormPromoCodesAction
-                  kind="lease"
-                  propertyId={doors.recordId}
-                  propertyLabel={synced.buildingName || synced.address}
-                  dataAttr="listing-v2-lease-promo-codes"
-                />
-              </FactRow>
+              <FormPromoCodesRow
+                variant="fact"
+                kind="lease"
+                propertyId={doors.recordId}
+                propertyLabel={synced.buildingName || synced.address}
+                ensureSaved={doors.ensureSaved}
+                dataAttr="listing-v2-lease-promo-codes"
+              />
               {showOptions
                 ? LEASE_OPTIONS.map((option) => (
                     <FactRow key={option.key} label={option.label}>
