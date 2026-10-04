@@ -1,8 +1,8 @@
 "use client";
 import {
-  allowedTermsAfterLeaseOptions,
   offeredStayTypeTerms,
   stayTypeLabelForLeaseKindDisplay,
+  submissionWithLeaseTemplates,
   type LeaseOptionKey,
 } from "@/lib/property-form-stay-type-routing";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
@@ -32,7 +32,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   persistManagerListingSubmissionOnServer,
   resolveManagerListingSubmissionForPropertyId,
@@ -217,20 +217,9 @@ export function ManagerPropertyLeasePanel({
           continue;
         }
         const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
-        const synced = syncLegacyLeaseFieldsFromTemplates(base, nextTemplates);
         // Same as the single path, per property: "Allow custom dates" / "Allow month-to-month" change
         // only the touched terms of THIS listing's allowed terms (its other terms are its own).
-        const next =
-          touchedLeaseOptions && touchedLeaseOptions.length > 0
-            ? {
-                ...synced,
-                allowedLeaseTerms: allowedTermsAfterLeaseOptions(
-                  resolveAllowedLeaseTerms(hit.sub),
-                  nextTemplates,
-                  touchedLeaseOptions,
-                ),
-              }
-            : synced;
+        const next = submissionWithLeaseTemplates(base, nextTemplates, touchedLeaseOptions ?? []);
         if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) saved += 1;
         else failed += 1;
       }

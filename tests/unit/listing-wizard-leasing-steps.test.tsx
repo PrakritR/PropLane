@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // Add property / Edit listing carry four leasing steps between Shared spaces and Review
-// (captain, Oct 3): Application, Lease, Move-in, Pricing. Each is a few flat rows with an
-// "Edit in full" pencil that opens the property's own editor; Review lists them too; and
-// the property record's sidebar puts Move-in under Leasing.
+// (captain, Oct 3): Application, Lease, Move-in, Pricing. Each row edits IN PLACE (a switch, the
+// fee, a Sends dropdown, and a chevron that unfolds the rest) - there is no pencil and no modal.
+// Review lists the steps too; and the property record's sidebar puts Move-in under Leasing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 
@@ -19,34 +19,13 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-// The full editors are tested where they live; here we only prove the right one opens for the right row.
-vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
-  ManagerApplicationQuestionsEditorModal: (props: { applicationTemplate?: { label: string } | null; applicationPreviewPropertyId?: string }) => (
-    <div data-testid="application-editor">{props.applicationTemplate?.label}|{props.applicationPreviewPropertyId}</div>
-  ),
-}));
-vi.mock("@/components/portal/property-lease-form-modal", () => ({
-  PropertyLeaseFormModal: (props: { template?: { label: string } | null; propertyId?: string | null }) => (
-    <div data-testid="lease-editor">{props.template?.label}|{props.propertyId}</div>
-  ),
-}));
-vi.mock("@/components/portal/pro-lease-questions-editor-modal", () => ({
-  ManagerLeaseQuestionsEditorModal: () => <div data-testid="lease-questions-editor" />,
-}));
-vi.mock("@/components/portal/move-in-forms/move-in-form-editor-modal", () => ({
-  MoveInFormEditorModal: (props: { initial: { name: string }; propertyId: string; mode: string }) => (
-    <div data-testid="move-in-editor">{props.mode}|{props.initial.name}|{props.propertyId}</div>
-  ),
-}));
-vi.mock("@/components/portal/property-room-pricing-workspace", () => ({
-  PropertyRoomPricingWorkspace: (props: { subject: { kind: string; roomId?: string }; saveTarget: { mode: string; saveId: string } }) => (
-    <div data-testid="pricing-workspace">{props.subject.kind}|{props.subject.roomId}|{props.saveTarget.mode}|{props.saveTarget.saveId}</div>
-  ),
-}));
-
 import { ListingEditorV2, LISTING_V2_STEPS, listingRailChrome } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
-import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
+import { longTermPrivateArrangementRow, placementFeeOptionsFor, resolvePlacementStandardFees } from "@/lib/listing-placement-standard-fees";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { termFeeText } from "@/lib/room-term-fees";
 import { recordSections } from "@/lib/portals/record-sections";
 
 const showToast = vi.fn();
@@ -123,107 +102,391 @@ describe("the wizard rail", () => {
   });
 });
 
+/** The editor over real state, so an edit made in a step is what the next render (and the next step) reads. */
+function mountLive(initial: ReturnType<typeof sub> | Record<string, unknown> = sub(), props: Partial<React.ComponentProps<typeof ListingEditorV2>> = {}) {
+  let latest = initial as ReturnType<typeof sub>;
+  function Harness() {
+    const [value, setValue] = React.useState(initial as ReturnType<typeof sub>);
+    return (
+      <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
+        <ListingEditorV2
+          title="400 Pike Street"
+          submission={value}
+          onChange={(next) => {
+            latest = next as ReturnType<typeof sub>;
+            setValue(next as ReturnType<typeof sub>);
+          }}
+          onClose={() => {}}
+          onPublish={() => {}}
+          managerUserId="manager-1"
+          showToast={showToast}
+          {...props}
+        />
+      </PortalAssistantConfigProvider>
+    );
+  }
+  render(<Harness />);
+  return { latest: () => latest };
+}
+
+const q = (selector: string) => document.querySelector(selector) as HTMLElement | null;
+const qa = (selector: string) => Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+
+function tapOption(label: string) {
+  const listbox = screen.getAllByRole("listbox").at(-1)!;
+  const option = Array.from(listbox.querySelectorAll('[role="option"]')).find((node) => node.textContent?.includes(label));
+  expect(option, `option ${label}`).toBeTruthy();
+  fireEvent.pointerDown(option!, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option!, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
+function lease(id: string, label: string, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    kind: "long-term",
+    label,
+    leaseConfigMode: "standard",
+    leaseCustomKind: "terms",
+    customLeaseTerms: "",
+    leaseTemplateDocUrl: null,
+    leaseTemplateDocName: "",
+    createdAt: "2026-10-01T00:00:00Z",
+    updatedAt: "2026-10-01T00:00:00Z",
+    ...extra,
+  };
+}
+
+function subWithLeases() {
+  const base = sub();
+  return {
+    ...base,
+    propertyLeaseTemplates: [
+      lease("l1", "Long-term lease", { listingSeedKey: "primary", applicationLeaseTerms: ["12-Month"] }),
+      lease("l2", "Pet addendum", { kind: "custom", leaseConfigMode: "custom", leaseCustomKind: "document", leaseTemplateDocUrl: "https://x/y.pdf", leaseTemplateDocName: "pets.pdf" }),
+    ],
+  } as unknown as typeof base;
+}
+
 describe("Application step", () => {
-  it("shows each application with its fee, a pencil per row, and the workspace 'before a tour' setting read-only", async () => {
-    mount({ propertyId: "prop-1", onOpenSettings: vi.fn() });
+  it("every row has the Needed switch, the fee, a chevron and a menu; there is no pencil and no modal", () => {
+    mountLive();
     go("application");
-    const rows = document.querySelectorAll("[data-attr='listing-v2-application-row']");
-    expect(rows.length).toBeGreaterThan(0);
-    expect(document.querySelectorAll("[data-attr='listing-v2-application-edit']")).toHaveLength(rows.length);
-    expect(screen.getAllByRole("button", { name: /^Edit .* in full$/ }).length).toBe(rows.length);
-    await waitFor(() => expect(document.querySelector("[data-attr='listing-v2-application-before-tour']")!.textContent).toContain("Required"));
-    // read-only: the value is text, there is no select to change it here
-    expect(document.querySelector("[data-attr='listing-v2-application-before-tour'] select, [data-attr='listing-v2-application-before-tour'] input")).toBeNull();
+    const rows = qa("[data-attr='listing-v2-application-row']");
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    for (const row of rows) {
+      expect(row.querySelector("[data-attr='listing-v2-application-needed']")).not.toBeNull();
+      expect(row.querySelector("[data-attr='listing-v2-application-fee']")).not.toBeNull();
+      expect(row.querySelector("[data-attr='listing-v2-application-toggle']")).not.toBeNull();
+      expect(row.querySelector("[data-attr='listing-v2-application-menu']")).not.toBeNull();
+    }
+    expect(q("[data-attr='listing-v2-application-edit']")).toBeNull();
+    expect(screen.queryByRole("button", { name: /in full$/ })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("Edit in full opens the application editor for that template", async () => {
-    mount({ propertyId: "prop-1" });
+  it("the Needed switch persists in the submission and defaults to needed", () => {
+    const live = mountLive();
     go("application");
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-application-edit']")!);
-    await waitFor(() => expect(screen.getByTestId("application-editor").textContent).toMatch(/\|prop-1$/));
+    const first = qa("[data-attr='listing-v2-application-needed']")[0]!;
+    expect(first.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(first);
+    const stored = readPropertyApplicationTemplates(live.latest());
+    expect(stored[0]!.offered).toBe(false);
+    expect(qa("[data-attr='listing-v2-application-needed']")[0]!.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(qa("[data-attr='listing-v2-application-needed']")[0]!);
+    expect(readPropertyApplicationTemplates(live.latest())[0]!.offered).toBe(true);
   });
 
-  it("a brand-new draft saves first, then opens; it never opens without a record", async () => {
-    const ensureSaved = vi.fn(async () => "draft-9");
-    mount({ ensureSaved });
+  it("the fee box writes the Pricing step's field, so Pricing and the resolver show what Application typed", () => {
+    const live = mountLive();
     go("application");
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-application-edit']")!);
-    await waitFor(() => expect(screen.getByTestId("application-editor").textContent).toMatch(/\|draft-9$/));
-    expect(ensureSaved).toHaveBeenCalledTimes(1);
+    const fee = qa("[data-attr='listing-v2-application-fee']")[0] as HTMLInputElement;
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "75" } });
+    const room = live.latest().rooms[0]!;
+    // the resolver (the quote, the application fee charged, the lease) reads the room's own fee
+    expect(resolvePlacementStandardFees(live.latest(), placementFeeOptionsFor(live.latest(), { room, leaseTerm: "Long-term" })).applicationFee).toBe(75);
+    // the same field the Pricing step's box edits
+    expect(termFeeText(longTermPrivateArrangementRow(room), "applicationFee", "long").value).toBe("75");
+    // and the Application row reads it back
+    expect((qa("[data-attr='listing-v2-application-fee']")[0] as HTMLInputElement).value).toBe("75");
+    go("pricing");
+    fireEvent.click(qa("[data-attr='listing-v2-pricing-toggle']")[0]!);
+    expect((q("[data-attr='arrangement-application-fee-long']") as HTMLInputElement).value).toBe("75");
   });
 
-  it("with no way to save, Edit in full says so instead of opening", async () => {
-    mount();
+  it("editing the Short term application's fee writes the Short term fee only", () => {
+    const live = mountLive();
     go("application");
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-application-edit']")!);
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Save the property first, then edit in full."));
-    expect(screen.queryByTestId("application-editor")).toBeNull();
+    const rows = qa("[data-attr='listing-v2-application-row']");
+    const shortRow = rows.find((row) => /Short-term application/.test(row.textContent ?? ""))!;
+    const fee = shortRow.querySelector("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
+    fireEvent.focus(fee);
+    fireEvent.change(fee, { target: { value: "30" } });
+    const room = live.latest().rooms[0]!;
+    expect(resolvePlacementStandardFees(live.latest(), placementFeeOptionsFor(live.latest(), { room, rentalType: "short_term" })).applicationFee).toBe(30);
+    expect(room.termPricing?.["Short-Term Stay"]?.applicationFee).toBe("30");
+    expect(longTermPrivateArrangementRow(room).applicationFee ?? "").toBe("");
+  });
+
+  it("the chevron unfolds the row in place: name, lease and the questions, no modal", () => {
+    mountLive();
+    go("application");
+    fireEvent.click(qa("[data-attr='listing-v2-application-toggle']")[0]!);
+    const body = q("[data-attr='listing-v2-application-row-body']")!;
+    expect(body.querySelector("[data-attr='listing-v2-application-name']")).not.toBeNull();
+    expect(body.querySelector("[data-attr='listing-v2-application-lease']")).not.toBeNull();
+    expect(body.querySelector("[data-attr='listing-v2-application-questions']")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("renaming and editing a question inline land on the template's draft config", () => {
+    const live = mountLive();
+    go("application");
+    fireEvent.click(qa("[data-attr='listing-v2-application-toggle']")[0]!);
+    const name = q("[data-attr='listing-v2-application-name']") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Room application" } });
+    expect(readPropertyApplicationTemplates(live.latest())[0]!.label).toBe("Room application");
+    fireEvent.click(q("[data-attr='application-questions-add']")!);
+    const draft = readPropertyApplicationTemplates(live.latest())[0]!.draftQuestionConfig!;
+    expect(draft.applicationConfigMode).toBe("custom");
+    expect(draft.customApplicationFields.length).toBe(1);
+  });
+
+  it("+ Add application adds one inline, already open, started from the PropLane standard", () => {
+    const live = mountLive();
+    go("application");
+    const before = qa("[data-attr='listing-v2-application-row']").length;
+    fireEvent.click(q("[data-attr='listing-v2-application-add']")!);
+    const after = readPropertyApplicationTemplates(live.latest());
+    expect(after.length).toBe(before + 1);
+    const created = after.at(-1)!;
+    expect(created.listingSeedKey).toBeUndefined();
+    expect(created.draftQuestionConfig?.applicationConfigMode).toBe("custom");
+    expect(q("[data-attr='listing-v2-application-start-from']")).not.toBeNull();
+    expect(q("[data-attr='listing-v2-application-questions']")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("Duplicate copies a row; Delete (last, after a tap to confirm) removes it", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const live = mountLive();
+    go("application");
+    const before = qa("[data-attr='listing-v2-application-row']").length;
+    fireEvent.pointerDown(qa("[data-attr='listing-v2-application-menu']")[0]!, { button: 0, ctrlKey: false });
+    fireEvent.click(qa("[data-attr='listing-v2-application-menu']")[0]!);
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Duplicate", "Delete"]);
+    fireEvent.click(items[0]!);
+    expect(readPropertyApplicationTemplates(live.latest()).length).toBe(before + 1);
+    expect(readPropertyApplicationTemplates(live.latest()).some((row) => /copy$/.test(row.label))).toBe(true);
+  });
+
+  it("'Application before a tour' reads Not needed by default and saves a pick to the workspace setting", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "PATCH" ? { ok: true, json: async () => ({}) } : { ok: true, json: async () => ({}) },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mountLive();
+    go("application");
+    const trigger = q("[data-attr='listing-v2-application-before-tour-select']")!;
+    expect(trigger.textContent).toContain("Not needed");
+    expect(q("[data-attr='listing-v2-application-before-tour']")!.textContent).not.toContain("—");
+    fireEvent.click(trigger);
+    tapOption("Required");
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
+      expect(patch).toBeTruthy();
+      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual({ leasingPipeline: { applicationBeforeTour: "required" } });
+    });
+    expect(q("[data-attr='listing-v2-application-before-tour-select']")!.textContent).toContain("Required");
+  });
+
+  it("'Application before a tour' shows the stored workspace value once it arrives", async () => {
+    mountLive();
+    go("application");
+    await waitFor(() => expect(q("[data-attr='listing-v2-application-before-tour-select']")!.textContent).toContain("Required"));
   });
 });
 
 describe("Lease step", () => {
-  it("lists the property's leases and opens the lease editor for the picked row", async () => {
-    const base = sub();
-    mount({
-      propertyId: "prop-1",
-      submission: {
-        ...base,
-        propertyLeaseTemplates: [
-          { id: "l1", kind: "long-term", label: "Long-term lease", listingSeedKey: "primary", leaseConfigMode: "standard", leaseCustomKind: "terms", customLeaseTerms: "", leaseTemplateDocUrl: null, leaseTemplateDocName: "", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
-          { id: "l2", kind: "custom", label: "Pet addendum", leaseConfigMode: "custom", leaseCustomKind: "document", customLeaseTerms: "", leaseTemplateDocUrl: "https://x/y.pdf", leaseTemplateDocName: "pets.pdf", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
-        ],
-      } as typeof base,
-    });
+  it("every lease row has the Offered switch, its type, its applications and the two options, with no pencil", () => {
+    mountLive(subWithLeases());
     go("lease");
-    const rows = document.querySelectorAll("[data-attr='listing-v2-lease-row']");
+    const rows = qa("[data-attr='listing-v2-lease-row']");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain("Long-term lease");
     expect(rows[1]!.textContent).toContain("Pet addendum");
-    expect(document.querySelectorAll("[data-attr='listing-v2-lease-edit']")).toHaveLength(2);
-    fireEvent.click(document.querySelectorAll("[data-attr='listing-v2-lease-edit']")[1]!);
-    await waitFor(() => expect(screen.getByTestId("lease-editor").textContent).toBe("Pet addendum|prop-1"));
+    for (const row of rows) {
+      expect(row.querySelector("[data-attr='listing-v2-lease-offered']")).not.toBeNull();
+      expect(row.querySelector("[data-attr='listing-v2-lease-type']")).not.toBeNull();
+      expect(row.querySelector("[data-attr='listing-v2-lease-applications']")).not.toBeNull();
+    }
+    expect(rows[0]!.querySelector("[data-attr='listing-v2-lease-allow-custom-dates']")).not.toBeNull();
+    expect(rows[0]!.querySelector("[data-attr='listing-v2-lease-allow-month-to-month']")).not.toBeNull();
+    expect(q("[data-attr='listing-v2-lease-edit']")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a brand-new draft shows the lease types it offers as defaults, with no Edit in full yet", () => {
-    mount();
+  it("the Offered switch persists", () => {
+    const live = mountLive(subWithLeases());
     go("lease");
-    expect(document.querySelectorAll("[data-attr='listing-v2-lease-default-row']").length).toBeGreaterThan(0);
-    expect(document.querySelector("[data-attr='listing-v2-lease-edit']")).toBeNull();
+    fireEvent.click(qa("[data-attr='listing-v2-lease-offered']")[1]!);
+    expect(readPropertyLeaseTemplates(live.latest()).find((row) => row.id === "l2")!.offered).toBe(false);
+  });
+
+  it("Allow custom dates writes the lease's applicationLeaseTerms AND the listing's allowedLeaseTerms", () => {
+    const live = mountLive(subWithLeases());
+    go("lease");
+    const box = qa("[data-attr='listing-v2-lease-allow-custom-dates']")[0] as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    const stored = live.latest();
+    expect(readPropertyLeaseTemplates(stored).find((row) => row.id === "l1")!.applicationLeaseTerms).toContain("Custom");
+    expect(resolveAllowedLeaseTerms(stored)).toContain("Custom");
+    expect((qa("[data-attr='listing-v2-lease-allow-custom-dates']")[0] as HTMLInputElement).checked).toBe(true);
+    // and back off: both sides drop it
+    fireEvent.click(qa("[data-attr='listing-v2-lease-allow-custom-dates']")[0]!);
+    expect(readPropertyLeaseTemplates(live.latest()).find((row) => row.id === "l1")!.applicationLeaseTerms).not.toContain("Custom");
+    expect(resolveAllowedLeaseTerms(live.latest())).not.toContain("Custom");
+  });
+
+  it("Allow month-to-month does the same for month-to-month", () => {
+    const live = mountLive(subWithLeases());
+    go("lease");
+    fireEvent.click(qa("[data-attr='listing-v2-lease-allow-month-to-month']")[0]!);
+    expect(readPropertyLeaseTemplates(live.latest()).find((row) => row.id === "l1")!.applicationLeaseTerms).toContain("Month-to-Month");
+    expect(resolveAllowedLeaseTerms(live.latest())).toContain("Month-to-Month");
+  });
+
+  it("the chevron unfolds the name, Start from and the clause editor in place", () => {
+    mountLive(subWithLeases());
+    go("lease");
+    fireEvent.click(qa("[data-attr='listing-v2-lease-toggle']")[0]!);
+    const body = q("[data-attr='listing-v2-lease-row-body']")!;
+    expect(body.querySelector("[data-attr='listing-v2-lease-name']")).not.toBeNull();
+    expect(body.querySelector("[data-attr='listing-v2-lease-start-from']")).not.toBeNull();
+    expect(body.querySelector("[data-attr='listing-v2-lease-document'], [data-attr='listing-v2-lease-upload']")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("+ Add lease adds a PropLane standard lease inline, open", () => {
+    const live = mountLive(subWithLeases());
+    go("lease");
+    const before = readPropertyLeaseTemplates(live.latest()).length;
+    fireEvent.click(q("[data-attr='listing-v2-lease-add']")!);
+    const after = readPropertyLeaseTemplates(live.latest());
+    expect(after.length).toBe(before + 1);
+    expect(q("[data-attr='listing-v2-lease-start-from']")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a brand-new draft shows the lease types it offers as off, and switching one on adds it", () => {
+    const live = mountLive();
+    go("lease");
+    expect(qa("[data-attr='listing-v2-lease-default-row']").length).toBeGreaterThan(0);
+    fireEvent.click(qa("[data-attr='listing-v2-lease-default-offered']")[0]!);
+    expect(readPropertyLeaseTemplates(live.latest()).length).toBe(1);
+  });
+
+  it("an application and a lease are linked from either side, and both sides agree", async () => {
+    const base = subWithLeases();
+    const live = mountLive({
+      ...base,
+      propertyApplicationTemplates: [
+        { id: "a1", kind: "long-term", formVariant: "standard", label: "Standard application", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
+        { id: "a2", kind: "long-term", formVariant: "standard", label: "Quick application", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" },
+      ],
+      propertyApplicationTemplatesExplicit: true,
+    });
+    // from the application side: Standard application -> Pet addendum
+    go("application");
+    fireEvent.click(qa("[data-attr='listing-v2-application-toggle']")[0]!);
+    fireEvent.click(q("[data-attr='listing-v2-application-lease']")!);
+    tapOption("Pet addendum");
+    expect(readPropertyApplicationTemplates(live.latest()).find((row) => row.id === "a1")!.linkedLeaseTemplateId).toBe("l2");
+    // the lease side shows it
+    go("lease");
+    const petRow = qa("[data-attr='listing-v2-lease-row']").find((row) => /Pet addendum/.test(row.textContent ?? ""))!;
+    expect(petRow.querySelector("[data-attr='listing-v2-lease-applications']")!.textContent).toContain("Standard application");
+    // from the lease side: Long-term lease also serves Quick application
+    const longRow = qa("[data-attr='listing-v2-lease-row']")[0]!;
+    fireEvent.click(longRow.querySelector("[data-attr='listing-v2-lease-applications']")!);
+    const box = screen.getAllByRole("option").find((node) => node.textContent?.includes("Quick application"))!;
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(box, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(readPropertyApplicationTemplates(live.latest()).find((row) => row.id === "a2")!.linkedLeaseTemplateId).toBe("l1");
+    // the application side shows it
+    go("application");
+    fireEvent.click(qa("[data-attr='listing-v2-application-toggle']")[1]!);
+    await waitFor(() => expect(qa("[data-attr='listing-v2-application-lease']")[0]!.textContent).toContain("Long-term lease"));
   });
 });
 
 describe("Move-in step", () => {
-  it("lists the move-in forms with their Sends setting and opens the form editor", async () => {
-    mount({ propertyId: "prop-1" });
+  it("each form's Sends is a dropdown in the row; picking one saves it with no modal", async () => {
+    const live = mountLive();
     go("movein");
-    const rows = document.querySelectorAll("[data-attr='listing-v2-movein-row']");
-    // A property that never saved its forms shows every built-in starter.
+    const rows = qa("[data-attr='listing-v2-movein-row']");
     expect(rows.length).toBe(UNSAVED_FORM_COUNT);
-    // Each row carries its Sends setting; the lease-signed default reads "... lease is signed".
-    expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sends [^·]*lease is signed/i);
-    expect(document.querySelector("[data-attr='listing-v2-movein-rows']")!.textContent).toMatch(/Sent by hand/);
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-movein-edit']")!);
-    await waitFor(() => expect(screen.getByTestId("move-in-editor").textContent).toMatch(/^edit\|/));
+    expect(q("[data-attr='listing-v2-movein-edit']")).toBeNull();
+    const sends = rows[1]!.querySelector("[data-attr='listing-v2-movein-sends']")!;
+    expect(sends.textContent).toMatch(/lease is signed/i);
+    fireEvent.click(sends);
+    tapOption("Only when I send it");
+    const stored = readMoveInFormTemplates(live.latest());
+    expect(stored[1]!.trigger).toBe("manual");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the chevron unfolds the form's questions in place, and a question can be added", () => {
+    const live = mountLive();
+    go("movein");
+    fireEvent.click(qa("[data-attr='listing-v2-movein-toggle']")[0]!);
+    expect(q("[data-attr='move-in-questions-editor']")).not.toBeNull();
+    const before = readMoveInFormTemplates(live.latest())[0]!.questions.length;
+    fireEvent.click(qa("[data-attr='move-in-form-add-question']")[0]!);
+    // a blank question is held in the open form until it has words, then it is stored
+    expect(readMoveInFormTemplates(live.latest())[0]!.questions.length).toBe(before);
+    const blank = (screen.getAllByPlaceholderText("e.g. Do you smoke?") as HTMLInputElement[]).find((input) => input.value === "")!;
+    fireEvent.change(blank, { target: { value: "Parking permit number" } });
+    const stored = readMoveInFormTemplates(live.latest())[0]!.questions;
+    expect(stored.length).toBe(before + 1);
+    expect(stored.some((question) => question.label === "Parking permit number")).toBe(true);
+  });
+
+  it("+ Add form adds one inline, open, that never sends until the manager picks when", () => {
+    const live = mountLive();
+    go("movein");
+    fireEvent.click(q("[data-attr='listing-v2-movein-add']")!);
+    const forms = readMoveInFormTemplates(live.latest());
+    expect(forms.length).toBe(UNSAVED_FORM_COUNT + 1);
+    expect(forms.at(-1)!.trigger).toBe("manual");
+    expect(q("[data-attr='listing-v2-movein-start-from']")).not.toBeNull();
   });
 });
 
 describe("Pricing step", () => {
-  it("shows each room's rent and the main fees, and opens the room's pricing workspace", async () => {
-    mount({ propertyId: "prop-1" });
+  it("a room unfolds its rent, deposit and fees in place; editing the rent writes the field the pricing workspace writes", () => {
+    const live = mountLive();
     go("pricing");
-    const text = document.querySelector("[data-attr='listing-v2-pricing-rows']")!.textContent!;
-    expect(text).toContain("Room A");
-    expect(text).toMatch(/\$1,100/);
-    expect(document.querySelector("[data-attr='listing-v2-pricing-fees']")!.textContent).toContain("Application fee");
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-pricing-edit']")!);
-    await waitFor(() => expect(screen.getByTestId("pricing-workspace").textContent).toBe("room|room-a|draft|prop-1"));
-  });
-
-  it("an existing listing saves through the listing target", async () => {
-    mount({ propertyId: "prop-1", isEdit: true });
-    go("pricing");
-    fireEvent.click(document.querySelector("[data-attr='listing-v2-pricing-edit']")!);
-    await waitFor(() => expect(screen.getByTestId("pricing-workspace").textContent).toBe("room|room-a|listing|prop-1"));
+    const row = q("[data-attr='listing-v2-pricing-row']")!;
+    expect(row.textContent).toContain("Room A");
+    expect(row.textContent).toMatch(/\$1,100/);
+    expect(q("[data-attr='listing-v2-pricing-edit']")).toBeNull();
+    fireEvent.click(q("[data-attr='listing-v2-pricing-toggle']")!);
+    const rent = screen.getByLabelText("Rent") as HTMLInputElement;
+    fireEvent.focus(rent);
+    fireEvent.change(rent, { target: { value: "1250" } });
+    const next = live.latest();
+    expect(next.rooms[0]!.monthlyRent).toBe(1250);
+    // the same patch the pricing workspace applies: marked as priced on its own
+    expect(next.roomPricingMeta?.["room-a"]?.priceSource).toBe("own");
+    const deposit = screen.getByLabelText("Deposit") as HTMLInputElement;
+    fireEvent.focus(deposit);
+    fireEvent.change(deposit, { target: { value: "500" } });
+    expect(live.latest().rooms[0]!.securityDeposit).toBe("500");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
