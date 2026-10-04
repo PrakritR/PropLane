@@ -946,6 +946,7 @@ export function ManagerPayments({
         }}
       />
       <ManagerAddOutgoingPaymentModal
+        basePath={basePath}
         open={addOutgoingOpen}
         onClose={() => setAddOutgoingOpen(false)}
         managerUserId={userId ?? null}

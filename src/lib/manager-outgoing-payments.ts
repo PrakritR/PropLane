@@ -280,6 +280,44 @@ export function buildVisitFeeOutgoingRows(
   return rows;
 }
 
+/** One expense recorded to a saved payee, as the Outgoing page lists it (the Paid tab; an expense is a payment already made). */
+export type PayeePaymentRow = {
+  id: string;
+  payeeId: string;
+  name: string;
+  typeLabel: string;
+  referenceLabel?: string;
+  propertyId: string | null;
+  amountCents: number;
+  dateIso: string;
+  memo: string;
+};
+
+/** The expenses that name a saved payee, newest first. An expense whose payee is gone (archived) keeps no row here. */
+export function buildPayeePaymentRows(
+  expenses: readonly ManagerExpenseSnapshot[],
+  payeeById: ReadonlyMap<string, ManagerPayee>,
+): PayeePaymentRow[] {
+  const rows: PayeePaymentRow[] = [];
+  for (const expense of expenses) {
+    const payee = expense.payeeId ? payeeById.get(expense.payeeId) : undefined;
+    if (!payee) continue;
+    const details = outgoingPayeeDetails(payee);
+    rows.push({
+      id: `payee-payment-${expense.id}`,
+      payeeId: payee.id,
+      name: details.name,
+      typeLabel: details.typeLabel,
+      referenceLabel: details.referenceLabel,
+      propertyId: expense.propertyId ?? null,
+      amountCents: expense.amountCents,
+      dateIso: expense.expenseDate,
+      memo: expense.memo?.trim() ?? "",
+    });
+  }
+  return rows.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+}
+
 export function buildManagerOutgoingPaymentRows(input: {
   managerUserId: string | null;
   expenses: ManagerExpenseSnapshot[];

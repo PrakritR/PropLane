@@ -403,7 +403,7 @@ export function ManagerOutgoingPaymentsPanel({
         add={
           onAddPayment
             ? {
-                ariaLabel: "Add outgoing payment",
+                ariaLabel: "Add payment",
                 icon: PORTAL_LIST_ADD_ICONS.payment,
                 onClick: onAddPayment,
                 dataAttr: "payments-list-add",
@@ -505,7 +505,7 @@ export function ManagerOutgoingPaymentsPanel({
       add={
         onAddPayment
           ? {
-              ariaLabel: "Add outgoing payment",
+              ariaLabel: "Add payment",
               icon: PORTAL_LIST_ADD_ICONS.payment,
               onClick: onAddPayment,
               dataAttr: "payments-list-add",
