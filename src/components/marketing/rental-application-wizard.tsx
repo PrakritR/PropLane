@@ -592,7 +592,11 @@ function RentalApplicationWizardInner({
     // "Which lease are you applying for?" picks the form: the application mapped to the chosen lease
     // type wins; otherwise the stay kind's default published form.
     const linkedPin = applicationPinForLinkedForm(submission, linkedFormIdRef.current);
-    const leasePin = linkedPin ?? applicationPinForStayTerm(submission, form.leaseTerm);
+    const leasePin = linkedPin ?? applicationPinForStayTerm(
+      submission,
+      form.leaseTerm,
+      form.rentalType === "short_term" || form.rentalType === "airbnb" ? "short_term" : "long_term",
+    );
     const resolved = leasePin
       ? { templateId: leasePin.templateId, templateVersion: leasePin.templateVersion }
       : applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), null);
@@ -1565,7 +1569,11 @@ function RentalApplicationWizardInner({
       if ("leaseTerm" in p && p.leaseTerm !== f.leaseTerm && !("rentalType" in p && p.rentalType !== f.rentalType)) {
         const sub = getPropertyById(merged.propertyId)?.listingSubmission;
         const leasePin = sub && sub.v === 1 && String(p.leaseTerm ?? "").trim()
-          ? applicationPinForStayTerm(sub, String(p.leaseTerm))
+          ? applicationPinForStayTerm(
+              sub,
+              String(p.leaseTerm),
+              merged.rentalType === "short_term" || merged.rentalType === "airbnb" ? "short_term" : "long_term",
+            )
           : null;
         const formChosenByLink = Boolean(linkedFormIdRef.current) && merged.applicationTemplateId === linkedFormIdRef.current;
         if (!formChosenByLink && leasePin && leasePin.templateId !== merged.applicationTemplateId) {

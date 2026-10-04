@@ -46,6 +46,9 @@ function sub() {
   };
 }
 
+/** A listing that offers both stays (Basics: Stays you offer), so every section of a leasing step is drawn. */
+const bothStays = () => ({ ...sub(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] });
+
 function mount(props: Partial<React.ComponentProps<typeof ListingEditorV2>> = {}) {
   render(
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
@@ -193,7 +196,7 @@ async function openMenu(trigger: HTMLElement) {
 
 describe("Application step", () => {
   it("is the Rooms pattern: a count heading with the round +, one card per application with a menu and plain facts", () => {
-    mountLive();
+    mountLive(bothStays());
     go("application");
     expect(headingText()).toBe("3 applications");
     expect(q(".pr9-top [data-attr='listing-v2-add-application-icon']")).not.toBeNull();
@@ -212,16 +215,20 @@ describe("Application step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("the menu is Edit, Duplicate and a red Delete last", async () => {
-    mountLive();
+  it("the menu is Edit first, the default / applies-to moves, Duplicate, and a red Delete last", async () => {
+    mountLive(bothStays());
     go("application");
     const items = await openMenu(q("[data-attr='listing-v2-application-menu']")!);
-    expect(items.map((item) => item.textContent)).toEqual(["Edit", "Duplicate", "Delete"]);
-    expect(items[2]!.className).toContain("text-red");
+    const labels = items.map((item) => item.textContent);
+    expect(labels[0]).toBe("Edit");
+    expect(labels.slice(-2)).toEqual(["Duplicate", "Delete"]);
+    expect(labels).toContain("Applies to short term residents");
+    expect(labels).toContain("Applies to both");
+    expect(items.at(-1)!.className).toContain("text-red");
   });
 
   it("opening a card unfolds the editor in place: Needed, fee, lease, questions; Done closes it", () => {
-    mountLive();
+    mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const editor = q("[data-attr='listing-v2-application-editor']")!;
@@ -235,7 +242,7 @@ describe("Application step", () => {
   });
 
   it("the Needed switch persists in the submission and defaults to needed", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const toggle = q("[data-attr='listing-v2-application-needed']")!;
@@ -249,7 +256,7 @@ describe("Application step", () => {
   });
 
   it("the fee box is the APPLICATION's own fee: it writes the template, and the rooms follow it until overridden", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const fee = q("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
@@ -272,7 +279,7 @@ describe("Application step", () => {
   });
 
   it("a room's own application fee is an override for that room only, and Reset returns it to the application's fee", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const fee = q("[data-attr='listing-v2-application-fee']") as HTMLInputElement;
@@ -296,7 +303,7 @@ describe("Application step", () => {
   });
 
   it("editing the Short term application's fee writes that application's fee only", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     const shortCard = cards("application").find((card) => /Short-term application/.test(cardName(card)))!;
     openCard(shortCard);
@@ -313,7 +320,7 @@ describe("Application step", () => {
   });
 
   it("a new application starts from the PropLane defaults, and every application card carries Application fee and Promo codes in the modal's order", () => {
-    mountLive();
+    mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const editor = q("[data-attr='listing-v2-application-editor']")!;
@@ -323,7 +330,7 @@ describe("Application step", () => {
   });
 
   it("renaming and editing a question inline land on the template's draft config", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const name = screen.getByLabelText("Name for application 1") as HTMLInputElement;
@@ -337,7 +344,7 @@ describe("Application step", () => {
   });
 
   it("a duplicate or empty name is not saved", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     openCard(cards("application")[0]!);
     const name = screen.getByLabelText("Name for application 1") as HTMLInputElement;
@@ -348,13 +355,18 @@ describe("Application step", () => {
   });
 
   it("+ offers Build from PropLane standard and Upload a PDF; the first adds one inline, already open, started from the standard", async () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     const choices = await openMenu(q("[data-attr='listing-v2-add-application-icon']")!);
     expect(choices.map((item) => item.textContent)).toEqual(["Build from PropLane standard", "Upload a PDF"]);
     fireEvent.click(choices[0]!);
+    // "Applies to" is asked FIRST: nothing is made until it is answered.
+    expect(q("[data-attr='listing-v2-application-applies-to-ask']")).not.toBeNull();
+    expect(headingText()).toBe("3 applications");
+    fireEvent.click(q("[data-attr='listing-v2-application-applies-to-create']")!);
     expect(headingText()).toBe("4 applications");
     const created = readPropertyApplicationTemplates(live.latest()).at(-1)!;
+    expect(created.appliesTo).toBe("long_term");
     expect(created.listingSeedKey).toBeUndefined();
     expect(created.draftQuestionConfig?.applicationConfigMode).toBe("custom");
     expect(q("[data-attr='listing-v2-application-start-from']")).not.toBeNull();
@@ -362,21 +374,79 @@ describe("Application step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("a new application answers Applies to first; Short-term residents makes a short-term form linked to the short-term lease", async () => {
+    const live = mountLive(bothStays());
+    go("application");
+    const choices = await openMenu(q("[data-attr='listing-v2-add-application-icon']")!);
+    fireEvent.click(choices[0]!);
+    fireEvent.click(q("[data-attr='listing-v2-application-applies-to']")!);
+    const offered = Array.from(screen.getAllByRole("listbox").at(-1)!.querySelectorAll('[role="option"]')).map((node) => node.textContent);
+    expect(offered).toEqual(["Long-term residents", "Short-term residents", "Both"]);
+    tapOption("Short-term residents");
+    fireEvent.click(q("[data-attr='listing-v2-application-applies-to-create']")!);
+    const created = readPropertyApplicationTemplates(live.latest()).at(-1)!;
+    expect(created.appliesTo).toBe("short_term");
+    expect(created.formVariant).toBe("short_term");
+    const shortLease = readPropertyLeaseTemplates(live.latest()).find((row) => row.listingSeedKey === "short-term");
+    if (shortLease) expect(created.linkedLeaseTemplateId).toBe(shortLease.id);
+    // It lands under the Short term header.
+    const shortNames = qa("[data-attr='listing-v2-stay-section-short_term'] [data-attr='listing-v2-application-card'] input").map((input) => (input as HTMLInputElement).value);
+    expect(shortNames).toContain(created.label);
+  });
+
+  it("groups applications under Long term / Short term / Both, and hides a stay the listing does not offer without deleting", () => {
+    const live = mountLive(bothStays());
+    go("application");
+    expect(["long_term", "short_term", "both"].map((key) => q(`[data-attr='listing-v2-stay-section-${key}']`) !== null)).toEqual([true, true, true]);
+    const stored = readPropertyApplicationTemplates(live.latest()).length;
+    cleanup();
+    const longOnly = mountLive(sub());
+    go("application");
+    expect(q("[data-attr='listing-v2-stay-section-short_term']")).toBeNull();
+    expect(q("[data-attr='listing-v2-stay-section-long_term']")).not.toBeNull();
+    // Hidden, not deleted: the stored list is the same size.
+    expect(readPropertyApplicationTemplates(longOnly.latest()).length === stored || readPropertyApplicationTemplates(longOnly.latest()).length === 0).toBe(true);
+  });
+
+  it("the menu moves an application between sections and sets the default, shown as a plain ★ fact", async () => {
+    const live = mountLive(bothStays());
+    go("application");
+    const longCards = () => qa("[data-attr='listing-v2-stay-section-long_term'] [data-attr='listing-v2-application-card']");
+    // Move the co-signer-free first application to Short term, so Short term holds two.
+    const items = await openMenu(longCards()[0]!.querySelector("[data-attr='listing-v2-application-menu']") as HTMLElement);
+    fireEvent.click(items.find((item) => item.textContent === "Applies to short term residents")!);
+    const stored = readPropertyApplicationTemplates(live.latest());
+    expect(stored[0]!.appliesTo).toBe("short_term");
+    const shortCards = qa("[data-attr='listing-v2-stay-section-short_term'] [data-attr='listing-v2-application-card']");
+    expect(shortCards).toHaveLength(2);
+    const starred = shortCards.filter((card) => card.textContent?.includes("★ Default"));
+    expect(starred).toHaveLength(1);
+    // Make the OTHER one the default.
+    const other = shortCards.find((card) => !card.textContent?.includes("★ Default"))!;
+    const menu = await openMenu(other.querySelector("[data-attr='listing-v2-application-menu']") as HTMLElement);
+    fireEvent.click(menu.find((item) => item.textContent === "Set as default for short term")!);
+    const after = readPropertyApplicationTemplates(live.latest());
+    expect(after.filter((row) => row.defaultFor?.includes("short_term"))).toHaveLength(1);
+    const defaultRow = after.find((row) => row.defaultFor?.includes("short_term"))!;
+    const nowShort = qa("[data-attr='listing-v2-stay-section-short_term'] [data-attr='listing-v2-application-card']");
+    expect(nowShort.find((card) => card.textContent?.includes("★ Default"))!.querySelector("input")!.value).toBe(defaultRow.label);
+  });
+
   it("Duplicate copies a card and opens the copy", async () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     const items = await openMenu(q("[data-attr='listing-v2-application-menu']")!);
-    fireEvent.click(items[1]!);
+    fireEvent.click(items.find((item) => item.textContent === "Duplicate")!);
     expect(readPropertyApplicationTemplates(live.latest()).some((row) => /copy$/.test(row.label))).toBe(true);
     expect(headingText()).toBe("4 applications");
   });
 
   it("Delete (after a tap to confirm) removes a card", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("application");
     const items = await openMenu(q("[data-attr='listing-v2-application-menu']")!);
-    fireEvent.click(items[2]!);
+    fireEvent.click(items.find((item) => item.textContent === "Delete")!);
     await waitFor(() => expect(readPropertyApplicationTemplates(live.latest()).length).toBe(2));
     expect(headingText()).toBe("2 applications");
   });
@@ -384,7 +454,7 @@ describe("Application step", () => {
   it("'Application before a tour' is one settings row under the cards: Not needed by default, a pick saves to the workspace", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
     vi.stubGlobal("fetch", fetchMock);
-    mountLive();
+    mountLive(bothStays());
     go("application");
     const row = q("[data-attr='listing-v2-application-before-tour']")!;
     const trigger = row.querySelector("[data-attr='listing-v2-application-before-tour-select']")!;
@@ -401,7 +471,7 @@ describe("Application step", () => {
   });
 
   it("'Application before a tour' shows the stored workspace value once it arrives", async () => {
-    mountLive();
+    mountLive(bothStays());
     go("application");
     await waitFor(() => expect(q("[data-attr='listing-v2-application-before-tour-select']")!.textContent).toContain("Required"));
   });
@@ -710,18 +780,19 @@ describe("Pricing step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  // One section per stay the listing offers, stacked (no tabs): Long term, Short term, never a Both.
   const tabLabels = (scope: ParentNode = document) =>
-    Array.from(scope.querySelectorAll("[data-attr='listing-v2-pricing-options'] [role='tab']")).map((tab) => tab.textContent);
+    Array.from(scope.querySelectorAll("[data-attr='listing-v2-pricing-options'] > section")).map((section) => section.getAttribute("aria-label"));
   const shortStays = () => ({ ...sub(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] });
 
-  it("an open room's tabs list exactly the options the property offers; a tab shows only that option's fields", () => {
+  it("an open room draws one independent section per stay the property offers, each with only its own fields", () => {
     const live = mountLive(shortStays() as never);
     go("pricing");
     openCard(cards("pricing")[0]!);
-    expect(tabLabels()).toEqual(["Long-term", "Short-term"]);
-    // The first option is selected, and only its fields are drawn.
+    expect(tabLabels()).toEqual(["Long term", "Short term"]);
+    expect(q("[role='tab']")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Both/);
     const long = q("[data-attr='listing-v2-pricing-format-long']")!;
-    expect(q("[data-attr='listing-v2-pricing-format-short']")).toBeNull();
     for (const label of ["Rent /mo", "Utilities /mo", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {
       expect(long.textContent, label).toContain(label);
     }
@@ -733,10 +804,8 @@ describe("Pricing step", () => {
     expect(next.rooms[0]!.monthlyRent).toBe(1250);
     // the same patch the pricing workspace applies: marked as priced on its own
     expect(next.roomPricingMeta?.["room-a"]?.priceSource).toBe("own");
-    // Switching tabs swaps the fields.
-    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
+    // The Short term section is drawn at the same time, with its own fields.
     const short = q("[data-attr='listing-v2-pricing-format-short']")!;
-    expect(q("[data-attr='listing-v2-pricing-format-long']")).toBeNull();
     for (const label of ["Nightly rate", "Deposit", "Lease fee", "Application fee", "Move-in fee"]) {
       expect(short.textContent, label).toContain(label);
     }
@@ -748,11 +817,11 @@ describe("Pricing step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a property that offers only long-term has one tab; Month-to-month appears only when a lease allows it", () => {
+  it("a property that offers only long term has one section (Short term is not drawn); Month-to-month appears only when a lease allows it", () => {
     mountLive();
     go("pricing");
     openCard(cards("pricing")[0]!);
-    expect(tabLabels()).toEqual(["Long-term"]);
+    expect(tabLabels()).toEqual(["Long term"]);
     cleanup();
     const withM2m = {
       ...sub(),
@@ -762,7 +831,7 @@ describe("Pricing step", () => {
     mountLive(withM2m as never);
     go("pricing");
     openCard(cards("pricing")[0]!);
-    expect(tabLabels()).toEqual(["Long-term", "Month-to-month"]);
+    expect(tabLabels()).toEqual(["Long term", "Month-to-month"]);
   });
 
   it("a room's Application fee and Lease fee default from the application and the lease, per tab", () => {
@@ -785,7 +854,6 @@ describe("Pricing step", () => {
     const box = (attr: string) => q(`[data-attr='${attr}']`) as HTMLInputElement;
     expect([box("arrangement-application-fee-long").placeholder, box("arrangement-lease-fee-long").placeholder]).toEqual(["45", "200"]);
     expect([box("arrangement-application-fee-long").value, box("arrangement-lease-fee-long").value]).toEqual(["", ""]);
-    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
     expect([box("arrangement-application-fee-short").placeholder, box("arrangement-lease-fee-short").placeholder]).toEqual(["25", "90"]);
   });
 
@@ -798,9 +866,8 @@ describe("Pricing step", () => {
     expect(list[0]!.textContent).toContain("Whole place");
     expect(list[0]!.textContent).toMatch(/\$3,200/);
     openCard(list[0]!);
-    expect(tabLabels()).toEqual(["Long-term", "Short-term"]);
+    expect(tabLabels()).toEqual(["Long term", "Short term"]);
     expect(q("[data-attr='listing-v2-pricing-format-long']")).not.toBeNull();
-    fireEvent.click(q("[data-attr='listing-v2-pricing-option-short']")!);
     expect(q("[data-attr='listing-v2-pricing-format-short']")).not.toBeNull();
     expect(q("[data-attr='listing-v2-bundles']")).toBeNull();
   });
@@ -821,7 +888,7 @@ describe("Pricing step", () => {
     expect(card.className).toContain("pr9-card");
     expect(q("[data-attr='listing-v2-bundle-rooms']")).not.toBeNull();
     // addBundle opens the new card, so its option tabs are already drawn.
-    expect(tabLabels(card)).toEqual(["Long-term"]);
+    expect(tabLabels(card)).toEqual(["Long term"]);
     // Whole house still comes before the custom bundles.
     expect(qa("[data-attr='listing-v2-bundles'] .pr9-card")[0]!.getAttribute("data-attr")).toBe("listing-v2-whole-house-card");
   });
@@ -876,6 +943,83 @@ describe("Review step", () => {
     }
     fireEvent.click(document.querySelector("[data-attr='listing-v2-review-edit-movein']")!);
     expect(document.querySelector("[data-attr='listing-v2-add-movein-icon']")).not.toBeNull();
+  });
+});
+
+describe("Stays you offer and the Long term / Short term / Both sections", () => {
+  const stayCard = (stay: string) => q(`[data-attr='listing-v2-stay-${stay}']`)!;
+
+  it("Basics offers Long term and Short term as two checkbox cards; Long term is on, Short term is off", () => {
+    mountLive();
+    expect(stayCard("long-term").getAttribute("aria-checked")).toBe("true");
+    expect(stayCard("short-term").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("ticking Short term writes the EXISTING allowedLeaseTerms and shortTermRentalsAllowed", () => {
+    const live = mountLive();
+    fireEvent.click(stayCard("short-term"));
+    expect(live.latest().shortTermRentalsAllowed).toBe(true);
+    expect(resolveAllowedLeaseTerms(live.latest())).toEqual(["Long-term", "Short-Term Stay"]);
+    expect(stayCard("short-term").getAttribute("aria-checked")).toBe("true");
+    // Either or both: Long term off leaves Short term alone.
+    fireEvent.click(stayCard("long-term"));
+    expect(resolveAllowedLeaseTerms(live.latest())).toEqual(["Short-Term Stay"]);
+  });
+
+  it("refuses to turn the last stay off", () => {
+    const live = mountLive();
+    const before = live.latest();
+    fireEvent.click(stayCard("long-term"));
+    expect(live.latest()).toBe(before);
+    expect(stayCard("long-term").getAttribute("aria-checked")).toBe("true");
+    expect(q("[data-attr='listing-v2-stay-min-one']")!.textContent).toMatch(/at least one/i);
+  });
+
+  it("the Pricing step no longer carries the Lease terms pick (Basics is the only place)", () => {
+    mountLive(bothStays());
+    go("pricing");
+    expect(q("[data-attr='listing-v2-lease-terms']")).toBeNull();
+    expect(q("[data-attr='lease-type']")).toBeNull();
+  });
+
+  it("Lease rows sit under their stay by kind, and a stay the listing does not offer is hidden, not deleted", () => {
+    const base = bothStays();
+    const withLeases = {
+      ...base,
+      propertyLeaseTemplates: [
+        lease("l1", "Long-term lease", { listingSeedKey: "primary", applicationLeaseTerms: ["Long-term"] }),
+        lease("l2", "Short-term lease", { kind: "short-term", listingSeedKey: "short-term", applicationLeaseTerms: ["Short-Term Stay"] }),
+        lease("l3", "Time based", { kind: "time-based" }),
+      ],
+    };
+    const names = (section: string) =>
+      qa(`[data-attr='listing-v2-stay-section-${section}'] [data-attr='listing-v2-lease-card'] input`).map((input) => (input as HTMLInputElement).value);
+    const live = mountLive(withLeases as never);
+    go("lease");
+    expect(names("long_term")).toEqual(["Long-term lease", "Time based"]);
+    expect(names("short_term")).toEqual(["Short-term lease"]);
+    expect(q("[data-attr='listing-v2-stay-section-both']")).toBeNull();
+    cleanup();
+    const longOnly = mountLive({ ...withLeases, shortTermRentalsAllowed: false, allowedLeaseTerms: ["Long-term"] } as never);
+    go("lease");
+    expect(q("[data-attr='listing-v2-stay-section-short_term']")).toBeNull();
+    expect(names("long_term")).toEqual(["Long-term lease", "Time based"]);
+    expect(readPropertyLeaseTemplates(longOnly.latest()).length).toBe(readPropertyLeaseTemplates(live.latest()).length);
+  });
+
+  it("Move-in forms sit under their lease type: All is Both", () => {
+    const forms = [
+      { ...structuredClone(MOVE_IN_FORM_STARTERS[0]!), id: "mi-all", name: "Everyone", trigger: "manual" as const },
+      { ...structuredClone(MOVE_IN_FORM_STARTERS[1] ?? MOVE_IN_FORM_STARTERS[0]!), id: "mi-long", name: "Long only", leaseType: "long-term" as const, trigger: "manual" as const },
+      { ...structuredClone(MOVE_IN_FORM_STARTERS[1] ?? MOVE_IN_FORM_STARTERS[0]!), id: "mi-short", name: "Short only", leaseType: "short-term" as const, trigger: "manual" as const },
+    ];
+    mountLive({ ...bothStays(), moveInFormTemplates: forms } as never);
+    go("movein");
+    const names = (section: string) =>
+      qa(`[data-attr='listing-v2-stay-section-${section}'] [data-attr='listing-v2-movein-card'] input`).map((input) => (input as HTMLInputElement).value);
+    expect(names("long_term")).toEqual(["Long only"]);
+    expect(names("short_term")).toEqual(["Short only"]);
+    expect(names("both")).toEqual(["Everyone"]);
   });
 });
 
