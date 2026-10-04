@@ -130,6 +130,38 @@ describe("reading the signed document", () => {
     });
   });
 
+  it.each(["Utility", "Utilities"])("reads compact paragraphs with the %s label", (utilityLabel) => {
+    const html = `
+      <p><strong>mOnThLy ReNt:</strong> $1,000.00</p>
+      <p><strong>${utilityLabel.toUpperCase()}:</strong> $200.00</p>
+      <p><strong>SECURITY DEPOSIT:</strong> $400.00</p>
+      <p><strong>Move-in Fee:</strong> $250.00</p>`;
+    expect(signedTermsFromLeaseHtml(html)).toEqual({
+      monthlyRent: 1000,
+      monthlyUtilities: 200,
+      securityDeposit: 400,
+      moveInFee: 250,
+    });
+  });
+
+  it.each([
+    ["Daily rent", "$40.00"],
+    ["Monthly Rent", "$40.00/day"],
+  ])("rejects compact rate-based rent %s %s", (label, amount) => {
+    expect(signedTermsFromLeaseHtml(`<p><strong>${label}:</strong> ${amount}</p>`)).toEqual({});
+  });
+
+  it.each(["$1,000.00/day", "$1,000.00 plus fees", "$1,000.001", "$1,00.00", "TBD"])(
+    "rejects non-currency values in both document formats: %s",
+    (amount) => {
+      const labels = ["Monthly Rent", "Monthly utilities", "Security Deposit", "Move-in Fee"];
+      const table = labels.map((label) => `<tr><th>${label}</th><td><strong>${amount}</strong></td></tr>`).join("");
+      const paragraphs = labels.map((label) => `<p><strong>${label}:</strong> ${amount}</p>`).join("");
+      expect(signedTermsFromLeaseHtml(`<table>${table}</table>`)).toEqual({});
+      expect(signedTermsFromLeaseHtml(paragraphs)).toEqual({});
+    },
+  );
+
   it("states no monthly rent for a document billed by the day", () => {
     const daily = LEASE_HTML.replace("Monthly rent", "Daily rent");
     expect(signedTermsFromLeaseHtml(daily).monthlyRent).toBeUndefined();
@@ -143,6 +175,40 @@ describe("reading the signed document", () => {
     expect(executedLeaseForRow(row(), leases)).toBe(leases[1]);
     expect(executedLeaseForRow(row({ id: "AXIS-OTHER", email: "nobody@example.com" }), leases)).toBe(leases[0]);
     expect(executedLeaseForRow(row({ id: "x", email: "nobody@example.com" }), leases)).toBeNull();
+  });
+  it.each([false, true])("prefers exact application identity over an earlier email match (joint: %s)", (joint) => {
+    const leases = [
+      { axisId: "AXIS-OLDER", residentEmail: EMAIL, fullySignedAt: "2026-08-01T12:00:00Z" },
+      {
+        axisId: joint ? "AXIS-JOINT" : "AXIS-CURRENT",
+        residentEmail: "another@example.com",
+        ...(joint ? { jointLeaseMembers: [{ applicationId: "AXIS-CURRENT", residentEmail: "another@example.com" }] } : {}),
+      },
+    ];
+    expect(executedLeaseForRow(row({ id: " AXIS-CURRENT " }), leases)).toBe(leases[1]);
+  });
+
+  it("prefers the effective property's email match over a newer lease elsewhere", () => {
+    const leases = [
+      { residentEmail: EMAIL, propertyId: PROPERTY_ID, fullySignedAt: "2026-09-01T12:00:00Z" },
+      {
+        residentEmail: "joint@example.com",
+        jointLeaseMembers: [{ residentEmail: EMAIL }],
+        propertyId: "new-home",
+        fullySignedAt: "2026-08-01T12:00:00Z",
+      },
+    ];
+    expect(executedLeaseForRow(row({ assignedPropertyId: " new-home " }), leases)).toBe(leases[1]);
+  });
+
+  it.each([false, true])("uses the most recent signing among email matches (property known: %s)", (propertyKnown) => {
+    const leases = [
+      { residentEmail: EMAIL, fullySignedAt: "invalid" },
+      { residentEmail: EMAIL },
+      { residentEmail: EMAIL, fullySignedAt: "2026-07-01T12:00:00Z" },
+      { residentEmail: EMAIL, fullySignedAt: "2026-08-01T12:00:00Z" },
+    ].map((lease) => ({ ...lease, ...(propertyKnown ? { propertyId: PROPERTY_ID } : {}) }));
+    expect(executedLeaseForRow(row(), leases)).toBe(leases[3]);
   });
 });
 
@@ -283,7 +349,7 @@ describe("a resident moved to another property", () => {
       readRecurringRentProfilesForManager(MANAGER_ID),
     );
 
-    writeManagerApplicationRows([manualRow(OTHER_PROPERTY_ID, 1100)]);
+    writeManagerApplicationRows([{ ...manualRow(OTHER_PROPERTY_ID, 1100), propertyId: PROPERTY_ID }]);
     reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
 
     const profiles = readRecurringRentProfilesForManager(MANAGER_ID).filter((p) => p.residentEmail.toLowerCase() === EMAIL);
