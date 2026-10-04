@@ -401,7 +401,7 @@ export function ApplicationsSettingsPanel({
                   aria-label="Promo code"
                   className="w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40"
                   value={waiverCode}
-                  disabled={disabled || !hasSingleSelection}
+                  disabled={loading || !hasSingleSelection}
                   placeholder="E.G. WELCOME50"
                   data-attr="manager-application-settings-promo-code"
                   onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}

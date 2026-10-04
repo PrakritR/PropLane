@@ -352,3 +352,31 @@ it("loads the new property's code even when the previous property's confirmation
   await act(async () => { loadB(new Response(JSON.stringify({ waiverCode: "FREMONT10" }), { status: 200 })); });
   expect(promoField()).toHaveValue("FREMONT10");
 });
+
+
+it("keeps typing available during a waiver write and confirms the latest edit before Saved", async () => {
+  renderModal();
+  await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+  const originalFetch = globalThis.fetch;
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  let first = true;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("manager-application-settings") && init?.method === "PATCH" && first) {
+      first = false;
+      await pending;
+    }
+    return originalFetch(input, init);
+  }));
+  fireEvent.change(promoField(), { target: { value: "FIRST10" } });
+  fireEvent.blur(promoField());
+  await screen.findByText("Saving…");
+  expect(promoField()).not.toBeDisabled();
+  await userEvent.clear(promoField());
+  await userEvent.type(promoField(), "LATEST10");
+  await act(async () => { finish(); });
+  await screen.findByText("Saved");
+  expect(storedCodes.get("prop-1")).toBe("LATEST10");
+  expect(promoField()).toHaveValue("LATEST10");
+  expect(patches.map(p=>p.waiverCode)).toEqual(["FIRST10", "LATEST10"]);
+});

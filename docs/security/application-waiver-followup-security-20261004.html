@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Waiver follow-up security review - 2026-10-04</title><style>body{max-width:940px;margin:36px auto;padding:0 24px;font:16px/1.6 system-ui;color:#17232a}h1{font-size:28px}h2{font-size:20px}pre{background:#f4f6f7;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}code{overflow-wrap:anywhere}</style><h1>Waiver follow-up security review</h1><p>2026-10-04. Independent static release review. No introduced security findings; no unresolved Critical or High findings in the reviewed four-file diff.</p><h2>Exact reviewed scope</h2><p>Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-waiver-release</code><br>Reviewed HEAD/base: <code>4796d559d2b85b4f48f86eb8424cb9bfd292801c</code><br>Uncommitted diff SHA-256: <code>851331a674c0c834fd1ac766949e5046c9b1d436f790d6a1566509240c99c021</code></p><ul><li>src/components/portal/settings-module-page.tsx</li><li>src/components/portal/pro-application-questions-editor-modal.tsx</li><li>tests/unit/manager-application-promo-code-scope.test.tsx</li><li>tests/unit/manager-application-questions-workspace.test.tsx</li></ul><p>No source edits, tests, servers, database mutations or heavy validation performed. Release owner owns validation. The separately modified release handoff HTML and temporary next.config.ts local absolute Turbopack root are excluded from this approval. The release owner was notified to remove the temporary configuration before shipping or review it separately.</p><h2>Assessment</h2><ul><li><strong>Authorization and targeting:</strong> Autosave retains the property/code pair captured at edit time. PATCH and confirmation GET both use the existing authenticated endpoint and same property identity. No caller-supplied manager identity, widened endpoint, or permission bypass was introduced. Existing server manager authentication, property ownership and co-manager applications edit/read checks continue to apply. References: settings-module-page.tsx:406-446; API manager-application-settings/route.ts:142-151,218-251.</li><li><strong>Disclosure:</strong> Confirmation GET encodes only the property ID in the URL and requests no-store. The code remains in authenticated JSON responses and instance-local state; no new public payloads, analytics, logs or persistent browser storage carry it. normalizeWaiverCode import contains no runtime service credentials or server-client initialization.</li><li><strong>Fail-closed success and errors:</strong> Success requires valid normalized PATCH code plus the same normalized code from a fresh property GET. Malformed JSON, missing code, rejected read, mismatch and network errors retain pending edits and report failure. Close still waits for the save-registry result. A failed read may follow a committed PATCH; retries reuse the original property target. New edits reset failure state, while background retries pause after an error. References: settings-module-page.tsx:429-469.</li><li><strong>Stale display and autosave:</strong> Per-property revision/request checks prevent older loads from restoring pre-edit codes. Completing property A saves no longer invalidates property B reads. The selected-property ref updates in an effect registered before the loading effect; save status respects the aggregate in-flight counter. Pending edits clear a previous Saved indication; normalized confirmed values update the field only for the currently selected original property. The debounce preserves existing explicit blur/close save paths. References: settings-module-page.tsx:227-269,300-308,406-417,446-452,472-476.</li><li><strong>Template waiver independence:</strong> Persisting waiverCodeOverride when its own switch is enabled removes an unrelated fee-switch dependency. This adds no new persistence route or actor scope and keeps the existing save callback. It allows a configured code to waive the inherited account fee as intended. Existing uppercase/trim and null-clear semantics remain. Reference: pro-application-questions-editor-modal.tsx:743-746,820.</li></ul><h2>Amendment re-review</h2><p>The per-property revision-map correction was re-reviewed after Bugbot identified a Medium property-switch display race. The amended component resolves that race without changing authorization, request targets, response disclosure or save confirmation checks. The added regression holds the B read until after the A save completes, verifies B displays its own code. Property identity on later edits is covered by the unchanged capture-at-edit implementation. No introduced security finding or unresolved Critical/High issue identified in this amended diff. Test execution was reported by the release owner and was not independently repeated by this reviewer.</p><h2>Findings and limitations</h2><p>No Critical, High, Medium or Low introduced security finding identified. Static review does not prove deployed persistence or runtime authorization. Focused regressions cover autosave, normalized display, false-success rejection, stale load prevention and template reopening without a fee override. Their execution remains with the release owner.</p><p>Follow-up browser QA should include property switching during an in-flight save, authorization rejection during confirmation, and rapid edits while an earlier write is confirming. These are validation recommendations, not identified security vulnerabilities.</p><h2>Reviewed diff</h2><pre>diff --git a/src/components/portal/pro-application-questions-editor-modal.tsx b/src/components/portal/pro-application-questions-editor-modal.tsx
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Waiver follow-up security review - 2026-10-04</title><style>body{max-width:940px;margin:36px auto;padding:0 24px;font:16px/1.6 system-ui;color:#17232a}h1{font-size:28px}h2{font-size:20px}pre{background:#f4f6f7;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}code{overflow-wrap:anywhere}</style><h1>Waiver follow-up security review</h1><p>2026-10-04. Independent static release review. No introduced security findings; no unresolved Critical or High findings in the reviewed five-file cumulative diff.</p><h2>Exact reviewed scope</h2><p>Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-waiver-release</code><br>Original reviewed base: <code>4796d559d2b85b4f48f86eb8424cb9bfd292801c</code><br>Cumulative five-file diff SHA-256: <code>50de4c84307e5bc8f4cbae1124ae15af085a4c1d52278b31a9e84641f7270660</code><br>Final amendment HEAD: <code>656c3cce03269d9370557d0e00e0e3f2b319336d</code><br>Final uncommitted amendment SHA-256: <code>9de0673537818ee2edf9fb0450312feb0d73812bdb477bb8852b0ca2272eb087</code></p><ul><li>src/components/portal/settings-module-page.tsx</li><li>src/components/portal/pro-application-questions-editor-modal.tsx</li><li>src/components/portal/pro-portal-settings-panels.tsx</li><li>tests/unit/manager-application-promo-code-scope.test.tsx</li><li>tests/unit/manager-application-questions-workspace.test.tsx</li></ul><p>No source edits, tests, servers, database mutations or heavy validation performed. Release owner owns validation. The separately modified release handoff HTML and temporary next.config.ts local absolute Turbopack root are excluded from this approval. The release owner was notified to remove the temporary configuration before shipping or review it separately.</p><h2>Assessment</h2><ul><li><strong>Authorization and targeting:</strong> Autosave retains the property/code pair captured at edit time. PATCH and confirmation GET both use the existing authenticated endpoint and same property identity. No caller-supplied manager identity, widened endpoint, or permission bypass was introduced. Existing server manager authentication, property ownership and co-manager applications edit/read checks continue to apply. References: settings-module-page.tsx:406-446; API manager-application-settings/route.ts:142-151,218-251.</li><li><strong>Disclosure:</strong> Confirmation GET encodes only the property ID in the URL and requests no-store. The code remains in authenticated JSON responses and instance-local state; no new public payloads, analytics, logs or persistent browser storage carry it. normalizeWaiverCode import contains no runtime service credentials or server-client initialization.</li><li><strong>Fail-closed success and errors:</strong> Success requires valid normalized PATCH code plus the same normalized code from a fresh property GET. Malformed JSON, missing code, rejected read, mismatch and network errors retain pending edits and report failure. Close still waits for the save-registry result. A failed read may follow a committed PATCH; retries reuse the original property target. New edits reset failure state, while background retries pause after an error. References: settings-module-page.tsx:429-469.</li><li><strong>Stale display and autosave:</strong> Per-property revision/request checks prevent older loads from restoring pre-edit codes. Completing property A saves no longer invalidates property B reads. The selected-property ref updates in an effect registered before the loading effect; save status respects the aggregate in-flight counter. Pending edits clear a previous Saved indication; normalized confirmed values update the field only for the currently selected original property. The debounce preserves existing explicit blur/close save paths. References: settings-module-page.tsx:227-269,300-308,406-417,446-452,472-476.</li><li><strong>Template waiver independence:</strong> Persisting waiverCodeOverride when its own switch is enabled removes an unrelated fee-switch dependency. This adds no new persistence route or actor scope and keeps the existing save callback. It allows a configured code to waive the inherited account fee as intended. Existing uppercase/trim and null-clear semantics remain. Reference: pro-application-questions-editor-modal.tsx:743-746,820.</li></ul><h2>Amendment re-review</h2><p>The per-property revision-map correction was re-reviewed after Bugbot identified a Medium property-switch display race. The amended component resolves that race without changing authorization, request targets, response disclosure or save confirmation checks. The added regression holds the B read until after the A save completes, verifies B displays its own code. Property identity on later edits is covered by the unchanged capture-at-edit implementation. No introduced security finding or unresolved Critical/High issue identified in this amended diff. Test execution was reported by the release owner and was not independently repeated by this reviewer.</p><h2>Final typing amendment</h2><p>Re-reviewed against HEAD 656c3cce03269d9370557d0e00e0e3f2b319336d. The waiver field remains disabled during loading and without a single property selection, while saving alone no longer locks typing (pro-portal-settings-panels.tsx:404). The removed disabled term resolves only to loading || saving, so no role or permission gate is removed. Original property capture, single in-flight save, newer-edit preservation and fresh read confirmation continue to enforce the same targets and success criteria (settings-module-page.tsx:408-467). The added deferred-write FIRST10 to LATEST10 regression covers continued typing and final confirmed persistence. No introduced security finding or unresolved Critical/High issue identified. The release owner reports 79 related tests passed; this reviewer did not repeat them.</p><h2>Findings and limitations</h2><p>No Critical, High, Medium or Low introduced security finding identified. Static review does not prove deployed persistence or runtime authorization. Focused regressions cover autosave, normalized display, false-success rejection, stale load prevention and template reopening without a fee override. Their execution remains with the release owner.</p><p>Follow-up browser QA should include property switching during an in-flight save, authorization rejection during confirmation, and rapid edits while an earlier write is confirming. These are validation recommendations, not identified security vulnerabilities.</p><h2>Reviewed cumulative five-file diff</h2><pre>diff --git a/src/components/portal/pro-application-questions-editor-modal.tsx b/src/components/portal/pro-application-questions-editor-modal.tsx
 index cad797293..2271af15e 100644
 --- a/src/components/portal/pro-application-questions-editor-modal.tsx
 +++ b/src/components/portal/pro-application-questions-editor-modal.tsx
@@ -11,6 +11,19 @@ index cad797293..2271af15e 100644
      if (isTemplateEditor &amp;&amp; templates &amp;&amp; onPersistSubmission) {
        const trimmed = templateLabel.trim();
        let nextTemplates: PropertyApplicationTemplate[];
+diff --git a/src/components/portal/pro-portal-settings-panels.tsx b/src/components/portal/pro-portal-settings-panels.tsx
+index 3e1e77ea3..918f64f25 100644
+--- a/src/components/portal/pro-portal-settings-panels.tsx
++++ b/src/components/portal/pro-portal-settings-panels.tsx
+@@ -401,7 +401,7 @@ export function ApplicationsSettingsPanel({
+                   aria-label=&quot;Promo code&quot;
+                   className=&quot;w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40&quot;
+                   value={waiverCode}
+-                  disabled={disabled || !hasSingleSelection}
++                  disabled={loading || !hasSingleSelection}
+                   placeholder=&quot;E.G. WELCOME50&quot;
+                   data-attr=&quot;manager-application-settings-promo-code&quot;
+                   onChange={(e) =&gt; onWaiverCodeChange(e.target.value.toUpperCase())}
 diff --git a/src/components/portal/settings-module-page.tsx b/src/components/portal/settings-module-page.tsx
 index 00714e225..923c3a9e2 100644
 --- a/src/components/portal/settings-module-page.tsx
@@ -158,7 +171,7 @@ index 00714e225..923c3a9e2 100644
      (next: ApplicationAutomationPreferences) =&gt; {
        setAutomation(next);
 diff --git a/tests/unit/manager-application-promo-code-scope.test.tsx b/tests/unit/manager-application-promo-code-scope.test.tsx
-index fb0317055..6e15cd45b 100644
+index fb0317055..82225c6cb 100644
 --- a/tests/unit/manager-application-promo-code-scope.test.tsx
 +++ b/tests/unit/manager-application-promo-code-scope.test.tsx
 @@ -30,6 +30,7 @@ vi.mock(&quot;@/hooks/use-work-assignment-directory&quot;, () =&gt; ({
@@ -214,7 +227,7 @@ index fb0317055..6e15cd45b 100644
      await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
      expect(patches).toHaveLength(1);
    });
-@@ -248,3 +260,95 @@ describe(&quot;waiver code save on leaving settings&quot;, () =&gt; {
+@@ -248,3 +260,123 @@ describe(&quot;waiver code save on leaving settings&quot;, () =&gt; {
      expect(patches).toEqual([{ propertyId: &quot;prop-1&quot;, waiverCode: &quot;TAKEN10&quot; }]);
    });
  });
@@ -310,6 +323,34 @@ index fb0317055..6e15cd45b 100644
 +  await act(async () =&gt; { loadB(new Response(JSON.stringify({ waiverCode: &quot;FREMONT10&quot; }), { status: 200 })); });
 +  expect(promoField()).toHaveValue(&quot;FREMONT10&quot;);
 +});
++
++
++it(&quot;keeps typing available during a waiver write and confirms the latest edit before Saved&quot;, async () =&gt; {
++  renderModal();
++  await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++  const originalFetch = globalThis.fetch;
++  let finish!: () =&gt; void;
++  const pending = new Promise&lt;void&gt;(resolve =&gt; { finish = resolve; });
++  let first = true;
++  vi.stubGlobal(&quot;fetch&quot;, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =&gt; {
++    if (String(input).includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot; &amp;&amp; first) {
++      first = false;
++      await pending;
++    }
++    return originalFetch(input, init);
++  }));
++  fireEvent.change(promoField(), { target: { value: &quot;FIRST10&quot; } });
++  fireEvent.blur(promoField());
++  await screen.findByText(&quot;Saving…&quot;);
++  expect(promoField()).not.toBeDisabled();
++  await userEvent.clear(promoField());
++  await userEvent.type(promoField(), &quot;LATEST10&quot;);
++  await act(async () =&gt; { finish(); });
++  await screen.findByText(&quot;Saved&quot;);
++  expect(storedCodes.get(&quot;prop-1&quot;)).toBe(&quot;LATEST10&quot;);
++  expect(promoField()).toHaveValue(&quot;LATEST10&quot;);
++  expect(patches.map(p=&gt;p.waiverCode)).toEqual([&quot;FIRST10&quot;, &quot;LATEST10&quot;]);
++});
 diff --git a/tests/unit/manager-application-questions-workspace.test.tsx b/tests/unit/manager-application-questions-workspace.test.tsx
 index e4257cbe4..1b0b43abc 100644
 --- a/tests/unit/manager-application-questions-workspace.test.tsx
@@ -351,4 +392,53 @@ index e4257cbe4..1b0b43abc 100644
 +    expect(screen.getByRole(&quot;textbox&quot;, { name: &quot;Promo code that waives the fee&quot; })).toHaveValue(&quot;INHERIT10&quot;);
    });
  });
+</pre><h2>Final uncommitted amendment</h2><pre>diff --git a/src/components/portal/pro-portal-settings-panels.tsx b/src/components/portal/pro-portal-settings-panels.tsx
+index 3e1e77ea3..918f64f25 100644
+--- a/src/components/portal/pro-portal-settings-panels.tsx
++++ b/src/components/portal/pro-portal-settings-panels.tsx
+@@ -401,7 +401,7 @@ export function ApplicationsSettingsPanel({
+                   aria-label=&quot;Promo code&quot;
+                   className=&quot;w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40&quot;
+                   value={waiverCode}
+-                  disabled={disabled || !hasSingleSelection}
++                  disabled={loading || !hasSingleSelection}
+                   placeholder=&quot;E.G. WELCOME50&quot;
+                   data-attr=&quot;manager-application-settings-promo-code&quot;
+                   onChange={(e) =&gt; onWaiverCodeChange(e.target.value.toUpperCase())}
+diff --git a/tests/unit/manager-application-promo-code-scope.test.tsx b/tests/unit/manager-application-promo-code-scope.test.tsx
+index 6e15cd45b..82225c6cb 100644
+--- a/tests/unit/manager-application-promo-code-scope.test.tsx
++++ b/tests/unit/manager-application-promo-code-scope.test.tsx
+@@ -352,3 +352,31 @@ it(&quot;loads the new property&#x27;s code even when the previous property&#x27;s confirmation
+   await act(async () =&gt; { loadB(new Response(JSON.stringify({ waiverCode: &quot;FREMONT10&quot; }), { status: 200 })); });
+   expect(promoField()).toHaveValue(&quot;FREMONT10&quot;);
+ });
++
++
++it(&quot;keeps typing available during a waiver write and confirms the latest edit before Saved&quot;, async () =&gt; {
++  renderModal();
++  await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++  const originalFetch = globalThis.fetch;
++  let finish!: () =&gt; void;
++  const pending = new Promise&lt;void&gt;(resolve =&gt; { finish = resolve; });
++  let first = true;
++  vi.stubGlobal(&quot;fetch&quot;, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =&gt; {
++    if (String(input).includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot; &amp;&amp; first) {
++      first = false;
++      await pending;
++    }
++    return originalFetch(input, init);
++  }));
++  fireEvent.change(promoField(), { target: { value: &quot;FIRST10&quot; } });
++  fireEvent.blur(promoField());
++  await screen.findByText(&quot;Saving…&quot;);
++  expect(promoField()).not.toBeDisabled();
++  await userEvent.clear(promoField());
++  await userEvent.type(promoField(), &quot;LATEST10&quot;);
++  await act(async () =&gt; { finish(); });
++  await screen.findByText(&quot;Saved&quot;);
++  expect(storedCodes.get(&quot;prop-1&quot;)).toBe(&quot;LATEST10&quot;);
++  expect(promoField()).toHaveValue(&quot;LATEST10&quot;);
++  expect(patches.map(p=&gt;p.waiverCode)).toEqual([&quot;FIRST10&quot;, &quot;LATEST10&quot;]);
++});
 </pre></html>
