@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Sidebar › Move-in, the one hub for moving a resident in: Waiting | Submitted | Inspections.
- * Waiting and Submitted are every move-in form residents still owe or have filled out, across
- * properties, on the house list surface copied from Properties: header tabs with counts, search, a
- * Filter (Property, Form kind) and the one round + that sends a form by hand. Rows are
- * tile · "Resident · Form" · "Property · Room" · glyph facts · ⋯, with no pill; a late form reads as
- * plain red text. Inspections mounts the move-in / move-out inspections list, which takes this
- * page's tab row as its own so the page keeps one control stack.
+ * Sidebar › Move-in, the one hub for moving a resident in: Intake | Move-in | Move-out | Inspections,
+ * plus Other when the manager has a custom or older form. Each form tab lists every resident's copy
+ * of that kind of form across properties (sent and submitted together; late first, then waiting by
+ * due date, then submitted newest first), on the house list surface copied from Properties: header
+ * tabs with counts, search, a Filter (Property, Status) and the one round + that sends a form by
+ * hand. Rows are tile · "Resident · Form" · "Property · Room" · glyph facts · ⋯, with no pill; a
+ * late form reads as plain red text. Inspections mounts the move-in / move-out inspections list,
+ * which takes this page's tab row as its own so the page keeps one control stack.
  */
 import { useMemo, useState } from "react";
 import { CheckCircle2, Camera, Clock, PenLine, Send, type LucideIcon } from "lucide-react";
@@ -33,16 +34,15 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   filterMoveInForms,
-  MOVE_IN_FORM_KIND_OPTIONS,
   moveInFormFacts,
-  moveInFormKindLabel,
   moveInFormPlaceLine,
   moveInFormTabCounts,
   moveInFormTitle,
   type MoveInFormFact,
   type MoveInFormListTab,
+  type MoveInFormStatusBucket,
 } from "@/lib/move-in-forms/manager-rows";
-import type { MoveInFormKind, MoveInFormSummary } from "@/lib/move-in-forms/types";
+import type { MoveInFormSummary } from "@/lib/move-in-forms/types";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   moveInFormListHref,
@@ -55,9 +55,17 @@ import {
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-const TAB_LABELS: Record<MoveInFormListTabId, string> = { waiting: "Waiting", submitted: "Submitted", inspections: "Inspections" };
+const TAB_LABELS: Record<MoveInFormListTabId, string> = {
+  intake: "Intake",
+  "move-in": "Move-in",
+  "move-out": "Move-out",
+  inspections: "Inspections",
+  other: "Other",
+};
 
 const ALL = "all";
+
+const STATUS_LABELS: Record<MoveInFormStatusBucket, string> = { waiting: "Waiting", submitted: "Submitted" };
 
 const FACT_ICON: Record<MoveInFormFact["id"], LucideIcon> = {
   submitted: CheckCircle2,
@@ -75,9 +83,12 @@ export function moveInFormEntryFacts(form: MoveInFormSummary, now: Date = new Da
   }));
 }
 
-/** The hub's tab row. Forms tabs carry their counts; Inspections is a roster of residencies, so it carries none. */
-export function moveInHubTabs(basePath: string, counts: Record<MoveInFormListTab, number>): DestinationNavItem[] {
-  return MOVE_IN_FORM_LIST_TABS.map((id) => ({
+/**
+ * The hub's tab row. Form tabs carry their row counts; Inspections is a roster of residencies, so it
+ * carries none. Other (custom or older forms) is drawn only when the manager has one, or is open.
+ */
+export function moveInHubTabs(basePath: string, counts: Record<MoveInFormListTab, number>, openTab?: MoveInFormListTabId): DestinationNavItem[] {
+  return MOVE_IN_FORM_LIST_TABS.filter((id) => id !== "other" || counts.other > 0 || openTab === "other").map((id) => ({
     id,
     label: TAB_LABELS[id],
     ...(id === "inspections" ? {} : { count: counts[id] }),
@@ -87,7 +98,7 @@ export function moveInHubTabs(basePath: string, counts: Record<MoveInFormListTab
 }
 
 export function ManagerMoveInFormsPage({
-  tab = "waiting",
+  tab = "move-in",
   basePath = "/portal",
   inspectionKind = "move-in",
 }: {
@@ -120,7 +131,7 @@ function MoveInFormsPanel({ tab, basePath, inspectionKind }: { tab: MoveInFormLi
 function MoveInInspectionsTab({ userId, basePath, kind }: { userId: string; basePath: string; kind: "move-in" | "move-out" }) {
   const { list } = useManagerMoveInForms(userId);
   const counts = useMemo(() => moveInFormTabCounts(list.forms.filter((form) => workspaceContainsProperty(form.propertyId))), [list.forms]);
-  const destinations = useMemo(() => moveInHubTabs(basePath, counts), [basePath, counts]);
+  const destinations = useMemo(() => moveInHubTabs(basePath, counts, "inspections"), [basePath, counts]);
   return (
     <InspectionsPanel
       role="manager"
@@ -137,7 +148,7 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
   const { list, loading, error, retry } = useManagerMoveInForms(userId);
   const [query, setQuery] = useState("");
   const [propertyId, setPropertyId] = useState("");
-  const [formKind, setFormKind] = useState<MoveInFormKind | "">("");
+  const [status, setStatus] = useState<MoveInFormStatusBucket | "">("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<MoveInFormSummary | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
@@ -150,22 +161,22 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
   const scoped = useMemo(() => list.forms.filter((form) => workspaceContainsProperty(form.propertyId)), [list.forms]);
   const counts = useMemo(() => moveInFormTabCounts(scoped), [scoped]);
   const rows = useMemo(
-    () => filterMoveInForms(scoped, { tab, propertyId, kind: formKind || undefined, query }, now),
-    [scoped, tab, propertyId, formKind, query, now],
+    () => filterMoveInForms(scoped, { tab, propertyId, status: status || undefined, query }, now),
+    [scoped, tab, propertyId, status, query, now],
   );
-  const filtersActive = Boolean(propertyId || formKind);
-  const hasAny = counts.submitted + counts.waiting > 0;
+  const filtersActive = Boolean(propertyId || status);
+  const hasAny = counts[tab] > 0;
 
   const propertyOptions = useMemo(() => {
     const options = new Map(buildManagerPropertyFilterOptions(userId).map((option) => [option.id, option.label]));
     for (const form of scoped) if (form.propertyId && !options.has(form.propertyId)) options.set(form.propertyId, form.propertyLabel);
     return [...options].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [userId, scoped]);
-  const tabs = moveInHubTabs(basePath, counts);
+  const tabs = moveInHubTabs(basePath, counts, tab);
 
   const clearFilters = () => {
     setPropertyId("");
-    setFormKind("");
+    setStatus("");
     setQuery("");
   };
 
@@ -178,9 +189,10 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
   const propertyLabel = propertyOptions.find((option) => option.id === propertyId)?.label ?? "";
   const emptyCard = !hasAny
     ? {
-        title: "No move-in forms yet",
+        title: portalEmptyCopy(`move-in.${tab}`).title,
         section: "move-in",
         actions: demo ? [] : [{ label: "Make a move-in form", onClick: () => navigate(propertyListHref(basePath, "all")), dataAttr: "move-in-forms-empty-make" }],
+        sibling: portalEmptySibling(tabs.filter((t) => t.id !== "inspections").map((t) => ({ id: t.id, label: t.label.toLowerCase(), count: t.count ?? 0, href: t.href })), tab),
       }
     : rows.length === 0 && (query.trim() || filtersActive)
       ? {
@@ -206,14 +218,14 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
         search={{ value: query, onChange: setQuery, placeholder: "Search move-in forms", dataAttr: "move-in-forms-search" }}
         actions={
           <PortalFilterSortSheet
-            activeCount={portalFilterActiveCount([propertyId, formKind])}
+            activeCount={portalFilterActiveCount([propertyId, status])}
             compactPanel
             commandStripTrigger
             filterFieldCount={2}
             className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
             onReset={() => {
               setPropertyId("");
-              setFormKind("");
+              setStatus("");
             }}
             dataAttr="move-in-forms-filter-open"
           >
@@ -226,12 +238,12 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
               dataAttr="move-in-forms-filter-property"
             />
             <FieldSingleSelect
-              label="Form"
+              label="Status"
               variant="cell"
-              value={formKind || ALL}
-              onChange={(next) => setFormKind(next === ALL ? "" : (next as MoveInFormKind))}
-              options={[{ value: ALL, label: "All forms" }, ...MOVE_IN_FORM_KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))]}
-              dataAttr="move-in-forms-filter-form"
+              value={status || ALL}
+              onChange={(next) => setStatus(next === ALL ? "" : (next as MoveInFormStatusBucket))}
+              options={[{ value: ALL, label: "All statuses" }, ...(Object.keys(STATUS_LABELS) as MoveInFormStatusBucket[]).map((id) => ({ value: id, label: STATUS_LABELS[id] }))]}
+              dataAttr="move-in-forms-filter-status"
             />
           </PortalFilterSortSheet>
         }
@@ -245,7 +257,7 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
             <PortalActiveFilterChips
               chips={[
                 ...(propertyId ? [{ id: "property", label: `Property: ${propertyLabel || "Selected"}`, onRemove: () => setPropertyId("") }] : []),
-                ...(formKind ? [{ id: "form", label: `Form: ${moveInFormKindLabel(formKind)}`, onRemove: () => setFormKind("") }] : []),
+                ...(status ? [{ id: "status", label: `Status: ${STATUS_LABELS[status]}`, onRemove: () => setStatus("") }] : []),
               ]}
             />
           ) : null

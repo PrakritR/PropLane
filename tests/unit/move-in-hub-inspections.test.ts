@@ -7,8 +7,11 @@ import { PORTAL_NAV_GROUPS, groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import { NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER } from "@/lib/native/portal-bottom-nav";
 import { PORTAL_SECTION_CO_MANAGER_PERMISSION } from "@/lib/co-manager-permissions";
+import { moveInHubTabs } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
 import {
   inspectionDetailHref,
+  RESIDENT_MOVE_IN_TABS,
+  RESIDENT_MOVE_IN_TAB_LABELS,
   moveInFormListHref,
   moveInInspectionsHref,
   MOVE_IN_FORM_LIST_TABS,
@@ -17,12 +20,13 @@ import {
 import {
   filterMoveInForms,
   moveInFormKindLabel,
+  moveInFormTabCounts,
   MOVE_IN_FORM_KIND_OPTIONS,
 } from "@/lib/move-in-forms/manager-rows";
 import type { MoveInFormKind, MoveInFormSummary } from "@/lib/move-in-forms/types";
 
 /**
- * The manager's one Move-in page: Waiting | Submitted | Inspections. There is no Inspections sidebar
+ * The manager's one Move-in page: Intake | Move-in | Move-out | Inspections (+ Other). There is no Inspections sidebar
  * row; the old URLs redirect into the tab and keep the report id so a deep link still opens it.
  */
 
@@ -35,29 +39,56 @@ function redirectFor(source: string): { destination: string; permanent: string }
 }
 
 describe("Move-in hub tab order", () => {
-  it("is Waiting, Submitted, Inspections, in the sidebar registry and the route helpers", () => {
+  it("is Intake, Move-in, Move-out, Inspections in the sidebar registry; Other is only a route", () => {
     const section = proPortal.sections.find((s) => s.section === "move-in");
-    expect(section?.tabs.map((t) => t.id)).toEqual(["waiting", "submitted", "inspections"]);
-    expect([...MOVE_IN_FORM_LIST_TABS]).toEqual(["waiting", "submitted", "inspections"]);
+    expect(section?.tabs.map((t) => t.id)).toEqual(["intake", "move-in", "move-out", "inspections"]);
+    expect([...MOVE_IN_FORM_LIST_TABS]).toEqual(["intake", "move-in", "move-out", "inspections", "other"]);
   });
 
-  it("opens on Waiting", () => {
-    expect(parseMoveInFormListTab(undefined)).toBe("waiting");
-    expect(parseMoveInFormListTab("nonsense")).toBe("waiting");
-    expect(parseMoveInFormListTab("submitted")).toBe("submitted");
+  it("opens on the Move-in form tab", () => {
+    expect(parseMoveInFormListTab(undefined)).toBe("move-in");
+    expect(parseMoveInFormListTab("nonsense")).toBe("move-in");
+    expect(parseMoveInFormListTab("waiting")).toBe("move-in");
+    expect(parseMoveInFormListTab("intake")).toBe("intake");
+    expect(parseMoveInFormListTab("move-out")).toBe("move-out");
     expect(parseMoveInFormListTab("inspections")).toBe("inspections");
-    expect(moveInFormListHref("/portal")).toBe("/portal/move-in/waiting");
-    expect(moveInFormListHref("/portal", "submitted")).toBe("/portal/move-in/submitted");
+    expect(parseMoveInFormListTab("other")).toBe("other");
+    expect(moveInFormListHref("/portal")).toBe("/portal/move-in/move-in");
+    expect(moveInFormListHref("/portal", "intake")).toBe("/portal/move-in/intake");
     expect(moveInFormListHref("/portal", "inspections")).toBe("/portal/move-in/inspections");
   });
 
-  it("the page renders the hub for waiting, submitted and inspections, and Waiting is the bare-URL default", () => {
+  it("the page renders a tab per kind of form, and the bare URL and the old Waiting / Submitted URLs land on Move-in", () => {
     const source = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
-    expect(source).toContain("redirect(`${def.basePath}/move-in/waiting`)");
+    expect(source).toContain("redirect(`${def.basePath}/move-in/move-in`)");
+    expect(source).toContain('tabParts[0] === "waiting" || tabParts[0] === "submitted"');
     expect(source).toContain('moveInTab === "inspections"');
     // The manager has no Inspections section handler any more; only the resident one remains.
     expect(source).not.toMatch(/\n {4}if \(section === "inspections"\)/);
     expect(source).toContain('kind === "resident" && section === "inspections"');
+  });
+});
+
+describe("the hub's tab row", () => {
+  const counts = { intake: 2, "move-in": 3, "move-out": 0, other: 0 };
+
+  it("draws Other only when the manager has a custom form (or it is open)", () => {
+    expect(moveInHubTabs("/portal", counts).map((t) => t.id)).toEqual(["intake", "move-in", "move-out", "inspections"]);
+    expect(moveInHubTabs("/portal", { ...counts, other: 1 }).map((t) => t.id)).toEqual(["intake", "move-in", "move-out", "inspections", "other"]);
+    expect(moveInHubTabs("/portal", counts, "other").map((t) => t.id)).toContain("other");
+  });
+
+  it("counts each form tab's rows; Inspections carries none", () => {
+    const tabs = moveInHubTabs("/portal", counts);
+    expect(tabs.map((t) => t.count)).toEqual([2, 3, 0, undefined]);
+    expect(tabs.map((t) => t.href)).toEqual(["/portal/move-in/intake", "/portal/move-in/move-in", "/portal/move-in/move-out", "/portal/move-in/inspections"]);
+  });
+});
+
+describe("resident My home", () => {
+  it("keeps the forms tab first and labels it Move-in", () => {
+    expect(RESIDENT_MOVE_IN_TABS[0]).toBe("forms");
+    expect(RESIDENT_MOVE_IN_TAB_LABELS.forms).toBe("Move-in");
   });
 });
 
@@ -140,14 +171,16 @@ function form(kind: MoveInFormKind | undefined, patch: Partial<MoveInFormSummary
   };
 }
 
-describe("Form filter by kind", () => {
+describe("Form tabs by kind", () => {
+  const submitted = { status: "submitted" as const, submittedAt: "2026-09-29T17:00:00.000Z" };
   const forms = [
     form("intake"),
     form("move-in"),
     form("move-out"),
     form("other"),
-    form("intake", { status: "submitted", submittedAt: "2026-09-29T17:00:00.000Z" }),
-    form("move-out", { status: "submitted", submittedAt: "2026-09-29T17:00:00.000Z" }),
+    form("intake", submitted),
+    form("move-out", submitted),
+    form("move-in", { status: "cancelled" }),
   ];
 
   it("offers Intake, Move-in, Move-out, Other in that order", () => {
@@ -156,17 +189,44 @@ describe("Form filter by kind", () => {
     expect(moveInFormKindLabel(undefined)).toBe("Other");
   });
 
-  it("narrows each tab to one kind", () => {
-    expect(filterMoveInForms(forms, { tab: "waiting", kind: "intake" }).map((f) => f.kind)).toEqual(["intake"]);
-    expect(filterMoveInForms(forms, { tab: "waiting", kind: "move-out" }).map((f) => f.kind)).toEqual(["move-out"]);
-    expect(filterMoveInForms(forms, { tab: "submitted", kind: "move-out" })).toHaveLength(1);
-    expect(filterMoveInForms(forms, { tab: "submitted", kind: "move-in" })).toHaveLength(0);
-    expect(filterMoveInForms(forms, { tab: "waiting" })).toHaveLength(4);
+  it("lists sent and submitted copies together on each kind's tab, never a cancelled one", () => {
+    expect(filterMoveInForms(forms, { tab: "intake" }).map((f) => f.status).sort()).toEqual(["sent", "submitted"]);
+    expect(filterMoveInForms(forms, { tab: "move-out" })).toHaveLength(2);
+    expect(filterMoveInForms(forms, { tab: "move-in" })).toHaveLength(1);
+    expect(filterMoveInForms(forms, { tab: "other" })).toHaveLength(1);
+    expect(moveInFormTabCounts(forms)).toEqual({ intake: 2, "move-in": 1, "move-out": 2, other: 1 });
+  });
+
+  it("narrows by status", () => {
+    expect(filterMoveInForms(forms, { tab: "intake", status: "submitted" })).toHaveLength(1);
+    expect(filterMoveInForms(forms, { tab: "intake", status: "waiting" })).toHaveLength(1);
   });
 
   it("reads a copy sent before kinds existed as Other", () => {
     const legacy = form(undefined);
-    expect(filterMoveInForms([legacy], { tab: "waiting", kind: "other" })).toHaveLength(1);
-    expect(filterMoveInForms([legacy], { tab: "waiting", kind: "intake" })).toHaveLength(0);
+    expect(filterMoveInForms([legacy], { tab: "other" })).toHaveLength(1);
+    expect(filterMoveInForms([legacy], { tab: "intake" })).toHaveLength(0);
+  });
+
+  it("orders late first, then waiting by due date, then submitted newest first", () => {
+    const now = new Date("2026-10-03T19:00:00.000Z");
+    const rows = [
+      form("move-in", { id: "sub-old", ...submitted, submittedAt: "2026-09-20T17:00:00.000Z" }),
+      form("move-in", { id: "sub-new", ...submitted, submittedAt: "2026-10-01T17:00:00.000Z" }),
+      form("move-in", { id: "wait-late-soon", dueAt: "2026-10-04T20:00:00.000Z" }),
+      form("move-in", { id: "wait-none", dueAt: null }),
+      form("move-in", { id: "wait-later", dueAt: "2026-10-09T20:00:00.000Z" }),
+      form("move-in", { id: "late-1", dueAt: "2026-10-02T20:00:00.000Z" }),
+      form("move-in", { id: "late-5", dueAt: "2026-09-28T20:00:00.000Z" }),
+    ];
+    expect(filterMoveInForms(rows, { tab: "move-in" }, now).map((f) => f.id)).toEqual([
+      "late-5",
+      "late-1",
+      "wait-late-soon",
+      "wait-later",
+      "wait-none",
+      "sub-new",
+      "sub-old",
+    ]);
   });
 });

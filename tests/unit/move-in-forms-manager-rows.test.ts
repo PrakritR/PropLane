@@ -114,13 +114,13 @@ describe("list filtering", () => {
     form({ id: "3", status: "cancelled" }),
   ];
 
-  it("a cancelled request is on neither tab", () => {
-    expect(moveInFormTabCounts(list)).toEqual({ submitted: 1, waiting: 1 });
-    expect(filterMoveInForms(list, {}).map((f) => f.id)).toEqual(["1", "2"]);
+  it("a cancelled request is on no tab; a copy with no kind lists under Other, waiting before submitted", () => {
+    expect(moveInFormTabCounts(list)).toEqual({ intake: 0, "move-in": 0, "move-out": 0, other: 2 });
+    expect(filterMoveInForms(list, {}, NOW).map((f) => f.id)).toEqual(["2", "1"]);
   });
 
   it("filters by tab, property, form name and every typed word", () => {
-    expect(filterMoveInForms(list, { tab: "waiting" }).map((f) => f.id)).toEqual(["2"]);
+    expect(filterMoveInForms(list, { status: "waiting" }).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { propertyId: "p1" }).map((f) => f.id)).toEqual(["1"]);
     expect(filterMoveInForms(list, { formName: "move-in CHECKLIST" }).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { query: "maya 8th" }, NOW).map((f) => f.id)).toEqual(["2"]);

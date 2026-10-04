@@ -32,7 +32,7 @@ import {
   subscribeDemoRole,
 } from "@/lib/demo/demo-session";
 import type { PortalSection } from "@/lib/portal-types";
-import { parseResidentMoveInTab } from "@/lib/portal-detail-routes";
+import { parseMoveInFormListTab, parseResidentMoveInTab } from "@/lib/portal-detail-routes";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
 const loading = () => (
@@ -175,7 +175,7 @@ export function DemoSectionRenderer({
       // The demo never writes: the page renders its empty state (no forms are ever loaded
       // or sent while demo mode is on).
       case "move-in":
-        return <ManagerMoveInFormsPage tab={tabId === "submitted" || tabId === "inspections" ? tabId : "waiting"} basePath={basePath} />;
+        return <ManagerMoveInFormsPage tab={parseMoveInFormListTab(tabId)} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

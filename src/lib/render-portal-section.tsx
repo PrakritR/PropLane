@@ -85,7 +85,9 @@ import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import {
   legacyManagerPortalSectionPath,
+  MOVE_IN_FORM_LIST_TABS,
   parseApplicationDetailTab,
+  parseMoveInFormListTab,
   parseResidentMoveInTab,
   residentLeaseDetailHref,
 } from "@/lib/portal-detail-routes";
@@ -716,13 +718,14 @@ export async function renderPortalSection(
       }
     }
 
-    // The manager's one Move-in page: Waiting (forms residents still owe, the default), Submitted
-    // (forms they filled out) and Inspections (move-in / move-out photo reports).
+    // The manager's one Move-in page: Intake | Move-in | Move-out (every resident's copy of that
+    // kind of form, sent and submitted together; Move-in is the default), Inspections (move-in /
+    // move-out photo reports) and Other (custom forms). Old /waiting and /submitted redirect.
     // `/portal/move-in` is a different thing from a property's own Move-in tab; they share no route.
     // Inspections routes: `/move-in/inspections[/{move-in|move-out}[/{reportId}[/{recordTab}]]]`;
     // `/portal/inspections/...` redirects here (next.config.ts) with the same trailing segments.
     if ((kind === "manager" || kind === "pro") && section === "move-in") {
-      if (!tabParts?.length) redirect(`${def.basePath}/move-in/waiting`);
+      if (!tabParts?.length || tabParts[0] === "waiting" || tabParts[0] === "submitted") redirect(`${def.basePath}/move-in/move-in`);
       const moveInTab = tabParts[0];
       if (moveInTab === "inspections") {
         const inspectionKind = tabParts[1] ?? "move-in";
@@ -745,10 +748,10 @@ export async function renderPortalSection(
           managerOwnerSubscriptionTier,
         );
       }
-      if ((moveInTab !== "submitted" && moveInTab !== "waiting") || tabParts.length > 1) notFound();
+      if (!(MOVE_IN_FORM_LIST_TABS as readonly string[]).includes(moveInTab!) || tabParts.length > 1) notFound();
       const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
       return subscriptionGated(
-        <ManagerMoveInFormsPage tab={moveInTab} basePath={def.basePath} />,
+        <ManagerMoveInFormsPage tab={parseMoveInFormListTab(moveInTab)} basePath={def.basePath} />,
         kind,
         "move-in",
         managerOwnerSubscriptionTier,

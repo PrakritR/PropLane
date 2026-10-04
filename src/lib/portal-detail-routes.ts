@@ -329,17 +329,19 @@ export function residentDetailTabsForStage(stage: ResidentsTabId): readonly Resi
 }
 
 /**
- * Manager Move-in hub (the one sidebar row): the Waiting / Submitted form inbox across properties,
- * then the move-in / move-out Inspections. Waiting is first and the default.
+ * Manager Move-in hub (the one sidebar row): one tab per kind of form residents fill out (Intake,
+ * Move-in, Move-out) listing every resident's copy, sent and submitted together, then the move-in /
+ * move-out Inspections. "Other" holds custom or older forms and is drawn only when the manager has
+ * one. The bare `/move-in` lands on the Move-in form tab.
  */
-export const MOVE_IN_FORM_LIST_TABS = ["waiting", "submitted", "inspections"] as const;
+export const MOVE_IN_FORM_LIST_TABS = ["intake", "move-in", "move-out", "inspections", "other"] as const;
 export type MoveInFormListTabId = (typeof MOVE_IN_FORM_LIST_TABS)[number];
 
 export function parseMoveInFormListTab(raw: string | undefined | null): MoveInFormListTabId {
-  return raw === "submitted" || raw === "inspections" ? raw : "waiting";
+  return (MOVE_IN_FORM_LIST_TABS as readonly string[]).includes(raw ?? "") ? (raw as MoveInFormListTabId) : "move-in";
 }
 
-export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "waiting"): string {
+export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "move-in"): string {
   return `${basePath}/move-in/${tab}`;
 }
 
@@ -1117,7 +1119,7 @@ export const RESIDENT_MOVE_IN_TABS = [
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
+  forms: "Move-in",
   placement: "Your placement",
   housemates: "Housemates",
   info: "Info & rules",
@@ -1126,7 +1128,7 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
+  forms: "Move-in",
   placement: "Placement",
   housemates: "Mates",
   info: "Rules",

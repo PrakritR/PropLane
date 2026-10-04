@@ -6,13 +6,24 @@
 import { MOVE_IN_FORM_STARTERS } from "./templates";
 import type { MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormSummary } from "./types";
 
-export type MoveInFormListTab = "submitted" | "waiting";
+/** Whether a copy is still owed (`waiting`) or filed (`submitted`). A cancelled copy is neither. */
+export type MoveInFormStatusBucket = "submitted" | "waiting";
 
-/** A cancelled request is on neither tab: the manager withdrew it, so nothing is owed or filed. */
-export function moveInFormTab(form: Pick<MoveInFormSummary, "status">): MoveInFormListTab | null {
+/** The manager's form tabs: one per kind of form. Custom or older forms read as `other`. */
+export type MoveInFormListTab = MoveInFormKind;
+
+export const MOVE_IN_FORM_LIST_KINDS: readonly MoveInFormListTab[] = ["intake", "move-in", "move-out", "other"];
+
+/** A cancelled request is in neither bucket: the manager withdrew it, so nothing is owed or filed. */
+export function moveInFormTab(form: Pick<MoveInFormSummary, "status">): MoveInFormStatusBucket | null {
   if (form.status === "submitted") return "submitted";
   if (form.status === "sent") return "waiting";
   return null;
+}
+
+/** Which form tab a copy belongs to; a copy sent before kinds existed reads as `other`. */
+export function moveInFormListTab(form: Pick<MoveInFormSummary, "kind">): MoveInFormListTab {
+  return form.kind && MOVE_IN_FORM_LIST_KINDS.includes(form.kind) ? form.kind : "other";
 }
 
 const PACIFIC_DAY = new Intl.DateTimeFormat("en-CA", {
@@ -102,7 +113,7 @@ export function moveInFormPlaceLine(form: Pick<MoveInFormSummary, "propertyLabel
   return [form.propertyLabel, form.roomLabel].map((part) => part.trim()).filter(Boolean).join(" · ");
 }
 
-/** The Form filter on Waiting and Submitted, in the order the filter offers it. */
+/** The kinds of form, in tab order. */
 export const MOVE_IN_FORM_KIND_OPTIONS: ReadonlyArray<{ value: MoveInFormKind; label: string }> = [
   { value: "intake", label: "Intake" },
   { value: "move-in", label: "Move-in" },
@@ -116,23 +127,46 @@ export function moveInFormKindLabel(kind: MoveInFormKind | string | null | undef
 }
 
 export type MoveInFormFilters = {
+  /** Which form tab (kind of form) to list. A copy with no kind counts as Other. */
   tab?: MoveInFormListTab;
   propertyId?: string;
-  /** Narrow to one kind of form (Intake, Move-in, Move-out, Other). A copy with no kind counts as Other. */
-  kind?: MoveInFormKind;
+  /** Narrow to copies still owed or already filed. */
+  status?: MoveInFormStatusBucket;
   formName?: string;
   query?: string;
 };
 
-/** Every word typed must appear somewhere in the row's resident, form, property, room or facts. */
+/**
+ * One tab's order: late first (most days late first), then the rest of the waiting copies by due
+ * date (no due date last), then submitted newest first.
+ */
+export function sortMoveInFormsForTab(forms: MoveInFormSummary[], now: Date = new Date()): MoveInFormSummary[] {
+  const time = (value: string | null | undefined, fallback: number) => {
+    const t = value ? new Date(value).getTime() : NaN;
+    return Number.isNaN(t) ? fallback : t;
+  };
+  const rank = (form: MoveInFormSummary) => (moveInFormDaysLate(form, now) > 0 ? 0 : form.status === "sent" ? 1 : 2);
+  return [...forms].sort((a, b) => {
+    const byRank = rank(a) - rank(b);
+    if (byRank) return byRank;
+    if (rank(a) === 0) return moveInFormDaysLate(b, now) - moveInFormDaysLate(a, now) || time(a.dueAt, Infinity) - time(b.dueAt, Infinity);
+    if (rank(a) === 1) return time(a.dueAt, Infinity) - time(b.dueAt, Infinity) || time(b.sentAt, 0) - time(a.sentAt, 0);
+    return time(b.submittedAt, 0) - time(a.submittedAt, 0);
+  });
+}
+
+/**
+ * Every word typed must appear somewhere in the row's resident, form, property, room or facts.
+ * Cancelled copies never list. The result is in tab order (`sortMoveInFormsForTab`).
+ */
 export function filterMoveInForms(forms: MoveInFormSummary[], filters: MoveInFormFilters, now: Date = new Date()): MoveInFormSummary[] {
   const words = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-  return forms.filter((form) => {
-    const tab = moveInFormTab(form);
-    if (!tab) return false;
-    if (filters.tab && tab !== filters.tab) return false;
+  const matched = forms.filter((form) => {
+    const bucket = moveInFormTab(form);
+    if (!bucket) return false;
+    if (filters.tab && moveInFormListTab(form) !== filters.tab) return false;
+    if (filters.status && bucket !== filters.status) return false;
     if (filters.propertyId && form.propertyId !== filters.propertyId) return false;
-    if (filters.kind && (form.kind ?? "other") !== filters.kind) return false;
     if (filters.formName && form.formName.trim().toLowerCase() !== filters.formName.trim().toLowerCase()) return false;
     if (words.length === 0) return true;
     const haystack = [form.residentName, form.formName, form.propertyLabel, form.roomLabel, ...moveInFormFacts(form, now).map((fact) => fact.text)]
@@ -140,13 +174,14 @@ export function filterMoveInForms(forms: MoveInFormSummary[], filters: MoveInFor
       .toLowerCase();
     return words.every((word) => haystack.includes(word));
   });
+  return sortMoveInFormsForTab(matched, now);
 }
 
+/** Rows per form tab (sent and submitted together, cancelled excluded). */
 export function moveInFormTabCounts(forms: MoveInFormSummary[]): Record<MoveInFormListTab, number> {
-  const counts: Record<MoveInFormListTab, number> = { submitted: 0, waiting: 0 };
+  const counts: Record<MoveInFormListTab, number> = { intake: 0, "move-in": 0, "move-out": 0, other: 0 };
   for (const form of forms) {
-    const tab = moveInFormTab(form);
-    if (tab) counts[tab] += 1;
+    if (moveInFormTab(form)) counts[moveInFormListTab(form)] += 1;
   }
   return counts;
 }

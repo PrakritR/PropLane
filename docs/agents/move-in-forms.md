@@ -96,7 +96,7 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   through `BuilderQuestionCard`, the same row the application editor uses.
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
-- **Move-in hub.** The manager's `/portal/move-in` is one page with tabs Waiting (default) | Submitted | Inspections. Waiting and Submitted filter by Property and Form kind (Intake, Move-in, Move-out, Other; `summary.kind`, an unstamped copy reads as Other). Inspections mounts `InspectionsPanel` (`/portal/move-in/inspections/{move-in|move-out}[/{reportId}]`; Move-in / Move-out is its Type filter) and takes the page's tab row as its own. `/portal/inspections/...` redirects there; `docs/agents/inspections.md` owns the reports.
+- **Move-in hub.** The manager's `/portal/move-in` is one page with tabs Intake | Move-in | Move-out | Inspections, plus Other only when the manager has a form of kind `other` (custom or older templates; an unstamped copy reads as Other). Each form tab lists every resident's copy of that kind, sent and submitted together (cancelled excluded), ordered late first, then waiting by due date, then submitted newest first (`filterMoveInForms` / `sortMoveInFormsForTab`); the tab count is its row count. Filter is Property and Status (Waiting / Submitted). Bare `/portal/move-in` and the retired `/waiting` and `/submitted` redirect to `/portal/move-in/move-in`. Inspections mounts `InspectionsPanel` (`/portal/move-in/inspections/{move-in|move-out}[/{reportId}]`; Move-in / Move-out is its Type filter) and takes the page's tab row as its own. `/portal/inspections/...` redirects there; `docs/agents/inspections.md` owns the reports. Resident side: the first My home tab is labelled "Move-in" (route `/resident/move-in/forms`, unchanged) and holds every form sent to them.
 
 ## Kinds, default forms, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
@@ -105,8 +105,7 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   listing normalizer always pin them first and re-add one a client dropped, so they cannot be deleted
   (the row menu offers "Reset to default questions" instead, `resetMoveInFormToDefault`). A template's
   `kind` (`intake | move-in | move-out | other`) is fixed by those ids; stored forms without a kind read
-  as `other`. The kind rides on the sent copy's `snapshot.kind` and is what the Waiting/Submitted
-  "Form" filter uses.
+  as `other`. The kind rides on the sent copy's `snapshot.kind` and picks the copy's tab on the manager's Move-in page.
 - **Sends**: `application-submitted | application-approved | lease-signed | before-move-out | manual`.
   `before-move-out` + `moveOutDaysBefore` (7/14/30) is sent by the daily `sweepMoveOutForms` (8 o'clock
   Pacific hour of the `dispatch-reminders` tick) for fully signed, not voided leases ending within 30
