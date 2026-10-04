@@ -166,15 +166,12 @@ describe("Services tab", () => {
     createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", ...over,
   });
 
-  it("shows Requested / Active / Done with counts and the standard empty card when empty", async () => {
+  it("shows Open / Assigned / Scheduled / Completed with counts and the standard empty card when empty", async () => {
     renderDetail("services");
     await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
-    expect(tabCount("Requested")).toMatch(/Requested\s*0/);
-    expect(tabCount("Active")).toMatch(/Active\s*0/);
-    expect(tabCount("Done")).toMatch(/Done\s*0/);
-    expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
-    expect(screen.getByText("No requested services with Pacific Plumbing")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Add service" }).length).toBeGreaterThan(0);
+    for (const label of ["Open", "Assigned", "Scheduled", "Completed"]) expect(tabCount(label)).toMatch(new RegExp(`${label}\\s*0`));
+    expect(screen.getByText("No open services with Pacific Plumbing")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Request a bid" }).length).toBeGreaterThan(0);
   });
 
   it("buckets this vendor's services by the bid cycle and draws each through the shared Services row with their own figure", async () => {
@@ -182,11 +179,12 @@ describe("Services tab", () => {
       wo({ id: "wo-req", title: "Burst pipe" }),
       wo({ id: "wo-est", title: "Slow drain" }),
       wo({ id: "wo-bid", title: "Water heater" }),
+      wo({ id: "wo-asg", title: "Filter swap", vendorId: "v-1", vendorName: "Pacific Plumbing", vendorCostCents: 14000 }),
       wo({ id: "wo-act", title: "Re-pipe", bucket: "scheduled", status: "Scheduled", vendorId: "v-1", vendorName: "Pacific Plumbing", scheduledAtIso: "2026-10-08T16:00:00.000Z", vendorCostCents: 30000 }),
       wo({ id: "wo-done", title: "Faucet", bucket: "completed", status: "Completed", vendorId: "v-1", vendorName: "Pacific Plumbing", automationStatus: "paid", vendorCostCents: 12500 }),
       wo({ id: "wo-lost", title: "Lost to another vendor", vendorId: "v-9", vendorName: "Other" }),
     ];
-    serviceFixtures.offers = [{ id: "o1", workOrderId: "wo-req", vendorDirectoryId: "v-1", vendorUserId: null, status: "sent", createdAt: "2026-10-01T00:00:00.000Z" }];
+    serviceFixtures.offers = [{ id: "o1", workOrderId: "wo-req", vendorDirectoryId: "v-1", vendorUserId: null, status: "sent", createdAt: "2026-10-01T18:00:00.000Z" }];
     // Bids are read from the local demo store when the test pathname is "/", the same as the offers route.
     seedDemoWorkOrderBids([
       bidRow({ id: "b-est", workOrderId: "wo-est", estimateCents: 18000 }),
@@ -195,14 +193,22 @@ describe("Services tab", () => {
     ] as unknown as WorkOrderBid[]);
     renderDetail("services", vendor({ vendorUserId: "login-1" }));
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-service-row"]').length).toBe(3));
-    expect(tabCount("Requested")).toMatch(/Requested\s*3/);
-    expect(tabCount("Active")).toMatch(/Active\s*1/);
-    expect(tabCount("Done")).toMatch(/Done\s*1/);
+    expect(tabCount("Open")).toMatch(/Open\s*3/);
+    expect(tabCount("Assigned")).toMatch(/Assigned\s*1/);
+    expect(tabCount("Scheduled")).toMatch(/Scheduled\s*1/);
+    expect(tabCount("Completed")).toMatch(/Completed\s*1/);
+    // On Open the fact is this vendor's own answer.
+    expect(document.body.textContent).toContain("Requested Oct 1 · waiting");
+    expect(document.body.textContent).toMatch(/Estimate \$180/);
+    expect(document.body.textContent).toMatch(/Bid \$200 \+ \$25 materials/);
     // This vendor's own number: bid total over estimate; no row for the service someone else won.
     expect(screen.getAllByText("$225").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$180").length).toBeGreaterThan(0);
     expect(screen.queryByText("Lost to another vendor")).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: /^Active/ })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Assigned/ })[0]!);
+    await waitFor(() => expect(screen.getByText("Filter swap")).toBeTruthy());
+    expect(document.body.textContent).toContain("Pacific Plumbing · no time yet");
+    fireEvent.click(screen.getAllByRole("button", { name: /^Scheduled/ })[0]!);
     await waitFor(() => expect(screen.getByText("Re-pipe")).toBeTruthy());
     expect(screen.getAllByText("$300").length).toBeGreaterThan(0);
     expect(read("src/components/portal/vendor-record-services-tab.tsx")).not.toMatch(/<Badge\b/);
@@ -298,11 +304,11 @@ describe("vendor record header icons", () => {
 });
 
 describe("vendor record list tabs share the standard band", () => {
-  it("Services opens with the band: Requested · Active · Done, search and the round +, empty card under it", async () => {
+  it("Services opens with the band: Open · Assigned · Scheduled · Completed, search and the round +, empty card under it", async () => {
     renderDetail("services");
     await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
     const band = document.querySelector('[data-attr="vendor-services-list"]')!;
-    expect([...band.querySelectorAll('[data-attr^="vendor-services-list-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, ""))).toEqual(["Requested", "Active", "Done"]);
+    expect([...band.querySelectorAll('[data-attr^="vendor-services-list-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, ""))).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
     expect(screen.getByPlaceholderText("Search services")).toBeTruthy();
     expect(document.querySelector('[data-attr="vendor-services-add"]')).not.toBeNull();
     expect(band.firstElementChild!.contains(screen.getByPlaceholderText("Search services"))).toBe(true);

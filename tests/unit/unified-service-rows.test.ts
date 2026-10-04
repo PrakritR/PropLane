@@ -21,26 +21,26 @@ import {
 describe("state mapping", () => {
   it("maps an add-on request's status", () => {
     expect(addOnState("pending")).toBe("open");
-    // C246: "approved" alone is NOT genuinely scheduled — that would mislabel an
-    // approval date as a scheduled-visit date. It only becomes "scheduled" once a
-    // real visit is confirmed.
+    // C246: "approved" alone is NOT scheduled — that would mislabel an approval date as a visit
+    // date. With someone on it it is Assigned; with a visit time too, Scheduled.
     expect(addOnState("approved")).toBe("open");
-    expect(addOnState("approved", true)).toBe("scheduled");
+    expect(addOnState("approved", { id: "m1" })).toBe("assigned");
+    expect(addOnState("approved", { id: "m1" }, { iso: "2026-10-08T16:00:00Z" })).toBe("scheduled");
     // The item came back — the request is finished.
-    expect(addOnState("returned")).toBe("done");
-    // Declined is NOT done: filtering for finished work must not surface things that never happened.
+    expect(addOnState("returned")).toBe("completed");
+    // Declined is NOT Completed: filtering for finished work must not surface things that never happened.
     expect(addOnState("denied")).toBe("declined");
   });
 
   it("maps a work order's bucket", () => {
     expect(maintenanceState("open")).toBe("open");
     expect(maintenanceState("scheduled")).toBe("scheduled");
-    expect(maintenanceState("completed")).toBe("done");
+    expect(maintenanceState("completed")).toBe("completed");
     expect(maintenanceState("cancelled")).toBe("declined");
   });
 
   it("reads an unknown state as open, keeping the row visible", () => {
-    // Guessing `done` would hide real work behind a filter nobody thinks to change.
+    // Guessing `completed` would hide real work behind a filter nobody thinks to change.
     for (const raw of ["", null, undefined, "wat"]) {
       expect(addOnState(raw)).toBe("open");
       expect(maintenanceState(raw)).toBe("open");
@@ -136,6 +136,6 @@ describe("building the merged list", () => {
     // req-1 (approved, no confirmed visit) now counts as open, not scheduled (C246) —
     // only wo-1's real booked visit counts as scheduled.
     const counts = countServiceRowsByState(buildUnifiedServiceRows({ addOns, maintenance }));
-    expect(counts).toEqual({ open: 3, scheduled: 1, done: 0, declined: 0 });
+    expect(counts).toEqual({ open: 3, assigned: 0, scheduled: 1, completed: 0, declined: 0 });
   });
 });

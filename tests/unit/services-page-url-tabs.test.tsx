@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The Services URL names the tab: /services/work-orders/scheduled selects Scheduled (not Open), a tab
-// click writes the URL back, and the add-on request record shows the same Vendor & schedule cycle UI
+// click writes the URL back, and the add-on request record shows the same Vendors section
 // as a maintenance service. The Service tab carries no subtext.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -87,11 +87,15 @@ describe("the URL tab segment selects the Services tab", () => {
   it("maps the segment to a tab and back", () => {
     expect(serviceTabFromSegment("open")).toBe("open");
     expect(serviceTabFromSegment("scheduled")).toBe("scheduled");
-    expect(serviceTabFromSegment("completed")).toBe("done");
-    expect(serviceTabFromSegment("done")).toBe("done");
+    expect(serviceTabFromSegment("assigned")).toBe("assigned");
+    expect(serviceTabFromSegment("completed")).toBe("completed");
+    // Old tab ids land on the right stage and never fall home.
+    expect(serviceTabFromSegment("done")).toBe("completed");
+    expect(serviceTabFromSegment("pending")).toBe("open");
+    expect(serviceTabFromSegment("active")).toBe("scheduled");
     expect(serviceTabFromSegment("some-record-id")).toBeNull();
     expect(serviceTabFromSegment(undefined)).toBeNull();
-    expect(SERVICE_TAB_URL_SEGMENT).toMatchObject({ open: "open", scheduled: "scheduled", done: "completed" });
+    expect(SERVICE_TAB_URL_SEGMENT).toMatchObject({ open: "open", assigned: "assigned", scheduled: "scheduled", completed: "completed" });
   });
 
   it("/services/work-orders/scheduled shows the Scheduled tab and its rows, not Open", async () => {
@@ -102,19 +106,19 @@ describe("the URL tab segment selects the Services tab", () => {
     expect(document.body.textContent).not.toContain("Open pipe");
   });
 
-  it("/services/work-orders/completed shows Done", async () => {
+  it("/services/work-orders/completed shows Completed", async () => {
     state.pathname = "/portal/services/work-orders/completed";
     await renderPanel({ workOrderBucket: "completed" });
     await waitFor(() => expect(document.body.textContent).toContain("Done faucet"));
-    expect(activeTabLabel()).toMatch(/^Done/);
+    expect(activeTabLabel()).toMatch(/^Completed/);
   });
 
   it("clicking a tab updates the URL", async () => {
     await renderPanel({ workOrderBucket: "scheduled" });
     await waitFor(() => expect(document.querySelectorAll('[data-attr="work-order-list-row"]').length).toBe(1));
     const push = vi.spyOn(window.history, "pushState");
-    fireEvent.click(screen.getAllByRole("button", { name: /^Done/ })[0]!);
-    await waitFor(() => expect(activeTabLabel()).toMatch(/^Done/));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Completed/ })[0]!);
+    await waitFor(() => expect(activeTabLabel()).toMatch(/^Completed/));
     expect(push).toHaveBeenCalledWith(null, "", "/portal/services/work-orders/completed");
     fireEvent.click(screen.getAllByRole("button", { name: /^Open/ })[0]!);
     expect(push).toHaveBeenCalledWith(null, "", "/portal/services/work-orders/open");
@@ -124,12 +128,12 @@ describe("the URL tab segment selects the Services tab", () => {
     await renderPanel({ workOrderBucket: "scheduled", lockedPropertyId: "prop-a" });
     await waitFor(() => expect(document.querySelectorAll('[data-attr="work-order-list-row"]').length).toBeGreaterThan(0));
     const push = vi.spyOn(window.history, "pushState");
-    fireEvent.click(screen.getAllByRole("button", { name: /^Done/ })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Completed/ })[0]!);
     expect(push).not.toHaveBeenCalled();
   });
 });
 
-describe("add-on request: Vendor & schedule renders the cycle UI", () => {
+describe("add-on request: Vendors renders the cycle UI", () => {
   const renderRequest = (tab: string) =>
     renderPanel({
       tabId: "requests",
@@ -139,11 +143,10 @@ describe("add-on request: Vendor & schedule renders the cycle UI", () => {
     });
 
   it("shows the add-on cycle as band tabs, the Assign icon (Myself / teammates) and no old empty cards", async () => {
-    await renderRequest("vendor-schedule");
+    await renderRequest("vendors");
     await waitFor(() => expect(document.querySelector('[data-attr="service-vendor-cycle"]')).not.toBeNull());
     const tabs = [...document.querySelectorAll('[data-attr^="service-vendor-cycle-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, "").trim());
-    expect(tabs).toEqual(["Pending", "Assigned", "Scheduled", "Completed", "Paid"]);
-    expect(document.querySelector('[data-attr="service-progress-line"]')).not.toBeNull();
+    expect(tabs).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
     expect(screen.getByRole("button", { name: "Assign" })).toBeTruthy();
     // Vendors cannot take add-on services: no round + to request vendors.
     expect(document.querySelector('[data-attr="service-request-more-vendors"]')).toBeNull();
@@ -160,7 +163,7 @@ describe("add-on request: Vendor & schedule renders the cycle UI", () => {
   it("the Service tab shows 'Not assigned' as a plain value with no second line, and a Needs-you row with no muted line", async () => {
     await renderRequest("service");
     await waitFor(() => expect(document.querySelector('[data-attr="record-overview-needs-assign-vendor"]')).not.toBeNull());
-    const vendorTile = [...document.querySelectorAll("[data-attr^='record-overview-tile']")].find((el) => /Vendor/.test(el.textContent ?? ""));
+    const vendorTile = [...document.querySelectorAll("[data-attr^='record-overview-tile']")].find((el) => /Assigned to/.test(el.textContent ?? ""));
     expect(vendorTile?.textContent).toContain("Not assigned");
     expect(vendorTile?.innerHTML).not.toMatch(/text-\[var\(--status-overdue-fg\)\]/);
     expect(document.body.textContent).not.toContain("No vendor assigned yet");

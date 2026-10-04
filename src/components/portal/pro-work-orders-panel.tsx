@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
   CheckCircle2,
   HandCoins,
   Mail,
+  MoreHorizontal,
   Pencil,
   Scale,
   Send,
-  Star,
-  Trash2,
   UserPlus,
   Wrench,
 } from "lucide-react";
@@ -19,11 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { PortalRowFact } from "@/components/portal/portal-record-row";
-import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
+import { sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
-import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
   findWorkOrderCharge,
   HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE,
@@ -70,15 +68,17 @@ import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
-import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
+import { ServiceAssignDialog, type ServiceAssignMode } from "@/components/portal/service-assign-dialog";
 import { ServiceDetailsSection } from "@/components/portal/service-details-section";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import { workOrderActivityEvents } from "@/lib/service-activity";
 import { readChargesForManagerResident } from "@/lib/household-charges";
-import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
-import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cycle-section";
-import { deriveServiceStages, deriveVendorRequestRows, serviceIsVendorPayable, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import { ServiceVendorCycleSection, type VendorsIntent } from "@/components/portal/service-vendor-cycle-section";
+import { countSubmittedBids, deriveVendorRequestRows, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import { SERVICE_STAGE_LABEL, formatServiceWhen, workOrderServiceStage, workOrderStageSteps } from "@/lib/service-lifecycle";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { fetchServiceInvoices, outgoingPayHref, type ServiceInvoiceSummary } from "@/lib/manager-service-invoice-nav";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
@@ -93,7 +93,7 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
-import { propertyDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId } from "@/lib/portal-detail-routes";
+import { propertyDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
@@ -160,30 +160,11 @@ function formatScheduledLabel(iso: string): string {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** The same source the Schedule visit modal names in its "Visit arrival"
- * label (`schedule-service-visit-modal.tsx`, `data-attr="schedule-service-visit-source"`),
- * as plain muted text beside the visit time — never a pill on a row
- * (`tests/unit/portal-list-rows-no-pills.test.ts`): booked-on-arrival (the
- * visit time IS the suggestion) reads as a plain fact, a still-open proposal
- * reads as a call to confirm it. `null` when there is nothing to say. */
-function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
-  const proposed = row.proposedVisit;
-  if (!proposed) return null;
-  if (row.scheduledAtIso && row.scheduledAtIso === proposed.iso) {
-    return (
-      <span className="text-xs text-muted" data-attr="schedule-service-visit-source">
-        From your availability
-      </span>
-    );
-  }
-  if (!row.scheduledAtIso) {
-    return (
-      <span className="text-xs text-muted" data-attr="schedule-service-visit-source">
-        {proposed.source === "availability" ? "From your availability · confirm" : "PropLane pick · confirm"}
-      </span>
-    );
-  }
-  return null;
+/** The trade sent with the marketplace reach: the service's category, else read from its description. */
+function tradeLabelForRow(row: DemoManagerWorkOrderRow): string {
+  const fromCategory = row.category?.trim();
+  if (fromCategory) return fromCategory === "hvac" ? "HVAC" : fromCategory.charAt(0).toUpperCase() + fromCategory.slice(1);
+  return parseWorkOrderCategoryFromDescription(row.description ?? "") ?? "Maintenance";
 }
 
 /** $500+ triggers a confirm-preview before Approve + Pay; below it, one tap completes
@@ -227,7 +208,7 @@ export function ManagerWorkOrdersPanel({
   listAddAction,
 }: {
   allRows: DemoManagerWorkOrderRow[];
-  bucket: ManagerWorkOrderBucket;
+  bucket: WorkOrderBucketId;
   /** After moving a row from Open → Scheduled, switch the parent tab so the row is still visible. */
   onAfterSchedule?: () => void;
   workOrderId?: string;
@@ -282,7 +263,15 @@ export function ManagerWorkOrdersPanel({
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
-  const [publishBidsRow, setPublishBidsRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  /** Which "Who does it" choice the Request bids or assign popup opens on. */
+  const [assignMode, setAssignMode] = useState<ServiceAssignMode>("bids");
+  /** The header's Compare bids: switches to Vendors > Bids with the side-by-side view open. */
+  const [vendorsIntent, setVendorsIntent] = useState<VendorsIntent | null>(null);
+  const [cancelRow, setCancelRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const openAssign = (row: DemoManagerWorkOrderRow, mode: ServiceAssignMode = "bids") => {
+    setAssignMode(mode);
+    setAssignSheetRow(row);
+  };
   const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer[]>>({});
   /** Vendor invoices on the open service (the job's and any estimate-visit fee), for Outgoing payments. */
   const [serviceInvoices, setServiceInvoices] = useState<ServiceInvoiceSummary[]>([]);
@@ -1052,10 +1041,38 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  /** Assign popup > Request bids: send the service to the chosen vendors through the one server offer path (email + inbox + biddingOpen). */
-  const requestBidsFromVendors = async (row: DemoManagerWorkOrderRow, vendorIds: string[]) => {
+  /**
+   * Cancel a service that is not finished: the vendors who were asked are told (their requests are
+   * withdrawn), the visit is cleared, and the service moves to Completed as Cancelled.
+   */
+  const cancelService = async (row: DemoManagerWorkOrderRow) => {
     try {
-      const result = await sendWorkOrderToVendors(row.id, vendorIds);
+      const bids = bidsByWorkOrderId[row.id] ?? [];
+      const offers = offersByWorkOrderId[row.id] ?? [];
+      if (!isDemoModeActive()) {
+        for (const request of deriveVendorRequestRows(bids, offers)) {
+          if (request.state === "approved" || request.state === "declined") continue;
+          await removeRequestHandler(row, request);
+        }
+      }
+      updateManagerWorkOrder(row.id, (current) => ({
+        ...current,
+        status: "Cancelled",
+        bucket: "completed",
+        biddingOpen: false,
+        scheduledAtIso: undefined,
+      }));
+      showToast("Service cancelled.");
+      if (workOrderIdProp) navigateToList();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not cancel the service.");
+    }
+  };
+
+  /** Assign popup > Request bids: send the service to the chosen vendors through the one server offer path (email + inbox + biddingOpen). */
+  const requestBidsFromVendors = async (row: DemoManagerWorkOrderRow, vendorIds: string[], marketplace?: PublishMarketplaceOptions) => {
+    try {
+      const result = await sendWorkOrderToVendors(row.id, vendorIds, marketplace);
       if (!result.ok) throw new Error(result.error ?? "Could not request bids.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(row.id);
@@ -1133,7 +1150,7 @@ export function ManagerWorkOrdersPanel({
     </div>
   );
 
-  /** Vendor & schedule - the cycle: stage bar, one row per requested vendor, Assign, and request more. */
+  /** Vendors: one band, one row per requested vendor, Approve bid on a Bids row, Compare, and Request bids. */
   const renderVendorBidsBody = (row: DemoManagerWorkOrderRow) => {
     const assignedVendor =
       !row.selfAssigned && row.vendorId
@@ -1143,7 +1160,7 @@ export function ManagerWorkOrdersPanel({
     const dispatch = (row as WorkOrderRowWithDispatch).dispatch;
     const bids = bidsByWorkOrderId[row.id] ?? [];
     const offers = offersByWorkOrderId[row.id] ?? [];
-    const { stages, currentId } = deriveServiceStages(row, { bids, offers });
+    const stage = workOrderServiceStage(row, { bids, offers });
     const requests = deriveVendorRequestRows(bids, offers);
     const lead = (
       <>
@@ -1206,12 +1223,11 @@ export function ManagerWorkOrdersPanel({
       <div data-attr="work-order-vendor-bids">
         <ServiceVendorCycleSection
           lead={lead}
-          stages={stages}
-          currentId={currentId}
+          stage={stage}
           requests={requests}
           approvingBidId={acceptingBidId}
-          onOpenAssign={() => setAssignSheetRow(row)}
-          onAddVendors={() => setAssignSheetRow(row)}
+          intent={vendorsIntent}
+          onRequestBids={() => openAssign(row, "bids")}
           onApprove={(request) => {
             const bid = bids.find((b) => b.id === request.bidId);
             if (bid) void acceptBidHandler(bid);
@@ -1221,24 +1237,6 @@ export function ManagerWorkOrdersPanel({
           }}
           onRemove={(request) => void removeRequestHandler(row, request)}
         />
-      </div>
-    );
-  };
-
-  /** Schedule - the visit as a fact card; the visit itself is set from the header "Schedule" action. */
-  const renderScheduleBody = (row: DemoManagerWorkOrderRow) => {
-    const visitLabel =
-      row.scheduled && row.scheduled !== "—"
-        ? row.scheduled
-        : row.proposedVisit
-          ? formatScheduledLabel(row.proposedVisit.iso)
-          : "Not scheduled";
-    return (
-      <div className="px-3 pb-6 sm:px-4" data-attr="work-order-schedule-facts">
-        <RecordFactCard title="Visit">
-          <RecordFactRow label="When" value={visitLabel} />
-          {visitSourcePill(row) ? <RecordFactRow label="Source" value={visitSourcePill(row)} /> : null}
-        </RecordFactCard>
       </div>
     );
   };
@@ -1395,20 +1393,19 @@ export function ManagerWorkOrdersPanel({
     const activeTab = serviceDetailTab ?? "service";
     const backHref = listBasePath ? workOrderListHref(listBasePath, bucket) : "#";
     const routeBids = bidsByWorkOrderId[routeWorkOrder.id] ?? [];
-    const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: routeBids.length });
+    const routeOffers = offersByWorkOrderId[routeWorkOrder.id] ?? [];
+    const routeStage = workOrderServiceStage(routeWorkOrder, { bids: routeBids, offers: routeOffers });
+    const submittedBids = countSubmittedBids(routeBids);
+    const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: submittedBids, canPay: routeStage === "completed" });
+    const vendorsHref = workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendors");
     const runServicePrimary = (key: string) => {
-      if (key === "publish") {
-        setPublishBidsRow(routeWorkOrder);
+      if (key === "request-bids") {
+        openAssign(routeWorkOrder, "bids");
         return;
       }
-      if (key === "compare-quotes") {
-        navigate(
-          workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendor-schedule"),
-        );
-        return;
-      }
-      if (key === "assign") {
-        setAssignSheetRow(routeWorkOrder);
+      if (key === "compare-bids") {
+        setVendorsIntent({ tab: "bids", compare: true, nonce: (vendorsIntent?.nonce ?? 0) + 1 });
+        if (activeTab !== "vendors") navigate(vendorsHref);
         return;
       }
       if (key === "schedule") {
@@ -1423,7 +1420,7 @@ export function ManagerWorkOrdersPanel({
         }
         return;
       }
-      if (key === "mark-done") {
+      if (key === "complete") {
         if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
         else markComplete(routeWorkOrder);
         return;
@@ -1432,13 +1429,108 @@ export function ManagerWorkOrdersPanel({
     };
     const assignee = resolveWorkOrderAssignee(routeWorkOrder);
     const servicePrimaryIcon = (key: string) => {
-      if (key === "publish") return Send;
-      if (key === "compare-quotes") return Scale;
+      if (key === "request-bids") return Send;
+      if (key === "compare-bids") return Scale;
       if (key === "schedule") return Calendar;
-      if (key === "pay") return HandCoins;
+      if (key === "pay" || key === "approve-pay") return HandCoins;
       return CheckCircle2;
     };
-    const headerActionSpecs: PortalAdaptiveAction[] = [];
+    // Message · Edit · Request bids or assign · Schedule · ⋯ More · the one primary next step.
+    const headerActionSpecs: PortalAdaptiveAction[] = [
+      portalIconActionSpec({
+        id: "message",
+        label: "Message",
+        icon: Mail,
+        dataAttr: "record-header-action-message",
+        onClick: () =>
+          navigate(
+            workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"),
+          ),
+      }),
+      portalIconActionSpec({
+        id: "edit",
+        label: "Edit",
+        icon: Pencil,
+        dataAttr: "work-order-edit",
+        onClick: () => setEditWorkOrderRow(routeWorkOrder),
+      }),
+    ];
+    if (routeStage !== "completed") {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "assign",
+          label: "Request bids or assign",
+          icon: UserPlus,
+          dataAttr: "record-header-action-assign-vendor",
+          onClick: () => openAssign(routeWorkOrder, assignee ? "vendor" : "bids"),
+        }),
+      );
+    }
+    if (assignee && routeStage !== "completed" && serviceNext?.key !== "schedule") {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "schedule",
+          label: routeWorkOrder.scheduledAtIso ? "Reschedule" : "Schedule",
+          icon: Calendar,
+          dataAttr: routeWorkOrder.scheduledAtIso ? "work-order-reschedule-visit" : "record-header-action-schedule",
+          onClick: () => setScheduleVisitRow(routeWorkOrder),
+        }),
+      );
+    }
+    // ⋯ More: the actions that are not the next step. Cancel service and Delete are the only red items.
+    const canAutoSchedule = !routeWorkOrder.selfAssigned && Boolean(routeWorkOrder.vendorId) && routeStage !== "completed";
+    const canReview = routeStage === "completed" && Boolean(routeWorkOrder.vendorUserId);
+    const canCancel = routeStage !== "completed";
+    headerActionSpecs.push({
+      id: "more",
+      node: (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PortalIconAction ring icon={MoreHorizontal} label="More" data-attr="record-header-action-more" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="record-action-menu">
+            {canAutoSchedule ? (
+              <DropdownMenuItem
+                data-attr="work-order-auto-schedule"
+                disabled={autoSchedulingId === routeWorkOrder.id}
+                onSelect={() => autoScheduleVisit(routeWorkOrder)}
+              >
+                {autoSchedulingId === routeWorkOrder.id ? "Finding a slot…" : "Auto-schedule"}
+              </DropdownMenuItem>
+            ) : null}
+            {canReview ? (
+              <DropdownMenuItem data-attr="record-header-action-review" onSelect={() => setReviewRow(routeWorkOrder)}>
+                Leave a review
+              </DropdownMenuItem>
+            ) : null}
+            {canCancel ? (
+              <DropdownMenuItem className="text-red-600" data-attr="record-header-action-cancel" onSelect={() => setCancelRow(routeWorkOrder)}>
+                Cancel service
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem className="text-red-600" data-attr="record-header-action-delete" onSelect={() => onDeleteWorkOrder(routeWorkOrder)}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+      menuItem: (
+        <>
+          {canAutoSchedule ? (
+            <DropdownMenuItem onSelect={() => autoScheduleVisit(routeWorkOrder)}>Auto-schedule</DropdownMenuItem>
+          ) : null}
+          {canReview ? <DropdownMenuItem onSelect={() => setReviewRow(routeWorkOrder)}>Leave a review</DropdownMenuItem> : null}
+          {canCancel ? (
+            <DropdownMenuItem className="text-red-600" onSelect={() => setCancelRow(routeWorkOrder)}>
+              Cancel service
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem className="text-red-600" onSelect={() => onDeleteWorkOrder(routeWorkOrder)}>
+            Delete
+          </DropdownMenuItem>
+        </>
+      ),
+    });
     if (serviceNext) {
       headerActionSpecs.push(
         portalIconActionSpec({
@@ -1451,123 +1543,9 @@ export function ManagerWorkOrdersPanel({
         }),
       );
     }
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "message",
-        label: "Message",
-        icon: Mail,
-        dataAttr: "record-header-action-message",
-        onClick: () =>
-          navigate(
-            workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"),
-          ),
-      }),
-    );
-    if (!assignee) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "assign-vendor",
-          label: "Assign vendor",
-          icon: UserPlus,
-          dataAttr: "record-header-action-assign-vendor",
-          onClick: () => setAssignSheetRow(routeWorkOrder),
-        }),
-      );
-    }
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "edit",
-        label: "Edit",
-        icon: Pencil,
-        dataAttr: "work-order-edit",
-        onClick: () => setEditWorkOrderRow(routeWorkOrder),
-      }),
-    );
-    if (
-      assignee &&
-      serviceNext?.key !== "schedule" &&
-      routeWorkOrder.bucket !== "completed" &&
-      !routeWorkOrder.scheduledAtIso
-    ) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "schedule",
-          label: "Schedule visit",
-          icon: Calendar,
-          dataAttr: "record-header-action-schedule",
-          onClick: () => setScheduleVisitRow(routeWorkOrder),
-        }),
-      );
-    }
-    if (routeWorkOrder.bucket === "scheduled" && routeWorkOrder.scheduledAtIso) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "reschedule",
-          label: "Reschedule visit",
-          icon: Calendar,
-          dataAttr: "work-order-reschedule-visit",
-          onClick: () => setScheduleVisitRow(routeWorkOrder),
-        }),
-      );
-    }
-    if (
-      routeWorkOrder.bucket === "scheduled" &&
-      serviceNext?.key !== "mark-done" &&
-      serviceNext?.key !== "approve-pay" &&
-      serviceNext?.key !== "pay"
-    ) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "close",
-          label: "Close",
-          icon: CheckCircle2,
-          dataAttr: "record-header-action-close",
-          onClick: () => {
-            if (routeWorkOrder.automationStatus === "vendor_marked_done") void approveInvoiceForRow(routeWorkOrder);
-            else markComplete(routeWorkOrder);
-          },
-        }),
-      );
-    }
-    if (routeWorkOrder.bucket === "completed" && routeWorkOrder.vendorUserId) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "review",
-          label: "Leave a review",
-          icon: Star,
-          dataAttr: "record-header-action-review",
-          onClick: () => setReviewRow(routeWorkOrder),
-        }),
-      );
-    }
-    if (!routeWorkOrder.selfAssigned && routeWorkOrder.vendorId && routeWorkOrder.bucket !== "completed") {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "auto-schedule",
-          label: autoSchedulingId === routeWorkOrder.id ? "Finding a slot…" : "Auto-schedule",
-          icon: Calendar,
-          dataAttr: "work-order-auto-schedule",
-          disabled: autoSchedulingId === routeWorkOrder.id,
-          onClick: () => autoScheduleVisit(routeWorkOrder),
-        }),
-      );
-    }
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "delete",
-        label: "Delete",
-        icon: Trash2,
-        tone: "danger",
-        dataAttr: "record-header-action-delete",
-        onClick: () => onDeleteWorkOrder(routeWorkOrder),
-      }),
-    );
     const ownContent =
-      activeTab === "vendor-schedule" ? (
-        <>
-          {renderVendorBidsBody(routeWorkOrder)}
-          {renderScheduleBody(routeWorkOrder)}
-        </>
+      activeTab === "vendors" ? (
+        renderVendorBidsBody(routeWorkOrder)
       ) : activeTab === "incoming-payments" ? (
         renderInvoiceBody(routeWorkOrder)
       ) : activeTab === "outgoing-payments" ? (
@@ -1593,7 +1571,7 @@ export function ManagerWorkOrdersPanel({
         })()
       ) : (
         <ServiceDetailsSection
-          stages={deriveServiceStages(routeWorkOrder, { bids: routeBids, offers: offersByWorkOrderId[routeWorkOrder.id] ?? [] }).stages}
+          stages={workOrderStageSteps(routeWorkOrder, { bids: routeBids, offers: routeOffers })}
           photos={routeWorkOrder.photoDataUrls ?? []}
           activity={workOrderActivityEvents(routeWorkOrder)}
           onEdit={() => setEditWorkOrderRow(routeWorkOrder)}
@@ -1606,11 +1584,11 @@ export function ManagerWorkOrdersPanel({
             recordId: routeWorkOrder.id,
             recordLabel: routeWorkOrder.title,
             overviewTiles: [
-              { id: "status", label: "Status", value: (() => { const raw = (routeWorkOrder.status || routeWorkOrder.bucket || "").trim(); return raw.charAt(0).toUpperCase() + raw.slice(1); })() },
+              { id: "status", label: "Status", value: (routeWorkOrder.status ?? "").trim().toLowerCase() === "cancelled" ? "Cancelled" : SERVICE_STAGE_LABEL[routeStage] },
               { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
-              { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || (routeWorkOrder.selfAssigned ? "You" : "Not assigned") },
+              { id: "vendor", label: "Assigned to", value: assignee?.name || "Not assigned" },
               { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
-              // C253: bid count, visible from Overview without opening Vendor & schedule.
+              // C253: bid count, visible from Overview without opening Vendors.
               ...(routeWorkOrder.biddingOpen || (bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0) > 0
                 ? [
                     {
@@ -1623,7 +1601,7 @@ export function ManagerWorkOrdersPanel({
             ],
             overviewNeeds: [
               ...(!routeWorkOrder.vendorName?.trim() && !routeWorkOrder.selfAssigned
-                ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendor-schedule")) }]
+                ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendors")) }]
                 : []),
               ...(routeWorkOrder.automationStatus === "vendor_marked_done"
                 ? [
@@ -1652,6 +1630,14 @@ export function ManagerWorkOrdersPanel({
                 rows: [
                   { label: "Property", value: routeWorkOrder.propertyName ?? "—" },
                   { label: "Resident", value: routeWorkOrder.residentName?.trim() || "—" },
+                ],
+              },
+              {
+                id: "assignment",
+                title: "Assignment",
+                rows: [
+                  { label: "Assigned to", value: assignee?.name || "—" },
+                  { label: "Visit", value: formatServiceWhen(routeWorkOrder.scheduledAtIso) || "—" },
                 ],
               },
             ],
@@ -1715,7 +1701,10 @@ export function ManagerWorkOrdersPanel({
           vendors={assignmentVendors}
           teamMembers={teamMembers}
           meUserId={managerUserId}
-          onRequestBids={(ids) => (assignSheetRow ? requestBidsFromVendors(assignSheetRow, ids) : undefined)}
+          initialMode={assignMode}
+          trade={tradeLabelForRow(routeWorkOrder)}
+          photoCount={routeWorkOrder.photoDataUrls?.filter((url) => url.trim()).length ?? 0}
+          onRequestBids={(ids, options) => (assignSheetRow ? requestBidsFromVendors(assignSheetRow, ids, options.marketplace) : undefined)}
           onAssign={(next) => {
             if (assignSheetRow) assignWork(assignSheetRow, next);
           }}
@@ -1743,15 +1732,17 @@ export function ManagerWorkOrdersPanel({
             initialMemo={routeWorkOrder.title}
           />
         ) : null}
-        <PublishServiceBidsModal
-          open={publishBidsRow !== null}
-          row={publishBidsRow}
-          vendors={activeVendors}
-          onClose={() => setPublishBidsRow(null)}
-          onSent={() => {
-            if (publishBidsRow) void loadBids(publishBidsRow.id);
-            void syncManagerWorkOrdersFromServer({ force: true });
+        <ConfirmDeleteModal
+          open={cancelRow !== null}
+          title="Cancel service"
+          description={cancelRow ? `Cancel “${cancelRow.title}”? Vendors who were asked will be told, and the service moves to Completed as Cancelled.` : null}
+          confirmLabel="Cancel service"
+          onClose={() => setCancelRow(null)}
+          onConfirm={() => {
+            if (cancelRow) void cancelService(cancelRow);
+            setCancelRow(null);
           }}
+          dataAttr="service-cancel-confirm"
         />
         <VendorReviewDialog
           open={reviewRow !== null}

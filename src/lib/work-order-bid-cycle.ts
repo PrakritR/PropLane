@@ -1,8 +1,8 @@
 /**
  * The vendor-bid cycle as pure functions (docs/agents/vendor-portal.md § Estimate vs bid).
  *
- *   Pending -> Bids requested (several vendors) -> estimate and/or estimate visit ->
- *   bid submitted -> manager approves ONE bid -> Scheduled -> Completed -> Paid
+ *   Open -> bids requested (several vendors) -> estimate and/or estimate visit ->
+ *   bid submitted -> manager approves ONE bid -> Assigned -> Scheduled -> Completed -> Paid
  *
  * An ESTIMATE is a rough price; it is never approvable and never a payment. A BID is the real
  * price plus a time and is the only thing a manager can approve. Server and UI both read the
@@ -33,6 +33,11 @@ export function clientBidApprovalFacts(bid: WorkOrderBid): BidApprovalFacts {
   };
 }
 
+/** Bids a manager can approve right now (a submitted bid, not an estimate and not a lost one). */
+export function countSubmittedBids(bids: readonly WorkOrderBid[]): number {
+  return bids.filter((bid) => bid.status === "submitted" && bidCanBeApproved(clientBidApprovalFacts(bid))).length;
+}
+
 export type VendorRequestState =
   | "requested"
   | "estimate"
@@ -59,6 +64,10 @@ export type VendorRequestRow = {
   bidTotalCents: number | null;
   proposedTime: string | null;
   note: string | null;
+  /** When the vendor was asked (offer or bid creation). */
+  requestedAt: string | null;
+  /** When the vendor gave their estimate. */
+  estimateAt: string | null;
   canApprove: boolean;
 };
 
@@ -105,6 +114,8 @@ export function deriveVendorRequestRows(
       bidTotalCents: total,
       proposedTime: bid.proposedTime,
       note: bid.note,
+      requestedAt: offer?.createdAt ?? bid.createdAt ?? null,
+      estimateAt: bid.estimateGivenAt ?? null,
       canApprove: state === "bid",
     });
   }
@@ -129,6 +140,8 @@ export function deriveVendorRequestRows(
       bidTotalCents: null,
       proposedTime: null,
       note: offer.declinedReason ?? null,
+      requestedAt: offer.createdAt ?? null,
+      estimateAt: null,
       canApprove: false,
     });
   }
@@ -148,56 +161,21 @@ export type ServiceStageId =
 export type ServiceStage = { id: ServiceStageId; label: string; state: "done" | "current" | "todo" };
 
 const STAGE_LABEL: Record<ServiceStageId, string> = {
-  pending: "Pending",
+  pending: "Open",
   requested: "Requested",
   estimates: "Estimates",
   visits: "Visits",
   bids: "Bids",
-  approved: "Approved",
+  approved: "Assigned",
   scheduled: "Scheduled",
   completed: "Completed",
   paid: "Paid",
 };
-
-/** The Vendor & schedule tabs, in cycle order. A vendor row sits in the tab for where it has got to. */
-export const CYCLE_TAB_IDS = ["requested", "estimates", "visits", "bids", "approved", "scheduled", "completed", "paid"] as const;
-export type CycleTabId = (typeof CYCLE_TAB_IDS)[number];
-export const CYCLE_TAB_LABEL: Record<CycleTabId, string> = {
-  requested: "Requested",
-  estimates: "Estimates",
-  visits: "Visits",
-  bids: "Bids",
-  approved: "Approved",
-  scheduled: "Scheduled",
-  completed: "Completed",
-  paid: "Paid",
-};
-
-/**
- * Where a requested vendor's row sits in the cycle tabs. The approved vendor's row follows the
- * SERVICE through Approved -> Scheduled -> Completed -> Paid; every other row sits by its own state
- * (a vendor who declined stays under Requested, since they never got further).
- */
-export function cycleTabForRow(row: VendorRequestRow, serviceStage: ServiceStageId): CycleTabId {
-  switch (row.state) {
-    case "estimate":
-      return "estimates";
-    case "visit_booked":
-    case "visit_done":
-      return "visits";
-    case "bid":
-      return "bids";
-    case "approved":
-      return serviceStage === "scheduled" || serviceStage === "completed" || serviceStage === "paid" ? serviceStage : "approved";
-    default:
-      return "requested";
-  }
-}
 
 /**
  * The stage of the whole service, from server data only (never a stored stage):
  *
- *   Pending -> Requested -> Estimates -> Visits -> Bids -> Approved -> Scheduled -> Completed -> Paid
+ *   Open -> Requested -> Estimates -> Visits -> Bids -> Approved -> Scheduled -> Completed -> Paid
  *
  * Before a bid is approved the stage is how far the furthest vendor has got (a submitted bid beats
  * a booked visit beats an estimate beats a bare request). A service that goes straight to a
@@ -253,6 +231,49 @@ export function serviceIsVendorPayable(row: DemoManagerWorkOrderRow): boolean {
   return assignee?.kind === "vendor";
 }
 
+export type BidComparisonRow = {
+  key: string;
+  bidId: string | null;
+  vendorName: string;
+  vendorDirectoryId: string | null;
+  totalCents: number;
+  laborCents: number;
+  materialsCents: number;
+  /** When the vendor says they can start (the bid's proposed time). */
+  earliestAt: string | null;
+  /** The estimate visit's date, when the vendor came out before bidding. */
+  estimateVisitAt: string | null;
+  /** True for every row tied at the lowest total. */
+  lowest: boolean;
+  canApprove: boolean;
+};
+
+/**
+ * Side-by-side bids: every vendor with a SUBMITTED bid (an estimate is never comparable), cheapest
+ * first, the lowest total flagged. Ties keep the order the vendors answered in.
+ */
+export function compareBids(rows: readonly VendorRequestRow[]): BidComparisonRow[] {
+  const bids = rows.filter((row) => row.state === "bid" && row.bidTotalCents != null);
+  if (bids.length === 0) return [];
+  const lowestTotal = Math.min(...bids.map((row) => row.bidTotalCents as number));
+  return bids
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => (a.row.bidTotalCents as number) - (b.row.bidTotalCents as number) || a.index - b.index)
+    .map(({ row }) => ({
+      key: row.key,
+      bidId: row.bidId,
+      vendorName: row.vendorName,
+      vendorDirectoryId: row.vendorDirectoryId,
+      totalCents: row.bidTotalCents as number,
+      laborCents: row.bidAmountCents ?? 0,
+      materialsCents: row.bidMaterialsCents,
+      earliestAt: row.proposedTime,
+      estimateVisitAt: row.visitAt,
+      lowest: row.bidTotalCents === lowestTotal,
+      canApprove: row.canApprove,
+    }));
+}
+
 export type VendorReplyChoice =
   | "give_estimate"
   | "book_estimate_visit"
@@ -287,72 +308,6 @@ export function vendorReplyChoices(bid: WorkOrderBid | undefined): Array<{ value
   return values.map((value) => ({ value, label: labels[value] }));
 }
 
-/** The Services list's three tabs, from the same stage the service record shows. */
-export type ServiceListBucket = "open" | "scheduled" | "done";
-
-/**
- * Open = Pending through Bids; Scheduled = Approved + Scheduled (an assigned service with a
- * booked visit); Done = Completed + Paid. Derived from `deriveServiceStages`, so the tab, its
- * count, the row fact and the record's stage tabs can never disagree.
- */
-export function serviceListBucket(
-  row: DemoManagerWorkOrderRow,
-  data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
-): ServiceListBucket {
-  const { currentId } = deriveServiceStages(row, data);
-  if (currentId === "completed" || currentId === "paid") return "done";
-  if (currentId === "approved" || currentId === "scheduled") return "scheduled";
-  return "open";
-}
-
-function shortVisit(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-}
-
-function shortDay(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/**
- * The one stage fact a Services row carries (plain text with a glyph, never a pill), from the same
- * stage function the record uses: "Bids requested · 2" · "1 estimate" · "Visit Mon 4:00 PM" ·
- * "3 bids" · "Scheduled Oct 8" · "Completed" · "Paid".
- */
-export function serviceListStageFact(
-  row: DemoManagerWorkOrderRow,
-  data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
-): string {
-  const { currentId } = deriveServiceStages(row, data);
-  if (currentId === "paid") return "Paid";
-  if (currentId === "completed") return "Completed";
-  if (currentId === "scheduled" || currentId === "approved") {
-    const when = row.scheduledAtIso ? shortDay(row.scheduledAtIso) : "";
-    return when ? `Scheduled ${when}` : currentId === "approved" ? "Bid approved" : "Scheduled";
-  }
-  const requests = deriveVendorRequestRows(data.bids, data.offers).filter((r) => r.state !== "declined");
-  if (currentId === "bids") {
-    const n = requests.filter((r) => r.state === "bid").length;
-    return `${n} ${n === 1 ? "bid" : "bids"}`;
-  }
-  if (currentId === "visits") {
-    const visit = requests
-      .filter((r) => r.state === "visit_booked" && r.visitAt)
-      .map((r) => r.visitAt as string)
-      .sort()[0];
-    return visit ? `Visit ${shortVisit(visit)}` : "Visit done";
-  }
-  if (currentId === "estimates") {
-    const n = requests.filter((r) => r.state === "estimate").length;
-    return `${n} ${n === 1 ? "estimate" : "estimates"}`;
-  }
-  if (currentId === "requested") return `Bids requested · ${requests.length}`;
-  return "Pending";
-}
-
 export type StageBarItem = { id: string; label: string; state: "done" | "current" | "todo" };
 
 /** What an add-on stage needs from a service request. */
@@ -366,7 +321,7 @@ export type AddOnStageInput = {
 export type AddOnStageId = "pending" | "assigned" | "scheduled" | "completed" | "paid" | "declined";
 export const ADD_ON_TAB_IDS = ["pending", "assigned", "scheduled", "completed", "paid"] as const;
 export const ADD_ON_STAGE_LABEL: Record<AddOnStageId, string> = {
-  pending: "Pending",
+  pending: "Open",
   assigned: "Assigned",
   scheduled: "Scheduled",
   completed: "Completed",
@@ -377,7 +332,7 @@ export const ADD_ON_STAGE_LABEL: Record<AddOnStageId, string> = {
 /**
  * The cycle of an add-on service request (a resident-bought service such as storage). It has no
  * vendors - vendors cannot take add-on services, `assignableKindsFor` - so it is
- * Pending -> Assigned -> Scheduled -> Completed -> Paid (or Pending -> Declined).
+ * Open -> Assigned -> Scheduled -> Completed -> Paid (or Open -> Declined).
  */
 export function deriveAddOnStages(input: AddOnStageInput | string | null | undefined): { stages: StageBarItem[]; currentId: AddOnStageId } {
   const req: AddOnStageInput = typeof input === "string" || input == null ? { status: input as string | null | undefined } : input;
@@ -396,9 +351,4 @@ export function deriveAddOnStages(input: AddOnStageInput | string | null | undef
     state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo",
   }));
   return { stages, currentId };
-}
-
-/** The Services row fact for an add-on, from the same stages the record shows. */
-export function addOnStageFact(input: AddOnStageInput): string {
-  return ADD_ON_STAGE_LABEL[deriveAddOnStages(input).currentId];
 }

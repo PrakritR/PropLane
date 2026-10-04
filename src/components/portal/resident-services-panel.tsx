@@ -85,6 +85,8 @@ import {
   type ServiceRowState,
   type UnifiedServiceRow,
 } from "@/lib/unified-service-rows";
+import { workOrderServiceStage } from "@/lib/service-lifecycle";
+import { SERVICE_STAGE_LABEL } from "@/lib/service-stage-ids";
 import {
   RESIDENT_SERVICE_TAB_LABELS,
   RESIDENT_SERVICE_TAB_ORDER,
@@ -124,27 +126,7 @@ type ResidentServiceListRowData =
   | { unified: UnifiedServiceRow; req: ServiceRequest }
   | { unified: UnifiedServiceRow; row: DemoManagerWorkOrderRow };
 
-export type WorkOrderFilterBucket = "pending" | "scheduled" | "completed";
-
-export const WORK_ORDER_FILTER_TABS: { id: WorkOrderFilterBucket; label: string }[] = [
-  { id: "pending", label: "Pending" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "completed", label: "Completed" },
-];
-
-export function workOrderFilterBucket(row: DemoManagerWorkOrderRow): WorkOrderFilterBucket {
-  if (row.bucket === "completed") return "completed";
-  if (row.bucket === "scheduled") return "scheduled";
-  return "pending";
-}
-
 export type RequestStatusBucket = "pending" | "completed" | "denied";
-
-export const REQUEST_STATUS_TABS: { id: RequestStatusBucket; label: string }[] = [
-  { id: "pending", label: "Pending" },
-  { id: "completed", label: "Completed" },
-  { id: "denied", label: "Denied" },
-];
 
 /** @deprecated Counts are no longer shown on status pills — returns the label only. */
 export function pillLabelWithCount(label: string, _count: number): string {
@@ -244,14 +226,8 @@ export function ServiceStatusBadge({
   return null;
 }
 
-const WORK_ORDER_BUCKET_LABEL: Record<ResidentWorkBucket, string> = {
-  open: "Pending",
-  scheduled: "Scheduled",
-  completed: "Completed",
-};
-
 export function WorkOrderStatusBadge({ bucket, neutral = false }: { bucket: ResidentWorkBucket; neutral?: boolean }) {
-  const label = WORK_ORDER_BUCKET_LABEL[bucket];
+  const label = SERVICE_STAGE_LABEL[bucket];
   if (neutral) {
     return <span className="text-xs font-medium text-muted">{label}</span>;
   }
@@ -261,7 +237,7 @@ export function WorkOrderStatusBadge({ bucket, neutral = false }: { bucket: Resi
       : "portal-badge-info";
   return (
     <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${cls} ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]`}>
-      {WORK_ORDER_BUCKET_LABEL[bucket]}
+      {label}
     </span>
   );
 }
@@ -792,6 +768,8 @@ export function ResidentServicesPanel({
           propertyName: row.propertyName,
           unit: row.unit,
           scheduledAtIso: row.scheduledAtIso,
+          // The resident sees the same four stages; a service with someone on it and no time is Assigned.
+          state: workOrderServiceStage(row, { bids: [], offers: [] }),
         })),
         propertyLabelForRequest: (propertyId) =>
           getPropertyById(propertyId)?.buildingName?.trim() || null,
@@ -801,7 +779,7 @@ export function ResidentServicesPanel({
 
   const serviceStateCounts = useMemo(() => {
     const byState = countServiceRowsByState(unifiedServiceRows);
-    const counts: Record<ResidentServiceTab, number> = { open: 0, scheduled: 0, done: 0 };
+    const counts: Record<ResidentServiceTab, number> = { open: 0, assigned: 0, scheduled: 0, completed: 0 };
     for (const id of Object.keys(byState) as ServiceRowState[]) {
       counts[residentServiceTab(id)] += byState[id];
     }

@@ -8,12 +8,12 @@ import {
 } from "@/lib/portal-detail-routes";
 
 describe("manager service record rail", () => {
-  it("is Service · Vendor & schedule · (Linked) Incoming payments · Outgoing payments · Communication", () => {
+  it("is Service · Vendors · (Linked) Incoming payments · Outgoing payments · Communication", () => {
     const sections = recordSections("manager", "service", { basePath: "/portal", serviceKind: "work-order", serviceBucket: "open" });
     const flat = sections.groups.flatMap((group) => group.items.map((item) => `${group.label}|${item.id}|${item.label}`));
     expect(flat).toEqual([
       "Service|service|Service",
-      "Service|vendor-schedule|Vendor & schedule",
+      "Service|vendors|Vendors",
       "Linked|incoming-payments|Incoming payments",
       "Linked|outgoing-payments|Outgoing payments",
       "|communication|Communication",
@@ -28,7 +28,7 @@ describe("manager service record rail", () => {
       expect(parseServiceDetailTab(item.id)).toBe(item.id);
       expect(item.href("wo-1")).toContain("/services/work-orders/open/wo-1");
     }
-    expect([...SERVICE_DETAIL_TABS]).toEqual(["service", "vendor-schedule", "incoming-payments", "outgoing-payments", "communication"]);
+    expect([...SERVICE_DETAIL_TABS]).toEqual(["service", "vendors", "incoming-payments", "outgoing-payments", "communication"]);
   });
 
   it("the Service tab is the bare record URL", () => {
@@ -44,8 +44,9 @@ describe("old service links keep working", () => {
     expect(parseServiceDetailTab("documents")).toBe("service");
     expect(parseServiceDetailTab("payments")).toBe("incoming-payments");
     expect(parseServiceDetailTab("invoice")).toBe("incoming-payments");
-    expect(parseServiceDetailTab("vendor-bids")).toBe("vendor-schedule");
-    expect(parseServiceDetailTab("schedule")).toBe("vendor-schedule");
+    expect(parseServiceDetailTab("vendor-bids")).toBe("vendors");
+    expect(parseServiceDetailTab("schedule")).toBe("vendors");
+    expect(parseServiceDetailTab("vendor-schedule")).toBe("vendors");
   });
 
   it("falls back to the default tab for nothing or nonsense", () => {

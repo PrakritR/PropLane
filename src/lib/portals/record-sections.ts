@@ -481,33 +481,37 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   service: {
     basePathDefault: "/portal",
-    // Service · Vendor & schedule · (Linked) Incoming payments · Outgoing payments · Communication.
+    // Service · Vendors · (Linked) Incoming payments · Outgoing payments · Communication.
     // The old Overview and Photos are one Service tab (the resident's photos are a strip inside it);
     // Payments split into what the resident pays in and what the manager pays vendors out.
     ownGroups: [
       { label: "Service", ids: [
         { id: "service", label: "Service" },
-        { id: "vendor-schedule", label: "Vendor & schedule" },
+        { id: "vendors", label: "Vendors" },
       ] },
       { label: "Linked", ids: [
         { id: "incoming-payments", label: "Incoming payments" },
         { id: "outgoing-payments", label: "Outgoing payments" },
       ] },
     ],
+    // Message · Edit · Request bids or assign · Schedule, then the primary next step
+    // (Request bids / Compare bids / Schedule / Complete / Pay, chosen from the lifecycle in
+    // pro-work-orders-panel.tsx), with Cancel service and Delete - the only red items - in ⋯.
     headerActions: [
-      { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
+      { id: "message", label: "Message", icon: Mail },
+      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "assign", label: "Request bids or assign", icon: UserPlus },
       { id: "schedule", label: "Schedule", icon: Calendar },
-      { id: "close", label: "Close", icon: CheckCircle2 },
+      { id: "complete", label: "Complete", icon: CheckCircle2 },
       // Only rendered once the service is completed and a vendor is assigned
       // (gated in pro-work-orders-panel.tsx's headerActions filter).
       { id: "review", label: "Leave a review", icon: Star },
+      { id: "cancel", label: "Cancel service", icon: Trash2, tone: "danger" },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
-      "vendor-schedule": [
-        { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
-        { id: "propose-time", label: "Propose a time", icon: Calendar },
-        { id: "invite-vendor", label: "Request bids", icon: Mail },
+      vendors: [
+        { id: "assign", label: "Request bids or assign", icon: UserPlus },
       ],
       "incoming-payments": [
         { id: "add-charge", label: "Add charge", icon: Plus },

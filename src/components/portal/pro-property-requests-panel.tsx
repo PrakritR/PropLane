@@ -38,8 +38,9 @@ type RequestsSaveTarget =
 
 const STATUS_OPTIONS: { value: ServiceRowState; label: string }[] = [
   { value: "open", label: "Open" },
+  { value: "assigned", label: "Assigned" },
   { value: "scheduled", label: "Scheduled" },
-  { value: "done", label: "Done" },
+  { value: "completed", label: "Completed" },
   { value: "declined", label: "Declined" },
 ];
 

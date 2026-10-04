@@ -106,13 +106,31 @@ describe("the Assign popup is the standard frame", () => {
       </AppUiProvider>,
     );
 
-  it("a maintenance service opens on Request bids from vendors, disabled until a vendor is picked", () => {
+  it("a maintenance service opens on Request bids, disabled until a vendor is picked or the marketplace is ticked", () => {
     renderDialog(true);
     expect(document.querySelector('[data-attr="service-assign-vendors"]')).not.toBeNull();
     expect((document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual(["Request bids", "A vendor", "A teammate", "Me"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /PropLane vendors within/ }));
+    expect((document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("an add-on opens on Myself and can assign you with one click; vendors are never offered", () => {
+  it("passes the marketplace reach (off by default, radius when ticked) and the note through onRequestBids", async () => {
+    const onRequestBids = vi.fn();
+    render(
+      <AppUiProvider>
+        <ServiceAssignDialog open onClose={() => undefined} allowVendors vendors={vendors} teamMembers={team} meUserId="mgr-1" trade="Plumbing" photoCount={2} onAssign={vi.fn()} onRequestBids={onRequestBids} />
+      </AppUiProvider>,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /PropLane vendors within/ }));
+    fireEvent.change(screen.getByLabelText("Marketplace radius"), { target: { value: "10" } });
+    fireEvent.change(document.querySelector('[data-attr="service-assign-note"]')!, { target: { value: "Back door" } });
+    fireEvent.click(document.querySelector('[data-attr="service-assign-submit"]')!);
+    await vi.waitFor(() => expect(onRequestBids).toHaveBeenCalled());
+    expect(onRequestBids).toHaveBeenCalledWith([], { marketplace: { enabled: true, trade: "Plumbing", radiusMi: 10, sharePhotos: true, notes: "Back door" } });
+  });
+
+  it("an add-on opens on Me and can assign you with one click; vendors are never offered", () => {
     const onAssign = vi.fn();
     renderDialog(false, onAssign);
     expect(document.querySelector('[data-attr="service-assign-vendors"]')).toBeNull();
@@ -124,46 +142,83 @@ describe("the Assign popup is the standard frame", () => {
   });
 });
 
-describe("Vendor & schedule places each vendor under its cycle tab, with counts", () => {
-  const stages = [
-    { id: "pending", label: "Pending", state: "done" as const },
-    { id: "bids", label: "Bids", state: "current" as const },
-  ];
+describe("Vendors places each vendor under its answer tab, with counts", () => {
   const req = (over: Partial<import("@/lib/work-order-bid-cycle").VendorRequestRow>): import("@/lib/work-order-bid-cycle").VendorRequestRow => ({
     key: "k", vendorDirectoryId: "d", vendorUserId: "u", vendorName: "Vendor", offerId: null, bidId: "b", state: "requested", estimateCents: null,
-    visitAt: null, visitFeeCents: 0, visitDone: false, bidAmountCents: null, bidMaterialsCents: 0, bidTotalCents: null, proposedTime: null, note: null, canApprove: false, ...over,
+    visitAt: null, visitFeeCents: 0, visitDone: false, bidAmountCents: null, bidMaterialsCents: 0, bidTotalCents: null, proposedTime: null, note: null,
+    requestedAt: null, estimateAt: null, canApprove: false, ...over,
   });
+  const handlers = { onRequestBids: () => undefined, onApprove: vi.fn(), onMessage: () => undefined, onRemove: () => undefined };
 
-  it("opens on the current stage's tab and counts every tab", async () => {
+  it("opens on Bids when there are bids, counts every tab, and Approve bid is only on a Bids row", async () => {
     const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
     render(
       <ServiceVendorCycleSection
-        stages={stages}
-        currentId="bids"
+        stage="open"
         requests={[
           req({ key: "1", vendorName: "Asked Co", state: "requested", bidId: null, offerId: "o1" }),
           req({ key: "2", vendorName: "Estimate Co", state: "estimate", estimateCents: 18000, bidId: "b2" }),
           req({ key: "3", vendorName: "Bid Co", vendorDirectoryId: "d3", state: "bid", bidAmountCents: 20000, bidTotalCents: 20000, canApprove: true, bidId: "b3" }),
         ]}
         approvingBidId={null}
-        onOpenAssign={() => undefined}
-        onAddVendors={() => undefined}
-        onApprove={() => undefined}
-        onMessage={() => undefined}
-        onRemove={() => undefined}
+        {...handlers}
       />,
     );
     const count = (id: string) => document.querySelector(`[data-attr="service-vendor-cycle-tab-${id}"]`)!.textContent;
     expect(count("requested")).toMatch(/Requested\s*1/);
     expect(count("estimates")).toMatch(/Estimates\s*1/);
     expect(count("bids")).toMatch(/Bids\s*1/);
-    expect(count("visits")).toMatch(/Visits\s*0/);
-    // Opens on Bids: only the vendor with a submitted bid, and only that row can be approved.
+    expect(count("approved")).toMatch(/Approved\s*0/);
+    expect(count("declined")).toMatch(/Declined\s*0/);
     expect(screen.getByText("Bid Co")).toBeTruthy();
     expect(screen.queryByText("Estimate Co")).toBeNull();
     expect((screen.getByRole("button", { name: /Approve bid from Bid Co/ }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-estimates"]')!);
     expect(screen.getByText("Estimate Co")).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Approve bid - Estimate Co has not submitted a bid/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /Approve bid/ })).toBeNull();
+    // An estimate row shows its figure with the small caption.
+    expect(document.body.textContent).toContain("$180");
+    expect(document.body.textContent).toContain("estimate");
+  });
+
+  it("marks the lowest bid and, with two or more bids, Compare lays them side by side with Approve bid on each", async () => {
+    const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
+    const onApprove = vi.fn();
+    render(
+      <ServiceVendorCycleSection
+        stage="open"
+        requests={[
+          req({ key: "hi", vendorName: "City Fix Co.", vendorDirectoryId: "d1", state: "bid", bidAmountCents: 20000, bidTotalCents: 20000, canApprove: true, bidId: "b1", proposedTime: "2026-10-07T16:00:00.000Z" }),
+          req({ key: "lo", vendorName: "Rapid Pipes", vendorDirectoryId: "d2", state: "bid", bidAmountCents: 15200, bidMaterialsCents: 1200, bidTotalCents: 16400, canApprove: true, bidId: "b2", proposedTime: "2026-10-08T16:00:00.000Z" }),
+        ]}
+        approvingBidId={null}
+        {...handlers}
+        onApprove={onApprove}
+      />,
+    );
+    expect(screen.getByText("Rapid Pipes · Lowest")).toBeTruthy();
+    expect(screen.getByText("City Fix Co.")).toBeTruthy();
+    expect(document.querySelector('[data-attr="service-bid-compare"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+    const cards = [...document.querySelectorAll('[data-attr="service-bid-compare-card"]')];
+    expect(cards.map((c) => c.querySelector("p")?.textContent)).toEqual(["Rapid PipesLowest", "City Fix Co."]);
+    expect(cards[0]!.textContent).toMatch(/\$164/);
+    for (const label of ["Labor", "Materials", "Earliest", "Estimate first"]) expect(cards[0]!.textContent).toContain(label);
+    fireEvent.click(within(cards[0] as HTMLElement).getByRole("button", { name: /Approve bid from Rapid Pipes/ }));
+    expect(onApprove).toHaveBeenCalledWith(expect.objectContaining({ key: "lo" }));
+  });
+
+  it("a single bid has no Compare toggle and no Lowest marker", async () => {
+    const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
+    render(
+      <ServiceVendorCycleSection
+        stage="open"
+        requests={[req({ key: "only", vendorName: "Solo Co", state: "bid", bidAmountCents: 100, bidTotalCents: 100, canApprove: true, bidId: "b1" })]}
+        approvingBidId={null}
+        {...handlers}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Compare" })).toBeNull();
+    expect(screen.queryByText(/Lowest/)).toBeNull();
   });
 });

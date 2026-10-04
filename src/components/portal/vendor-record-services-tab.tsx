@@ -16,6 +16,7 @@ import { formatServiceMoney } from "@/lib/manager-service-workflow";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { workOrderDetailHref } from "@/lib/portal-detail-routes";
+import { SERVICE_STAGE_LABEL } from "@/lib/service-stage-ids";
 import {
   VENDOR_SERVICE_BUCKETS,
   buildVendorServiceItems,
@@ -28,9 +29,9 @@ import { fetchWorkOrderVendorOffers, sendWorkOrderToVendors, type WorkOrderVendo
 const NEW_SERVICE = "__new__";
 
 /**
- * A vendor record's Services tab: Requested · Active · Done, with the same shared row as the
- * Services page and this vendor's own estimate/bid figure. The + requests this vendor for an
- * existing open service, or creates a new service assigned to them.
+ * A vendor record's Services tab: Open · Assigned · Scheduled · Completed, with the same shared row as
+ * the Services page and this vendor's own estimate/bid figure. The + requests a bid from this vendor
+ * on an open service, or creates a new service assigned to them.
  */
 export function VendorRecordServicesTab({
   vendorId,
@@ -49,7 +50,7 @@ export function VendorRecordServicesTab({
   onCreateService: () => void;
 }) {
   const { showToast } = useAppUi();
-  const [tab, setTab] = useState<VendorServiceBucket>("requested");
+  const [tab, setTab] = useState<VendorServiceBucket>("open");
   const [search, setSearch] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
   const [tick, setTick] = useState(0);
@@ -149,7 +150,7 @@ export function VendorRecordServicesTab({
           />
         }
         plus={{
-          label: "Add service",
+          label: "Request a bid",
           dataAttr: "vendor-services-add",
           onClick: () => {
             setPick(requestable.length > 0 ? requestable[0]!.id : NEW_SERVICE);
@@ -158,7 +159,7 @@ export function VendorRecordServicesTab({
         }}
         loading={!loaded}
         isEmpty={shown.length === 0}
-        emptyTitle={search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search) : `No ${tab} services with ${vendorName}`}
+        emptyTitle={search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search) : `No ${SERVICE_STAGE_LABEL[tab].toLowerCase()} services with ${vendorName}`}
       >
         {shown.map((item) => (
           <PortalApplicantRecordRow
@@ -171,7 +172,7 @@ export function VendorRecordServicesTab({
             amountSubLabel={item.figureLabel}
             onOpen={() => {
               const wo = workOrders.find((w) => w.id === item.workOrderId);
-              onNavigate(workOrderDetailHref(basePath, wo?.bucket ?? "open", item.workOrderId, item.needsDecision ? "vendor-schedule" : undefined));
+              onNavigate(workOrderDetailHref(basePath, wo?.bucket ?? "open", item.workOrderId, item.needsDecision ? "vendors" : undefined));
             }}
             dataAttr="vendor-service-row"
             rowId={item.workOrderId}
@@ -185,9 +186,9 @@ export function VendorRecordServicesTab({
           if (!busy) setRequestOpen(false);
         }}
         dismissBlocked={busy}
-        title={`Add service for ${vendorName}`}
+        title={`Request a bid from ${vendorName}`}
         primaryAction={{
-          label: pick === NEW_SERVICE ? "Create service" : "Request bid",
+          label: pick === NEW_SERVICE ? "Create service" : "Request a bid",
           onClick: () => void submitRequest(),
           loading: busy,
           disabled: busy,

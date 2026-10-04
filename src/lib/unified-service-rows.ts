@@ -14,11 +14,17 @@
  * Nothing here reads or writes storage.
  */
 
+import { addOnServiceStage } from "@/lib/service-lifecycle";
+import { parseServiceStage, SERVICE_STAGE_IDS, type ServiceStage } from "@/lib/service-stage-ids";
+
 /** Which store a row came from. Carried on every row so a click can route back correctly. */
 export type ServiceRowKind = "add-on" | "maintenance";
 
-/** Coarse state shared by both models, for one set of filter pills over the merged list. */
-export type ServiceRowState = "open" | "scheduled" | "done" | "declined";
+/**
+ * The state shared by both models: the four service stages (`service-lifecycle.ts`) plus `declined`,
+ * which an add-on can be and which the Completed tab folds in.
+ */
+export type ServiceRowState = ServiceStage | "declined";
 
 export type UnifiedServiceRow = {
   id: string;
@@ -46,32 +52,17 @@ export type UnifiedServiceRow = {
 };
 
 /**
- * Map an add-on request's status onto the shared state.
- *
- * `returned` counts as done: the item came back, the request is finished. `denied` is its own
- * state rather than done, because a manager filtering for finished work should not be shown
- * things that never happened.
- *
- * `approved` is genuinely "scheduled" ONLY when the request both has someone assigned to
- * handle it AND an actual confirmed visit time — never merely because it was approved
- * (C246: an approval date is not a scheduled-visit date). An add-on's `proposedVisit` is
- * always a tentative suggestion awaiting manager confirmation, never a booking, so it does
- * not count as a confirmed visit either.
+ * Map an add-on request onto the shared state, through the same stage function the record's
+ * stepper uses. `denied` is its own state rather than Completed so a filter for finished work is
+ * not shown things that never happened (the Completed tab folds it back in).
  */
 export function addOnState(
   status: string | undefined | null,
-  hasConfirmedVisit = false,
+  assignee?: { id: string } | null,
+  proposedVisit?: { iso: string } | null,
 ): ServiceRowState {
-  switch ((status ?? "").toLowerCase()) {
-    case "approved":
-      return hasConfirmedVisit ? "scheduled" : "open";
-    case "returned":
-      return "done";
-    case "denied":
-      return "declined";
-    default:
-      return "open";
-  }
+  if ((status ?? "").toLowerCase() === "denied") return "declined";
+  return addOnServiceStage({ status, assignee, proposedVisit });
 }
 
 /**
@@ -85,7 +76,7 @@ export function maintenanceState(bucket: string | undefined | null): ServiceRowS
     case "scheduled":
       return "scheduled";
     case "completed":
-      return "done";
+      return "completed";
     case "cancelled":
     case "declined":
       return "declined";
@@ -106,6 +97,7 @@ type AddOnInput = {
   requestedAt?: string | null;
   approvedAt?: string | null;
   proposedVisit?: ProposedVisitInput;
+  assignee?: { id: string } | null;
 };
 
 type MaintenanceInput = {
@@ -140,17 +132,15 @@ export function buildUnifiedServiceRows(input: {
 
   for (const req of input.addOns) {
     if (!req.id) continue;
-    // An add-on has no visit record to book into — `proposedVisit` is always only a
-    // suggestion the manager has not confirmed (see the field's own doc comment), so an
-    // add-on never has a genuinely confirmed visit today. Kept as a real condition (rather
-    // than a hardcoded false) so a future confirmed-visit field wires in without another pass.
+    // An add-on has no visit record to book into — `proposedVisit` is only a suggestion, so the
+    // row's `scheduledIso` stays empty even when its stage reads Scheduled.
     const hasConfirmedVisit = false;
     rows.push({
       id: req.id,
       kind: "add-on",
       title: req.offerName?.trim() || "Add-on service",
       statusLabel: titleCase(req.status) || "Pending",
-      state: addOnState(req.status, hasConfirmedVisit),
+      state: addOnState(req.status, req.assignee, req.proposedVisit),
       residentName: req.residentName?.trim() ?? "",
       residentEmail: req.residentEmail?.trim() ?? "",
       propertyId: req.propertyId?.trim() ?? "",
@@ -210,11 +200,11 @@ export function sortServiceRows(rows: UnifiedServiceRow[]): UnifiedServiceRow[] 
   });
 }
 
-/** Count rows per state, for the filter pills over the merged list. */
+/** Count rows per state, for the tabs over the merged list. */
 export function countServiceRowsByState(
   rows: readonly UnifiedServiceRow[],
 ): Record<ServiceRowState, number> {
-  const counts: Record<ServiceRowState, number> = { open: 0, scheduled: 0, done: 0, declined: 0 };
+  const counts: Record<ServiceRowState, number> = { open: 0, assigned: 0, scheduled: 0, completed: 0, declined: 0 };
   for (const row of rows) counts[row.state] += 1;
   return counts;
 }
@@ -240,25 +230,25 @@ function titleCase(value: string | undefined | null): string {
 }
 
 
-/** Services tabs, as the URL names them: `/services/work-orders/<open|scheduled|completed>`. */
+/** Services tabs, as the URL names them: `/services/work-orders/<open|assigned|scheduled|completed>`. */
 export const SERVICE_TAB_URL_SEGMENT: Record<ServiceRowState, string> = {
   open: "open",
+  assigned: "assigned",
   scheduled: "scheduled",
-  done: "completed",
+  completed: "completed",
   declined: "completed",
 };
 
-/** The tab a Services URL selects, or null when its last segment is not a tab (a record, a request bucket). */
-export function serviceTabFromSegment(segment: string | null | undefined): ServiceRowState | null {
-  switch ((segment ?? "").toLowerCase()) {
-    case "open":
-      return "open";
-    case "scheduled":
-      return "scheduled";
-    case "completed":
-    case "done":
-      return "done";
-    default:
-      return null;
-  }
+/**
+ * The tab a Services URL selects, or null when its last segment is not a tab (a record id, a request
+ * bucket). Old tab ids (`done`, `pending`, `active`, ...) resolve through `parseServiceStage`, so a
+ * saved link lands on the right tab and never falls home.
+ */
+export function serviceTabFromSegment(segment: string | null | undefined): ServiceStage | null {
+  const key = (segment ?? "").trim().toLowerCase();
+  if (!key) return null;
+  if ((SERVICE_STAGE_IDS as readonly string[]).includes(key)) return key as ServiceStage;
+  return LEGACY_TAB_SEGMENTS.has(key) ? parseServiceStage(key) : null;
 }
+
+const LEGACY_TAB_SEGMENTS = new Set(["done", "pending", "potential", "requested", "active", "current", "upcoming", "past", "complete", "closed", "paid"]);

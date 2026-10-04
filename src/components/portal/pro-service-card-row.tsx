@@ -43,7 +43,7 @@ export function ManagerServiceCardRow({
   figure?: string;
   /** The row's own ⋯ menu. */
   menu?: ReactNode;
-  /** Where the service stands in the bid cycle ("3 bids", "Visit Mon 4:00 PM", "Scheduled Oct 8"), as a plain glyph fact. */
+  /** Where the service stands, by stage ("3 bids · lowest $152", "Rapid Pipes · no time yet", "Wed, Oct 8 · 9am · Rapid Pipes", "To pay"), as a plain glyph fact. */
   stageFact?: string;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
@@ -52,9 +52,8 @@ export function ManagerServiceCardRow({
   rowId?: string;
 }) {
   const parts = managerServiceCardParts(row, { omitProperty });
-  // "Scheduled Oct 8" already says what the dated fact would; never show the same thing twice.
-  const stageWord = stageFact?.split(/\s+/)[0]?.toLowerCase() ?? "";
-  const showDate = Boolean(parts.dateFact) && !(stageWord && parts.dateFact!.text.toLowerCase().startsWith(stageWord));
+  // The stage fact already carries the time ("Wed, Oct 8 · 9am · Rapid Pipes"); never show it twice.
+  const showDate = Boolean(parts.dateFact) && !stageFact;
   return (
     // The list draws its own ⋯ (service menu), so the shared row-actions
     // context must not add a second one beside it.
