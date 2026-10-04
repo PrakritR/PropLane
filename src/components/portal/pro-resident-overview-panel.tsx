@@ -317,11 +317,16 @@ export function ResidentOverviewPanel({
                   /^\d{4}-\d{2}-\d{2}$/.test((row.dueDate ?? "").trim())
                     ? formatPortalListDate(row.dueDate)
                     : row.dueDate;
+                // dueDate text can already read "Before lease signing" / "By Oct 5" — fold the case
+                // so it reads "Due before lease signing", never "Due Before …".
+                const dueText = /^(before|by)\b/i.test(due.trim())
+                  ? due.trim().replace(/^./, (c) => c.toLowerCase())
+                  : due;
                 return row.bucket === "paid"
                   ? `Paid ${due}`
                   : row.bucket === "overdue"
                     ? `Overdue · ${due}`
-                    : `Due ${due}`;
+                    : `Due ${dueText}`;
               })(),
               urgent: row.bucket === "overdue",
               rank: 0,
@@ -381,9 +386,15 @@ export function ResidentOverviewPanel({
               className={cn(
                 "relative flex min-w-0 flex-1 flex-col items-center justify-start gap-2 self-start text-center",
                 "max-sm:data-[rt-keep]:flex max-sm:data-[rt-keep=false]:hidden",
+                // The connector (::before) exists only on steps after the first. A `before:` colour
+                // class on the first step still generates the pseudo-element (Tailwind adds
+                // content:""), and as a static flex item in this column it pushed the first dot and
+                // label down by one gap — so the state colour lives inside the same guard.
                 index > 0 &&
-                  "before:absolute before:right-1/2 before:top-[6px] before:-z-0 before:h-0.5 before:w-full before:rounded-full before:bg-foreground/10",
-                (step.state === "done" || step.state === "current") && "before:bg-primary",
+                  cn(
+                    "before:absolute before:right-1/2 before:top-[6px] before:-z-0 before:h-0.5 before:w-full before:rounded-full",
+                    step.state === "done" || step.state === "current" ? "before:bg-primary" : "before:bg-foreground/10",
+                  ),
               )}
             >
               <span
@@ -414,7 +425,12 @@ export function ResidentOverviewPanel({
             className="mt-5 flex flex-col gap-2.5 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between"
             data-rt-next
           >
-            <span className="text-[13px] text-muted">Next step</span>
+            <div className="flex min-w-0 flex-col gap-0.5" data-rt-next-copy>
+              <span className="text-xs text-muted">Next step</span>
+              {lifecycle.next.description ? (
+                <span className="text-sm font-medium text-foreground">{lifecycle.next.description}</span>
+              ) : null}
+            </div>
             <Button
               onClick={() => {
                 if (lifecycle.next!.kind === "callback") onNextAction?.(lifecycle.next!.actionId);

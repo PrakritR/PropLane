@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ScreeningInlinePayment } from "@/components/portal/screening-inline-payment";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
@@ -365,8 +365,59 @@ export function CheckrScreeningModal({
 
   const activeModalSubjectId = screeningSubjectId ?? row?.id ?? "";
 
+  const showRunAgain =
+    packagesLoaded &&
+    !packagesLoadError &&
+    screeningAllowed &&
+    configured &&
+    (Boolean(row.application?.consentCredit) || isDemo) &&
+    backgroundCheckComplete &&
+    !showPackagePicker;
+  const hasFooterActions =
+    showRunAgain ||
+    (isDemo && bg?.status === "pending") ||
+    (screeningAllowed && configured && isDemo && bg?.status !== "pending");
+  const modalFooter = hasFooterActions ? (
+    <ModalFooter>
+      {showRunAgain ? (
+        <Button type="button" data-attr="screening-run-again" onClick={() => setShowPackagePicker(true)}>
+          Run again
+        </Button>
+      ) : null}
+      {isDemo && bg?.status === "pending" ? (
+        <Button
+          type="button"
+          variant="outline"
+          data-attr="update-test-data"
+          onClick={() => {
+            const resolved = applyDemoBackgroundCheckResolution(row, {
+              cosignerSubmissionId: cosignerSubmissionId ?? undefined,
+              packageSlug: selectedPackage,
+              addOnProducts: selectedAddOns,
+            });
+            setBg(resolved);
+            handlePaymentComplete(resolved);
+            showToast("Test screening report updated.");
+          }}
+        >
+          Update test data
+        </Button>
+      ) : null}
+      {screeningAllowed && configured && isDemo && bg?.status !== "pending" ? (
+        <Button
+          type="button"
+          data-attr="run-screening-checkr"
+          disabled={busy || !canRun}
+          onClick={() => confirm()}
+        >
+          {busy ? "Starting…" : bg ? "Re-run screening" : "Confirm · $0.00"}
+        </Button>
+      ) : null}
+    </ModalFooter>
+  ) : undefined;
+
   return (
-    <Modal open={open} onClose={onClose} title={modalTitle} panelClassName="max-w-4xl max-h-[min(92vh,56rem)] overflow-y-auto">
+    <Modal open={open} onClose={onClose} title={modalTitle} footer={modalFooter} panelClassName="max-w-4xl max-h-[min(92vh,56rem)] overflow-y-auto">
       <div className="space-y-5 text-sm">
         {screeningSubjects.length > 1 ? (
           <BackgroundCheckHouseholdTable
@@ -396,7 +447,12 @@ export function CheckrScreeningModal({
             </p>
           </>
         ) : !configured ? (
-          <p className="text-muted">Background checks are not configured. Add CHECKR_API_KEY to enable Checkr Tenant.</p>
+          <div className="space-y-1">
+            <p className="text-muted">Background checks aren&apos;t turned on for this workspace yet.</p>
+            {process.env.NODE_ENV !== "production" ? (
+              <p className="text-xs text-muted/70">Dev: set CHECKR_API_KEY (or CHECKR_SIMULATE=1) in .env.local</p>
+            ) : null}
+          </div>
         ) : !row.application?.consentCredit && !isDemo ? (
           <p className="text-muted">This applicant has not authorized a background check.</p>
         ) : backgroundCheckComplete && !showPackagePicker ? (
@@ -407,15 +463,6 @@ export function CheckrScreeningModal({
                 A report is on file for this applicant. Run again to place a new Checkr order — for example to upgrade
                 from Starter to Complete — even when applicant details are unchanged.
               </p>
-            </div>
-            <div className="flex flex-nowrap justify-end gap-3 overflow-x-auto whitespace-nowrap">
-              <Button
-                type="button"
-                data-attr="screening-run-again"
-                onClick={() => setShowPackagePicker(true)}
-              >
-                Run again
-              </Button>
             </div>
           </div>
         ) : (
@@ -580,41 +627,6 @@ export function CheckrScreeningModal({
             adverse action (FCRA).
           </p>
         ) : null}
-
-        <div
-          data-portal-detail-actions=""
-          className="flex flex-nowrap items-center justify-end gap-3 overflow-x-auto whitespace-nowrap border-t border-border py-6 sm:gap-4"
-        >
-          {isDemo && bg?.status === "pending" ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-attr="update-test-data"
-              onClick={() => {
-                const resolved = applyDemoBackgroundCheckResolution(row, {
-                  cosignerSubmissionId: cosignerSubmissionId ?? undefined,
-                  packageSlug: selectedPackage,
-                  addOnProducts: selectedAddOns,
-                });
-                setBg(resolved);
-                handlePaymentComplete(resolved);
-                showToast("Test screening report updated.");
-              }}
-            >
-              Update test data
-            </Button>
-          ) : null}
-          {screeningAllowed && configured && isDemo && bg?.status !== "pending" ? (
-            <Button
-              type="button"
-              data-attr="run-screening-checkr"
-              disabled={busy || !canRun}
-              onClick={() => confirm()}
-            >
-              {busy ? "Starting…" : bg ? "Re-run screening" : "Confirm · $0.00"}
-            </Button>
-          ) : null}
-        </div>
       </div>
     </Modal>
   );

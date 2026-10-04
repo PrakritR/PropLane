@@ -44,6 +44,20 @@ export function ResidentLeaseReportIssueModal({
       title="Report issue"
       description="Tell your property manager what needs to change. The lease goes back to them for review — you will not sign until they send an updated version."
       panelClassName="max-w-md"
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            variant="primary"
+            data-attr="resident-lease-report-issue-submit"
+            onClick={() => void handleSubmit()}
+            disabled={busy || !message.trim()}
+            loading={busy}
+          >
+            Send to manager
+          </Button>
+        </ModalFooter>
+      }
     >
       <label className="block">
         <span className={MODAL_FIELD_LABEL_CLASS}>What needs to change?</span>
@@ -56,18 +70,6 @@ export function ResidentLeaseReportIssueModal({
           autoFocus
         />
       </label>
-      <ModalFooter>
-        <Button
-          type="button"
-          variant="primary"
-          data-attr="resident-lease-report-issue-submit"
-          onClick={() => void handleSubmit()}
-          disabled={busy || !message.trim()}
-          loading={busy}
-        >
-          Send to manager
-        </Button>
-      </ModalFooter>
     </Modal>
   );
 }

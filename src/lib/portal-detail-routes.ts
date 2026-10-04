@@ -140,13 +140,17 @@ export const RESIDENT_DETAIL_TABS = [
   "move-in",
   "payments",
   "services",
-  "inspections",
   "communication",
   "documents",
   "activity",
 ] as const;
 
-export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
+/**
+ * `inspections` is a retired resident tab: inspections live under Move-in → Forms. The id stays in
+ * the type so old callers compile, but it is never listed (RESIDENT_DETAIL_TABS) and
+ * {@link parseResidentDetailTab} aliases it to `move-in`.
+ */
+export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number] | "inspections";
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   overview: "Overview",
@@ -238,6 +242,8 @@ export function parsePropertyCalendarSubTab(raw: string | undefined | null): Pro
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {
   if (raw === "applicant") return "application";
+  // Retired tab (inspections moved under Move-in → Forms): old links land on Move-in.
+  if (raw === "inspections") return "move-in";
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }

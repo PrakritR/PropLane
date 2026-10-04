@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import {
@@ -250,7 +250,26 @@ function SharedPreviewModal({
   }, [doc, signedUrlBase, showToast]);
 
   return (
-    <Modal open={Boolean(doc)} onClose={onClose} title={doc?.displayName ?? "Preview"} panelClassName="max-w-4xl">
+    <Modal
+      open={Boolean(doc)}
+      onClose={onClose}
+      title={doc?.displayName ?? "Preview"}
+      panelClassName="max-w-4xl"
+      footer={
+        doc ? (
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              onClick={() => triggerDocumentDownload(`${signedUrlBase}/${doc.id}/signed-url?download=1`)}
+            >
+              Download
+            </Button>
+          </ModalFooter>
+        ) : undefined
+      }
+    >
       {loading ? <p className="text-sm text-muted">Loading preview…</p> : null}
       {!loading && url && doc ? (
         isImageMime(doc.mimeType) ? (
@@ -261,18 +280,6 @@ function SharedPreviewModal({
         ) : (
           <p className="text-sm text-muted">Preview is not available for this file type. Use Download.</p>
         )
-      ) : null}
-      {doc ? (
-        <div className="mt-4 flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            onClick={() => triggerDocumentDownload(`${signedUrlBase}/${doc.id}/signed-url?download=1`)}
-          >
-            Download
-          </Button>
-        </div>
       ) : null}
     </Modal>
   );

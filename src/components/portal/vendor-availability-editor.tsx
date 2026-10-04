@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -634,30 +634,29 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       </div>
 
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
-
-      {/* Weekly-hours edits already auto-commit on toggle/blur — this Save
-          is the one bottom action VD22 asks for: it also submits a pending
-          date-override draft (its own "Save" button above does the same,
-          so there is only ever one visibly-named Save control at a time). */}
-      {dialog && !addingOverride ? (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="primary"
-            data-attr="vendor-availability-save"
-            onClick={() => {
-              setDialogOpen(false);
-              showToast("Availability saved.");
-            }}
-          >
-            Save
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 
   if (!dialog) return editor;
+
+  // Weekly-hours edits already auto-commit on toggle/blur — this Save is the one bottom
+  // action: it also submits a pending date-override draft (its own "Save" above does the
+  // same, so only one visibly-named Save control shows at a time).
+  const dialogFooter = !addingOverride ? (
+    <ModalFooter>
+      <Button
+        type="button"
+        variant="primary"
+        data-attr="vendor-availability-save"
+        onClick={() => {
+          setDialogOpen(false);
+          showToast("Availability saved.");
+        }}
+      >
+        Save
+      </Button>
+    </ModalFooter>
+  ) : undefined;
 
   return (
     <Modal
@@ -666,6 +665,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       title="Set availability"
       panelClassName="w-full max-w-2xl"
       dataAttr="vendor-calendar-availability-dialog"
+      footer={dialogFooter}
     >
       {editor}
     </Modal>

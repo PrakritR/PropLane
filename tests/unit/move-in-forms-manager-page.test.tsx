@@ -34,16 +34,16 @@ vi.mock("@/components/providers/app-ui-provider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/providers/app-ui-provider")>();
   return { ...actual, useAppUi: () => ({ showToast: vi.fn() }), useConfirm: () => vi.fn().mockResolvedValue(true) };
 });
-const stored = vi.hoisted(() => ({ names: [] as string[], templates: [] as unknown[] }));
+const stored = vi.hoisted(() => ({ names: [] as string[], templates: [] as unknown[], extra: {} as Record<string, unknown>, peers: [] as unknown[] }));
 vi.mock("@/lib/move-in-forms/manager-forms", () => ({ storedMoveInFormNames: () => stored.names }));
 vi.mock("@/lib/manager-property-save-target", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/manager-property-save-target")>();
-  return { ...actual, resolveManagerListingSubmissionForPropertyId: () => ({ sub: { moveInFormTemplates: stored.templates }, saveTarget: { mode: "listing", saveId: "p1" } }) };
+  return { ...actual, resolveManagerListingSubmissionForPropertyId: () => ({ sub: { moveInFormTemplates: stored.templates, ...stored.extra }, saveTarget: { mode: "listing", saveId: "p1" } }) };
 });
 const rows = vi.hoisted(() => ({ approved: true }));
 vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/manager-applications-storage")>();
-  return { ...actual, readManagerApplicationRows: () => [{ id: "app-1", bucket: rows.approved ? "approved" : "pending", withdrawnAt: null }] };
+  return { ...actual, readManagerApplicationRows: () => [{ id: "app-1", bucket: rows.approved ? "approved" : "pending", withdrawnAt: null }, ...(stored.peers as never[])] };
 });
 const client = vi.hoisted(() => ({ loadMoveInForms: vi.fn(), sendMoveInForm: vi.fn() }));
 vi.mock("@/lib/move-in-forms/client", async (importOriginal) => {
@@ -63,6 +63,8 @@ function copy(patch: Partial<MoveInFormSummary> = {}): MoveInFormSummary {
 beforeEach(() => {
   stored.names = [];
   stored.templates = [];
+  stored.extra = {};
+  stored.peers = [];
   rows.approved = true;
   client.loadMoveInForms.mockResolvedValue({ forms: [], unread: 0 });
   client.sendMoveInForm.mockResolvedValue({});
@@ -137,7 +139,7 @@ describe("manager Move-in page", () => {
 describe("resident record › Move-in", () => {
   const template = (id: string, name: string): MoveInFormTemplate => ({ ...newMoveInFormTemplate("built"), id, name });
   const section = () => (
-    <ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" />
+    <ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="forms" />
   );
 
   it("lists every form of the property: Not sent, Sent with its due date, Submitted", async () => {
@@ -187,5 +189,59 @@ describe("resident record › Move-in", () => {
     expect(await screen.findByText("No move-in forms for this property")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Forms" }));
     expect(nav.push).toHaveBeenCalledWith("/portal/properties/all/p1/move-in");
+  });
+
+  it("opens on Move-in info with the property's instructions, access and Wi-Fi, and Edit in property", async () => {
+    stored.extra = {
+      v: 1,
+      houseMoveInInstructions: "Front door code is on the fridge.",
+      houseInfo: { access: { doorCode: "4321" }, wifi: { network: "BrooklynNet", password: "hunter22" } },
+      amenitiesText: "Washer\nPatio",
+    };
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" propertyHref="/portal/properties/all/p1/move-in" />);
+    expect(await screen.findByText("Move-in details Atlas received")).toBeTruthy();
+    expect(screen.getByText("Front door code is on the fridge.")).toBeTruthy();
+    expect(screen.getByText("Patio")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit in property" }));
+    expect(nav.push).toHaveBeenCalledWith("/portal/properties/all/p1/move-in");
+  });
+
+  it("House rules says so when the property has none, and shows rules text when it does", async () => {
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="rules" houseDetailsHref="/portal/properties/all/p1/house" />);
+    expect(await screen.findByText("No house rules on this property yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add in property" }));
+    expect(nav.push).toHaveBeenCalledWith("/portal/properties/all/p1/house");
+    cleanup();
+    stored.extra = { v: 1, houseRulesText: "Quiet after 10pm." };
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="rules" />);
+    expect(await screen.findByText("Quiet after 10pm.")).toBeTruthy();
+  });
+
+  it("Roommates lists the other approved residents at the property and opens one", async () => {
+    stored.peers = [
+      { id: "app-2", name: "Maya Chen", bucket: "approved", propertyId: "p1", withdrawnAt: null, manualResidentDetails: { roomNumber: "Room 2", moveInDate: "2020-01-01" } },
+      { id: "app-3", name: "Elsewhere Person", bucket: "approved", propertyId: "p9", withdrawnAt: null },
+      { id: "app-4", name: "Pending Person", bucket: "pending", propertyId: "p1", withdrawnAt: null },
+    ];
+    const open = vi.fn();
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="roommates" onOpenResident={open} />);
+    fireEvent.click(await screen.findByText("Maya Chen"));
+    expect(open).toHaveBeenCalledWith("app-2");
+    expect(screen.queryByText("Elsewhere Person")).toBeNull();
+    expect(screen.queryByText("Pending Person")).toBeNull();
+    cleanup();
+    stored.peers = [];
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="roommates" />);
+    expect(await screen.findByText("No roommates at this property yet")).toBeTruthy();
+  });
+
+  it("Forms carries the Inspections card and an Add inspection action", async () => {
+    const add = vi.fn();
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="forms" inspectionsPanel={<p>Inspection list</p>} onAddInspection={add} />);
+    expect(await screen.findByText("Inspection list")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add inspection" }));
+    expect(add).toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Roommates"));
+    expect(await screen.findByText("No roommates at this property yet")).toBeTruthy();
   });
 });

@@ -54,7 +54,8 @@ describe("manager-resident-lifecycle", () => {
       },
       hrefs,
     );
-    expect(snap.next).toEqual({ kind: "callback", label: "Remind to sign", actionId: "remind-sign" });
+    expect(snap.next).toMatchObject({ kind: "callback", label: "Remind to sign", actionId: "remind-sign" });
+    expect(snap.next?.description).toMatch(/^Lease sent Jan 2/);
     expect(snap.todo.some((t) => t.title.includes("waiting for the resident"))).toBe(true);
   });
 
@@ -78,12 +79,18 @@ describe("manager-resident-lifecycle", () => {
 
   it("Review application opens the Approve popup", () => {
     const snap = buildResidentLifecycle(input({ application: app("pending") }) as never, hrefs);
-    expect(snap.next).toEqual({ kind: "callback", label: "Review application", actionId: "approve-application" });
+    expect(snap.next).toEqual({
+      kind: "callback",
+      label: "Review application",
+      actionId: "approve-application",
+      description: "Application waiting for your review",
+    });
   });
 
   it("Send lease opens the Send lease screen for an approved resident, with or without a draft", () => {
-    expect(buildResidentLifecycle(input({}) as never, hrefs).next).toEqual({ kind: "callback", label: "Send lease", actionId: "send-lease" });
+    expect(buildResidentLifecycle(input({}) as never, hrefs).next).toMatchObject({ kind: "callback", label: "Send lease", actionId: "send-lease" });
     const draft = { id: "l1", residentName: "Casey", residentEmail: "c@example.com", unit: "R1", stageLabel: "Draft", updated: "", bucket: "manager", pdfVersion: 1, notes: "", updatedAtIso: "", thread: [] };
-    expect(buildResidentLifecycle(input({ leaseRows: [draft] }) as never, hrefs).next).toEqual({ kind: "callback", label: "Send lease", actionId: "send-lease" });
+    expect(buildResidentLifecycle(input({ leaseRows: [draft] }) as never, hrefs).next).toMatchObject({ kind: "callback", label: "Send lease", actionId: "send-lease" });
+    expect(buildResidentLifecycle(input({}) as never, hrefs).next?.description).toBeTruthy();
   });
 });

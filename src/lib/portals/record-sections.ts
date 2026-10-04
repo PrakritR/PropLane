@@ -225,6 +225,8 @@ type KindDef = {
   hasCommunication?: boolean;
   hasDocuments: boolean;
   hasActivity: boolean;
+  /** Label of the group the shared Communication/Documents/Activity trio lands in; omitted = unlabeled group. */
+  trioLabel?: string;
   href: (ctx: RecordSectionContext) => (recordId: string, tab: string) => string;
 };
 
@@ -280,22 +282,24 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   resident: {
     basePathDefault: "/portal",
     ownGroups: [
-      { label: "Resident", ids: [
+      { label: "Leasing", ids: [
         { id: "overview", label: "Overview" },
+        { id: "tours", label: "Tours" },
         { id: "application", label: "Application" },
         { id: "background-check", label: "Background check" },
-      ] },
-      { label: "Home", ids: [
         { id: "lease", label: "Lease" },
+      ] },
+      // Inspections live under Move-in → Forms; there is no Inspections section any more.
+      { label: "Residency", ids: [
         { id: "move-in", label: "Move-in" },
         { id: "payments", label: "Payments" },
         { id: "services", label: "Services" },
-        { id: "inspections", label: "Inspections" },
-        { id: "tours", label: "Tours" },
       ] },
     ],
+    // Communication · Documents · Activity close the rail as one "Records" group.
+    trioLabel: "Records",
     headerActions: [
-      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "edit", label: "Edit resident", icon: Pencil },
       { id: "share", label: "Share", icon: Share2 },
       { id: "archive", label: "Archive", icon: Archive },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
@@ -305,11 +309,12 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       application: [
         { id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" },
         { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
-        { id: "edit", label: "Edit", icon: Pencil },
+        { id: "upload-application", label: "Upload completed application", icon: Upload },
+        { id: "edit", label: "Edit application", icon: Pencil },
         { id: "download", label: "Download PDF", icon: Download },
       ],
       "background-check": [
-        { id: "run-check", label: "Run check", icon: Shield, tone: "primary" },
+        { id: "run-check", label: "Run background check", icon: Shield, tone: "primary" },
         { id: "upload", label: "Upload report", icon: Upload },
       ],
       lease: [
@@ -323,7 +328,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" },
       ],
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
-      inspections: [{ id: "add-inspection", label: "Add inspection", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
       documents: [{ id: "upload", label: "Add document", icon: Upload, tone: "primary" }],
     },
@@ -946,7 +950,7 @@ export function recordSections(
   // No group label: Communication/Documents/Activity read as universal record
   // chrome, not a labeled category the way "Money" or "People" are.
   if (trioItems.length > 0) {
-    groups.push({ label: "", items: trioItems });
+    groups.push({ label: def.trioLabel ?? "", items: trioItems });
   }
 
   const headerActions = orderHeaderActions(
