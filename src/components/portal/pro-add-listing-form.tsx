@@ -110,15 +110,13 @@ import {
   createNewListingWizardSubmission,
   customApplicationFieldKeyFromLabel,
   entireHomeMonthlyRentAmount,
-  formatLeaseTermsBodyFromAllowed,
+  leaseTermsPatchForTypes,
   isEntireHomeListing,
   MAX_LISTING_BATHROOMS,
   MAX_LISTING_ROOMS,
   normalizeManagerListingSubmissionV1,
   normalizeRoomSizeSqft,
   resolveAllowedLeaseTerms,
-  syncAirbnbLeaseTermInAllowed,
-  syncShortTermLeaseTermInAllowed,
   duplicateBathroomEntry,
   duplicateRoomEntry,
   duplicateSharedSpaceEntry,
@@ -228,9 +226,8 @@ import {
   wizardFieldErrorClass,
   wizardSectionErrorClass,
 } from "@/lib/wizard-field-errors";
-import { LEASE_TERM_CHOICES } from "@/lib/rental-application/lease-terms";
+import { LEASE_TYPES, leaseTypeIdsFromStored } from "@/lib/rental-application/lease-terms";
 import {
-  AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
@@ -5318,135 +5315,31 @@ export function ManagerAddListingForm({
               <ListingSubsection title="Leasing">
                 <div className="space-y-3">
                   <div data-wizard-field="allowedLeaseTerms" className={wizardSectionErrorClass(Boolean(stepFieldErrors.allowedLeaseTerms))}>
-                    <FieldLabel required>Lease lengths</FieldLabel>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {/* Standard lengths, then Short-term (a listing-wide toggle, not a lease
-                        term), then Custom last — Short-term sits with the other lease-length
-                        choices instead of a separate titled block. */}
+                    <FieldLabel required>Lease terms</FieldLabel>
                     {/*
-                      LEASE_TERM_CHOICES, not LEASE_TERM_OPTIONS: a manager now
-                      offers Long-term rather than picking among 3/6/9/12-Month
-                      (AXI-143). A listing that still carries a legacy length
-                      keeps it — normalization accepts the whole option set —
-                      it just is not offered again here.
+                      The four lease types (Long-term, Short-term, Custom, Month-to-month) from the one owner,
+                      `LEASE_TYPES`. Ticked is what the applicant's Lease term select offers.
                     */}
-                    {[...LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM), "__short_term__", "__airbnb__", CUSTOM_LEASE_TERM].map((term) => {
-                      if (term === "__short_term__") {
-                        const on = Boolean(sub.shortTermRentalsAllowed);
-                        return (
-                          <label
-                            key="__short_term__"
-                            className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-3 text-sm shadow-sm transition-colors ${
-                              on ? "border-foreground/25 bg-accent/40" : "border-border bg-card"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-border"
-                              checked={on}
-                              onChange={(e) => {
-                                clearListingFieldError("allowedLeaseTerms");
-                                const enabled = e.target.checked;
-                                setSub((s) => {
-                                  const standard = resolveAllowedLeaseTerms(s).filter(
-                                    (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
-                                  );
-                                  const next = syncShortTermLeaseTermInAllowed(standard, enabled);
-                                  const bundles = enabled
-                                    ? s.bundles
-                                    : (s.bundles ?? []).map((b) => ({ ...b, shortTermEnabled: false, shortTermNightlyRent: "" }));
-                                  return syncPropertyLeaseTemplatesFromListing({
-                                    ...s,
-                                    shortTermRentalsAllowed: enabled,
-                                    allowedLeaseTerms: next,
-                                    leaseTermsBody: formatLeaseTermsBodyFromAllowed(next),
-                                    bundles,
-                                  });
-                                });
-                              }}
-                            />
-                            <span className="font-medium text-foreground">Short-term</span>
-                          </label>
-                        );
-                      }
-                      if (term === "__airbnb__") {
-                        const on = Boolean(sub.airbnbRentalsAllowed);
-                        return (
-                          <label
-                            key="__airbnb__"
-                            className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-3 text-sm shadow-sm transition-colors ${
-                              on ? "border-foreground/25 bg-accent/40" : "border-border bg-card"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-border"
-                              checked={on}
-                              onChange={(e) => {
-                                clearListingFieldError("allowedLeaseTerms");
-                                const enabled = e.target.checked;
-                                setSub((s) => {
-                                  const standard = resolveAllowedLeaseTerms(s).filter(
-                                    (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
-                                  );
-                                  const withShort = syncShortTermLeaseTermInAllowed(
-                                    standard,
-                                    Boolean(s.shortTermRentalsAllowed),
-                                  );
-                                  const next = syncAirbnbLeaseTermInAllowed(withShort, enabled);
-                                  return syncPropertyLeaseTemplatesFromListing({
-                                    ...s,
-                                    airbnbRentalsAllowed: enabled,
-                                    allowedLeaseTerms: next,
-                                    leaseTermsBody: formatLeaseTermsBodyFromAllowed(next),
-                                  });
-                                });
-                              }}
-                            />
-                            <span className="font-medium text-foreground">Airbnb</span>
-                          </label>
-                        );
-                      }
-                      const selected = resolveAllowedLeaseTerms(sub).includes(term);
-                      return (
-                        <label
-                          key={term}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-3 text-sm shadow-sm transition-colors ${
-                            selected ? "border-foreground/25 bg-accent/40" : "border-border bg-card"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-border"
-                            checked={selected}
-                            onChange={(e) => {
-                              clearListingFieldError("allowedLeaseTerms");
-                              const on = e.target.checked;
-                              setSub((s) => {
-                                const current = resolveAllowedLeaseTerms(s).filter(
-                                  (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
-                                );
-                                const nextStandard = on
-                                  ? [...new Set([...current, term])]
-                                  : current.filter((t) => t !== term);
-                                const withShort = syncShortTermLeaseTermInAllowed(
-                                  nextStandard,
-                                  Boolean(s.shortTermRentalsAllowed),
-                                );
-                                const next = syncAirbnbLeaseTermInAllowed(withShort, Boolean(s.airbnbRentalsAllowed));
-                                return syncPropertyLeaseTemplatesFromListing({
-                                  ...s,
-                                  allowedLeaseTerms: next,
-                                  leaseTermsBody: formatLeaseTermsBodyFromAllowed(next),
-                                });
-                              });
-                            }}
-                          />
-                          <span className="font-medium text-foreground">{term}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                    <CheckboxMultiSelect
+                      label="Lease terms you offer"
+                      hideLabel
+                      dataAttr="lease-type"
+                      className="mt-2 w-full max-w-[18rem]"
+                      options={LEASE_TYPES.map((type) => ({ value: type.id, label: type.label }))}
+                      selected={leaseTypeIdsFromStored(resolveAllowedLeaseTerms(sub))}
+                      emptyLabel="Choose…"
+                      onChange={(next) => {
+                        clearListingFieldError("allowedLeaseTerms");
+                        const ids = LEASE_TYPES.filter((type) => next.includes(type.id)).map((type) => type.id);
+                        setSub((s) => {
+                          const patch = leaseTermsPatchForTypes(s, ids);
+                          const bundles = patch.shortTermRentalsAllowed
+                            ? s.bundles
+                            : (s.bundles ?? []).map((b) => ({ ...b, shortTermEnabled: false, shortTermNightlyRent: "" }));
+                          return syncPropertyLeaseTemplatesFromListing({ ...s, ...patch, bundles });
+                        });
+                      }}
+                    />
                   <StepFieldError msg={stepFieldErrors.allowedLeaseTerms} />
                   </div>
                 </div>

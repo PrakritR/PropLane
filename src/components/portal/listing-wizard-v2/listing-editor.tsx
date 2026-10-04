@@ -90,7 +90,6 @@ import {
   emptyQuickFactRow,
   formatLeaseTermsBodyFromAllowed,
   resolveAllowedLeaseTerms,
-  syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
   duplicateBathroomEntry,
   duplicateRoomEntry,
@@ -122,11 +121,6 @@ import {
   LONG_TERM_LEASE_TERM,
   LEASE_TYPES,
   SHORT_TERM_LEASE_TERM,
-  leaseTypeIdForStoredTerm,
-  leaseTypeIdsFromStored,
-  leaseTypeLabel,
-  sortLeaseTermsCanonical,
-  storedTermForLeaseType,
 } from "@/lib/rental-application/lease-terms";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
@@ -199,6 +193,7 @@ import {
   CountStepper,
   KindTile,
   MultiPick,
+  LeaseTermsField,
   RecordCard,
   RowSelectCell,
   RailCover,
@@ -2234,55 +2229,6 @@ function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1;
 }
 
 /**
- * "Lease terms": the four lease types a property can offer, from the one owner (`LEASE_TYPES` in
- * `lease-terms.ts`). A multi-select, never pills. What is ticked is what an applicant can pick, and the lease
- * document and charge schedule follow the applicant's pick. Custom lets the applicant choose their own start
- * and end dates; Month-to-month is open-ended rolling rent with no surcharge.
- */
-function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const allowed = resolveAllowedLeaseTerms(sub);
-  const selectedIds = leaseTypeIdsFromStored(allowed);
-  const labels = LEASE_TYPES.map((type) => type.label);
-  return (
-    <FactRow first label="Lease terms" required>
-      <MultiPick
-        label="Lease terms you offer"
-        dataAttr="lease-type"
-        options={labels}
-        selected={selectedIds.map(leaseTypeLabel)}
-        allowOther={false}
-        emptyLabel="Choose…"
-        onChange={(picked) => {
-          const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
-          const shortTerm = ids.includes("short_term");
-          // An older listing may still carry the retired Airbnb stay and fixed lengths; they are kept
-          // untouched while their type stays ticked, so no saved listing loses what it offers.
-          const airbnb = shortTerm && sub.airbnbRentalsAllowed === true;
-          let terms = allowed.filter((term) => {
-            const id = leaseTypeIdForStoredTerm(term);
-            return id !== null && id !== "short_term" && ids.includes(id);
-          });
-          for (const id of ids) {
-            if (id !== "short_term" && !terms.some((term) => leaseTypeIdForStoredTerm(term) === id)) {
-              terms.push(storedTermForLeaseType(id));
-            }
-          }
-          terms = syncShortTermLeaseTermInAllowed(terms, shortTerm);
-          terms = syncAirbnbLeaseTermInAllowed(terms, airbnb);
-          terms = sortLeaseTermsCanonical(terms);
-          patch({
-            shortTermRentalsAllowed: shortTerm,
-            airbnbRentalsAllowed: airbnb,
-            allowedLeaseTerms: terms,
-            leaseTermsBody: formatLeaseTermsBodyFromAllowed(terms),
-          });
-        }}
-      />
-    </FactRow>
-  );
-}
-
-/**
  * What the LEASE DOCUMENT says — break-lease, holdover, quiet hours, venue.
  *
  * None of it is a price a manager sets while pricing a room, and all of it is
@@ -2726,7 +2672,7 @@ export function ListingPricingWorkspace({
         setDefaults={setDefaults}
         leaseTypesField={
           <>
-            <LeaseTypesField sub={sub} patch={patch} />
+            <LeaseTermsField sub={sub} onPatch={patch} />
             {resolveAllowedLeaseTerms(sub).includes(LONG_TERM_LEASE_TERM) ? <LongTermLengthsField sub={sub} patch={patch} /> : null}
           </>
         }

@@ -23,6 +23,12 @@ import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { cn } from "@/lib/utils";
+import {
+  leaseTermsPatchForTypes,
+  resolveAllowedLeaseTerms,
+  type ManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
+import { LEASE_TYPES, leaseTypeIdsFromStored, leaseTypeLabel } from "@/lib/rental-application/lease-terms";
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -1754,6 +1760,40 @@ export function FactRow({
       </span>
       <span className="flex min-w-0 shrink-0 items-center justify-end">{children}</span>
     </div>
+  );
+}
+
+/**
+ * "Lease terms": the four lease types a property can offer, from the one owner (`LEASE_TYPES` in
+ * `lease-terms.ts`). A multi-select, never pills. What is ticked is what an applicant can pick, and the lease
+ * document and charge schedule follow the applicant's pick. Custom lets the applicant choose their own start
+ * and end dates; Month-to-month is open-ended rolling rent with no surcharge.
+ */
+export function LeaseTermsField({
+  sub,
+  onPatch,
+  first = true,
+}: {
+  sub: ManagerListingSubmissionV1;
+  onPatch: (next: Partial<ManagerListingSubmissionV1>) => void;
+  first?: boolean;
+}) {
+  const selectedIds = leaseTypeIdsFromStored(resolveAllowedLeaseTerms(sub));
+  return (
+    <FactRow first={first} label="Lease terms" required>
+      <MultiPick
+        label="Lease terms you offer"
+        dataAttr="lease-type"
+        options={LEASE_TYPES.map((type) => type.label)}
+        selected={selectedIds.map(leaseTypeLabel)}
+        allowOther={false}
+        emptyLabel="Choose…"
+        onChange={(picked) => {
+          const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
+          onPatch(leaseTermsPatchForTypes(sub, ids));
+        }}
+      />
+    </FactRow>
   );
 }
 

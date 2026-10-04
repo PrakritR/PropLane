@@ -36,6 +36,7 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
   FactRow,
+  LeaseTermsField,
   MoneyInput,
   PanelSection,
   RecordCard,
@@ -1576,6 +1577,9 @@ export function StepPricing({ sub, onChange }: StepProps) {
   return (
     <StepColumn>
       <StepHeading title={wholeHome ? "Whole place" : plural(rooms.length, "room")} />
+      <div data-attr="listing-v2-lease-terms" className="mb-2.5 overflow-hidden rounded-2xl border border-border bg-card">
+        <LeaseTermsField sub={sub} onPatch={patch} />
+      </div>
 
       {wholeHome ? (
         <RecordCard

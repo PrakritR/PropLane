@@ -17,7 +17,10 @@ import {
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
+  leaseTypeIdForStoredTerm,
   sortLeaseTermsCanonical,
+  storedTermForLeaseType,
+  type LeaseTypeId,
 } from "@/lib/rental-application/lease-terms";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
@@ -1382,6 +1385,45 @@ export function resolveAllowedLeaseTerms(
     syncShortTermLeaseTermInAllowed(terms, Boolean(sub?.shortTermRentalsAllowed)),
     Boolean(sub?.airbnbRentalsAllowed),
   );
+}
+
+/**
+ * The listing fields that change when a manager ticks which lease types a property offers ("Lease terms").
+ * Ticked types are what the applicant's Lease term select offers. An older listing may still carry the
+ * retired Airbnb stay or fixed 3/6/9/12 lengths: they are kept untouched while their type stays ticked, so
+ * no saved listing loses what it offers.
+ */
+export function leaseTermsPatchForTypes(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+  >,
+  ids: readonly LeaseTypeId[],
+): Pick<
+  ManagerListingSubmissionV1,
+  "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "allowedLeaseTerms" | "leaseTermsBody"
+> {
+  const allowed = resolveAllowedLeaseTerms(sub);
+  const shortTerm = ids.includes("short_term");
+  const airbnb = shortTerm && sub.airbnbRentalsAllowed === true;
+  let terms = allowed.filter((term) => {
+    const id = leaseTypeIdForStoredTerm(term);
+    return id !== null && id !== "short_term" && ids.includes(id);
+  });
+  for (const id of ids) {
+    if (id !== "short_term" && !terms.some((term) => leaseTypeIdForStoredTerm(term) === id)) {
+      terms.push(storedTermForLeaseType(id));
+    }
+  }
+  terms = syncShortTermLeaseTermInAllowed(terms, shortTerm);
+  terms = syncAirbnbLeaseTermInAllowed(terms, airbnb);
+  terms = sortLeaseTermsCanonical(terms);
+  return {
+    shortTermRentalsAllowed: shortTerm,
+    airbnbRentalsAllowed: airbnb,
+    allowedLeaseTerms: terms,
+    leaseTermsBody: formatLeaseTermsBodyFromAllowed(terms),
+  };
 }
 
 export type RoomPricingUiMeta = {
