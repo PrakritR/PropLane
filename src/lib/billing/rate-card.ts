@@ -17,6 +17,7 @@
  * dollar amount, but it is still stored in cents for consistency with every
  * other money value in the codebase.
  */
+import floorPrices from "@/lib/billing/manager-floor-prices.json";
 
 export const RATE_CARD_VERSION = "2026-09-door-v1";
 
@@ -52,24 +53,24 @@ export type TierRateCard = {
 export const RATE_CARD: Record<RateCardTier, TierRateCard> = {
   free: {
     tier: "free",
-    floorMonthlyCents: 0,
-    floorAnnualCents: 0,
+    floorMonthlyCents: floorPrices.free.monthlyCents,
+    floorAnnualCents: floorPrices.free.annualCents,
     includedDoors: 2,
     perExtraDoorMonthlyCents: null,
     commsIncludedAllowanceCents: 0,
   },
   pro: {
     tier: "pro",
-    floorMonthlyCents: 4_900,
-    floorAnnualCents: 49_000,
+    floorMonthlyCents: floorPrices.pro.monthlyCents,
+    floorAnnualCents: floorPrices.pro.annualCents,
     includedDoors: 20,
     perExtraDoorMonthlyCents: 300,
     commsIncludedAllowanceCents: 2_500,
   },
   business: {
     tier: "business",
-    floorMonthlyCents: 24_900,
-    floorAnnualCents: 249_000,
+    floorMonthlyCents: floorPrices.business.monthlyCents,
+    floorAnnualCents: floorPrices.business.annualCents,
     includedDoors: 120,
     perExtraDoorMonthlyCents: 200,
     commsIncludedAllowanceCents: 15_000,
