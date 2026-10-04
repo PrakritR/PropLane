@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Idempotently create (or verify) Axis Pro / Business subscription prices in Stripe.
+ * Idempotently create (or verify) PropLane plan subscription prices in Stripe.
  *
  * Usage:
  *   node --env-file=.env.local scripts/setup-stripe-plan-prices.mjs
@@ -12,32 +12,33 @@
 import Stripe from "stripe";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import floorPrices from "../src/lib/billing/manager-floor-prices.json" with { type: "json" };
 
 const WRITE_ENV = process.argv.includes("--write-env");
 
 const PLAN_CATALOG = [
   {
-    productName: "Axis Free",
+    productName: "PropLane Free",
     productKey: "axis_free",
     envMonthly: "STRIPE_PRICE_FREE_MONTHLY",
-    monthlyUsd: 0,
+    monthlyUsd: floorPrices.free.monthlyCents / 100,
     freeOnly: true,
   },
   {
-    productName: "Axis Pro",
+    productName: "PropLane Pro",
     productKey: "axis_pro",
     envMonthly: "STRIPE_PRICE_PRO_MONTHLY",
     envAnnual: "STRIPE_PRICE_PRO_ANNUAL",
-    monthlyUsd: 20,
-    annualUsd: 192,
+    monthlyUsd: floorPrices.pro.monthlyCents / 100,
+    annualUsd: floorPrices.pro.annualCents / 100,
   },
   {
-    productName: "Axis Business",
+    productName: "PropLane Business",
     productKey: "axis_business",
     envMonthly: "STRIPE_PRICE_BUSINESS_MONTHLY",
     envAnnual: "STRIPE_PRICE_BUSINESS_ANNUAL",
-    monthlyUsd: 200,
-    annualUsd: 1920,
+    monthlyUsd: floorPrices.business.monthlyCents / 100,
+    annualUsd: floorPrices.business.annualCents / 100,
   },
 ];
 
@@ -45,12 +46,14 @@ function usdToCents(usd) {
   return Math.round(usd * 100);
 }
 
-function priceMatches(price, expectedUsd, interval) {
+function priceMatches(price, expectedUsd, interval, productId) {
   return (
     price.active &&
     price.currency === "usd" &&
     price.unit_amount === usdToCents(expectedUsd) &&
-    price.recurring?.interval === interval
+    price.recurring?.interval === interval &&
+    price.recurring?.interval_count === 1 &&
+    (!productId || (typeof price.product === "string" ? price.product : price.product?.id) === productId)
   );
 }
 
@@ -61,7 +64,10 @@ async function findProductByMetadata(stripe, key) {
 
 async function ensureProduct(stripe, name, key) {
   const existing = await findProductByMetadata(stripe, key);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.name !== name) return stripe.products.update(existing.id, { name });
+    return existing;
+  }
   return stripe.products.create({
     name,
     metadata: { axis_plan: key },
@@ -70,10 +76,10 @@ async function ensureProduct(stripe, name, key) {
 
 async function ensurePrice(stripe, productId, amountUsd, interval, lookupKey) {
   const listed = await stripe.prices.list({ product: productId, limit: 100, active: true });
-  const match = listed.data.find((p) => priceMatches(p, amountUsd, interval));
+  const match = listed.data.find((p) => priceMatches(p, amountUsd, interval, productId));
   if (match) {
     if (match.lookup_key !== lookupKey) {
-      await stripe.prices.update(match.id, { lookup_key: lookupKey });
+      await stripe.prices.update(match.id, { lookup_key: lookupKey, transfer_lookup_key: true });
       console.log(`  + set lookup_key ${lookupKey} on ${match.id}`);
     }
     return match;
@@ -84,6 +90,7 @@ async function ensurePrice(stripe, productId, amountUsd, interval, lookupKey) {
     unit_amount: usdToCents(amountUsd),
     recurring: { interval },
     lookup_key: lookupKey,
+    transfer_lookup_key: true,
   });
 }
 
@@ -91,15 +98,15 @@ async function ensureLookupKey(stripe, priceId, lookupKey, label) {
   if (!priceId) return;
   const price = await stripe.prices.retrieve(priceId);
   if (price.lookup_key === lookupKey) return;
-  await stripe.prices.update(priceId, { lookup_key: lookupKey });
+  await stripe.prices.update(priceId, { lookup_key: lookupKey, transfer_lookup_key: true });
   console.log(`  + set lookup_key ${lookupKey} on ${label} (${priceId})`);
 }
 
-async function verifyExistingPrice(stripe, priceId, amountUsd, interval, label) {
+async function verifyExistingPrice(stripe, priceId, amountUsd, interval, label, productId) {
   if (!priceId) return null;
   try {
     const price = await stripe.prices.retrieve(priceId);
-    if (!priceMatches(price, amountUsd, interval)) {
+    if (!priceMatches(price, amountUsd, interval, productId)) {
       console.warn(
         `  ⚠ ${label} (${priceId}) exists but amount/interval mismatch — expected $${amountUsd}/${interval}.`,
       );
@@ -136,12 +143,16 @@ async function main() {
 
   const stripe = new Stripe(secret);
   const mode = secret.includes("_test_") ? "test" : "live";
+  if (mode === "live" && !process.argv.includes("--allow-live")) {
+    throw new Error("Live Stripe price setup requires an explicit --allow-live flag.");
+  }
   console.log(`Stripe plan setup (${mode} mode)\n`);
 
   const envOut = {};
 
   for (const plan of PLAN_CATALOG) {
     console.log(plan.productName);
+    const product = await ensureProduct(stripe, plan.productName, plan.productKey);
 
     if (plan.freeOnly) {
       let freeId = await verifyExistingPrice(
@@ -150,9 +161,9 @@ async function main() {
         plan.monthlyUsd,
         "month",
         plan.envMonthly,
+        product.id,
       );
       if (!freeId) {
-        const product = await ensureProduct(stripe, plan.productName, plan.productKey);
         const price = await ensurePrice(
           stripe,
           product.id,
@@ -175,6 +186,7 @@ async function main() {
       plan.monthlyUsd,
       "month",
       plan.envMonthly,
+      product.id,
     );
     let annualId = await verifyExistingPrice(
       stripe,
@@ -182,10 +194,10 @@ async function main() {
       plan.annualUsd,
       "year",
       plan.envAnnual,
+      product.id,
     );
 
     if (!monthlyId || !annualId) {
-      const product = await ensureProduct(stripe, plan.productName, plan.productKey);
       if (!monthlyId) {
         const price = await ensurePrice(
           stripe,

@@ -15,6 +15,7 @@ import { getPaymentWaiverCode, normalizePaymentWaiverCode, paymentWaiverCodeMatc
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
+import { assertManagerPriceMatchesRateCard, readManagerSubscriptionPriceContext } from "@/lib/stripe/resolve-manager-price";
 import { reconcileManagerPurchaseWithStripe } from "@/lib/manager-stripe-subscription-sync";
 import {
   stripeSubscriptionIsBillable,
@@ -191,8 +192,12 @@ export async function POST(req: Request) {
     }
 
     const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
-    const billingGuess = inferBillingFromStripePriceId(currentPriceId) ?? "monthly";
-    const currentBilling: StripeBilling = billingGuess === "annual" ? "annual" : "monthly";
+    const configuredCurrentTier = inferPaidTierFromStripePriceId(currentPriceId);
+    const configuredBilling = inferBillingFromStripePriceId(currentPriceId);
+    const historicalPrice = !configuredCurrentTier || !configuredBilling
+      ? await readManagerSubscriptionPriceContext(stripe, currentPriceId)
+      : null;
+    const currentBilling: StripeBilling = historicalPrice?.billing ?? configuredBilling!;
 
     const targetPaid: PaidTier = targetTier === "business" ? "business" : "pro";
     const targetBilling: StripeBilling = billingRequested ?? currentBilling;
@@ -206,8 +211,9 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
+    await assertManagerPriceMatchesRateCard(stripe, newPriceId, targetPaid, targetBilling);
 
-    const currentPaidTier = inferPaidTierFromStripePriceId(currentPriceId);
+    const currentPaidTier = historicalPrice?.tier ?? configuredCurrentTier;
 
     if (currentPaidTier && paidTierRank(targetPaid) < paidTierRank(currentPaidTier)) {
       const periodEnd = stripeSubscriptionPeriodEndSec(sub);
