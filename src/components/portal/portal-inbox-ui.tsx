@@ -9,7 +9,9 @@ import {
   Children,
   Fragment,
   cloneElement,
+  createContext,
   isValidElement,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -19,11 +21,17 @@ import {
 } from "react";
 import { useInboxThreadScroll } from "@/hooks/use-inbox-thread-scroll";
 import {
+  INBOX_FULL_SCREEN_BUTTON_CLASS,
+  inboxFullScreenActive,
+  inboxFullScreenLabel,
+  useInboxFullScreen,
+} from "@/lib/inbox-full-screen";
+import {
   buildInboxMessageTimeline,
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, MessageSquare, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -2871,6 +2879,31 @@ export function InboxThreadSkeleton() {
   );
 }
 
+/**
+ * Provided by a split `InboxTwoPane` while a conversation is open, so the
+ * thread header can offer Full screen without every caller threading a prop.
+ * Absent (null) in embedded surfaces, which have no list to hide.
+ */
+const InboxFullScreenContext = createContext<{
+  fullScreen: boolean;
+  setFullScreen: (next: boolean) => void;
+} | null>(null);
+
+function InboxFullScreenAction() {
+  const ctx = useContext(InboxFullScreenContext);
+  if (!ctx) return null;
+  const { fullScreen, setFullScreen } = ctx;
+  return (
+    <PortalIconAction
+      icon={fullScreen ? Minimize2 : Maximize2}
+      label={inboxFullScreenLabel(fullScreen)}
+      className={INBOX_FULL_SCREEN_BUTTON_CLASS}
+      onClick={() => setFullScreen(!fullScreen)}
+      data-attr="inbox-thread-full-screen"
+    />
+  );
+}
+
 /** Right pane: thread header, scrolling bubble history, and a composer slot. */
 export function InboxThreadView({
   title,
@@ -2928,7 +2961,8 @@ export function InboxThreadView({
   scrollMode?: "pane" | "page";
 }) {
   const pageScroll = scrollMode === "page";
-  const showHeader = Boolean(onBack || !hideIdentityHeader || headerActions);
+  const inFullScreenPane = useContext(InboxFullScreenContext) !== null;
+  const showHeader = Boolean(onBack || !hideIdentityHeader || headerActions || inFullScreenPane);
   const { scrollRef, endRef, handleScroll: handleThreadScroll } = useInboxThreadScroll(
     threadKey,
     messages.length,
@@ -2967,7 +3001,12 @@ export function InboxThreadView({
         ) : (
           <div className="min-w-0 flex-1" />
         )}
-        {headerActions ? <div className="flex shrink-0 items-center gap-1.5">{headerActions}</div> : null}
+        {headerActions || inFullScreenPane ? (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {headerActions}
+            <InboxFullScreenAction />
+          </div>
+        ) : null}
       </header>
       ) : null}
       {underHeader}
@@ -3054,9 +3093,78 @@ export function InboxTwoPane({
   const rootRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
+  // Full screen: Communication only (split), only with a thread open, only on a
+  // wide viewport. The pane is pinned over the portal content area (under the
+  // top bar) so the list and every bit of page chrome above it step aside.
+  const canFullScreen = split && threadOpen && !listHidden;
+  const [storedFullScreen, setStoredFullScreen] = useInboxFullScreen();
+  const [fullScreenRect, setFullScreenRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const fullScreenOn = canFullScreen && storedFullScreen;
+
+  // Closing the thread leaves full screen.
+  useEffect(() => {
+    if (!threadOpen && storedFullScreen) setStoredFullScreen(false);
+  }, [threadOpen, storedFullScreen, setStoredFullScreen]);
+
+  useEffect(() => {
+    if (!fullScreenOn) {
+      setFullScreenRect(null);
+      return;
+    }
+    const place = () => {
+      if (
+        !inboxFullScreenActive({
+          fullScreen: true,
+          threadOpen: true,
+          viewportWidth: window.innerWidth,
+        })
+      ) {
+        setFullScreenRect(null);
+        return;
+      }
+      const host = document.getElementById("portal-main-content");
+      const r = host?.getBoundingClientRect();
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const top = Math.max(0, r?.top ?? 0);
+      setFullScreenRect({
+        top,
+        left: Math.max(0, r?.left ?? 0),
+        width: r?.width ? r.width : window.innerWidth,
+        height: Math.max(240, vh - top),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // An open dialog or menu owns Escape first.
+      if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]')) return;
+      setStoredFullScreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [fullScreenOn, setStoredFullScreen]);
+
+  const fullScreenDrawn = fullScreenOn && fullScreenRect !== null;
+  const fullScreenCtx = useMemo(
+    () => (canFullScreen ? { fullScreen: storedFullScreen, setFullScreen: setStoredFullScreen } : null),
+    [canFullScreen, storedFullScreen, setStoredFullScreen],
+  );
+
   useEffect(() => {
     if (heightMode === "section" || heightMode === "flow") return;
     const measure = () => {
+      if (fullScreenDrawn) return;
       const el = rootRef.current;
       if (!el || typeof window === "undefined") return;
       const top = el.getBoundingClientRect().top;
@@ -3107,7 +3215,7 @@ export function InboxTwoPane({
       window.visualViewport?.removeEventListener("resize", measure);
       observer?.disconnect();
     };
-  }, [fillParent, fillViewport, heightMode, mobileCompact, threadOpen]);
+  }, [fillParent, fillViewport, heightMode, mobileCompact, threadOpen, fullScreenDrawn]);
 
   const sectionHeight = "min(20rem, 38dvh)";
   const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68vh, 640px)";
@@ -3136,8 +3244,21 @@ export function InboxTwoPane({
   return (
     <div
       ref={rootRef}
-      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || split ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${className}`}
-      style={height ? { height } : undefined}
+      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || split ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${fullScreenDrawn ? "z-30 bg-background" : ""} ${className}`}
+      style={
+        fullScreenDrawn && fullScreenRect
+          ? {
+              position: "fixed",
+              top: fullScreenRect.top,
+              left: fullScreenRect.left,
+              width: fullScreenRect.width,
+              height: fullScreenRect.height,
+            }
+          : height
+            ? { height }
+            : undefined
+      }
+      data-full-screen={fullScreenDrawn ? "true" : undefined}
       data-attr="portal-inbox-two-pane"
       data-panes={split ? "split" : undefined}
       data-fill-viewport={flexFillMobile ? "true" : undefined}
@@ -3145,7 +3266,7 @@ export function InboxTwoPane({
     >
       <div
         className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${
-          listHidden
+          listHidden || fullScreenDrawn
             ? "grid-cols-1"
             : split
               // Column gap only. Below `lg` exactly one pane is display:none and
@@ -3158,14 +3279,14 @@ export function InboxTwoPane({
         <section
           className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${
             split ? paneCard : "border-border lg:border-r"
-          } ${listHidden ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
+          } ${listHidden || fullScreenDrawn ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
         >
           {list}
         </section>
         <section
           className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
-          {thread}
+          <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
         </section>
       </div>
     </div>
