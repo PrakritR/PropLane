@@ -11,41 +11,28 @@
  * question editor itself is being redesigned in its own plan; this file only mounts it.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Plus, Upload } from "lucide-react";
+import { FileText, Upload } from "lucide-react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardMultiSelect } from "@/components/portal/add-workspace/parts";
-import { BuilderQuestionCard } from "@/components/portal/application-form-builder";
-import type { ExtraQuestionType } from "@/components/portal/application-question-edit-modal";
 import { FloatingLabelField, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
 import { MoveInFormLivePreview, previewScreens } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import {
-  addMoveInQuestion,
-  addMoveInSection,
   audienceSummary,
   cleanMoveInTemplateForSave,
   dueForTriggerChange,
   dueOptionsForTrigger,
-  groupQuestionsBySection,
   MOVE_IN_TRIGGER_OPTIONS,
   MOVE_OUT_DAYS_CHOICES,
   moveInFormProblemsByStep,
-  moveMoveInQuestion,
   questionCountLabel,
-  removeMoveInQuestion,
-  removeMoveInSection,
-  renameMoveInSection,
-  updateMoveInQuestion,
   type MoveInAnswerMap,
 } from "@/components/portal/move-in-forms/move-in-form-model";
-import { PORTAL_EDIT_ROW_ICON_BUTTON_CLASS, PortalCollapsibleEditRow } from "@/components/portal/portal-collapsible-edit-row";
 import { PropertyFormWizardCard, PropertyFormWizardRow } from "@/components/portal/property-form-wizard-kit";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { Input } from "@/components/ui/input";
-import type { ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
-import type { ResolvedApplicationField } from "@/lib/rental-application/application-field-catalog";
 import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
 import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 import type {
@@ -58,17 +45,6 @@ import type {
 import { cn } from "@/lib/utils";
 
 const MAX_PDF_BYTES = 8 * 1024 * 1024;
-
-/** What move-in forms add to the application's answer types. */
-const MOVE_IN_EXTRA_TYPES: readonly ExtraQuestionType[] = [
-  { id: "photos", label: "Photos" },
-  { id: "signature", label: "Signature" },
-];
-
-/** The shared question row speaks the application's field shape; a move-in question is that plus a signature type. */
-function asField(question: MoveInFormQuestion): ResolvedApplicationField {
-  return { ...question, type: question.type as ManagerCustomApplicationFieldType, isStandard: false };
-}
 
 export type MoveInEditorRoom = { id: string; label: string };
 /** An application or lease template of this property a form can be linked to. */
@@ -151,8 +127,6 @@ export function MoveInFormEditorModal({
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewAnswers, setPreviewAnswers] = useState<MoveInAnswerMap>({});
-  const [expandedQuestionIds, setExpandedQuestionIds] = useState<ReadonlySet<string>>(new Set());
-  const [collapsedSections, setCollapsedSections] = useState<ReadonlySet<string>>(new Set());
   const [baseline] = useState(() => JSON.stringify(initial));
   const fileInput = useRef<HTMLInputElement>(null);
   const blobRef = useRef<string | null>(null);
@@ -310,28 +284,6 @@ export function MoveInFormEditorModal({
     const screens = previewScreens(draft.source, draft.questions, previewAnswers);
     const at = screens.findIndex((screen) => screen.kind === "question" && screen.question.key === key);
     if (at >= 0) setPreviewIndex(at);
-  };
-
-  const toggleQuestion = (id: string) =>
-    setExpandedQuestionIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const addQuestionTo = (sectionName: string) => {
-    const next = addMoveInQuestion(draft.questions, sectionName);
-    const created = next.find((q) => !draft.questions.some((existing) => existing.id === q.id));
-    setQuestions(next);
-    if (created) {
-      setExpandedQuestionIds((prev) => new Set(prev).add(created.id));
-      setCollapsedSections((prev) => {
-        const out = new Set(prev);
-        out.delete(sectionName);
-        return out;
-      });
-    }
   };
 
   /* ───────────── step bodies ───────────── */
@@ -564,101 +516,10 @@ export function MoveInFormEditorModal({
     </StepColumn>
   );
 
-  const sections = groupQuestionsBySection(draft.questions);
   const questionsStep = (
     <StepColumn>
       <StepHeading title="Questions" />
-      <div className="space-y-2">
-        {sections.map((section, sectionIndex) => {
-          const sectionKey = section.name;
-          const expanded = !collapsedSections.has(sectionKey);
-          return (
-            <PortalCollapsibleEditRow
-              key={sectionIndex}
-              title={section.name || "Questions"}
-              subtitle={questionCountLabel(section.questions.length)}
-              expanded={expanded}
-              onExpandedChange={(next) =>
-                setCollapsedSections((prev) => {
-                  const out = new Set(prev);
-                  if (next) out.delete(sectionKey);
-                  else out.add(sectionKey);
-                  return out;
-                })
-              }
-              onRemove={sections.length > 1 || section.name ? () => setQuestions(removeMoveInSection(draft.questions, section.name)) : undefined}
-              removeIconOnly
-              removeTitle="Remove section"
-              removeDataAttr="move-in-form-section-remove"
-              headerActions={
-                <button
-                  type="button"
-                  className={PORTAL_EDIT_ROW_ICON_BUTTON_CLASS}
-                  title="Add question"
-                  aria-label="Add question"
-                  data-attr="move-in-form-add-question"
-                  onClick={() => addQuestionTo(section.name)}
-                >
-                  <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden />
-                </button>
-              }
-              toggleDataAttr={`move-in-form-section-toggle-${sectionIndex}`}
-              contentClassName="space-y-2"
-            >
-              {sections.length > 1 || section.name ? (
-                <Input
-                  value={section.name}
-                  onChange={(event) => setQuestions(renameMoveInSection(draft.questions, section.name, event.target.value))}
-                  placeholder="Section name"
-                  aria-label="Section name"
-                  data-attr="move-in-form-section-name"
-                />
-              ) : null}
-              {section.questions.map((question, index) => (
-                <div key={question.id} onFocusCapture={() => focusQuestion(question.key)}>
-                  <BuilderQuestionCard
-                    field={asField(question)}
-                    allFields={draft.questions.map(asField)}
-                    expanded={expandedQuestionIds.has(question.id)}
-                    onToggleExpand={() => toggleQuestion(question.id)}
-                    onRemove={() => setQuestions(removeMoveInQuestion(draft.questions, question.id))}
-                    onPatch={(change) =>
-                      setQuestions(updateMoveInQuestion(draft.questions, question.id, change as Parameters<typeof updateMoveInQuestion>[2]))
-                    }
-                    canMoveUp={index > 0}
-                    canMoveDown={index < section.questions.length - 1}
-                    onMoveUp={() => setQuestions(moveMoveInQuestion(draft.questions, question.id, "up"))}
-                    onMoveDown={() => setQuestions(moveMoveInQuestion(draft.questions, question.id, "down"))}
-                    availableSections={[]}
-                    onMoveToSection={() => {}}
-                    extraTypes={MOVE_IN_EXTRA_TYPES}
-                    sampleLabel="Resident sees"
-                    hideSampleForTypes={["signature"]}
-                  />
-                </div>
-              ))}
-            </PortalCollapsibleEditRow>
-          );
-        })}
-        {draft.questions.length === 0 ? (
-          <button
-            type="button"
-            className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-dashed border-border bg-card text-sm font-semibold text-primary"
-            data-attr="move-in-form-add-first-question"
-            onClick={() => addQuestionTo("")}
-          >
-            + Add question
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-dashed border-border bg-card text-sm font-semibold text-primary"
-          data-attr="move-in-form-add-section"
-          onClick={() => setQuestions(addMoveInSection(draft.questions))}
-        >
-          + Add section
-        </button>
-      </div>
+      <MoveInQuestionsEditor questions={draft.questions} onChange={setQuestions} onFocusQuestion={focusQuestion} />
     </StepColumn>
   );
 

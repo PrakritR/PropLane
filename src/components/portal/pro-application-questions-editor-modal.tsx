@@ -64,6 +64,7 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
+import { canEditBuiltInApplicationField, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
 import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
 import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
@@ -555,27 +556,8 @@ export function ManagerApplicationQuestionsEditorModal({
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
-  const canEditBuiltIn = (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order"): boolean => {
-    if (!field.isStandard) return true;
-    const key = field.standardKey ?? "";
-    if (variant === "cosigner") {
-      if (action === "order") return false;
-      if (key === "personal-date-of-birth" || key === "personal-social-security-number") return true;
-      return action === "label" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email");
-    }
-    if (action === "order" && (field.section === "household" || field.section === "property")) return false;
-    if (action === "label" && field.section === "household") return false;
-    // C195: SSN, ID and income join the identity trio in never being
-    // removable — screening/charges/leases read them directly and a manager
-    // hiding one breaks approval with no error at disable-time. Unlike the
-    // identity trio, only removal is locked here: label and required stay
-    // editable (income in particular is meant to stay optional).
-    if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
-    if (action !== "order" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) {
-      return action === "label";
-    }
-    return true;
-  };
+  const canEditBuiltIn = (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order"): boolean =>
+    canEditBuiltInApplicationField(variant, field, action);
 
   const handleDelete = async () => {
     if (!showDelete || !onDelete) return;
@@ -606,27 +588,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // an in-progress row with an empty label or no options yet — it must stay
   // visible IN PLACE while the manager is still filling it in, not vanish on
   // every re-render before Save.
-  const applicationFields = useMemo(
-    () => {
-      const configured = resolveListingApplicationFields(configSlice, normalizeCustomApplicationFieldsForEditor);
-      const structural = resolveListingApplicationFields(
-        { ...configSlice, questionDisplayOrder: undefined },
-        normalizeCustomApplicationFieldsForEditor,
-      );
-      const configuredPosition = new Map(configured.map((field, index) => [field.id, index]));
-      const structuralPosition = new Map(structural.map((field, index) => [field.id, index]));
-      return structural.toSorted((left, right) => {
-        const section = left.section ?? "additional";
-        if (section !== (right.section ?? "additional")) {
-          return (structuralPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (structuralPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER);
-        }
-        const customQuestionsStayAfterBuiltIns = section === "household" || section === "property" || section === "review";
-        if (customQuestionsStayAfterBuiltIns && left.isStandard !== right.isStandard) return left.isStandard ? -1 : 1;
-        return (configuredPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (configuredPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER);
-      });
-    },
-    [configSlice],
-  );
+  const applicationFields = useMemo(() => orderedEditorApplicationFields(configSlice), [configSlice]);
   const disabledFields = useMemo(
     () => editorVisibleDisabledApplicationFields(variant, configSlice),
     [configSlice, variant],

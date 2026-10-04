@@ -12,7 +12,7 @@ import {
   readPropertyApplicationTemplates,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { readPropertyLeaseTemplates, syncLegacyLeaseFieldsFromTemplates } from "@/lib/property-lease-templates";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import {
   AIRBNB_LEASE_TERM,
@@ -229,4 +229,35 @@ export function applicationPinForStayTerm(
   const published = publishedQuestionConfigVersionForTemplate(mapped);
   if (!published) return null;
   return { templateId: mapped.id, templateVersion: published.version };
+}
+
+/**
+ * The ONE way a lease save reaches a listing: the leases are written (with the legacy top-level lease
+ * fields mirrored), and, when "Allow custom dates" / "Allow month-to-month" changed, the listing's
+ * `allowedLeaseTerms` follow the leases' routed `applicationLeaseTerms`. A seeded lease re-derives its
+ * terms from `allowedLeaseTerms` on every sync, so writing only one of the two would be undone.
+ * The lease form's single save, the bulk save and the listing editor's inline Lease step all call this.
+ */
+export function submissionWithLeaseTemplates(
+  sub: ManagerListingSubmissionV1,
+  templates: readonly PropertyLeaseTemplate[],
+  touchedLeaseOptions: readonly LeaseOptionKey[] = [],
+): ManagerListingSubmissionV1 {
+  const written = syncLegacyLeaseFieldsFromTemplates(sub, [...templates]);
+  if (touchedLeaseOptions.length === 0) return written;
+  return {
+    ...written,
+    allowedLeaseTerms: allowedTermsAfterLeaseOptions(resolveAllowedLeaseTerms(sub), templates, touchedLeaseOptions),
+  };
+}
+
+/** Turns one option on or off for one lease and carries it to both `applicationLeaseTerms` and `allowedLeaseTerms`. */
+export function submissionWithLeaseOption(
+  sub: ManagerListingSubmissionV1,
+  templates: readonly PropertyLeaseTemplate[],
+  leaseId: string,
+  option: LeaseOptionKey,
+  on: boolean,
+): ManagerListingSubmissionV1 {
+  return submissionWithLeaseTemplates(sub, setLeaseOptionOnTemplates(templates, leaseId, option, on), [option]);
 }

@@ -1090,7 +1090,7 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
 /** The lease types a room can be limited to, with the wording the Leases offered row uses. */
 const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = [
   { value: LONG_TERM_LEASE_TERM, label: "Long-term" },
-  { value: SHORT_TERM_LEASE_TERM, label: "Short term" },
+  { value: SHORT_TERM_LEASE_TERM, label: "Short-term" },
   { value: CUSTOM_LEASE_TERM, label: "Custom" },
   { value: "Month-to-Month", label: "Month-to-month" },
 ];

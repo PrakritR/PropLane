@@ -3,74 +3,137 @@
 /**
  * The four leasing steps of the listing editor: Application, Lease, Move-in, Pricing.
  *
- * Each is a few flat rows (name, one figure, a pencil) over data the property already
- * carries, and the pencil opens the SAME full editor the property page opens:
+ * Every row edits IN PLACE. Nothing here opens a modal: a row is a name and a chevron, its one or two
+ * main controls inline (a switch, a fee, a Sends dropdown), a ⋯ menu, and the chevron unfolds the rest
+ * of the form underneath it.
  *
- * - Application -> `ManagerApplicationQuestionsEditorModal`
- * - Lease       -> `PropertyLeaseFormModal` (or the imported-lease questions editor)
- * - Move-in     -> `MoveInFormEditorModal`
- * - Pricing     -> `PropertyRoomPricingWorkspace`
+ * - Application -> "Needed" switch, the fee, the lease it leads to, and the questions (the same question
+ *   rows the application editor modal draws). "Application before a tour" is a dropdown that saves the
+ *   workspace setting through its existing route.
+ * - Lease       -> "Offered" switch, its type, the applications that lead to it, "Allow custom dates" /
+ *   "Allow month-to-month", and the document name, start and clauses (the same clause editor the lease
+ *   form's Document step draws).
+ * - Move-in     -> "Sends" dropdown and the questions (the same question rows the move-in editor draws).
+ * - Pricing     -> the room (or whole-house) fields the room pricing workspace edits, drawn by the same
+ *   components.
  *
- * No new storage. Application, lease and move-in edits patch the wizard's own submission
- * (the modals' `onPersistSubmission` / `onSave` hooks), so they are saved with the draft or
- * the live listing exactly like every other step. The pricing workspace persists through
- * the property's own save target, so the wizard saves first and reads the result back.
- *
- * A brand-new draft shows the defaults that will be created. "Edit in full" saves the
- * draft first (docs/agents/property-drafts.md: a draft is a real record) and then opens;
- * without a record id it says so rather than opening a form that cannot save.
+ * Storage is unchanged. All of it patches the wizard's own submission, so it is saved with the draft or
+ * the live listing exactly like every other step; the one thing outside the submission is the workspace
+ * "Application before a tour" setting, which saves through `/api/portal/manager-application-settings`.
+ * The fee is never a template field: it reads and writes the placement fields the Pricing step and the
+ * fee resolver use (`listing-inline-forms.ts`).
  *
  * Nothing here is required to publish.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Pencil, Settings } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { StepColumn, StepHeading, PanelSection } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
-import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
-import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
-import { PropertyRoomPricingWorkspace, type PropertyPricingSubject } from "@/components/portal/property-room-pricing-workspace";
-import { MoveInFormEditorModal, type MoveInEditorRoom } from "@/components/portal/move-in-forms/move-in-form-editor-modal";
-import { cleanMoveInTemplateForSave, triggerSummary } from "@/components/portal/move-in-forms/move-in-form-model";
-import { usePortalSession } from "@/hooks/use-portal-session";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PortalRowMenu } from "@/components/portal/portal-row-menu";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import {
+  CheckboxOption,
+  FactRow,
+  MoneyInput,
+  PanelSection,
+  RecordCard,
+  RowSelectCell,
+  StepColumn,
+  StepHeading,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { InlineApplicationQuestions } from "@/components/portal/listing-wizard-v2/inline-application-questions";
+import { importLeasePdf } from "@/components/portal/listing-wizard-v2/inline-lease-upload";
+import {
+  BundlePricingFields,
+  RoomPricingFields,
+  WholeHousePricingFields,
+  roomPricingPatch,
+} from "@/components/portal/property-room-pricing-workspace";
+import { PropertyLeaseDocumentEditor } from "@/components/portal/property-lease-document-editor";
+import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
+import {
+  cleanMoveInTemplateForSave,
+  dueForTriggerChange,
+  dueOptionsForTrigger,
+  duplicateMoveInTemplate,
+  MOVE_IN_TRIGGER_OPTIONS,
+  removeMoveInTemplate,
+  triggerSummary,
+} from "@/components/portal/move-in-forms/move-in-form-model";
+import { sanitizeCustomApplicationFieldsForSave } from "@/components/portal/application-question-edit-modal";
+import { useConfirm } from "@/components/providers/app-ui-provider";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import {
   applicationFeeLabelForSelection,
   applicationFeeRangeAcrossRooms,
   applicationFeeRangeLabel,
 } from "@/lib/application-fee-by-room";
-import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
-import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import {
+  isCosignerApplicationTemplate,
+  mappableApplicationTemplates,
+} from "@/lib/application-lease-mapping";
+import {
+  applicationFeeScopeForTemplate,
+  applicationsOfLease,
+  createInlineApplication,
+  duplicateLeaseTemplate,
+  leaseChoicesForApplication,
+  leaseOfApplication,
+  linkApplicationToLease,
+  patchApplicationTemplate,
+  publishPendingApplicationDrafts,
+  questionSliceForTemplate,
+  readApplicationFeeInput,
+  releaseDeletedLeaseLinks,
+  setApplicationsOfLease,
+  submissionWithStandardLease,
+  uniqueFormLabel,
+  withApplicationFee,
+  withApplicationTemplates,
+} from "@/lib/listing-inline-forms";
+import { orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { normalizeLeasingPipelinePreferences, type ApplicationBeforeTour } from "@/lib/leasing-pipeline-preferences";
 import {
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
-  normalizeManagerListingSubmissionV1,
-  resolveAllowedLeaseTerms,
+  type ManagerBundleRow,
   type ManagerListingSubmissionV1,
+  type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import {
-  resolveManagerListingSubmissionForPropertyId,
-  type ManagerPricingSaveTarget,
-} from "@/lib/manager-property-save-target";
-import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
-import type { MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
   applicationFormVariantForTemplate,
+  isApplicationTemplateOffered,
   readPropertyApplicationTemplates,
-  withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
   normalizePropertyApplicationTemplateLabel,
+  submissionAfterRemovingApplicationTemplate,
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import {
+  leaseOptionFlags,
+  leaseTermsAllowOptions,
+  submissionWithLeaseOption,
+  submissionWithLeaseTemplates,
+  type LeaseOptionKey,
+} from "@/lib/property-form-stay-type-routing";
+import { resolvePropertyLeaseEditHtml } from "@/lib/property-lease-edit";
+import {
   readPropertyLeaseTemplates,
-  syncLegacyLeaseFieldsFromTemplates,
+  removePropertyLeaseTemplate,
+  updatePropertyLeaseTemplate,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
-import { buildLeaseTemplateSeeds, syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
-import { propertyPricingRoomAmount, propertyPricingWholeHouseSummary } from "@/lib/property-pricing-summary";
+import {
+  addLeaseTemplateFromSeed,
+  availableLeaseTemplateSeeds,
+  syncPropertyLeaseTemplatesFromListing,
+} from "@/lib/property-lease-template-sync";
+import { leaseSourceFromDraft } from "@/lib/property-lease-source";
+import { propertyPricingRoomAmount } from "@/lib/property-pricing-summary";
+import { SHORT_TERM_LEASE_TERM, LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
 import { cn } from "@/lib/utils";
 
@@ -81,11 +144,11 @@ export const LISTING_DETAIL_STEP_IDS: readonly ListingDetailStepId[] = ["applica
 
 export const WORKSPACE_APPLICATIONS_LEASES_SETTINGS_HREF = "/portal/profile?tab=applicationsLeases";
 
-/** What the editor hands each step so "Edit in full" can open a real editor. */
+/** What the editor hands each step. Most of it is only needed to keep older callers compiling: the steps edit in place. */
 export type ListingDetailDoors = {
   /** The saved record's id (a draft or a live listing); null until the first save. */
   recordId: string | null;
-  /** An existing live listing, or a draft. Decides which save target the pricing workspace uses. */
+  /** An existing live listing, or a draft. */
   mode: "draft" | "listing";
   managerUserId: string | null;
   /** Saves the wizard's work and resolves the record id, or null when it could not be saved. */
@@ -127,16 +190,10 @@ export function applicationFeeFact(sub: ManagerListingSubmissionV1, template: Pr
 }
 
 function leaseTypeFact(template: PropertyLeaseTemplate): string {
-  if (template.offered === false) return "Not offered";
   if (template.listingSeedKey === "primary") return "Long-term";
-  if (template.listingSeedKey === "short-term") return "Short term";
+  if (template.listingSeedKey === "short-term") return "Short-term";
   if (template.listingSeedKey === "airbnb") return "Airbnb";
   return template.leaseTemplateDocName?.trim() ? "Uploaded" : "Custom";
-}
-
-function moveInSendsFact(template: MoveInFormTemplate): string {
-  const summary = triggerSummary(template.trigger);
-  return template.trigger === "manual" ? summary : `Sends ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
 }
 
 /** The lowest rent across rooms, or the whole-house rent, as "$1,100/mo"; null when none is set. */
@@ -158,7 +215,7 @@ export function listingDetailSummaries(sub: ManagerListingSubmissionV1): Record<
   const fee = applications[0] ? applicationFeeFact(sub, applications[0]) : "No fee";
   const from = pricingFromFact(sub);
   return {
-    application: `${plural(applications.length, "application")} · ${fee === "No fee" ? "no fee" : `fee ${fee}`}`,
+    application: `${plural(applications.filter(isApplicationTemplateOffered).length, "application")} · ${fee === "No fee" ? "no fee" : `fee ${fee}`}`,
     lease: leases.length === 0 ? "None yet" : plural(leases.length, "lease"),
     movein: plural(forms.length, "form"),
     pricing: from ? `From ${from}` : "Rent not set",
@@ -167,85 +224,143 @@ export function listingDetailSummaries(sub: ManagerListingSubmissionV1): Record<
 
 /* ─────────────────────────── shared little pieces ─────────────────────────── */
 
-function RowCard({ children, dataAttr }: { children: ReactNode; dataAttr: string }) {
+/**
+ * The step heading with its count and the round blue + at the top right: exactly the Rooms /
+ * Bathrooms / Shared spaces header.
+ */
+function CountHeading({ count, noun, addLabel, onAdd, dataAttr }: { count: number; noun: string; addLabel: string; onAdd: () => void; dataAttr: string }) {
   return (
-    <div className="max-w-[620px] overflow-hidden rounded-2xl border border-border bg-card" data-attr={dataAttr}>
-      {children}
+    <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+      <StepHeading title={`${count} ${count === 1 ? noun : `${noun}s`}`} />
+      <PortalPrimaryIconAction label={addLabel} onClick={onAdd} data-attr={dataAttr} />
     </div>
   );
 }
 
-function DetailRow({
+/** The plain facts under a card's title. */
+function Facts({ items }: { items: ReadonlyArray<string | null | false | undefined> }) {
+  return (
+    <span className="inline-flex flex-wrap gap-x-3 gap-y-1">
+      {items.filter(Boolean).map((item, index) => (
+        <span key={index}>{item}</span>
+      ))}
+    </span>
+  );
+}
+
+/** The card's ⋯: Edit first, Duplicate, and a red Delete last (after a tap to confirm). */
+function CardMenu({
   label,
-  value,
-  first = false,
-  action,
   dataAttr,
+  onEdit,
+  onDuplicate,
+  onDelete,
 }: {
   label: string;
-  value?: ReactNode;
-  first?: boolean;
-  action?: ReactNode;
-  dataAttr?: string;
+  dataAttr: string;
+  onEdit: () => void;
+  onDuplicate?: () => void;
+  onDelete: () => void;
 }) {
+  const confirm = useConfirm();
   return (
-    <div className={cn("flex min-h-[56px] items-center gap-3 px-3.5 py-1.5", !first && "border-t border-border")} data-attr={dataAttr}>
-      <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">{label}</span>
-      {value != null && value !== "" ? <span className="shrink-0 text-[13px] text-muted">{value}</span> : null}
-      {action ?? null}
+    <div className="pr9-acts flex shrink-0 items-center gap-0.5">
+      <PortalRowMenu
+        label={label}
+        dataAttr={`${dataAttr}-menu`}
+        triggerClassName="grid h-11 w-11 place-items-center rounded-md text-muted hover:bg-foreground/[0.06]"
+        iconClassName="h-5 w-5"
+        items={[
+          { id: "edit", label: "Edit", dataAttr: `${dataAttr}-edit`, onSelect: onEdit },
+          onDuplicate ? { id: "duplicate", label: "Duplicate", dataAttr: `${dataAttr}-duplicate`, onSelect: onDuplicate } : null,
+          {
+            id: "delete",
+            label: "Delete",
+            danger: true,
+            dataAttr: `${dataAttr}-delete`,
+            onSelect: () => {
+              void confirm({
+                title: `Delete ${label}?`,
+                description: `Delete ${label}?`,
+                confirmLabel: "Delete",
+                tone: "danger",
+                note: null,
+              }).then((ok) => {
+                if (ok) onDelete();
+              });
+            },
+          },
+        ]}
+      />
     </div>
   );
 }
 
-function EditInFull({ name, onClick, disabled, dataAttr }: { name: string; onClick: () => void; disabled?: boolean; dataAttr: string }) {
-  return (
-    <PortalIconAction
-      icon={Pencil}
-      label="Edit in full"
-      aria-label={`Edit ${name} in full`}
-      disabled={disabled}
-      data-attr={dataAttr}
-      onClick={onClick}
-    />
-  );
-}
-
-function EmptyRows({ text }: { text: string }) {
-  return <div className="px-3.5 py-4 text-[13px] text-muted">{text}</div>;
-}
-
-/** Saves a brand-new draft on demand, then runs the opener with the record id. */
-function useEditInFull(doors: ListingDetailDoors) {
-  const [busy, setBusy] = useState(false);
-  const run = async (open: (recordId: string) => void) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const id = doors.recordId ?? (doors.ensureSaved ? await doors.ensureSaved() : null);
-      if (!id) {
-        doors.showToast("Save the property first, then edit in full.");
-        return;
-      }
-      open(id);
-    } finally {
-      setBusy(false);
-    }
+/** A name typed into a card: saved as it is typed, unless it is empty or another card has it. */
+function useCardNames() {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  return {
+    shown: (id: string, stored: string) => drafts[id] ?? stored,
+    problem: (id: string, taken: readonly string[]): string | null => {
+      const text = drafts[id];
+      if (text === undefined) return null;
+      if (!text.trim()) return "Enter a name.";
+      return taken.some((other) => other.trim().toLowerCase() === text.trim().toLowerCase()) ? `"${text.trim()}" already exists.` : null;
+    },
+    edit: (id: string, text: string, taken: readonly string[], commit: (name: string) => void) => {
+      setDrafts((current) => ({ ...current, [id]: text }));
+      const trimmed = text.trim();
+      if (trimmed && !taken.some((other) => other.trim().toLowerCase() === trimmed.toLowerCase())) commit(trimmed);
+    },
+    forget: (id: string) =>
+      setDrafts((current) => {
+        if (!(id in current)) return current;
+        const next = { ...current };
+        delete next[id];
+        return next;
+      }),
   };
-  return { busy, run };
 }
+
+function NameProblem({ message }: { message: string | null }) {
+  return message ? (
+    <p role="alert" className="px-3.5 pt-2.5 text-[12px] font-semibold text-rose-600">
+      {message}
+    </p>
+  ) : null;
+}
+
+/** One card open at a time, like the Rooms step. */
+function useOneOpen() {
+  const [open, setOpen] = useState<string | null>(null);
+  return { open, setOpen, toggle: (id: string) => setOpen((current) => (current === id ? null : id)) };
+}
+
+const BODY_PAD = "border-t border-border px-3.5 py-3";
 
 /* ─────────────────────────── Application ─────────────────────────── */
 
-/** "Application before a tour" is one value for the whole workspace: read it, never write it here. */
-function useApplicationBeforeTour(): ApplicationBeforeTour | null {
-  const [value, setValue] = useState<ApplicationBeforeTour | null>(null);
+const BEFORE_TOUR_OPTIONS = [
+  { value: "not_needed", label: "Not needed" },
+  { value: "required", label: "Required" },
+];
+
+/**
+ * "Application before a tour" is one value for the whole workspace. It reads as "Not needed" until the
+ * stored value arrives (the workspace default), and a pick saves straight to the workspace setting through
+ * the route Settings uses. A failed save puts the old value back.
+ */
+function useApplicationBeforeTour(showToast: (message: string) => void) {
+  const [value, setValue] = useState<ApplicationBeforeTour>("not_needed");
+  // A pick made before the stored value arrives wins over it.
+  const picked = useRef(false);
   useEffect(() => {
     if (typeof fetch !== "function") return;
     let cancelled = false;
     void fetch("/api/portal/manager-application-settings", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { leasingPipeline?: unknown } | null) => {
-        if (cancelled || !body) return;
+        if (cancelled || !body || picked.current) return;
         setValue(normalizeLeasingPipelinePreferences(body.leasingPipeline).applicationBeforeTour);
       })
       .catch(() => {});
@@ -253,361 +368,979 @@ function useApplicationBeforeTour(): ApplicationBeforeTour | null {
       cancelled = true;
     };
   }, []);
-  return value;
+  const save = (next: ApplicationBeforeTour) => {
+    const previous = value;
+    picked.current = true;
+    setValue(next);
+    void fetch("/api/portal/manager-application-settings", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leasingPipeline: { applicationBeforeTour: next } }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("save failed");
+      })
+      .catch(() => {
+        setValue(previous);
+        showToast("Could not save.");
+      });
+  };
+  return { value, save };
 }
+
+/**
+ * Publishes what the inline question editor left in draft, so applicants see it. One new version per
+ * editing pause (and when a card closes or the step leaves), never one per keystroke.
+ */
+function useDraftPublisher(sub: ManagerListingSubmissionV1, onChange: (next: ManagerListingSubmissionV1) => void) {
+  const subRef = useRef(sub);
+  const onChangeRef = useRef(onChange);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    subRef.current = sub;
+    onChangeRef.current = onChange;
+  });
+  const flush = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    const next = publishPendingApplicationDrafts(subRef.current, sanitizeCustomApplicationFieldsForSave);
+    if (next !== subRef.current) onChangeRef.current(next);
+  }, []);
+  const schedule = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 1200);
+  }, [flush]);
+  useEffect(() => () => flush(), [flush]);
+  return { flush, schedule };
+}
+
+const NO_LEASE = "__default__";
 
 export function StepApplication({ sub, onChange, doors }: StepProps) {
   const synced = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(synced), [synced]);
-  const beforeTour = useApplicationBeforeTour();
-  const { busy, run } = useEditInFull(doors);
-  const [editing, setEditing] = useState<{ recordId: string; template: PropertyApplicationTemplate } | null>(null);
+  const leases = useMemo(() => leaseTemplatesOf(sub), [sub]);
+  const leaseOptions = useMemo(
+    () => leaseChoicesForApplication(leases).map((lease) => ({ value: lease.id, label: lease.label?.trim() || "Lease" })),
+    [leases],
+  );
+  const catalog = { applications: templates, leases };
+  const publisher = useDraftPublisher(sub, onChange);
+  const beforeTour = useApplicationBeforeTour(doors.showToast);
+  const { open, setOpen, toggle } = useOneOpen();
+  const names = useCardNames();
+  const [startFrom, setStartFrom] = useState<Record<string, string>>({});
+
+  const commitTemplates = (next: PropertyApplicationTemplate[]) => onChange(withApplicationTemplates(synced, next));
+  const replace = (next: PropertyApplicationTemplate) =>
+    commitTemplates(templates.map((row) => (row.id === next.id ? next : row)));
+
+  const toggleCard = (id: string) => {
+    if (open === id) {
+      publisher.flush();
+      names.forget(id);
+      setStartFrom((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }
+    toggle(id);
+  };
+
+  const add = () => {
+    const created = createInlineApplication(synced, templates, "proplane");
+    commitTemplates([...templates, created]);
+    setOpen(created.id);
+    setStartFrom((current) => ({ ...current, [created.id]: "proplane" }));
+    publisher.schedule();
+  };
+
+  const duplicate = (template: PropertyApplicationTemplate) => {
+    const copy = createInlineApplication(synced, templates, template.id);
+    const index = templates.findIndex((row) => row.id === template.id);
+    const next = [...templates];
+    next.splice(index + 1, 0, copy);
+    commitTemplates(next);
+    setOpen(copy.id);
+    publisher.schedule();
+  };
+
+  const remove = (template: PropertyApplicationTemplate) => {
+    onChange(submissionAfterRemovingApplicationTemplate(synced, templates.filter((row) => row.id !== template.id)));
+    if (open === template.id) setOpen(null);
+  };
+
+  const startFromOptions = (template: PropertyApplicationTemplate) => [
+    { value: "proplane", label: "PropLane standard" },
+    ...templates
+      .filter((row) => row.id !== template.id)
+      .map((row) => ({ value: row.id, label: normalizePropertyApplicationTemplateLabel(row.label) || "Application" })),
+  ];
 
   return (
     <StepColumn>
-      <StepHeading title="Application" />
-      <RowCard dataAttr="listing-v2-application-rows">
-        {templates.length === 0 ? (
-          <EmptyRows text="No applications yet" />
-        ) : (
-          templates.map((template, index) => {
-            const name = normalizePropertyApplicationTemplateLabel(template.label) || "Application";
-            return (
-              <DetailRow
-                key={template.id}
-                first={index === 0}
-                label={name}
-                value={applicationFeeFact(sub, template)}
-                dataAttr="listing-v2-application-row"
-                action={
-                  <EditInFull
-                    name={name}
-                    disabled={busy}
-                    dataAttr="listing-v2-application-edit"
-                    onClick={() => void run((recordId) => setEditing({ recordId, template }))}
-                  />
-                }
+      <CountHeading count={templates.length} noun="application" addLabel="Add application" onAdd={add} dataAttr="listing-v2-add-application-icon" />
+
+      {templates.map((template, i) => {
+        const stored = normalizePropertyApplicationTemplateLabel(template.label) || "Application";
+        const name = names.shown(template.id, stored);
+        const label = stored;
+        const taken = templates.filter((row) => row.id !== template.id).map((row) => row.label);
+        const scope = applicationFeeScopeForTemplate(template);
+        const fee = readApplicationFeeInput(synced, scope);
+        const isCosigner = isCosignerApplicationTemplate(template);
+        const isOpen = open === template.id;
+        const leaseId = leaseOfApplication(catalog, template.id);
+        const leaseName = leaseId ? leases.find((lease) => lease.id === leaseId)?.label?.trim() : null;
+        const questionCount = orderedEditorApplicationFields(questionSliceForTemplate(synced, template)).length;
+        return (
+          <RecordCard
+            key={template.id}
+            propertyEditor
+            name={name}
+            nameLabel={`Name for application ${i + 1}`}
+            namePlaceholder={`Application ${i + 1}`}
+            onName={(text) => names.edit(template.id, text, taken, (next) => replace({ ...template, label: next, updatedAt: new Date().toISOString() }))}
+            facts={
+              <Facts
+                items={[
+                  fee.value ? `$${fee.value}` : fee.placeholder || "No fee",
+                  leaseName,
+                  plural(questionCount, "question"),
+                  !isApplicationTemplateOffered(template) && "Not needed",
+                ]}
               />
-            );
-          })
-        )}
-      </RowCard>
-      <div className="mt-6">
-        <RowCard dataAttr="listing-v2-application-before-tour">
-          <DetailRow
-            first
-            label="Application before a tour"
-            value={beforeTour === "required" ? "Required" : beforeTour === "not_needed" ? "Not needed" : "—"}
-            action={
-              doors.onOpenSettings ? (
-                <PortalIconAction
-                  icon={Settings}
-                  label="Open in Settings"
-                  aria-label="Open Application before a tour in Settings"
-                  data-attr="listing-v2-application-before-tour-settings"
-                  onClick={() => doors.onOpenSettings?.(WORKSPACE_APPLICATIONS_LEASES_SETTINGS_HREF)}
-                />
-              ) : undefined
             }
+            headerEnd={
+              <CardMenu
+                label={label}
+                dataAttr="listing-v2-application"
+                onEdit={() => toggleCard(template.id)}
+                onDuplicate={() => duplicate(template)}
+                onDelete={() => remove(template)}
+              />
+            }
+            open={isOpen}
+            onToggle={() => toggleCard(template.id)}
+            toggleLabel={label}
+            dataAttr="listing-v2-application-card"
+          >
+            <div data-attr="listing-v2-application-editor">
+              <NameProblem message={names.problem(template.id, taken)} />
+              <FactRow first label="Needed">
+                <PortalSettingsToggle
+                  checked={isApplicationTemplateOffered(template)}
+                  label={`${label}: needed`}
+                  dataAttr="listing-v2-application-needed"
+                  onChange={(on) => commitTemplates(patchApplicationTemplate(templates, template.id, { offered: on }))}
+                />
+              </FactRow>
+              <FactRow label="Application fee">
+                <MoneyInput
+                  label={`${label} application fee`}
+                  value={fee.value}
+                  placeholder={fee.placeholder}
+                  dataAttr="listing-v2-application-fee"
+                  onChange={(raw) => onChange(withApplicationTemplates(withApplicationFee(synced, scope, raw), templates))}
+                />
+              </FactRow>
+              {isCosigner ? null : (
+                <FactRow label="Lease">
+                  <RowSelectCell
+                    ariaLabel={`Lease for ${label}`}
+                    value={leaseId ?? NO_LEASE}
+                    options={[{ value: NO_LEASE, label: "Property default" }, ...leaseOptions]}
+                    dataAttr="listing-v2-application-lease"
+                    onChange={(next) =>
+                      commitTemplates(linkApplicationToLease(catalog, template.id, next === NO_LEASE ? null : next))
+                    }
+                  />
+                </FactRow>
+              )}
+              {startFrom[template.id] !== undefined ? (
+                <FactRow label="Start from">
+                  <RowSelectCell
+                    ariaLabel={`Start ${label} from`}
+                    value={startFrom[template.id]!}
+                    options={startFromOptions(template)}
+                    dataAttr="listing-v2-application-start-from"
+                    onChange={(source) => {
+                      setStartFrom((current) => ({ ...current, [template.id]: source }));
+                      const fresh = createInlineApplication(
+                        synced,
+                        templates.filter((row) => row.id !== template.id),
+                        source,
+                      );
+                      replace({
+                        ...template,
+                        kind: fresh.kind,
+                        formVariant: fresh.formVariant,
+                        draftQuestionConfig: fresh.draftQuestionConfig,
+                      });
+                      publisher.schedule();
+                    }}
+                  />
+                </FactRow>
+              ) : null}
+              <div className={BODY_PAD}>
+                <InlineApplicationQuestions
+                  sub={synced}
+                  template={template}
+                  onTemplate={(next) => {
+                    replace(next);
+                    publisher.schedule();
+                  }}
+                />
+              </div>
+            </div>
+          </RecordCard>
+        );
+      })}
+      {templates.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No applications yet</p> : null}
+
+      <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card" data-attr="listing-v2-application-before-tour">
+        <FactRow first label="Application before a tour">
+          <RowSelectCell
+            ariaLabel="Application before a tour"
+            value={beforeTour.value}
+            options={BEFORE_TOUR_OPTIONS}
+            dataAttr="listing-v2-application-before-tour-select"
+            onChange={(next) => beforeTour.save(next as ApplicationBeforeTour)}
           />
-        </RowCard>
+        </FactRow>
       </div>
-      {editing ? (
-        <ManagerApplicationQuestionsEditorModal
-          open
-          title="Edit application"
-          sub={synced}
-          managerUserId={doors.managerUserId ?? ""}
-          applicationPreviewPropertyId={editing.recordId}
-          initialVariant={editing.template.formVariant ?? "standard"}
-          lockVariant
-          templateEditorMode="edit"
-          applicationTemplate={editing.template}
-          templates={templates}
-          signingOrder="application_then_lease"
-          onPersistSubmission={(merged) => {
-            onChange(merged);
-            return true;
-          }}
-          onClose={() => setEditing(null)}
-          onSaved={() => {}}
-          showToast={doors.showToast}
-        />
-      ) : null}
     </StepColumn>
   );
 }
 
 /* ─────────────────────────── Lease ─────────────────────────── */
 
+/** The clause editor for one open lease: the generated document (or the manager's edits to it), edited in place. */
+function InlineLeaseDocument({
+  sub,
+  template,
+  onHtml,
+  onUpload,
+  busy,
+}: {
+  sub: ManagerListingSubmissionV1;
+  template: PropertyLeaseTemplate;
+  onHtml: (html: string) => void;
+  onUpload: () => void;
+  busy: boolean;
+}) {
+  const baseline = useMemo(() => {
+    const draft = {
+      leaseConfigMode: template.leaseConfigMode,
+      leaseCustomKind: template.leaseCustomKind,
+      customLeaseTerms: template.customLeaseTerms ?? "",
+      leaseTemplateDocUrl: template.leaseTemplateDocUrl ?? null,
+      leaseTemplateDocName: template.leaseTemplateDocName ?? "",
+      leaseTemplateHtmlOverride: "",
+    };
+    try {
+      return resolvePropertyLeaseEditHtml({
+        sub: { ...sub, ...draft },
+        draft,
+        source: leaseSourceFromDraft(draft),
+        templateKind: template.kind,
+      });
+    } catch {
+      return "";
+    }
+  }, [
+    sub,
+    template.kind,
+    template.leaseConfigMode,
+    template.leaseCustomKind,
+    template.customLeaseTerms,
+    template.leaseTemplateDocUrl,
+    template.leaseTemplateDocName,
+  ]);
+  const html = template.leaseTemplateHtmlOverride?.trim() || baseline;
+  if (!html.trim()) {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onUpload}
+        data-attr="listing-v2-lease-upload"
+        className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-dashed border-border bg-card text-sm font-semibold text-primary disabled:opacity-60"
+      >
+        {busy ? "Reading your PDF…" : "Upload a PDF"}
+      </button>
+    );
+  }
+  return (
+    <div data-attr="listing-v2-lease-document">
+      <PropertyLeaseDocumentEditor
+        className="min-h-[min(380px,50vh)]"
+        html={html}
+        baselineHtml={baseline}
+        onChange={(next) => onHtml(next.trim() === baseline.trim() ? "" : next)}
+      />
+    </div>
+  );
+}
+
+const LEASE_OPTIONS: ReadonlyArray<{ key: LeaseOptionKey; label: string; fact: string; attr: string }> = [
+  { key: "custom", label: "Allow custom dates", fact: "Custom dates", attr: "listing-v2-lease-allow-custom-dates" },
+  { key: "monthToMonth", label: "Allow month-to-month", fact: "Month-to-month", attr: "listing-v2-lease-allow-month-to-month" },
+];
+
 export function StepLease({ sub, onChange, doors }: StepProps) {
   const synced = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(synced), [synced]);
-  const { busy, run } = useEditInFull(doors);
-  const [editing, setEditing] = useState<{ recordId: string; template: PropertyLeaseTemplate } | null>(null);
-
-  const saveTemplates = (
-    nextTemplates: PropertyLeaseTemplate[],
-    applications?: PropertyApplicationTemplate[],
-  ): boolean => {
-    const withLeases = syncLegacyLeaseFieldsFromTemplates(synced, nextTemplates);
-    onChange(applications ? withPropertyApplicationTemplatesExplicit(withLeases, applications) : withLeases);
-    return true;
-  };
-  const importedLease = Boolean(editing?.template.draftQuestionConfig || editing?.template.publishedQuestionConfig);
-  // The lease types this property offers that have no lease yet: shown as the defaults a manager adds
-  // on the Lease tab (sync never conjures one), so a brand-new draft is not an empty step.
-  const missingSeeds = useMemo(
-    () => buildLeaseTemplateSeeds(synced).filter((seed) => !templates.some((template) => template.listingSeedKey === seed.seedKey)),
-    [synced, templates],
+  const applications = useMemo(() => applicationTemplatesOf(sub), [sub]);
+  const catalog = { applications, leases: templates };
+  const applicationOptions = useMemo(
+    () =>
+      mappableApplicationTemplates(applications).map((application) => ({
+        value: application.id,
+        label: normalizePropertyApplicationTemplateLabel(application.label) || "Application",
+      })),
+    [applications],
   );
+  // The lease types this property offers that have no lease yet: shown as cards that are off, and switched on to add them.
+  const missingSeeds = useMemo(() => availableLeaseTemplateSeeds(synced), [synced]);
+  const confirm = useConfirm();
+  const { open, setOpen, toggle } = useOneOpen();
+  const names = useCardNames();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const uploadFor = useRef<string | null>(null);
+
+  const commitLeases = (
+    next: PropertyLeaseTemplate[],
+    extra: { touched?: LeaseOptionKey[]; applications?: PropertyApplicationTemplate[] } = {},
+  ) => {
+    const written = submissionWithLeaseTemplates(synced, next, extra.touched ?? []);
+    onChange(extra.applications ? withApplicationTemplates(written, extra.applications) : written);
+  };
+  const patchLease = (id: string, patch: Partial<PropertyLeaseTemplate>) =>
+    commitLeases(updatePropertyLeaseTemplate(templates, id, patch));
+
+  const addStandard = () => {
+    const added = submissionWithStandardLease(synced, templates, "long-term");
+    onChange(added.sub);
+    if (added.leaseId) setOpen(added.leaseId);
+  };
+
+  const duplicate = (template: PropertyLeaseTemplate) => {
+    const copy = duplicateLeaseTemplate(templates, template.id);
+    if (!copy) return;
+    const index = templates.findIndex((row) => row.id === template.id);
+    const next = [...templates];
+    next.splice(index + 1, 0, copy);
+    commitLeases(next);
+    setOpen(copy.id);
+  };
+
+  const remove = (template: PropertyLeaseTemplate) => {
+    const remaining = removePropertyLeaseTemplate(templates, template.id);
+    commitLeases(remaining, { applications: releaseDeletedLeaseLinks(applications, remaining) });
+    if (open === template.id) setOpen(null);
+  };
+
+  const pickPdf = (id: string) => {
+    uploadFor.current = id;
+    fileRef.current?.click();
+  };
+
+  const onFile = async (file: File | null) => {
+    const id = uploadFor.current;
+    uploadFor.current = null;
+    const template = templates.find((row) => row.id === id);
+    if (!file || !template) return;
+    const fields = await importLeasePdf({
+      file,
+      kind: template.kind,
+      showToast: doors.showToast,
+      setBusy: (busy) => setBusyId(busy ? template.id : null),
+    });
+    if (fields) patchLease(template.id, fields);
+  };
+
+  const changeStart = async (template: PropertyLeaseTemplate, next: string) => {
+    const seeded = Boolean(template.listingSeedKey);
+    const current = template.leaseCustomKind === "document" ? "upload" : seeded ? "standard" : template.kind === "short-term" ? "short-term" : "long-term";
+    if (next === current) return;
+    const hasWork = Boolean(template.leaseTemplateHtmlOverride?.trim() || template.leaseTemplateDocUrl);
+    if (
+      hasWork &&
+      !(await confirm({ description: "Replace this lease's document?", confirmLabel: "Replace", tone: "danger", note: null }))
+    ) {
+      return;
+    }
+    if (next === "upload") {
+      pickPdf(template.id);
+      return;
+    }
+    patchLease(template.id, {
+      kind: next === "short-term" ? "short-term" : next === "long-term" ? "long-term" : template.kind,
+      leaseConfigMode: "standard",
+      leaseCustomKind: "terms",
+      customLeaseTerms: "",
+      leaseTemplateDocUrl: null,
+      leaseTemplateDocName: "",
+      leaseTemplateHtmlOverride: "",
+      leaseTemplateImportReview: undefined,
+    });
+  };
 
   return (
     <StepColumn>
-      <StepHeading title="Lease" />
-      <RowCard dataAttr="listing-v2-lease-rows">
-        {templates.length === 0 && missingSeeds.length === 0 ? (
-          <EmptyRows text="No leases yet" />
-        ) : (
-          <>
-            {templates.map((template, index) => {
-              const name = template.label?.trim() || "Lease";
-              return (
-                <DetailRow
-                  key={template.id}
-                  first={index === 0}
-                  label={name}
-                  value={leaseTypeFact(template)}
-                  dataAttr="listing-v2-lease-row"
-                  action={
-                    <EditInFull
-                      name={name}
-                      disabled={busy}
-                      dataAttr="listing-v2-lease-edit"
-                      onClick={() => void run((recordId) => setEditing({ recordId, template }))}
-                    />
-                  }
-                />
-              );
-            })}
-            {missingSeeds.map((seed, index) => (
-              <DetailRow
-                key={seed.seedKey}
-                first={templates.length === 0 && index === 0}
-                label={seed.label}
-                value="Not added yet"
-                dataAttr="listing-v2-lease-default-row"
+      <CountHeading count={templates.length} noun="lease" addLabel="Add lease" onAdd={addStandard} dataAttr="listing-v2-add-lease-icon" />
+      <input
+        ref={fileRef}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Choose a lease PDF"
+        accept="application/pdf,.pdf"
+        data-attr="listing-v2-lease-file"
+        onChange={(event) => {
+          const file = event.target.files?.[0] ?? null;
+          event.target.value = "";
+          void onFile(file);
+        }}
+      />
+
+      {templates.map((template, i) => {
+        const stored = template.label?.trim() || "Lease";
+        const name = names.shown(template.id, template.label ?? "");
+        const taken = templates.filter((row) => row.id !== template.id).map((row) => row.label ?? "");
+        const isOpen = open === template.id;
+        const terms = template.applicationLeaseTerms ?? [];
+        const flags = leaseOptionFlags(terms);
+        const showOptions = template.kind !== "short-term" && leaseTermsAllowOptions(terms);
+        const seeded = Boolean(template.listingSeedKey);
+        const tied = applicationsOfLease(catalog, template.id);
+        const startValue =
+          template.leaseCustomKind === "document" ? "upload" : seeded ? "standard" : template.kind === "short-term" ? "short-term" : "long-term";
+        return (
+          <RecordCard
+            key={template.id}
+            propertyEditor
+            name={name}
+            nameLabel={`Name for lease ${i + 1}`}
+            namePlaceholder={`Lease ${i + 1}`}
+            onName={(text) => names.edit(template.id, text, taken, (next) => patchLease(template.id, { label: next }))}
+            facts={
+              <Facts
+                items={[
+                  leaseTypeFact(template),
+                  tied.length > 0 ? tied.map((row) => normalizePropertyApplicationTemplateLabel(row.label) || "Application").join(", ") : "No applications",
+                  flags.custom && "Custom dates",
+                  flags.monthToMonth && "Month-to-month",
+                  template.offered === false && "Not offered",
+                ]}
               />
-            ))}
-          </>
-        )}
-      </RowCard>
-      {editing && !importedLease ? (
-        <PropertyLeaseFormModal
-          open
-          mode="edit"
-          sub={synced}
-          template={editing.template}
-          templates={templates}
-          propertyId={editing.recordId}
-          onClose={() => setEditing(null)}
-          onSave={(nextTemplates, extra) => saveTemplates(nextTemplates, extra?.applications)}
-          showToast={doors.showToast}
+            }
+            headerEnd={
+              <CardMenu
+                label={stored}
+                dataAttr="listing-v2-lease"
+                onEdit={() => {
+                  if (isOpen) names.forget(template.id);
+                  toggle(template.id);
+                }}
+                onDuplicate={() => duplicate(template)}
+                onDelete={() => remove(template)}
+              />
+            }
+            open={isOpen}
+            onToggle={() => {
+              if (isOpen) names.forget(template.id);
+              toggle(template.id);
+            }}
+            toggleLabel={stored}
+            dataAttr="listing-v2-lease-card"
+          >
+            <div data-attr="listing-v2-lease-editor">
+              <NameProblem message={names.problem(template.id, taken)} />
+              <FactRow first label="Offered">
+                <PortalSettingsToggle
+                  checked={template.offered !== false}
+                  label={`${stored}: offered`}
+                  dataAttr="listing-v2-lease-offered"
+                  onChange={(on) => patchLease(template.id, { offered: on })}
+                />
+              </FactRow>
+              <FactRow label="Start from">
+                <RowSelectCell
+                  ariaLabel={`Start ${stored} from`}
+                  value={startValue}
+                  dataAttr="listing-v2-lease-start-from"
+                  options={
+                    seeded
+                      ? [
+                          { value: "standard", label: "PropLane standard" },
+                          { value: "upload", label: "Upload a PDF" },
+                        ]
+                      : [
+                          { value: "long-term", label: "PropLane standard long-term" },
+                          { value: "short-term", label: "PropLane standard short term" },
+                          { value: "upload", label: "Upload a PDF" },
+                        ]
+                  }
+                  onChange={(next) => void changeStart(template, next)}
+                />
+              </FactRow>
+              {applicationOptions.length > 0 ? (
+                <FactRow label="Applications">
+                  <CheckboxMultiSelect
+                    hideLabel
+                    label={`Applications for ${stored}`}
+                    variant="cell"
+                    className="min-w-[150px] max-w-[240px]"
+                    options={applicationOptions}
+                    selected={tied.map((row) => row.id)}
+                    emptyLabel="No applications"
+                    dataAttr="listing-v2-lease-applications"
+                    onChange={(ids) => commitLeases(templates, { applications: setApplicationsOfLease(catalog, template.id, ids) })}
+                  />
+                </FactRow>
+              ) : null}
+              {showOptions
+                ? LEASE_OPTIONS.map((option) => (
+                    <FactRow key={option.key} label={option.label}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${option.label} for ${stored}`}
+                        className="h-5 w-5 rounded border-border"
+                        checked={flags[option.key]}
+                        data-attr={option.attr}
+                        onChange={(event) =>
+                          onChange(submissionWithLeaseOption(synced, templates, template.id, option.key, event.target.checked))
+                        }
+                      />
+                    </FactRow>
+                  ))
+                : null}
+              <div className={BODY_PAD}>
+                <InlineLeaseDocument
+                  sub={synced}
+                  template={template}
+                  busy={busyId === template.id}
+                  onUpload={() => pickPdf(template.id)}
+                  onHtml={(html) => patchLease(template.id, { leaseTemplateHtmlOverride: html })}
+                />
+              </div>
+            </div>
+          </RecordCard>
+        );
+      })}
+      {missingSeeds.map((seed) => (
+        <RecordCard
+          key={seed.seedKey}
+          propertyEditor
+          title={seed.label}
+          facts={<Facts items={["Not added yet"]} />}
+          headerEnd={
+            <PortalSettingsToggle
+              checked={false}
+              label={`${seed.label}: offered`}
+              dataAttr="listing-v2-lease-default-offered"
+              onChange={(on) => {
+                if (on) onChange(addLeaseTemplateFromSeed(synced, seed.seedKey));
+              }}
+            />
+          }
+          dataAttr="listing-v2-lease-default-card"
         />
-      ) : null}
-      {editing && importedLease ? (
-        <ManagerLeaseQuestionsEditorModal
-          key={editing.template.id}
-          open
-          template={editing.template}
-          templates={templates}
-          propertyId={editing.recordId}
-          onClose={() => setEditing(null)}
-          onSave={async (nextTemplates) => saveTemplates(nextTemplates)}
-          showToast={doors.showToast}
-        />
-      ) : null}
+      ))}
+      {templates.length === 0 && missingSeeds.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No leases yet</p> : null}
     </StepColumn>
   );
 }
 
 /* ─────────────────────────── Move-in ─────────────────────────── */
 
-function moveInRooms(sub: ManagerListingSubmissionV1): MoveInEditorRoom[] {
-  if (isEntireHomeListing(sub)) return [];
-  return sortRoomIndicesByFloor(sub.rooms).map((index) => {
-    const room = sub.rooms[index]!;
-    return { id: room.id, label: room.name.trim() || `Room ${index + 1}` };
-  });
+function moveInSendsFact(template: MoveInFormTemplate): string {
+  const summary = triggerSummary(template.trigger);
+  return template.trigger === "manual" ? summary : `Sends ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
 }
 
-export function StepMoveIn({ sub, onChange, doors }: StepProps) {
-  const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
-  const rooms = useMemo(() => moveInRooms(sub), [sub]);
-  const { userId: viewerId } = usePortalSession();
-  const canUploadPdf = !viewerId || !doors.managerUserId || viewerId === doors.managerUserId;
-  const { busy, run } = useEditInFull(doors);
-  const [editing, setEditing] = useState<{ recordId: string; template: MoveInFormTemplate } | null>(null);
+/** The open form's questions. Held locally so a question still being typed is not dropped by the store's clean-up. */
+function MoveInInlineBody({
+  template,
+  onTemplate,
+  fresh,
+}: {
+  template: MoveInFormTemplate;
+  onTemplate: (next: MoveInFormTemplate) => void;
+  fresh: boolean;
+}) {
+  const [questions, setQuestions] = useState(template.questions);
+  const starterOptions = [
+    { value: "blank", label: "Blank form" },
+    ...MOVE_IN_FORM_STARTERS.map((starter) => ({ value: starter.starterKey ?? starter.id, label: starter.name })),
+  ];
+  return (
+    <>
+      <FactRow first label="Sends">
+        <RowSelectCell
+          ariaLabel={`${template.name || "Form"} sends`}
+          value={template.trigger}
+          options={MOVE_IN_TRIGGER_OPTIONS}
+          dataAttr="listing-v2-movein-sends"
+          onChange={(value) =>
+            onTemplate({
+              ...template,
+              trigger: value as MoveInFormTemplate["trigger"],
+              due: dueForTriggerChange(value as MoveInFormTemplate["trigger"], template.due),
+            })
+          }
+        />
+      </FactRow>
+      <FactRow label="Due">
+        <RowSelectCell
+          ariaLabel={`${template.name || "Form"} due`}
+          value={template.due}
+          options={dueOptionsForTrigger(template.trigger)}
+          dataAttr="listing-v2-movein-due"
+          onChange={(value) => onTemplate({ ...template, due: value as MoveInFormTemplate["due"] })}
+        />
+      </FactRow>
+      {fresh ? (
+        <FactRow label="Start from">
+          <RowSelectCell
+            ariaLabel="Start from"
+            value={template.starterKey ?? "blank"}
+            options={starterOptions}
+            dataAttr="listing-v2-movein-start-from"
+            onChange={(value) => {
+              const starter = MOVE_IN_FORM_STARTERS.find((item) => (item.starterKey ?? item.id) === value);
+              const nextQuestions = starter ? structuredClone(starter.questions) : [];
+              setQuestions(nextQuestions);
+              onTemplate({
+                ...template,
+                questions: nextQuestions,
+                starterKey: starter ? (value as MoveInFormStarterKey) : undefined,
+                due: starter?.due ?? template.due,
+                name: starter && /^New form( \d+)?$/.test(template.name) ? starter.name : template.name,
+              });
+            }}
+          />
+        </FactRow>
+      ) : null}
+      <div className={BODY_PAD}>
+        <MoveInQuestionsEditor
+          questions={questions}
+          onChange={(next) => {
+            setQuestions(next);
+            onTemplate(cleanMoveInTemplateForSave({ ...template, questions: next }));
+          }}
+        />
+      </div>
+    </>
+  );
+}
 
-  const save = async (template: MoveInFormTemplate): Promise<boolean> => {
-    // The first save writes the starters out too. Only the form the manager saved keeps its own
-    // Sends; untouched starters are stored as "Only when I send it" (same rule as the Move-in tab).
+export function StepMoveIn({ sub, onChange }: StepProps) {
+  const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
+  const { open, setOpen, toggle } = useOneOpen();
+  const [freshId, setFreshId] = useState<string | null>(null);
+
+  /**
+   * The first write also stores the starters. Only the form the manager touched keeps its own Sends;
+   * untouched starters are stored as "Only when I send it" (same rule as the Move-in tab).
+   */
+  const write = (list: MoveInFormTemplate[], editedId: string | null) => {
     const firstSave = !Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates);
-    const cleaned = cleanMoveInTemplateForSave(template);
-    const list = templates.map((item) => (item.id === cleaned.id ? cleaned : item));
     const next = firstSave
-      ? list.map((item) => (item.id.startsWith("starter-") && item.id !== cleaned.id ? { ...item, trigger: "manual" as const } : item))
+      ? list.map((item) => (item.id.startsWith("starter-") && item.id !== editedId ? { ...item, trigger: "manual" as const } : item))
       : list;
     onChange({ ...sub, moveInFormTemplates: next });
-    return true;
+  };
+  const replace = (template: MoveInFormTemplate) =>
+    write(templates.map((item) => (item.id === template.id ? template : item)), template.id);
+
+  const add = () => {
+    const created: MoveInFormTemplate = {
+      ...newMoveInFormTemplate("built"),
+      name: uniqueFormLabel(templates.map((item) => item.name), "New form"),
+      // A new form never messages a resident until the manager picks when.
+      trigger: "manual",
+    };
+    write([...templates, created], created.id);
+    setOpen(created.id);
+    setFreshId(created.id);
+  };
+
+  const duplicate = (template: MoveInFormTemplate) => {
+    const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate("built").id);
+    if (!copy) return;
+    write(list, copy.id);
+    setOpen(copy.id);
   };
 
   return (
     <StepColumn>
-      <StepHeading title="Move-in" />
-      <RowCard dataAttr="listing-v2-movein-rows">
-        {templates.length === 0 ? (
-          <EmptyRows text="No move-in forms yet" />
-        ) : (
-          templates.map((template, index) => {
-            const name = template.name.trim() || "Untitled form";
-            return (
-              <DetailRow
-                key={template.id}
-                first={index === 0}
-                label={name}
-                value={moveInSendsFact(template)}
-                dataAttr="listing-v2-movein-row"
-                action={
-                  <EditInFull
-                    name={name}
-                    disabled={busy}
-                    dataAttr="listing-v2-movein-edit"
-                    onClick={() => void run((recordId) => setEditing({ recordId, template }))}
-                  />
-                }
+      <CountHeading count={templates.length} noun="move-in form" addLabel="Add move-in form" onAdd={add} dataAttr="listing-v2-add-movein-icon" />
+
+      {templates.map((template, i) => {
+        const label = template.name.trim() || "Untitled form";
+        const isOpen = open === template.id;
+        return (
+          <RecordCard
+            key={template.id}
+            propertyEditor
+            name={template.name}
+            nameLabel={`Name for move-in form ${i + 1}`}
+            namePlaceholder={`Move-in form ${i + 1}`}
+            onName={(text) => replace({ ...template, name: text })}
+            facts={<Facts items={[plural(template.questions.length, "question"), moveInSendsFact(template)]} />}
+            headerEnd={
+              <CardMenu
+                label={label}
+                dataAttr="listing-v2-movein"
+                onEdit={() => toggle(template.id)}
+                onDuplicate={() => duplicate(template)}
+                onDelete={() => {
+                  write(removeMoveInTemplate(templates, template.id), null);
+                  if (open === template.id) setOpen(null);
+                }}
               />
-            );
-          })
-        )}
-      </RowCard>
-      {editing ? (
-        <MoveInFormEditorModal
-          key={editing.template.id}
-          mode="edit"
-          initial={editing.template}
-          rooms={rooms}
-          propertyId={editing.recordId}
-          startStep={0}
-          onSave={(template) => save(template)}
-          onClose={() => setEditing(null)}
-          canUploadPdf={canUploadPdf}
-        />
-      ) : null}
+            }
+            open={isOpen}
+            onToggle={() => toggle(template.id)}
+            toggleLabel={label}
+            dataAttr="listing-v2-movein-card"
+          >
+            <div data-attr="listing-v2-movein-editor">
+              <MoveInInlineBody key={template.id} template={template} onTemplate={replace} fresh={freshId === template.id} />
+            </div>
+          </RecordCard>
+        );
+      })}
+      {templates.length === 0 ? <p className="mb-2.5 text-[13px] text-muted">No move-in forms yet</p> : null}
     </StepColumn>
   );
 }
 
 /* ─────────────────────────── Pricing ─────────────────────────── */
 
-/** What the pricing workspace saved straight to the store, read back so the wizard does not overwrite it. */
-function readSavedSubmission(
-  mode: "draft" | "listing",
-  recordId: string,
-  managerUserId: string,
-): ManagerListingSubmissionV1 | null {
-  if (mode === "draft") {
-    const row = readAdminPropertyRows(5, managerUserId).find((candidate) => candidate.adminRefId === recordId);
-    return row?.submission ? normalizeManagerListingSubmissionV1(row.submission) : null;
-  }
-  const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, recordId);
-  return hit ? normalizeManagerListingSubmissionV1(hit.sub) : null;
+const PRICING_FORMATS = [
+  { term: LONG_TERM_LEASE_TERM, title: "Long-term" },
+  { term: SHORT_TERM_LEASE_TERM, title: "Short-term" },
+] as const;
+
+/** A format's heading inside an open pricing card. */
+function FormatHeading({ title }: { title: string }) {
+  return (
+    <h3 className="border-t border-border bg-foreground/[0.025] px-3.5 py-2.5 text-[12px] font-extrabold uppercase tracking-[0.1em] text-muted first:border-t-0">
+      {title}
+    </h3>
+  );
 }
 
-export function StepPricing({ sub, onChange, doors }: StepProps) {
-  const { busy, run } = useEditInFull(doors);
-  const [editing, setEditing] = useState<{ recordId: string; subject: PropertyPricingSubject } | null>(null);
+/** "$40/night", or "not set" when no nightly rate is typed. */
+function nightlyText(raw: string | undefined): string {
+  const amount = parseMoneyAmount(raw ?? "");
+  return amount > 0 ? `$${Math.round(amount).toLocaleString("en-US")}/night` : "not set";
+}
+
+function RentOnRight({ text }: { text: string }) {
+  return <span className="shrink-0 pr-2 text-[13.5px] font-bold tabular-nums text-foreground">{text}</span>;
+}
+
+export function StepPricing({ sub, onChange }: StepProps) {
   const wholeHome = isEntireHomeListing(sub);
   const rooms = (sub.rooms ?? []).filter((room) => room.name.trim() || room.monthlyRent > 0);
-  const applications = applicationTemplatesOf(sub);
-  const fee = applications[0] ? applicationFeeFact(sub, applications[0]) : "No fee";
-  const leases = resolveAllowedLeaseTerms(sub).join(", ");
-  const saveTarget: ManagerPricingSaveTarget | null = editing
-    ? { mode: doors.mode, saveId: editing.recordId }
-    : null;
+  const bundles = sub.bundles ?? [];
+  const { open, setOpen, toggle } = useOneOpen();
+  const [bundlesOn, setBundlesOn] = useState(bundles.length > 0);
+  const bundlesShown = bundlesOn || bundles.length > 0;
+  const confirm = useConfirm();
 
-  const wholeAmount = propertyPricingWholeHouseSummary(sub).includes("/mo")
-    ? propertyPricingWholeHouseSummary(sub).split(" · ").pop() ?? "—"
-    : "—";
+  const patch = (next: Partial<ManagerListingSubmissionV1>) => onChange({ ...sub, ...next });
+  const updateRoom = (roomId: string, next: ManagerRoomSubmission) => patch(roomPricingPatch(sub, roomId, next));
+
+  const wholeAmount = entireHomeMonthlyRentAmount(sub);
+  const roomLabel = (room: ManagerRoomSubmission, index: number) => room.name.trim() || `Room ${index + 1}`;
+
+  const writeBundle = (id: string, next: Partial<ManagerBundleRow>) =>
+    patch({ bundles: bundles.map((b) => (b.id === id ? { ...b, ...next } : b)) });
+  const addBundle = () => {
+    const id = `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    patch({ bundles: [...bundles, { id, label: "", price: "", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: [] }] });
+    setOpen(id);
+  };
+  const turnBundlesOff = async () => {
+    if (bundles.length > 0) {
+      const ok = await confirm({
+        title: "Turn off bundles?",
+        description: `Turn off bundles? This removes ${plural(bundles.length, "bundle")}.`,
+        confirmLabel: "Turn off",
+        tone: "danger",
+        note: null,
+      });
+      if (!ok) return;
+      patch({ bundles: [] });
+    }
+    setBundlesOn(false);
+    setOpen(null);
+  };
 
   return (
     <StepColumn>
       <StepHeading title="Pricing" />
-      <RowCard dataAttr="listing-v2-pricing-rows">
-        {wholeHome ? (
-          <DetailRow
-            first
-            label="Whole house"
-            value={wholeAmount}
-            dataAttr="listing-v2-pricing-row"
-            action={
-              <EditInFull
-                name="Whole house"
-                disabled={busy}
-                dataAttr="listing-v2-pricing-edit"
-                onClick={() => void run((recordId) => setEditing({ recordId, subject: { kind: "whole" } }))}
-              />
-            }
-          />
-        ) : rooms.length === 0 ? (
-          <EmptyRows text="No rooms to price yet" />
-        ) : (
-          rooms.map((room, index) => {
-            const name = room.name.trim() || "Room";
-            const amount = propertyPricingRoomAmount(room);
-            return (
-              <DetailRow
-                key={room.id}
-                first={index === 0}
-                label={name}
-                value={amount === "—" ? "Rent not set" : amount}
-                dataAttr="listing-v2-pricing-row"
-                action={
-                  <EditInFull
-                    name={name}
-                    disabled={busy}
-                    dataAttr="listing-v2-pricing-edit"
-                    onClick={() => void run((recordId) => setEditing({ recordId, subject: { kind: "room", roomId: room.id } }))}
+
+      {wholeHome ? (
+        <RecordCard
+          propertyEditor
+          title="Whole place"
+          facts={
+            <Facts
+              items={[
+                `Long-term · ${wholeAmount > 0 ? rentLabel(wholeAmount) : "rent not set"}`,
+                `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
+              ]}
+            />
+          }
+          headerEnd={<RentOnRight text={wholeAmount > 0 ? rentLabel(wholeAmount) : "Rent not set"} />}
+          open={open === "whole"}
+          onToggle={() => toggle("whole")}
+          toggleLabel="Whole place"
+          dataAttr="listing-v2-pricing-card"
+        >
+          {PRICING_FORMATS.map((format) => (
+            <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
+              <FormatHeading title={format.title} />
+              <WholeHousePricingFields draft={sub} activeStepId={format.term} patch={patch} />
+            </section>
+          ))}
+        </RecordCard>
+      ) : rooms.length === 0 ? (
+        <p className="mb-2.5 text-[13px] text-muted">No rooms to price yet</p>
+      ) : (
+        rooms.map((room, index) => {
+          const amount = propertyPricingRoomAmount(room);
+          const rentText = amount === "—" ? "Rent not set" : amount;
+          return (
+            <RecordCard
+              key={room.id}
+              propertyEditor
+              title={roomLabel(room, index)}
+              facts={
+                <Facts
+                  items={[
+                    `Long-term · ${amount === "—" ? "rent not set" : amount}`,
+                    `Short-term · ${nightlyText(room.shortTermRent)}`,
+                  ]}
+                />
+              }
+              headerEnd={<RentOnRight text={rentText} />}
+              open={open === room.id}
+              onToggle={() => toggle(room.id)}
+              toggleLabel={roomLabel(room, index)}
+              dataAttr="listing-v2-pricing-card"
+            >
+              {PRICING_FORMATS.map((format) => (
+                <section key={format.term} data-attr={`listing-v2-pricing-format-${format.term === LONG_TERM_LEASE_TERM ? "long" : "short"}`}>
+                  <FormatHeading title={format.title} />
+                  <RoomPricingFields
+                    draft={sub}
+                    room={room}
+                    activeTerm={format.term}
+                    patch={patch}
+                    setDraft={onChange}
+                    updateRoom={updateRoom}
                   />
-                }
-              />
-            );
-          })
-        )}
-      </RowCard>
-      <div className="mt-6">
-        <RowCard dataAttr="listing-v2-pricing-fees">
-          <DetailRow first label="Application fee" value={fee} />
-          {leases ? <DetailRow label="Leases offered" value={leases} /> : null}
-        </RowCard>
-      </div>
-      {editing && saveTarget && doors.managerUserId ? (
-        <PropertyRoomPricingWorkspace
-          open
-          onClose={() => setEditing(null)}
-          subject={editing.subject}
-          sub={sub}
-          saveTarget={saveTarget}
-          managerUserId={doors.managerUserId}
-          propertyLabel={sub.buildingName?.trim() || sub.address?.trim() || "Property"}
-          onSaved={() => {
-            const saved = readSavedSubmission(doors.mode, editing.recordId, doors.managerUserId!);
-            if (saved) onChange(saved);
-          }}
-          showToast={doors.showToast}
-          workspacePricingDefaults={doors.workspacePricingDefaults}
-        />
-      ) : null}
+                </section>
+              ))}
+            </RecordCard>
+          );
+        })
+      )}
+
+      {wholeHome ? null : (
+        <div className="mt-6" data-attr="listing-v2-bundles">
+          <div className="mb-3 overflow-hidden rounded-2xl border border-border bg-card px-3.5 py-1">
+            <CheckboxOption
+              label="Offer room bundles"
+              checked={bundlesShown}
+              dataAttr="listing-v2-bundles-toggle"
+              onChange={(on) => {
+                if (on) setBundlesOn(true);
+                else void turnBundlesOff();
+              }}
+            />
+          </div>
+          {bundlesShown ? (
+            <>
+              <div className="pr9-top mb-3 flex items-center justify-between gap-2">
+                <h3 className="text-[18px] font-extrabold tracking-tight text-foreground">
+                  {plural(bundles.length, "bundle")}
+                </h3>
+                <PortalPrimaryIconAction label="Add bundle" onClick={addBundle} data-attr="listing-v2-add-bundle-icon" />
+              </div>
+              {bundles.map((bundle, i) => {
+                const label = bundle.label.trim() || `Bundle ${i + 1}`;
+                const included = (bundle.includedRoomIds ?? []).filter((id) => rooms.some((room) => room.id === id));
+                const includedNames = rooms.filter((room) => included.includes(room.id)).map((room) => roomLabel(room, rooms.indexOf(room)));
+                const rent = parseMoneyAmount(bundle.price ?? "");
+                return (
+                  <RecordCard
+                    key={bundle.id}
+                    propertyEditor
+                    name={bundle.label}
+                    nameLabel={`Name for bundle ${i + 1}`}
+                    namePlaceholder={`Bundle ${i + 1}`}
+                    onName={(text) => writeBundle(bundle.id, { label: text })}
+                    facts={<Facts items={[includedNames.length ? includedNames.join(" + ") : "No rooms yet", rent > 0 ? rentLabel(rent) : "Rent not set"]} />}
+                    headerEnd={
+                      <CardMenu
+                        label={label}
+                        dataAttr="listing-v2-bundle"
+                        onEdit={() => toggle(bundle.id)}
+                        onDuplicate={() => {
+                          const copy = { ...structuredClone(bundle), id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: `${label} copy` };
+                          const at = bundles.findIndex((b) => b.id === bundle.id);
+                          patch({ bundles: [...bundles.slice(0, at + 1), copy, ...bundles.slice(at + 1)] });
+                          setOpen(copy.id);
+                        }}
+                        onDelete={() => {
+                          patch({ bundles: bundles.filter((b) => b.id !== bundle.id) });
+                          if (open === bundle.id) setOpen(null);
+                        }}
+                      />
+                    }
+                    open={open === bundle.id}
+                    onToggle={() => toggle(bundle.id)}
+                    toggleLabel={label}
+                    dataAttr="listing-v2-bundle-card"
+                  >
+                    <FactRow first label="Rooms in the bundle">
+                      <CheckboxMultiSelect
+                        hideLabel
+                        label={`Rooms in ${label}`}
+                        variant="cell"
+                        className="min-w-[150px] max-w-[240px]"
+                        options={rooms.map((room, ri) => ({ value: room.id, label: roomLabel(room, ri) }))}
+                        selected={included}
+                        emptyLabel="Pick rooms"
+                        dataAttr="listing-v2-bundle-rooms"
+                        onChange={(ids) => writeBundle(bundle.id, { includedRoomIds: ids, roomsLine: "" })}
+                      />
+                    </FactRow>
+                    {PRICING_FORMATS.map((format) => (
+                      <section key={format.term}>
+                        <FormatHeading title={format.title} />
+                        <BundlePricingFields draft={sub} bundle={bundle} activeStepId={format.term} patch={patch} setDraft={onChange} />
+                      </section>
+                    ))}
+                  </RecordCard>
+                );
+              })}
+            </>
+          ) : null}
+        </div>
+      )}
     </StepColumn>
   );
 }

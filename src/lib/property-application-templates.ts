@@ -86,7 +86,18 @@ export type PropertyApplicationTemplate = {
    * library form's id. The property's own forms never carry it.
    */
   libraryFormId?: string | null;
+  /**
+   * Whether this property asks for this application at all ("Needed" in the listing editor's
+   * Application step). Absent = needed, exactly as every template saved before the switch existed.
+   * Lives in the property's listing submission JSON beside the template; no schema change.
+   */
+  offered?: boolean;
 };
+
+/** An application is needed unless the manager switched it off. */
+export function isApplicationTemplateOffered(template: Pick<PropertyApplicationTemplate, "offered">): boolean {
+  return template.offered !== false;
+}
 
 /** Per-form answer to "does this application come before the tour?". `workspace` = use the workspace setting. */
 export type ApplicationTourOrder = "before_tour" | "after_tour" | "workspace";
@@ -299,7 +310,9 @@ export function publishedApplicationTemplateForApplicant(
   variant: ApplicationFormVariant,
   templateId?: string | null,
 ): PropertyApplicationTemplate | null {
-  const published = readPropertyApplicationTemplates(sub).filter((template) => Boolean(template.publishedQuestionConfig));
+  const published = readPropertyApplicationTemplates(sub).filter(
+    (template) => Boolean(template.publishedQuestionConfig) && isApplicationTemplateOffered(template),
+  );
   // A template pinned by id (the form a lease maps to, C2-CP9) is honored across the standard and
   // short-term variants: a lease maps to ONE application whatever its length. A co-signer form is
   // only ever served to the co-signer variant.

@@ -87,8 +87,8 @@ describe("room card: Leases offered", () => {
     fireEvent.click(trigger);
     const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
     const labels = [...menu.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim());
-    expect(labels).toEqual(["Long-term", "Short term", "Custom", "Month-to-month"]);
-    // Short term is on (shortTermRentalsAllowed); Airbnb is not offered here.
+    expect(labels).toEqual(["Long-term", "Short-term", "Custom", "Month-to-month"]);
+    // Short-term is on (shortTermRentalsAllowed); Airbnb is not offered here.
     expect(labels).not.toContain("Airbnb");
     // Untick Custom: the room now restricts.
     const custom = menu.querySelector('[data-field-select-option-value="Custom"]')!;
@@ -97,14 +97,14 @@ describe("room card: Leases offered", () => {
     const room = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
     expect(room.offeredLeaseTerms).toEqual(["Long-term", "Month-to-Month", "Short-Term Stay"]);
     // The collapsed card now says so, as a plain fact.
-    expect(document.body.textContent).toContain("Long-term, Short term, Month-to-month");
+    expect(document.body.textContent).toContain("Long-term, Short-term, Month-to-month");
   });
 
   it("a room that does not restrict shows no lease-type fact on its card", () => {
     open("rooms");
     const cards = [...document.querySelectorAll('[data-attr="listing-v2-room-card"]')];
     expect(cards[0]!.textContent).not.toMatch(/Long-term/);
-    expect(cards[1]!.textContent).toContain("Long-term, Short term");
+    expect(cards[1]!.textContent).toContain("Long-term, Short-term");
   });
 
   it("always offers the four lease types; Custom has an (i) and turns on Prorated rent (captain, Oct 3)", () => {
