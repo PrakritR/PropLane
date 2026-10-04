@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { fetchLinkedFormsForApplication } from "@/lib/linked-form-requests-client";
 import { Button } from "@/components/ui/button";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
 import { GroupInviteCallout } from "@/components/marketing/group-invite-callout";
@@ -101,9 +103,25 @@ export function RentalApplicationFinishPanel({
   groupSize,
   groupPropertyId,
   hasCosigner,
-  linkedForms = [],
+  linkedForms: submittedLinkedForms = [],
   onDone,
 }: FinishPanelProps) {
+  // The submit response carries the forms (and their one-time share links) when this browser's own submit
+  // created them. When the server finished the application first (a paid fee promoted it before this browser
+  // could submit) nothing arrives with it, so a signed-in applicant's finish screen asks for what is owed.
+  const [fetchedLinkedForms, setFetchedLinkedForms] = useState<readonly LinkedFormListItem[]>([]);
+  const askForOwedForms = !guestFlow && submittedLinkedForms.length === 0 && Boolean(axisId.trim());
+  useEffect(() => {
+    if (!askForOwedForms) return;
+    let cancelled = false;
+    void fetchLinkedFormsForApplication(axisId).then((requests) => {
+      if (!cancelled) setFetchedLinkedForms(requests);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [askForOwedForms, axisId]);
+  const linkedForms = submittedLinkedForms.length > 0 ? submittedLinkedForms : fetchedLinkedForms;
   const signInHref = `/auth/sign-in?intent=resident&next=${encodeURIComponent("/resident/applications")}`;
   const applicationsHref = "/resident/applications";
   const emailFailed = guestFlow && emailSent === false;

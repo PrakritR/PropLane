@@ -620,7 +620,6 @@ export function RecordCommunicationSection({
       disabled={!recipientEmail}
       placeholder="Write a reply…"
       dataAttr="record-communication-composer"
-      channelControl={channelControl}
       trailingControls={
         <>
           <InboxComposerAiMenu onAsk={() => openAxisAssistant()} />
@@ -633,6 +632,10 @@ export function RecordCommunicationSection({
               disabled={sending}
             />
           ) : null}
+          {/* In the tools row beside the field (AI · schedule · channel · Send), exactly like the main Communication
+              composer. Floating it over the field's right edge covered the text at desktop width, where the menu
+              carries its label. */}
+          {channelControl}
         </>
       }
       attachments={attachments}

@@ -50,6 +50,49 @@ describe("evaluating linked-form rules on submit", () => {
     ).toBe("yes");
   });
 
+  describe("co-signer question saved as a Dropdown (the template's co-signer link still owes the form)", () => {
+    const cosignerQuestion = (extra: Record<string, unknown> = {}) => ({
+      key: COSIGNER_QUESTION_STANDARD_KEY,
+      label: "Will someone co-sign with you?",
+      standardKey: COSIGNER_QUESTION_STANDARD_KEY,
+      options: ["Yes", "No"],
+      ...extra,
+    });
+    const evaluate = (question: ReturnType<typeof cosignerQuestion>, hasCosigner: string) =>
+      evaluateLinkedFormRules({ questions: [question], application: { hasCosigner }, linkedCosignerApplicationTemplateId: "cos-1" });
+
+    it("owes the co-signer form on a Yes answer when the override stored no rules", () => {
+      const matches = evaluate(cosignerQuestion(), "yes");
+      expect(matches.map((m) => m.rule.formRef)).toEqual([{ kind: "application", id: "cos-1" }]);
+      expect(matches[0]!.answerLabel).toBe("Yes");
+      expect(evaluate(cosignerQuestion(), "no")).toEqual([]);
+    });
+
+    it("owes it when the override was saved with an empty list or with rules for other forms only", () => {
+      expect(evaluate(cosignerQuestion({ linkedForms: [] }), "yes")).toHaveLength(1);
+      const other = [{ id: "r-x", whenEquals: "yes", formRef: { kind: "move_in" as const, id: "mif-x" }, neededBeforeReview: false }];
+      expect(evaluate(cosignerQuestion({ linkedForms: other }), "yes").map((m) => m.rule.formRef.id).sort()).toEqual(["cos-1", "mif-x"]);
+    });
+
+    it("keeps the manager's own rule when it already names the co-signer form, and does not double it", () => {
+      const own = [{ id: "r-own", whenEquals: "yes", formRef: { kind: "application" as const, id: "cos-1" }, neededBeforeReview: false }];
+      const matches = evaluate(cosignerQuestion({ linkedForms: own }), "yes");
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.rule).toMatchObject({ id: "r-own", neededBeforeReview: false });
+    });
+
+    it("reads the stored value against a rule written as the choice's own wording", () => {
+      const worded = [{ id: "r-w", whenEquals: "Yes, a parent will", formRef: { kind: "application" as const, id: "cos-2" }, neededBeforeReview: true }];
+      const question = cosignerQuestion({ options: ["Yes, a parent will", "No"], linkedForms: worded });
+      expect(evaluateLinkedFormRules({ questions: [question], application: { hasCosigner: "yes" } }).map((m) => m.rule.formRef.id)).toEqual(["cos-2"]);
+      expect(evaluateLinkedFormRules({ questions: [question], application: { hasCosigner: "no" } })).toEqual([]);
+    });
+
+    it("matches a Yes answer in any case a Dropdown may store", () => {
+      for (const answer of ["yes", "Yes", " YES "]) expect(evaluate(cosignerQuestion(), answer)).toHaveLength(1);
+    });
+  });
+
   it("keeps today's co-signer behaviour: the template's co-signer link is a rule on Co-signer planned", () => {
     const questions = [{ key: COSIGNER_QUESTION_STANDARD_KEY, label: "Co-signer planned", standardKey: COSIGNER_QUESTION_STANDARD_KEY }];
     const yes = evaluateLinkedFormRules({ questions, application: { hasCosigner: "yes" }, linkedCosignerApplicationTemplateId: "cos-1" });
