@@ -121,7 +121,7 @@ describe("F004: import stages a diff before applying", () => {
     // default, so this checks the count rather than expanding — expanding
     // is exercised separately below).
     jumpRail("sections");
-    const additionalRow = () => document.querySelector('[data-attr="application-section-toggle-additional"]');
+    const additionalRow = () => document.querySelector('[data-attr="application-questions-editor-section-toggle-additional"]');
     const countBefore = additionalRow()?.textContent ?? "";
     jumpRail("name");
 
@@ -165,7 +165,7 @@ describe("F004: import stages a diff before applying", () => {
     expect(document.querySelector('[data-attr="application-pending-import"]')).toBeNull();
 
     jumpRail("sections");
-    const additionalToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    const additionalToggle = document.querySelector('[data-attr="application-questions-editor-section-toggle-additional"]') as HTMLElement | null;
     if (additionalToggle) fireEvent.click(additionalToggle);
     expect(screen.queryByText("Pet policy acknowledgment")).toBeNull();
   });
@@ -197,7 +197,7 @@ describe("F004: import stages a diff before applying", () => {
     expect(document.querySelector('[data-attr="application-pending-import-changed-sections"]')).not.toBeNull();
     // Still nothing applied.
     jumpRail("sections");
-    const additionalToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    const additionalToggle = document.querySelector('[data-attr="application-questions-editor-section-toggle-additional"]') as HTMLElement | null;
     if (additionalToggle) fireEvent.click(additionalToggle);
     expect(screen.queryByText("Pet policy acknowledgment")).toBeNull();
   });
@@ -241,7 +241,7 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
     expect(onPersistSubmission).not.toHaveBeenCalled();
 
     jumpRail("sections");
-    const additionalRow = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    const additionalRow = document.querySelector('[data-attr="application-questions-editor-section-toggle-additional"]') as HTMLElement | null;
     if (additionalRow) fireEvent.click(additionalRow);
     expect(screen.queryByText("Pet policy acknowledgment")).toBeNull();
   });
