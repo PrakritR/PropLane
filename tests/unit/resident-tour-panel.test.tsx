@@ -109,15 +109,17 @@ describe("ResidentTourPanel", () => {
 
     render(<ResidentTourPanel basePath="/resident" bucket="pending" />);
 
-    expect(await screen.findByRole("button", { name: "Schedule a tour" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Add tour" })).toBeTruthy();
     expect(document.querySelector('[data-attr="resident-tour-schedule"]')).toBeTruthy();
     // C120: one list, no Pending/Confirmed/Declined tabs — with zero tours there
     // is nothing to show a status for, and no tab bar left to read those words from.
     expect(screen.queryByText("Pending")).toBeNull();
     expect(screen.queryByText("Confirmed")).toBeNull();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
-    // Add rows read in sentence case since the portal redesign (plus glyph + label).
-    expect(screen.getByText("Schedule tour")).toBeTruthy();
+    // The band's round + is the only create action: no dashed "Schedule tour" card, and the empty
+    // state is the standard "Nothing <tab>" card.
+    expect(screen.queryByText("Schedule tour")).toBeNull();
+    expect(screen.getByText(/^Nothing /)).toBeTruthy();
   });
 
   it("opens schedule tour in a modal instead of leaving the tour tab", async () => {
@@ -131,7 +133,7 @@ describe("ResidentTourPanel", () => {
 
     render(<ResidentTourPanel basePath="/resident" bucket="declined" />);
 
-    const scheduleButton = await screen.findByRole("button", { name: "Schedule a tour" });
+    const scheduleButton = await screen.findByRole("button", { name: "Add tour" });
     fireEvent.click(scheduleButton);
     expect(await screen.findByRole("dialog", { name: "Choose a home to tour" })).toBeTruthy();
     expect(screen.getByLabelText("Search homes to tour")).toBeTruthy();
@@ -221,10 +223,10 @@ describe("ResidentTourPanel", () => {
     expect((await screen.findAllByText("Maple House")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Alder Row").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Birch Studio").length).toBeGreaterThan(0);
-    // Status reads as text on the row, not as a tab.
-    expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Confirmed")).toBeTruthy();
-    expect(screen.getByText("Declined")).toBeTruthy();
+    // One card per tour; the tab names the bucket, so the row carries no status word.
+    expect(document.querySelectorAll('[data-attr="resident-tour-row"]').length).toBe(3);
+    expect(screen.queryByText("Pending")).toBeNull();
+    expect(screen.queryByText("Declined")).toBeNull();
     // No tab-bar destinations left to pick a bucket from.
     expect(document.querySelector('[data-attr="resident-tour-bucket-pending"]')).toBeNull();
     expect(document.querySelector('[data-attr="resident-tour-bucket-confirmed"]')).toBeNull();

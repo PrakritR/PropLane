@@ -119,7 +119,7 @@ describe("ResidentApplicationsPanel — Sent | Approved | Denied sections (C1-R1
     expect(screen.queryAllByText(/Birch Studio/).length).toBe(0);
   });
 
-  it("switching tabs shows that section's applications, status as plain text", async () => {
+  it("switching tabs shows that section's applications, no status word on the row", async () => {
     ROWS = rows();
     await act(async () => {
       render(<ResidentApplicationsPanel />);
@@ -133,18 +133,22 @@ describe("ResidentApplicationsPanel — Sent | Approved | Denied sections (C1-R1
       (document.querySelector('[data-attr="resident-applications-section-denied"]') as HTMLElement).click();
     });
     expect(screen.getAllByText(/Birch Studio/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Denied", { selector: "span.font-semibold" })).toBeTruthy();
+    // The tab names the bucket; the row carries no coloured status word.
+    expect(screen.queryByText("Denied", { selector: "span.font-semibold" })).toBeNull();
+    expect(document.querySelector('[data-attr="resident-applications-list"]')).toBeTruthy();
   });
 
-  it("a draft is listed under Sent as Incomplete", async () => {
+  it("a draft is just a Sent row that reads Started, with no Incomplete word and no group header", async () => {
     ROWS = [
-      { ...rowFor("PROPLANE-DRAFT1", "pending", "Alder Row"), stage: "In progress", detail: "Started" },
+      { ...rowFor("PROPLANE-DRAFT1", "pending", "Alder Row"), stage: "In progress", detail: "Started 2026-10-03" },
       rowFor("PROPLANE-APPR1", "approved", "Maple Duplex"),
     ];
     await act(async () => {
       render(<ResidentApplicationsPanel />);
     });
-    expect(screen.getByText("Incomplete")).toBeTruthy();
+    expect(screen.queryByText("Incomplete")).toBeNull();
+    expect(screen.getByText(/Started/)).toBeTruthy();
+    expect(document.querySelector('[data-attr="portal-list-group"], [data-slot="portal-list-group"]')).toBeNull();
   });
 });
 

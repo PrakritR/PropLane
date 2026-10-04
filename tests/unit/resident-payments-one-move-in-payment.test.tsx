@@ -138,7 +138,7 @@ afterEach(() => {
 });
 
 const rowTexts = (container: HTMLElement) =>
-  Array.from(container.querySelectorAll('[data-slot="data-list-mobile-row"]')).map((row) =>
+  Array.from(container.querySelectorAll(".portal-property-row")).map((row) =>
     (row.textContent ?? "").replace(/\s+/g, " ").trim(),
   );
 

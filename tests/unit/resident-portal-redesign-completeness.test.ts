@@ -237,21 +237,24 @@ describe("resident portal redesign completeness", () => {
       const lease = readPanel("resident-lease-panel.tsx");
       expect(lease).toContain('variant="command"');
       expect(readPanel("resident-lease-list.tsx")).toContain("ResidentPortalGroupedDataList");
+      expect(lease).toContain("ResidentTermBandFilter");
       const payments = readPanel("resident-payments-panel.tsx");
       expect(payments).toContain('variant="command"');
       expect(payments).toContain("ResidentPortalGroupedDataList");
       // Tour (C1-R2: Scheduled | Approved | Past) and Applications (C1-R1: Sent | Approved |
       // Denied) carry section tabs with counts; each row still reads its own status as text.
-      // Tour keeps the shared grouped-list kit; Applications groups its flat rows under the
-      // home with the shared PortalListGroup box.
+      // Both are the manager Properties format: one band card (tabs + search + round +), then one
+      // shared record card per row, no group header, no dashed add row.
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("ResidentPortalGroupedDataList");
-      expect(tour).toContain("PortalListAddRow");
+      expect(tour).toContain("PortalApplicantRecordRow");
+      expect(tour).toContain("PortalRecordListSurface");
       expect(tour).toContain("LocalDestinationNav");
+      expect(tour).not.toContain("PortalListAddRow");
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("PortalListGroup");
+      expect(applications).not.toContain("PortalListGroup");
+      expect(applications).toContain("PortalApplicantRecordRow");
       expect(applications).toContain("LocalDestinationNav");
-      expect(applications).toContain("PortalListAddRow");
+      expect(applications).not.toContain("PortalListAddRow");
       expect(applications).not.toContain("useResidentPortalListFilterState");
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain('variant="command"');
@@ -288,9 +291,10 @@ describe("resident portal redesign completeness", () => {
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("renderTourAddRow");
-      expect(tour).toContain("PortalListAddRow");
-      expect(tour).toContain('label="Schedule tour"');
+      expect(tour).toContain("renderToursBand");
+      expect(tour).toContain("PortalPrimaryIconAction");
+      expect(tour).toContain('portalListAddPrimaryLabel("tour")');
+      expect(tour).not.toContain("PortalListAddRow");
       expect(tour).not.toContain("useResidentPortalListFilterState");
       expect(tour).not.toContain("titleAside={scheduleTourButton}");
       expect(tour).not.toContain("PortalResidentListFab");
@@ -300,9 +304,10 @@ describe("resident portal redesign completeness", () => {
       const applications = readPanel("resident-applications-panel.tsx");
       // C122 deleted `applicationListControlStack` (the band-2 bucket-tab bar)
       // along with the tabs themselves — the Apply action now reaches the
-      // header solely through `renderApplicationAddRow`, asserted below.
-      expect(applications).toContain("renderApplicationAddRow");
-      expect(applications).toContain('label="Apply"');
+      // header solely through the band's round + (`renderApplicationsBand`), asserted below.
+      expect(applications).toContain("renderApplicationsBand");
+      expect(applications).toContain('portalListAddPrimaryLabel("application")');
+      expect(applications).toContain('data-attr="resident-applications-apply"');
       expect(applications).not.toContain("hint={");
       expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");

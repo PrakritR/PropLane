@@ -203,7 +203,7 @@ describe("resident F6/U9 — Payments › Paid reconciles with Documents › Ren
     // DataList skips the desktop table entirely and draws ONE card row per
     // payment; there is no `tbody` to read here any more.
     const rowText = Array.from(
-      view.container.querySelectorAll('[data-slot="data-list-mobile-row"]'),
+      view.container.querySelectorAll(".portal-property-row"),
     ).map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
 
     // Six ledger payments; one of them (August rent) still has a live charge, so
