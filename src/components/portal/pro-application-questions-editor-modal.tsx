@@ -846,8 +846,9 @@ export function ManagerApplicationQuestionsEditorModal({
 
     // The application's own Application fee (captain, Oct 3 2026): typed here, stored on the template, and
     // read by the ONE fee resolver under a room's own override. Blank = this application sets none.
+    // P003: the promo/waiver override is edited here too and saved onto the template record itself.
     const feeCentsOverride = moneyTextToCents(feeText);
-    const waiverCodeOverride = applicationTemplate?.waiverCodeOverride ?? null;
+    const waiverCodeOverride = waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
       const catalogApplications =

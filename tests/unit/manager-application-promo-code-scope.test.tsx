@@ -30,6 +30,7 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
 
+import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 
 const PROPERTY_OPTIONS = [
@@ -39,22 +40,30 @@ const PROPERTY_OPTIONS = [
 ];
 
 let patches: Array<Record<string, unknown>>;
+let storedCodes: Map<string, string | null>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   patches = [];
+  storedCodes = new Map([["prop-1", "WELCOME50"]]);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("manager-application-settings") && (init?.method ?? "GET") === "GET") {
         return new Response(
-          JSON.stringify({ automation: { autoApproveApplications: false }, waiverCode: "WELCOME50" }),
+          JSON.stringify({ automation: { autoApproveApplications: false }, waiverCode: storedCodes.get(new URL(url, "http://localhost").searchParams.get("propertyId") ?? "prop-1") ?? null }),
           { status: 200 },
         );
       }
       if (url.includes("manager-application-settings") && init?.method === "PATCH") {
-        patches.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        patches.push(body);
+        if ("waiverCode" in body) {
+          const code = String(body.waiverCode).trim().toUpperCase().replace(/\s+/g, "") || null;
+          storedCodes.set(String(body.propertyId), code);
+          return new Response(JSON.stringify({ waiverCode: code }), { status: 200 });
+        }
         return new Response("{}", { status: 200 });
       }
       return new Response("{}", { status: 200 });
@@ -208,7 +217,10 @@ describe("waiver code save on leaving settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(onClose).not.toHaveBeenCalled();
-    await act(async () => { finish(new Response("{}", { status: 200 })); });
+    await act(async () => {
+      storedCodes.set("prop-1", "WAIT10");
+      finish(new Response(JSON.stringify({ waiverCode: "WAIT10" }), { status: 200 }));
+    });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(patches).toHaveLength(1);
   });
@@ -247,4 +259,124 @@ describe("waiver code save on leaving settings", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(patches).toEqual([{ propertyId: "prop-1", waiverCode: "TAKEN10" }]);
   });
+});
+
+
+describe("waiver save truth and display", () => {
+  it("clears the previous Saved mark as soon as a new edit is pending, then autosaves without blur", async () => {
+    renderModal();
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    fireEvent.change(promoField(), { target: { value: "FIRST10" } });
+    fireEvent.blur(promoField());
+    await screen.findByText("Saved");
+    fireEvent.change(promoField(), { target: { value: "SECOND10" } });
+    expect(screen.queryByText("Saved")).toBeNull();
+    await waitFor(() => expect(storedCodes.get("prop-1")).toBe("SECOND10"));
+    await screen.findByText("Saved");
+  });
+
+  it("displays the normalized code confirmed by a fresh read", async () => {
+    renderModal();
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    fireEvent.change(promoField(), { target: { value: " spring 10 " } });
+    fireEvent.blur(promoField());
+    await screen.findByText("Saved");
+    expect(promoField()).toHaveValue("SPRING10");
+  });
+
+  it("does not claim Saved or close if a 200 write is not reflected by the server read", async () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("manager-application-settings") && init?.method === "PATCH") {
+        return new Response(JSON.stringify({ waiverCode: "UNSAVED10" }), { status: 200 });
+      }
+      return originalFetch(input, init);
+    }));
+    fireEvent.change(promoField(), { target: { value: "UNSAVED10" } });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Could not confirm the saved waiver code. Please try again."));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText("Saved")).toBeNull();
+    expect(promoField()).toHaveValue("UNSAVED10");
+  });
+
+  it("ignores an older settings load that finishes after a confirmed save", async () => {
+    let finish!: (response: Response) => void;
+    const oldRead = new Promise<Response>((resolve) => { finish = resolve; });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("manager-application-settings") && !url.includes("propertyId") && (init?.method ?? "GET") === "GET") return oldRead;
+      return originalFetch(input, init);
+    }));
+    renderModal();
+    await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+    fireEvent.change(promoField(), { target: { value: "NEWEST10" } });
+    fireEvent.blur(promoField());
+    await screen.findByText("Saved");
+    await act(async () => { finish(new Response(JSON.stringify({ waiverCode: "STALE10" }), { status: 200 })); });
+    expect(promoField()).toHaveValue("NEWEST10");
+  });
+});
+
+
+it("loads the new property's code even when the previous property's confirmation finishes first", async () => {
+  storedCodes.set("prop-2", "FREMONT10");
+  const originalFetch = globalThis.fetch;
+  let confirmA!: (response: Response) => void;
+  let loadB!: (response: Response) => void;
+  const readA = new Promise<Response>(resolve => { confirmA = resolve; });
+  const readB = new Promise<Response>(resolve => { loadB = resolve; });
+  let savingA = false;
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("manager-application-settings")) {
+      if (init?.method === "PATCH") savingA = true;
+      else if (url.includes("propertyId=prop-1") && savingA) return readA;
+      else if (url.includes("propertyId=prop-2")) return readB;
+    }
+    return originalFetch(input, init);
+  }));
+  const props = { tab: "applications" as const, propertyOptions: PROPERTY_OPTIONS };
+  const view = render(<SettingsModulePage {...props} initialPropertyId="prop-1" />);
+  await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+  fireEvent.change(promoField(), { target: { value: "BALLARD10" } });
+  fireEvent.blur(promoField());
+  await waitFor(() => expect(savingA).toBe(true));
+  view.rerender(<SettingsModulePage {...props} initialPropertyId="prop-2" />);
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("propertyId=prop-2"), expect.anything()));
+  await act(async () => { confirmA(new Response(JSON.stringify({ waiverCode: "BALLARD10" }), { status: 200 })); });
+  await act(async () => { loadB(new Response(JSON.stringify({ waiverCode: "FREMONT10" }), { status: 200 })); });
+  expect(promoField()).toHaveValue("FREMONT10");
+});
+
+
+it("keeps typing available during a waiver write and confirms the latest edit before Saved", async () => {
+  renderModal();
+  await waitFor(() => expect(promoField()).toHaveValue("WELCOME50"));
+  const originalFetch = globalThis.fetch;
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  let first = true;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("manager-application-settings") && init?.method === "PATCH" && first) {
+      first = false;
+      await pending;
+    }
+    return originalFetch(input, init);
+  }));
+  fireEvent.change(promoField(), { target: { value: "FIRST10" } });
+  fireEvent.blur(promoField());
+  await screen.findByText("Saving…");
+  expect(promoField()).not.toBeDisabled();
+  await userEvent.clear(promoField());
+  await userEvent.type(promoField(), "LATEST10");
+  await act(async () => { finish(); });
+  await screen.findByText("Saved");
+  expect(storedCodes.get("prop-1")).toBe("LATEST10");
+  expect(promoField()).toHaveValue("LATEST10");
+  expect(patches.map(p=>p.waiverCode)).toEqual(["FIRST10", "LATEST10"]);
 });
