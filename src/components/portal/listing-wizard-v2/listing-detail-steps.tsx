@@ -250,8 +250,8 @@ function Facts({ items }: { items: ReadonlyArray<string | null | false | undefin
 }
 
 /** The standard empty card of a step's list (the round + at the top right is the only add). */
-function EmptyStepCard({ title, dataAttr }: { title: string; dataAttr: string }) {
-  return <PortalListEmptyCard title={title} section="properties" workspaceAware={false} compact dataAttr={dataAttr} />;
+function EmptyStepCard({ title, dataAttr, section }: { title: string; dataAttr: string; section: string }) {
+  return <PortalListEmptyCard title={title} section={section} workspaceAware={false} compact dataAttr={dataAttr} />;
 }
 
 /** The card's ⋯: Edit first, Duplicate, and a red Delete last (after a tap to confirm). */
@@ -607,7 +607,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
           </RecordCard>
         );
       })}
-      {templates.length === 0 ? <EmptyStepCard title="No applications yet" dataAttr="listing-v2-application-empty" /> : null}
+      {templates.length === 0 ? <EmptyStepCard title="No applications yet" section="applications" dataAttr="listing-v2-application-empty" /> : null}
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card" data-attr="listing-v2-application-before-tour">
         <FactRow first label="Application before a tour">
@@ -985,7 +985,7 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
           dataAttr="listing-v2-lease-default-card"
         />
       ))}
-      {templates.length === 0 && missingSeeds.length === 0 ? <EmptyStepCard title="No leases yet" dataAttr="listing-v2-lease-empty" /> : null}
+      {templates.length === 0 && missingSeeds.length === 0 ? <EmptyStepCard title="No leases yet" section="leases" dataAttr="listing-v2-lease-empty" /> : null}
     </StepColumn>
   );
 }
@@ -1150,7 +1150,7 @@ export function StepMoveIn({ sub, onChange }: StepProps) {
           </RecordCard>
         );
       })}
-      {templates.length === 0 ? <EmptyStepCard title="No move-in forms yet" dataAttr="listing-v2-movein-empty" /> : null}
+      {templates.length === 0 ? <EmptyStepCard title="No move-in forms yet" section="move-in" dataAttr="listing-v2-movein-empty" /> : null}
     </StepColumn>
   );
 }
@@ -1254,7 +1254,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
           ))}
         </RecordCard>
       ) : rooms.length === 0 ? (
-        <EmptyStepCard title="No rooms to price yet" dataAttr="listing-v2-pricing-empty" />
+        <EmptyStepCard title="No rooms to price yet" section="payments" dataAttr="listing-v2-pricing-empty" />
       ) : (
         rooms.map((room, index) => {
           const amount = propertyPricingRoomAmount(room);
