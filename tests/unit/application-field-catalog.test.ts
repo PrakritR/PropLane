@@ -4,7 +4,6 @@ import {
   applicationConfigForVariant,
   isWizardFormFieldEnabled,
   listingDisabledWizardFormKeys,
-  NEVER_DISABLED_STANDARD_KEYS,
   patchListingApplicationField,
   removeListingApplicationField,
   resolveListingApplicationFields,
@@ -175,29 +174,15 @@ describe("application-field-catalog", () => {
     });
   });
 
-  // The captain lifted C195 (built-ins stay locked): only what the application cannot function without is
-  // undeletable. Every other built-in, including the household pair, SSN, ID, DOB and income, can be removed.
-  it("only name, phone, email, property, first room choice and lease term cannot be removed", () => {
-    const keys = (...args: Parameters<typeof catalogField>) => catalogField(...args).standardKey;
-    expect([...NEVER_DISABLED_STANDARD_KEYS].sort()).toEqual(
-      [
-        keys("personal", "Full legal name"),
-        keys("personal", "Phone"),
-        keys("personal", "Email"),
-        keys("property", "Property"),
-        keys("property", "Room choices (1st – 3rd)"),
-        keys("property", "Lease term"),
-      ].sort(),
-    );
-
+  // Nothing is undeletable (plan D5): every built-in, including name, phone, email, property, room and term, can be
+  // removed; the application then simply does not ask it.
+  it("every built-in can be removed", () => {
     const sub = createDefaultListingSubmission();
     const resolved = resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
     for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
       const field = resolved.find((f) => f.standardKey === def.standardKey)!;
       const result = removeListingApplicationField(sub, field);
-      expect(result.disabledStandardApplicationKeys.includes(def.standardKey), def.standardKey).toBe(
-        !NEVER_DISABLED_STANDARD_KEYS.includes(def.standardKey),
-      );
+      expect(result.disabledStandardApplicationKeys.includes(def.standardKey), def.standardKey).toBe(true);
     }
   });
 

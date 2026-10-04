@@ -3,11 +3,11 @@
  * config slice (the stored shape, unchanged) and this reads it as sections and writes each editor
  * change back through the same catalog functions the form always used.
  *
- * Every question can be edited. Two narrow rules come from code that reads an answer by key (see
- * `TYPE_LOCKED_STANDARD_KEYS`): those built-ins keep their type, and the identity / screening ones
- * cannot be deleted. Changing the type or choices of any OTHER built-in retires that built-in and asks
- * a custom question of the new type in its place, so only NEW applications change; a submitted
- * application keeps the answers it already stored.
+ * Nothing is locked: every question's words, type, Required, choices, order and on/off can be edited.
+ * Changing the type or choices of a built-in retires that built-in and asks a custom question of the new
+ * type in its place (a new custom key), so only NEW applications change; a submitted application keeps the
+ * answers it already stored. When the system reads that built-in by key (`SYSTEM_READ_ANSWER_STANDARD_KEYS`),
+ * the editor confirms first (`systemRead` on the question) and the readers then find the standard key absent.
  */
 import {
   CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS,
@@ -19,10 +19,10 @@ import {
 import { builtInAnswersAreFixed, canEditBuiltInApplicationField } from "@/lib/application-editor-fields";
 import {
   addListingApplicationField,
-  NEVER_DISABLED_STANDARD_KEY_SET,
   patchListingApplicationField,
   reenableListingApplicationField,
   removeListingApplicationField,
+  systemReadFeatureForStandardKey,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -64,17 +64,6 @@ const sectionOf = (field: Pick<ResolvedApplicationField, "section">): string => 
 /** The sections the application questions step lists (the Review step asks nothing of its own). */
 export const APPLICATION_EDITOR_SECTIONS = RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review");
 
-/** A section holding a question that can never be removed cannot be switched off. */
-export function lockedApplicationSectionIds(
-  ctx: Pick<ApplicationEditorContext, "fields" | "disabledFields">,
-): RentalApplicationSectionId[] {
-  return APPLICATION_EDITOR_SECTIONS.filter((section) =>
-    [...ctx.fields, ...ctx.disabledFields].some(
-      (field) => sectionOf(field) === section.id && Boolean(field.standardKey) && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey!),
-    ),
-  ).map((section) => section.id);
-}
-
 function toEditorQuestion(
   field: ResolvedApplicationField,
   variant: ApplicationFormVariant,
@@ -84,6 +73,7 @@ function toEditorQuestion(
 ): QuestionEditorQuestion {
   const can = (action: Parameters<typeof canEditBuiltInApplicationField>[2]) => canEditBuiltInApplicationField(variant, field, action);
   const canType = can("type");
+  const feature = field.isStandard ? systemReadFeatureForStandardKey(field.standardKey) : null;
   return {
     id: field.id,
     label: field.label,
@@ -92,6 +82,8 @@ function toEditorQuestion(
     options: field.options,
     off,
     showIf: field.showIf,
+    linkedForms: field.linkedForms,
+    systemRead: feature ? { feature } : undefined,
     // A condition only ever depends on another custom question.
     showIfCandidates: field.isStandard
       ? undefined
@@ -153,6 +145,7 @@ export function convertBuiltInQuestion(
     type,
     required: patch.required ?? field.required,
     options,
+    linkedForms: patch.linkedForms ?? field.linkedForms,
   };
   const retired = removeListingApplicationField(slice, field);
   const added = addListingApplicationField({ ...slice, ...retired }, replacement);
@@ -183,7 +176,6 @@ export function applyApplicationEditorChange(
   switch (change.kind) {
     case "toggle-section": {
       const sectionId = change.sectionId as RentalApplicationSectionId;
-      if (!change.enabled && lockedApplicationSectionIds(ctx).includes(sectionId)) return state;
       let next: ApplicationConfigSlice = slice;
       if (!change.enabled) {
         for (const field of ctx.fields) {

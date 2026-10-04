@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { applicationConfigForVariant, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForVariant, REQUIRED_IDENTITY_STANDARD_KEYS, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import React from "react";
 import { applicationDraftReviewFingerprint, createPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
@@ -336,7 +336,7 @@ describe("built-in controls that match the applicant form", () => {
     expect(within(listbox).getByText("5", { exact: true })).toBeTruthy();
   });
 
-  it("freezes co-signer built-ins except identity labels and date/SSN controls", async () => {
+  it("co-signer built-ins are as editable as any other question", async () => {
     const sub = { ...createDefaultListingSubmission(), cosignerApplicationConfigMode: "custom" as const, cosignerDisabledStandardApplicationKeys: [] };
     renderEditor(sub, "cosigner");
     await waitWorkspace();
@@ -344,23 +344,18 @@ describe("built-in controls that match the applicant form", () => {
     const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
     fireEvent.click(nameRow);
     expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-question-required-text"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).toBeNull();
-    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required-text"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).not.toBeNull();
+    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
     fireEvent.click(nameRow);
-    const dobRow = document.querySelector('[data-attr="application-question-edit-std-personal-date-of-birth"]') as HTMLElement;
-    fireEvent.click(dobRow);
-    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
     jumpRail("employment");
     const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;
     fireEvent.click(employerRow);
-    expect(document.querySelector('[data-attr="application-question-label"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-question-label-text"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
-    expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label-text"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeNull();
+    expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
   });
 
   it("omits file and photo types from co-signer authoring while keeping supported types editable", async () => {
@@ -516,11 +511,11 @@ describe("Preview step", () => {
     expect(persistOnServer).not.toHaveBeenCalled();
   });
 
-  it("keeps required identity questions visible after optional fields are disabled", async () => {
+  it("keeps the questions that stay on visible after the others are disabled", async () => {
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",
-      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((def) => def.standardKey),
+      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((def) => def.standardKey).filter((key) => !REQUIRED_IDENTITY_STANDARD_KEYS.includes(key)),
       customApplicationFields: [],
     };
     renderEditor(sub);

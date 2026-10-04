@@ -63,7 +63,8 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
-import { builtInAnswersAreFixed, canEditBuiltInApplicationField, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { builtInAnswersAreFixed, canEditBuiltInApplicationField, editorFieldsWithLinkedForms, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { linkedFormOptionsFromListing } from "@/lib/application-linked-form-options";
 import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
 import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
@@ -590,7 +591,14 @@ export function ManagerApplicationQuestionsEditorModal({
   // an in-progress row with an empty label or no options yet — it must stay
   // visible IN PLACE while the manager is still filling it in, not vanish on
   // every re-render before Save.
-  const applicationFields = useMemo(() => orderedEditorApplicationFields(configSlice), [configSlice]);
+  const applicationFields = useMemo(
+    () => editorFieldsWithLinkedForms(orderedEditorApplicationFields(configSlice), variant === "cosigner" ? null : linkedCosignerId),
+    [configSlice, linkedCosignerId, variant],
+  );
+  const linkedFormOptions = useMemo(
+    () => linkedFormOptionsFromListing(sub, { excludeApplicationId: applicationTemplate?.id }),
+    [sub, applicationTemplate?.id],
+  );
   const disabledFields = useMemo(
     () => editorVisibleDisabledApplicationFields(variant, configSlice),
     [configSlice, variant],
@@ -1938,6 +1946,7 @@ export function ManagerApplicationQuestionsEditorModal({
               fields={applicationFields}
               disabledFields={disabledFields}
               fieldErrors={fieldErrors}
+              linkedFormOptions={linkedFormOptions}
               onState={(next) => {
                 applyEditedSlice(next.slice);
                 setDisabledSectionIds(next.disabledSectionIds);
